@@ -1,0 +1,17 @@
+@use './_top-banner';  // 导入横幅样式
+@use './_custom-content';  // 导入自定义组件样式
+@use './_workspace-header';  // 导入工作区头部样式
+@use './_plugin-footer';  // 导入插件页脚样式
+
+// 容器布局
+.container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.section {
+    width: 100%;
+    padding: 20px;
+    box-sizing: border-box;
+}

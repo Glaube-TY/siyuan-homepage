@@ -1,11 +1,11 @@
 {
-  "name": "plugin-sample-vite-svelte",
-  "version": "0.3.6",
+  "name": "siyuan-homepage",
+  "version": "1.0.0",
   "type": "module",
   "description": "This is a sample plugin based on vite and svelte for Siyuan (https://b3log.org/siyuan)",
   "repository": "",
   "homepage": "",
-  "author": "frostime",
+  "author": "Glaube-TY",
   "license": "MIT",
   "scripts": {
     "dev": "cross-env NODE_ENV=development VITE_SOURCEMAP=inline vite build --watch",
@@ -33,5 +33,13 @@
     "vite": "^5.2.9",
     "vite-plugin-static-copy": "^1.0.2",
     "vite-plugin-zip-pack": "^1.0.5"
+  },
+  "dependencies": {
+    "@siyuan-community/siyuan-sdk": "^0.3.13",
+    "@types/marked": "^5.0.2",
+    "dompurify": "^3.2.6",
+    "marked": "^15.0.12",
+    "sortablejs": "^1.15.6",
+    "svelte-grid": "^5.1.2"
   }
 }

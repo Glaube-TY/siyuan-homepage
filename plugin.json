@@ -1,8 +1,8 @@
 {
-  "name": "plugin-sample-vite-svelte",
-  "author": "frostime",
-  "url": "https://github.com/siyuan-note/plugin-sample-vite-svelte",
-  "version": "0.3.6",
+  "name": "siyuan-homepage",
+  "author": "Glaube-TY",
+  "url": "https://github.com/Glaube-TY/siyuan-homepage",
+  "version": "1.0.0",
   "minAppVersion": "3.0.12",
   "backends": [
     "windows",
@@ -38,8 +38,9 @@
     ]
   },
   "keywords": [
-    "plugin",
-    "sample",
-    "插件样例"
+    "homepage",
+    "home",
+    "主页",
+    "首页"
   ]
 }

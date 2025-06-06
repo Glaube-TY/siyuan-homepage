@@ -1,0 +1,40 @@
+// ========== 插件信息底部样式 ==========
+
+.plugin-footer {
+    background-color: var(--b3-theme-background);
+    color: var(--b3-theme-on-background);
+    font-size: 14px;
+    text-align: center;
+    padding: 16px 20px;
+    border-top: 1px solid var(--b3-border-color);
+}
+
+.plugin-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.plugin-name {
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.plugin-author {
+    color: var(--b3-font-color__minor);
+}
+
+.support-link {
+    color: var(--b3-theme-primary);
+    text-decoration: none;
+
+    &:hover {
+        text-decoration: underline;
+    }
+}
+
+.plugin-version {
+    color: var(--b3-font-color__minor);
+    font-size: 12px;
+}
