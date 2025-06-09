@@ -22,7 +22,7 @@ import {
 
 import * as sdk from "@siyuan-community/siyuan-sdk";
 
-import SettingExample from "@/components/utils/setting-example.svelte";
+import SettingExample from "@/components/utils/homepageSetting.svelte";
 import Homepage from "./components/homepage.svelte";
 
 import { SettingUtils } from "./libs/setting-utils";
@@ -151,11 +151,10 @@ export default class PluginSample extends Plugin {
                 this.client.setBlockAttrs({
                     id: nodeId,
                     attrs: {
-                        "custom-favorites": "true"
+                        "customFavorites": "true"
                     }
                 }).then(() => {
                     showMessage("已收藏");
-                    console.log("文档已收藏，ID:", nodeId);
                 }).catch(err => {
                     console.error("收藏失败", err);
                     showMessage("收藏失败，请查看控制台日志");
@@ -171,11 +170,10 @@ export default class PluginSample extends Plugin {
                 this.client.setBlockAttrs({
                     id: nodeId,
                     attrs: {
-                        "custom-favorites": "false"
+                        "customFavorites": "false"
                     }
                 }).then(() => {
                     showMessage("已取消收藏");
-                    console.log("文档已取消收藏，ID:", nodeId);
                 }).catch(err => {
                     console.error("取消收藏失败", err);
                     showMessage("取消收藏失败，请查看控制台日志");

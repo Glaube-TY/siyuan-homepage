@@ -10,6 +10,8 @@ import countdown from "./widget/countdown/countdown.svelte";
 import weather from "./widget/weather/weather.svelte";
 import HOT from "./widget/HOT/HOT.svelte";
 import favorites from "./widget/favorites/favorites.svelte";
+import heatmap from "./widget/heatmap/heatmap.svelte";
+import customText from "./widget/customText/customText.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -38,7 +40,7 @@ export class WidgetBlock {
         this.element.id = this.id;
 
         this.element.innerHTML = `
-            <button class="block-style-button">🎃</button>
+            <button class="block-style-button">🎨</button>
             <div class="block-content-button">⚙️</div>
         `;
 
@@ -140,7 +142,7 @@ export class WidgetBlock {
         }
 
         this.element.innerHTML = `
-        <button class="block-style-button">🎃</button>
+        <button class="block-style-button">🎨</button>
         <div class="block-content-button">⚙️</div>
     `;
 
@@ -152,14 +154,23 @@ export class WidgetBlock {
                     contentTypeJson: contentTypeJson
                 }
             });
+        } else if (contentData.type === "heatmap") {
+            new heatmap({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
         } else if (contentData.type === "favorites") {
             new favorites({
                 target: this.element,
                 props: {
+                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });
-        }else if (contentData.type === "recent-journals") {
+        } else if (contentData.type === "recent-journals") {
             new latestDailyNotes({
                 target: this.element,
                 props: {
@@ -195,6 +206,13 @@ export class WidgetBlock {
                 target: this.element,
                 props: {
                     plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "custom-text") {
+            new customText({
+                target: this.element,
+                props: {
                     contentTypeJson: contentTypeJson
                 }
             });

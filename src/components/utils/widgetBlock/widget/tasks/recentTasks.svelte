@@ -82,7 +82,6 @@
 
     onMount(async () => {
         recentTasks = await getLatestTasks();
-        console.log("获取到的任务数据:", recentTasks);
     });
 
     $: {

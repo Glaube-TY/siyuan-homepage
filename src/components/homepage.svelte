@@ -1,5 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { svelteDialog } from "@/libs/dialog";
+    import { writable } from "svelte/store";
     import Sortable from "sortablejs";
 
     import {
@@ -7,11 +9,7 @@
         restoreLayout,
     } from "./utils/widgetBlock/utils/layout-handler";
     import { initDrag } from "./utils/topBanner/drag";
-    import {
-        handleLocalImageUpload,
-        promptForRemoteImage,
-        resetBannerPosition,
-    } from "./utils/topBanner/image-handler";
+    import { resetBannerPosition } from "./utils/topBanner/image-handler";
     import {
         triggerSearchNotes,
         triggerOpenTodayDiary,
@@ -19,10 +17,12 @@
     import { loadStatsData, type StatsData } from "./utils/stats-loader";
     import { addCustomBlock } from "./utils/widgetBlock/utils/block-creator";
 
+    import HomepageSetting from "./utils/homepageSetting.svelte";
+
     import "./style/homepage.scss";
 
     export const app = undefined;
-    export let plugin;
+    export let plugin: any;
 
     let bannerImage: HTMLImageElement;
     let currentBlockForSettings: HTMLElement | null = null;
@@ -35,6 +35,25 @@
         notesCount: 0,
     };
 
+    let showBanner = writable(true);
+
+    function OpenHomepageSetting() {
+        const dialog = svelteDialog({
+            title: "主页设置",
+            constructor: (containerEl: HTMLElement) => {
+                return new HomepageSetting({
+                    target: containerEl,
+                    props: {
+                        plugin: plugin,
+                        close: () => {
+                            dialog.close();
+                        },
+                    },
+                });
+            },
+        });
+    }
+
     // 初始化拖拽
     function handleLoad() {
         if (bannerImage && bannerImage.parentElement) {
@@ -42,14 +61,37 @@
         }
     }
 
+    const updateBannerStyle = async () => {
+        const config =
+            (await plugin.loadData("homepageSettingConfig.json")) || {};
+        showBanner.set(config.bannerEnabled !== false);
+
+        const bannerElement =
+            document.querySelector<HTMLElement>(".top-banner");
+        if (bannerElement) {
+            if (config.bannerHeight && !isNaN(parseInt(config.bannerHeight))) {
+                bannerElement.style.height = `${parseInt(config.bannerHeight)}px`;
+            } else {
+                bannerElement.style.height = "300px"; // 默认值兜底
+            }
+        }
+
+        if (config.bannerEnabled) {
+            if (config.bannerType === "local" && config.bannerLocalData) {
+                bannerImage.src = config.bannerLocalData;
+            } else if (
+                config.bannerType === "remote" &&
+                config.bannerRemoteUrl
+            ) {
+                bannerImage.src = config.bannerRemoteUrl;
+            }
+        } else {
+            bannerImage.style.display = "none";
+        }
+    };
+
     onMount(() => {
         (async () => {
-            // 加载用户设置的图片
-            const imageData = await plugin.loadData("bannerImage.json");
-            if (imageData?.url) {
-                bannerImage.src = imageData.url;
-            }
-
             // 页面加载完成后初始化拖拽
             if (document.readyState === "complete") {
                 handleLoad();
@@ -73,7 +115,8 @@
             await restoreLayout(plugin, { value: container });
         })();
 
-        // 返回的清理函数必须是同步的
+        updateBannerStyle();
+
         return () => {
             window.removeEventListener("load", handleLoad);
         };
@@ -82,10 +125,10 @@
 
 <div class="container">
     <!-- 头部横幅区域 -->
-    <div class="section top-banner">
+    <div class="section top-banner" class:hide-top-banner={!$showBanner}>
         <img
             bind:this={bannerImage}
-            src="assets/topbanner/top.jpg"
+            src="https://haowallpaper.com/link/common/file/previewFileImg/16994939099139456"
             crossorigin="anonymous"
             alt="Header Banner"
             class="banner-image"
@@ -95,36 +138,40 @@
         <div class="banner-overlay"></div>
         <!-- 按钮容器 -->
         <div class="button-wrapper">
-            <input
-                type="file"
-                id="localImageInput"
-                accept="image/*"
-                on:change={handleLocalImageUpload(plugin, bannerImage)}
-            />
-            <button
-                on:click={() =>
-                    document.getElementById("localImageInput")?.click()}
-                class="img-button local-image-btn"
-                aria-label="选择本地图片"
-            >
-                🖼
-                <span class="tooltip">选择本地图片</span>
-            </button>
-            <button
-                on:click={promptForRemoteImage(plugin, bannerImage)}
-                class="img-button remote-image-btn"
-                aria-label="选择网络图片"
-            >
-                🌐
-                <span class="tooltip">选择网络图片</span>
-            </button>
             <button
                 on:click={resetBannerPosition(bannerImage)}
                 class="img-button"
                 aria-label="恢复默认位置"
             >
-                ♻️
-                <span class="tooltip">恢复默认位置</span>
+                <svg
+                    data-t="1749395442435"
+                    class="icon"
+                    viewBox="0 0 1024 1024"
+                    version="1.1"
+                    xmlns="http://www.w3.org/2000/svg"
+                    data-p-id="13980"
+                    width="200"
+                    height="200"
+                >
+                    <path
+                        d="M787 787v-55h55v55h-55z m-55 55v-55h55v55h-55z m55-605h55v55h-55v-55z m-55-55h55v55h-55v-55zM237 787h55v55h-55v-55z m-55-55h55v55h-55v-55z m0-440v-55h55v55h-55z m55-110h55v55h-55v-55z"
+                        fill="#DF4958"
+                        data-p-id="13981"
+                    ></path><path
+                        d="M842 787V237h55v550h-55z m-55-605h55v55h-55v-55z m-605 55v-55h55v55h-55z m55 605h-55v-55h55v55z m605-55v55h-55v-55h55z m-55 110H237v-55h550v55zM127 787V237h55v550h-55z m110-660h550v55H237v-55z"
+                        fill="#D53B4B"
+                        data-p-id="13982"
+                    ></path><path
+                        d="M787 732v55h-55v55H292v-55h-55v-55h-55V292h55v-55h55v-55h440v55h55v55h55v440h-55z"
+                        fill="#F36372"
+                        data-p-id="13983"
+                    ></path><path
+                        d="M216.6 517.3h50.8v50.8h50.8V619H369v50.8h50.8v50.8h50.8V568.2h152.5v152.5h101.6v-305h-254V263.2h-50.8V314h-50.8v50.8h-50.8v50.8h-50.8v50.8h-50.8v50.9z"
+                        fill="#FFFFFF"
+                        data-p-id="13984"
+                    ></path></svg
+                >
+                <span class="tooltip">恢复图片默认位置</span>
             </button>
         </div>
     </div>
@@ -163,6 +210,9 @@
             >
                 ➕ 添加区块
             </button>
+            <button class="nav-button" on:click={OpenHomepageSetting}
+                >⚙️ 打开设置</button
+            >
         </div>
     </div>
 
@@ -186,7 +236,4 @@
             </div>
         </div>
     </div>
-
-    <!-- 自适应区域 -->
-    <div class="section plugin-footer"></div>
 </div>

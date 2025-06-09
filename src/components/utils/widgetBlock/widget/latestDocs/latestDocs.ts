@@ -18,7 +18,8 @@ export async function getLatestDocuments(): Promise<latestDocumentInfo[]> {
         const query = `
             SELECT *
             FROM blocks 
-            WHERE type = 'd' 
+            WHERE type = 'd'
+            AND ial NOT LIKE '%custom-dailynote-%'
             ORDER BY created DESC 
             LIMIT 20;
         `;

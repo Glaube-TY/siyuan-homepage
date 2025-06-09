@@ -18,6 +18,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^3.1.0",
     "@tsconfig/svelte": "^4.0.1",
+    "@types/heatmap.js": "^2.0.41",
     "@types/node": "^20.3.0",
     "cross-env": "^7.0.3",
     "fast-glob": "^3.2.12",
@@ -38,6 +39,7 @@
     "@siyuan-community/siyuan-sdk": "^0.3.13",
     "@types/marked": "^5.0.2",
     "dompurify": "^3.2.6",
+    "echarts": "^5.6.0",
     "marked": "^15.0.12",
     "sortablejs": "^1.15.6",
     "svelte-grid": "^5.1.2"

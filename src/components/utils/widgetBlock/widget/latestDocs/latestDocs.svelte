@@ -8,8 +8,7 @@
     let documentList: latestDocumentInfo[] = [];
 
     // 解析后的 payload（用于获取 limit）
-    let payload: { type: string; data: any[] | string; limit?: number } | null =
-        null;
+    let payload: { type: string; data: any[] } | null = null;
 
     // 最终显示的文档
     let displayedDocs: latestDocumentInfo[] = [];
@@ -19,27 +18,22 @@
         documentList = await getLatestDocuments();
     });
 
-    // 解析 limit
     $: {
         try {
-            payload = JSON.parse(contentTypeJson);
-        } catch (err) {
-            console.error("Failed to parse contentTypeJson:", err);
-            payload = null;
-        }
-    }
+            const parsed = JSON.parse(contentTypeJson);
+            payload = parsed;
 
-    // 按 updated 排序并计算显示内容
-    $: {
-        if (documentList && documentList.length > 0) {
-            // 拷贝并按 updated 倒序排序
-            const sorted = [...documentList].sort((a, b) =>
-                b.updated.localeCompare(a.updated),
-            );
+            if (parsed.type === "latest-docs") {
+                const limit = parsed.data?.[0]?.limit || 5;
 
-            const limit = payload?.limit ?? 5;
-            displayedDocs = sorted.slice(0, limit);
-        } else {
+                // 排序并截取指定数量的文档
+                const sorted = [...documentList].sort((a, b) =>
+                    b.updated.localeCompare(a.updated),
+                );
+                displayedDocs = sorted.slice(0, limit);
+            }
+        } catch (e) {
+            console.error("解析 contentTypeJson 出错", e);
             displayedDocs = [];
         }
     }
@@ -68,7 +62,7 @@
                         rel="noopener noreferrer"
                         class="document-title"
                     >
-                        {doc.content || "(无标题)"}
+                        📄 {doc.content || "(无标题)"}
                     </a>
                     <span class="document-updated">
                         — 更新于：{formatDate(doc.updated)}
