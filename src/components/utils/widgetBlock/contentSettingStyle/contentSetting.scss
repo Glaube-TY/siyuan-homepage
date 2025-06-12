@@ -1,0 +1,161 @@
+    @use "./_timedate";
+    @use "./_countdown";
+
+    .settings-container {
+        padding: 1.5rem;
+        background: var(--b3-theme-background);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--b3-border-color);
+        width: 100%;
+        min-width: 500px;
+        max-height: 800px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+    }
+
+    .content-type-select {
+        margin-bottom: 1.5rem;
+    }
+
+    .content-type-select label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #475569;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    select {
+        width: max-content;
+        padding: 0.5rem 2.5rem 0.5rem 1rem;
+        font-size: 14px;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 8px;
+        background-color: var(--b3-theme-surface);
+        appearance: none;
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2390a3bf' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right 0.75rem center;
+        background-size: 16px;
+        transition: all 0.2s ease;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        color: var(--b3-theme-text);
+
+        &:hover {
+            border-color: var(--b3-theme-primary-light);
+            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1);
+        }
+
+        &:focus {
+            outline: none;
+            border-color: var(--b3-theme-primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        &:disabled {
+            background-color: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        // 下拉选项样式
+        option {
+            padding: 0.5rem;
+            background: var(--b3-theme-surface);
+            color: var(--b3-theme-text);
+
+            &:checked {
+                background: var(--b3-theme-primary-light);
+                color: var(--b3-theme-primary);
+            }
+
+            &:hover {
+                background: var(--b3-theme-primary-light);
+            }
+        }
+    }
+
+    .dynamic-content-area {
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background-color: var(--b3-theme-surface);
+        border-radius: 8px;
+        border: 1px solid var(--b3-border-color);
+    }
+
+    .content-panel h4 {
+        color: var(--b3-theme-text);
+        margin-bottom: 0.5rem;
+    }
+
+    textarea {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        min-height: 100px;
+        padding: 0.75rem;
+        font-size: 14px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        resize: vertical;
+        font-family: inherit;
+        overflow: auto;
+    }
+
+    /* Tab导航栏样式 */
+    .tab-nav {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .tab-nav button {
+        padding: 0.5rem 1rem;
+        background: var(--b3-theme-surface);
+        color: var(--b3-theme-on-surface);
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease-in-out;
+    }
+
+    .tab-nav button.active {
+        background: var(--b3-theme-primary);
+        color: var(--b3-theme-on-primary);
+    }
+
+    .tab-content {
+        padding-top: 1rem;
+    }
+
+    /* 确认和取消按钮样式 */
+    .action-buttons-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .confirm-button,
+    .cancel-button {
+        flex: 1;
+        padding: 0.5rem 1rem;
+        font-size: 14px;
+        font-weight: 600;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+    }
+
+    .confirm-button {
+        background: var(--b3-theme-primary);
+        color: var(--b3-theme-on-primary);
+        box-shadow: 0 2px 4px rgba(5, 150, 105, 0.2);
+    }
+
+    .cancel-button {
+        background: var(--b3-theme-surface);
+        color: var(--b3-theme-on-surface);
+        box-shadow: 0 2px 4px rgba(148, 163, 184, 0.2);
+    }

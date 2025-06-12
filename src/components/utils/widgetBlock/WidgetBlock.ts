@@ -5,13 +5,16 @@ import { setBlockSize } from "./utils/block-size-handler";
 import { saveLayout } from "./utils/layout-handler";
 import latestDocs from "./widget/latestDocs/latestDocs.svelte";
 import latestDailyNotes from "./widget/latestDailyNotes/latestDailyNotes.svelte";
-import recentTasks from "./widget/tasks/recentTasks.svelte";
+import TaskMan from "./widget/tasks/recentTasks.svelte";
 import countdown from "./widget/countdown/countdown.svelte";
 import weather from "./widget/weather/weather.svelte";
 import HOT from "./widget/HOT/HOT.svelte";
 import favorites from "./widget/favorites/favorites.svelte";
 import heatmap from "./widget/heatmap/heatmap.svelte";
 import customText from "./widget/customText/customText.svelte";
+import customWeb from "./widget/webview/webview.svelte";
+import customProtyle from "./widget/protyle/protyle.svelte";
+import timedate from "./widget/timedate/timedate.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -40,8 +43,8 @@ export class WidgetBlock {
         this.element.id = this.id;
 
         this.element.innerHTML = `
-            <button class="block-style-button">🎨</button>
-            <div class="block-content-button">⚙️</div>
+            <button class="block-style-button" title="样式设置">🎨</button>
+            <button class="block-content-button" title="内容设置">⚙️</button>
         `;
 
         this.element.setAttribute("style", this.style);
@@ -52,6 +55,7 @@ export class WidgetBlock {
     private setupEventListeners() {
         const styleButton = this.element.querySelector(".block-style-button");
         const contentButton = this.element.querySelector(".block-content-button");
+        const updateButton = this.element.querySelector(".block-update-button");
 
         if (styleButton) {
             styleButton.addEventListener("click", () => {
@@ -88,7 +92,6 @@ export class WidgetBlock {
             });
         }
 
-        // 新增：为 .block-content-button 添加点击事件
         if (contentButton) {
             contentButton.addEventListener("click", () => {
                 this.currentBlockForSettingsRef.value = this.element;
@@ -118,6 +121,17 @@ export class WidgetBlock {
                 });
             });
         }
+
+        if (updateButton) {
+            updateButton.addEventListener("click", async () => {
+                const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
+                if (widgetConfig) {
+                    this.updateContent(JSON.stringify(widgetConfig));
+                } else {
+                    console.warn("未找到对应的 widget 配置");
+                }
+            });
+        }
     }
 
     public appendTo(container: Element | null) {
@@ -142,9 +156,10 @@ export class WidgetBlock {
         }
 
         this.element.innerHTML = `
-        <button class="block-style-button">🎨</button>
-        <div class="block-content-button">⚙️</div>
-    `;
+        <button class="block-style-button" title="样式设置">🎨</button>
+        <button class="block-content-button" title="内容设置">⚙️</button>
+        <button class="block-update-button" title="刷新组件">🔄</button>
+        `;
 
         // 根据 content 类型动态加载组件
         if (contentData.type === "latest-docs") {
@@ -177,8 +192,8 @@ export class WidgetBlock {
                     contentTypeJson: contentTypeJson
                 }
             });
-        } else if (contentData.type === "recent-tasks") {
-            new recentTasks({
+        } else if (contentData.type === "TaskMan") {
+            new TaskMan({
                 target: this.element,
                 props: {
                     plugin: this.plugin,
@@ -216,6 +231,30 @@ export class WidgetBlock {
                     contentTypeJson: contentTypeJson
                 }
             });
+        } else if (contentData.type === "custom-web") {
+            new customWeb({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "custom-protyle") {
+            new customProtyle({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "timedate") {
+            new timedate({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            }); 
         }
 
         // 重新绑定按钮事件（如果需要）

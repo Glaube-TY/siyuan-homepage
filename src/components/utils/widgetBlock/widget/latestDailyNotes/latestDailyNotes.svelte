@@ -1,14 +1,14 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { getLatestDailyNotes, type DailyNoteInfo } from "./latestDailyNotes";
+    import {
+        getLatestDailyNotes,
+        type DailyNoteInfo,
+    } from "./latestDailyNotes";
 
     export let contentTypeJson: string = "{}";
 
     // 原始数据
     let dailyNotes: DailyNoteInfo[] = [];
-
-    // 解析后的 payload（用于获取 limit）
-    let payload: { type: string; data: any[] | string; limit?: number } | null = null;
 
     // 最终显示的笔记
     let displayedDocs: DailyNoteInfo[] = [];
@@ -20,29 +20,25 @@
     // 解析 limit
     $: {
         try {
-            payload = JSON.parse(contentTypeJson);
+            const parsed = JSON.parse(contentTypeJson);
+            if (parsed.type === "recent-journals") {
+                const limit = parsed.data?.[0]?.limit || 5;
+
+                // 排序并截取指定数量的文档
+                const sorted = [...dailyNotes].sort((a, b) =>
+                    b.created.localeCompare(a.created),
+                );
+                displayedDocs = sorted.slice(0, limit);
+            }
         } catch (err) {
             console.error("Failed to parse contentTypeJson:", err);
-            payload = null;
-        }
-    }
-
-    // 按 updated 排序并计算显示内容
-    $: {
-        if (dailyNotes && dailyNotes.length > 0) {
-            const sorted = [...dailyNotes].sort((a, b) =>
-                b.updated.localeCompare(a.updated)
-            );
-            const limit = payload?.limit ?? 5;
-            displayedDocs = sorted.slice(0, limit);
-        } else {
             displayedDocs = [];
         }
     }
 </script>
 
 <div class="content-display">
-    <h3 class="widget-title">最近日记</h3>
+    <h3 class="widget-title">📓最近日记</h3>
     <ul class="document-list">
         {#if displayedDocs.length > 0}
             {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
@@ -53,7 +49,7 @@
                         rel="noopener noreferrer"
                         class="document-title"
                     >
-                        {doc.content || "(无标题)"}
+                        📅 {doc.content || "(无标题)"}
                     </a>
                 </li>
             {/each}
@@ -86,6 +82,10 @@
     }
 
     .document-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: center;
         list-style: none;
         padding-left: 0;
         margin: 0;
@@ -93,6 +93,7 @@
     }
 
     .document-item {
+        flex: 0 0 auto;
         padding: 0.5rem 0.75rem;
         margin-bottom: 0.5rem;
         background-color: #f8fafc;
@@ -104,10 +105,12 @@
 
     .document-item:hover {
         background-color: #eff6ff;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
 
     .document-title {
-        color: #10b981;
+        color: var(--b3-theme-primary);
         text-decoration: none;
         font-weight: bold;
     }

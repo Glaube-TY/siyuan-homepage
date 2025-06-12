@@ -83,7 +83,6 @@ export function initDrag(
         } else {
             try {
                 await plugin.saveData("bannerPosition.json", { scrollTop: matrix.m42 });
-                console.log("位置已保存:", { scrollTop: matrix.m42 });
             } catch (e) {
                 console.error("保存位置失败", e);
             }

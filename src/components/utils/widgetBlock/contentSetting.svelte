@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import "./contentSettingStyle/contentSetting.scss";
 
     // 弹窗接收的 props
     export let plugin: any;
@@ -16,8 +17,10 @@
     let customTextInputValue: string = "";
 
     // 文档数量限制下拉框的绑定值
-    let docLimit: number = 5; // 默认显示 5 条
+    let docLimit: number = 5;
     let docJournalLimit: number = 5;
+
+    let showCompletedTasks = true; // 默认显示已完成任务
 
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
@@ -43,6 +46,67 @@
 
     // 下拉选项
     const limitOptions = [5, 10, 15, 20];
+
+    // 自定义网页链接
+    let customWebUrl: string = "";
+
+    // 自定义显示块ID
+    let customBlockID: string = "";
+
+    // 时间日期相关
+    let showSeconds: boolean = true;
+    let dateFormat: string = "YYYY年MM月DD日";
+    let showLunar: boolean = true;
+    let showZodiac: boolean = true;
+    let showSolarTerm: boolean = true;
+    let showWeek: boolean = true;
+    let showDate: boolean = true;
+    // 背景图设置 - 远程 URL
+    let morningBgUrl =
+        "https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072";
+    let afternoonBgUrl =
+        "https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504";
+    let nightBgUrl =
+        "https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440";
+
+    // 声明文件输入元素引用
+    let morningBgInput: HTMLInputElement | null = null;
+    let afternoonBgInput: HTMLInputElement | null = null;
+    let nightBgInput: HTMLInputElement | null = null;
+    // 存储 base64 图片数据
+    let morningBgImage = null;
+    let afternoonBgImage = null;
+    let nightBgImage = null;
+
+    // 下拉选择项
+    let morningImageType = "remote"; // 可选 remote / local
+    let afternoonImageType = "remote";
+    let nightImageType = "remote";
+
+    const handleBackgroundUpload = (timeOfDay) => {
+        const reader = new FileReader();
+        const file = eval(`${timeOfDay}BgInput`).files[0];
+
+        if (!file) return;
+
+        reader.onload = () => {
+            if (timeOfDay === "morning") {
+                if (reader.result && typeof reader.result === "string") {
+                    morningBgImage = reader.result;
+                }
+            } else if (timeOfDay === "afternoon") {
+                if (reader.result && typeof reader.result === "string") {
+                    afternoonBgImage = reader.result; // 安全赋值
+                }
+            } else if (timeOfDay === "night") {
+                if (reader.result && typeof reader.result === "string") {
+                    nightBgImage = reader.result;
+                }
+            }
+        };
+
+        reader.readAsDataURL(file);
+    };
 
     function addEvent() {
         eventList = [...eventList, { name: "", date: "" }];
@@ -90,6 +154,37 @@
                 hotSource = parsedData.data?.source || "bilibili";
             } else if (parsedData.type === "custom-text") {
                 customTextInputValue = parsedData.data?.[0]?.customText || "";
+            } else if (parsedData.type === "custom-web") {
+                customWebUrl = parsedData.data?.[0]?.url || "";
+            } else if (parsedData.type === "custom-protyle") {
+                customBlockID = parsedData.data?.[0]?.customBlockId || "";
+            } else if (parsedData.type === "timedate") {
+                showSeconds = parsedData.data?.showSeconds ?? true;
+                dateFormat = parsedData.data?.dateFormat ?? "YYYY年MM月DD日";
+                showLunar = parsedData.data?.showLunar ?? true;
+                showZodiac = parsedData.data?.showZodiac ?? true;
+                showSolarTerm = parsedData.data?.showSolarTerm ?? true;
+                showWeek = parsedData.data?.showWeek ?? true;
+                showDate = parsedData.data?.showDate ?? true;
+
+                morningImageType =
+                    parsedData.data?.morningImageType ?? "remote";
+                afternoonImageType =
+                    parsedData.data?.afternoonImageType ?? "remote";
+                nightImageType = parsedData.data?.nightImageType ?? "remote";
+
+                // 初始化远程 URL
+                morningBgUrl = parsedData.data?.morningBgUrl || "";
+                afternoonBgUrl = parsedData.data?.afternoonBgUrl || "";
+                nightBgUrl = parsedData.data?.nightBgUrl || "";
+
+                // 初始化 Base64 数据
+                morningBgImage = parsedData.data?.morningBgImage || "";
+                afternoonBgImage = parsedData.data?.afternoonBgImage || "";
+                nightBgImage = parsedData.data?.nightBgImage || "";
+            } else if (parsedData.type === "TaskMan") {
+                showCompletedTasks =
+                    parsedData.data?.showCompletedTasks ?? true;
             }
         }
     });
@@ -127,9 +222,9 @@
             <div class="content-type-select">
                 <label for="content-type">选择组件类型：</label>
                 <select id="content-type" bind:value={selectedContentType}>
-                    <option value="latest-docs">最新文档</option>
                     <option value="favorites">收藏文档</option>
-                    <option value="recent-tasks">最近任务</option>
+                    <option value="TaskMan">任务管理</option>
+                    <option value="latest-docs">最新文档</option>
                     <option value="recent-journals">最近日记</option>
                 </select>
             </div>
@@ -170,11 +265,19 @@
                             </select>
                         </div>
                     </div>
-                {:else if selectedContentType === "recent-tasks"}
-                    <div class="content-panel recent-tasks">
-                        <!-- 最近任务设置区域 -->
-                        <h4>最近任务设置</h4>
-                        <p>这里是“最近任务”的配置项。</p>
+                {:else if selectedContentType === "TaskMan"}
+                    <div class="content-panel TaskMan">
+                        <!-- 任务管理设置区域 -->
+                        <h4>任务管理设置</h4>
+                        <div class="form-group">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    bind:checked={showCompletedTasks}
+                                />
+                                显示已完成的任务
+                            </label>
+                        </div>
                     </div>
                 {/if}
             </div>
@@ -204,7 +307,7 @@
                         <p>当前选中的平台：{hotSource}</p>
                     </div>
                 {:else if selectedContentType === "other"}
-                    <div class="content-panel recent-tasks"></div>
+                    <div class="content-panel TaskMan"></div>
                 {/if}
             </div>
         {:else if activeTab === "visualization"}
@@ -262,9 +365,13 @@
                                 />
                             </div>
                         {/if}
+
+                        <p>
+                            注：热力图统计的是每日的块（block）数，而不是字数。
+                        </p>
                     </div>
                 {:else if selectedContentType === "other"}
-                    <div class="content-panel recent-tasks"></div>
+                    <div class="content-panel TaskMan"></div>
                 {/if}
             </div>
         {:else if activeTab === "tool"}
@@ -274,6 +381,7 @@
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="countdown">倒数日</option>
                     <option value="weather">今日天气</option>
+                    <option value="timedate">时间日期</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -281,36 +389,41 @@
                 {#if selectedContentType === "countdown"}
                     <div class="content-panel countdown">
                         <h4>倒数日设置</h4>
-                        {#each eventList as event, index}
-                            <div class="event-form-group">
-                                <div class="form-group">
-                                    <label for="event-name-{index}"
-                                        >名称：</label
-                                    >
-                                    <input
-                                        id="event-name-{index}"
-                                        type="text"
-                                        bind:value={event.name}
-                                        placeholder="例如：纪念日"
-                                    />
+                        <div class="countdown-form-group">
+                            {#each eventList as event, index}
+                                <div class="event-form-group">
+                                    <div class="form-group">
+                                        <label for="event-name-{index}"
+                                            >名称：</label
+                                        >
+                                        <input
+                                            id="event-name-{index}"
+                                            type="text"
+                                            bind:value={event.name}
+                                            placeholder="例如：纪念日"
+                                        />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="event-date-{index}"
+                                            >日期：</label
+                                        >
+                                        <input
+                                            id="event-date-{index}"
+                                            class="date-input"
+                                            type="date"
+                                            bind:value={event.date}
+                                        />
+                                    </div>
+                                    <button on:click={() => removeEvent(index)}>
+                                        <span>❌</span> 删除
+                                    </button>
                                 </div>
-                                <div class="form-group">
-                                    <label for="event-date-{index}"
-                                        >日期：</label
-                                    >
-                                    <input
-                                        id="event-date-{index}"
-                                        type="date"
-                                        bind:value={event.date}
-                                    />
-                                </div>
-                                <button on:click={() => removeEvent(index)}
-                                    >❌ 删除</button
-                                >
-                            </div>
-                        {/each}
-                        <button on:click={() => addEvent()}
-                            >➕ 添加新事件</button
+                            {/each}
+                        </div>
+                        <button
+                            class="add-event-btn"
+                            style="margin: 1rem;"
+                            on:click={() => addEvent()}>➕ 添加</button
                         >
                     </div>
                 {:else if selectedContentType === "weather"}
@@ -326,6 +439,290 @@
                             />
                         </div>
                     </div>
+                {:else if selectedContentType === "timedate"}
+                    <div class="content-panel timedate">
+                        <h4>当前时间设置</h4>
+                        <div
+                            class="form-group"
+                            style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;"
+                        >
+                            <label
+                                ><input
+                                    type="checkbox"
+                                    bind:checked={showSeconds}
+                                /> 显示秒数</label
+                            >
+                            <label
+                                ><input
+                                    type="checkbox"
+                                    bind:checked={showDate}
+                                /> 显示日期</label
+                            >
+                            <label
+                                ><input
+                                    type="checkbox"
+                                    bind:checked={showWeek}
+                                /> 显示星期</label
+                            >
+                            <label
+                                ><input
+                                    type="checkbox"
+                                    bind:checked={showLunar}
+                                /> 显示农历</label
+                            >
+                            <label
+                                ><input
+                                    type="checkbox"
+                                    bind:checked={showZodiac}
+                                /> 显示生肖</label
+                            >
+                            <label
+                                ><input
+                                    type="checkbox"
+                                    bind:checked={showSolarTerm}
+                                /> 显示节气</label
+                            >
+                        </div>
+
+                        {#if showDate}
+                            <div class="form-group">
+                                <label for="dateFormat">日期格式：</label>
+                                <select id="dateFormat" bind:value={dateFormat}>
+                                    <option value="YYYY年MM月DD日"
+                                        >YYYY年MM月DD日</option
+                                    >
+                                    <option value="YYYY-MM-DD"
+                                        >YYYY-MM-DD</option
+                                    >
+                                    <option value="YYYY/MM/DD"
+                                        >YYYY/MM/DD</option
+                                    >
+                                    <option value="YYYY.MM.DD"
+                                        >YYYY.MM.DD</option
+                                    >
+                                </select>
+                            </div>
+                        {/if}
+
+                        <!-- 隐藏的文件输入 -->
+                        <input
+                            type="file"
+                            bind:this={morningBgInput}
+                            accept="image/*"
+                            on:change={() => handleBackgroundUpload("morning")}
+                            style="display: none;"
+                        />
+                        <input
+                            type="file"
+                            bind:this={afternoonBgInput}
+                            accept="image/*"
+                            on:change={() =>
+                                handleBackgroundUpload("afternoon")}
+                            style="display: none;"
+                        />
+                        <input
+                            type="file"
+                            bind:this={nightBgInput}
+                            accept="image/*"
+                            on:change={() => handleBackgroundUpload("night")}
+                            style="display: none;"
+                        />
+                        <div class="form-group">
+                            <h5>背景图片设置</h5>
+
+                            <!-- 早晨 -->
+                            <div class="background-option">
+                                <div class="background-row">
+                                    <!-- 左侧配置 -->
+                                    <div class="type-select-and-input">
+                                        <label for="morning-bg-select"
+                                            >早晨：</label
+                                        >
+                                        <div class="type-select">
+                                            <select
+                                                id="morning-bg-select"
+                                                bind:value={morningImageType}
+                                            >
+                                                <option value="remote"
+                                                    >远程图片</option
+                                                >
+                                                <option value="local"
+                                                    >本地图片</option
+                                                >
+                                            </select>
+                                        </div>
+
+                                        {#if morningImageType === "remote"}
+                                            <input
+                                                type="text"
+                                                bind:value={morningBgUrl}
+                                                placeholder="请输入早晨背景图URL"
+                                            />
+                                        {:else}
+                                            <button
+                                                on:click={() =>
+                                                    morningBgInput.click()}
+                                                >上传图片</button
+                                            >
+                                            <input
+                                                type="file"
+                                                bind:this={morningBgInput}
+                                                accept="image/*"
+                                                on:change={() =>
+                                                    handleBackgroundUpload(
+                                                        "morning",
+                                                    )}
+                                                style="display: none;"
+                                            />
+                                        {/if}
+                                    </div>
+
+                                    <!-- 右侧预览 -->
+                                    <div class="image-preview">
+                                        {#if morningImageType === "remote" && morningBgUrl}
+                                            <img
+                                                src={morningBgUrl}
+                                                alt="早晨预览"
+                                            />
+                                        {:else if morningImageType === "local" && morningBgImage}
+                                            <img
+                                                src={morningBgImage}
+                                                alt="早晨预览"
+                                            />
+                                        {/if}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 中午 -->
+                            <div class="background-option">
+                                <div class="background-row">
+                                    <!-- 左侧配置 -->
+                                    <div class="type-select-and-input">
+                                        <label for="afternoon-bg-select"
+                                            >中午：</label
+                                        >
+                                        <div class="type-select">
+                                            <select
+                                                id="afternoon-bg-select"
+                                                bind:value={afternoonImageType}
+                                            >
+                                                <option value="remote"
+                                                    >远程图片</option
+                                                >
+                                                <option value="local"
+                                                    >本地图片</option
+                                                >
+                                            </select>
+                                        </div>
+
+                                        {#if afternoonImageType === "remote"}
+                                            <input
+                                                type="text"
+                                                bind:value={afternoonBgUrl}
+                                                placeholder="请输入中午背景图URL"
+                                            />
+                                        {:else}
+                                            <button
+                                                on:click={() =>
+                                                    afternoonBgInput.click()}
+                                                >上传图片</button
+                                            >
+                                            <input
+                                                type="file"
+                                                bind:this={afternoonBgInput}
+                                                accept="image/*"
+                                                on:change={() =>
+                                                    handleBackgroundUpload(
+                                                        "afternoon",
+                                                    )}
+                                                style="display: none;"
+                                            />
+                                        {/if}
+                                    </div>
+
+                                    <!-- 右侧预览 -->
+                                    <div class="image-preview">
+                                        {#if afternoonImageType === "remote" && afternoonBgUrl}
+                                            <img
+                                                src={afternoonBgUrl}
+                                                alt="中午预览"
+                                            />
+                                        {:else if afternoonImageType === "local" && afternoonBgImage}
+                                            <img
+                                                src={afternoonBgImage}
+                                                alt="中午预览"
+                                            />
+                                        {/if}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 晚上 -->
+                            <div class="background-option">
+                                <div class="background-row">
+                                    <!-- 左侧配置 -->
+                                    <div class="type-select-and-input">
+                                        <label for="night-bg-select"
+                                            >晚上：</label
+                                        >
+                                        <div class="type-select">
+                                            <select
+                                                id="night-bg-select"
+                                                bind:value={nightImageType}
+                                            >
+                                                <option value="remote"
+                                                    >远程图片</option
+                                                >
+                                                <option value="local"
+                                                    >本地图片</option
+                                                >
+                                            </select>
+                                        </div>
+
+                                        {#if nightImageType === "remote"}
+                                            <input
+                                                type="text"
+                                                bind:value={nightBgUrl}
+                                                placeholder="请输入晚上背景图URL"
+                                            />
+                                        {:else}
+                                            <button
+                                                on:click={() =>
+                                                    nightBgInput.click()}
+                                                >上传图片</button
+                                            >
+                                            <input
+                                                type="file"
+                                                bind:this={nightBgInput}
+                                                accept="image/*"
+                                                on:change={() =>
+                                                    handleBackgroundUpload(
+                                                        "night",
+                                                    )}
+                                                style="display: none;"
+                                            />
+                                        {/if}
+                                    </div>
+
+                                    <!-- 右侧预览 -->
+                                    <div class="image-preview">
+                                        {#if nightImageType === "remote" && nightBgUrl}
+                                            <img
+                                                src={nightBgUrl}
+                                                alt="晚上预览"
+                                            />
+                                        {:else if nightImageType === "local" && nightBgImage}
+                                            <img
+                                                src={nightBgImage}
+                                                alt="晚上预览"
+                                            />
+                                        {/if}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -333,7 +730,9 @@
             <div class="content-type-select">
                 <label for="content-type">选择组件类型：</label>
                 <select id="content-type" bind:value={selectedContentType}>
+                    <option value="custom-protyle">自定义文档编辑器内容</option>
                     <option value="custom-text">自定义文字内容</option>
+                    <option value="custom-web">自定义网页</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -350,8 +749,34 @@
                             bind:value={customTextInputValue}
                         ></textarea>
                     </div>
-                {:else if selectedContentType === "other"}
-                    <div class="content-panel other"></div>
+                {:else if selectedContentType === "custom-web"}
+                    <div class="content-panel custom-web">
+                        <h4>自定义网页设置</h4>
+                        <p>请输入你想要显示的网页地址：</p>
+                        <div class="form-group">
+                            <label for="custom-web-url">网页地址：</label>
+                            <input
+                                id="custom-web-url"
+                                type="text"
+                                bind:value={customWebUrl}
+                                placeholder="https://example.com"
+                            />
+                        </div>
+                    </div>
+                {:else if selectedContentType === "custom-protyle"}
+                    <div class="content-panel custom-protyle">
+                        <h4>自定义文档编辑器内容</h4>
+                        <p>请输入你想要显示的文档块 ID：</p>
+                        <div class="form-group">
+                            <label for="protyle-block-id">块 ID：</label>
+                            <input
+                                id="protyle-block-id"
+                                type="text"
+                                bind:value={customBlockID}
+                                placeholder="例如：20250310094404-1yla4zz"
+                            />
+                        </div>
+                    </div>
                 {/if}
             </div>
         {/if}
@@ -398,12 +823,14 @@
                         blockId: currentBlockId,
                         data: [{ limit: docJournalLimit }],
                     };
-                } else if (selectedContentType === "recent-tasks") {
+                } else if (selectedContentType === "TaskMan") {
                     contentTypeJson = {
                         activeTab: activeTab,
-                        type: "recent-tasks",
+                        type: "TaskMan",
                         blockId: currentBlockId,
-                        data: [],
+                        data: {
+                            showCompletedTasks,
+                        },
                     };
                 } else if (selectedContentType === "countdown") {
                     contentTypeJson = {
@@ -428,7 +855,14 @@
                         activeTab: activeTab,
                         type: "custom-text",
                         blockId: currentBlockId,
-                        data: [{customText: customTextInputValue}],
+                        data: [{ customText: customTextInputValue }],
+                    };
+                } else if (selectedContentType === "custom-web") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "custom-web",
+                        blockId: currentBlockId,
+                        data: [{ url: customWebUrl }],
                     };
                 } else if (selectedContentType === "HOT") {
                     contentTypeJson = {
@@ -437,6 +871,41 @@
                         blockId: currentBlockId,
                         data: {
                             source: hotSource,
+                        },
+                    };
+                } else if (selectedContentType === "custom-protyle") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "custom-protyle",
+                        blockId: currentBlockId,
+                        data: [
+                            {
+                                customBlockId: customBlockID,
+                            },
+                        ],
+                    };
+                } else if (selectedContentType === "timedate") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "timedate",
+                        blockId: currentBlockId,
+                        data: {
+                            showSeconds,
+                            dateFormat,
+                            showLunar,
+                            showZodiac,
+                            showSolarTerm,
+                            showWeek,
+                            showDate,
+                            morningImageType,
+                            afternoonImageType,
+                            nightImageType,
+                            morningBgUrl,
+                            afternoonBgUrl,
+                            nightBgUrl,
+                            morningBgImage,
+                            afternoonBgImage,
+                            nightBgImage,
                         },
                     };
                 }
@@ -449,143 +918,3 @@
         <button class="cancel-button" on:click={onClose}>❌ 取消</button>
     </div>
 </div>
-
-<style>
-    .settings-container {
-        padding: 1.5rem;
-        background: var(--b3-theme-background);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        border: 1px solid var(--b3-border-color);
-        max-width: 480px;
-        font-family: "Segoe UI", system-ui, sans-serif;
-    }
-
-    .content-type-select {
-        margin-bottom: 1.5rem;
-    }
-
-    .content-type-select label {
-        display: block;
-        margin-bottom: 0.5rem;
-        color: #475569;
-        font-size: 14px;
-        font-weight: 500;
-    }
-
-    select {
-        width: 100%;
-        padding: 0.5rem;
-        font-size: 14px;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        background-color: var(--b3-theme-surface);
-        appearance: none;
-        background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%2364748b' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 0.75rem center;
-        background-size: 12px auto;
-    }
-
-    .dynamic-content-area {
-        margin-bottom: 1.5rem;
-        padding: 1rem;
-        background-color: var(--b3-theme-surface);
-        border-radius: 8px;
-        border: 1px solid var(--b3-border-color);
-    }
-
-    .content-panel h4 {
-        color: var(--b3-theme-text);
-        margin-bottom: 0.5rem;
-    }
-
-    .hot .form-group select {
-        background-color: #fffbe6;
-        border-color: #facc15;
-    }
-
-    textarea {
-        width: 100%;
-        max-width: 100%;
-        box-sizing: border-box;
-        min-height: 100px;
-        padding: 0.75rem;
-        font-size: 14px;
-        border: 1px solid #cbd5e1;
-        border-radius: 6px;
-        resize: vertical;
-        font-family: inherit;
-        overflow: auto;
-    }
-
-    .action-buttons-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-    }
-
-    .confirm-button,
-    .cancel-button {
-        flex: 1;
-        padding: 0.5rem 1rem;
-        font-size: 14px;
-        font-weight: 600;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: all 0.2s ease-in-out;
-    }
-
-    .confirm-button {
-        background: var(--b3-theme-primary);
-        color: var(--b3-theme-on-primary);
-        box-shadow: 0 2px 4px rgba(5, 150, 105, 0.2);
-    }
-
-    .cancel-button {
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
-        box-shadow: 0 2px 4px rgba(148, 163, 184, 0.2);
-    }
-
-    .event-form-group {
-        background-color: #f1f5f9;
-        border-radius: 8px;
-        padding: 1rem;
-        margin-bottom: 1rem;
-        position: relative;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        transition: background-color 0.2s ease;
-    }
-
-    .event-form-group:hover {
-        background-color: #e2e8f0;
-    }
-
-    .tab-nav {
-        display: flex;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
-    }
-
-    .tab-nav button {
-        padding: 0.5rem 1rem;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-weight: 500;
-        transition: all 0.2s ease-in-out;
-    }
-
-    .tab-nav button.active {
-        background: var(--b3-theme-primary);
-        color: var(--b3-theme-on-primary);
-    }
-
-    .tab-content {
-        padding-top: 1rem;
-    }
-</style>

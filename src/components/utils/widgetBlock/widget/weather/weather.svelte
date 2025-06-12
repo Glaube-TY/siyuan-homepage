@@ -78,7 +78,7 @@
 </svelte:head>
 
 <div class="content-display">
-    <h3 class="widget-title">{city}的天气</h3>
+    <h3 class="widget-title">🌦{city}的天气</h3>
 
     <!-- 新增的天气内容容器 -->
     <div class="weather-content-container">

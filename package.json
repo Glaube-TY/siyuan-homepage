@@ -2,7 +2,7 @@
   "name": "siyuan-homepage",
   "version": "1.0.0",
   "type": "module",
-  "description": "This is a sample plugin based on vite and svelte for Siyuan (https://b3log.org/siyuan)",
+  "description": "Provides personalized homepage layout and rich functional modules.",
   "repository": "",
   "homepage": "",
   "author": "Glaube-TY",
@@ -40,6 +40,7 @@
     "@types/marked": "^5.0.2",
     "dompurify": "^3.2.6",
     "echarts": "^5.6.0",
+    "emoji-picker-element": "^1.26.3",
     "marked": "^15.0.12",
     "sortablejs": "^1.15.6",
     "svelte-grid": "^5.1.2"

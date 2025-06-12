@@ -9,7 +9,6 @@
         restoreLayout,
     } from "./utils/widgetBlock/utils/layout-handler";
     import { initDrag } from "./utils/topBanner/drag";
-    import { resetBannerPosition } from "./utils/topBanner/image-handler";
     import {
         triggerSearchNotes,
         triggerOpenTodayDiary,
@@ -23,6 +22,7 @@
 
     export const app = undefined;
     export let plugin: any;
+    export let showIcon = writable(true);
 
     let bannerImage: HTMLImageElement;
     let currentBlockForSettings: HTMLElement | null = null;
@@ -36,6 +36,10 @@
     };
 
     let showBanner = writable(true);
+    let titleIconType: "emoji" | "image" = "emoji";
+    let tempTitleIconEmoji = "🏠";
+    let tempTitleIconImage: string | null = null;
+    let pageTitle = "思源笔记首页";
 
     function OpenHomepageSetting() {
         const dialog = svelteDialog({
@@ -61,10 +65,19 @@
         }
     }
 
-    const updateBannerStyle = async () => {
+    const updateHomepage = async () => {
         const config =
             (await plugin.loadData("homepageSettingConfig.json")) || {};
+
+        // 标题相关配置
         showBanner.set(config.bannerEnabled !== false);
+        showIcon.set(config.showIcon !== false);
+
+        // 标题区域配置
+        tempTitleIconEmoji = config.TitleIconEmoji;
+        tempTitleIconImage = config.TitleIconImage;
+        titleIconType = config.titleIconType || "emoji";
+        pageTitle = config.customTitle || "思源笔记首页";
 
         const bannerElement =
             document.querySelector<HTMLElement>(".top-banner");
@@ -115,7 +128,9 @@
             await restoreLayout(plugin, { value: container });
         })();
 
-        updateBannerStyle();
+        setTimeout(async () => {
+            await updateHomepage();
+        }, 500);
 
         return () => {
             window.removeEventListener("load", handleLoad);
@@ -139,9 +154,12 @@
         <!-- 按钮容器 -->
         <div class="button-wrapper">
             <button
-                on:click={resetBannerPosition(bannerImage)}
+                on:click={() => (
+                    (bannerImage.style.transform = "translateY(0)"),
+                    plugin.saveData("bannerPosition.json", { scrollTop: 0 })
+                )}
                 class="img-button"
-                aria-label="恢复默认位置"
+                title="恢复默认位置"
             >
                 <svg
                     data-t="1749395442435"
@@ -171,7 +189,6 @@
                         data-p-id="13984"
                     ></path></svg
                 >
-                <span class="tooltip">恢复图片默认位置</span>
             </button>
         </div>
     </div>
@@ -179,8 +196,20 @@
     <!-- 头部快捷区域 -->
     <div class="section workspace-header">
         <div class="header-content">
-            <div class="icon-title">🏠</div>
-            <h1 class="section-title">思源笔记首页</h1>
+            {#if $showIcon}
+                <div class="icon-title">
+                    {#if titleIconType === "emoji"}
+                        {@html tempTitleIconEmoji || "🏠"}
+                    {:else if titleIconType === "image" && tempTitleIconImage}
+                        <img
+                            src={tempTitleIconImage}
+                            alt="图标"
+                            style="width: 32px; height: 32px;"
+                        />
+                    {/if}
+                </div>
+            {/if}
+            <h1 class="section-title">{pageTitle}</h1>
         </div>
         <div class="stats-info">
             自 <span class="highlight">{statsData.startDate}</span>
@@ -199,7 +228,7 @@
                 🔍 搜索笔记
             </button>
             <button class="nav-button" on:click={triggerOpenTodayDiary}>
-                📅 打开今日日记
+                📅 今日日记
             </button>
             <button
                 class="nav-button"
@@ -208,10 +237,10 @@
                     saveLayout(plugin);
                 }}
             >
-                ➕ 添加区块
+                ➕ 添加组件
             </button>
             <button class="nav-button" on:click={OpenHomepageSetting}
-                >⚙️ 打开设置</button
+                >⚙️ 主页设置</button
             >
         </div>
     </div>
@@ -226,11 +255,11 @@
     <!-- 插件信息底部区域 -->
     <div class="section plugin-footer">
         <div class="plugin-info">
-            <div class="plugin-name">💖思源笔记首页插件</div>
+            <div class="plugin-name">🏠思源笔记主页插件</div>
             <div class="plugin-author">作者: Glaube-TY</div>
             <div class="plugin-support">
                 <a
-                    href="https://ttl8ygt82u.feishu.cn/wiki/XNDewmTaEid9AzkaUk2cgciQnMg"
+                    href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
                     class="support-link">赞助支持 💸</a
                 >
             </div>

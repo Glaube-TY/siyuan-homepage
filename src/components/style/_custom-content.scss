@@ -71,4 +71,13 @@
         left: 8px;
         transform: translateY(-10px);
     }
+
+    .block-update-button {
+        @extend .block-style-button;
+
+        top: 10px;
+        right: auto;
+        left: 30px;
+        transform: translateY(-10px);
+    }
 }

@@ -6,27 +6,75 @@ export function setBlockSize(blockElement: HTMLElement | null, size: number): vo
     blockElement.style.overflow = "hidden";
 
     switch (size) {
-        case 1:
+        case 11:
             blockElement.style.gridColumn = "span 1";
             blockElement.style.gridRow = "span 1";
             blockElement.style.aspectRatio = "1 / 1";
             break;
 
-        case 2:
+        case 12:
             blockElement.style.gridColumn = "span 2";
             blockElement.style.gridRow = "span 1";
             blockElement.style.aspectRatio = "2 / 1";
             break;
 
-        case 3:
+        case 21:
             blockElement.style.gridColumn = "span 1";
             blockElement.style.gridRow = "span 2";
             blockElement.style.aspectRatio = "1 / 2";
             break;
 
-        case 4:
+        case 22:
             blockElement.style.gridColumn = "span 2";
             blockElement.style.gridRow = "span 2";
+            blockElement.style.aspectRatio = "1 / 1";
+            break;
+
+        case 13:
+            blockElement.style.gridColumn = "span 3";
+            blockElement.style.gridRow = "span 1";
+            blockElement.style.aspectRatio = "3 / 1";
+            break;
+
+        case 31:
+            blockElement.style.gridColumn = "span 1";
+            blockElement.style.gridRow = "span 3";
+            blockElement.style.aspectRatio = "1 / 3";
+            break;
+
+        case 23:
+            blockElement.style.gridColumn = "span 3";
+            blockElement.style.gridRow = "span 2";
+            blockElement.style.aspectRatio = "3 / 2";
+            break;
+
+        case 32:
+            blockElement.style.gridColumn = "span 2";
+            blockElement.style.gridRow = "span 3";
+            blockElement.style.aspectRatio = "2 / 3";
+            break;
+
+        case 33:
+            blockElement.style.gridColumn = "span 3";
+            blockElement.style.gridRow = "span 3";
+            blockElement.style.aspectRatio = "1 / 1";
+            break;
+
+        case 24:
+            blockElement.style.gridColumn = "span 4";
+            blockElement.style.gridRow = "span 2";
+            blockElement.style.aspectRatio = "2 / 1";
+            break;
+
+        case 42:
+            blockElement.style.gridColumn = "span 2";
+            blockElement.style.gridRow = "span 4";
+            blockElement.style.aspectRatio = "1 / 2";
+            break;
+
+        case 44:
+            blockElement.style.gridColumn = "span 4";
+            blockElement.style.gridRow = "span 4";
             blockElement.style.aspectRatio = "1 / 1";
             break;
 

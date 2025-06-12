@@ -17,13 +17,15 @@ export async function getLatestDocuments(): Promise<latestDocumentInfo[]> {
     try {
         const query = `
             SELECT *
-            FROM blocks 
+            FROM blocks
             WHERE type = 'd'
-            AND ial NOT LIKE '%custom-dailynote-%'
-            ORDER BY created DESC 
+            AND content != 'daily note'
+            AND hpath NOT LIKE '/daily note/%'
+            ORDER BY created DESC
             LIMIT 20;
         `;
-        return await sql(query);
+        const result = await sql(query);
+        return result;
     } catch (error) {
         console.error("Failed to fetch latest documents:", error);
         return [];

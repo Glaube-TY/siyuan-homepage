@@ -8,25 +8,20 @@
     "windows",
     "linux",
     "darwin",
-    "ios",
-    "android",
-    "harmony",
     "docker"
   ],
   "frontends": [
     "desktop",
-    "mobile",
     "browser-desktop",
-    "browser-mobile",
     "desktop-window"
   ],
   "displayName": {
-    "en_US": "Plugin sample with vite and svelte",
-    "zh_CN": "插件样例 vite + svelte 版"
+    "en_US": "HOME",
+    "zh_CN": "主页"
   },
   "description": {
-    "en_US": "SiYuan plugin sample with vite and svelte",
-    "zh_CN": "使用 vite 和 svelte 开发的思源插件样例"
+    "en_US": "Provides personalized homepage layout and rich functional modules.",
+    "zh_CN": "提供个性化首页布局和丰富的功能模块。"
   },
   "readme": {
     "en_US": "README.md",
@@ -34,7 +29,7 @@
   },
   "funding": {
     "custom": [
-      ""
+      "https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
     ]
   },
   "keywords": [

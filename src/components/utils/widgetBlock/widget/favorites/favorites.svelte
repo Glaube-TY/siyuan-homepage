@@ -17,19 +17,11 @@
         const day = raw.slice(6, 8);
         return `${year}年${month}月${day}日`;
     }
-
+    
     onMount(async () => {
         favoritesNotes = await getLatestFavoritesNotes();
-        console.log("获取到的收藏文档：", favoritesNotes);
     });
 </script>
-
-<svelte:head>
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-    />
-</svelte:head>
 
 <div class="content-display">
     <h3 class="widget-title">💖收藏文档</h3>
@@ -39,12 +31,11 @@
                 {#each favoritesNotes as note}
                     <li class="favorites-item">
                         <a
-                            href={`/stage?r=${note.id}`}
+                            href={"siyuan://blocks/" + note.id}
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            <i class="fas fa-star"></i>
-                            {note.content}
+                            ❤ {note.content}
                         </a>
                         <div class="note-meta">
                             创建时间：{formatDate(note.created)}
@@ -85,22 +76,38 @@
 
     .favorites-list {
         list-style: none;
-        padding: 0;
+        padding-left: 0;
+        margin: 0;
+        overflow-y: auto;
     }
 
     .favorites-item {
-        padding: 0.5rem 0;
-        border-bottom: 1px solid #e2e8f0;
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0.5rem;
+        background-color: #f8fafc;
+        border-radius: 6px;
+        font-size: 14px;
+        color: #475569;
+        transition: background-color 0.2s ease;
+
+        &:hover {
+            background-color: #eff6ff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
     }
 
     .favorites-item a {
+        margin-top: 4px;
+        display: block;
+        color: var(--b3-theme-primary);
         text-decoration: none;
-        color: #3b82f6; /* 链接颜色 */
         font-weight: bold;
     }
 
     .note-meta {
-        font-size: 0.875em;
-        color: #64748b; /* 灰色文字 */
+        color: #94a3b8;
+        font-size: 12px;
+        margin-left: 4px;
     }
 </style>
