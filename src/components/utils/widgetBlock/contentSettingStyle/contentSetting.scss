@@ -1,6 +1,9 @@
     @use "./_timedate";
     @use "./_countdown";
+    @use "./_customText";
+    @use "./_weather";
 
+    // 设置窗口整体样式
     .settings-container {
         padding: 1.5rem;
         background: var(--b3-theme-background);
@@ -8,13 +11,16 @@
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         border: 1px solid var(--b3-border-color);
         width: 100%;
-        min-width: 500px;
-        max-height: 800px;
+        height: auto;
         font-family: "Segoe UI", system-ui, sans-serif;
     }
 
     .content-type-select {
         margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
     }
 
     .content-type-select label {
@@ -23,6 +29,7 @@
         color: #475569;
         font-size: 14px;
         font-weight: 500;
+        white-space: nowrap;
     }
 
     select {
@@ -88,18 +95,12 @@
         margin-bottom: 0.5rem;
     }
 
-    textarea {
-        width: 100%;
-        max-width: 100%;
-        box-sizing: border-box;
-        min-height: 100px;
-        padding: 0.75rem;
-        font-size: 14px;
-        border: 1px solid #cbd5e1;
-        border-radius: 6px;
-        resize: vertical;
-        font-family: inherit;
-        overflow: auto;
+    .content-panel p {
+        margin: 0.5rem;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
     }
 
     /* Tab导航栏样式 */

@@ -276,7 +276,7 @@
     {#if showZodiac}
         <div class="zodiac-line">
             <span class="zodiac text-overlay"
-                >生肖：{lunarZodiac.replace("年", "")}{lunarZodiacIcon}</span
+                >{lunarZodiac.replace("年", "")}{lunarZodiacIcon}</span
             >
         </div>
     {/if}

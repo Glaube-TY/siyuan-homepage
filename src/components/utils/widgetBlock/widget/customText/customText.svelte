@@ -54,6 +54,7 @@
         font-size: 14px;
         line-height: 1.6;
         color: var(--b3-theme-text);
+        overflow-y: auto;
     }
 
     /* 可选：添加一些 Markdown 默认样式 */

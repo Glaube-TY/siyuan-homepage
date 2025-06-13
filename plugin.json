@@ -2,7 +2,7 @@
   "name": "siyuan-homepage",
   "author": "Glaube-TY",
   "url": "https://github.com/Glaube-TY/siyuan-homepage",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "3.0.12",
   "backends": [
     "windows",
@@ -29,7 +29,7 @@
   },
   "funding": {
     "custom": [
-      "https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
+      "https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-Of80d3yVRoeAdvxOmFnc9WG9nUe"
     ]
   },
   "keywords": [

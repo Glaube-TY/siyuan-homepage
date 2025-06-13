@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import Sortable from "sortablejs";
     import "./contentSettingStyle/contentSetting.scss";
 
     // 弹窗接收的 props
@@ -187,6 +188,26 @@
                     parsedData.data?.showCompletedTasks ?? true;
             }
         }
+
+        const container = document.querySelector(".countdown-grid");
+        if (container) {
+            new Sortable(container, {
+                animation: 150,
+                handle: ".drag-handle", // 只允许通过拖拽图标移动
+                onEnd: () => {
+                    // 排序后更新 eventList
+                    const items =
+                        container.querySelectorAll(".event-form-group");
+                    const reordered = Array.from(items).map((item) => {
+                        const index = parseInt(
+                            item.getAttribute("data-index") || "0",
+                        );
+                        return eventList[index];
+                    });
+                    eventList = reordered;
+                },
+            });
+        }
     });
 </script>
 
@@ -220,19 +241,20 @@
         {#if activeTab === "note"}
             <!-- 笔记数据 -->
             <div class="content-type-select">
-                <label for="content-type">选择组件类型：</label>
+                <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="favorites">收藏文档</option>
                     <option value="TaskMan">任务管理</option>
-                    <option value="latest-docs">最新文档</option>
+                    <option value="latest-docs">最近文档</option>
                     <option value="recent-journals">最近日记</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
             <div class="dynamic-content-area">
                 {#if selectedContentType === "latest-docs"}
-                    <!-- 最新文档设置区域 -->
+                    <!-- 最近文档设置区域 -->
                     <div class="content-panel latest-docs">
+                        <h4>最新文档设置</h4>
                         <div class="form-group">
                             <label for="doc-limit">显示条目数：</label>
                             <select id="doc-limit" bind:value={docLimit}>
@@ -241,26 +263,25 @@
                                 {/each}
                             </select>
                         </div>
-                        <p>这里是“最新文档”的配置项。</p>
                     </div>
                 {:else if selectedContentType === "favorites"}
                     <div class="content-panel favorites">
                         <!-- 收藏文档设置区域 -->
                         <h4>收藏文档设置</h4>
-                        <p>这里是“收藏文档”的配置项。</p>
+                        <p>暂无设置项。</p>
                     </div>
                 {:else if selectedContentType === "recent-journals"}
                     <div class="content-panel recent-journals">
                         <!-- 最近日记设置区域 -->
                         <h4>最近日记设置</h4>
                         <div class="form-group">
-                            <label for="journal-limit">显示条目数：</label>
+                            <label for="journal-limit">显示日记数：</label>
                             <select
                                 id="journal-limit"
                                 bind:value={docJournalLimit}
                             >
                                 {#each limitOptions as option}
-                                    <option value={option}>{option} 条</option>
+                                    <option value={option}>{option} </option>
                                 {/each}
                             </select>
                         </div>
@@ -284,7 +305,7 @@
         {:else if activeTab === "info"}
             <!-- 信息资讯 -->
             <div class="content-type-select">
-                <label for="content-type">选择组件类型：</label>
+                <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="HOT">热搜</option>
                 </select>
@@ -304,7 +325,6 @@
                                 {/each}
                             </select>
                         </div>
-                        <p>当前选中的平台：{hotSource}</p>
                     </div>
                 {:else if selectedContentType === "other"}
                     <div class="content-panel TaskMan"></div>
@@ -313,7 +333,7 @@
         {:else if activeTab === "visualization"}
             <!-- 可视化 -->
             <div class="content-type-select">
-                <label for="content-type">选择组件类型：</label>
+                <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="heatmap">热力图</option>
                 </select>
@@ -326,13 +346,15 @@
 
                         <!-- 时间范围类型 -->
                         <div class="form-group">
-                            <label for="month-count">显示过去几个月：</label>
+                            <label for="month-count">显示范围：</label>
                             <select
                                 id="month-count"
                                 bind:value={pastMonthCount}
                             >
                                 {#each [1, 2, 3, 4, 5, 6] as month}
-                                    <option value={month}>{month} 个月</option>
+                                    <option value={month}
+                                        >前 {month} 个月</option
+                                    >
                                 {/each}
                             </select>
                         </div>
@@ -340,14 +362,14 @@
                         <!-- 颜色选择 -->
                         <div class="form-group">
                             <label for="color-preset-select"
-                                >选择颜色风格：</label
+                                >选择区块颜色：</label
                             >
                             <select
                                 id="color-preset-select"
                                 bind:value={selectedColorPreset}
                             >
                                 <option value="github">GitHub 绿色</option>
-                                <option value="blue">蓝色系</option>
+                                <option value="blue">蓝色</option>
                                 <option value="custom">自定义颜色</option>
                             </select>
                         </div>
@@ -377,7 +399,7 @@
         {:else if activeTab === "tool"}
             <!-- 日常工具 -->
             <div class="content-type-select">
-                <label for="content-type">选择组件类型：</label>
+                <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="countdown">倒数日</option>
                     <option value="weather">今日天气</option>
@@ -389,9 +411,12 @@
                 {#if selectedContentType === "countdown"}
                     <div class="content-panel countdown">
                         <h4>倒数日设置</h4>
-                        <div class="countdown-form-group">
+                        <div class="countdown-grid">
                             {#each eventList as event, index}
-                                <div class="event-form-group">
+                                <div
+                                    class="event-form-group"
+                                    data-index={index}
+                                >
                                     <div class="form-group">
                                         <label for="event-name-{index}"
                                             >名称：</label
@@ -402,7 +427,16 @@
                                             bind:value={event.name}
                                             placeholder="例如：纪念日"
                                         />
+                                        <button
+                                            class="remove-event"
+                                            title="删除"
+                                            on:click={() => removeEvent(index)}
+                                            style="margin-top: 0.5rem;"
+                                        >
+                                            🗑
+                                        </button>
                                     </div>
+
                                     <div class="form-group">
                                         <label for="event-date-{index}"
                                             >日期：</label
@@ -414,9 +448,6 @@
                                             bind:value={event.date}
                                         />
                                     </div>
-                                    <button on:click={() => removeEvent(index)}>
-                                        <span>❌</span> 删除
-                                    </button>
                                 </div>
                             {/each}
                         </div>
@@ -536,7 +567,7 @@
                                     <!-- 左侧配置 -->
                                     <div class="type-select-and-input">
                                         <label for="morning-bg-select"
-                                            >早晨：</label
+                                            >早晨：（6点 ~ 12点）</label
                                         >
                                         <div class="type-select">
                                             <select
@@ -600,7 +631,7 @@
                                     <!-- 左侧配置 -->
                                     <div class="type-select-and-input">
                                         <label for="afternoon-bg-select"
-                                            >中午：</label
+                                            >中午：（12点 ~ 18点）</label
                                         >
                                         <div class="type-select">
                                             <select
@@ -664,7 +695,7 @@
                                     <!-- 左侧配置 -->
                                     <div class="type-select-and-input">
                                         <label for="night-bg-select"
-                                            >晚上：</label
+                                            >晚上：（18点 ~ 6点）</label
                                         >
                                         <div class="type-select">
                                             <select
@@ -728,11 +759,11 @@
         {:else if activeTab === "custom"}
             <!-- 自定义 -->
             <div class="content-type-select">
-                <label for="content-type">选择组件类型：</label>
+                <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
-                    <option value="custom-protyle">自定义文档编辑器内容</option>
-                    <option value="custom-text">自定义文字内容</option>
-                    <option value="custom-web">自定义网页</option>
+                    <option value="custom-protyle">文档编辑器</option>
+                    <option value="custom-text">文字内容</option>
+                    <option value="custom-web">网页浏览器</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -740,18 +771,15 @@
                 {#if selectedContentType === "custom-text"}
                     <div class="content-panel custom-text">
                         <h4>自定义文字内容</h4>
-                        <p>
-                            在这里输入你想要显示的自定义文字内容，以 markdown
-                            格式编写。
-                        </p>
                         <textarea
-                            placeholder="请输入自定义文字..."
+                            placeholder="在这里输入你想要显示的自定义文字内容，以 Markdown
+                            格式编写..."
                             bind:value={customTextInputValue}
                         ></textarea>
                     </div>
                 {:else if selectedContentType === "custom-web"}
                     <div class="content-panel custom-web">
-                        <h4>自定义网页设置</h4>
+                        <h4>自定义网页浏览器</h4>
                         <p>请输入你想要显示的网页地址：</p>
                         <div class="form-group">
                             <label for="custom-web-url">网页地址：</label>
@@ -765,7 +793,7 @@
                     </div>
                 {:else if selectedContentType === "custom-protyle"}
                     <div class="content-panel custom-protyle">
-                        <h4>自定义文档编辑器内容</h4>
+                        <h4>自定义文档编辑器</h4>
                         <p>请输入你想要显示的文档块 ID：</p>
                         <div class="form-group">
                             <label for="protyle-block-id">块 ID：</label>

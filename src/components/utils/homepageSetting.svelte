@@ -309,7 +309,7 @@
                                 <button
                                     on:click={() => iconInputEl.click()}
                                     class="btn-select-file"
-                                    id="icon-image-input">🖼 选择图片</button
+                                    id="icon-image-input">选择图片</button
                                 >
                                 <input
                                     type="file"
@@ -319,12 +319,16 @@
                                     style="display:none;"
                                 />
                                 {#if titleIconType === "image" && tempTitleIconImage}
-                                    <div class="icon-preview">
-                                        <img
-                                            src={tempTitleIconImage}
-                                            alt="图标预览"
-                                            style="width: 32px; height: 32px;"
-                                        />
+                                    <div class="custom-icon-preview-container">
+                                        <label>图标预览：</label>
+                                        <div class="custom-icon-preview">
+                                            <img
+                                                src={tempTitleIconImage}
+                                                alt="图标预览"
+                                                title="图标预览"
+                                                style="width: 32px; height: 32px;"
+                                            />
+                                        </div>
                                     </div>
                                 {/if}
                             </div>
@@ -434,10 +438,18 @@
                         <span class="icon">⁉</span>
                         <div>
                             <p class="label">反馈&建议：</p>
-                            <a
-                                href="https://github.com/Glaube-TY/siyuan-homepage/issues"
-                                class="link">Github Issues</a
-                            >
+                            <p>
+                                <a
+                                    href="https://github.com/Glaube-TY/siyuan-homepage/issues"
+                                    class="link">Github Issues</a
+                                >
+                            </p>
+                            <p>
+                                <a
+                                    href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
+                                    class="link">飞书文档评论区</a
+                                >
+                            </p>
                         </div>
                     </div>
 
@@ -447,7 +459,7 @@
                                 🌹 您的支持是持续开发的动力！
                             </p>
                             <a
-                                href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
+                                href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-Ej8kdvO2iohj1dxWXEzcGZ8Xn7d"
                                 class="link support-link"
                             >
                                 <i class="fas fa-hand-holding-heart"></i>
@@ -527,6 +539,37 @@
 
     .form-group {
         margin-bottom: 0.75rem;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"] {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 0.6rem 0.8rem;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        background-color: var(--b3-theme-surface);
+        color: var(--b3-theme-on-surface);
+        font-size: 0.95rem;
+        transition: all 0.2s ease-in-out;
+
+        &:focus {
+            outline: none;
+            border-color: var(--b3-theme-primary);
+            box-shadow: 0 0 0 2px rgba(var(--b3-theme-primary-rgb), 0.2);
+            background-color: var(--b3-theme-background);
+        }
+
+        &:hover {
+            background-color: var(--b3-theme-hover);
+        }
+    }
+
+    .form-group input[type="number"] {
+        width: auto;
+        min-width: 60px;
+        max-width: 100px;
+        padding: 0.4rem 0.6rem;
     }
 
     .about-section p {
@@ -621,6 +664,62 @@
 
         &:hover {
             background: var(--b3-theme-hover);
+        }
+    }
+
+    .btn-select-file {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem; // 图标和文字间距
+        padding: 0.4rem 0.8rem;
+        background-color: var(--b3-theme-surface);
+        color: var(--b3-theme-on-surface);
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+
+        &:hover {
+            background-color: var(--b3-theme-hover);
+            border-color: var(--b3-theme-primary);
+            color: var(--b3-theme-primary);
+        }
+
+        &:active {
+            transform: scale(0.98);
+        }
+    }
+
+    .custom-icon-preview-container {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        margin-top: 0.5rem;
+
+        .custom-icon-preview {
+            display: flex;
+            width: fit-content;
+            height: auto;
+            padding: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.1); // 轻微背景色
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--b3-border-color);
+            transition: box-shadow 0.3s ease;
+
+            img {
+                max-width: 100%;
+                height: auto;
+                object-fit: contain;
+                border-radius: 4px;
+            }
+
+            &:hover {
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            }
         }
     }
 
