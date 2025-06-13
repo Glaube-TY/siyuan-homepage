@@ -2,8 +2,8 @@
     import { onMount } from "svelte";
     import "emoji-picker-element";
 
-    export let plugin;
-    export let close;
+    export let plugin: any;
+    export let close:  () => void;
 
     let activeTab = "homepage";
 
@@ -320,8 +320,13 @@
                                 />
                                 {#if titleIconType === "image" && tempTitleIconImage}
                                     <div class="custom-icon-preview-container">
-                                        <label>图标预览：</label>
-                                        <div class="custom-icon-preview">
+                                        <label for="custom-icon-preview-img"
+                                            >图标预览：</label
+                                        >
+                                        <div
+                                            class="custom-icon-preview"
+                                            id="custom-icon-preview-img"
+                                        >
                                             <img
                                                 src={tempTitleIconImage}
                                                 alt="图标预览"

@@ -130,7 +130,7 @@
 
         setTimeout(async () => {
             await updateHomepage();
-        }, 500);
+        }, 100);
 
         return () => {
             window.removeEventListener("load", handleLoad);
