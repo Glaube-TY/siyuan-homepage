@@ -21,7 +21,7 @@ export async function getLatestDocuments(): Promise<latestDocumentInfo[]> {
             WHERE type = 'd'
             AND content != 'daily note'
             AND hpath NOT LIKE '/daily note/%'
-            ORDER BY created DESC
+            ORDER BY updated DESC
             LIMIT 20;
         `;
         const result = await sql(query);

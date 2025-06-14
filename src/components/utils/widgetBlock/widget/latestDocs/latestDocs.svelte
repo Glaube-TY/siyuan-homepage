@@ -20,12 +20,7 @@
             const parsed = JSON.parse(contentTypeJson);
             if (parsed.type === "latest-docs") {
                 const limit = parsed.data?.[0]?.limit || 5;
-
-                // 排序并截取指定数量的文档
-                const sorted = [...documentList].sort((a, b) =>
-                    b.updated.localeCompare(a.updated),
-                );
-                displayedDocs = sorted.slice(0, limit);
+                displayedDocs = documentList.slice(0, limit);
             }
         } catch (e) {
             console.error("解析 contentTypeJson 出错", e);

@@ -259,7 +259,7 @@
             <div class="plugin-author">作者: Glaube-TY</div>
             <div class="plugin-support">
                 <a
-                    href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
+                    href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-S7k1dPUtuomNB3x1hg8coMnunZf"
                     class="support-link">赞助支持 💸</a
                 >
             </div>
