@@ -3,7 +3,7 @@ export type LoadPositionCallback = () => Promise<{ scrollTop: number } | null>;
 
 export function initDrag(
     imageElement: HTMLImageElement,
-    plugin: any, // 新增 plugin 参数用于数据持久化
+    plugin: any,
     onSavePosition?: DragPositionCallback,
     onLoadPosition?: LoadPositionCallback
 ) {
@@ -45,6 +45,7 @@ export function initDrag(
     }
 
     function startDrag(e: MouseEvent | TouchEvent) {
+        if (!(e.target as HTMLElement).closest('.banner-image')) return;
         e.preventDefault();
         isDragging = true;
         startY = "touches" in e ? e.touches[0].clientY : e.clientY;

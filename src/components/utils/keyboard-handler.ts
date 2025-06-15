@@ -6,7 +6,6 @@ export function triggerSearchNotes() {
         ctrlKey: !window.navigator.userAgent.includes("Mac"),
         metaKey: window.navigator.userAgent.includes("Mac"),
         bubbles: true,
-        cancelable: true
     });
 
     document.dispatchEvent(event);
@@ -19,7 +18,6 @@ export function triggerOpenTodayDiary() {
         keyCode: 53,
         altKey: true,
         bubbles: true,
-        cancelable: true
     });
 
     document.dispatchEvent(event);

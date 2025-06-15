@@ -8,11 +8,18 @@ export interface StatsData {
     nowDate: string;
 }
 
-// 移动到这里的 parseDateToTimestamp 函数
 function parseDateToTimestamp(dateStr: string): number | null {
     if (!dateStr || typeof dateStr !== "string") return null;
 
-    const normalized = dateStr.replace(/年|月/g, "-").replace(/日/g, "").trim();
+    // 统一替换成标准格式
+    const normalized = dateStr
+        .replace(/年|月/g, "-")
+        .replace(/日/g, "")
+        .replace(/\./g, "-")
+        .replace(/\//g, "-")   // 支持斜杠
+        .replace(/\s+/g, "")    // 去除空格
+        .trim();
+
     const date = new Date(normalized);
 
     return isNaN(date.getTime()) ? null : date.getTime();
@@ -20,7 +27,7 @@ function parseDateToTimestamp(dateStr: string): number | null {
 
 // 新增的 parseDurationExpression 函数
 export function parseDurationExpression(expression: string, statsData: StatsData): string {
-    const regex = /^(\s*[\w\u4e00-\u9fa5][\w\s\u4e00-\u9fa5-:]*?)\s+([dp])\s+(\s*[\w\u4e00-\u9fa5][\w\s\u4e00-\u9fa5-:]*?)(?:\s+as\s+([\w\u4e00-\u9fa5\s]+))?$/;
+    const regex = /^(\s*[\w\u4e00-\u9fa5][\w\s\u4e00-\u9fa5\-:\/]*?)\s+([dp])\s+(\s*[\w\u4e00-\u9fa5][\w\s\u4e00-\u9fa5\-:\/]*?)(?:\s+as\s+([\w\u4e00-\u9fa5\s]+))?$/;
     const match = expression.match(regex);
 
     if (!match) return "";

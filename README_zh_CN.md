@@ -1,5 +1,4 @@
 <div class="sy__outline" style="max-width: 800px; margin: 0 auto;">
-    <!-- ⚠️ 开发阶段提示框 -->
     <div style="margin-top: 1.5em; padding: 1.2em; background: #fffbe6; border-left: 4px solid #faad14; border-radius: 8px;">
         <h1 style="color: #faad14; margin: 0 0 0.8em;">🚧 插件开发状态提示</h1>
         <p style="margin: 0.5em 0; color: #666;">
@@ -30,7 +29,6 @@
             💬 前往 GitHub Issues
         </a>
     </div>
-    <!-- 标题区域 -->
     <div style="margin-top: 1.5em; text-align: center; padding: 2em; background: linear-gradient(135deg, #2d8cf0, #1e6bff); border-radius: 12px;">
         <h1 style="color: white; margin: 0; font-size: 2.2em;">🏠 思源主页插件</h1>
         <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">本插件为思源笔记提供一个可高度定制的首页界面，支持 banner 图片、快捷导航、统计信息展示等功能。</div>
@@ -91,17 +89,16 @@
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-16 v1.1.1</span>
+            <p style="margin: 0.5em 0;">修复自定义状态语句无法计算日期差的bug</p>
+        </div>
+        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-15 v1.1.0</span>
             <p style="margin: 0.5em 0;">增加标题栏自定义状态语句的设置</p>
         </div>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-15 v1.0.4</span>
             <p style="margin: 0.5em 0;">美化主页设置菜单</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-15 v1.0.3</span>
-            <p style="margin: 0.5em 0;">添加收藏文档排序自定义设置</p>
-            <p style="margin: 0.5em 0;">修复时间组件延迟高的问题</p>
         </div>
         <div>
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 

@@ -3,7 +3,6 @@
     import * as echarts from "echarts";
     import { sql } from "@/api";
 
-    export let plugin: any;
     export let contentTypeJson: string = "{}";
 
     async function getblocks(): Promise<any> {
@@ -22,9 +21,9 @@
 
     function getRecentSixMonthsRange(): string[] {
         const now = new Date();
-        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0); // 本月最后一天
+        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         const start = new Date(now);
-        start.setMonth(start.getMonth() - 5, 1); // 六个月前的第一天
+        start.setMonth(start.getMonth() - 5, 1);
 
         return [
             start.toISOString().split("T")[0],
@@ -171,13 +170,11 @@
                     label: {
                         show: true,
                         formatter: ({ data }) => {
-                            const date = data[0]; // 格式为 "YYYY-MM-DD"
-                            return date.split("-")[2]; // 返回“日”部分
+                            const date = data[0];
+                            return date.split("-")[2];
                         },
-                        textStyle: {
-                            fontSize: 10,
-                            color: "#000",
-                        },
+                        fontSize: 10,
+                        color: "#000",
                     },
                     emphasis: {
                         itemStyle: {

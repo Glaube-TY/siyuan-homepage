@@ -36,14 +36,6 @@
     let tempStatsInfoText =
         "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
 
-    // let selectedButton: (typeof navButtons)[number] | null = null;
-    // let navButtons = [
-    //     { id: "search", label: "搜索笔记", visible: true },
-    //     { id: "today", label: "今日日记", visible: true },
-    //     { id: "addWidget", label: "添加组件", visible: true },
-    //     { id: "settings", label: "主页设置", visible: true },
-    // ];
-
     // 设置页面加载时读取配置信息
     onMount(async () => {
         const savedConfig = await plugin.loadData("homepageSettingConfig.json");
@@ -65,9 +57,6 @@
             tempTitleIconImage = savedConfig.TitleIconImage || null;
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
             tempStatsInfoText = savedConfig.statsInfoText;
-
-            // 快捷按钮
-            // navButtons = savedConfig.navButtons || navButtons;
         }
 
         // 同步到临时变量
@@ -76,10 +65,6 @@
         tempBannerType = bannerType;
         tempBannerHeight = bannerHeight;
     });
-
-    // function showDetail(button: (typeof navButtons)[number]) {
-    //     selectedButton = button;
-    // }
 
     function handleImageSelect(event: Event) {
         const input = event.target as HTMLInputElement;
@@ -487,66 +472,9 @@
                             <textarea
                                 class="stats-info-text"
                                 bind:value={tempStatsInfoText}
-                                placeholder="例如：自&#123;&#123;startDate&#125;&#125; 写下第一条笔记以来，你已累计记录笔记 &#123;&#123;notesCount&#125;&#125; 条。\n当前共有 &#123;&#123;notebooksCount&#125;&#125; 个笔记本和 &#123;&#123;DocsCount&#125;&#125; 篇笔记。\n感谢自己的坚持！❤"
+                                placeholder="输入自定义状态语句"
                             />
                         </div>
-
-                        <!-- <div class="custom-btn-setting"> -->
-                        <!-- <div class="custom-btn-setting-title">
-                                自定义按钮设置：<button class="add-btn"
-                                    >添加按钮</button
-                                >
-                            </div> -->
-                        <!-- <div class="custom-btn-setting-container"> -->
-                        <!-- <div class="custom-btn-preview"> -->
-                        <!-- {#each navButtons as button} -->
-                        <!-- <div class="btn-list-item"> -->
-                        <!-- 单独放置 checkbox -->
-                        <!-- <input
-                                                type="checkbox"
-                                                id={`checkbox-${button.id}`}
-                                                bind:checked={button.visible}
-                                                on:click|stopPropagation={() => {}}
-                                            /> -->
-
-                        <!-- 名称单独绑定点击事件 -->
-                        <!-- <button
-                                                type="button"
-                                                on:click={() =>
-                                                    showDetail(button)}
-                                                class="btn-label"
-                                            >
-                                                {button.label}
-                                            </button> -->
-                        <!-- </div> -->
-                        <!-- {/each} -->
-                        <!-- </div> -->
-
-                        <!-- <div class="custom-btn-detail"> -->
-                        <!-- {#if selectedButton} -->
-                        <!-- <div>
-                                            <h4>按钮详情</h4>
-                                            <p>
-                                                <strong>名称：</strong
-                                                >{selectedButton.label}
-                                            </p>
-                                            <p>
-                                                <strong>ID：</strong
-                                                >{selectedButton.id}
-                                            </p>
-                                            <p>
-                                                <strong>是否显示：</strong
-                                                >{selectedButton.visible
-                                                    ? "是"
-                                                    : "否"}
-                                            </p>
-                                        </div> -->
-                        <!-- {:else} -->
-                        <!-- <p>请选择一个按钮</p> -->
-                        <!-- {/if} -->
-                        <!-- </div> -->
-                        <!-- </div> -->
-                        <!-- </div> -->
                     </div>
                 {/if}
 

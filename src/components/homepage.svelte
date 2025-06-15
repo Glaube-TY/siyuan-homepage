@@ -49,16 +49,6 @@
     let statsInfoText =
         "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
 
-    $: formattedStatsInfoText = (statsInfoText || "")
-        .replace("{{startDate}}", statsData.startDate || "")
-        .replace("{{notesCount}}", statsData.notesCount.toString())
-        .replace("{{notebooksCount}}", statsData.notebooksCount.toString())
-        .replace("{{DocsCount}}", statsData.DocsCount.toString())
-        .replace("{{nowDate}}", statsData.nowDate || "")
-        .replace(/\&\&([\s\S]*?)\&\&/g, (_, expr) => {
-            return parseDurationExpression(expr.trim(), statsData) || "";
-        });
-        
     function OpenHomepageSetting() {
         const dialog = svelteDialog({
             title: "主页设置",
@@ -156,6 +146,16 @@
             window.removeEventListener("load", handleLoad);
         };
     });
+
+    $: formattedStatsInfoText = (statsInfoText || "")
+        .replace("{{startDate}}", statsData.startDate || "")
+        .replace("{{notesCount}}", statsData.notesCount.toString())
+        .replace("{{notebooksCount}}", statsData.notebooksCount.toString())
+        .replace("{{DocsCount}}", statsData.DocsCount.toString())
+        .replace("{{nowDate}}", statsData.nowDate || "")
+        .replace(/\$\$(.*?)\$\$/g, (_, expr) => {
+            return parseDurationExpression(expr.trim(), statsData) || "";
+        });
 </script>
 
 <div class="container">
