@@ -7,14 +7,14 @@ export interface FavoritesNoteInfo {
     updated: string;  // 最后更新时间（原始格式）
 }
 
-export async function getLatestFavoritesNotes(): Promise<FavoritesNoteInfo[]> {
+export async function getLatestFavoritesNotes(sortBy: string): Promise<FavoritesNoteInfo[]> {
     try {
         const query = `
             SELECT *
             FROM blocks 
             WHERE type = 'd'
             AND ial REGEXP 'customFavorites\\s*=\\s*"true"'
-            ORDER BY created DESC
+            ORDER BY ${sortBy} DESC
             LIMIT 9999999999999;
         `;
         return await sql(query);

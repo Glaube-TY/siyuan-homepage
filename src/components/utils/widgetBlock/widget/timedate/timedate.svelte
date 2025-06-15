@@ -164,8 +164,8 @@
         updateTime();
         updateDateAndLunar();
 
-        // 每秒更新时间
-        const intervalId = setInterval(updateTime, 1000);
+        // 更新时间
+        const intervalId = setInterval(updateTime, 50);
 
         // 计算到午夜的时间，并在午夜刷新一次
         const timeUntilMidnight = getMidnightTimestamp() - Date.now();

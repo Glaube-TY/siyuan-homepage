@@ -9,6 +9,7 @@
     export let contentTypeJson: string = "{}";
 
     let favoritesNotes: FavoritesNoteInfo[] = [];
+    let contentTypeJsonObj: any;
 
     // 时间戳格式化函数
     function formatDate(raw: string): string {
@@ -17,9 +18,12 @@
         const day = raw.slice(6, 8);
         return `${year}年${month}月${day}日`;
     }
-    
+
     onMount(async () => {
-        favoritesNotes = await getLatestFavoritesNotes();
+        contentTypeJsonObj = JSON.parse(contentTypeJson);
+        favoritesNotes = await getLatestFavoritesNotes(
+            contentTypeJsonObj.data?.favoritiesSortOrder,
+        );
     });
 </script>
 
@@ -38,7 +42,11 @@
                             ❤ {note.content}
                         </a>
                         <div class="note-meta">
-                            创建时间：{formatDate(note.created)}
+                            {#if contentTypeJsonObj.data?.favoritiesSortOrder === "created"}
+                                创建时间：{formatDate(note.created)}
+                            {:else}
+                                更新时间：{formatDate(note.updated)}
+                            {/if}
                         </div>
                     </li>
                 {/each}

@@ -21,6 +21,9 @@
     let docLimit: number = 5;
     let docJournalLimit: number = 5;
 
+    // 收藏文档排序方式
+    let favoritiesSortOrder: string = "created";
+
     let showCompletedTasks = true; // 默认显示已完成任务
 
     // 倒数日相关变量
@@ -140,7 +143,10 @@
 
             if (parsedData.type === "latest-docs") {
                 docLimit = parsedData.data?.[0]?.limit || 5;
-            } else if (parsedData.type === "heatmap") {
+            } else if (parsedData.type === "favorites") {
+                favoritiesSortOrder = parsedData.data?.favoritiesSortOrder || "created";
+            }
+            else if (parsedData.type === "heatmap") {
                 pastMonthCount = parsedData.data?.[0]?.pastMonthCount || 6;
                 selectedColorPreset =
                     parsedData.data?.[0]?.selectedColorPreset || "github";
@@ -268,7 +274,13 @@
                     <div class="content-panel favorites">
                         <!-- 收藏文档设置区域 -->
                         <h4>收藏文档设置</h4>
-                        <p>暂无设置项。</p>
+                        <div class="form-group">
+                            <label for="sort-order">排序方式：</label>
+                            <select id="sort-order" bind:value={favoritiesSortOrder}>
+                                <option value="created">创建时间</option>
+                                <option value="updated">更新时间</option>
+                            </select>
+                        </div>
                     </div>
                 {:else if selectedContentType === "recent-journals"}
                     <div class="content-panel recent-journals">
@@ -829,7 +841,7 @@
                         activeTab: activeTab,
                         type: "favorites",
                         blockId: currentBlockId,
-                        data: [],
+                        data: { favoritiesSortOrder:  favoritiesSortOrder ||  "created" },
                     };
                 } else if (selectedContentType === "heatmap") {
                     const config = {
