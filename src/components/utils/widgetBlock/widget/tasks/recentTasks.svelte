@@ -56,7 +56,6 @@
                 if (parsed.type === "TaskMan") {
                     const showCompletedTasks =
                         parsed.data?.showCompletedTasks ?? true;
-                    console.log("显示已完成任务:", showCompletedTasks);
                     displayedTasks = [
                         ...pendingTasks,
                         ...(showCompletedTasks ? completedTasks : []),

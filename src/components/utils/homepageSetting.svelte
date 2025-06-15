@@ -1,14 +1,16 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import "emoji-picker-element";
+    import "./homepageSettingStyle/homepageSetting.scss";
 
     export let plugin: any;
-    export let close:  () => void;
+    export let close: () => void;
 
     let activeTab = "homepage";
 
     // 主页设置相关配置变量
     let tempAutoOpenHomepage = true;
+    let settingsActiveTab = "banner";
     // 横幅区域相关配置变量
     let bannerEnabled = true;
     let bannerType = "local"; // 默认是本地图片
@@ -30,6 +32,13 @@
     let tempTitleIconImage: string | null = null;
     let iconInputEl: HTMLInputElement;
     let tempCustomTitle = "思源笔记首页";
+    // let selectedButton: (typeof navButtons)[number] | null = null;
+    // let navButtons = [
+    //     { id: "search", label: "搜索笔记", visible: true },
+    //     { id: "today", label: "今日日记", visible: true },
+    //     { id: "addWidget", label: "添加组件", visible: true },
+    //     { id: "settings", label: "主页设置", visible: true },
+    // ];
 
     // 设置页面加载时读取配置信息
     onMount(async () => {
@@ -51,6 +60,9 @@
             tempTitleIconEmoji = savedConfig.TitleIconEmoji || "🏠";
             tempTitleIconImage = savedConfig.TitleIconImage || null;
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
+
+            // 快捷按钮
+            // navButtons = savedConfig.navButtons || navButtons;
         }
 
         // 同步到临时变量
@@ -59,6 +71,10 @@
         tempBannerType = bannerType;
         tempBannerHeight = bannerHeight;
     });
+
+    // function showDetail(button: (typeof navButtons)[number]) {
+    //     selectedButton = button;
+    // }
 
     function handleImageSelect(event: Event) {
         const input = event.target as HTMLInputElement;
@@ -154,6 +170,7 @@
             TitleIconEmoji: tempTitleIconEmoji,
             TitleIconImage: tempTitleIconImage,
             customTitle: tempCustomTitle,
+            // navButtons: navButtons,
         };
 
         await plugin.saveData("homepageSettingConfig.json", config);
@@ -195,200 +212,333 @@
                     bind:checked={tempAutoOpenHomepage}
                 />
             </div>
+
             <div class="homepage-content-settings">
-                <div class="section-setting">
-                    <h3>⚙ 横幅区域设置</h3>
-                    <!-- 是否启用横幅 -->
-                    <div class="form-group">
-                        <label>
-                            <input
-                                type="checkbox"
-                                bind:checked={tempBannerEnabled}
-                            />
-                            启用横幅图片
-                        </label>
-                    </div>
-
-                    {#if tempBannerEnabled}
-                        <div class="form-group">
-                            <label for="banner-height-input"
-                                >横幅高度(px)：</label
-                            >
-                            <input
-                                id="banner-height-input"
-                                type="number"
-                                bind:value={tempBannerHeight}
-                                min="100"
-                                max="800"
-                                step="10"
-                                placeholder="例如：300"
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label for="banner-source-select">横幅来源：</label>
-                            <select
-                                id="banner-source-select"
-                                bind:value={tempBannerType}
-                            >
-                                <option value="local">本地图片</option>
-                                <option value="remote">网络图片</option>
-                            </select>
-                        </div>
-
-                        {#if tempBannerType === "local"}
-                            <div class="form-group">
-                                <label for="local-image-input">本地路径：</label
-                                >
-                                <button
-                                    on:click={() => fileInputEl.click()}
-                                    class="btn-select-file"
-                                    id="local-image-input">🖼 选择图片</button
-                                >
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    bind:this={fileInputEl}
-                                    on:change={handleImageSelect}
-                                    style="display:none;"
-                                />
-                            </div>
-                        {:else if tempBannerType === "remote"}
-                            <div class="form-group">
-                                <label for="remote-image-url">远程地址：</label>
-                                <input
-                                    id="remote-image-url"
-                                    type="text"
-                                    bind:value={bannerRemoteUrl}
-                                    placeholder="输入远程图片地址"
-                                />
-                            </div>
-                        {/if}
-                    {/if}
+                <!-- 子标签导航 -->
+                <div class="sub-tab-nav">
+                    <button
+                        on:click={() => (settingsActiveTab = "banner")}
+                        class:active={settingsActiveTab === "banner"}
+                        >横幅设置</button
+                    >
+                    <button
+                        on:click={() => (settingsActiveTab = "title")}
+                        class:active={settingsActiveTab === "title"}
+                        >标题设置</button
+                    >
+                    <button
+                        on:click={() => (settingsActiveTab = "widgets")}
+                        class:active={settingsActiveTab === "widgets"}
+                        >组件设置</button
+                    >
+                    <button
+                        on:click={() => (settingsActiveTab = "footer")}
+                        class:active={settingsActiveTab === "footer"}
+                        >底部设置</button
+                    >
                 </div>
 
-                <div class="section-setting">
-                    <h3>⚙ 标题区域设置</h3>
-                    <!-- 标题设置 -->
-                    <!-- 标题图标设置 -->
-                    <div class="form-group">
-                        <label>
-                            <input type="checkbox" bind:checked={showIcon} />
-                            显示标题图标
-                        </label>
-                    </div>
-                    {#if showIcon === true}
-                        <div class="form-group">
-                            <label for="title-icon-type">标题图标：</label>
-                            <select
-                                id="title-icon-type"
-                                bind:value={titleIconType}
-                            >
-                                <option value="emoji">表情</option>
-                                <option value="image">图片</option>
-                            </select>
-                        </div>
+                {#if settingsActiveTab === "banner"}
+                    <div class="section-setting">
+                        <!-- 横幅设置容器 -->
+                        <div class="banner-settings-container">
+                            <!-- 左侧设置区域 -->
+                            <div class="banner-settings-left">
+                                <!-- 是否启用横幅 -->
+                                <div class="form-group">
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            bind:checked={tempBannerEnabled}
+                                        />
+                                        启用横幅图片
+                                    </label>
+                                </div>
 
-                        {#if titleIconType === "emoji"}
-                            <div class="form-group">
-                                <label for="emoji-picker-button"
-                                    >选择表情：</label
-                                >
-                                <button
-                                    id="emoji-picker-button"
-                                    type="button"
-                                    class="emoji-display"
-                                    on:click={openEmojiPicker}
-                                    aria-label="选择表情"
-                                >
-                                    {tempTitleIconEmoji || "😊"}
-                                </button>
-                            </div>
-                        {:else if titleIconType === "image"}
-                            <div class="form-group">
-                                <label for="icon-image-input">图标图片：</label>
-                                <button
-                                    on:click={() => iconInputEl.click()}
-                                    class="btn-select-file"
-                                    id="icon-image-input">选择图片</button
-                                >
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    bind:this={iconInputEl}
-                                    on:change={handleIconImageSelect}
-                                    style="display:none;"
-                                />
-                                {#if titleIconType === "image" && tempTitleIconImage}
-                                    <div class="custom-icon-preview-container">
-                                        <label for="custom-icon-preview-img"
-                                            >图标预览：</label
+                                {#if tempBannerEnabled}
+                                    <!-- 横幅高度设置 -->
+                                    <div class="form-group">
+                                        <label for="banner-height-input"
+                                            >横幅高度(px)：</label
                                         >
+                                        <input
+                                            id="banner-height-input"
+                                            type="number"
+                                            bind:value={tempBannerHeight}
+                                            min="100"
+                                            max="800"
+                                            step="10"
+                                            placeholder="例如：300"
+                                        />
+                                    </div>
+
+                                    <!-- 横幅来源选择 -->
+                                    <div class="form-group">
+                                        <label for="banner-source-select"
+                                            >横幅来源：</label
+                                        >
+                                        <select
+                                            id="banner-source-select"
+                                            bind:value={tempBannerType}
+                                        >
+                                            <option value="local"
+                                                >本地图片</option
+                                            >
+                                            <option value="remote"
+                                                >网络图片</option
+                                            >
+                                        </select>
+                                    </div>
+
+                                    <!-- 来源具体内容 -->
+                                    {#if tempBannerType === "local"}
+                                        <div class="form-group">
+                                            <label for="local-image-input"
+                                                >本地路径：</label
+                                            >
+                                            <button
+                                                on:click={() =>
+                                                    fileInputEl.click()}
+                                                class="btn-select-file"
+                                                id="local-image-input"
+                                                >📂 选择图片</button
+                                            >
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                bind:this={fileInputEl}
+                                                on:change={handleImageSelect}
+                                                style="display:none;"
+                                            />
+                                        </div>
+                                    {:else if tempBannerType === "remote"}
                                         <div
-                                            class="custom-icon-preview"
-                                            id="custom-icon-preview-img"
+                                            class="form-group remote-url-input"
                                         >
+                                            <div class="input-row">
+                                                <label for="remote-image-url"
+                                                    >远程地址：</label
+                                                >
+                                                <input
+                                                    id="remote-image-url"
+                                                    type="text"
+                                                    bind:value={bannerRemoteUrl}
+                                                    placeholder="输入远程图片地址"
+                                                />
+                                            </div>
+                                        </div>
+                                    {/if}
+                                {/if}
+                            </div>
+
+                            <!-- 右侧图片预览区域 -->
+                            <div class="banner-preview-container">
+                                {#if tempBannerEnabled}
+                                    {#if tempBannerType === "local" && bannerLocalData}
+                                        <img
+                                            src={bannerLocalData}
+                                            alt="本地预览图"
+                                            class="banner-preview"
+                                        />
+                                    {:else if tempBannerType === "remote" && bannerRemoteUrl}
+                                        <img
+                                            src={bannerRemoteUrl}
+                                            alt="远程预览图"
+                                            class="banner-preview"
+                                        />
+                                    {:else}
+                                        <div class="banner-preview-placeholder">
+                                            未选择图片
+                                        </div>
+                                    {/if}
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
+                {/if}
+
+                {#if settingsActiveTab === "title"}
+                    <!-- 标题区域设置 -->
+                    <div class="section-setting titleBlock-setting">
+                        <div class="title-setting">
+                            <div class="form-group">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        bind:checked={showIcon}
+                                    />
+                                    显示标题图标
+                                </label>
+                            </div>
+
+                            {#if showIcon === true}
+                                <!-- 图标选择与自定义标题容器 -->
+                                <div class="icon-and-title-container">
+                                    <!-- 顶部图标设置 -->
+                                    <div class="icon-selection">
+                                        <label for="title-icon-type"
+                                            >标题图标：</label
+                                        >
+                                        <select
+                                            id="title-icon-type"
+                                            bind:value={titleIconType}
+                                        >
+                                            <option value="emoji">表情</option>
+                                            <option value="image">图片</option>
+                                        </select>
+                                        {#if titleIconType === "emoji"}
+                                            <button
+                                                id="emoji-picker-button"
+                                                type="button"
+                                                title="选择图标"
+                                                class="emoji-display"
+                                                on:click={openEmojiPicker}
+                                                aria-label="选择表情"
+                                            >
+                                                {tempTitleIconEmoji || "😊"}
+                                            </button>
+                                        {:else if titleIconType === "image"}
+                                            <button
+                                                on:click={() =>
+                                                    iconInputEl.click()}
+                                                class="btn-select-file"
+                                                id="icon-image-input"
+                                                title="选择图标"
+                                                >选择图片</button
+                                            >
+
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                bind:this={iconInputEl}
+                                                on:change={handleIconImageSelect}
+                                                style="display:none;"
+                                            />
+                                        {/if}
+
+                                        {#if titleIconType === "image" && tempTitleIconImage}
                                             <img
                                                 src={tempTitleIconImage}
                                                 alt="图标预览"
                                                 title="图标预览"
-                                                style="width: 32px; height: 32px;"
+                                            />
+                                        {/if}
+                                    </div>
+                                    <!-- 底部标题输入 -->
+                                    <div class="custom-title-input">
+                                        <label for="custom-title-input"
+                                            >标题文字：</label
+                                        >
+                                        <input
+                                            id="custom-title-input"
+                                            type="text"
+                                            bind:value={tempCustomTitle}
+                                            placeholder="例如：我的主页"
+                                        />
+                                    </div>
+                                </div>
+
+                                <!-- 表情弹窗 -->
+                                {#if showEmojiPicker}
+                                    <button
+                                        class="emoji-picker-overlay-bg"
+                                        tabindex="0"
+                                        on:click={() =>
+                                            (showEmojiPicker = false)}
+                                        on:keydown={(e) => {
+                                            if (
+                                                e.key === "Enter" ||
+                                                e.key === " "
+                                            )
+                                                showEmojiPicker = false;
+                                        }}
+                                        aria-label="关闭表情选择器"
+                                    ></button>
+
+                                    <div
+                                        class="emoji-picker-modal"
+                                        style="top: {emojiPickerPosition.top}; left: {emojiPickerPosition.left};"
+                                    >
+                                        <div class="emoji-picker-content">
+                                            <emoji-picker
+                                                bind:this={emojiPickerElement}
                                             />
                                         </div>
                                     </div>
                                 {/if}
-                            </div>
-                        {/if}
+                            {/if}
+                        </div>
 
-                        {#if showEmojiPicker}
-                            <!-- 遮罩层：点击关闭 -->
-                            <button
-                                class="emoji-picker-overlay-bg"
-                                tabindex="0"
-                                on:click={() => (showEmojiPicker = false)}
-                                on:keydown={(e) => {
-                                    if (e.key === "Enter" || e.key === " ") {
-                                        showEmojiPicker = false;
-                                    }
-                                }}
-                                aria-label="关闭表情选择器"
-                            >
-                            </button>
+                        <!-- <div class="custom-btn-setting"> -->
+                            <!-- <div class="custom-btn-setting-title">
+                                自定义按钮设置：<button class="add-btn"
+                                    >添加按钮</button
+                                >
+                            </div> -->
+                            <!-- <div class="custom-btn-setting-container"> -->
+                                <!-- <div class="custom-btn-preview"> -->
+                                    <!-- {#each navButtons as button} -->
+                                        <!-- <div class="btn-list-item"> -->
+                                            <!-- 单独放置 checkbox -->
+                                            <!-- <input
+                                                type="checkbox"
+                                                id={`checkbox-${button.id}`}
+                                                bind:checked={button.visible}
+                                                on:click|stopPropagation={() => {}}
+                                            /> -->
 
-                            <!-- 表情弹窗容器 -->
-                            <div
-                                class="emoji-picker-modal"
-                                style="top: {emojiPickerPosition.top}; left: {emojiPickerPosition.left};"
-                            >
-                                <div class="emoji-picker-content">
-                                    <!-- 实际的表情选择组件 -->
-                                    <emoji-picker
-                                        bind:this={emojiPickerElement}
-                                    />
-                                </div>
-                            </div>
-                        {/if}
-                    {/if}
-                    <!-- 自定义标题文字 -->
-                    <div class="form-group">
-                        <label for="custom-title-input">自定义标题文字：</label>
-                        <input
-                            id="custom-title-input"
-                            type="text"
-                            bind:value={tempCustomTitle}
-                            placeholder="例如：我的主页"
-                        />
+                                            <!-- 名称单独绑定点击事件 -->
+                                            <!-- <button
+                                                type="button"
+                                                on:click={() =>
+                                                    showDetail(button)}
+                                                class="btn-label"
+                                            >
+                                                {button.label}
+                                            </button> -->
+                                        <!-- </div> -->
+                                    <!-- {/each} -->
+                                <!-- </div> -->
+
+                                <!-- <div class="custom-btn-detail"> -->
+                                    <!-- {#if selectedButton} -->
+                                        <!-- <div>
+                                            <h4>按钮详情</h4>
+                                            <p>
+                                                <strong>名称：</strong
+                                                >{selectedButton.label}
+                                            </p>
+                                            <p>
+                                                <strong>ID：</strong
+                                                >{selectedButton.id}
+                                            </p>
+                                            <p>
+                                                <strong>是否显示：</strong
+                                                >{selectedButton.visible
+                                                    ? "是"
+                                                    : "否"}
+                                            </p>
+                                        </div> -->
+                                    <!-- {:else} -->
+                                        <!-- <p>请选择一个按钮</p> -->
+                                    <!-- {/if} -->
+                                <!-- </div> -->
+                            <!-- </div> -->
+                        <!-- </div> -->
                     </div>
-                </div>
+                {/if}
 
-                <div class="section-setting">
-                    <h3>⚙ 自定义组件区域设置</h3>
-                    <div class="form-group"><p>开发中...</p></div>
-                </div>
+                {#if settingsActiveTab === "widgets"}
+                    <div class="section-setting">
+                        <div class="form-group"><p>开发中...</p></div>
+                    </div>
+                {/if}
 
-                <div class="section-setting">
-                    <h3>⚙ 底部信息区域设置</h3>
-                    <div class="form-group"><p>开发中...</p></div>
-                </div>
+                {#if settingsActiveTab === "footer"}
+                    <div class="section-setting">
+                        <div class="form-group"><p>开发中...</p></div>
+                    </div>
+                {/if}
             </div>
             <!-- 操作按钮 -->
             <div class="action-buttons">
@@ -482,425 +632,3 @@
         {/if}
     </div>
 </div>
-
-<style lang="scss">
-    .settings-container {
-        padding: 1.5rem;
-        background: var(--b3-theme-background);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        border: 1px solid var(--b3-border-color);
-        font-family: "Segoe UI", system-ui, sans-serif;
-        min-width: 500px;
-        width: 100%;
-    }
-
-    .tab-nav {
-        display: flex;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
-    }
-
-    .tab-nav button {
-        padding: 0.5rem 1rem;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-weight: 500;
-        transition: all 0.2s ease-in-out;
-    }
-
-    .tab-nav button.active {
-        background: var(--b3-theme-primary);
-        color: var(--b3-theme-on-primary);
-    }
-
-    .homepage-content-settings {
-        padding-top: 1rem;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1.5rem;
-    }
-
-    .section-setting {
-        padding: 1rem;
-        background-color: var(--b3-theme-surface);
-        border-radius: 8px;
-        border: 1px solid var(--b3-border-color);
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        transition: box-shadow 0.2s ease;
-
-        &:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-    }
-
-    h3 {
-        color: var(--b3-theme-text);
-        margin-bottom: 0.75rem;
-    }
-
-    .form-group {
-        margin-bottom: 0.75rem;
-    }
-
-    .form-group input[type="text"],
-    .form-group input[type="number"] {
-        box-sizing: border-box;
-        width: 100%;
-        padding: 0.6rem 0.8rem;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        background-color: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
-        font-size: 0.95rem;
-        transition: all 0.2s ease-in-out;
-
-        &:focus {
-            outline: none;
-            border-color: var(--b3-theme-primary);
-            box-shadow: 0 0 0 2px rgba(var(--b3-theme-primary-rgb), 0.2);
-            background-color: var(--b3-theme-background);
-        }
-
-        &:hover {
-            background-color: var(--b3-theme-hover);
-        }
-    }
-
-    .form-group input[type="number"] {
-        width: auto;
-        min-width: 60px;
-        max-width: 100px;
-        padding: 0.4rem 0.6rem;
-    }
-
-    .about-section p {
-        margin-bottom: 0.5rem;
-    }
-
-    .action-buttons {
-        display: flex;
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-
-    .btn {
-        padding: 0.5rem 1rem;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-weight: 500;
-        transition: background-color 0.2s ease;
-    }
-
-    .btn.primary {
-        background-color: var(--b3-theme-primary);
-        color: var(--b3-theme-on-primary);
-    }
-
-    .no-link-style {
-        text-decoration: none;
-        color: inherit;
-        cursor: pointer;
-    }
-
-    .btn:hover:not(.primary) {
-        background-color: var(--b3-border-color);
-    }
-
-    .emoji-picker-modal {
-        position: absolute;
-        z-index: 9999; /* 确保在最上层 */
-        pointer-events: auto;
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        padding: 0;
-        margin: 0;
-    }
-
-    .emoji-picker-overlay-bg {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        width: 100%;
-        height: 100%;
-        background-color: transparent;
-        z-index: 9998;
-        border: none;
-        padding: 0;
-        margin: 0;
-        cursor: pointer;
-    }
-
-    .emoji-picker-content {
-        width: auto;
-        height: auto;
-        min-width: 200px;
-        min-height: 200px;
-        max-width: 400px;
-        max-height: 500px;
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        overflow: auto;
-        z-index: 10000;
-        pointer-events: auto;
-        padding: 8px;
-    }
-
-    .emoji-display {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 40px;
-        height: 40px;
-        font-size: 24px;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        cursor: pointer;
-        background: var(--b3-theme-surface);
-        transition: background-color 0.2s ease;
-
-        &:hover {
-            background: var(--b3-theme-hover);
-        }
-    }
-
-    .btn-select-file {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem; // 图标和文字间距
-        padding: 0.4rem 0.8rem;
-        background-color: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 0.95rem;
-        transition: all 0.2s ease;
-
-        &:hover {
-            background-color: var(--b3-theme-hover);
-            border-color: var(--b3-theme-primary);
-            color: var(--b3-theme-primary);
-        }
-
-        &:active {
-            transform: scale(0.98);
-        }
-    }
-
-    .custom-icon-preview-container {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        margin-top: 0.5rem;
-
-        .custom-icon-preview {
-            display: flex;
-            width: fit-content;
-            height: auto;
-            padding: 0.5rem;
-            background-color: rgba(255, 255, 255, 0.1); // 轻微背景色
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-            border: 1px solid var(--b3-border-color);
-            transition: box-shadow 0.3s ease;
-
-            img {
-                max-width: 100%;
-                height: auto;
-                object-fit: contain;
-                border-radius: 4px;
-            }
-
-            &:hover {
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            }
-        }
-    }
-
-    .about-section {
-        padding: 20px;
-        max-width: 800px;
-        margin: 0 auto;
-
-        .about-header {
-            text-align: center;
-            margin-bottom: 2rem;
-
-            h3 {
-                font-size: 1.8rem;
-                color: var(--b3-theme-primary);
-                margin-bottom: 0.5rem;
-            }
-
-            .motto {
-                color: var(--b3-theme-text);
-                font-size: 0.9rem;
-            }
-        }
-
-        .about-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .about-card {
-            background: var(--b3-theme-surface);
-            border-radius: 8px;
-            padding: 1.5rem;
-            display: flex;
-            align-items: center;
-            transition: transform 0.2s;
-
-            &:hover {
-                transform: translateY(-3px);
-            }
-
-            .icon {
-                font-size: 2rem;
-                margin-right: 1rem;
-            }
-
-            .label {
-                color: var(--b3-theme-text);
-                margin-bottom: 0.3rem;
-                font-size: 0.9rem;
-            }
-
-            .link {
-                color: var(--b3-theme-primary);
-                text-decoration: none;
-
-                &:hover {
-                    text-decoration: underline;
-                }
-            }
-        }
-
-        .about-footer {
-            text-align: center;
-            border-top: 1px solid var(--b3-border-color);
-            padding-top: 1.5rem;
-
-            .copyright {
-                color: var(--b3-theme-secondary);
-                font-size: 0.8rem;
-                margin-top: 1rem;
-            }
-        }
-
-        .sponsor-options {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            margin-top: 1rem;
-
-            .qr-code {
-                width: 120px;
-                height: 120px;
-                border-radius: 8px;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-                transition: transform 0.3s ease;
-
-                &:hover {
-                    transform: scale(1.05);
-                }
-            }
-        }
-
-        .support-card {
-            flex-direction: column; // 改为垂直布局
-            justify-content: center; // 水平垂直居中
-            text-align: center; // 文字居中
-            background: linear-gradient(
-                135deg,
-                rgba(255, 71, 87, 0.1) 0%,
-                rgba(255, 71, 87, 0.05) 100%
-            ) !important;
-            border: 1px solid rgba(255, 71, 87, 0.2) !important;
-            animation: glow 2s ease-in-out infinite alternate;
-
-            &:hover {
-                transform: scale(1.05) rotate(-1deg);
-            }
-
-            .icon {
-                animation: heartbeat 1.5s infinite;
-            }
-
-            .icon {
-                margin-right: 0; // 移除图标右边距
-                margin-bottom: 1rem; // 增加下边距
-            }
-
-            .support-content {
-                width: 100%; // 撑满容器宽度
-                padding: 0; // 移除内边距
-            }
-        }
-
-        .support-content {
-            position: relative;
-            padding: 1rem;
-        }
-
-        .support-description {
-            color: var(--b3-theme-text);
-            font-size: 0.9rem;
-            line-height: 1.5;
-            margin-bottom: 1rem;
-        }
-
-        .support-link {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.8rem 1.5rem;
-            background: linear-gradient(135deg, #ff4757 0%, #ff6b6b 100%);
-            color: white !important;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-
-            &:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 4px 15px rgba(255, 71, 87, 0.3);
-
-                .sparkle {
-                    opacity: 1;
-                }
-            }
-
-            i {
-                margin-right: 0.8rem;
-                font-size: 1.2rem;
-            }
-        }
-
-        .sparkle {
-            opacity: 0;
-            margin-left: 0.5rem;
-            transition: opacity 0.3s ease;
-        }
-
-        @keyframes glow {
-            from {
-                box-shadow: 0 0 5px rgba(255, 71, 87, 0.1);
-            }
-            to {
-                box-shadow: 0 0 15px rgba(255, 71, 87, 0.3);
-            }
-        }
-    }
-</style>

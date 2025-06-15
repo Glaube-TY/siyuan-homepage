@@ -102,7 +102,7 @@ export default class PluginHomepage extends Plugin {
 
         // 创建主菜单项：主页插件
         detail.menu.addItem({
-            icon: "iconhomepage", // 使用你注册的图标
+            icon: "iconhomepage",
             label: "主页插件",
             type: "submenu",
             submenu: [

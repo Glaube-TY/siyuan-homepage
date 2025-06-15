@@ -1,0 +1,65 @@
+
+.banner-settings-container {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.banner-settings-left {
+    flex: 1;
+    max-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+
+    .form-group.remote-url-input {
+        display: flex;
+        align-items: center;
+    }
+
+    .input-row {
+        display: flex;
+        align-items: center;
+        width: 100%;
+    }
+
+    .input-row label {
+        margin-right: 1rem;
+        /* 标签与输入框之间的间距 */
+        white-space: nowrap;
+        /* 防止标签换行 */
+    }
+
+    .input-row input[type="text"] {
+        flex: 1;
+        /* 自动扩展宽度 */
+    }
+}
+
+.banner-preview-container {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 8px;
+    background: var(--b3-theme-surface);
+    padding: 1rem;
+    height: 200px;
+    overflow: hidden;
+}
+
+.banner-preview {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: cover;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.banner-preview-placeholder {
+    color: var(--b3-theme-text-muted);
+    font-size: 0.9rem;
+    text-align: center;
+}

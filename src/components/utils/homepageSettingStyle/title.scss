@@ -1,0 +1,162 @@
+.titleBlock-setting {
+
+    // 标题行整体设置容器
+    .icon-and-title-container {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+        flex-direction: column;
+        margin-top: 0.5rem;
+        margin-right: auto;
+        border-bottom: 1px solid var(--b3-border-color);
+
+        .icon-selection {
+            align-items: center;
+            display: flex;
+
+            select {
+                height: fit-content;
+                margin-right: 1rem;
+            }
+        }
+
+        .custom-title-input {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            margin-bottom: 1rem;
+
+            label {
+                white-space: nowrap;
+            }
+
+            input {
+                height: fit-content;
+            }
+        }
+
+        img {
+            margin-left: 1rem;
+            max-width: 32px;
+            max-height: 32px;
+            object-fit: contain;
+            border-radius: 4px;
+        }
+
+        // Emoji 选择器样式
+        .emoji-picker-modal {
+            position: absolute;
+            z-index: 9999;
+            pointer-events: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            padding: 0;
+            margin: 0;
+        }
+
+        // 遮罩层样式
+        .emoji-picker-overlay-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
+            z-index: 9998;
+            border: none;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+        }
+
+        // Emoji 选择器弹窗样式
+        .emoji-picker-content {
+            width: auto;
+            height: auto;
+            min-width: 200px;
+            min-height: 200px;
+            max-width: 400px;
+            max-height: 500px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            overflow: auto;
+            z-index: 10000;
+            pointer-events: auto;
+            padding: 8px;
+        }
+
+        // 表情选择按钮样式
+        .emoji-display {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            font-size: 24px;
+            border: 1px solid var(--b3-border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            background: var(--b3-theme-surface);
+            transition: background-color 0.2s ease;
+
+            &:hover {
+                background: var(--b3-theme-hover);
+            }
+        }
+    }
+
+    // .custom-btn-setting {
+    //     gap: 1rem;
+
+    //     .custom-btn-setting-title {
+    //         margin-top: 1rem;
+    //         margin-bottom: 1rem;
+    //     }
+
+    //     .custom-btn-setting-container {
+    //         display: flex;
+    //         gap: 1rem;
+    //         height: 150px;
+
+    //         .custom-btn-preview {
+    //             flex: 1;
+    //             border-right: 1px solid var(--b3-border-color);
+    //             padding-right: 1rem;
+    //             min-width: max-content;
+    //             width: max-content;
+    //             overflow-y: auto;
+    //             display: flex;
+    //             flex-direction: column;
+
+    //             .btn-list-item {
+    //                 display: flex;
+    //                 align-items: center;
+    //                 gap: 0.5rem;
+    //                 margin-bottom: 0.5rem;
+    //                 padding: 0.5rem 1rem;
+    //                 cursor: pointer;
+    //                 background-color: var(--b3-theme-background);
+    //                 border-radius: 8px;
+    //                 transition: background-color 0.2s ease;
+
+    //                 .btn-label {
+    //                     white-space: nowrap;
+    //                     border: none;
+    //                     padding: 0;
+    //                 }
+    //             }
+    //         }
+
+
+    //         .custom-btn-detail {
+    //             flex: 2;
+    //             padding-left: 1rem;
+    //         }
+    //     }
+    // }
+
+}
