@@ -109,6 +109,25 @@
         }
     }
 
+    .stats-info-setting {
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+
+        .stats-info-text {
+            width: 100%;
+            height: 100px;
+            padding: 0.5rem;
+            border-radius: 8px;
+            box-sizing: border-box;
+            border: 1px solid var(--b3-border-color);
+            background: var(--b3-theme-background);
+            transition: background-color 0.2s ease;
+            &:hover {
+                background: var(--b3-theme-hover);
+            }
+        }
+    }
+
     // .custom-btn-setting {
     //     gap: 1rem;
 

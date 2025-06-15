@@ -13,7 +13,11 @@
         triggerSearchNotes,
         triggerOpenTodayDiary,
     } from "./utils/keyboard-handler";
-    import { loadStatsData, type StatsData } from "./utils/stats-loader";
+    import {
+        loadStatsData,
+        type StatsData,
+        parseDurationExpression,
+    } from "./utils/stats-loader";
     import { addCustomBlock } from "./utils/widgetBlock/utils/block-creator";
 
     import HomepageSetting from "./utils/homepageSetting.svelte";
@@ -30,9 +34,10 @@
 
     let statsData: StatsData = {
         startDate: "(日期)",
-        totalNotes: 0,
-        notebooksCount: 0,
         notesCount: 0,
+        notebooksCount: 0,
+        DocsCount: 0,
+        nowDate: "(日期)",
     };
 
     let showBanner = writable(true);
@@ -41,6 +46,19 @@
     let tempTitleIconImage: string | null = null;
     let pageTitle = "思源笔记首页";
 
+    let statsInfoText =
+        "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
+
+    $: formattedStatsInfoText = (statsInfoText || "")
+        .replace("{{startDate}}", statsData.startDate || "")
+        .replace("{{notesCount}}", statsData.notesCount.toString())
+        .replace("{{notebooksCount}}", statsData.notebooksCount.toString())
+        .replace("{{DocsCount}}", statsData.DocsCount.toString())
+        .replace("{{nowDate}}", statsData.nowDate || "")
+        .replace(/\&\&([\s\S]*?)\&\&/g, (_, expr) => {
+            return parseDurationExpression(expr.trim(), statsData) || "";
+        });
+        
     function OpenHomepageSetting() {
         const dialog = svelteDialog({
             title: "主页设置",
@@ -78,6 +96,8 @@
         tempTitleIconImage = config.TitleIconImage;
         titleIconType = config.titleIconType || "emoji";
         pageTitle = config.customTitle || "思源笔记首页";
+
+        statsInfoText = config.statsInfoText;
 
         const bannerElement =
             document.querySelector<HTMLElement>(".top-banner");
@@ -211,17 +231,11 @@
             {/if}
             <h1 class="section-title">{pageTitle}</h1>
         </div>
-        <div class="stats-info">
-            自 <span class="highlight">{statsData.startDate}</span>
-            写下第一条笔记以来，你已累计记录笔记
-            <span class="highlight">{statsData.totalNotes}</span>
-            条。<br />
-            当前共有
-            <span class="highlight">{statsData.notebooksCount}</span>
-            个笔记本和
-            <span class="highlight">{statsData.notesCount}</span> 篇笔记。<br />
-            感谢自己的坚持！❤
+
+        <div class="stats-info" style="white-space: pre-line">
+            {formattedStatsInfoText}
         </div>
+
         <!-- 导航栏 -->
         <div class="nav-bar">
             <button class="nav-button" on:click={triggerSearchNotes}>

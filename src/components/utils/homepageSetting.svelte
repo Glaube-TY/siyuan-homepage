@@ -32,6 +32,10 @@
     let tempTitleIconImage: string | null = null;
     let iconInputEl: HTMLInputElement;
     let tempCustomTitle = "思源笔记首页";
+
+    let tempStatsInfoText =
+        "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
+
     // let selectedButton: (typeof navButtons)[number] | null = null;
     // let navButtons = [
     //     { id: "search", label: "搜索笔记", visible: true },
@@ -60,6 +64,7 @@
             tempTitleIconEmoji = savedConfig.TitleIconEmoji || "🏠";
             tempTitleIconImage = savedConfig.TitleIconImage || null;
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
+            tempStatsInfoText = savedConfig.statsInfoText;
 
             // 快捷按钮
             // navButtons = savedConfig.navButtons || navButtons;
@@ -170,6 +175,9 @@
             TitleIconEmoji: tempTitleIconEmoji,
             TitleIconImage: tempTitleIconImage,
             customTitle: tempCustomTitle,
+
+            statsInfoText: tempStatsInfoText,
+
             // navButtons: navButtons,
         };
 
@@ -469,26 +477,40 @@
                             {/if}
                         </div>
 
+                        <div class="stats-info-setting">
+                            <div>
+                                自定义状态语：<a
+                                    href="https://ttl8ygt82u.feishu.cn/wiki/Z4QOwYEXpifRb9kZQg4c2FafnXc?from=from_copylink"
+                                    target="_blank">查看可用变量</a
+                                >
+                            </div>
+                            <textarea
+                                class="stats-info-text"
+                                bind:value={tempStatsInfoText}
+                                placeholder="例如：自&#123;&#123;startDate&#125;&#125; 写下第一条笔记以来，你已累计记录笔记 &#123;&#123;notesCount&#125;&#125; 条。\n当前共有 &#123;&#123;notebooksCount&#125;&#125; 个笔记本和 &#123;&#123;DocsCount&#125;&#125; 篇笔记。\n感谢自己的坚持！❤"
+                            />
+                        </div>
+
                         <!-- <div class="custom-btn-setting"> -->
-                            <!-- <div class="custom-btn-setting-title">
+                        <!-- <div class="custom-btn-setting-title">
                                 自定义按钮设置：<button class="add-btn"
                                     >添加按钮</button
                                 >
                             </div> -->
-                            <!-- <div class="custom-btn-setting-container"> -->
-                                <!-- <div class="custom-btn-preview"> -->
-                                    <!-- {#each navButtons as button} -->
-                                        <!-- <div class="btn-list-item"> -->
-                                            <!-- 单独放置 checkbox -->
-                                            <!-- <input
+                        <!-- <div class="custom-btn-setting-container"> -->
+                        <!-- <div class="custom-btn-preview"> -->
+                        <!-- {#each navButtons as button} -->
+                        <!-- <div class="btn-list-item"> -->
+                        <!-- 单独放置 checkbox -->
+                        <!-- <input
                                                 type="checkbox"
                                                 id={`checkbox-${button.id}`}
                                                 bind:checked={button.visible}
                                                 on:click|stopPropagation={() => {}}
                                             /> -->
 
-                                            <!-- 名称单独绑定点击事件 -->
-                                            <!-- <button
+                        <!-- 名称单独绑定点击事件 -->
+                        <!-- <button
                                                 type="button"
                                                 on:click={() =>
                                                     showDetail(button)}
@@ -496,13 +518,13 @@
                                             >
                                                 {button.label}
                                             </button> -->
-                                        <!-- </div> -->
-                                    <!-- {/each} -->
-                                <!-- </div> -->
+                        <!-- </div> -->
+                        <!-- {/each} -->
+                        <!-- </div> -->
 
-                                <!-- <div class="custom-btn-detail"> -->
-                                    <!-- {#if selectedButton} -->
-                                        <!-- <div>
+                        <!-- <div class="custom-btn-detail"> -->
+                        <!-- {#if selectedButton} -->
+                        <!-- <div>
                                             <h4>按钮详情</h4>
                                             <p>
                                                 <strong>名称：</strong
@@ -519,11 +541,11 @@
                                                     : "否"}
                                             </p>
                                         </div> -->
-                                    <!-- {:else} -->
-                                        <!-- <p>请选择一个按钮</p> -->
-                                    <!-- {/if} -->
-                                <!-- </div> -->
-                            <!-- </div> -->
+                        <!-- {:else} -->
+                        <!-- <p>请选择一个按钮</p> -->
+                        <!-- {/if} -->
+                        <!-- </div> -->
+                        <!-- </div> -->
                         <!-- </div> -->
                     </div>
                 {/if}
