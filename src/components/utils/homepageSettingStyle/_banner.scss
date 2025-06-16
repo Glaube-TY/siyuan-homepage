@@ -1,4 +1,3 @@
-
 .banner-settings-container {
     display: flex;
     gap: 1.5rem;
@@ -32,7 +31,31 @@
 
     .input-row input[type="text"] {
         flex: 1;
-        /* 自动扩展宽度 */
+    }
+
+    button {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        justify-content: center;
+        padding: 0.4rem 0.8rem;
+        background-color: var(--b3-theme-background);
+        color: var(--b3-theme-on-surface);
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+
+        &:hover {
+            background-color: var(--b3-theme-hover);
+            border-color: var(--b3-theme-primary);
+            color: var(--b3-theme-primary);
+        }
+
+        &:active {
+            transform: scale(0.98);
+        }
     }
 }
 

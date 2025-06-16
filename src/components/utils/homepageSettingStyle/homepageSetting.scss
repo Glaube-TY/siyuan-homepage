@@ -1,8 +1,8 @@
-@use './banner';
-@use './tabNav';
-@use './homepageContentSettings';
-@use './title';
-@use './about';
+@use './_banner';
+@use './_tabNav';
+@use './_homepageContentSettings';
+@use './_title';
+@use './_about';
 
 
 .settings-container {
@@ -49,29 +49,4 @@ input[type="number"] {
     min-width: 60px;
     max-width: 100px;
     padding: 0.4rem 0.6rem;
-}
-
-button {
-    display: inline-flex;
-    width: fit-content;
-    align-items: center;
-    justify-content: center;
-    padding: 0.4rem 0.8rem;
-    background-color: var(--b3-theme-background);
-    color: var(--b3-theme-on-surface);
-    border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.95rem;
-    transition: all 0.2s ease;
-
-    &:hover {
-        background-color: var(--b3-theme-hover);
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
-    }
-
-    &:active {
-        transform: scale(0.98);
-    }
 }

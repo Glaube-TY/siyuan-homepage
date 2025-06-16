@@ -11,13 +11,12 @@ export interface StatsData {
 function parseDateToTimestamp(dateStr: string): number | null {
     if (!dateStr || typeof dateStr !== "string") return null;
 
-    // 统一替换成标准格式
     const normalized = dateStr
         .replace(/年|月/g, "-")
         .replace(/日/g, "")
         .replace(/\./g, "-")
-        .replace(/\//g, "-")   // 支持斜杠
-        .replace(/\s+/g, "")    // 去除空格
+        .replace(/\//g, "-")
+        .replace(/\s+/g, "")
         .trim();
 
     const date = new Date(normalized);
@@ -25,7 +24,6 @@ function parseDateToTimestamp(dateStr: string): number | null {
     return isNaN(date.getTime()) ? null : date.getTime();
 }
 
-// 新增的 parseDurationExpression 函数
 export function parseDurationExpression(expression: string, statsData: StatsData): string {
     const regex = /^(\s*[\w\u4e00-\u9fa5][\w\s\u4e00-\u9fa5\-:\/]*?)\s+([dp])\s+(\s*[\w\u4e00-\u9fa5][\w\s\u4e00-\u9fa5\-:\/]*?)(?:\s+as\s+([\w\u4e00-\u9fa5\s]+))?$/;
     const match = expression.match(regex);

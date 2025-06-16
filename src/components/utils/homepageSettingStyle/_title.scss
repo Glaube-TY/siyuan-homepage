@@ -1,5 +1,30 @@
 .titleBlock-setting {
 
+    button {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        justify-content: center;
+        padding: 0.4rem 0.8rem;
+        background-color: var(--b3-theme-background);
+        color: var(--b3-theme-on-surface);
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+
+        &:hover {
+            background-color: var(--b3-theme-hover);
+            border-color: var(--b3-theme-primary);
+            color: var(--b3-theme-primary);
+        }
+
+        &:active {
+            transform: scale(0.98);
+        }
+    }
+
     // 标题行整体设置容器
     .icon-and-title-container {
         display: flex;
@@ -122,6 +147,7 @@
             border: 1px solid var(--b3-border-color);
             background: var(--b3-theme-background);
             transition: background-color 0.2s ease;
+
             &:hover {
                 background: var(--b3-theme-hover);
             }
