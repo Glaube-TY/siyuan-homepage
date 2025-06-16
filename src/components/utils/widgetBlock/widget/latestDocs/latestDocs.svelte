@@ -28,31 +28,25 @@
         }
     }
 
-    // 日期格式化函数
-    function formatDate(updated: string): string {
-        const hour = updated.substring(8, 10);
-        const minute = updated.substring(10, 12);
-        const second = updated.substring(12, 14);
-        return `${hour}:${minute}:${second}`;
-    }
-
     // 获取时间差并格式化为“X天前”或“今天”
     function getTimeAgo(updated: string): string {
-        const now = new Date();
         const year = parseInt(updated.substring(0, 4));
-        const month = parseInt(updated.substring(4, 6)) - 1; // 月份从 0 开始
+        const month = parseInt(updated.substring(4, 6)) - 1;
         const day = parseInt(updated.substring(6, 8));
         const hour = parseInt(updated.substring(8, 10));
         const minute = parseInt(updated.substring(10, 12));
         const second = parseInt(updated.substring(12, 14));
-
         const docDate = new Date(year, month, day, hour, minute, second);
-        const diffTime = now.getTime() - docDate.getTime();
+        const docDateMidnight = new Date(docDate);
+        docDateMidnight.setHours(0, 0, 0, 0);
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        const diffTime = todayMidnight.getTime() - docDateMidnight.getTime();
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
         if (diffDays === 0) {
-            const today = formatDate(updated);
-            return `今天 ${today}`;
+            const timeStr = `${updated.substring(8, 10)}:${updated.substring(10, 12)}`;
+            return `今天 ${timeStr}`;
         } else {
             return `${diffDays}天前`;
         }
