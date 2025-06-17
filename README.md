@@ -31,7 +31,8 @@
     </div>
     <div style="margin-top: 1.5em; text-align: center; padding: 2em; background: linear-gradient(135deg, #2d8cf0, #1e6bff); border-radius: 12px;">
         <h1 style="color: white; margin: 0; font-size: 2.2em;">🏠 思源主页插件</h1>
-        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">本插件为思源笔记提供一个可高度定制的首页界面，支持 banner 图片、快捷导航、统计信息展示等功能。</div>
+        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">为思源笔记提供一个可高度定制的首页界面，支持 banner 图片、统计信息展示等功能。</div>
+        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">插件数据完全基于思源笔记文档，插件只负责将文档内容展示在首页，卸载插件不会对笔记造成任何影响。</div>
     </div>
     <div style="margin-top: 1.5em; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">🚀 核心功能</h2>
