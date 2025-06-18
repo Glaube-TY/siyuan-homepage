@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { getLatestTasks, type RecentTasksInfo } from "./recentTasks";
+    import { openTab } from "siyuan";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -173,6 +174,15 @@
             ? fallbackLine.replace(/-\s*\[[xX ]?\]\s*/, "").trim()
             : "";
     }
+
+    function handleOpenTask(task: (typeof displayedTasks)[number]) {
+        openTab({
+            app: plugin.app,
+            doc: {
+                id: task.id,
+            },
+        });
+    }
 </script>
 
 <div class="content-display">
@@ -180,31 +190,45 @@
     <ul class="task-list">
         {#if displayedTasks.length > 0}
             {#each displayedTasks as task (task.id + "-" + task.updated)}
-                <a
-                    href={"siyuan://blocks/" + task.id}
-                    target="_blank"
-                    class="task-link"
-                >
-                    <li class="task-item" class:completed={task.checked}>
+                <li class="task-item" class:completed={task.checked}>
+                    <div class="task-header">
                         <span class="checkbox-label">
                             <input
                                 type="checkbox"
                                 bind:checked={task.checked}
-                                on:change={(e) => handleCheck(e, task)}
+                                on:change={(e) => {
+                                    e.stopPropagation();
+                                    handleCheck(e, task);
+                                }}
                             />
-                            {task.content}
                         </span>
-                        <span class="task-created-time"
-                            >📅 {formatDate(task.created)}</span
+
+                        <a
+                            class="task-content"
+                            href=""
+                            on:click={(e) => {
+                                e.preventDefault();
+                                handleOpenTask(task);
+                            }}
+                            on:keydown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    handleOpenTask(task);
+                                }
+                            }}
+                            tabindex="0"
+                            role="button"
+                            aria-label={task.content}
                         >
-                        <span class="task-source">
-                            📃 <a
-                                href={"siyuan://blocks/" + task.id}
-                                target="_blank">{task.hpath}</a
-                            >
-                        </span>
-                    </li>
-                </a>
+                            {task.content}
+                        </a>
+                    </div>
+
+                    <span class="task-created-time"
+                        >📅 {formatDate(task.created)}</span
+                    >
+                    <span class="task-source">📃 {task.hpath}</span>
+                </li>
             {/each}
         {:else}
             <p>暂无任务记录</p>
@@ -249,6 +273,12 @@
         font-size: 14px;
         color: #475569;
         transition: background-color 0.2s ease;
+
+        &:hover {
+            background-color: #eff6ff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
     }
 
     .task-item.completed {
@@ -274,5 +304,31 @@
         font-size: 12px;
         color: #94a3b8;
         padding-left: 2rem;
+    }
+
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: default;
+    }
+
+    .task-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    .task-content {
+        flex-grow: 1;
+        margin-left: 0.5rem;
+        color: var(--b3-theme-primary);
+        cursor: pointer;
+        font-weight: 500;
+    }
+
+    .task-content:hover {
+        text-decoration: underline;
     }
 </style>

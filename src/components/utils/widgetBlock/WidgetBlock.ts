@@ -166,6 +166,7 @@ export class WidgetBlock {
             new latestDocs({
                 target: this.element,
                 props: {
+                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });
@@ -188,6 +189,7 @@ export class WidgetBlock {
             new latestDailyNotes({
                 target: this.element,
                 props: {
+                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });
@@ -234,7 +236,6 @@ export class WidgetBlock {
             new customWeb({
                 target: this.element,
                 props: {
-                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });

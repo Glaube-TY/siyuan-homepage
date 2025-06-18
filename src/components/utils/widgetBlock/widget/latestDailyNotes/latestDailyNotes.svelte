@@ -1,10 +1,12 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { openTab } from "siyuan";
     import {
         getLatestDailyNotes,
         type DailyNoteInfo,
     } from "./latestDailyNotes";
 
+    export let plugin: any;
     export let contentTypeJson: string = "{}";
 
     // 原始数据
@@ -43,14 +45,21 @@
         {#if displayedDocs.length > 0}
             {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                 <li class="document-item">
-                    <a
-                        href={"siyuan://blocks/" + doc.id}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="document-title"
+                    <div
+                        class="document-item-content"
+                        on:click={() =>
+                            openTab({
+                                app: plugin.app,
+                                doc: {
+                                    id: doc.id,
+                                },
+                            })}
+                        role="button"
+                        tabindex="0"
+                        aria-label="打开最近日记：{doc.content}"
                     >
                         📅 {doc.content || "(无标题)"}
-                    </a>
+                    </div>
                 </li>
             {/each}
         {:else}
@@ -109,9 +118,16 @@
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
 
-    .document-title {
+    .document-item-content {
+        margin-top: 4px;
+        display: block;
         color: var(--b3-theme-primary);
         text-decoration: none;
         font-weight: bold;
+        cursor: pointer;
+
+        &:hover {
+            text-decoration: underline;
+        }
     }
 </style>

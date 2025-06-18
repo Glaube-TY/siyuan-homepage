@@ -90,16 +90,18 @@
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-18 v1.1.4</span>
+            <p style="margin: 0.5em 0;">修复在Docker和局域网浏览器等环境下无法点击跳转指定文档位置的问题</p>
+            <p style="margin: 0.5em 0;">修复在Docker和局域网浏览器等环境下无法显示浏览器组件内容的问题（这个问题目前无法解决，只是添加了iframe元素，进行简单的浏览）</p>
+            <p style="margin: 0.5em 0;">注：对于浏览器无法访问的问题目前无法解决，只是添加了iframe元素，进行简单的显示浏览，建议目前在客户端中使用完整的浏览器组件功能</p>
+        </div>
+        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-16 v1.1.3</span>
             <p style="margin: 0.5em 0;">修复最近文档更新时间24h内跨天显示错误的 bug</p>
         </div>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-16 v1.1.2</span>
             <p style="margin: 0.5em 0;">修复开启插件无法打开其他工作空间的 bug</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-16 v1.1.1</span>
-            <p style="margin: 0.5em 0;">修复自定义状态语句无法计算日期差的bug</p>
         </div>
         <div>
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 

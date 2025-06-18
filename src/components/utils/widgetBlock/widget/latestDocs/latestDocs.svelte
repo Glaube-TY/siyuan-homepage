@@ -1,7 +1,9 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { openTab } from "siyuan";
     import { getLatestDocuments, type latestDocumentInfo } from "./latestDocs";
 
+    export let plugin: any;
     export let contentTypeJson: string = "{}";
 
     // 文档数据源
@@ -59,14 +61,21 @@
         {#if displayedDocs.length > 0}
             {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                 <li class="document-item">
-                    <a
-                        href={"siyuan://blocks/" + doc.id}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="document-title"
+                    <div
+                        class="document-item-content"
+                        on:click={() =>
+                            openTab({
+                                app: plugin.app,
+                                doc: {
+                                    id: doc.id,
+                                },
+                            })}
+                        role="button"
+                        tabindex="0"
+                        aria-label="打开最近文档：{doc.content}"
                     >
-                        📄 {doc.content || "(无标题)"}
-                    </a>
+                        📄 {doc.content}
+                    </div>
                     <div class="document-updated-container">
                         <span class="document-updated">
                             更新于：📅{getTimeAgo(doc.updated)}
@@ -128,11 +137,17 @@
         }
     }
 
-    .document-title {
+    .document-item-content {
+        margin-top: 4px;
         display: block;
         color: var(--b3-theme-primary);
         text-decoration: none;
         font-weight: bold;
+        cursor: pointer;
+
+        &:hover {
+            text-decoration: underline;
+        }
     }
 
     .document-updated-container {

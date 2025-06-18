@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { openTab } from "siyuan";
     import {
         getLatestFavoritesNotes,
         type FavoritesNoteInfo,
@@ -34,13 +35,21 @@
             <ul class="favorites-list">
                 {#each favoritesNotes as note}
                     <li class="favorites-item">
-                        <a
-                            href={"siyuan://blocks/" + note.id}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        <div
+                            class="favorites-item-content"
+                            on:click={() =>
+                                openTab({
+                                    app: plugin.app,
+                                    doc: {
+                                        id: note.id,
+                                    },
+                                })}
+                            role="button"
+                            tabindex="0"
+                            aria-label="打开收藏文档：{note.content}"
                         >
                             ❤ {note.content}
-                        </a>
+                        </div>
                         <div class="note-meta">
                             {#if contentTypeJsonObj.data?.favoritiesSortOrder === "created"}
                                 创建时间：{formatDate(note.created)}
@@ -105,12 +114,17 @@
         }
     }
 
-    .favorites-item a {
+    .favorites-item-content {
         margin-top: 4px;
         display: block;
         color: var(--b3-theme-primary);
         text-decoration: none;
         font-weight: bold;
+        cursor: pointer;
+
+        &:hover {
+            text-decoration: underline;
+        }
     }
 
     .note-meta {
