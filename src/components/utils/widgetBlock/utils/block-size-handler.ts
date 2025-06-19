@@ -60,10 +60,22 @@ export function setBlockSize(blockElement: HTMLElement | null, size: number): vo
             blockElement.style.aspectRatio = "1 / 1";
             break;
 
+        case 14:
+            blockElement.style.gridColumn = "span 4";
+            blockElement.style.gridRow = "span 1";
+            blockElement.style.aspectRatio = "4 / 1";
+            break;
+
         case 24:
             blockElement.style.gridColumn = "span 4";
             blockElement.style.gridRow = "span 2";
             blockElement.style.aspectRatio = "2 / 1";
+            break;
+
+        case 41:
+            blockElement.style.gridColumn = "span 1";
+            blockElement.style.gridRow = "span 4";
+            blockElement.style.aspectRatio = "1 / 4";
             break;
 
         case 42:
