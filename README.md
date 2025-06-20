@@ -63,7 +63,7 @@
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⚡ 自定义快捷导航栏（搜索笔记、今日日记等）</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">📊 自定义状态数据展示（笔记数量、笔记本数量等）</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧩 丰富可自定义的组件区域</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧲 可自定拖动布局</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧲 可拖动布局</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⭐ 右键菜单添加收藏文档功能</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🌤 天气、纪念日等小工具</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">💡 更多内容请看详细教程</li>
@@ -113,6 +113,10 @@
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-20 v1.2.1</span>
+            <p style="margin: 0.5em 0;">增加指定最近文档和任务管理组件所处的笔记本功能</p>
+        </div>
+        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-20 v1.2.0</span>
             <p style="margin: 0.5em 0;">新增自定义快捷按钮功能（快捷键）</p>
             <p style="margin: 0.5em 0;">修改快捷按钮样式以适配全局主题</p>
@@ -122,12 +126,6 @@
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-19 v1.1.5</span>
             <p style="margin: 0.5em 0;">增加1×4和4×1组件尺寸的调整</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-18 v1.1.4</span>
-            <p style="margin: 0.5em 0;">修复在Docker和局域网浏览器等环境下无法点击跳转指定文档位置的问题</p>
-            <p style="margin: 0.5em 0;">修复在Docker和局域网浏览器等环境下无法显示浏览器组件内容的问题</p>
-            <p style="margin: 0.5em 0;">注：对于浏览器无法访问的问题目前无法解决，只是添加了iframe元素，进行简单的显示浏览，建议目前在客户端中使用完整的浏览器组件功能</p>
         </div>
         <div>
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 

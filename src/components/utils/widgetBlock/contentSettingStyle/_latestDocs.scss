@@ -1,0 +1,40 @@
+.latest-docs {
+
+    .doc-notebook-id {
+        display: flex;
+        flex-direction: column;
+
+        label {
+            font-size: 14px;
+            color: #475569;
+            margin-right: 0.5rem;
+            white-space: nowrap;
+            width: auto;
+        }
+
+        input[type="text"] {
+            flex: 1 1 auto;
+            padding: 0.5rem 0.75rem;
+            font-size: 14px;
+            border: 1px solid var(--b3-border-color);
+            border-radius: 6px;
+            background-color: var(--b3-theme-background);
+            color: var(--b3-theme-text);
+            transition: all 0.2s ease-in-out;
+            box-sizing: border-box;
+
+            &:hover {
+                border-color: var(--b3-theme-primary-light);
+                background-color: white;
+                box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1);
+            }
+
+            &:focus {
+                outline: none;
+                background-color: white;
+                border-color: var(--b3-theme-primary);
+                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+            }
+        }
+    }
+}

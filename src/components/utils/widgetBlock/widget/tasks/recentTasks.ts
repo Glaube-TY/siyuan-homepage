@@ -9,12 +9,22 @@ export interface RecentTasksInfo {
     hpath: string;
 }
 
-export async function getLatestTasks(): Promise<RecentTasksInfo[]> {
+export async function getLatestTasks(tasksNotebookId?: string): Promise<RecentTasksInfo[]> {
     try {
-        const query = `
+        let notebookIds: string[] = [];
+        if (tasksNotebookId) {
+            notebookIds = tasksNotebookId.split(/[，,]/).map(id => id.trim()).filter(Boolean);
+        }
+        let query = `
             SELECT *
             FROM blocks 
             WHERE subtype = 't' AND type != 'l'
+        `;
+        // 如果有笔记本ID，则添加过滤条件
+        if (notebookIds.length > 0) {
+            query += ` AND box IN (${notebookIds.map(id => `'${id}'`).join(', ')})`;
+        }
+        query += `
             ORDER BY updated DESC
             LIMIT 9999999999999
         `;

@@ -2,6 +2,8 @@
     @use "./_countdown";
     @use "./_customText";
     @use "./_weather";
+    @use "./_latestDocs";
+    @use "./tasks";
 
     // 设置窗口整体样式
     .settings-container {
@@ -100,7 +102,7 @@
     }
 
     .form-group {
-        margin-bottom: 1rem;
+        margin-bottom: 0.5rem;
     }
 
     /* Tab导航栏样式 */

@@ -1,6 +1,5 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import Sortable from "sortablejs";
     import "./contentSettingStyle/contentSetting.scss";
 
     // 弹窗接收的 props
@@ -17,14 +16,19 @@
     let selectedContentType: string = "latest-docs";
     let customTextInputValue: string = "";
 
-    // 文档数量限制下拉框的绑定值
+    // 最近文档配置
     let docLimit: number = 5;
+    let docNotebookId: string = ""; // 指定文档所在笔记本 ID
+
+    // 最近日记配置
     let docJournalLimit: number = 5;
 
     // 收藏文档排序方式
     let favoritiesSortOrder: string = "created";
 
+    // 任务管理相关变量
     let showCompletedTasks = true; // 默认显示已完成任务
+    let tasksNotebookId: string = ""; // 任务管理笔记本 ID
 
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
@@ -129,13 +133,13 @@
 
             if (typeof settingData === "string") {
                 try {
-                    parsedData = JSON.parse(settingData); // 如果是字符串就解析
+                    parsedData = JSON.parse(settingData);
                 } catch (e) {
                     console.error("无法解析 settingData", e);
                     return;
                 }
             } else {
-                parsedData = settingData; // 如果已经是对象就不解析
+                parsedData = settingData;
             }
 
             selectedContentType = parsedData.type || "latest-docs";
@@ -143,10 +147,11 @@
 
             if (parsedData.type === "latest-docs") {
                 docLimit = parsedData.data?.[0]?.limit || 5;
+                docNotebookId = parsedData.data?.[0]?.docNotebookId || "";
             } else if (parsedData.type === "favorites") {
-                favoritiesSortOrder = parsedData.data?.favoritiesSortOrder || "created";
-            }
-            else if (parsedData.type === "heatmap") {
+                favoritiesSortOrder =
+                    parsedData.data?.favoritiesSortOrder || "created";
+            } else if (parsedData.type === "heatmap") {
                 pastMonthCount = parsedData.data?.[0]?.pastMonthCount || 6;
                 selectedColorPreset =
                     parsedData.data?.[0]?.selectedColorPreset || "github";
@@ -192,27 +197,8 @@
             } else if (parsedData.type === "TaskMan") {
                 showCompletedTasks =
                     parsedData.data?.showCompletedTasks ?? true;
+                tasksNotebookId = parsedData.data?.tasksNotebookId || "";
             }
-        }
-
-        const container = document.querySelector(".countdown-grid");
-        if (container) {
-            new Sortable(container, {
-                animation: 150,
-                handle: ".drag-handle", // 只允许通过拖拽图标移动
-                onEnd: () => {
-                    // 排序后更新 eventList
-                    const items =
-                        container.querySelectorAll(".event-form-group");
-                    const reordered = Array.from(items).map((item) => {
-                        const index = parseInt(
-                            item.getAttribute("data-index") || "0",
-                        );
-                        return eventList[index];
-                    });
-                    eventList = reordered;
-                },
-            });
         }
     });
 </script>
@@ -260,7 +246,7 @@
                 {#if selectedContentType === "latest-docs"}
                     <!-- 最近文档设置区域 -->
                     <div class="content-panel latest-docs">
-                        <h4>最新文档设置</h4>
+                        <h4>最近文档设置</h4>
                         <div class="form-group">
                             <label for="doc-limit">显示条目数：</label>
                             <select id="doc-limit" bind:value={docLimit}>
@@ -269,6 +255,17 @@
                                 {/each}
                             </select>
                         </div>
+                        <div class="form-group doc-notebook-id">
+                            <label for="doc-notebook-id"
+                                >文档笔记本 ID：（多个以逗号隔开）</label
+                            >
+                            <input
+                                id="doc-notebook-id"
+                                type="text"
+                                bind:value={docNotebookId}
+                                placeholder="输入笔记本ID"
+                            />
+                        </div>
                     </div>
                 {:else if selectedContentType === "favorites"}
                     <div class="content-panel favorites">
@@ -276,7 +273,10 @@
                         <h4>收藏文档设置</h4>
                         <div class="form-group">
                             <label for="sort-order">排序方式：</label>
-                            <select id="sort-order" bind:value={favoritiesSortOrder}>
+                            <select
+                                id="sort-order"
+                                bind:value={favoritiesSortOrder}
+                            >
                                 <option value="created">创建时间</option>
                                 <option value="updated">更新时间</option>
                             </select>
@@ -310,6 +310,17 @@
                                 />
                                 显示已完成的任务
                             </label>
+                        </div>
+                        <div class="form-group TaskMan-notebook-id">
+                            <label for="TaskMan-notebook-id"
+                                >任务笔记本 ID：（多个以逗号隔开）</label
+                            >
+                            <input
+                                id="TaskMan-notebook-id"
+                                type="text"
+                                bind:value={tasksNotebookId}
+                                placeholder="输入笔记本ID"
+                            />
                         </div>
                     </div>
                 {/if}
@@ -834,14 +845,19 @@
                         activeTab: activeTab,
                         type: "latest-docs",
                         blockId: currentBlockId,
-                        data: [{ limit: docLimit }],
+                        data: [
+                            { limit: docLimit, docNotebookId: docNotebookId },
+                        ],
                     };
                 } else if (selectedContentType === "favorites") {
                     contentTypeJson = {
                         activeTab: activeTab,
                         type: "favorites",
                         blockId: currentBlockId,
-                        data: { favoritiesSortOrder:  favoritiesSortOrder ||  "created" },
+                        data: {
+                            favoritiesSortOrder:
+                                favoritiesSortOrder || "created",
+                        },
                     };
                 } else if (selectedContentType === "heatmap") {
                     const config = {
@@ -870,6 +886,7 @@
                         blockId: currentBlockId,
                         data: {
                             showCompletedTasks,
+                            tasksNotebookId,
                         },
                     };
                 } else if (selectedContentType === "countdown") {

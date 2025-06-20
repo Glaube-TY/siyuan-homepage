@@ -6,6 +6,8 @@
     export let plugin: any;
     export let contentTypeJson: string = "{}";
 
+    const parsed = JSON.parse(contentTypeJson);
+
     // 文档数据源
     let documentList: latestDocumentInfo[] = [];
 
@@ -14,12 +16,12 @@
 
     // 模拟加载文档数据
     onMount(async () => {
-        documentList = await getLatestDocuments();
+        documentList = await getLatestDocuments(parsed.data?.[0]?.docNotebookId);
     });
 
     $: {
         try {
-            const parsed = JSON.parse(contentTypeJson);
+            
             if (parsed.type === "latest-docs") {
                 const limit = parsed.data?.[0]?.limit || 5;
                 displayedDocs = documentList.slice(0, limit);

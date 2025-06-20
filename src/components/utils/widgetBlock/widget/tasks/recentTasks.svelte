@@ -6,6 +6,8 @@
     export let plugin: any;
     export let contentTypeJson: string = "{}";
 
+    const parsed = JSON.parse(contentTypeJson);
+
     // 原始数据
     let recentTasks: RecentTasksInfo[] = [];
 
@@ -21,7 +23,7 @@
     }> = [];
 
     onMount(async () => {
-        recentTasks = await getLatestTasks();
+        recentTasks = await getLatestTasks(parsed.data?.tasksNotebookId);
     });
 
     $: {
@@ -53,7 +55,6 @@
 
             // 最终顺序：未完成在前，已完成在后
             try {
-                const parsed = JSON.parse(contentTypeJson);
                 if (parsed.type === "TaskMan") {
                     const showCompletedTasks =
                         parsed.data?.showCompletedTasks ?? true;
