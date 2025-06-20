@@ -1,4 +1,3 @@
-
 // ========== 工作区头部样式 ==========
 
 .workspace-header {
@@ -48,31 +47,62 @@
 }
 
 .nav-bar {
-    margin-top: 20px;
+    position: relative;
     display: flex;
     justify-content: center;
     gap: 16px;
     flex-wrap: wrap;
-}
+    padding-bottom: 8px;
+    margin-top: 10px;
 
-.nav-button {
-    padding: 8px 16px;
-    font-size: 14px;
-    font-weight: 500;
-    color: #3b82f6; // blue-500
-    background-color: transparent;
-    border: 1px solid #3b82f6;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s ease-in-out;
+    .nav-button {
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--b3-theme-text);
+        background-color: transparent;
+        border: 1px solid var(--b3-theme-primary);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
 
-    &:hover {
-        background-color: #bfdbfe;
-        color: #1e40af;
-        border-color: #1e40af;
+        &:hover {
+            background-color: var(--b3-theme-primary);
+            color: white;
+            border-color: var(--b3-theme-primary);
+        }
     }
 
-    &:active {
-        transform: translateY(1px);
+    .more-button.hidden {
+        opacity: 0;
+    }
+
+    .more-menu {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        background-color: var(--b3-theme-background);
+        border: 1px solid var(--b3-theme-primary);
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        z-index: 20;
+        max-width: 100px;
+        max-height: 300px;
+        overflow-y: auto;
+        margin-top: 4px;
+    }
+
+    .more-menu-item {
+        width: 100%;
+        text-align: left;
+        padding: 8px 12px;
+        border: none;
+        background: none;
+        cursor: pointer;
+
+        &:hover {
+            background-color: var(--b3-theme-primary);
+            color: white;
+        }
     }
 }

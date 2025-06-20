@@ -13,20 +13,43 @@
         <a href="https://github.com/Glaube-TY/siyuan-homepage/issues"
            style="display: inline-flex;
                   align-items: center;
-                  padding: 10px 20px;
+                  padding: 12px 24px;
                   background: linear-gradient(135deg, #faad14, #ffc53a);
                   color: white;
                   border-radius: 6px;
                   text-decoration: none;
                   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                   transform: translateY(0);
-                  box-shadow: 0 4px 6px rgba(250,173,20,0.15);
-                  border: 1px solid rgba(250,173,20,0.2);"
+                  box-shadow: 0 4px 8px rgba(45,140,240,0.15);
+                  border: 1px solid rgba(255,255,255,0.2);
+                  margin: 0 auto;
+                  gap: 8px;"
            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(250,173,20,0.2)'"
            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(250,173,20,0.15)'"
            onmousedown="this.style.transform='translateY(1px)'"
            onmouseup="this.style.transform='translateY(-2px)'">
             💬 前往 GitHub Issues
+        </a>
+        <a href="https://pd.qq.com/s/2ks4079x0"
+           style="display: inline-flex;
+                  align-items: center;
+                  padding: 12px 24px;
+                  background: linear-gradient(135deg, #faad14, #ffc53a);
+                  color: white;
+                  border-radius: 6px;
+                  text-decoration: none;
+                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                  transform: translateY(0);
+                  box-shadow: 0 4px 8px rgba(45,140,240,0.15);
+                  border: 1px solid rgba(255,255,255,0.2);
+                  margin: 0 auto;
+                  gap: 8px;"
+           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
+           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
+           onmousedown="this.style.transform='translateY(1px)'"
+           onmouseup="this.style.transform='translateY(-2px)'">
+            <span style="font-size: 1.1em; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));">👥</span>
+            <span style="font-weight: 500; letter-spacing: 0.5px;">加入腾讯讨论频道</span>
         </a>
     </div>
     <div style="margin-top: 1.5em; text-align: center; padding: 2em; background: linear-gradient(135deg, #2d8cf0, #1e6bff); border-radius: 12px;">
@@ -37,8 +60,8 @@
     <div style="margin-top: 1.5em; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">🚀 核心功能</h2>
         <ul style="margin: 0; padding-left: 1.2em;">
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⚡ 快捷导航栏（搜索笔记、今日日记等）</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">📊 统计数据展示（笔记数量、笔记本数量等）</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⚡ 自定义快捷导航栏（搜索笔记、今日日记等）</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">📊 自定义状态数据展示（笔记数量、笔记本数量等）</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧩 丰富可自定义的组件区域</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧲 可自定拖动布局</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⭐ 右键菜单添加收藏文档功能</li>
@@ -90,6 +113,13 @@
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-20 v1.2.0</span>
+            <p style="margin: 0.5em 0;">新增自定义快捷按钮功能（快捷键）</p>
+            <p style="margin: 0.5em 0;">修改快捷按钮样式以适配全局主题</p>
+            <p style="margin: 0.5em 0;">修复标题图标设置中的表情弹窗位置错误</p>
+            <p style="margin: 0.5em 0;">增加腾讯频道交流链接</p>
+        </div>
+        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-19 v1.1.5</span>
             <p style="margin: 0.5em 0;">增加1×4和4×1组件尺寸的调整</p>
         </div>
@@ -98,10 +128,6 @@
             <p style="margin: 0.5em 0;">修复在Docker和局域网浏览器等环境下无法点击跳转指定文档位置的问题</p>
             <p style="margin: 0.5em 0;">修复在Docker和局域网浏览器等环境下无法显示浏览器组件内容的问题</p>
             <p style="margin: 0.5em 0;">注：对于浏览器无法访问的问题目前无法解决，只是添加了iframe元素，进行简单的显示浏览，建议目前在客户端中使用完整的浏览器组件功能</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-16 v1.1.3</span>
-            <p style="margin: 0.5em 0;">修复最近文档更新时间24h内跨天显示错误的 bug</p>
         </div>
         <div>
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 
@@ -122,6 +148,34 @@
             <span style="font-weight: 500; letter-spacing: 0.5px;">完整更新日志</span>
         </a>
         </div>
+    </div>
+    <div style="margin: 1.5em 0; padding: 1.5em; background: #f0f9ff; border-left: 4px solid #2d8cf0; border-radius: 8px;">
+        <h2 style="color: #2d8cf0; margin: 0 0 1em;">💬 加入讨论</h2>
+        <div style="margin: 1em 0; text-align: center;">
+            <img src="https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/v2/cover/TLUDbhyLmouPN2xwGsPc0x9hnXe/?fallback_source=1&height=1280&mount_node_token=ElBYdpiroornbUxQ9rKcv4HNnHe&mount_point=docx_image&policy=equal&width=1280" 
+                 style="width: 200px; border-radius: 8px; margin-bottom: 1em;">
+        </div>
+        <a href="https://pd.qq.com/s/2ks4079x0"
+           style="display: inline-flex;
+                  align-items: center;
+                  padding: 12px 24px;
+                  background: linear-gradient(135deg, #2d8cf0 30%, #1e6bff 70%);
+                  color: white;
+                  border-radius: 6px;
+                  text-decoration: none;
+                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                  transform: translateY(0);
+                  box-shadow: 0 4px 8px rgba(45,140,240,0.15);
+                  border: 1px solid rgba(255,255,255,0.2);
+                  margin: 0 auto;
+                  gap: 8px;"
+           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
+           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
+           onmousedown="this.style.transform='translateY(1px)'"
+           onmouseup="this.style.transform='translateY(-2px)'">
+            <span style="font-size: 1.1em; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));">👥</span>
+            <span style="font-weight: 500; letter-spacing: 0.5px;">加入腾讯讨论频道</span>
+        </a>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff5f5; border-left: 4px solid #ff4d4f; border-radius: 8px;">
         <h2 style="color: #ff4d4f; margin: 0 0 1em;">⚠️ 免责声明</h2>

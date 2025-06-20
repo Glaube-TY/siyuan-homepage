@@ -36,11 +36,53 @@
     let tempStatsInfoText =
         "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
 
+    type ButtonItem = {
+        id: number;
+        label: string;
+        checked: boolean;
+        shortcut?: string;
+        order: number;
+    };
+
+    let buttonsList: ButtonItem[] = [
+        {
+            id: 1728000000000,
+            label: "🔍 搜索笔记",
+            checked: true,
+            shortcut: "Ctrl+P",
+            order: 0,
+        },
+        {
+            id: 1728000001000,
+            label: "📅 今日日记",
+            checked: true,
+            shortcut: "Alt+5",
+            order: 1,
+        },
+        {
+            id: 1728000002000,
+            label: "➕ 添加组件",
+            checked: true,
+            order: 2,
+        },
+        {
+            id: 1728000003000,
+            label: "⚙ 主页设置",
+            checked: true,
+            order: 3,
+        },
+    ];
+
+    // 当前选中的按钮项
+    let selectedButton: ButtonItem | null = null;
+    let nextId = Date.now();
+    let selectedButtonIndex: number = -1;
+
     // 设置页面加载时读取配置信息
     onMount(async () => {
         const savedConfig = await plugin.loadData("homepageSettingConfig.json");
         if (savedConfig) {
-            //全局配置
+            // 全局配置
             tempAutoOpenHomepage = savedConfig.autoOpenHomepage ?? true;
 
             // 横幅配置
@@ -57,10 +99,22 @@
             tempTitleIconImage = savedConfig.TitleIconImage || null;
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
             tempStatsInfoText = savedConfig.statsInfoText;
+
+            // 恢复按钮配置
+            if (savedConfig.buttonsList) {
+                buttonsList = savedConfig.buttonsList.map((item) => ({
+                    ...item,
+                    order: item.order ?? 0,
+                }));
+                nextId = Math.max(...buttonsList.map((item) => item.id), 0) + 1;
+            }
+
+            if (savedConfig.selectedButton) {
+                selectedButton = savedConfig.selectedButton;
+            }
         }
 
         // 同步到临时变量
-        tempBannerEnabled = bannerEnabled;
         tempBannerEnabled = bannerEnabled;
         tempBannerType = bannerType;
         tempBannerHeight = bannerHeight;
@@ -141,6 +195,96 @@
         showEmojiPicker = true;
     }
 
+    // 添加新按钮
+    function addNewButton() {
+        const newId = nextId + 1;
+        nextId = newId;
+
+        const newItem = {
+            id: newId,
+            label: `新建按钮`,
+            checked: false,
+            order:
+                buttonsList.length > 0
+                    ? Math.max(...buttonsList.map((b) => b.order)) + 1
+                    : 0,
+        };
+
+        buttonsList = [...buttonsList, newItem];
+        selectedButton = newItem;
+    }
+
+    // 在编辑按钮标签时触发更新
+    function updateButtonLabel(newLabel: string) {
+        if (selectedButton) {
+            // 创建一个新的按钮对象来替换旧的
+            selectedButton = {
+                ...selectedButton,
+                label: newLabel,
+            };
+
+            // 更新 buttonsList 中对应的项
+            buttonsList = buttonsList.map((item) =>
+                item.id === selectedButton.id ? selectedButton : item,
+            );
+        }
+    }
+
+    function deleteCustomButton() {
+        if (selectedButton) {
+            // 判断是否为核心按钮（不删除）
+            const coreButtons = ["➕ 添加组件", "⚙ 主页设置"];
+            if (coreButtons.includes(selectedButton.label)) {
+                return;
+            }
+
+            // 删除当前选中的按钮
+            buttonsList = buttonsList.filter(
+                (item) => item.id !== selectedButton.id,
+            );
+            selectedButton = null; // 清空选中
+        }
+    }
+
+    $: {
+        // 获取当前选中按钮在列表中的索引
+        selectedButtonIndex = selectedButton
+            ? buttonsList.findIndex((item) => item.id === selectedButton.id)
+            : -1;
+    }
+
+    function moveUpButton() {
+        if (selectedButtonIndex <= 0) return;
+
+        const newIndex = selectedButtonIndex - 1;
+        const newList = [...buttonsList];
+        [newList[selectedButtonIndex], newList[newIndex]] = [
+            newList[newIndex],
+            newList[selectedButtonIndex],
+        ];
+
+        // 更新 order 字段
+        buttonsList = newList.map((item, index) => ({ ...item, order: index }));
+    }
+
+    function moveDownButton() {
+        if (
+            selectedButtonIndex === -1 ||
+            selectedButtonIndex >= buttonsList.length - 1
+        )
+            return;
+
+        const newIndex = selectedButtonIndex + 1;
+        const newList = [...buttonsList];
+        [newList[selectedButtonIndex], newList[newIndex]] = [
+            newList[newIndex],
+            newList[selectedButtonIndex],
+        ];
+
+        // 更新 order 字段
+        buttonsList = newList.map((item, index) => ({ ...item, order: index }));
+    }
+
     // 保存配置并关闭对话框
     async function confirmSave() {
         const config = {
@@ -163,7 +307,15 @@
 
             statsInfoText: tempStatsInfoText,
 
-            // navButtons: navButtons,
+            // 按钮配置
+            buttonsList: buttonsList.map((item) => ({
+                id: item.id,
+                label: item.label,
+                checked: item.checked,
+                shortcut: item.shortcut || "",
+                order: item.order,
+            })),
+            selectedButton: selectedButton,
         };
 
         await plugin.saveData("homepageSettingConfig.json", config);
@@ -218,6 +370,11 @@
                         on:click={() => (settingsActiveTab = "title")}
                         class:active={settingsActiveTab === "title"}
                         >标题设置</button
+                    >
+                    <button
+                        on:click={() => (settingsActiveTab = "button")}
+                        class:active={settingsActiveTab === "button"}
+                        >按钮设置</button
                     >
                     <button
                         on:click={() => (settingsActiveTab = "widgets")}
@@ -451,6 +608,8 @@
                                     <div
                                         class="emoji-picker-modal"
                                         style="top: {emojiPickerPosition.top}; left: {emojiPickerPosition.left};"
+                                        role="dialog"
+                                        aria-modal="true"
                                     >
                                         <div class="emoji-picker-content">
                                             <emoji-picker
@@ -474,6 +633,115 @@
                                 bind:value={tempStatsInfoText}
                                 placeholder="输入自定义状态语句"
                             />
+                        </div>
+                    </div>
+                {/if}
+
+                {#if settingsActiveTab === "button"}
+                    <div class="section-setting buttons-setting">
+                        <div class="buttons-setting-container">
+                            <div class="buttons-list">
+                                {#each buttonsList as item (item.id)}
+                                    <button
+                                        type="button"
+                                        class="button-item"
+                                        class:active={selectedButton?.id ===
+                                            item.id}
+                                        on:click={() => (selectedButton = item)}
+                                        on:keydown={(e) => {
+                                            if (
+                                                e.key === "Enter" ||
+                                                e.key === " "
+                                            ) {
+                                                selectedButton = item;
+                                                e.preventDefault();
+                                            }
+                                        }}
+                                        aria-label={`选择按钮 ${item.label}`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            bind:checked={item.checked}
+                                            on:click|stopPropagation
+                                        />
+                                        <span>{item.label}</span>
+                                    </button>
+                                {/each}
+                                <button
+                                    class="add-button"
+                                    on:click={addNewButton}>➕ 添加按钮</button
+                                >
+                            </div>
+
+                            <div class="button-details">
+                                {#if selectedButton}
+                                    <h4>编辑按钮：{selectedButton.label}</h4>
+                                    {#if selectedButton.label === "➕ 添加组件"}
+                                        <p>插件核心按钮不支持自定义</p>
+                                    {:else if selectedButton.label === "⚙ 主页设置"}
+                                        <p>插件核心按钮不支持自定义</p>
+                                    {:else}
+                                        <!-- 自定义按钮设置项 -->
+                                        <div class="form-group">
+                                            <label for="custom-button-label"
+                                                >按钮标签：</label
+                                            >
+                                            <input
+                                                id="custom-button-label"
+                                                type="text"
+                                                bind:value={
+                                                    selectedButton.label
+                                                }
+                                                on:input={() =>
+                                                    updateButtonLabel(
+                                                        selectedButton.label,
+                                                    )}
+                                                placeholder="例如：我的快捷方式"
+                                            />
+                                        </div>
+                                        <!-- 快捷键输入框 -->
+                                        <div class="form-group">
+                                            <label for="button-shortcut"
+                                                >快捷键：</label
+                                            >
+                                            <input
+                                                id="button-shortcut"
+                                                type="text"
+                                                placeholder="例如：Ctrl+C"
+                                                bind:value={
+                                                    selectedButton.shortcut
+                                                }
+                                            />
+                                        </div>
+                                        <div class="button-actions">
+                                            <button
+                                                class="btn move-up"
+                                                on:click={moveUpButton}
+                                                disabled={selectedButtonIndex <=
+                                                    0}
+                                                title="上移">🔼</button
+                                            >
+
+                                            <button
+                                                class="btn move-down"
+                                                on:click={moveDownButton}
+                                                disabled={selectedButtonIndex >=
+                                                    buttonsList.length - 1 ||
+                                                    selectedButtonIndex === -1}
+                                                title="下移">🔽</button
+                                            >
+
+                                            <button
+                                                class="btn danger"
+                                                on:click={deleteCustomButton}
+                                                >❌ 删除此按钮</button
+                                            >
+                                        </div>
+                                    {/if}
+                                {:else}
+                                    <p>请选择左侧按钮以查看或编辑其详情</p>
+                                {/if}
+                            </div>
                         </div>
                     </div>
                 {/if}
@@ -551,8 +819,8 @@
                             </p>
                             <p>
                                 <a
-                                    href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
-                                    class="link">飞书文档评论区</a
+                                    href="https://pd.qq.com/s/2ks4079x0"
+                                    class="link">腾讯频道</a
                                 >
                             </p>
                         </div>

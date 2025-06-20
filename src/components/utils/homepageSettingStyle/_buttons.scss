@@ -1,0 +1,108 @@
+.buttons-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+
+    .buttons-setting-container {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+
+        .buttons-list {
+            min-width: 150px;
+            max-width: 250px;
+            padding: 0.5rem;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+
+            .button-item {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.6rem 0.8rem;
+                border-radius: 6px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                background-color: transparent;
+                border: 1px solid transparent;
+
+                &:hover,
+                &.active {
+                    background-color: #eaf4ff;
+                    border-color: #b3d7ff;
+                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+                }
+
+                input[type="checkbox"] {
+                    margin: 0;
+                    cursor: pointer;
+                }
+
+                span {
+                    flex-grow: 1;
+                    font-size: 1rem;
+                    color: #333;
+                }
+            }
+
+            .add-button {
+                align-self: flex-start;
+                padding: 0.6rem 1rem;
+                font-size: 1rem;
+                font-weight: 500;
+                color: #fff;
+                background-color: #4a90e2;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.4rem;
+
+                &:hover {
+                    background-color: #357cd2;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                }
+
+                &:focus {
+                    outline: none;
+                    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.5);
+                }
+            }
+        }
+
+        .button-details {
+            background-color: var(--b3-theme-background);
+            flex-grow: 1;
+            padding: 1rem;
+            border-radius: 6px;
+            min-width: 0; // 避免布局崩溃
+
+            .button-actions {
+                display: flex;
+                gap: 8px;
+                margin-top: 16px;
+
+                button.move-up,
+                button.move-down {
+                    width: 36px;
+                    height: 36px;
+                    font-size: 18px;
+                    padding: 0;
+                    text-align: center;
+                    line-height: 1;
+                }
+
+                button:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+            }
+        }
+    }
+}

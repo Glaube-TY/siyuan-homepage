@@ -3,9 +3,11 @@
 @use './_homepageContentSettings';
 @use './_title';
 @use './_about';
+@use './_buttons';
 
 
 .settings-container {
+    overflow: visible;
     padding: 1.5rem;
     background: var(--b3-theme-background);
     border-radius: 12px;

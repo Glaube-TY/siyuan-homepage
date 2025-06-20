@@ -10,14 +10,11 @@
     } from "./utils/widgetBlock/utils/layout-handler";
     import { initDrag } from "./utils/topBanner/drag";
     import {
-        triggerSearchNotes,
-        triggerOpenTodayDiary,
-    } from "./utils/keyboard-handler";
-    import {
         loadStatsData,
         type StatsData,
         parseDurationExpression,
     } from "./utils/stats-loader";
+    import { keyCodeMap } from "./utils/keyboard-handler";
     import { addCustomBlock } from "./utils/widgetBlock/utils/block-creator";
 
     import HomepageSetting from "./utils/homepageSetting.svelte";
@@ -49,69 +46,28 @@
     let statsInfoText =
         "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
 
-    function OpenHomepageSetting() {
-        const dialog = svelteDialog({
-            title: "主页设置",
-            constructor: (containerEl: HTMLElement) => {
-                return new HomepageSetting({
-                    target: containerEl,
-                    props: {
-                        plugin: plugin,
-                        close: () => {
-                            dialog.close();
-                        },
-                    },
-                });
-            },
-        });
-    }
+    type ButtonItem = {
+        id: number;
+        label: string;
+        checked: boolean;
+        shortcut?: string;
+        order: number;
+    };
+    let buttonsList: ButtonItem[] = [];
+    let showMoreMenu = false;
+    let isHoveringNavBar = false;
 
-    // 初始化拖拽
-    function handleLoad() {
-        if (bannerImage && bannerImage.parentElement) {
-            initDrag(bannerImage, plugin);
-        }
-    }
-
-    const updateHomepage = async () => {
-        const config =
-            (await plugin.loadData("homepageSettingConfig.json")) || {};
-
-        // 标题相关配置
-        showBanner.set(config.bannerEnabled !== false);
-        showIcon.set(config.showIcon !== false);
-
-        // 标题区域配置
-        tempTitleIconEmoji = config.TitleIconEmoji;
-        tempTitleIconImage = config.TitleIconImage;
-        titleIconType = config.titleIconType || "emoji";
-        pageTitle = config.customTitle || "思源笔记首页";
-
-        statsInfoText = config.statsInfoText;
-
-        const bannerElement =
-            document.querySelector<HTMLElement>(".top-banner");
-        if (bannerElement) {
-            if (config.bannerHeight && !isNaN(parseInt(config.bannerHeight))) {
-                bannerElement.style.height = `${parseInt(config.bannerHeight)}px`;
-            } else {
-                bannerElement.style.height = "300px"; // 默认值兜底
-            }
-        }
-
-        if (config.bannerEnabled) {
-            if (config.bannerType === "local" && config.bannerLocalData) {
-                bannerImage.src = config.bannerLocalData;
-            } else if (
-                config.bannerType === "remote" &&
-                config.bannerRemoteUrl
-            ) {
-                bannerImage.src = config.bannerRemoteUrl;
-            }
-        } else {
-            bannerImage.style.display = "none";
+    const handleDocumentClick = (event: MouseEvent) => {
+        const target = event.target as Node;
+        const isMoreButton = document
+            .querySelector(".more-button")
+            ?.contains(target);
+        if (!isMoreButton && showMoreMenu) {
+            showMoreMenu = false;
         }
     };
+
+    $: filteredButtons = buttonsList.filter((b) => b.checked === false);
 
     onMount(() => {
         (async () => {
@@ -142,8 +98,11 @@
             await updateHomepage();
         }, 100);
 
+        document.addEventListener("click", handleDocumentClick);
+
         return () => {
             window.removeEventListener("load", handleLoad);
+            document.removeEventListener("click", handleDocumentClick);
         };
     });
 
@@ -156,6 +115,186 @@
         .replace(/\$\$(.*?)\$\$/g, (_, expr) => {
             return parseDurationExpression(expr.trim(), statsData) || "";
         });
+
+    function handleMoreButtonClick() {
+        showMoreMenu = !showMoreMenu;
+    }
+
+    function handleMoreItemClick(item: (typeof buttonsList)[number]) {
+        if (item.label.includes("➕ 添加组件")) {
+            addCustomBlock(plugin, currentBlockForSettingsRef);
+        } else if (item.label.includes("⚙ 主页设置")) {
+            OpenHomepageSetting();
+        }
+    }
+
+    function handleButtonClick(item: ButtonItem) {
+        if (item.label.includes("➕ 添加组件")) {
+            addCustomBlock(plugin, currentBlockForSettingsRef);
+        } else if (item.label.includes("⚙ 主页设置")) {
+            OpenHomepageSetting();
+        } else if (item.shortcut) {
+            triggerShortcut(item);
+        }
+    }
+
+    async function triggerShortcut(item: ButtonItem) {
+        const keys = item.shortcut!.toLowerCase().split("+");
+        const modifiers = keys.filter((k) =>
+            ["ctrl", "alt", "shift", "meta"].includes(k),
+        );
+        const mainKey = keys.find((k) => !modifiers.includes(k));
+
+        if (!mainKey) return;
+
+        const keyEvent = new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: modifiers.includes("ctrl"),
+            altKey: modifiers.includes("alt"),
+            shiftKey: modifiers.includes("shift"),
+            metaKey: modifiers.includes("meta"),
+            key: mainKey === "space" ? " " : mainKey,
+            code: codeFor(mainKey),
+            keyCode: keyCodeMap[mainKey] || 0,
+            which: keyCodeMap[mainKey] || 0,
+        });
+
+        console.log(keyEvent);
+
+        document.dispatchEvent(keyEvent);
+    }
+
+    function codeFor(key: string): string {
+        if (/[a-z]/.test(key)) return `Key${key.toUpperCase()}`;
+        if (/[0-9]/.test(key)) return `Digit${key}`;
+
+        const specialKeys: Record<string, string> = {
+            "[": "BracketLeft",
+            "]": "BracketRight",
+            "{": "BracketLeft",
+            "}": "BracketRight",
+            "'": "Quote",
+            '"': "Quote",
+            ";": "Semicolon",
+            ":": "Semicolon",
+            ",": "Comma",
+            "<": "Comma",
+            ".": "Period",
+            ">": "Period",
+            "/": "Slash",
+            "?": "Slash",
+            "-": "Minus",
+            _: "Minus",
+            "=": "Equal",
+            "+": "Equal",
+        };
+
+        return specialKeys[key] || "";
+    }
+
+    const updateHomepage = async () => {
+        const config =
+            (await plugin.loadData("homepageSettingConfig.json")) || {};
+
+        // 标题相关配置
+        showBanner.set(config.bannerEnabled !== false);
+        showIcon.set(config.showIcon !== false);
+
+        // 标题区域配置
+        tempTitleIconEmoji = config.TitleIconEmoji;
+        tempTitleIconImage = config.TitleIconImage;
+        titleIconType = config.titleIconType || "emoji";
+        pageTitle = config.customTitle || "思源笔记首页";
+
+        statsInfoText = config.statsInfoText;
+
+        const bannerElement =
+            document.querySelector<HTMLElement>(".top-banner");
+        if (bannerElement) {
+            if (config.bannerHeight && !isNaN(parseInt(config.bannerHeight))) {
+                bannerElement.style.height = `${parseInt(config.bannerHeight)}px`;
+            } else {
+                bannerElement.style.height = "300px";
+            }
+        }
+
+        if (config.bannerEnabled) {
+            if (config.bannerType === "local" && config.bannerLocalData) {
+                bannerImage.src = config.bannerLocalData;
+            } else if (
+                config.bannerType === "remote" &&
+                config.bannerRemoteUrl
+            ) {
+                bannerImage.src = config.bannerRemoteUrl;
+            }
+        } else {
+            bannerImage.style.display = "none";
+        }
+
+        if (config.buttonsList) {
+            buttonsList = config.buttonsList.map((item) => ({
+                id: item.id,
+                label: item.label,
+                checked: item.checked,
+                shortcut: item.shortcut || "",
+            }));
+        } else {
+            // 默认按钮数据
+            buttonsList = [
+                {
+                    id: 1728000000000,
+                    label: "🔍 搜索笔记",
+                    checked: true,
+                    shortcut: "Ctrl+P",
+                    order: 0,
+                },
+                {
+                    id: 1728000001000,
+                    label: "📅 今日日记",
+                    checked: true,
+                    shortcut: "Alt+5",
+                    order: 1,
+                },
+                {
+                    id: 1728000002000,
+                    label: "➕ 添加组件",
+                    checked: true,
+                    order: 2,
+                },
+                {
+                    id: 1728000003000,
+                    label: "⚙ 主页设置",
+                    checked: true,
+                    order: 3,
+                },
+            ];
+        }
+    };
+
+    function OpenHomepageSetting() {
+        const dialog = svelteDialog({
+            title: "主页设置",
+            constructor: (containerEl: HTMLElement) => {
+                return new HomepageSetting({
+                    target: containerEl,
+                    props: {
+                        plugin: plugin,
+                        close: () => {
+                            dialog.close();
+                        },
+                    },
+                });
+            },
+        });
+    }
+
+    // 初始化拖拽
+    function handleLoad() {
+        if (bannerImage && bannerImage.parentElement) {
+            initDrag(bannerImage, plugin);
+        }
+    }
 </script>
 
 <div class="container">
@@ -237,25 +376,49 @@
         </div>
 
         <!-- 导航栏 -->
-        <div class="nav-bar">
-            <button class="nav-button" on:click={triggerSearchNotes}>
-                🔍 搜索笔记
-            </button>
-            <button class="nav-button" on:click={triggerOpenTodayDiary}>
-                📅 今日日记
-            </button>
+        <div
+            class="nav-bar"
+            role="navigation"
+            aria-label="主菜单导航栏"
+            on:mouseenter={() => (isHoveringNavBar = true)}
+            on:mouseleave={() => (isHoveringNavBar = false)}
+        >
+            {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
+                {#if sortedButtons.checked}
+                    <button
+                        class="nav-button"
+                        on:click={() => handleButtonClick(sortedButtons)}
+                    >
+                        {sortedButtons.label}
+                    </button>
+                {/if}
+            {/each}
+
+            <!-- 更多按钮始终渲染，仅控制样式变化 -->
             <button
-                class="nav-button"
-                on:click={() => {
-                    addCustomBlock(plugin, currentBlockForSettingsRef);
-                    saveLayout(plugin);
-                }}
+                class="nav-button more-button"
+                class:hidden={!isHoveringNavBar || filteredButtons.length === 0}
+                on:click={handleMoreButtonClick}
             >
-                ➕ 添加组件
+                更多
             </button>
-            <button class="nav-button" on:click={OpenHomepageSetting}
-                >⚙️ 主页设置</button
-            >
+
+            <!-- 下拉菜单也始终渲染，仅控制是否显示 -->
+            {#if showMoreMenu && filteredButtons.length > 0}
+                <div class="more-menu">
+                    {#each filteredButtons as item}
+                        <button
+                            class="more-menu-item"
+                            on:click={() => {
+                                handleMoreItemClick(item);
+                                showMoreMenu = false;
+                            }}
+                        >
+                            {item.label}
+                        </button>
+                    {/each}
+                </div>
+            {/if}
         </div>
     </div>
 
