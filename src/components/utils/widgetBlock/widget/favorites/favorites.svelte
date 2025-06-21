@@ -10,7 +10,10 @@
     export let contentTypeJson: string = "{}";
 
     let favoritesNotes: FavoritesNoteInfo[] = [];
+    let favoritiesTitle: string = "💖收藏文档";
     let contentTypeJsonObj: any;
+    let showNoteMeta: boolean = true;
+    let favoritiesDocPrefix: string = "❤";
 
     // 时间戳格式化函数
     function formatDate(raw: string): string {
@@ -25,11 +28,15 @@
         favoritesNotes = await getLatestFavoritesNotes(
             contentTypeJsonObj.data?.favoritiesSortOrder,
         );
+        favoritiesTitle =
+            contentTypeJsonObj.data?.favoritiesTitle || favoritiesTitle;
+        showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? showNoteMeta;
+        favoritiesDocPrefix = contentTypeJsonObj.data?.favoritiesDocPrefix || favoritiesDocPrefix;
     });
 </script>
 
 <div class="content-display">
-    <h3 class="widget-title">💖收藏文档</h3>
+    <h3 class="widget-title">{favoritiesTitle}</h3>
     <div class="favorites-content-container">
         {#if favoritesNotes.length}
             <ul class="favorites-list">
@@ -44,19 +51,31 @@
                                         id: note.id,
                                     },
                                 })}
+                            on:keydown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    openTab({
+                                        app: plugin.app,
+                                        doc: {
+                                            id: note.id,
+                                        },
+                                    });
+                                }
+                            }}
                             role="button"
                             tabindex="0"
                             aria-label="打开收藏文档：{note.content}"
                         >
-                            ❤ {note.content}
+                            {favoritiesDocPrefix} {note.content}
                         </div>
-                        <div class="note-meta">
-                            {#if contentTypeJsonObj.data?.favoritiesSortOrder === "created"}
-                                创建时间：{formatDate(note.created)}
-                            {:else}
-                                更新时间：{formatDate(note.updated)}
-                            {/if}
-                        </div>
+                        {#if showNoteMeta}
+                            <div class="note-meta">
+                                {#if contentTypeJsonObj.data?.favoritiesSortOrder === "created"}
+                                    创建时间：{formatDate(note.created)}
+                                {:else}
+                                    更新时间：{formatDate(note.updated)}
+                                {/if}
+                            </div>
+                        {/if}
                     </li>
                 {/each}
             </ul>

@@ -3,14 +3,13 @@
         width: 100%;
         max-width: 100%;
         min-height: 150px;
-        padding: 0.75rem 1rem;
-        font-size: 14px;
-        line-height: 1.6;
+        padding: 0.6rem 0.8rem;
+        border: 1px solid var(--b3-theme-border-color);
+        border-radius: 6px;
+        background-color: var(--b3-theme-background);
         color: var(--b3-theme-on-surface);
-        background-color: var(--b3-theme-surface);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 8px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        font-size: 0.95rem;
+        transition: all 0.2s ease-in-out;
         resize: vertical;
         font-family: inherit;
         box-sizing: border-box;
@@ -18,13 +17,14 @@
 
         &:focus {
             outline: none;
-            border-color: var(--b3-theme-primary);
-            box-shadow: 0 0 0 3px rgba(var(--b3-theme-primary-rgb), 0.2);
-            background-color: var(--b3-theme-background);
+            border-color: var(--b3-theme-border-color);
+            box-shadow: 0 1px 3px var(--b3-theme-primary);
+            background-color: white;
         }
 
         &:hover {
-            background-color: var(--b3-theme-hover);
+            border-color: var(--b3-theme-border-color);
+            box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
     }
 }

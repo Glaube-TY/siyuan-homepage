@@ -113,6 +113,12 @@
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-21 v1.2.3</span>
+            <p style="margin: 0.5em 0;">修复使用本地图片横幅时可能会加载不出来组件的问题</p>
+            <p style="margin: 0.5em 0;">增加自定义收藏文档组件标题、文档前缀等</p>
+            <p style="margin: 0.5em 0;">优化部分样式</p>
+        </div>
+        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-21 v1.2.2</span>
             <p style="margin: 0.5em 0;">最近文档组件添加展示最近打开文档的功能</p>
             <p style="margin: 0.5em 0;">修复设置-外观-css的显示问题</p>
@@ -121,13 +127,6 @@
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-20 v1.2.1</span>
             <p style="margin: 0.5em 0;">增加指定最近文档和任务管理组件所处的笔记本功能</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-20 v1.2.0</span>
-            <p style="margin: 0.5em 0;">新增自定义快捷按钮功能（快捷键）</p>
-            <p style="margin: 0.5em 0;">修改快捷按钮样式以适配全局主题</p>
-            <p style="margin: 0.5em 0;">修复标题图标设置中的表情弹窗位置错误</p>
-            <p style="margin: 0.5em 0;">增加腾讯频道交流链接</p>
         </div>
         <div>
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 

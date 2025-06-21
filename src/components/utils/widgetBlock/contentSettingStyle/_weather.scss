@@ -1,25 +1,5 @@
 .weather {
     input[type="text"] {
         max-width: 100px;
-        flex: 1 1 auto;
-        padding: 0.5rem 0.75rem;
-        font-size: 14px;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        background-color: var(--b3-theme-surface);
-        color: var(--b3-theme-text);
-        transition: all 0.2s ease-in-out;
-        box-sizing: border-box;
-
-        &:hover {
-            border-color: var(--b3-theme-primary-light);
-            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1);
-        }
-
-        &:focus {
-            outline: none;
-            border-color: var(--b3-theme-primary);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-        }
     }
 }

@@ -82,16 +82,24 @@
             statsData = await loadStatsData();
 
             // 初始化区块拖拽排序
-            const container = document.querySelector(
-                ".custom-content",
-            ) as HTMLElement;
-            new Sortable(container, {
-                animation: 150,
-                ghostClass: "sortable-ghost",
-                onEnd: () => saveLayout(plugin),
+            const observer = new MutationObserver(async () => {
+                const container = document.querySelector(
+                    ".custom-content",
+                ) as HTMLElement;
+                if (container) {
+                    observer.disconnect();
+
+                    new Sortable(container, {
+                        animation: 150,
+                        ghostClass: "sortable-ghost",
+                        onEnd: () => saveLayout(plugin),
+                    });
+
+                    await restoreLayout(plugin, { value: container });
+                }
             });
 
-            await restoreLayout(plugin, { value: container });
+            observer.observe(document.body, { childList: true, subtree: true });
         })();
 
         setTimeout(async () => {

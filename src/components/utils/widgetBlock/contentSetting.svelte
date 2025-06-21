@@ -24,8 +24,11 @@
     // 最近日记配置
     let docJournalLimit: number = 5;
 
-    // 收藏文档排序方式
+    // 收藏文档配置
+    let favoritiesTitle: string = "💖收藏文档";
     let favoritiesSortOrder: string = "created";
+    let showNoteMeta: boolean = true;
+    let favoritiesDocPrefix: string = "❤";
 
     // 任务管理相关变量
     let showCompletedTasks = true; // 默认显示已完成任务
@@ -130,7 +133,7 @@
             `widget-${currentBlockId}.json`,
         );
         if (settingData) {
-            let parsedData;
+            let parsedData: any;
 
             if (typeof settingData === "string") {
                 try {
@@ -151,8 +154,13 @@
                 ensureOpenDocs = parsedData.data?.[0]?.ensureOpenDocs || false;
                 docNotebookId = parsedData.data?.[0]?.docNotebookId || "";
             } else if (parsedData.type === "favorites") {
+                favoritiesTitle =
+                    parsedData.data?.favoritiesTitle || "💖收藏文档";
                 favoritiesSortOrder =
                     parsedData.data?.favoritiesSortOrder || "created";
+                showNoteMeta = parsedData.data?.showNoteMeta ?? true;
+                favoritiesDocPrefix =
+                    parsedData.data?.favoritiesDocPrefix || favoritiesDocPrefix;
             } else if (parsedData.type === "heatmap") {
                 pastMonthCount = parsedData.data?.[0]?.pastMonthCount || 6;
                 selectedColorPreset =
@@ -283,14 +291,46 @@
                         <!-- 收藏文档设置区域 -->
                         <h4>收藏文档设置</h4>
                         <div class="form-group">
-                            <label for="sort-order">排序方式：</label>
+                            <label for="favorities-title"
+                                >组件标题：
+                                <input
+                                    id="favorities-title"
+                                    type="text"
+                                    bind:value={favoritiesTitle}
+                                    placeholder="输入组件标题"
+                                />
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="favorities-doc-prefix">
+                                文档前缀：
+                                <input
+                                    id="favorities-doc-prefix"
+                                    type="text"
+                                    bind:value={favoritiesDocPrefix}
+                                />
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="favorities-sort-order">排序方式：</label
+                            >
                             <select
-                                id="sort-order"
+                                id="favorities-sort-order"
                                 bind:value={favoritiesSortOrder}
                             >
                                 <option value="created">创建时间</option>
                                 <option value="updated">更新时间</option>
                             </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="favorities-show-note-meta">
+                                <input
+                                    id="favorities-show-note-meta"
+                                    type="checkbox"
+                                    bind:checked={showNoteMeta}
+                                />
+                                显示文档信息</label
+                            >
                         </div>
                     </div>
                 {:else if selectedContentType === "recent-journals"}
@@ -866,8 +906,10 @@
                         type: "favorites",
                         blockId: currentBlockId,
                         data: {
-                            favoritiesSortOrder:
-                                favoritiesSortOrder || "created",
+                            favoritiesTitle,
+                            favoritiesSortOrder,
+                            showNoteMeta,
+                            favoritiesDocPrefix,
                         },
                     };
                 } else if (selectedContentType === "heatmap") {
