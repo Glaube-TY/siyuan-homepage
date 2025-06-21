@@ -115,6 +115,8 @@
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-21 v1.2.3</span>
             <p style="margin: 0.5em 0;">修复使用本地图片横幅时可能会加载不出来组件的问题</p>
+            <p style="margin: 0.5em 0;">增加自定义收藏文档组件标题、文档前缀等</p>
+            <p style="margin: 0.5em 0;">优化部分样式</p>
         </div>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-21 v1.2.2</span>
