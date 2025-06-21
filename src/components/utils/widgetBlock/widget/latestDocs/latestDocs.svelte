@@ -16,12 +16,14 @@
 
     // 模拟加载文档数据
     onMount(async () => {
-        documentList = await getLatestDocuments(parsed.data?.[0]?.docNotebookId);
+        documentList = await getLatestDocuments(
+            parsed.data?.[0]?.docNotebookId,
+            parsed.data?.[0]?.ensureOpenDocs,
+        );
     });
 
     $: {
         try {
-            
             if (parsed.type === "latest-docs") {
                 const limit = parsed.data?.[0]?.limit || 5;
                 displayedDocs = documentList.slice(0, limit);

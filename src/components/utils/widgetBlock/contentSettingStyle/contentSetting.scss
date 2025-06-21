@@ -1,21 +1,20 @@
-    @use "./_timedate";
-    @use "./_countdown";
-    @use "./_customText";
-    @use "./_weather";
-    @use "./_latestDocs";
-    @use "./tasks";
+@use "./_timedate";
+@use "./_countdown";
+@use "./_customText";
+@use "./_weather";
+@use "./_latestDocs";
+@use "./tasks";
 
-    // 设置窗口整体样式
-    .settings-container {
-        padding: 1.5rem;
-        background: var(--b3-theme-background);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        border: 1px solid var(--b3-border-color);
-        width: 100%;
-        height: auto;
-        font-family: "Segoe UI", system-ui, sans-serif;
-    }
+// 设置窗口整体样式
+.settings-container {
+    padding: 1.5rem;
+    background: var(--b3-theme-background);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    border: 1px solid var(--b3-border-color);
+    width: 100%;
+    height: auto;
+    font-family: "Segoe UI", system-ui, sans-serif;
 
     .content-type-select {
         margin-bottom: 1.5rem;
@@ -162,3 +161,4 @@
         color: var(--b3-theme-on-surface);
         box-shadow: 0 2px 4px rgba(148, 163, 184, 0.2);
     }
+}

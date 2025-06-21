@@ -123,14 +123,18 @@
     function handleMoreItemClick(item: (typeof buttonsList)[number]) {
         if (item.label.includes("➕ 添加组件")) {
             addCustomBlock(plugin, currentBlockForSettingsRef);
+            saveLayout(plugin);
         } else if (item.label.includes("⚙ 主页设置")) {
             OpenHomepageSetting();
+        } else if (item.shortcut) {
+            triggerShortcut(item);
         }
     }
 
     function handleButtonClick(item: ButtonItem) {
         if (item.label.includes("➕ 添加组件")) {
             addCustomBlock(plugin, currentBlockForSettingsRef);
+            saveLayout(plugin);
         } else if (item.label.includes("⚙ 主页设置")) {
             OpenHomepageSetting();
         } else if (item.shortcut) {

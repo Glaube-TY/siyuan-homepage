@@ -1,19 +1,46 @@
-import { sql } from "@/api";
+import { sql, getFile } from "@/api";
 
-/**
- * 定义文档信息的接口
- */
 export interface latestDocumentInfo {
-    id: string;       // 文档ID
-    content: string;    // 文档标题
-    updated: string;  // 最后更新时间（原始格式）
+    id: string;
+    content: string;
+    updated: string;
 }
 
-/**
- * 查询指定笔记本下的最新20个文档信息
- */
-export async function getLatestDocuments(docNotebookIds?: string): Promise<latestDocumentInfo[]> {
+export async function getLatestDocuments(
+    docNotebookIds?: string,
+    ensureOpenDocs?: boolean
+): Promise<latestDocumentInfo[]> {
     try {
+        if (ensureOpenDocs) {
+            const recentDocs = await getFile("/data/storage/recent-doc.json");
+            let parsedRecent = typeof recentDocs === 'string'
+                ? JSON.parse(recentDocs)
+                : recentDocs;
+
+            const ids = parsedRecent.map((doc: any) => `'${doc.rootID}'`).join(',');
+            const updateQuery = `SELECT id, updated FROM blocks WHERE id IN (${ids})`;
+            const updates = await sql(updateQuery);
+
+            if (docNotebookIds) {
+                const targetNotebooks = docNotebookIds.split(/[，,]/).map(id => id.trim());
+                const notebookQuery = `SELECT id, box FROM blocks WHERE id IN (${ids})`;
+                const notebookData = await sql(notebookQuery);
+                
+                parsedRecent = parsedRecent.filter((doc: any) => 
+                    notebookData.some((n: any) => 
+                        n.id === doc.rootID && 
+                        targetNotebooks.includes(n.box)
+                    )
+                );
+            }
+
+            return parsedRecent.map((doc: any) => ({
+                id: doc.rootID,
+                content: doc.title,
+                updated: updates.find((u: any) => u.id === doc.rootID)?.updated || ""
+            }));
+        }
+
         let notebookIds: string[] = [];
         if (docNotebookIds) {
             notebookIds = docNotebookIds.split(/[，,]/).map(id => id.trim()).filter(Boolean);
@@ -27,7 +54,6 @@ export async function getLatestDocuments(docNotebookIds?: string): Promise<lates
               AND hpath NOT LIKE '/daily note/%'
         `;
 
-        // 如果有笔记本ID，则添加过滤条件
         if (notebookIds.length > 0) {
             query += ` AND box IN (${notebookIds.map(id => `'${id}'`).join(', ')})`;
         }
@@ -37,7 +63,7 @@ export async function getLatestDocuments(docNotebookIds?: string): Promise<lates
             LIMIT 20;
         `;
 
-        const result = await sql(query); // 使用参数化查询防止SQL注入
+        const result = await sql(query);
         return result;
     } catch (error) {
         console.error("Failed to fetch latest documents:", error);

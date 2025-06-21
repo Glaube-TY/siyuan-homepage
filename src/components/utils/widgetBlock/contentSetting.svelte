@@ -18,6 +18,7 @@
 
     // 最近文档配置
     let docLimit: number = 5;
+    let ensureOpenDocs: boolean = false;
     let docNotebookId: string = ""; // 指定文档所在笔记本 ID
 
     // 最近日记配置
@@ -50,7 +51,7 @@
 
     // 颜色相关
     let selectedColorPreset: "github" | "blue" | "custom" = "github";
-    let customColor: string = "#1ea769"; // 默认 GitHub 绿色
+    let customColor: string = "#1ea769";
 
     // 下拉选项
     const limitOptions = [5, 10, 15, 20];
@@ -87,7 +88,7 @@
     let nightBgImage = null;
 
     // 下拉选择项
-    let morningImageType = "remote"; // 可选 remote / local
+    let morningImageType = "remote";
     let afternoonImageType = "remote";
     let nightImageType = "remote";
 
@@ -147,6 +148,7 @@
 
             if (parsedData.type === "latest-docs") {
                 docLimit = parsedData.data?.[0]?.limit || 5;
+                ensureOpenDocs = parsedData.data?.[0]?.ensureOpenDocs || false;
                 docNotebookId = parsedData.data?.[0]?.docNotebookId || "";
             } else if (parsedData.type === "favorites") {
                 favoritiesSortOrder =
@@ -247,6 +249,15 @@
                     <!-- 最近文档设置区域 -->
                     <div class="content-panel latest-docs">
                         <h4>最近文档设置</h4>
+                        <div class="form-group ensure-OpenDocs">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    bind:checked={ensureOpenDocs}
+                                />
+                                包含打开过的文档
+                            </label>
+                        </div>
                         <div class="form-group">
                             <label for="doc-limit">显示条目数：</label>
                             <select id="doc-limit" bind:value={docLimit}>
@@ -846,7 +857,7 @@
                         type: "latest-docs",
                         blockId: currentBlockId,
                         data: [
-                            { limit: docLimit, docNotebookId: docNotebookId },
+                            { limit: docLimit, docNotebookId, ensureOpenDocs },
                         ],
                     };
                 } else if (selectedContentType === "favorites") {

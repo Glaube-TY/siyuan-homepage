@@ -15,40 +15,40 @@
     border: 1px solid var(--b3-border-color);
     font-family: "Segoe UI", system-ui, sans-serif;
     width: 100%;
-}
 
-h3 {
-    color: var(--b3-theme-text);
-    margin-bottom: 0.75rem;
-}
+    h3 {
+        color: var(--b3-theme-text);
+        margin-bottom: 0.75rem;
+    }
 
-input[type="text"],
-input[type="number"] {
-    box-sizing: border-box;
-    width: 100%;
-    padding: 0.6rem 0.8rem;
-    border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
-    background-color: var(--b3-theme-background);
-    color: var(--b3-theme-on-surface);
-    font-size: 0.95rem;
-    transition: all 0.2s ease-in-out;
-
-    &:focus {
-        outline: none;
-        border-color: var(--b3-theme-primary);
-        box-shadow: 0 0 0 2px rgba(var(--b3-theme-primary-rgb), 0.2);
+    input[type="text"],
+    input[type="number"] {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 0.6rem 0.8rem;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
         background-color: var(--b3-theme-background);
+        color: var(--b3-theme-on-surface);
+        font-size: 0.95rem;
+        transition: all 0.2s ease-in-out;
+
+        &:focus {
+            outline: none;
+            border-color: var(--b3-theme-primary);
+            box-shadow: 0 0 0 2px rgba(var(--b3-theme-primary-rgb), 0.2);
+            background-color: var(--b3-theme-background);
+        }
+
+        &:hover {
+            background-color: var(--b3-theme-hover);
+        }
     }
 
-    &:hover {
-        background-color: var(--b3-theme-hover);
+    input[type="number"] {
+        width: auto;
+        min-width: 60px;
+        max-width: 100px;
+        padding: 0.4rem 0.6rem;
     }
-}
-
-input[type="number"] {
-    width: auto;
-    min-width: 60px;
-    max-width: 100px;
-    padding: 0.4rem 0.6rem;
 }
