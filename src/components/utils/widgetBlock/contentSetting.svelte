@@ -36,6 +36,13 @@
 
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
+    let countdownStyle = "list";
+    let countdownFullBgSelect = "remote";
+    let countdownFullBg =
+        "https://haowallpaper.com/link/common/file/previewFileImg/17021275790298496";
+    let countdownLocalBg = null;
+    let countdownBgInput: HTMLInputElement | null = null;
+    let countdownFontSize: number = 3;
 
     // 天气相关变量
     let customWeatherCity: string = "北京";
@@ -94,6 +101,60 @@
     let morningImageType = "remote";
     let afternoonImageType = "remote";
     let nightImageType = "remote";
+
+    // 专注设置
+    let focusImageType = "remote";
+    let breakImageType = "remote";
+    let focusBgImage =
+        "https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464";
+    let breakBgImage =
+        "https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d";
+    let focusLocalImage = null;
+    let breakLocalImage = null;
+    let focusBgInput: HTMLInputElement | null = null;
+    let breakBgInput: HTMLInputElement | null = null;
+
+    // 处理背景上传函数
+    function handleCountdownUpload() {
+        const file = countdownBgInput?.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (reader.result && typeof reader.result === "string") {
+                countdownLocalBg = reader.result;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // 处理专注背景上传
+    function handleFocusUpload() {
+        const file = focusBgInput?.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (reader.result && typeof reader.result === "string") {
+                focusLocalImage = reader.result;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // 处理休息背景上传
+    function handleBreakUpload() {
+        const file = breakBgInput?.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (reader.result && typeof reader.result === "string") {
+                breakLocalImage = reader.result;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
 
     const handleBackgroundUpload = (timeOfDay) => {
         const reader = new FileReader();
@@ -169,7 +230,17 @@
             } else if (parsedData.type === "recent-journals") {
                 docJournalLimit = parsedData.data?.[0]?.limit || 5;
             } else if (parsedData.type === "countdown") {
-                eventList = parsedData.data || [{ name: "", date: "" }];
+                eventList = parsedData.data?.eventList || [
+                    { name: "", date: "" },
+                ];
+                countdownStyle = parsedData.data?.countdownStyle || "list";
+                countdownLocalBg = parsedData.data?.countdownLocalBg || null;
+                countdownFullBg =
+                    parsedData.data?.countdownFullBg || countdownFullBg;
+                countdownFullBgSelect =
+                    parsedData.data?.countdownFullBgSelect ||
+                    countdownFullBgSelect;
+                countdownFontSize = parsedData.data?.countdownFontSize || countdownFontSize;
             } else if (parsedData.type === "weather") {
                 customWeatherCity = parsedData.data?.city || "北京";
             } else if (parsedData.type === "HOT") {
@@ -208,6 +279,9 @@
                 showCompletedTasks =
                     parsedData.data?.showCompletedTasks ?? true;
                 tasksNotebookId = parsedData.data?.tasksNotebookId || "";
+            } else if (parsedData.type === "focus") {
+                focusBgImage = parsedData.data?.focusBgImage || focusBgImage;
+                breakBgImage = parsedData.data?.breakBgImage || breakBgImage;
             }
         }
     });
@@ -475,6 +549,7 @@
             <div class="content-type-select">
                 <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
+                    <option value="focus">专注</option>
                     <option value="countdown">倒数日</option>
                     <option value="weather">今日天气</option>
                     <option value="timedate">时间日期</option>
@@ -485,6 +560,60 @@
                 {#if selectedContentType === "countdown"}
                     <div class="content-panel countdown">
                         <h4>倒数日设置</h4>
+                        <div class="form-group">
+                            <label for="countdown-style">选择显示方式：</label>
+                            <select
+                                id="countdown-style"
+                                bind:value={countdownStyle}
+                            >
+                                <option value="list">列表</option>
+                                <option value="full">整页</option>
+                            </select>
+                        </div>
+                        {#if countdownStyle === "full"}
+                            <div class="form-group">
+                                <label
+                                    >背景设置：
+                                    <select bind:value={countdownFullBgSelect}>
+                                        <option value="remote">远程图片</option>
+                                        <option value="local">本地图片</option>
+                                    </select>
+                                </label>
+                                {#if countdownFullBgSelect === "remote"}
+                                    <input
+                                        type="text"
+                                        bind:value={countdownFullBg}
+                                        placeholder="输入远程图片URL"
+                                    />
+                                {:else}
+                                    <button
+                                        on:click={() =>
+                                            countdownBgInput?.click()}
+                                        >上传图片</button
+                                    >
+                                    <input
+                                        type="file"
+                                        bind:this={countdownBgInput}
+                                        accept="image/*"
+                                        on:change={handleCountdownUpload}
+                                        style="display: none;"
+                                    />
+                                    <span>无预览直接确认</span>
+                                {/if}
+                            </div>
+                            <div class="form-group">
+                               <label>
+                                    字体大小：
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="10"
+                                        bind:value={countdownFontSize}
+                                        placeholder="例如：3"
+                                    />
+                                </label>
+                            </div>
+                        {/if}
                         <div class="countdown-grid">
                             {#each eventList as event, index}
                                 <div
@@ -828,6 +957,132 @@
                             </div>
                         </div>
                     </div>
+                {:else if selectedContentType === "focus"}
+                    <div class="content-panel focus">
+                        <h4>专注背景图设置</h4>
+
+                        <!-- 专注背景 -->
+                        <div class="background-option">
+                            <div class="background-row">
+                                <!-- 左侧配置 -->
+                                <div class="type-select-and-input">
+                                    <label for="focus-bg-select"
+                                        >专注背景：</label
+                                    >
+                                    <div class="type-select">
+                                        <select
+                                            id="focus-bg-select"
+                                            bind:value={focusImageType}
+                                        >
+                                            <option value="remote"
+                                                >远程图片</option
+                                            >
+                                            <option value="local"
+                                                >本地图片</option
+                                            >
+                                        </select>
+                                    </div>
+
+                                    {#if focusImageType === "remote"}
+                                        <input
+                                            type="text"
+                                            bind:value={focusBgImage}
+                                            placeholder="请输入专注背景图URL"
+                                        />
+                                    {:else}
+                                        <button
+                                            on:click={() =>
+                                                focusBgInput.click()}
+                                            >上传图片</button
+                                        >
+                                        <input
+                                            type="file"
+                                            bind:this={focusBgInput}
+                                            accept="image/*"
+                                            on:change={handleFocusUpload}
+                                            style="display: none;"
+                                        />
+                                    {/if}
+                                </div>
+
+                                <!-- 右侧预览 -->
+                                <div class="image-preview">
+                                    {#if focusImageType === "remote" && focusBgImage}
+                                        <img
+                                            src={focusBgImage}
+                                            alt="专注背景预览"
+                                        />
+                                    {:else if focusImageType === "local" && focusLocalImage}
+                                        <img
+                                            src={focusLocalImage}
+                                            alt="专注背景预览"
+                                        />
+                                    {/if}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 休息背景 -->
+                        <div class="background-option">
+                            <div class="background-row">
+                                <!-- 左侧配置 -->
+                                <div class="type-select-and-input">
+                                    <label for="break-bg-select"
+                                        >休息背景：</label
+                                    >
+                                    <div class="type-select">
+                                        <select
+                                            id="break-bg-select"
+                                            bind:value={breakImageType}
+                                        >
+                                            <option value="remote"
+                                                >远程图片</option
+                                            >
+                                            <option value="local"
+                                                >本地图片</option
+                                            >
+                                        </select>
+                                    </div>
+
+                                    {#if breakImageType === "remote"}
+                                        <input
+                                            type="text"
+                                            bind:value={breakBgImage}
+                                            placeholder="请输入休息背景图URL"
+                                        />
+                                    {:else}
+                                        <button
+                                            on:click={() =>
+                                                breakBgInput.click()}
+                                            >上传图片</button
+                                        >
+                                        <input
+                                            type="file"
+                                            bind:this={breakBgInput}
+                                            accept="image/*"
+                                            on:change={handleBreakUpload}
+                                            style="display: none;"
+                                        />
+                                    {/if}
+                                </div>
+
+                                <!-- 右侧预览 -->
+                                <div class="image-preview">
+                                    {#if breakImageType === "remote" && breakBgImage}
+                                        <img
+                                            src={breakBgImage}
+                                            alt="休息背景预览"
+                                        />
+                                    {:else if breakImageType === "local" && breakLocalImage}
+                                        <img
+                                            src={breakLocalImage}
+                                            alt="休息背景预览"
+                                        />
+                                    {/if}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -947,9 +1202,16 @@
                         activeTab: activeTab,
                         type: "countdown",
                         blockId: currentBlockId,
-                        data: eventList.filter(
-                            (event) => event.name && event.date,
-                        ),
+                        data: {
+                            countdownFontSize,
+                            countdownStyle,
+                            countdownLocalBg,
+                            countdownFullBg,
+                            countdownFullBgSelect,
+                            eventList: eventList.filter(
+                                (event) => event.name && event.date,
+                            ),
+                        },
                     };
                 } else if (selectedContentType === "weather") {
                     contentTypeJson = {
@@ -1016,6 +1278,22 @@
                             morningBgImage,
                             afternoonBgImage,
                             nightBgImage,
+                        },
+                    };
+                } else if (selectedContentType === "focus") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "focus",
+                        blockId: currentBlockId,
+                        data: {
+                            focusBgImage:
+                                focusImageType === "remote"
+                                    ? focusBgImage
+                                    : focusLocalImage,
+                            breakBgImage:
+                                breakImageType === "remote"
+                                    ? breakBgImage
+                                    : breakLocalImage,
                         },
                     };
                 }

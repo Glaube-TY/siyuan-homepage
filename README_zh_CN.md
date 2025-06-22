@@ -65,7 +65,7 @@
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧩 丰富可自定义的组件区域</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧲 可拖动布局</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⭐ 右键菜单添加收藏文档功能</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🌤 天气、纪念日等小工具</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🌤 番茄钟、纪念日等小工具</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">💡 更多内容请看详细教程</li>
         </ul>
         <div style="margin: 1.5em 0; border-top: 1px solid #eee;"></div>
@@ -113,6 +113,11 @@
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-22 v1.3.0</span>
+            <p style="margin: 0.5em 0;">新增番茄钟组件！</p>
+            <p style="margin: 0.5em 0;">新增倒数日组件整页美化样式！</p>
+        </div>
+        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-21 v1.2.3</span>
             <p style="margin: 0.5em 0;">修复使用本地图片横幅时可能会加载不出来组件的问题</p>
             <p style="margin: 0.5em 0;">增加自定义收藏文档组件标题、文档前缀等</p>
@@ -123,10 +128,6 @@
             <p style="margin: 0.5em 0;">最近文档组件添加展示最近打开文档的功能</p>
             <p style="margin: 0.5em 0;">修复设置-外观-css的显示问题</p>
             <p style="margin: 0.5em 0;">修复新添加组件后重启软件无法加载组建区域的问题</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-20 v1.2.1</span>
-            <p style="margin: 0.5em 0;">增加指定最近文档和任务管理组件所处的笔记本功能</p>
         </div>
         <div>
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 

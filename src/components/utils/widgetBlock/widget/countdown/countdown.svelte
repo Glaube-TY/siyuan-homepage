@@ -4,15 +4,44 @@
     export let plugin: any;
     export let contentTypeJson: string = "{}";
 
-    // 示例数据格式：{ name: string, date: string (ISO 8601), id?: string }
     let countdownEvents = [];
+    let countdownStyle = "list";
+    let currentIndex = 0;
+    let countdownLocalBg = "";
+    let countdownFullBg =
+        "https://haowallpaper.com/link/common/file/previewFileImg/17021275790298496";
+    let countdownFullBgSelect = "remote";
+    let countdownFontSize = 3;
 
+    function nextEvent() {
+        if (currentIndex < countdownEvents.length - 1) {
+            currentIndex += 1;
+        }
+    }
+
+    function prevEvent() {
+        if (currentIndex > 0) {
+            currentIndex -= 1;
+        }
+    }
     // 解析并初始化倒计时数据
     function initCountdownData() {
         try {
             const parsedData = JSON.parse(contentTypeJson);
-            if (parsedData && parsedData.data && parsedData.data.length > 0) {
-                countdownEvents = [...parsedData.data];
+            countdownStyle = parsedData.data?.countdownStyle || countdownStyle;
+            countdownLocalBg = parsedData.data?.countdownLocalBg || "";
+            countdownFullBg = parsedData.data?.countdownFullBg || "";
+            countdownFullBgSelect =
+                parsedData.data?.countdownFullBgSelect || "";
+            countdownFontSize =
+                parsedData.data?.countdownFontSize || countdownFontSize;
+
+            if (
+                parsedData &&
+                parsedData.data?.eventList &&
+                parsedData.data.eventList.length > 0
+            ) {
+                countdownEvents = [...parsedData.data.eventList];
             } else {
                 // 默认示例数据
                 countdownEvents = [{ name: "纪念日", date: "2023-05-20" }];
@@ -48,7 +77,7 @@
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, "0");
         const day = String(date.getDate()).padStart(2, "0");
-        return `${year}-${month}-${day}`;
+        return `${year}年${month}月${day}日`;
     }
 
     onMount(() => {
@@ -56,10 +85,22 @@
     });
 </script>
 
-<div class="content-display">
-    <h3 class="widget-title">📅 倒数日</h3>
-    <ul class="countdown-list">
-        {#if countdownEvents.length > 0}
+<svelte:head>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Mountains+of+Christmas:wght@700&family=Caveat:wght@700&family=Fredericka+the+Great&display=swap"
+        rel="stylesheet"
+    />
+</svelte:head>
+
+<div
+    class="content-display {countdownStyle === 'full' ? 'mode-full' : ''}"
+    style:background-image={countdownStyle === "full"
+        ? `url(${countdownFullBgSelect === "remote" ? countdownFullBg : countdownLocalBg})`
+        : ""}
+>
+    {#if countdownStyle === "list"}
+        <h3 class="widget-title">📅 倒数日</h3>
+        <ul class="countdown-list">
             {#each countdownEvents as event (event.name)}
                 <li class="countdown-item">
                     <div class="countdown-name">{event.name}</div>
@@ -73,13 +114,44 @@
                     </div>
                 </li>
             {/each}
-        {:else}
-            <p>暂无倒数日记录</p>
-        {/if}
-    </ul>
+        </ul>
+    {:else if countdownStyle === "full"}
+        <div class="overlay"></div>
+        <div class="full-page-container">
+            <button class="nav-button left" on:click={prevEvent}>&lt;</button>
+            <div class="full-page-event">
+                <div
+                    class="full-page-name"
+                    style="font-size: {countdownFontSize}rem;"
+                >
+                    {countdownEvents[currentIndex].name}
+                </div>
+
+                <div
+                    class="full-page-date"
+                    style="font-size: {countdownFontSize / 2 + 0.5}rem;"
+                >
+                    {formatDate(countdownEvents[currentIndex].date)}
+                </div>
+
+                <div
+                    class="full-page-days {getDaysLeft(
+                        countdownEvents[currentIndex].date,
+                    ).status}"
+                    style="font-size: {countdownFontSize}rem;"
+                >
+                    <strong
+                        >{getDaysLeft(countdownEvents[currentIndex].date)
+                            .text}</strong
+                    >
+                </div>
+            </div>
+            <button class="nav-button right" on:click={nextEvent}>&gt;</button>
+        </div>
+    {/if}
 </div>
 
-<style>
+<style lang="scss">
     .widget-title {
         font-size: 18px;
         font-weight: 600;
@@ -99,9 +171,29 @@
         flex-direction: column;
         padding: 1rem;
         box-sizing: border-box;
-        background-color: var(--bg3-color-dark);
+        background-color: var(--b3-theme-background);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        overflow: hidden;
+        transition: background-image 0.3s ease;
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+    }
+
+    .overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        box-shadow: 0 4px 16px 0 rgba(31, 38, 135, 0.1);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 1;
+        pointer-events: none;
     }
 
     .countdown-list {
@@ -154,6 +246,121 @@
 
         &.future strong {
             color: #48bb78; /* 未来：绿色 */
+        }
+    }
+
+    .full-page-container {
+        display: flex;
+        z-index: 2;
+        align-items: center; /* 垂直居中 */
+        justify-content: space-between; /* 左右分布 */
+        width: 100%;
+        height: 100%;
+        position: relative;
+        box-sizing: border-box;
+    }
+
+    .full-page-event {
+        flex: 1;
+        text-align: center;
+        padding: 4rem 2rem;
+        box-sizing: border-box;
+        border-radius: 12px;
+        background-color: rgba(255, 255, 255, 0.5);
+        margin: 0 1rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .nav-button {
+        display: none;
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 10;
+        background-color: rgba(0, 0, 0, 0.1);
+        border: none;
+        color: #1e293b;
+        font-size: 20px;
+        padding: 0.5rem;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+
+    .content-display:hover .nav-button {
+        display: flex;
+        align-items: center;
+    }
+
+    .left {
+        left: 1rem;
+    }
+
+    .right {
+        right: 1rem;
+    }
+
+    .mode-full {
+        .full-page-name {
+            font-size: 3rem;
+            font-family: "Great Vibes", cursive; /* 艺术标题字体 */
+            font-weight: 400;
+            margin-bottom: 1rem;
+            color: #373131;
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .full-page-date {
+            font-size: 1.5rem;
+            font-family: "Caveat", cursive; /* 手写风日期 */
+            color: #565656;
+            margin-bottom: 2rem;
+            text-shadow: 1px 1px 6px rgba(0, 0, 0, 0.4);
+        }
+
+        .full-page-days {
+            font-size: 3rem;
+            font-family: "Caveat", cursive;
+            font-weight: 700;
+            text-shadow: 1px 1px 6px rgba(0, 0, 0, 0.4);
+
+            &.today {
+                strong {
+                    color: rgb(226, 60, 60); /* 今天：红色 */
+                }
+
+                &:hover {
+                    border-radius: 50%;
+                    background-color: var(--b3-theme-background);
+                }
+            }
+
+            &.expired {
+                strong {
+                    color: #94a3b8; /* 已过：灰色 */
+                }
+
+                &:hover {
+                    border-radius: 50%;
+                    background-color: var(--b3-theme-background);
+                }
+            }
+
+            &.future {
+                &:hover {
+                    border-radius: 50%;
+                    background-color: var(--b3-theme-background);
+                }
+
+                strong {
+                    color: var(--b3-theme-primary);
+                }
+            }
+
+            strong {
+                font-weight: 700;
+            }
         }
     }
 </style>
