@@ -549,7 +549,7 @@
             <div class="content-type-select">
                 <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
-                    <option value="focus">专注</option>
+                    <option value="focus">番茄钟</option>
                     <option value="countdown">倒数日</option>
                     <option value="weather">今日天气</option>
                     <option value="timedate">时间日期</option>
@@ -959,8 +959,6 @@
                     </div>
                 {:else if selectedContentType === "focus"}
                     <div class="content-panel focus">
-                        <h4>专注背景图设置</h4>
-
                         <!-- 专注背景 -->
                         <div class="background-option">
                             <div class="background-row">

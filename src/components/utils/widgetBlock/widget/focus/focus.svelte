@@ -6,6 +6,9 @@
     export let contentTypeJson: string = "{}";
 
     let contentTypeJsonObj: any;
+    let startTime = 0;
+    let duration = 0;
+    let endTimeout: any;
     let isRunning = false;
     let isBreak = false;
     let timeLeft: number;
@@ -114,15 +117,24 @@
     function startTimer() {
         if (!isRunning) {
             isRunning = true;
-            timer = setInterval(() => {
-                timeLeft -= 1;
-                if (timeLeft <= 0) {
-                    clearInterval(timer);
-                    isRunning = false;
-                    handleTimerEnd();
-                }
-            }, 1000);
+            startTime = Date.now();
+            duration = timeLeft * 1000;
+
+            // 每秒刷新 UI
+            timer = setInterval(updateTimer, 1000);
+
+            // 设置一个一次性 timeout 来确保结束动作准确触发
+            endTimeout = setTimeout(() => {
+                clearInterval(timer);
+                isRunning = false;
+                handleTimerEnd(); // 这个一定会在指定时间触发
+            }, duration);
         }
+    }
+
+    function updateTimer() {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        timeLeft = Math.max(0, duration / 1000 - elapsed);
     }
 
     function handleTimerEnd() {
@@ -243,7 +255,7 @@
                         <option value="classic">经典样式</option>
                         <option value="modern">现代简约</option>
                         <option value="rounded">圆角卡片</option>
-                        <option value="digital-clock">数码时钟风</option>
+                        <option value="digital-clock">数码时钟</option>
                         <option value="circular-progress">环形进度</option>
                     </select>
                 </label>
