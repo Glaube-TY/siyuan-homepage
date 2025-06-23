@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { svelteDialog } from "@/libs/dialog";
+
     import { writable } from "svelte/store";
     import Sortable from "sortablejs";
 
@@ -14,10 +14,12 @@
         type StatsData,
         parseDurationExpression,
     } from "./utils/stats-loader";
-    import { keyCodeMap } from "./utils/keyboard-handler";
-    import { addCustomBlock } from "./utils/widgetBlock/utils/block-creator";
-
-    import HomepageSetting from "./utils/homepageSetting.svelte";
+    import {
+        handleMoreButtonClick,
+        handleButtonClick,
+        reRegisterAllShortcuts,
+        unregisterAllShortcuts,
+    } from "./utils/quickButton";
 
     import "./style/homepage.scss";
 
@@ -69,6 +71,16 @@
 
     $: filteredButtons = buttonsList.filter((b) => b.checked === false);
 
+    $: formattedStatsInfoText = (statsInfoText || "")
+        .replace("{{startDate}}", statsData.startDate || "")
+        .replace("{{notesCount}}", statsData.notesCount.toString())
+        .replace("{{notebooksCount}}", statsData.notebooksCount.toString())
+        .replace("{{DocsCount}}", statsData.DocsCount.toString())
+        .replace("{{nowDate}}", statsData.nowDate || "")
+        .replace(/\$\$(.*?)\$\$/g, (_, expr) => {
+            return parseDurationExpression(expr.trim(), statsData) || "";
+        });
+
     onMount(() => {
         (async () => {
             // 页面加载完成后初始化拖拽
@@ -107,103 +119,14 @@
         }, 100);
 
         document.addEventListener("click", handleDocumentClick);
-
+        reRegisterAllShortcuts(buttonsList);
+        
         return () => {
             window.removeEventListener("load", handleLoad);
             document.removeEventListener("click", handleDocumentClick);
+            unregisterAllShortcuts();
         };
     });
-
-    $: formattedStatsInfoText = (statsInfoText || "")
-        .replace("{{startDate}}", statsData.startDate || "")
-        .replace("{{notesCount}}", statsData.notesCount.toString())
-        .replace("{{notebooksCount}}", statsData.notebooksCount.toString())
-        .replace("{{DocsCount}}", statsData.DocsCount.toString())
-        .replace("{{nowDate}}", statsData.nowDate || "")
-        .replace(/\$\$(.*?)\$\$/g, (_, expr) => {
-            return parseDurationExpression(expr.trim(), statsData) || "";
-        });
-
-    function handleMoreButtonClick() {
-        showMoreMenu = !showMoreMenu;
-    }
-
-    function handleMoreItemClick(item: (typeof buttonsList)[number]) {
-        if (item.label.includes("➕ 添加组件")) {
-            addCustomBlock(plugin, currentBlockForSettingsRef);
-            saveLayout(plugin);
-        } else if (item.label.includes("⚙ 主页设置")) {
-            OpenHomepageSetting();
-        } else if (item.shortcut) {
-            triggerShortcut(item);
-        }
-    }
-
-    function handleButtonClick(item: ButtonItem) {
-        if (item.label.includes("➕ 添加组件")) {
-            addCustomBlock(plugin, currentBlockForSettingsRef);
-            saveLayout(plugin);
-        } else if (item.label.includes("⚙ 主页设置")) {
-            OpenHomepageSetting();
-        } else if (item.shortcut) {
-            triggerShortcut(item);
-        }
-    }
-
-    async function triggerShortcut(item: ButtonItem) {
-        const keys = item.shortcut!.toLowerCase().split("+");
-        const modifiers = keys.filter((k) =>
-            ["ctrl", "alt", "shift", "meta"].includes(k),
-        );
-        const mainKey = keys.find((k) => !modifiers.includes(k));
-
-        if (!mainKey) return;
-
-        const keyEvent = new KeyboardEvent("keydown", {
-            bubbles: true,
-            cancelable: true,
-            ctrlKey: modifiers.includes("ctrl"),
-            altKey: modifiers.includes("alt"),
-            shiftKey: modifiers.includes("shift"),
-            metaKey: modifiers.includes("meta"),
-            key: mainKey === "space" ? " " : mainKey,
-            code: codeFor(mainKey),
-            keyCode: keyCodeMap[mainKey] || 0,
-            which: keyCodeMap[mainKey] || 0,
-        });
-
-        console.log(keyEvent);
-
-        document.dispatchEvent(keyEvent);
-    }
-
-    function codeFor(key: string): string {
-        if (/[a-z]/.test(key)) return `Key${key.toUpperCase()}`;
-        if (/[0-9]/.test(key)) return `Digit${key}`;
-
-        const specialKeys: Record<string, string> = {
-            "[": "BracketLeft",
-            "]": "BracketRight",
-            "{": "BracketLeft",
-            "}": "BracketRight",
-            "'": "Quote",
-            '"': "Quote",
-            ";": "Semicolon",
-            ":": "Semicolon",
-            ",": "Comma",
-            "<": "Comma",
-            ".": "Period",
-            ">": "Period",
-            "/": "Slash",
-            "?": "Slash",
-            "-": "Minus",
-            _: "Minus",
-            "=": "Equal",
-            "+": "Equal",
-        };
-
-        return specialKeys[key] || "";
-    }
 
     const updateHomepage = async () => {
         const config =
@@ -284,24 +207,6 @@
         }
     };
 
-    function OpenHomepageSetting() {
-        const dialog = svelteDialog({
-            title: "主页设置",
-            constructor: (containerEl: HTMLElement) => {
-                return new HomepageSetting({
-                    target: containerEl,
-                    props: {
-                        plugin: plugin,
-                        close: () => {
-                            dialog.close();
-                        },
-                    },
-                });
-            },
-        });
-    }
-
-    // 初始化拖拽
     function handleLoad() {
         if (bannerImage && bannerImage.parentElement) {
             initDrag(bannerImage, plugin);
@@ -399,18 +304,26 @@
                 {#if sortedButtons.checked}
                     <button
                         class="nav-button"
-                        on:click={() => handleButtonClick(sortedButtons)}
+                        on:click={() =>
+                            handleButtonClick(
+                                sortedButtons,
+                                plugin,
+                                currentBlockForSettingsRef,
+                                saveLayout,
+                            )}
                     >
                         {sortedButtons.label}
                     </button>
                 {/if}
             {/each}
 
-            <!-- 更多按钮始终渲染，仅控制样式变化 -->
             <button
                 class="nav-button more-button"
                 class:hidden={!isHoveringNavBar || filteredButtons.length === 0}
-                on:click={handleMoreButtonClick}
+                on:click={() => {
+                    const newShowMoreMenu = handleMoreButtonClick(showMoreMenu);
+                    showMoreMenu = newShowMoreMenu;
+                }}
             >
                 更多
             </button>
@@ -422,7 +335,12 @@
                         <button
                             class="more-menu-item"
                             on:click={() => {
-                                handleMoreItemClick(item);
+                                handleButtonClick(
+                                    item,
+                                    plugin,
+                                    currentBlockForSettingsRef,
+                                    saveLayout,
+                                );
                                 showMoreMenu = false;
                             }}
                         >

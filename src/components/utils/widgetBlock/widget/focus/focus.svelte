@@ -45,17 +45,26 @@
         focusBgImage = data.focusBgImage || focusBgImage;
         breakBgImage = data.breakBgImage || breakBgImage;
 
-        const savedConfig = await plugin.loadData(`widgetFocusConfig.json`);
+        const savedConfig = await plugin.loadData(
+            `widget-${contentTypeJsonObj.blockId}.json`,
+        );
         localFocusDuration =
             savedConfig.data?.focusDuration || localFocusDuration;
         localBreakDuration =
             savedConfig.data?.breakDuration || localBreakDuration;
         selectedTimerStyle = savedConfig.data?.timerStyle || selectedTimerStyle;
         timerFontSize = savedConfig.data?.timerFontSize || timerFontSize;
-        totalFocusTime = savedConfig.data?.totalFocusTime || totalFocusTime;
-        totalFocusTimes = savedConfig.data?.totalFocusTimes || totalFocusTimes;
         showFocusInfo = savedConfig.data?.showFocusInfo || showFocusInfo;
         showSyNotif = savedConfig.data?.showSyNotif ?? true;
+
+        const focusStatistics = await plugin.loadData(
+            `widget-focus-statistics.json`,
+        );
+        if (focusStatistics) {
+            totalFocusTime = focusStatistics.totalFocusTime || totalFocusTime;
+            totalFocusTimes =
+                focusStatistics.totalFocusTimes || totalFocusTimes;
+        }
 
         resetTimer("focus");
     });
@@ -153,7 +162,7 @@
         if (!isBreak) {
             totalFocusTime += localFocusDuration * 60;
             totalFocusTimes += 1;
-            saveConfig();
+            saveFocusStatistics();
         }
 
         isBreak = !isBreak;
@@ -191,7 +200,14 @@
         return `${mins}:${secs.toString().padStart(2, "0")}`;
     }
 
-    // 新增保存配置方法
+    async function saveFocusStatistics() {
+        const focusStatistics = {
+            totalFocusTime,
+            totalFocusTimes,
+        };
+        await plugin.saveData(`widget-focus-statistics.json`, focusStatistics);
+    }
+
     async function saveConfig() {
         contentTypeJsonObj.data = {
             ...contentTypeJsonObj.data,
@@ -199,11 +215,12 @@
             breakDuration: localBreakDuration,
             timerStyle: selectedTimerStyle,
             timerFontSize: timerFontSize,
-            totalFocusTime: totalFocusTime,
-            totalFocusTimes: totalFocusTimes,
             showFocusInfo: showFocusInfo,
         };
-        await plugin.saveData(`widgetFocusConfig.json`, contentTypeJsonObj);
+        await plugin.saveData(
+            `widget-${contentTypeJsonObj.blockId}.json`,
+            contentTypeJsonObj,
+        );
         resetTimer(isBreak ? "break" : "focus");
         showSettings = false;
     }
@@ -373,6 +390,7 @@
                             {formatTime(timeLeft)}
                         {/if}
                     </div>
+
                     <div class="timer-controls">
                         <button
                             title="开始"
@@ -478,7 +496,6 @@
 
     .timer-display {
         text-align: center;
-        padding: 1rem;
         transition: all 0.3s ease;
         font-weight: bolder;
         font-size: 3rem;
@@ -530,9 +547,9 @@
     }
 
     .timer-controls {
-        margin-top: 1.5rem;
         display: none;
         gap: 0.5rem;
+        margin-top: 0.5rem;
 
         button {
             background-color: transparent;
@@ -569,11 +586,11 @@
     }
 
     .settings-modal {
+        padding: 1rem;
         position: absolute;
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: 1rem;
         top: 0;
         left: 0;
         right: 0;
@@ -650,7 +667,6 @@
     .timer-display.circular-progress {
         background-color: transparent !important;
         color: #333;
-        padding: 1rem;
         display: flex;
         align-items: center;
         justify-content: center;

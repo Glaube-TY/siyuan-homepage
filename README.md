@@ -113,6 +113,13 @@
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
         <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-23 v1.3.2</span>
+            <p style="margin: 0.5em 0;">修复MacOS系统下快捷按钮无法使用的问题</p>
+            <p style="margin: 0.5em 0;">改变番茄钟组件逻辑，可实现每个组件单独控制，统计信息共享，但会清除之前的数据</p>
+            <p style="margin: 0.5em 0;">添加时间组件文字大小设置</p>
+            <p style="margin: 0.5em 0;">修复自定义文本组件显示错误的问题，并进行了格式美化</p>
+        </div>
+        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-23 v1.3.1</span>
             <p style="margin: 0.5em 0;">修复番茄钟组件在后台时不会倒计时的问题</p>
         </div>
@@ -120,12 +127,6 @@
             <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-22 v1.3.0</span>
             <p style="margin: 0.5em 0;">新增番茄钟组件！</p>
             <p style="margin: 0.5em 0;">新增倒数日组件整页美化样式！</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-21 v1.2.3</span>
-            <p style="margin: 0.5em 0;">修复使用本地图片横幅时可能会加载不出来组件的问题</p>
-            <p style="margin: 0.5em 0;">增加自定义收藏文档组件标题、文档前缀等</p>
-            <p style="margin: 0.5em 0;">优化部分样式</p>
         </div>
         <div>
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 

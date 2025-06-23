@@ -1,12 +1,12 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let plugin: any;
     export let contentTypeJson: string = "{}";
 
     // 时间相关状态
     let currentTime = new Date();
-    let timeOfDay = "afternoon"; // 默认时间段
+    let timeOfDay = "afternoon";
+    let timedateFontSize = 2;
 
     // 农历信息
     let lunarYear = ""; // 天干地支年，例如“乙巳年”
@@ -213,6 +213,8 @@
                     morningBgImage = config.data.morningBgImage || "";
                     afternoonBgImage = config.data.afternoonBgImage || "";
                     nightBgImage = config.data.nightBgImage || "";
+                    timedateFontSize =
+                        config.data.timedateFontSize || timedateFontSize;
                 }
             } catch (e) {
                 console.warn("无法解析 contentTypeJson", e);
@@ -242,7 +244,10 @@
 >
     <!-- 时间 -->
     <div class="time-line">
-        <span class="time text-overlay">
+        <span
+            class="time text-overlay"
+            style="font-size: {timedateFontSize}rem;"
+        >
             {currentTime.toLocaleTimeString("zh-CN", {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -254,28 +259,43 @@
     <!-- 日期 -->
     {#if showDate}
         <div class="date-line">
-            <span class="date text-overlay">{currentDateStr}</span>
+            <span
+                class="date text-overlay"
+                style="font-size: {timedateFontSize / 2}rem;"
+                >{currentDateStr}</span
+            >
         </div>
     {/if}
 
     <!-- 星期 + 工作日状态 -->
     {#if showWeek}
         <div class="week-day-line">
-            <span class="day-status text-overlay">{weekDayWithWorkStatus}</span>
+            <span
+                class="day-status text-overlay"
+                style="font-size: {timedateFontSize / 2}rem;"
+            >
+                {weekDayWithWorkStatus}
+            </span>
         </div>
     {/if}
 
     <!-- 农历 -->
     {#if showLunar}
         <div class="lunar-line">
-            <span class="lunar text-overlay">{lunarYear} {lunarMonthDay}</span>
+            <span
+                class="lunar text-overlay"
+                style="font-size: {timedateFontSize / 2}rem;"
+                >{lunarYear} {lunarMonthDay}</span
+            >
         </div>
     {/if}
 
     <!-- 生肖 -->
     {#if showZodiac}
         <div class="zodiac-line">
-            <span class="zodiac text-overlay"
+            <span
+                class="zodiac text-overlay"
+                style="font-size: {timedateFontSize / 2}rem;"
                 >{lunarZodiac.replace("年", "")}{lunarZodiacIcon}</span
             >
         </div>
@@ -284,7 +304,11 @@
     <!-- 节气 -->
     {#if showSolarTerm}
         <div class="solar-term-line">
-            <span class="text-overlay">{solarTerm}</span>
+            <span
+                class="text-overlay"
+                style="font-size: {timedateFontSize / 2}rem;"
+                >{solarTerm}</span
+            >
         </div>
     {/if}
 </div>
@@ -452,7 +476,6 @@
     }
 
     .time {
-        font-size: 1.8rem;
         font-weight: bold;
         letter-spacing: 1px;
         color: #ffffff;
@@ -467,7 +490,6 @@
     .lunar,
     .zodiac,
     .solar-term-line span {
-        font-size: 1rem;
         color: #d1d5db;
         word-wrap: break-word;
         word-break: break-all;

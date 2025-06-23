@@ -73,6 +73,7 @@
     let customBlockID: string = "";
 
     // 时间日期相关
+    let timedateFontSize: number = 3;
     let showSeconds: boolean = true;
     let dateFormat: string = "YYYY年MM月DD日";
     let showLunar: boolean = true;
@@ -80,24 +81,18 @@
     let showSolarTerm: boolean = true;
     let showWeek: boolean = true;
     let showDate: boolean = true;
-    // 背景图设置 - 远程 URL
     let morningBgUrl =
         "https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072";
     let afternoonBgUrl =
         "https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504";
     let nightBgUrl =
         "https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440";
-
-    // 声明文件输入元素引用
     let morningBgInput: HTMLInputElement | null = null;
     let afternoonBgInput: HTMLInputElement | null = null;
     let nightBgInput: HTMLInputElement | null = null;
-    // 存储 base64 图片数据
     let morningBgImage = null;
     let afternoonBgImage = null;
     let nightBgImage = null;
-
-    // 下拉选择项
     let morningImageType = "remote";
     let afternoonImageType = "remote";
     let nightImageType = "remote";
@@ -240,7 +235,8 @@
                 countdownFullBgSelect =
                     parsedData.data?.countdownFullBgSelect ||
                     countdownFullBgSelect;
-                countdownFontSize = parsedData.data?.countdownFontSize || countdownFontSize;
+                countdownFontSize =
+                    parsedData.data?.countdownFontSize || countdownFontSize;
             } else if (parsedData.type === "weather") {
                 customWeatherCity = parsedData.data?.city || "北京";
             } else if (parsedData.type === "HOT") {
@@ -275,6 +271,8 @@
                 morningBgImage = parsedData.data?.morningBgImage || "";
                 afternoonBgImage = parsedData.data?.afternoonBgImage || "";
                 nightBgImage = parsedData.data?.nightBgImage || "";
+
+                timedateFontSize = parsedData.data?.timedateFontSize || timedateFontSize;
             } else if (parsedData.type === "TaskMan") {
                 showCompletedTasks =
                     parsedData.data?.showCompletedTasks ?? true;
@@ -552,7 +550,7 @@
                     <option value="focus">番茄钟</option>
                     <option value="countdown">倒数日</option>
                     <option value="weather">今日天气</option>
-                    <option value="timedate">时间日期</option>
+                    <option value="timedate">时钟</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -602,7 +600,7 @@
                                 {/if}
                             </div>
                             <div class="form-group">
-                               <label>
+                                <label>
                                     字体大小：
                                     <input
                                         type="number"
@@ -675,7 +673,6 @@
                     </div>
                 {:else if selectedContentType === "timedate"}
                     <div class="content-panel timedate">
-                        <h4>当前时间设置</h4>
                         <div
                             class="form-group"
                             style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;"
@@ -718,8 +715,8 @@
                             >
                         </div>
 
-                        {#if showDate}
-                            <div class="form-group">
+                        <div class="form-group">
+                            {#if showDate}
                                 <label for="dateFormat">日期格式：</label>
                                 <select id="dateFormat" bind:value={dateFormat}>
                                     <option value="YYYY年MM月DD日"
@@ -735,8 +732,18 @@
                                         >YYYY.MM.DD</option
                                     >
                                 </select>
-                            </div>
-                        {/if}
+                            {/if}
+                            <label for="timedate-fontSize">
+                                字体大小：
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="10"
+                                    bind:value={timedateFontSize}
+                                    placeholder="例如：3"
+                                />
+                            </label>
+                        </div>
 
                         <!-- 隐藏的文件输入 -->
                         <input
@@ -1276,6 +1283,7 @@
                             morningBgImage,
                             afternoonBgImage,
                             nightBgImage,
+                            timedateFontSize,
                         },
                     };
                 } else if (selectedContentType === "focus") {
