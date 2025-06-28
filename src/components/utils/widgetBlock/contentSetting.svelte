@@ -29,6 +29,7 @@
     let favoritiesSortOrder: string = "created";
     let showNoteMeta: boolean = true;
     let favoritiesDocPrefix: string = "❤";
+    let favoritesNotebookId: string = ""; // 指定收藏文档所在笔记本 ID
 
     // 任务管理相关变量
     let showCompletedTasks = true; // 默认显示已完成任务
@@ -217,6 +218,8 @@
                 showNoteMeta = parsedData.data?.showNoteMeta ?? true;
                 favoritiesDocPrefix =
                     parsedData.data?.favoritiesDocPrefix || favoritiesDocPrefix;
+                favoritesNotebookId =
+                    parsedData.data?.favoritesNotebookId || "";
             } else if (parsedData.type === "heatmap") {
                 pastMonthCount = parsedData.data?.[0]?.pastMonthCount || 6;
                 selectedColorPreset =
@@ -272,14 +275,23 @@
                 afternoonBgImage = parsedData.data?.afternoonBgImage || "";
                 nightBgImage = parsedData.data?.nightBgImage || "";
 
-                timedateFontSize = parsedData.data?.timedateFontSize || timedateFontSize;
+                timedateFontSize =
+                    parsedData.data?.timedateFontSize || timedateFontSize;
             } else if (parsedData.type === "TaskMan") {
                 showCompletedTasks =
                     parsedData.data?.showCompletedTasks ?? true;
                 tasksNotebookId = parsedData.data?.tasksNotebookId || "";
             } else if (parsedData.type === "focus") {
+                focusImageType = parsedData.data?.focusImageType || "remote";
+                breakImageType = parsedData.data?.breakImageType || "remote";
+
                 focusBgImage = parsedData.data?.focusBgImage || focusBgImage;
                 breakBgImage = parsedData.data?.breakBgImage || breakBgImage;
+
+                focusLocalImage =
+                    parsedData.data?.focusLocalImage || focusLocalImage;
+                breakLocalImage =
+                    parsedData.data?.breakLocalImage || breakLocalImage;
             }
         }
     });
@@ -362,47 +374,69 @@
                     <div class="content-panel favorites">
                         <!-- 收藏文档设置区域 -->
                         <h4>收藏文档设置</h4>
-                        <div class="form-group">
-                            <label for="favorities-title"
-                                >组件标题：
+                        <div class="favorites-setting-top">
+                            <div>
+                                <div class="form-group">
+                                    <label for="favorities-title"
+                                        >组件标题：
+                                        <input
+                                            id="favorities-title"
+                                            type="text"
+                                            bind:value={favoritiesTitle}
+                                            placeholder="输入组件标题"
+                                        />
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label for="favorities-doc-prefix">
+                                        文档前缀：
+                                        <input
+                                            id="favorities-doc-prefix"
+                                            type="text"
+                                            bind:value={favoritiesDocPrefix}
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="form-group">
+                                    <label for="favorities-sort-order"
+                                        >排序方式：</label
+                                    >
+                                    <select
+                                        id="favorities-sort-order"
+                                        bind:value={favoritiesSortOrder}
+                                    >
+                                        <option value="created">创建时间</option
+                                        >
+                                        <option value="updated">更新时间</option
+                                        >
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="favorities-show-note-meta">
+                                        <input
+                                            id="favorities-show-note-meta"
+                                            type="checkbox"
+                                            bind:checked={showNoteMeta}
+                                        />
+                                        显示文档信息</label
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                        <div class="favorites-setting-bottom">
+                            <div class="form-group doc-notebook-id">
+                                <label for="doc-notebook-id"
+                                    >文档笔记本 ID：（多个以逗号隔开）</label
+                                >
                                 <input
-                                    id="favorities-title"
+                                    id="doc-notebook-id"
                                     type="text"
-                                    bind:value={favoritiesTitle}
-                                    placeholder="输入组件标题"
+                                    bind:value={favoritesNotebookId}
+                                    placeholder="输入笔记本ID"
                                 />
-                            </label>
-                        </div>
-                        <div class="form-group">
-                            <label for="favorities-doc-prefix">
-                                文档前缀：
-                                <input
-                                    id="favorities-doc-prefix"
-                                    type="text"
-                                    bind:value={favoritiesDocPrefix}
-                                />
-                            </label>
-                        </div>
-                        <div class="form-group">
-                            <label for="favorities-sort-order">排序方式：</label
-                            >
-                            <select
-                                id="favorities-sort-order"
-                                bind:value={favoritiesSortOrder}
-                            >
-                                <option value="created">创建时间</option>
-                                <option value="updated">更新时间</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="favorities-show-note-meta">
-                                <input
-                                    id="favorities-show-note-meta"
-                                    type="checkbox"
-                                    bind:checked={showNoteMeta}
-                                />
-                                显示文档信息</label
-                            >
+                            </div>
                         </div>
                     </div>
                 {:else if selectedContentType === "recent-journals"}
@@ -768,6 +802,7 @@
                             on:change={() => handleBackgroundUpload("night")}
                             style="display: none;"
                         />
+
                         <div class="form-group">
                             <h5>背景图片设置</h5>
 
@@ -966,124 +1001,128 @@
                     </div>
                 {:else if selectedContentType === "focus"}
                     <div class="content-panel focus">
-                        <!-- 专注背景 -->
-                        <div class="background-option">
-                            <div class="background-row">
-                                <!-- 左侧配置 -->
-                                <div class="type-select-and-input">
-                                    <label for="focus-bg-select"
-                                        >专注背景：</label
-                                    >
-                                    <div class="type-select">
-                                        <select
-                                            id="focus-bg-select"
-                                            bind:value={focusImageType}
+                        <!-- 隐藏输入框 -->
+                        <input
+                            type="file"
+                            bind:this={focusBgInput}
+                            accept="image/*"
+                            on:change={handleFocusUpload}
+                            style="display: none;"
+                        />
+                        <input
+                            type="file"
+                            bind:this={breakBgInput}
+                            accept="image/*"
+                            on:change={handleBreakUpload}
+                            style="display: none;"
+                        />
+                        <div class="form-group">
+                            <h5>背景图片设置</h5>
+                            <!-- 专注背景 -->
+                            <div class="background-option">
+                                <div class="background-row">
+                                    <!-- 左侧配置 -->
+                                    <div class="type-select-and-input">
+                                        <label for="focus-bg-select"
+                                            >专注背景：</label
                                         >
-                                            <option value="remote"
-                                                >远程图片</option
+                                        <div class="type-select">
+                                            <select
+                                                id="focus-bg-select"
+                                                bind:value={focusImageType}
                                             >
-                                            <option value="local"
-                                                >本地图片</option
+                                                <option value="remote"
+                                                    >远程图片</option
+                                                >
+                                                <option value="local"
+                                                    >本地图片</option
+                                                >
+                                            </select>
+                                        </div>
+
+                                        {#if focusImageType === "remote"}
+                                            <input
+                                                type="text"
+                                                bind:value={focusBgImage}
+                                                placeholder="请输入专注背景图URL"
+                                            />
+                                        {:else}
+                                            <button
+                                                on:click={() =>
+                                                    focusBgInput.click()}
+                                                >上传图片</button
                                             >
-                                        </select>
+                                        {/if}
                                     </div>
 
-                                    {#if focusImageType === "remote"}
-                                        <input
-                                            type="text"
-                                            bind:value={focusBgImage}
-                                            placeholder="请输入专注背景图URL"
-                                        />
-                                    {:else}
-                                        <button
-                                            on:click={() =>
-                                                focusBgInput.click()}
-                                            >上传图片</button
-                                        >
-                                        <input
-                                            type="file"
-                                            bind:this={focusBgInput}
-                                            accept="image/*"
-                                            on:change={handleFocusUpload}
-                                            style="display: none;"
-                                        />
-                                    {/if}
-                                </div>
-
-                                <!-- 右侧预览 -->
-                                <div class="image-preview">
-                                    {#if focusImageType === "remote" && focusBgImage}
-                                        <img
-                                            src={focusBgImage}
-                                            alt="专注背景预览"
-                                        />
-                                    {:else if focusImageType === "local" && focusLocalImage}
-                                        <img
-                                            src={focusLocalImage}
-                                            alt="专注背景预览"
-                                        />
-                                    {/if}
+                                    <!-- 右侧预览 -->
+                                    <div class="image-preview">
+                                        {#if focusImageType === "remote" && focusBgImage}
+                                            <img
+                                                src={focusBgImage}
+                                                alt="专注背景预览"
+                                            />
+                                        {:else if focusImageType === "local" && focusLocalImage}
+                                            <img
+                                                src={focusLocalImage}
+                                                alt="专注背景预览"
+                                            />
+                                        {/if}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- 休息背景 -->
-                        <div class="background-option">
-                            <div class="background-row">
-                                <!-- 左侧配置 -->
-                                <div class="type-select-and-input">
-                                    <label for="break-bg-select"
-                                        >休息背景：</label
-                                    >
-                                    <div class="type-select">
-                                        <select
-                                            id="break-bg-select"
-                                            bind:value={breakImageType}
+                            <!-- 休息背景 -->
+                            <div class="background-option">
+                                <div class="background-row">
+                                    <!-- 左侧配置 -->
+                                    <div class="type-select-and-input">
+                                        <label for="break-bg-select"
+                                            >休息背景：</label
                                         >
-                                            <option value="remote"
-                                                >远程图片</option
+                                        <div class="type-select">
+                                            <select
+                                                id="break-bg-select"
+                                                bind:value={breakImageType}
                                             >
-                                            <option value="local"
-                                                >本地图片</option
+                                                <option value="remote"
+                                                    >远程图片</option
+                                                >
+                                                <option value="local"
+                                                    >本地图片</option
+                                                >
+                                            </select>
+                                        </div>
+
+                                        {#if breakImageType === "remote"}
+                                            <input
+                                                type="text"
+                                                bind:value={breakBgImage}
+                                                placeholder="请输入休息背景图URL"
+                                            />
+                                        {:else}
+                                            <button
+                                                on:click={() =>
+                                                    breakBgInput.click()}
+                                                >上传图片</button
                                             >
-                                        </select>
+                                        {/if}
                                     </div>
 
-                                    {#if breakImageType === "remote"}
-                                        <input
-                                            type="text"
-                                            bind:value={breakBgImage}
-                                            placeholder="请输入休息背景图URL"
-                                        />
-                                    {:else}
-                                        <button
-                                            on:click={() =>
-                                                breakBgInput.click()}
-                                            >上传图片</button
-                                        >
-                                        <input
-                                            type="file"
-                                            bind:this={breakBgInput}
-                                            accept="image/*"
-                                            on:change={handleBreakUpload}
-                                            style="display: none;"
-                                        />
-                                    {/if}
-                                </div>
-
-                                <!-- 右侧预览 -->
-                                <div class="image-preview">
-                                    {#if breakImageType === "remote" && breakBgImage}
-                                        <img
-                                            src={breakBgImage}
-                                            alt="休息背景预览"
-                                        />
-                                    {:else if breakImageType === "local" && breakLocalImage}
-                                        <img
-                                            src={breakLocalImage}
-                                            alt="休息背景预览"
-                                        />
-                                    {/if}
+                                    <!-- 右侧预览 -->
+                                    <div class="image-preview">
+                                        {#if breakImageType === "remote" && breakBgImage}
+                                            <img
+                                                src={breakBgImage}
+                                                alt="休息背景预览"
+                                            />
+                                        {:else if breakImageType === "local" && breakLocalImage}
+                                            <img
+                                                src={breakLocalImage}
+                                                alt="休息背景预览"
+                                            />
+                                        {/if}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1149,6 +1188,15 @@
         <button
             class="confirm-button"
             on:click={() => {
+                if (focusImageType === "remote") focusLocalImage = null;
+                if (breakImageType === "remote") breakLocalImage = null;
+
+                if (countdownFullBgSelect === "remote") countdownLocalBg = null;
+
+                if (morningImageType === "remote") morningBgImage = null;
+                if (afternoonImageType === "remote") afternoonBgImage = null;
+                if (nightImageType === "remote") nightBgImage = null;
+
                 let contentTypeJson = {};
 
                 if (selectedContentType === "latest-docs") {
@@ -1170,6 +1218,7 @@
                             favoritiesSortOrder,
                             showNoteMeta,
                             favoritiesDocPrefix,
+                            favoritesNotebookId,
                         },
                     };
                 } else if (selectedContentType === "heatmap") {
@@ -1292,14 +1341,12 @@
                         type: "focus",
                         blockId: currentBlockId,
                         data: {
-                            focusBgImage:
-                                focusImageType === "remote"
-                                    ? focusBgImage
-                                    : focusLocalImage,
-                            breakBgImage:
-                                breakImageType === "remote"
-                                    ? breakBgImage
-                                    : breakLocalImage,
+                            focusImageType,
+                            focusBgImage,
+                            focusLocalImage,
+                            breakImageType,
+                            breakBgImage,
+                            breakLocalImage,
                         },
                     };
                 }

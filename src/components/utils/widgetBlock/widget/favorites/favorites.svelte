@@ -27,6 +27,7 @@
         contentTypeJsonObj = JSON.parse(contentTypeJson);
         favoritesNotes = await getLatestFavoritesNotes(
             contentTypeJsonObj.data?.favoritiesSortOrder,
+            contentTypeJsonObj.data?.favoritesNotebookId,
         );
         favoritiesTitle =
             contentTypeJsonObj.data?.favoritiesTitle || favoritiesTitle;

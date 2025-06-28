@@ -146,42 +146,38 @@
         return midnight.getTime();
     };
 
-    let morningImageType: "remote" | "local" = "remote";
-    let afternoonImageType: "remote" | "local" = "remote";
-    let nightImageType: "remote" | "local" = "remote";
+    let morningImageType = "remote";
+    let afternoonImageType = "remote";
+    let nightImageType = "remote";
 
     let morningBgUrl: string = "";
     let afternoonBgUrl: string = "";
     let nightBgUrl: string = "";
 
-    let morningBgImage: string = "";
-    let afternoonBgImage: string = "";
-    let nightBgImage: string = "";
+    let morningBgImage: string =
+        "https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072";
+    let afternoonBgImage: string =
+        "https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504";
+    let nightBgImage: string =
+        "https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440";
 
-    // 初始化及定时刷新
     onMount(() => {
-        // 初始更新时间和农历
         updateTime();
         updateDateAndLunar();
 
-        // 更新时间
         const intervalId = setInterval(updateTime, 50);
-
-        // 计算到午夜的时间，并在午夜刷新一次
         const timeUntilMidnight = getMidnightTimestamp() - Date.now();
         const tomorrowUpdateTimeout = setTimeout(() => {
             updateDateAndLunar();
-            setInterval(updateDateAndLunar, 24 * 60 * 60 * 1000); // 此后每天刷新一次
+            setInterval(updateDateAndLunar, 24 * 60 * 60 * 1000);
         }, timeUntilMidnight);
 
-        // 返回清理函数
         return () => {
             clearInterval(intervalId);
             clearTimeout(tomorrowUpdateTimeout);
         };
     });
 
-    // 响应式解析传入的配置
     $: {
         if (contentTypeJson) {
             try {
@@ -195,20 +191,17 @@
                     showWeek = config.data.showWeek ?? true;
                     showDate = config.data.showDate ?? true;
 
-                    morningImageType = config.data.morningImageType ?? "remote";
+                    morningImageType =
+                        config.data.morningImageType || morningImageType;
                     afternoonImageType =
-                        config.data.afternoonImageType ?? "remote";
-                    nightImageType = config.data.nightImageType ?? "remote";
+                        config.data.afternoonImageType || afternoonImageType;
+                    nightImageType =
+                        config.data.nightImageType || nightImageType;
 
-                    morningBgUrl =
-                        config.data.morningBgUrl ||
-                        "https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072";
+                    morningBgUrl = config.data.morningBgUrl || morningBgUrl;
                     afternoonBgUrl =
-                        config.data.afternoonBgUrl ||
-                        "https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504";
-                    nightBgUrl =
-                        config.data.nightBgUrl ||
-                        "https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440";
+                        config.data.afternoonBgUrl || afternoonBgUrl;
+                    nightBgUrl = config.data.nightBgUrl || nightBgUrl;
 
                     morningBgImage = config.data.morningBgImage || "";
                     afternoonBgImage = config.data.afternoonBgImage || "";
@@ -306,8 +299,7 @@
         <div class="solar-term-line">
             <span
                 class="text-overlay"
-                style="font-size: {timedateFontSize / 2}rem;"
-                >{solarTerm}</span
+                style="font-size: {timedateFontSize / 2}rem;">{solarTerm}</span
             >
         </div>
     {/if}
@@ -334,56 +326,21 @@
         position: relative;
         max-width: 100%;
         max-height: 100%;
-        transition:
-            background 0.5s ease-in-out,
-            color 0.5s ease-in-out;
 
-        /* 默认背景 */
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
-        background-blend-mode: overlay; // 混合模式增强可读性
+        background-blend-mode: overlay;
     }
 
     .text-overlay {
-        background-color: rgba(255, 255, 255, 0.3); // 半透明白底
+        background-color: rgba(255, 255, 255, 0.3);
         padding: 0.4rem 0.8rem;
         border-radius: 8px;
         display: inline-block;
         margin: 0.3rem 0;
     }
 
-    /* 早晨背景：使用网络图片 */
-    .content-display.morning {
-        background-image: url("https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        color: #222;
-        position: relative;
-    }
-
-    /* 中午背景：使用网络图片 */
-    .content-display.afternoon {
-        background-image: url("https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        color: #222;
-        position: relative;
-    }
-
-    /* 晚上背景：使用网络图片 */
-    .content-display.night {
-        background-image: url("https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        color: #222;
-        position: relative;
-    }
-
-    /* 添加白色毛玻璃层 */
     .content-display.night::before,
     .content-display.afternoon::before,
     .content-display.morning::before {
@@ -393,19 +350,17 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background-color: rgba(255, 255, 255, 0.15); // 更加透明，柔和
+        background-color: rgba(255, 255, 255, 0.15);
         backdrop-filter: blur(4px);
         z-index: 1;
         border-radius: 8px;
     }
 
-    /* 所有内容置顶显示在毛玻璃层之上 */
     .content-display > * {
         position: relative;
         z-index: 2;
     }
 
-    /* 通用样式：用于适配不同时间段下的文字颜色 */
     .content-display .time,
     .content-display .date,
     .content-display .day-status,
@@ -442,7 +397,6 @@
         color: #222 !important;
     }
 
-    /* 基础布局与动画 */
     .time-line,
     .date-line,
     .week-day-line,

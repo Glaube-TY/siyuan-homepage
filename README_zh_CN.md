@@ -1,61 +1,8 @@
-<div class="sy__outline" style="max-width: 800px; margin: 0 auto;">
-    <div style="margin-top: 1.5em; padding: 1.2em; background: #fffbe6; border-left: 4px solid #faad14; border-radius: 8px;">
-        <h1 style="color: #faad14; margin: 0 0 0.8em;">🚧 插件开发状态提示</h1>
-        <p style="margin: 0.5em 0; color: #666;">
-            当前插件处于初始开发阶段，很多功能尚未完善，不可避免地可能会出现 bug。
-        </p>
-        <p style="margin: 0.5em 0; color: #666;">
-            欢迎大家在 GitHub 提出问题或建议，帮助我们改进插件体验！
-        </p>
-        <p style="margin: 0.5em 0; color: #666;">
-            目前只支持桌面端，移动端将在后续开发中完善。
-        </p>
-        <a href="https://github.com/Glaube-TY/siyuan-homepage/issues"
-           style="display: inline-flex;
-                  align-items: center;
-                  padding: 12px 24px;
-                  background: linear-gradient(135deg, #faad14, #ffc53a);
-                  color: white;
-                  border-radius: 6px;
-                  text-decoration: none;
-                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                  transform: translateY(0);
-                  box-shadow: 0 4px 8px rgba(45,140,240,0.15);
-                  border: 1px solid rgba(255,255,255,0.2);
-                  margin: 0 auto;
-                  gap: 8px;"
-           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(250,173,20,0.2)'"
-           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(250,173,20,0.15)'"
-           onmousedown="this.style.transform='translateY(1px)'"
-           onmouseup="this.style.transform='translateY(-2px)'">
-            💬 前往 GitHub Issues
-        </a>
-        <a href="https://pd.qq.com/s/2ks4079x0"
-           style="display: inline-flex;
-                  align-items: center;
-                  padding: 12px 24px;
-                  background: linear-gradient(135deg, #faad14, #ffc53a);
-                  color: white;
-                  border-radius: 6px;
-                  text-decoration: none;
-                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                  transform: translateY(0);
-                  box-shadow: 0 4px 8px rgba(45,140,240,0.15);
-                  border: 1px solid rgba(255,255,255,0.2);
-                  margin: 0 auto;
-                  gap: 8px;"
-           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
-           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
-           onmousedown="this.style.transform='translateY(1px)'"
-           onmouseup="this.style.transform='translateY(-2px)'">
-            <span style="font-size: 1.1em; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));">👥</span>
-            <span style="font-weight: 500; letter-spacing: 0.5px;">加入腾讯讨论频道</span>
-        </a>
-    </div>
+<div class="sy__outline" style="max-width: 600px; margin: 0 auto;">
     <div style="margin-top: 1.5em; text-align: center; padding: 2em; background: linear-gradient(135deg, #2d8cf0, #1e6bff); border-radius: 12px;">
         <h1 style="color: white; margin: 0; font-size: 2.2em;">🏠 思源主页插件</h1>
-        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">为思源笔记提供一个可高度定制的首页界面，支持 banner 图片、统计信息展示等功能。</div>
-        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">插件数据完全基于思源笔记文档，插件只负责将文档内容展示在首页，卸载插件不会对笔记造成任何影响。</div>
+        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">为思源笔记提供一个可高度定制的首页界面</div>
+        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">插件数据完全基于思源笔记文档，卸载插件不会对笔记造成任何影响。</div>
     </div>
     <div style="margin-top: 1.5em; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">🚀 核心功能</h2>
@@ -68,67 +15,60 @@
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🍅 番茄钟、纪念日等小工具</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">💡 更多内容请看详细教程</li>
         </ul>
-        <div style="margin: 1.5em 0; border-top: 1px solid #eee;"></div>
-        <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink" 
-           style="display: inline-flex; 
-                  align-items: center; 
-                  padding: 10px 20px; 
-                  background: #2d8cf0; 
-                  color: white; 
-                  border-radius: 6px; 
-                  text-decoration: none;
-                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                  transform: translateY(0);
-                  box-shadow: 0 4px 6px rgba(45,140,240,0.1);
-                  border: 1px solid rgba(45,140,240,0.2);"
-           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
-           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
-           onmousedown="this.style.transform='translateY(1px)'"
-           onmouseup="this.style.transform='translateY(-2px)'">
-            📖 详细使用教程
-        </a>
+        <div style="text-align: center;">
+            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink" 
+                style="display: inline-flex; 
+                        align-items: center; 
+                        padding: 10px 20px; 
+                        background: #2d8cf0; 
+                        color: white; 
+                        border-radius: 6px; 
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 6px rgba(45,140,240,0.1);
+                        border: 1px solid rgba(45,140,240,0.2);"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                    📖 详细使用教程
+            </a>
+        </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 8px;">
         <h2 style="color: #ff9f00; margin: 0 0 1em;">🌹 支持开发</h2>
         <p style="margin: 0.5em 0;">如果这个插件对你有帮助，欢迎给作者点个赞或打赏一杯咖啡，这将鼓励作者更新制作更多有用的插件：</p>
-        <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-Of80d3yVRoeAdvxOmFnc9WG9nUe" 
-           style="display: inline-flex; 
-                  align-items: center; 
-                  padding: 12px 24px; 
-                  background: linear-gradient(135deg, #ff9f00, #ffc107); 
-                  color: white; 
-                  border-radius: 6px; 
-                  text-decoration: none;
-                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                  transform: translateY(0);
-                  box-shadow: 0 4px 6px rgba(255,159,0,0.1);
-                  border: 1px solid rgba(255,159,0,0.2);"
-           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(255,159,0,0.2)'"
-           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(255,159,0,0.1)'"
-           onmousedown="this.style.transform='translateY(1px)'"
-           onmouseup="this.style.transform='translateY(-2px)'">
-            ☕️ 请作者喝咖啡
-        </a>
+        <div style="margin: 1em 0; text-align: center;">
+            <img src="https://tc.z.wiki/autoupload/7ld0SKOqoByVzszlkeHfxhBoTCZ2-MO4orDcDjaY2fmyl5f0KlZfm6UsKj-HyTuv/20250624/gxI4/2119X1382/ReQR.png"
+                 alt="TCQR"
+                 style="width: 600px; border-radius: 8px; margin-bottom: 1em;">
+        </div>
+        <div style="text-align: center;">
+            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-XBtxdkEYqo7cHjx0FArcQlZWnFd" 
+                style="display: inline-flex; 
+                        align-items: center; 
+                        padding: 12px 24px; 
+                        background: linear-gradient(135deg, #ff9f00, #ffc107); 
+                        color: white; 
+                        border-radius: 6px; 
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 6px rgba(255,159,0,0.1);
+                        border: 1px solid rgba(255,159,0,0.2);"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(255,159,0,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(255,159,0,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                💖 特别鸣谢
+            </a>
+        </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-23 v1.3.2</span>
-            <p style="margin: 0.5em 0;">修复MacOS系统下快捷按钮无法使用的问题</p>
-            <p style="margin: 0.5em 0;">改变番茄钟组件逻辑，可实现每个组件单独控制，统计信息共享，但会清除之前的数据</p>
-            <p style="margin: 0.5em 0;">添加时间组件文字大小设置</p>
-            <p style="margin: 0.5em 0;">修复自定义文本组件显示错误的问题，并进行了格式美化</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-23 v1.3.1</span>
-            <p style="margin: 0.5em 0;">修复番茄钟组件在后台时不会倒计时的问题</p>
-        </div>
-        <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
-            <span style="display: inline-block; padding: 4px 12px; background: #19be6b; color: white; border-radius: 20px;">2025-06-22 v1.3.0</span>
-            <p style="margin: 0.5em 0;">新增番茄钟组件！</p>
-            <p style="margin: 0.5em 0;">新增倒数日组件整页美化样式！</p>
-        </div>
-        <div>
+        <p style="margin: 0.5em 0;">此处将不再显示更新日志，请点击下方👇按钮查看完整的更新日志。</p>
+        <div style="text-align: center;">
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 
            style="display: inline-flex;
                   align-items: center;
@@ -150,31 +90,35 @@
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #f0f9ff; border-left: 4px solid #2d8cf0; border-radius: 8px;">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">💬 加入讨论</h2>
+        <p style="margin: 0.5em 0;">目前我在开发的插件有主页、读书笔记、空文档清理、彩色图标，所以统一用一个频道了，方便查看管理~</p>
         <div style="margin: 1em 0; text-align: center;">
-            <img src="https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/v2/cover/TLUDbhyLmouPN2xwGsPc0x9hnXe/?fallback_source=1&height=1280&mount_node_token=ElBYdpiroornbUxQ9rKcv4HNnHe&mount_point=docx_image&policy=equal&width=1280" 
+            <img src="https://tc.z.wiki/autoupload/YjFouVX7uB9I7ine7AuN0NiO_OyvX7mIgxFBfDMDErs/20250624/Itmc/1159X1818/TCQR.jpg"
+                 alt="TCQR"
                  style="width: 200px; border-radius: 8px; margin-bottom: 1em;">
         </div>
-        <a href="https://pd.qq.com/s/2ks4079x0"
-           style="display: inline-flex;
-                  align-items: center;
-                  padding: 12px 24px;
-                  background: linear-gradient(135deg, #2d8cf0 30%, #1e6bff 70%);
-                  color: white;
-                  border-radius: 6px;
-                  text-decoration: none;
-                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                  transform: translateY(0);
-                  box-shadow: 0 4px 8px rgba(45,140,240,0.15);
-                  border: 1px solid rgba(255,255,255,0.2);
-                  margin: 0 auto;
-                  gap: 8px;"
-           onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
-           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
-           onmousedown="this.style.transform='translateY(1px)'"
-           onmouseup="this.style.transform='translateY(-2px)'">
-            <span style="font-size: 1.1em; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));">👥</span>
-            <span style="font-weight: 500; letter-spacing: 0.5px;">加入腾讯讨论频道</span>
-        </a>
+        <div style="text-align: center;">
+            <a href="https://pd.qq.com/s/2ks4079x0"
+                style="display: inline-flex;
+                        align-items: center;
+                        padding: 12px 24px;
+                        background: linear-gradient(135deg, #2d8cf0 30%, #1e6bff 70%);
+                        color: white;
+                        border-radius: 6px;
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 8px rgba(45,140,240,0.15);
+                        border: 1px solid rgba(255,255,255,0.2);
+                        margin: 0 auto;
+                        gap: 8px;"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                <span style="font-size: 1.1em; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));">👥</span>
+                <span style="font-weight: 500; letter-spacing: 0.5px;">加入腾讯讨论频道</span>
+            </a>
+        </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff5f5; border-left: 4px solid #ff4d4f; border-radius: 8px;">
         <h2 style="color: #ff4d4f; margin: 0 0 1em;">⚠️ 免责声明</h2>

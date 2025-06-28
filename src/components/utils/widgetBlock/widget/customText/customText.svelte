@@ -27,7 +27,6 @@
         if (customTextContent) {
             const lute = window.Lute.New();
             const rawHtml = lute.Md2HTML(customTextContent);
-            console.log("Raw HTML:", rawHtml);
             htmlContent = DOMPurify.sanitize(rawHtml);
         } else {
             htmlContent = "";

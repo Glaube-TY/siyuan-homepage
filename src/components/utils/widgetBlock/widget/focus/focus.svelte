@@ -19,7 +19,11 @@
         "https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464";
     let breakBgImage =
         "https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d"; // 默认休息图
-    // 本地配置状态
+    let focusLocalImage = "";
+    let breakLocalImage = "";
+    let focusImageType = "remote";
+    let breakImageType = "remote";
+
     let showSettings = false;
     let localFocusDuration = 25;
     let localBreakDuration = 5;
@@ -41,22 +45,28 @@
 
     onMount(async () => {
         contentTypeJsonObj = JSON.parse(contentTypeJson);
-        const data = contentTypeJsonObj.data || {};
-        focusBgImage = data.focusBgImage || focusBgImage;
-        breakBgImage = data.breakBgImage || breakBgImage;
+        if (contentTypeJsonObj.type === "focus" && contentTypeJsonObj.data) {
+            const data = contentTypeJsonObj.data || {};
+            focusImageType = data.focusImageType || focusImageType;
+            breakImageType = data.breakImageType || breakImageType;
+            focusBgImage = data.focusBgImage || focusBgImage;
+            breakBgImage = data.breakBgImage || breakBgImage;
+            focusLocalImage = data.focusLocalImage || focusLocalImage;
+            breakLocalImage = data.breakLocalImage || breakLocalImage;
 
-        const savedConfig = await plugin.loadData(
-            `widget-${contentTypeJsonObj.blockId}.json`,
-        );
-        localFocusDuration =
-            savedConfig.data?.focusDuration || localFocusDuration;
-        localBreakDuration =
-            savedConfig.data?.breakDuration || localBreakDuration;
-        selectedTimerStyle = savedConfig.data?.timerStyle || selectedTimerStyle;
-        timerFontSize = savedConfig.data?.timerFontSize || timerFontSize;
-        showFocusInfo = savedConfig.data?.showFocusInfo || showFocusInfo;
-        showSyNotif = savedConfig.data?.showSyNotif ?? true;
-
+            const savedConfig = await plugin.loadData(
+                `widget-${contentTypeJsonObj.blockId}.json`,
+            );
+            localFocusDuration =
+                savedConfig.data?.focusDuration || localFocusDuration;
+            localBreakDuration =
+                savedConfig.data?.breakDuration || localBreakDuration;
+            selectedTimerStyle =
+                savedConfig.data?.timerStyle || selectedTimerStyle;
+            timerFontSize = savedConfig.data?.timerFontSize || timerFontSize;
+            showFocusInfo = savedConfig.data?.showFocusInfo || showFocusInfo;
+            showSyNotif = savedConfig.data?.showSyNotif ?? true;
+        }
         const focusStatistics = await plugin.loadData(
             `widget-focus-statistics.json`,
         );
@@ -235,7 +245,13 @@
 
 <div
     class="content-display"
-    style="background-image: url({isBreak ? breakBgImage : focusBgImage});"
+    style="background-image: url({isBreak
+        ? breakImageType === 'remote'
+            ? breakBgImage
+            : breakLocalImage
+        : focusImageType === 'remote'
+          ? focusBgImage
+          : focusLocalImage})"
 >
     <div class="overlay"></div>
     {#if showSettings}

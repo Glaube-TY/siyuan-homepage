@@ -206,7 +206,6 @@ export class WidgetBlock {
             new countdown({
                 target: this.element,
                 props: {
-                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });
@@ -252,7 +251,6 @@ export class WidgetBlock {
             new timedate({
                 target: this.element,
                 props: {
-                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             }); 

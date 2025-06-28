@@ -1,5 +1,14 @@
 .favorites {
-  input{
-    max-width: 200px;
+  .favorites-setting-top {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px;
+
+    input {
+      max-width: 150px;
+    }
   }
+
 }
