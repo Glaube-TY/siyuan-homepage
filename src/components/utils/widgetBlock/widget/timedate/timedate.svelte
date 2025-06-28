@@ -150,16 +150,16 @@
     let afternoonImageType = "remote";
     let nightImageType = "remote";
 
-    let morningBgUrl: string = "";
-    let afternoonBgUrl: string = "";
-    let nightBgUrl: string = "";
-
-    let morningBgImage: string =
+    let morningBgUrl: string =
         "https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072";
-    let afternoonBgImage: string =
+    let afternoonBgUrl: string =
         "https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504";
-    let nightBgImage: string =
+    let nightBgUrl: string =
         "https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440";
+
+    let morningBgImage: string = "";
+    let afternoonBgImage: string = "";
+    let nightBgImage: string = "";
 
     onMount(() => {
         updateTime();
