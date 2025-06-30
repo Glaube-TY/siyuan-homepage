@@ -32,7 +32,8 @@
         favoritiesTitle =
             contentTypeJsonObj.data?.favoritiesTitle || favoritiesTitle;
         showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? showNoteMeta;
-        favoritiesDocPrefix = contentTypeJsonObj.data?.favoritiesDocPrefix || favoritiesDocPrefix;
+        favoritiesDocPrefix =
+            contentTypeJsonObj.data?.favoritiesDocPrefix || favoritiesDocPrefix;
     });
 </script>
 
@@ -66,7 +67,8 @@
                             tabindex="0"
                             aria-label="打开收藏文档：{note.content}"
                         >
-                            {favoritiesDocPrefix} {note.content}
+                            {favoritiesDocPrefix}
+                            {note.content}
                         </div>
                         {#if showNoteMeta}
                             <div class="note-meta">
@@ -86,7 +88,7 @@
     </div>
 </div>
 
-<style>
+<style lang="scss">
     .widget-title {
         font-size: 18px;
         font-weight: 600;
@@ -109,47 +111,47 @@
         background-color: var(--bg3-color-dark);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-    }
-
-    .favorites-list {
-        list-style: none;
-        padding-left: 0;
-        margin: 0;
         overflow-y: auto;
-    }
 
-    .favorites-item {
-        padding: 0.5rem 0.75rem;
-        margin-bottom: 0.5rem;
-        background-color: #f8fafc;
-        border-radius: 6px;
-        font-size: 14px;
-        color: #475569;
-        transition: background-color 0.2s ease;
-
-        &:hover {
-            background-color: #eff6ff;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        .favorites-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
         }
-    }
 
-    .favorites-item-content {
-        margin-top: 4px;
-        display: block;
-        color: var(--b3-theme-primary);
-        text-decoration: none;
-        font-weight: bold;
-        cursor: pointer;
+        .favorites-item {
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 0.5rem;
+            background-color: #f8fafc;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #475569;
+            transition: background-color 0.2s ease;
 
-        &:hover {
-            text-decoration: underline;
+            &:hover {
+                background-color: #eff6ff;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            }
         }
-    }
 
-    .note-meta {
-        color: #94a3b8;
-        font-size: 12px;
-        margin-left: 4px;
+        .favorites-item-content {
+            margin-top: 4px;
+            display: block;
+            color: var(--b3-theme-primary);
+            text-decoration: none;
+            font-weight: bold;
+            cursor: pointer;
+
+            &:hover {
+                text-decoration: underline;
+            }
+        }
+
+        .note-meta {
+            color: #94a3b8;
+            font-size: 12px;
+            margin-left: 4px;
+        }
     }
 </style>
