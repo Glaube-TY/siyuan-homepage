@@ -19,10 +19,16 @@
     // 最近文档配置
     let docLimit: number = 5;
     let ensureOpenDocs: boolean = false;
-    let docNotebookId: string = ""; // 指定文档所在笔记本 ID
+    let docNotebookId: string = "";
+    let latestDocsTitle: string = "🕒最近文档";
+    let latestDocsPrefix: string = "📄";
+    let showLatestDocDetails: boolean = true;
 
     // 最近日记配置
     let docJournalLimit: number = 5;
+    let recentJournalsShowType: string = "list";
+    let recentJournalsCalendarIcon: string = "📝";
+    let recentJournalsCalendarIconSize: number = 16;
 
     // 收藏文档配置
     let favoritiesTitle: string = "💖收藏文档";
@@ -34,6 +40,8 @@
     // 任务管理相关变量
     let showCompletedTasks = true; // 默认显示已完成任务
     let tasksNotebookId: string = ""; // 任务管理笔记本 ID
+    let showTasksDetails = true; // 默认显示任务详情
+    let TaskManTitle: string = "📋任务管理";
 
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
@@ -210,6 +218,12 @@
                 docLimit = parsedData.data?.[0]?.limit || 5;
                 ensureOpenDocs = parsedData.data?.[0]?.ensureOpenDocs || false;
                 docNotebookId = parsedData.data?.[0]?.docNotebookId || "";
+                latestDocsTitle =
+                    parsedData.data?.[0]?.latestDocsTitle || "🕒最近文档";
+                latestDocsPrefix =
+                    parsedData.data?.[0]?.latestDocsPrefix || "📄";
+                showLatestDocDetails =
+                    parsedData.data?.[0]?.showLatestDocDetails ?? true;
             } else if (parsedData.type === "favorites") {
                 favoritiesTitle =
                     parsedData.data?.favoritiesTitle || "💖收藏文档";
@@ -226,7 +240,13 @@
                     parsedData.data?.[0]?.selectedColorPreset || "github";
                 customColor = parsedData.data?.[0]?.customColor || "#1ea769";
             } else if (parsedData.type === "recent-journals") {
-                docJournalLimit = parsedData.data?.[0]?.limit || 5;
+                docJournalLimit = parsedData.data?.limit || 5;
+                recentJournalsShowType =
+                    parsedData.data?.recentJournalsShowType || "list";
+                recentJournalsCalendarIcon =
+                    parsedData.data?.recentJournalsCalendarIcon || "📝";
+                recentJournalsCalendarIconSize =
+                    parsedData.data?.recentJournalsCalendarIconSize || 16;
             } else if (parsedData.type === "countdown") {
                 eventList = parsedData.data?.eventList || [
                     { name: "", date: "" },
@@ -281,6 +301,8 @@
                 showCompletedTasks =
                     parsedData.data?.showCompletedTasks ?? true;
                 tasksNotebookId = parsedData.data?.tasksNotebookId || "";
+                showTasksDetails = parsedData.data?.showTasksDetails ?? true;
+                TaskManTitle = parsedData.data?.TaskManTitle || "📋任务管理";
             } else if (parsedData.type === "focus") {
                 focusImageType = parsedData.data?.focusImageType || "remote";
                 breakImageType = parsedData.data?.breakImageType || "remote";
@@ -340,23 +362,51 @@
                 {#if selectedContentType === "latest-docs"}
                     <!-- 最近文档设置区域 -->
                     <div class="content-panel latest-docs">
-                        <h4>最近文档设置</h4>
-                        <div class="form-group ensure-OpenDocs">
+                        <div class="form-group group1">
+                            <label for="latest-docs-title"
+                                >组件标题：<input
+                                    id="latest-docs-title"
+                                    type="text"
+                                    bind:value={latestDocsTitle}
+                                    placeholder="输入组件标题"
+                                /></label
+                            >
+                            <label for="latest-docs-prefix"
+                                >文档前缀：<input
+                                    id="latest-docs-prefix"
+                                    type="text"
+                                    bind:value={latestDocsPrefix}
+                                    placeholder="输入文档前缀"
+                                /></label
+                            >
+                        </div>
+                        <div class="form-group group2">
+                            <label for="doc-limit"
+                                >显示条目数：<select
+                                    id="doc-limit"
+                                    bind:value={docLimit}
+                                >
+                                    {#each limitOptions as option}
+                                        <option value={option}
+                                            >{option} 条</option
+                                        >
+                                    {/each}
+                                </select></label
+                            >
                             <label>
                                 <input
                                     type="checkbox"
                                     bind:checked={ensureOpenDocs}
                                 />
-                                包含打开过的文档
+                                包含打开文档
                             </label>
-                        </div>
-                        <div class="form-group">
-                            <label for="doc-limit">显示条目数：</label>
-                            <select id="doc-limit" bind:value={docLimit}>
-                                {#each limitOptions as option}
-                                    <option value={option}>{option} 条</option>
-                                {/each}
-                            </select>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    bind:checked={showLatestDocDetails}
+                                />
+                                显示文档信息
+                            </label>
                         </div>
                         <div class="form-group doc-notebook-id">
                             <label for="doc-notebook-id"
@@ -442,30 +492,87 @@
                 {:else if selectedContentType === "recent-journals"}
                     <div class="content-panel recent-journals">
                         <!-- 最近日记设置区域 -->
-                        <h4>最近日记设置</h4>
-                        <div class="form-group">
-                            <label for="journal-limit">显示日记数：</label>
-                            <select
-                                id="journal-limit"
-                                bind:value={docJournalLimit}
+                        <div>
+                            <label for="recentJournalsShowType"
+                                >选择显示模式：</label
                             >
-                                {#each limitOptions as option}
-                                    <option value={option}>{option} </option>
-                                {/each}
+                            <select
+                                id="recentJournalsShowType"
+                                class="form-control"
+                                bind:value={recentJournalsShowType}
+                            >
+                                <option value="list">列表模式</option>
+                                <option value="calendar">日历模式</option>
                             </select>
                         </div>
+                        {#if recentJournalsShowType === "list"}
+                            <div class="form-group">
+                                <label for="journal-limit">显示日记数：</label>
+                                <select
+                                    id="journal-limit"
+                                    bind:value={docJournalLimit}
+                                >
+                                    {#each limitOptions as option}
+                                        <option value={option}
+                                            >{option}
+                                        </option>
+                                    {/each}
+                                </select>
+                            </div>
+                        {/if}
+                        {#if recentJournalsShowType === "calendar"}
+                            <div class="form-group recent-journals-calendar">
+                                <label for="recentJournalsCalendarIcon">
+                                    日记图标：
+                                    <input
+                                        id="recentJournalsCalendarIcon"
+                                        type="text"
+                                        bind:value={recentJournalsCalendarIcon}
+                                    />
+                                </label>
+                                <label for="recentJournalsCalendarIconSize">
+                                    图标大小：
+                                    <input
+                                        id="recentJournalsCalendarIconSize"
+                                        min="10"
+                                        max="50"
+                                        type="number"
+                                        bind:value={
+                                            recentJournalsCalendarIconSize
+                                        }
+                                    />
+                                </label>
+                            </div>
+                        {/if}
                     </div>
                 {:else if selectedContentType === "TaskMan"}
                     <div class="content-panel TaskMan">
                         <!-- 任务管理设置区域 -->
-                        <h4>任务管理设置</h4>
                         <div class="form-group">
+                            <label for="TaskMan-title">
+                                组件标题：
+                                <input
+                                    id="TaskMan-title"
+                                    type="text"
+                                    bind:value={TaskManTitle}
+                                    placeholder="输入组件标题"
+                                />
+                            </label>
+                        </div>
+                        <div class="form-group TaskMan-checkbox">
                             <label>
                                 <input
                                     type="checkbox"
                                     bind:checked={showCompletedTasks}
                                 />
                                 显示已完成的任务
+                            </label>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    bind:checked={showTasksDetails}
+                                />
+                                显示任务详情
                             </label>
                         </div>
                         <div class="form-group TaskMan-notebook-id">
@@ -1205,7 +1312,14 @@
                         type: "latest-docs",
                         blockId: currentBlockId,
                         data: [
-                            { limit: docLimit, docNotebookId, ensureOpenDocs },
+                            {
+                                limit: docLimit,
+                                docNotebookId,
+                                ensureOpenDocs,
+                                latestDocsTitle,
+                                latestDocsPrefix,
+                                showLatestDocDetails,
+                            },
                         ],
                     };
                 } else if (selectedContentType === "favorites") {
@@ -1239,7 +1353,12 @@
                         activeTab: activeTab,
                         type: "recent-journals",
                         blockId: currentBlockId,
-                        data: [{ limit: docJournalLimit }],
+                        data: {
+                            limit: docJournalLimit,
+                            recentJournalsShowType,
+                            recentJournalsCalendarIcon,
+                            recentJournalsCalendarIconSize,
+                        },
                     };
                 } else if (selectedContentType === "TaskMan") {
                     contentTypeJson = {
@@ -1249,6 +1368,8 @@
                         data: {
                             showCompletedTasks,
                             tasksNotebookId,
+                            showTasksDetails,
+                            TaskManTitle,
                         },
                     };
                 } else if (selectedContentType === "countdown") {

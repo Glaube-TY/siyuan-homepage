@@ -14,25 +14,22 @@
     // 最终显示的文档
     let displayedDocs: latestDocumentInfo[] = [];
 
+    let title = "";
+    let prefix = "";
+    let showLatestDocDetails: boolean;
+
     // 模拟加载文档数据
     onMount(async () => {
         documentList = await getLatestDocuments(
             parsed.data?.[0]?.docNotebookId,
             parsed.data?.[0]?.ensureOpenDocs,
         );
+        const limit = parsed.data?.[0]?.limit || 5;
+        displayedDocs = documentList.slice(0, limit);
+        title = parsed.data?.[0]?.latestDocsTitle || "🕒最近文档";
+        prefix = parsed.data?.[0]?.latestDocsPrefix || "📄";
+        showLatestDocDetails = parsed.data?.[0]?.showLatestDocDetails ?? true;
     });
-
-    $: {
-        try {
-            if (parsed.type === "latest-docs") {
-                const limit = parsed.data?.[0]?.limit || 5;
-                displayedDocs = documentList.slice(0, limit);
-            }
-        } catch (e) {
-            console.error("解析 contentTypeJson 出错", e);
-            displayedDocs = [];
-        }
-    }
 
     // 获取时间差并格式化为“X天前”或“今天”
     function getTimeAgo(updated: string): string {
@@ -60,7 +57,7 @@
 </script>
 
 <div class="content-display">
-    <h3 class="widget-title">🕒最近文档</h3>
+    <h3 class="widget-title">{title}</h3>
     <ul class="document-list">
         {#if displayedDocs.length > 0}
             {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
@@ -78,13 +75,16 @@
                         tabindex="0"
                         aria-label="打开最近文档：{doc.content}"
                     >
-                        📄 {doc.content}
+                        {prefix}
+                        {doc.content}
                     </div>
-                    <div class="document-updated-container">
-                        <span class="document-updated">
-                            更新于：📅{getTimeAgo(doc.updated)}
-                        </span>
-                    </div>
+                    {#if showLatestDocDetails}
+                        <div class="document-updated-container">
+                            <span class="document-updated">
+                                更新于：📅{getTimeAgo(doc.updated)}
+                            </span>
+                        </div>
+                    {/if}
                 </li>
             {/each}
         {:else}

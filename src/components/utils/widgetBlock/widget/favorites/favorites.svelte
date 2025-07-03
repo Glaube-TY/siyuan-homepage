@@ -111,7 +111,12 @@
         background-color: var(--bg3-color-dark);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        overflow-y: auto;
+
+        .favorites-content-container {
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+        }
 
         .favorites-list {
             list-style: none;

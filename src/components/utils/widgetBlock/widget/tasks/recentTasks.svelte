@@ -10,6 +10,8 @@
 
     // 原始数据
     let recentTasks: RecentTasksInfo[] = [];
+    let showTasksDetails: boolean;
+    let TaskManTitle: string;
 
     // 最终显示的任务列表
     let displayedTasks: Array<{
@@ -24,6 +26,8 @@
 
     onMount(async () => {
         recentTasks = await getLatestTasks(parsed.data?.tasksNotebookId);
+        showTasksDetails = parsed.data?.showTasksDetails ?? true;
+        TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
     });
 
     $: {
@@ -187,7 +191,7 @@
 </script>
 
 <div class="content-display">
-    <h3 class="widget-title">📋任务管理</h3>
+    <h3 class="widget-title">{TaskManTitle}</h3>
     <ul class="task-list">
         {#if displayedTasks.length > 0}
             {#each displayedTasks as task (task.id + "-" + task.updated)}
@@ -225,10 +229,12 @@
                         </a>
                     </div>
 
-                    <span class="task-created-time"
-                        >📅 {formatDate(task.created)}</span
-                    >
-                    <span class="task-source">📃 {task.hpath}</span>
+                    {#if showTasksDetails}
+                        <span class="task-created-time"
+                            >📅 {formatDate(task.created)}</span
+                        >
+                        <span class="task-source">📃 {task.hpath}</span>
+                    {/if}
                 </li>
             {/each}
         {:else}

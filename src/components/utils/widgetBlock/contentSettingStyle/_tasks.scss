@@ -1,4 +1,10 @@
 .TaskMan {
+    .TaskMan-checkbox { 
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
+
     .TaskMan-notebook-id {
         display: flex;
         flex-direction: column;
