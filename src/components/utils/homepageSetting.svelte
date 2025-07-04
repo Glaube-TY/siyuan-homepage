@@ -22,6 +22,7 @@
     let tempBannerHeight = bannerHeight;
     let fileInputEl: HTMLInputElement;
     // 标题区域相关配置变量
+    let tempTitleIconStyle = "square";
     let showEmojiPicker = false;
     let emojiPickerPosition = { top: "0px", left: "0px" };
     let emojiPickerElement: HTMLElement | null = null;
@@ -304,6 +305,7 @@
             TitleIconEmoji: tempTitleIconEmoji,
             TitleIconImage: tempTitleIconImage,
             customTitle: tempCustomTitle,
+            tempTitleIconStyle: tempTitleIconStyle,
 
             statsInfoText: tempStatsInfoText,
 
@@ -572,6 +574,20 @@
                                                 alt="图标预览"
                                                 title="图标预览"
                                             />
+                                            <select
+                                                class="iconstyle"
+                                                bind:value={tempTitleIconStyle}
+                                            >
+                                                <option value="square"
+                                                    >方形</option
+                                                >
+                                                <option value="round"
+                                                    >圆角</option
+                                                >
+                                                <option value="circle"
+                                                    >圆形</option
+                                                >
+                                            </select>
                                         {/if}
                                     </div>
                                     <!-- 底部标题输入 -->

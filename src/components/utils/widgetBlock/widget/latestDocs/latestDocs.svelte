@@ -93,19 +93,7 @@
     </ul>
 </div>
 
-<style>
-    .widget-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: #1e293b; /* 深灰色 */
-        margin-bottom: 0.5rem;
-        padding-bottom: 0.3rem;
-        border-bottom: 1px solid #e2e8f0; /* 淡灰色下边框 */
-        text-align: center;
-        display: inline-block;
-        line-height: 1.2;
-    }
-
+<style lang="scss">
     .content-display {
         width: 100%;
         height: calc(100%);
@@ -116,51 +104,57 @@
         background-color: var(--bg3-color-dark);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-    }
 
-    .document-list {
-        list-style: none;
-        padding-left: 0;
-        margin: 0;
-        overflow-y: auto;
-    }
-
-    .document-item {
-        padding: 0.5rem 0.75rem;
-        margin-bottom: 0.5rem;
-        background-color: #f8fafc;
-        border-radius: 6px;
-        font-size: 14px;
-        color: #475569;
-        transition: background-color 0.2s ease;
-
-        &:hover {
-            background-color: #eff6ff;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        .widget-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.3rem;
+            border-bottom: 1px solid var(--b3-border-color);
+            text-align: center;
+            display: inline-block;
+            line-height: 1.2;
         }
-    }
 
-    .document-item-content {
-        margin-top: 4px;
-        display: block;
-        color: var(--b3-theme-primary);
-        text-decoration: none;
-        font-weight: bold;
-        cursor: pointer;
-
-        &:hover {
-            text-decoration: underline;
+        .document-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+            overflow-y: auto;
         }
-    }
 
-    .document-updated-container {
-        margin-top: 4px;
-    }
+        .document-item {
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 0.5rem;
+            background-color: var(--b3-theme-surface);
+            border-radius: 6px;
+            font-size: 14px;
+            transition: background-color 0.2s ease;
 
-    .document-updated {
-        color: #94a3b8;
-        font-size: 12px;
-        margin-left: 4px;
+            &:hover {
+                background-color: var(--b3-list-hover);
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            }
+
+            .document-item-content {
+                margin-top: 4px;
+                display: block;
+                color: var(--b3-theme-primary);
+                text-decoration: none;
+                font-weight: bold;
+                cursor: pointer;
+
+                &:hover {
+                    text-decoration: underline;
+                }
+            }
+
+            .document-updated-container {
+                font-size: 12px;
+                margin-left: 20px;
+                margin-top: 4px;
+            }
+        }
     }
 </style>

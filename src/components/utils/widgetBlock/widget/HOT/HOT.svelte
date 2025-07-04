@@ -84,13 +84,6 @@
     });
 </script>
 
-<svelte:head>
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-    />
-</svelte:head>
-
 <div class="content-display">
     <h3 class="widget-title">{widgetTitle}</h3>
     <div class="HOT-content-container">
@@ -134,10 +127,9 @@
     .widget-title {
         font-size: 18px;
         font-weight: 600;
-        color: #1e293b; /* 深灰色 */
         margin-bottom: 0.5rem;
         padding-bottom: 0.3rem;
-        border-bottom: 1px solid #e2e8f0; /* 淡灰色下边框 */
+        border-bottom: 1px solid var(--b3-border-color);
         text-align: center;
         display: inline-block;
         line-height: 1.2;
@@ -150,7 +142,6 @@
         flex-direction: column;
         padding: 1rem;
         box-sizing: border-box;
-        background-color: var(--bg3-color-dark);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }
@@ -161,12 +152,6 @@
         padding-right: 0.5rem;
     }
 
-    .rank-icon {
-        margin-right: 8px;
-        font-size: 14px;
-        color: #ef4444; /* 红色火焰图标 */
-    }
-
     .hot-list {
         list-style: none;
         padding: 0;
@@ -174,7 +159,7 @@
     }
 
     .hot-item {
-        background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+        background-color: var(--b3-theme-surface);
         border-radius: 8px;
         margin-bottom: 8px;
         padding: 0.75rem 1rem;
@@ -184,7 +169,6 @@
 
     .hot-item a {
         text-decoration: none;
-        color: inherit;
         display: flex;
         align-items: center;
         font-family: "Segoe UI", sans-serif;
@@ -194,13 +178,11 @@
     .rank-icon {
         margin-right: 8px;
         font-size: 14px;
-        color: #ef4444;
     }
 
     .rank {
         min-width: 24px;
         text-align: center;
-        color: var(--primary-color);
         font-weight: bold;
     }
 
@@ -211,11 +193,11 @@
         text-overflow: ellipsis;
         font-size: 0.95rem;
         font-weight: 500;
+        color: var(--b3-theme-primary);
     }
 
     .heat {
-        background-color: #dbeafe;
-        color: #1e40af;
+        background-color: var(--b3-theme-background);
         padding: 2px 6px;
         border-radius: 4px;
         font-weight: 500;

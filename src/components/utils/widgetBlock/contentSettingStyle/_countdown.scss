@@ -2,7 +2,7 @@
 
     .countdown-grid {
         display: grid;
-        gap: 1rem;
+        gap: 0.5rem;
         margin: 0;
         padding: 0;
         list-style: none;
@@ -12,10 +12,10 @@
     }
 
     .event-form-group {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--b3-theme-primary-lighter);
         padding: 1rem;
         border-radius: 8px;
-        background: var(--b3-theme-surface);
+        background: var(--b3-theme-background);
 
         .form-group {
             display: flex;
@@ -24,7 +24,6 @@
 
             label {
                 font-size: 14px;
-                color: #475569;
                 margin-right: 0.5rem;
                 white-space: nowrap;
                 width: auto;
@@ -33,6 +32,7 @@
             input[type="text"],
             input[type="date"] {
                 max-width: 100px;
+                background-color: var(--b3-theme-surface);
             }
 
             .remove-event {

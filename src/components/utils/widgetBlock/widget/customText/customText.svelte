@@ -51,7 +51,6 @@
     .custom-text {
         font-size: 14px;
         line-height: 1.6;
-        color: var(--b3-theme-text);
         overflow-y: auto;
 
         :global(*) {

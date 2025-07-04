@@ -121,10 +121,9 @@
     .widget-title {
         font-size: 18px;
         font-weight: 600;
-        color: #1e293b; /* 深灰色 */
         margin-bottom: 0.5rem;
         padding-bottom: 0.3rem;
-        border-bottom: 1px solid #e2e8f0; /* 淡灰色下边框 */
+        border-bottom: 1px solid var(--b3-border-color);
         text-align: center;
         display: inline-block;
         line-height: 1.2;
@@ -137,7 +136,6 @@
         flex-direction: column;
         padding: 1rem;
         box-sizing: border-box;
-        background-color: var(--bg3-color-dark);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }
@@ -155,19 +153,19 @@
     }
 
     .info-item {
-        background-color: #f8fafc;
+        background-color: var(--b3-theme-surface);
         padding: 0.75rem;
         border-radius: 8px;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         display: flex;
         align-items: center;
         font-size: 1rem;
-        color: var(--text-primary);
+        color: var(--b3-theme-primary);
+        font-weight: bold;
     }
 
     .info-item i {
         margin-right: 8px;
-        color: var(--accent-icon);
         min-width: 20px;
         text-align: center;
     }
@@ -175,28 +173,25 @@
     .info-item i:hover {
         transform: scale(1.1);
         transition: transform 0.2s ease-in-out;
-        color: var(--primary-color);
     }
 
     .forecast {
         margin-top: 1rem;
         padding-top: 0.75rem;
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--b3-border-color);
         font-size: 0.9rem;
-        color: var(--text-secondary);
     }
 
     .forecast h4 {
         font-size: 14px;
         font-weight: 600;
         margin-bottom: 0.5rem;
-        color: var(--text-primary);
     }
 
     .forecast-day {
         margin-bottom: 0.5rem;
         line-height: 1.4;
-        background-color: #f1f5f9;
+        background-color: var(--b3-theme-surface);
         padding: 0.5rem;
         border-radius: 6px;
     }
@@ -204,10 +199,6 @@
     @media (max-width: 480px) {
         .widget-title {
             font-size: 16px;
-        }
-
-        .weather-info p {
-            font-size: 0.95rem;
         }
     }
 </style>

@@ -7,7 +7,7 @@
         border: 1px solid var(--b3-theme-border-color);
         border-radius: 6px;
         background-color: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        color: var(--b3-theme-surface);
         font-size: 0.95rem;
         transition: all 0.2s ease-in-out;
         resize: vertical;
@@ -19,7 +19,6 @@
             outline: none;
             border-color: var(--b3-theme-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
-            background-color: white;
         }
 
         &:hover {

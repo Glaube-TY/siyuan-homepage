@@ -16,6 +16,7 @@ import customWeb from "./widget/webview/webview.svelte";
 import customProtyle from "./widget/protyle/protyle.svelte";
 import timedate from "./widget/timedate/timedate.svelte";
 import focus from "./widget/focus/focus.svelte";
+import sql from "./widget/sql/sql.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -256,6 +257,14 @@ export class WidgetBlock {
             }); 
         } else if (contentData.type === "focus") {
             new focus({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "sql") { 
+            new sql({
                 target: this.element,
                 props: {
                     plugin: this.plugin,

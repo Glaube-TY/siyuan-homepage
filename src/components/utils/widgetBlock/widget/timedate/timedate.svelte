@@ -317,7 +317,6 @@
         padding: 2rem;
         box-sizing: border-box;
         box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-        color: white;
         font-family: "Segoe UI", sans-serif;
         text-align: center;
         word-wrap: break-word;
@@ -334,7 +333,7 @@
     }
 
     .text-overlay {
-        background-color: rgba(255, 255, 255, 0.3);
+        background-color: color-mix(in srgb, var(--b3-theme-surface) 50%, transparent);
         padding: 0.4rem 0.8rem;
         border-radius: 8px;
         display: inline-block;
@@ -350,7 +349,6 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background-color: rgba(255, 255, 255, 0.15);
         backdrop-filter: blur(4px);
         z-index: 1;
         border-radius: 8px;
@@ -368,33 +366,6 @@
     .content-display .zodiac,
     .content-display .solar-term-line span {
         transition: color 0.5s ease-in-out;
-    }
-
-    .content-display.morning .time,
-    .content-display.morning .date,
-    .content-display.morning .day-status,
-    .content-display.morning .lunar,
-    .content-display.morning .zodiac,
-    .content-display.morning .solar-term-line span {
-        color: #222 !important;
-    }
-
-    .content-display.afternoon .time,
-    .content-display.afternoon .date,
-    .content-display.afternoon .day-status,
-    .content-display.afternoon .lunar,
-    .content-display.afternoon .zodiac,
-    .content-display.afternoon .solar-term-line span {
-        color: #222 !important;
-    }
-
-    .content-display.night .time,
-    .content-display.night .date,
-    .content-display.night .day-status,
-    .content-display.night .lunar,
-    .content-display.night .zodiac,
-    .content-display.night .solar-term-line span {
-        color: #222 !important;
     }
 
     .time-line,
@@ -432,7 +403,6 @@
     .time {
         font-weight: bold;
         letter-spacing: 1px;
-        color: #ffffff;
         word-wrap: break-word;
         word-break: break-all;
         white-space: normal;
@@ -444,7 +414,6 @@
     .lunar,
     .zodiac,
     .solar-term-line span {
-        color: #d1d5db;
         word-wrap: break-word;
         word-break: break-all;
         white-space: normal;

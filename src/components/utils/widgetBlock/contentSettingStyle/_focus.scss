@@ -27,10 +27,7 @@
                 box-sizing: border-box;
                 font-size: 14px;
                 border-radius: 6px;
-                border: 1px solid var(--b3-border-color);
                 width: 100%;
-                background-color: var(--b3-theme-surface);
-                color: var(--b3-theme-text);
                 transition: all 0.2s ease;
 
                 &:focus {
@@ -47,9 +44,6 @@
             button {
                 padding: 0.4rem 0.6rem;
                 font-size: 14px;
-                background-color: var(--b3-theme-surface);
-                color: var(--b3-theme-on-surface);
-                border: 1px solid var(--b3-border-color);
                 border-radius: 6px;
                 cursor: pointer;
                 transition: all 0.2s ease;
@@ -58,7 +52,6 @@
 
                 &:hover {
                     background-color: var(--b3-theme-primary-light);
-                    color: var(--b3-theme-primary);
                     border-color: var(--b3-theme-primary);
                 }
 

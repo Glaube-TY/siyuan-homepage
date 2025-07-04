@@ -129,11 +129,20 @@
 
             const colorGradient = getColorGradient(colorPreset, customColor);
 
+            const themeMode = window.siyuan.config.appearance.mode;
+            let themeTextColor = "#ffffff";
+            if (themeMode === 0) {
+                themeTextColor = "#000000";
+            }
+
             // 设置 ECharts 配置
             myChart.setOption({
                 title: {
                     left: "center",
                     text: "📅创作热力图",
+                    textStyle: {
+                        color: themeTextColor,
+                    },
                 },
                 tooltip: {
                     formatter: ({ data }) => {
@@ -162,6 +171,8 @@
                         borderWidth: 0.1,
                     },
                     yearLabel: { show: false },
+                    monthLabel: { show: true, color: themeTextColor },
+                    dayLabel: { show: true, color: themeTextColor },
                 },
                 series: {
                     type: "heatmap",
@@ -190,7 +201,7 @@
 <div class="content-display">
     <div class="heatmap-content-container">
         <div id="heatmap-chart" style="width: 100%; height: 100%;"></div>
-    </div> 
+    </div>
 </div>
 
 <style>
@@ -201,7 +212,6 @@
         flex-direction: column;
         padding: 1rem;
         box-sizing: border-box;
-        background-color: var(--bg3-color-dark);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }

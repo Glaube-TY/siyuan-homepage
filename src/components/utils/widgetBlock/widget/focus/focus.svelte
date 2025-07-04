@@ -360,7 +360,7 @@
                                         cx={baseSize / 2}
                                         cy={baseSize / 2}
                                         r={radius}
-                                        fill="rgba(200, 200, 200, 0.5)"
+                                        fill="color-mix(in srgb, var(--b3-theme-surface), transparent)"
                                     />
 
                                     <!-- 背景圆环 -->
@@ -370,7 +370,7 @@
                                         r={radius}
                                         stroke-width={strokeWidth}
                                         fill="none"
-                                        stroke="#e6e6e6"
+                                        stroke="var(--b3-theme-surface)"
                                     />
 
                                     <!-- 进度圆环 -->
@@ -396,7 +396,6 @@
                                         y={baseSize / 2 + 5}
                                         text-anchor="middle"
                                         font-size={timerFontSize * 10}
-                                        fill="#333"
                                     >
                                         {formatTime(timeLeft)}
                                     </text>
@@ -521,7 +520,7 @@
             background: none;
             padding: 0.5rem;
             border-radius: 1rem;
-            background-color: whitesmoke;
+            background-color: var(--b3-theme-surface);
         }
 
         &.modern {
@@ -572,7 +571,11 @@
             border: none;
             cursor: pointer;
             color: var(--b3-theme-primary);
-            background-color: rgba(255, 255, 255, 0.5);
+            background-color: color-mix(
+                in srgb,
+                var(--b3-theme-surface) 50%,
+                transparent
+            );
             transition: color 0.2s;
 
             &:hover {
@@ -580,7 +583,7 @@
                 box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
                 transform: scale(1.1);
                 width: fit-content;
-                background-color: var(--b3-theme-background);
+                background-color: var(--b3-list-icon-hover);
             }
         }
     }
@@ -596,9 +599,9 @@
         font-size: 1rem;
         padding: 0.5rem;
         border-radius: 1rem;
-        color: var(--text-color-dark);
+
         opacity: 0.5;
-        background-color: whitesmoke;
+        background-color: var(--b3-theme-surface);
     }
 
     .settings-modal {
@@ -613,7 +616,7 @@
         bottom: 0;
         width: 100%;
         max-height: 100%;
-        background-color: var(--b3-theme-background);
+        background-color: var(--b3-theme-surface);
         z-index: 100;
         overflow-y: auto;
     }
@@ -633,6 +636,10 @@
         background-color: transparent;
         transition: all 0.2s;
         cursor: pointer;
+
+        &:hover {
+            background-color: var(--b3-list-icon-hover);
+        }
     }
 
     .form-group {
@@ -646,8 +653,9 @@
         input[type="number"] {
             width: 50px;
             padding: 0.3rem;
-            border: 1px solid #cbd5e1;
+            border: 1px solid var(--b3-theme-border);
             border-radius: 4px;
+            background-color: var(--b3-theme-background);
 
             &:hover {
                 border-color: var(--b3-theme-primary);
@@ -668,8 +676,10 @@
 
         select {
             padding: 0.3rem;
-            border: 1px solid #cbd5e1;
+            border: 1px solid var(--b3-theme-border);
             border-radius: 4px;
+
+            background-color: var(--b3-theme-background);
         }
     }
 
@@ -682,7 +692,7 @@
 
     .timer-display.circular-progress {
         background-color: transparent !important;
-        color: #333;
+
         display: flex;
         align-items: center;
         justify-content: center;

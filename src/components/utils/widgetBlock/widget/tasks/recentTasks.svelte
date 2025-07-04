@@ -243,19 +243,7 @@
     </ul>
 </div>
 
-<style>
-    .widget-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: #1e293b; /* 深灰色 */
-        margin-bottom: 0.5rem;
-        padding-bottom: 0.3rem;
-        border-bottom: 1px solid #e2e8f0; /* 淡灰色下边框 */
-        text-align: center;
-        display: inline-block;
-        line-height: 1.2;
-    }
-
+<style lang="scss">
     .content-display {
         width: 100%;
         height: calc(100%);
@@ -263,79 +251,78 @@
         flex-direction: column;
         padding: 10px;
         box-sizing: border-box;
-    }
 
-    .task-list {
-        list-style: none;
-        padding-left: 0;
-        margin: 0;
-        overflow-y: auto;
-    }
+        .widget-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.3rem;
+            border-bottom: 1px solid var(--b3-border-color);
+            text-align: center;
+            display: inline-block;
+            line-height: 1.2;
+        }
 
-    .task-item {
-        padding: 0.5rem 0.75rem;
-        margin-bottom: 0.5rem;
-        background-color: #f8fafc;
-        border-radius: 6px;
-        font-size: 14px;
-        color: #475569;
-        transition: background-color 0.2s ease;
+        .task-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+            overflow-y: auto;
+        }
 
-        &:hover {
-            background-color: #eff6ff;
+        .task-item {
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 0.5rem;
+            background-color: var(--b3-theme-surface);
+            border-radius: 6px;
+            font-size: 14px;
+            transition: background-color 0.2s ease;
+        }
+
+        .task-item:hover {
+            background-color: var(--b3-list-hover);
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
-    }
 
-    .task-item.completed {
-        text-decoration: line-through;
-        color: #94a3b8;
-        background-color: #f1f5f9;
-    }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
 
-    .task-item:hover {
-        background-color: #eff6ff;
-    }
+        .task-created-time,
+        .task-source {
+            display: block;
+            margin-top: 0.3rem;
+            font-size: 12px;
+            padding-left: 2rem;
+        }
 
-    .checkbox-label {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem; /* 横向间距 */
-    }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: default;
+        }
 
-    .task-created-time,
-    .task-source {
-        display: block;
-        margin-top: 0.3rem;
-        font-size: 12px;
-        color: #94a3b8;
-        padding-left: 2rem;
-    }
+        .task-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+        }
 
-    .checkbox-label {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        cursor: default;
-    }
+        .task-content {
+            flex-grow: 1;
+            margin-left: 0.5rem;
+            color: var(--b3-theme-primary);
+            cursor: pointer;
+            font-weight: bold;
+        }
 
-    .task-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-    }
-
-    .task-content {
-        flex-grow: 1;
-        margin-left: 0.5rem;
-        color: var(--b3-theme-primary);
-        cursor: pointer;
-        font-weight: 500;
-    }
-
-    .task-content:hover {
-        text-decoration: underline;
+        .task-content:hover {
+            text-decoration: underline;
+        }
     }
 </style>

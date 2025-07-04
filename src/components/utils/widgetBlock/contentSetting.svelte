@@ -118,6 +118,12 @@
     let focusBgInput: HTMLInputElement | null = null;
     let breakBgInput: HTMLInputElement | null = null;
 
+    // SQL 查询
+    let sqlTitle: string = "🔍SQL 查询结果";
+    let sqlInput: string = "";
+    let columnOrder: string = "";
+    let hiddenFields: string = "";
+
     // 处理背景上传函数
     function handleCountdownUpload() {
         const file = countdownBgInput?.files?.[0];
@@ -314,6 +320,11 @@
                     parsedData.data?.focusLocalImage || focusLocalImage;
                 breakLocalImage =
                     parsedData.data?.breakLocalImage || breakLocalImage;
+            } else if (parsedData.type === "sql") {
+                sqlTitle = parsedData.data?.sqlTitle || sqlTitle;
+                sqlInput = parsedData.data?.sqlInput || "";
+                columnOrder = parsedData.data?.columnOrder || "";
+                hiddenFields = parsedData.data?.hiddenFields || "";
             }
         }
     });
@@ -623,6 +634,7 @@
                 <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="heatmap">热力图</option>
+                    <option value="sql">SQL 查询</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -679,8 +691,49 @@
                             注：热力图统计的是每日的块（block）数，而不是字数。
                         </p>
                     </div>
-                {:else if selectedContentType === "other"}
-                    <div class="content-panel TaskMan"></div>
+                {:else if selectedContentType === "sql"}
+                    <div class="content-panel sql">
+                        <div class="form-group">
+                            <label for="sql-title">
+                                组件标题：
+                                <input
+                                    id="sql-title"
+                                    type="text"
+                                    bind:value={sqlTitle}
+                                />
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="sql-input">SQL 语句：</label>
+                            <textarea
+                                id="sql-input"
+                                bind:value={sqlInput}
+                                placeholder="请输入 SQL 语句"
+                            ></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="column-order">
+                                列排序（逗号分隔）：
+                                <input
+                                    id="column-order"
+                                    type="text"
+                                    placeholder="例如：id,alias"
+                                    bind:value={columnOrder}
+                                />
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="hidden-fields">
+                                隐藏字段（逗号分隔）：
+                                <input
+                                    id="hidden-fields"
+                                    type="text"
+                                    placeholder="例如：alias,path"
+                                    bind:value={hiddenFields}
+                                />
+                            </label>
+                        </div>
+                    </div>
                 {/if}
             </div>
         {:else if activeTab === "tool"}
@@ -1468,6 +1521,18 @@
                             breakImageType,
                             breakBgImage,
                             breakLocalImage,
+                        },
+                    };
+                } else if (selectedContentType === "sql") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "sql",
+                        blockId: currentBlockId,
+                        data: {
+                            sqlTitle,
+                            sqlInput,
+                            columnOrder,
+                            hiddenFields,
                         },
                     };
                 }

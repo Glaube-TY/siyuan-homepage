@@ -32,8 +32,8 @@
 
                 &:hover,
                 &.active {
-                    background-color: #eaf4ff;
-                    border-color: #b3d7ff;
+                    background-color: var(--b3-theme-primary);
+                    border-color: var(--b3-theme-border-color);
                     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
                 }
 
@@ -45,7 +45,6 @@
                 span {
                     flex-grow: 1;
                     font-size: 1rem;
-                    color: #333;
                 }
             }
 
@@ -102,6 +101,10 @@
                     opacity: 0.5;
                     cursor: not-allowed;
                 }
+            }
+
+            input{
+                background-color: var(--b3-theme-surface);
             }
         }
     }

@@ -44,6 +44,7 @@
     let tempTitleIconEmoji = "🏠";
     let tempTitleIconImage: string | null = null;
     let pageTitle = "思源笔记首页";
+    let tempTitleIconStyle: string = "square";
 
     let statsInfoText =
         "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
@@ -120,7 +121,7 @@
 
         document.addEventListener("click", handleDocumentClick);
         reRegisterAllShortcuts(buttonsList);
-        
+
         return () => {
             window.removeEventListener("load", handleLoad);
             document.removeEventListener("click", handleDocumentClick);
@@ -141,6 +142,7 @@
         tempTitleIconImage = config.TitleIconImage;
         titleIconType = config.titleIconType || "emoji";
         pageTitle = config.customTitle || "思源笔记首页";
+        tempTitleIconStyle = config.tempTitleIconStyle || "square";
 
         statsInfoText = config.statsInfoText;
 
@@ -280,7 +282,12 @@
                         <img
                             src={tempTitleIconImage}
                             alt="图标"
-                            style="width: 32px; height: 32px;"
+                            style="width: 32px; height: 32px; 
+               border-radius: {tempTitleIconStyle === 'square'
+                                ? '0%'
+                                : tempTitleIconStyle === 'round'
+                                  ? '20%'
+                                  : '50%'};"
                         />
                     {/if}
                 </div>

@@ -117,6 +117,12 @@
 
             const myChart = echarts.init(chartDom);
             const range = getMonthRange(currentDate);
+            
+            const themeMode = window.siyuan.config.appearance.mode;
+            let themeTextColor = "#ffffff";
+            if (themeMode === 0) {
+                themeTextColor = "#000000";
+            }
 
             myChart.setOption({
                 tooltip: {
@@ -145,6 +151,7 @@
                         show: true,
                         fontSize: 12,
                         margin: 10,
+                        color: themeTextColor,
                     },
                 },
                 series: {
@@ -343,10 +350,9 @@
     .widget-title {
         font-size: 18px;
         font-weight: 600;
-        color: #1e293b;
         margin-bottom: 0.5rem;
         padding-bottom: 0.3rem;
-        border-bottom: 1px solid #e2e8f0;
+        border-bottom: 1px solid var(--b3-border-color);
         text-align: center;
         display: inline-block;
         line-height: 1.2;
@@ -370,7 +376,6 @@
             .widget-title-calendar {
                 font-size: 18px;
                 font-weight: 600;
-                color: #1e293b;
                 white-space: nowrap;
             }
 
@@ -384,14 +389,13 @@
                 align-items: center;
                 cursor: pointer;
                 font-size: 14px;
-                color: #475569;
                 transition: all 0.2s ease;
+                background-color: var(--b3-theme-surface);
             }
 
             .nav-button:hover {
-                background-color: var(--b3-theme-primary);
+                background-color: var(--b3-list-icon-hover);
                 transform: scale(1.1);
-                color: white;
             }
         }
     }
@@ -416,17 +420,17 @@
         flex: 0 0 auto;
         padding: 0.5rem 0.75rem;
         margin-bottom: 0.5rem;
-        background-color: #f8fafc;
+        background-color: var(--b3-theme-surface);
         border-radius: 6px;
         font-size: 14px;
-        color: #475569;
         transition: background-color 0.2s ease;
     }
 
     .document-item:hover {
-        background-color: #eff6ff;
+        background-color: var(--b3-list-hover);
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        text-decoration: underline;
     }
 
     .document-item-content {

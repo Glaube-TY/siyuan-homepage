@@ -154,10 +154,10 @@
     .widget-title {
         font-size: 18px;
         font-weight: 600;
-        color: #1e293b; /* 深灰色 */
+        color: var(--b3-theme-on-primary);
         margin-bottom: 0.5rem;
         padding-bottom: 0.3rem;
-        border-bottom: 1px solid #e2e8f0; /* 淡灰色下边框 */
+        border-bottom: 1px solid var(--b3-border-color);
         text-align: center;
         display: inline-block;
         line-height: 1.2;
@@ -203,7 +203,7 @@
     }
 
     .countdown-item {
-        background-color: #f8fafc;
+        background-color: var(--b3-theme-surface);
         border-radius: 6px;
         padding: 0.75rem 1rem;
         margin-bottom: 0.5rem;
@@ -213,7 +213,7 @@
         transition: background-color 0.2s ease;
 
         &:hover {
-            background-color: #eff6ff;
+            background-color: var(--b3-list-icon-hover);
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
@@ -222,12 +222,12 @@
     .countdown-name {
         font-size: 14px;
         font-weight: 600;
-        color: #1e293b;
+        color: var(--b3-theme-on-primary);
     }
 
     .countdown-date {
         font-size: 12px;
-        color: #94a3b8;
+        color: var(--b3-theme-on-secondary);
         margin-left: 1rem;
     }
 
@@ -236,23 +236,23 @@
         font-weight: 500;
 
         &.today strong {
-            color: #e53e3e; /* 今天：红色 */
+            color: #e53e3e;
         }
 
         &.expired strong {
-            color: #94a3b8; /* 已过：灰色 */
+            color: #94a3b8;
         }
 
         &.future strong {
-            color: #48bb78; /* 未来：绿色 */
+            color: var(--b3-theme-primary);
         }
     }
 
     .full-page-container {
         display: flex;
         z-index: 2;
-        align-items: center; /* 垂直居中 */
-        justify-content: space-between; /* 左右分布 */
+        align-items: center;
+        justify-content: space-between;
         width: 100%;
         height: 100%;
         position: relative;
@@ -265,7 +265,7 @@
         padding: 4rem 2rem;
         box-sizing: border-box;
         border-radius: 12px;
-        background-color: rgba(255, 255, 255, 0.5);
+        background-color: color-mix(in srgb, var(--b3-theme-surface) 50%, transparent);
         margin: 0 1rem;
         display: flex;
         flex-direction: column;
@@ -278,9 +278,9 @@
         top: 50%;
         transform: translateY(-50%);
         z-index: 10;
-        background-color: rgba(0, 0, 0, 0.1);
+        background-color: color-mix(in srgb, var(--b3-theme-primary) 50%, transparent);
         border: none;
-        color: #1e293b;
+        color: var(--b3-theme-on-primary);
         font-size: 20px;
         padding: 0.5rem;
         cursor: pointer;
@@ -306,14 +306,12 @@
             font-family: "Great Vibes", cursive; /* 艺术标题字体 */
             font-weight: 400;
             margin-bottom: 1rem;
-            color: #373131;
             text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
         }
 
         .full-page-date {
             font-size: 1.5rem;
             font-family: "Caveat", cursive; /* 手写风日期 */
-            color: #565656;
             margin-bottom: 2rem;
             text-shadow: 1px 1px 6px rgba(0, 0, 0, 0.4);
         }
@@ -331,25 +329,25 @@
 
                 &:hover {
                     border-radius: 50%;
-                    background-color: var(--b3-theme-background);
+                    background-color: var(--b3-list-hover);
                 }
             }
 
             &.expired {
                 strong {
-                    color: #94a3b8; /* 已过：灰色 */
+                    color: #94a3b8;
                 }
 
                 &:hover {
                     border-radius: 50%;
-                    background-color: var(--b3-theme-background);
+                    background-color: var(--b3-list-hover);
                 }
             }
 
             &.future {
                 &:hover {
                     border-radius: 50%;
-                    background-color: var(--b3-theme-background);
+                    background-color: var(--b3-list-hover);
                 }
 
                 strong {

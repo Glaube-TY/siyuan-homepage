@@ -39,7 +39,6 @@
         flex-direction: column;
         padding: 1rem;
         box-sizing: border-box;
-        background-color: var(--bg3-color-dark);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }

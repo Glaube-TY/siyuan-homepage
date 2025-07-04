@@ -92,10 +92,9 @@
     .widget-title {
         font-size: 18px;
         font-weight: 600;
-        color: #1e293b; /* 深灰色 */
         margin-bottom: 0.5rem;
         padding-bottom: 0.3rem;
-        border-bottom: 1px solid #e2e8f0; /* 淡灰色下边框 */
+        border-bottom: 1px solid var(--b3-border-color);
         text-align: center;
         display: inline-block;
         line-height: 1.2;
@@ -108,7 +107,6 @@
         flex-direction: column;
         padding: 1rem;
         box-sizing: border-box;
-        background-color: var(--bg3-color-dark);
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 
@@ -127,14 +125,13 @@
         .favorites-item {
             padding: 0.5rem 0.75rem;
             margin-bottom: 0.5rem;
-            background-color: #f8fafc;
+            background-color: var(--b3-theme-surface);
             border-radius: 6px;
             font-size: 14px;
-            color: #475569;
             transition: background-color 0.2s ease;
 
             &:hover {
-                background-color: #eff6ff;
+                background-color: var(--b3-list-hover);
                 transform: translateY(-2px);
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             }
@@ -154,8 +151,8 @@
         }
 
         .note-meta {
-            color: #94a3b8;
             font-size: 12px;
+            margin-top: 4px;
             margin-left: 4px;
         }
     }
