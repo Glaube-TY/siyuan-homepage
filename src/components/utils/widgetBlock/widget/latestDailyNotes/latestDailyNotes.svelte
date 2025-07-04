@@ -119,9 +119,6 @@
             const range = getMonthRange(currentDate);
 
             myChart.setOption({
-                title: {
-                    left: "center",
-                },
                 tooltip: {
                     formatter: (params) => {
                         const date = params.name;
@@ -133,15 +130,22 @@
                     },
                 },
                 calendar: {
-                    top: 0,
+                    top: 10,
                     left: 30,
+                    right: 10,
                     cellSize: ["auto", "auto"],
                     range: range,
                     itemStyle: {
                         borderWidth: 1,
                         borderColor: "#666",
                     },
-                    yearLabel: { show: true },
+                    yearLabel: { show: false },
+                    monthLabel: { show: false },
+                    dayLabel: {
+                        show: true,
+                        fontSize: 12,
+                        margin: 10,
+                    },
                 },
                 series: {
                     type: "custom",
@@ -253,10 +257,7 @@
                         };
                     },
                     dimensions: [undefined, { type: "ordinal" }],
-                    data: buildCustomCalendarData(
-                        dailyNotes,
-                        range,
-                    ),
+                    data: buildCustomCalendarData(dailyNotes, range),
                 },
             });
 

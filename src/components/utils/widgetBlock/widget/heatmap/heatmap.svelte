@@ -190,18 +190,10 @@
 <div class="content-display">
     <div class="heatmap-content-container">
         <div id="heatmap-chart" style="width: 100%; height: 100%;"></div>
-    </div>
+    </div> 
 </div>
 
 <style>
-    .heatmap-content-container {
-        width: 100%;
-        height: calc(100%);
-        margin: 0 auto;
-        flex: none;
-        position: relative;
-        overflow: auto;
-    }
     .content-display {
         width: 100%;
         height: calc(100%);
