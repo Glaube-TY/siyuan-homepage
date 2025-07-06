@@ -4,13 +4,14 @@
         <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">为思源笔记提供一个可高度定制的首页界面</div>
         <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">插件数据完全基于思源笔记文档，卸载插件不会对笔记造成任何影响。</div>
     </div>
-    <div style="margin-top: 1.5em; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+    <div style="margin-top: 1.5em; padding: 1.5em; background: #f8fafc; border-radius: 8px; border: 1px solid rgba(45,140,240,0.1);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">🚀 核心功能</h2>
         <ul style="margin: 0; padding-left: 1.2em;">
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⚡ 自定义快捷导航栏（搜索笔记、今日日记等）</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">📊 自定义状态数据展示（笔记数量、笔记本数量等）</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🎨 适配多主题及夜间模式</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧩 丰富可自定义的组件区域</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧲 可拖动布局</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">📋 任务管理 Plus</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🔍 SQL 查询</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⭐ 右键菜单添加收藏文档功能</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🍅 番茄钟、纪念日等小工具</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">💡 更多内容请看详细教程</li>
@@ -119,6 +120,27 @@
                 <span style="font-weight: 500; letter-spacing: 0.5px;">加入腾讯讨论频道</span>
             </a>
         </div>
+    </div>
+    <div style="margin: 1.5em 0; padding: 1.5em; background: #f8f5ff; border-left: 4px solid #8a3ffc; border-radius: 8px;">
+        <h2 style="color: #8a3ffc; margin: 0 0 1em;">🔮 参考项目</h2>
+        <p style="margin: 0.5em 0;">本插件部分功能参考了以下优秀项目：</p>
+        <ul style="margin: 0; padding-left: 1.2em;">
+            <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
+                <a href="https://github.com/obsidian-tasks-group/obsidian-tasks" 
+                   style="color: #8a3ffc; 
+                          text-decoration: none;
+                          font-weight: 500;
+                          display: block;
+                          margin-bottom: 4px;"
+                   onmouseover="this.style.textDecoration='underline'"
+                   onmouseout="this.style.textDecoration='none'">
+                    Obsidian Tasks
+                </a>
+                <span style="color: #666; display: block; line-height: 1.5;">
+                    任务管理 Plus 组件参考了其图标化的任务模式和实现逻辑
+                </span>
+            </li>
+        </ul>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff5f5; border-left: 4px solid #ff4d4f; border-radius: 8px;">
         <h2 style="color: #ff4d4f; margin: 0 0 1em;">⚠️ 免责声明</h2>

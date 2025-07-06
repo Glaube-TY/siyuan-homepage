@@ -43,6 +43,13 @@
     let showTasksDetails = true; // 默认显示任务详情
     let TaskManTitle: string = "📋任务管理";
 
+    // 任务管理Plus 相关变量
+    let TaskManPlusTitle: string = "📋任务管理Plus";
+    let isCustomFilter: boolean = false;
+    let internalFilter: string = "all";
+    let customFilter: string = "";
+    let tasksSort: string = "startdate";
+
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
     let countdownStyle = "list";
@@ -325,6 +332,15 @@
                 sqlInput = parsedData.data?.sqlInput || "";
                 columnOrder = parsedData.data?.columnOrder || "";
                 hiddenFields = parsedData.data?.hiddenFields || "";
+            } else if (parsedData.type === "TaskManPlus") {
+                TaskManPlusTitle =
+                    parsedData.data?.TaskManPlusTitle || TaskManPlusTitle;
+                isCustomFilter =
+                    parsedData.data?.isCustomFilter || isCustomFilter;
+                internalFilter =
+                    parsedData.data?.internalFilter || internalFilter;
+                customFilter = parsedData.data?.customFilter || customFilter;
+                tasksSort = parsedData.data?.tasksSort || tasksSort;
             }
         }
     });
@@ -364,6 +380,7 @@
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="favorites">收藏文档</option>
                     <option value="TaskMan">任务管理</option>
+                    <option value="TaskManPlus">任务管理Plus</option>
                     <option value="latest-docs">最近文档</option>
                     <option value="recent-journals">最近日记</option>
                 </select>
@@ -597,6 +614,74 @@
                                 placeholder="输入笔记本ID"
                             />
                         </div>
+                    </div>
+                {:else if selectedContentType === "TaskManPlus"}
+                    <div class="content-panel TaskManPlus">
+                        <!-- 任务管理Plus设置区域 -->
+                        <div class="form-group TaskManPlus-title">
+                            <label for="TaskManPlus-title">
+                                组件标题：
+                                <input
+                                    id="TaskManPlus-title"
+                                    type="text"
+                                    bind:value={TaskManPlusTitle}
+                                    placeholder="输入组件标题"
+                                />
+                            </label>
+                        </div>
+                        <div class="form-group TaskManPlus-isCustomFilter">
+                            <label for="TaskManPlus-isCustomFilter">
+                                <input
+                                    id="TaskManPlus-isCustomFilter"
+                                    type="checkbox"
+                                    bind:checked={isCustomFilter}
+                                />
+                                自定义筛选条件
+                            </label>
+                        </div>
+                        {#if !isCustomFilter}
+                            <div class="form-group TaskManPlus-taskFilter">
+                                <label for="TaskManPlus-taskFilter"
+                                    >筛选条件：<select
+                                        id="TaskManPlus-internalFilter"
+                                        bind:value={internalFilter}
+                                    >
+                                        <option value="all">所有任务</option>
+                                        <option value="uncompleted"
+                                            >未完成任务</option
+                                        >
+                                        <option value="completed"
+                                            >已完成任务</option
+                                        >
+                                        <option value="today">今天任务</option>
+                                        <option value="tomorrow"
+                                            >明天任务</option
+                                        >
+                                        <option value="mostImportant"
+                                            >❗❗❗❗任务</option
+                                        >
+                                    </select></label
+                                >
+                            </div>
+                        {:else}
+                            <div class="form-group TaskManPlus-customFilter">
+                                <label for="TaskManPlus-customFilter"
+                                    >筛选语法：<textarea
+                                        id="TaskManPlus-customFilter"
+                                        placeholder="输入筛选语法"
+                                        bind:value={customFilter}
+                                    ></textarea></label
+                                >
+                            </div>
+                        {/if}
+                        <label for="tasks-sort">
+                            排序方式：
+                            <select id="tasks-sort" bind:value={tasksSort}>
+                                <option value="startdate">开始日期</option>
+                                <option value="deadline">截止日期</option>
+                                <option value="priority">优先级❗</option>
+                            </select>
+                        </label>
                     </div>
                 {/if}
             </div>
@@ -1533,6 +1618,19 @@
                             sqlInput,
                             columnOrder,
                             hiddenFields,
+                        },
+                    };
+                } else if (selectedContentType === "TaskManPlus") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "TaskManPlus",
+                        blockId: currentBlockId,
+                        data: {
+                            TaskManPlusTitle,
+                            isCustomFilter,
+                            internalFilter,
+                            customFilter,
+                            tasksSort,
                         },
                     };
                 }
