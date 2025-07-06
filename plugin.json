@@ -2,7 +2,7 @@
   "name": "siyuan-homepage",
   "author": "Glaube-TY",
   "url": "https://github.com/Glaube-TY/siyuan-homepage",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "minAppVersion": "3.0.12",
   "backends": [
     "windows",
@@ -36,6 +36,28 @@
     "homepage",
     "home",
     "主页",
-    "首页"
+    "首页",
+    "task",
+    "task manager",
+    "任务",
+    "任务管理",
+    "SQL",
+    "sql",
+    "查询",
+    "widget",
+    "widget manager",
+    "挂件",
+    "挂件管理",
+    "组件",
+    "组件管理",
+    "Pomodoro",
+    "Pomodoro timer",
+    "Pomodoro 定时器",
+    "番茄时钟",
+    "番茄",
+    "heat map",
+    "热力图",
+    "热搜",
+    "搜索"
   ]
 }

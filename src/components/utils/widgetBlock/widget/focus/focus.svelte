@@ -626,6 +626,10 @@
         display: flex;
         justify-content: flex-end;
         gap: 1rem;
+
+        button {
+            color: var(--b3-theme-text);
+        }
     }
 
     button {
@@ -656,6 +660,7 @@
             border: 1px solid var(--b3-theme-border);
             border-radius: 4px;
             background-color: var(--b3-theme-background);
+            color: var(--b3-theme-text);
 
             &:hover {
                 border-color: var(--b3-theme-primary);
@@ -678,7 +683,7 @@
             padding: 0.3rem;
             border: 1px solid var(--b3-theme-border);
             border-radius: 4px;
-
+            color: var(--b3-theme-text);
             background-color: var(--b3-theme-background);
         }
     }

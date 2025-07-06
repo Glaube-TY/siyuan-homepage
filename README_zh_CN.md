@@ -6,7 +6,7 @@
     </div>
     <div style="margin-top: 1.5em; padding: 1.5em; background: #f8fafc; border-radius: 8px; border: 1px solid rgba(45,140,240,0.1);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">🚀 核心功能</h2>
-        <ul style="margin: 0; padding-left: 1.2em;">
+        <ul style="margin: 0; padding-left: 1.2em; color: black;">
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🎨 适配多主题及夜间模式</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧩 丰富可自定义的组件区域</li>
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧲 可拖动布局</li>
@@ -39,7 +39,7 @@
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 8px;">
         <h2 style="color: #ff9f00; margin: 0 0 1em;">🌹 支持开发</h2>
-        <p style="margin: 0.5em 0;">如果这个插件对你有帮助，欢迎给作者点个赞或打赏一杯咖啡，这将鼓励作者更新制作更多有用的插件：</p>
+        <p style="margin: 0.5em 0; color: black;">如果这个插件对你有帮助，欢迎给作者点个赞或打赏一杯咖啡，这将鼓励作者更新制作更多有用的插件：</p>
         <div style="margin: 1em 0; text-align: center;">
             <img src="https://tc.z.wiki/autoupload/7ld0SKOqoByVzszlkeHfxhBoTCZ2-MO4orDcDjaY2fmyl5f0KlZfm6UsKj-HyTuv/20250624/gxI4/2119X1382/ReQR.png"
                  alt="TCQR"
@@ -68,7 +68,7 @@
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
-        <p style="margin: 0.5em 0;">此处将不再显示更新日志，请点击下方👇按钮查看完整的更新日志。</p>
+        <p style="margin: 0.5em 0; color: black;">此处将不再显示更新日志，请点击下方👇按钮查看完整的更新日志。</p>
         <div style="text-align: center;">
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 
            style="display: inline-flex;
@@ -91,7 +91,7 @@
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #f0f9ff; border-left: 4px solid #2d8cf0; border-radius: 8px;">
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">💬 加入讨论</h2>
-        <p style="margin: 0.5em 0;">目前我在开发的插件有主页、读书笔记、空文档清理、彩色图标，所以统一用一个频道了，方便查看管理~</p>
+        <p style="margin: 0.5em 0; color: black;">目前我在开发的插件有主页、读书笔记、空文档清理、彩色图标，所以统一用一个频道了，方便查看管理~</p>
         <div style="margin: 1em 0; text-align: center;">
             <img src="https://tc.z.wiki/autoupload/YjFouVX7uB9I7ine7AuN0NiO_OyvX7mIgxFBfDMDErs/20250624/Itmc/1159X1818/TCQR.jpg"
                  alt="TCQR"
@@ -123,7 +123,7 @@
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #f8f5ff; border-left: 4px solid #8a3ffc; border-radius: 8px;">
         <h2 style="color: #8a3ffc; margin: 0 0 1em;">🔮 参考项目</h2>
-        <p style="margin: 0.5em 0;">本插件部分功能参考了以下优秀项目：</p>
+        <p style="margin: 0.5em 0; color: black;">本插件部分功能参考了以下优秀项目：</p>
         <ul style="margin: 0; padding-left: 1.2em;">
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
                 <a href="https://github.com/obsidian-tasks-group/obsidian-tasks" 
