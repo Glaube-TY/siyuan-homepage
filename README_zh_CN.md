@@ -41,8 +41,8 @@
         <h2 style="color: #ff9f00; margin: 0 0 1em;">🌹 支持开发</h2>
         <p style="margin: 0.5em 0; color: black;">如果这个插件对你有帮助，欢迎给作者点个赞或打赏一杯咖啡，这将鼓励作者更新制作更多有用的插件：</p>
         <div style="margin: 1em 0; text-align: center;">
-            <img src="https://tc.z.wiki/autoupload/7ld0SKOqoByVzszlkeHfxhBoTCZ2-MO4orDcDjaY2fmyl5f0KlZfm6UsKj-HyTuv/20250624/gxI4/2119X1382/ReQR.png"
-                 alt="TCQR"
+            <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/ReQR.png"
+                 alt="ReQR"
                  style="width: 600px; border-radius: 8px; margin-bottom: 1em;">
         </div>
         <div style="text-align: center;">
@@ -93,7 +93,7 @@
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">💬 加入讨论</h2>
         <p style="margin: 0.5em 0; color: black;">目前我在开发的插件有主页、读书笔记、空文档清理、彩色图标，所以统一用一个频道了，方便查看管理~</p>
         <div style="margin: 1em 0; text-align: center;">
-            <img src="https://tc.z.wiki/autoupload/YjFouVX7uB9I7ine7AuN0NiO_OyvX7mIgxFBfDMDErs/20250624/Itmc/1159X1818/TCQR.jpg"
+            <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/TCQR.jpg"
                  alt="TCQR"
                  style="width: 200px; border-radius: 8px; margin-bottom: 1em;">
         </div>
