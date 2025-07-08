@@ -409,7 +409,7 @@
                             {#if task.parsed.tags?.length > 0}
                                 <div class="tags">
                                     {#each task.parsed.tags as tag}
-                                        <span class="tag">#{tag}</span>
+                                        <span class="tag">{tag}</span>
                                     {/each}
                                 </div>
                             {/if}

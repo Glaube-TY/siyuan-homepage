@@ -130,9 +130,22 @@
             const colorGradient = getColorGradient(colorPreset, customColor);
 
             const themeMode = window.siyuan.config.appearance.mode;
-            let themeTextColor = "#ffffff";
+            const themeColor1 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-surface")
+                .trim();
+            const themeColor2 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-background")
+                .trim();
+            const themeColor3 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-on-primary")
+                .trim();
+            const themeColor4 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-on-background")
+                .trim();
+
+            let themeTextColor = themeColor3;
             if (themeMode === 0) {
-                themeTextColor = "#000000";
+                themeTextColor = themeColor4;
             }
 
             // 设置 ECharts 配置
@@ -157,6 +170,9 @@
                     orient: "horizontal",
                     left: "center",
                     top: 40,
+                    textStyle: {
+                        color: themeTextColor,
+                    },
                     inRange: {
                         color: colorGradient,
                     },
@@ -168,7 +184,13 @@
                     cellSize: ["auto", "auto"],
                     range: range,
                     itemStyle: {
-                        borderWidth: 0.1,
+                        borderWidth: 5,
+                        borderColor: themeColor2,
+                        color: themeColor1,
+                        opacity: 0.5,
+                    },
+                    splitLine: {
+                        show: false,
                     },
                     yearLabel: { show: false },
                     monthLabel: { show: true, color: themeTextColor },
@@ -185,11 +207,12 @@
                             return date.split("-")[2];
                         },
                         fontSize: 10,
-                        color: "#000",
+                        color: themeTextColor,
                     },
                     emphasis: {
                         itemStyle: {
-                            borderColor: "#333",
+                            shadowBlur: 10,
+                            shadowColor: "rgba(0, 0, 0, 0.5)",
                         },
                     },
                 },

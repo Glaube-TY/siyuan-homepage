@@ -87,7 +87,7 @@ export async function formatTasksList(
 
             const tagRegex = /#([^#]+)#/g;
             let tagMatch;
-            while ((tagMatch = tagRegex.exec(task.markdown)) !== null) {
+            while ((tagMatch = tagRegex.exec(markdown)) !== null) {
                 parsed.tags.push(tagMatch[1].trim());
             }
 

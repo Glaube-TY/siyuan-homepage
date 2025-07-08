@@ -117,11 +117,27 @@
 
             const myChart = echarts.init(chartDom);
             const range = getMonthRange(currentDate);
-            
+
             const themeMode = window.siyuan.config.appearance.mode;
-            let themeTextColor = "#ffffff";
+            const themeColor1 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-surface")
+                .trim();
+            const themeColor2 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-background")
+                .trim();
+            const themeColor3 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-on-primary")
+                .trim();
+            const themeColor4 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-on-background")
+                .trim();
+            const themeColor5 = getComputedStyle(document.documentElement)
+                .getPropertyValue("--b3-theme-primary")
+                .trim();
+
+            let themeTextColor = themeColor3;
             if (themeMode === 0) {
-                themeTextColor = "#000000";
+                themeTextColor = themeColor4;
             }
 
             myChart.setOption({
@@ -142,8 +158,13 @@
                     cellSize: ["auto", "auto"],
                     range: range,
                     itemStyle: {
-                        borderWidth: 1,
-                        borderColor: "#666",
+                        borderWidth: 4,
+                        borderColor: themeColor2,
+                        color: themeColor1,
+                        opacity: 0.5,
+                    },
+                    splitLine: {
+                        show: false,
                     },
                     yearLabel: { show: false },
                     monthLabel: { show: false },
@@ -193,11 +214,6 @@
                         const dayNow = String(now.getDate()).padStart(2, "0");
                         const today = `${yearNow}-${monthNow}-${dayNow}`;
                         const isToday = currentDate === today;
-                        const themeColor = getComputedStyle(
-                            document.documentElement,
-                        )
-                            .getPropertyValue("--b3-theme-primary")
-                            .trim();
 
                         if (isToday) {
                             children.push({
@@ -210,8 +226,8 @@
                                     r: 4,
                                 },
                                 style: {
-                                    fill: themeColor,
-                                    opacity: 0.2,
+                                    fill: themeColor5,
+                                    opacity: 0.1,
                                 },
                             });
                         }
@@ -303,21 +319,17 @@
             {#if displayedDocs.length > 0}
                 {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                     <li class="document-item">
-                        <div
+                        <button
                             class="document-item-content"
                             on:click={() =>
                                 openTab({
                                     app: plugin.app,
-                                    doc: {
-                                        id: doc.id,
-                                    },
+                                    doc: { id: doc.id },
                                 })}
-                            role="button"
-                            tabindex="0"
                             aria-label="打开最近日记：{doc.content}"
                         >
                             📅 {doc.content || "(无标题)"}
-                        </div>
+                        </button>
                     </li>
                 {/each}
             {:else}
@@ -405,6 +417,10 @@
         height: 100%;
     }
 
+    .fas {
+        color: var(--b3-theme-primary);
+    }
+
     .document-list {
         display: flex;
         flex-wrap: wrap;
@@ -440,6 +456,8 @@
         text-decoration: none;
         font-weight: bold;
         cursor: pointer;
+        border: none;
+        background-color: transparent;
 
         &:hover {
             text-decoration: underline;

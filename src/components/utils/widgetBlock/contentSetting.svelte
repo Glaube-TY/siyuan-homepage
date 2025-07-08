@@ -672,6 +672,12 @@
                                         bind:value={customFilter}
                                     ></textarea></label
                                 >
+                                <p>
+                                    使用前请先了解<a
+                                        href="https://ttl8ygt82u.feishu.cn/wiki/CCwfwq75Ziu8m5kQ0HXcnVbfnod?from=from_copylink"
+                                        target="_blank">筛选语法</a
+                                    >，并根据需求进行调整。
+                                </p>
                             </div>
                         {/if}
                         <label for="tasks-sort">
