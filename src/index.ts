@@ -11,6 +11,7 @@ import { svelteDialog } from "@/libs/dialog";
 import * as sdk from "@siyuan-community/siyuan-sdk";
 import Homepage from "./components/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
+import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
 
 const STORAGE_NAME = "menu-config";
 const TAB_TYPE = "custom_tab";
@@ -61,6 +62,45 @@ export default class PluginHomepage extends Plugin {
                     },
                 });
             }
+        });
+
+        this.addCommand({
+            langKey: "快速笔记",
+            hotkey: "⇧⌘Q",
+            callback: async () => {
+                const homepageSettingConfig = await this.loadData("homepageSettingConfig.json");
+                const quickNotesEnabled = homepageSettingConfig.quickNotesEnabled;
+                const quickNotesPosition = homepageSettingConfig.quickNotesPosition;
+                const quickNotesTimestampEnabled = homepageSettingConfig.quickNotesTimestampEnabled;
+                const quickNotesAddPosition = homepageSettingConfig.quickNotesAddPosition;
+
+                if (!quickNotesEnabled) {
+                    showMessage("❌请先在主页设置中开启快速笔记");
+                    return;
+                } else if (quickNotesPosition == "") {
+                    showMessage("❌请先在主页设置中设置快速笔记的位置");
+                    return;
+                } else {
+                    const dialog = svelteDialog({
+                        title: "快速笔记",
+                        constructor: (containerEl: HTMLElement) => {
+                            return new QuickNotesDialog({
+                                target: containerEl,
+                                props: {
+                                    quickNotesPosition,
+                                    quickNotesTimestampEnabled,
+                                    quickNotesAddPosition,
+                                    plugin: this,
+                                    close: () => {
+                                        dialog.close();
+                                    },
+                                },
+                            });
+                        },
+                    });
+                }
+
+            },
         });
     }
 

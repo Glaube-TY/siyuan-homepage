@@ -1,0 +1,14 @@
+.widgets-setting{
+    display: flex;
+    flex-direction: column;
+
+    .quick-notes-setting{
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+
+        input[type="text"]{
+            width: 250px;
+        }
+    }
+}

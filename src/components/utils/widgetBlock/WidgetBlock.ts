@@ -18,6 +18,7 @@ import timedate from "./widget/timedate/timedate.svelte";
 import focus from "./widget/focus/focus.svelte";
 import sql from "./widget/sql/sql.svelte";
 import TaskManPlus from "./widget/tasksPlus/tasksPlus.svelte";
+import quickNotes from "./widget/quickNotes/quickNotes.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -276,6 +277,14 @@ export class WidgetBlock {
             });
         } else if (contentData.type === "TaskManPlus") {
             new TaskManPlus({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "quick-notes") {
+            new quickNotes({
                 target: this.element,
                 props: {
                     plugin: this.plugin,

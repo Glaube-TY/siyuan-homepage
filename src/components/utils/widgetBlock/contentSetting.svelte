@@ -50,6 +50,9 @@
     let customFilter: string = "";
     let tasksSort: string = "startdate";
 
+    // 快速笔记相关变量
+    let quickNotesTitle: string = "📝快速笔记";
+
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
     let countdownStyle = "list";
@@ -341,6 +344,9 @@
                     parsedData.data?.internalFilter || internalFilter;
                 customFilter = parsedData.data?.customFilter || customFilter;
                 tasksSort = parsedData.data?.tasksSort || tasksSort;
+            } else if (parsedData.type === "quick-notes") {
+                quickNotesTitle =
+                    parsedData.data?.quickNotesTitle || quickNotesTitle;
             }
         }
     });
@@ -383,6 +389,7 @@
                     <option value="TaskManPlus">任务管理Plus</option>
                     <option value="latest-docs">最近文档</option>
                     <option value="recent-journals">最近日记</option>
+                    <option value="quick-notes">快速笔记</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -688,6 +695,20 @@
                                 <option value="priority">优先级❗</option>
                             </select>
                         </label>
+                    </div>
+                {:else if selectedContentType === "quick-notes"}
+                    <div class="content-panel quick-notes">
+                        <div class="form-group quick-notes-title">
+                            <label for="quick-notes-title"
+                                >组件标题： 组件标题：
+                                <input
+                                    id="quick-notes-title"
+                                    type="text"
+                                    bind:value={quickNotesTitle}
+                                    placeholder="输入组件标题"
+                                />
+                            </label>
+                        </div>
                     </div>
                 {/if}
             </div>
@@ -1638,6 +1659,13 @@
                             customFilter,
                             tasksSort,
                         },
+                    };
+                } else if (selectedContentType === "quick-notes") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "quick-notes",
+                        blockId: currentBlockId,
+                        data: { quickNotesTitle },
                     };
                 }
 

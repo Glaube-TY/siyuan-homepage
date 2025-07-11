@@ -79,6 +79,13 @@
     let nextId = Date.now();
     let selectedButtonIndex: number = -1;
 
+    // 组件设置内容
+    // 快速笔记设置
+    let quickNotesEnabled = false;
+    let quickNotesPosition = "";
+    let quickNotesTimestampEnabled = true;
+    let quickNotesAddPosition = "bottom";
+
     // 设置页面加载时读取配置信息
     onMount(async () => {
         const savedConfig = await plugin.loadData("homepageSettingConfig.json");
@@ -113,6 +120,13 @@
             if (savedConfig.selectedButton) {
                 selectedButton = savedConfig.selectedButton;
             }
+
+            quickNotesEnabled = savedConfig.quickNotesEnabled ?? false;
+            quickNotesPosition = savedConfig.quickNotesPosition || "";
+            quickNotesTimestampEnabled =
+                savedConfig.quickNotesTimestampEnabled ?? true;
+            quickNotesAddPosition =
+                savedConfig.quickNotesAddPosition || "bottom";
         }
 
         // 同步到临时变量
@@ -318,6 +332,12 @@
                 order: item.order,
             })),
             selectedButton: selectedButton,
+
+            // 组件配置
+            quickNotesEnabled: quickNotesEnabled,
+            quickNotesPosition: quickNotesPosition,
+            quickNotesTimestampEnabled: quickNotesTimestampEnabled,
+            quickNotesAddPosition: quickNotesAddPosition,
         };
 
         await plugin.saveData("homepageSettingConfig.json", config);
@@ -763,8 +783,48 @@
                 {/if}
 
                 {#if settingsActiveTab === "widgets"}
-                    <div class="section-setting">
-                        <div class="form-group"><p>开发中...</p></div>
+                    <div class="section-setting widgets-setting">
+                        <div class="form-group quick-notes-setting">
+                            <h3>快速笔记设置</h3>
+                            <label for="quick-notes-open"
+                                ><input
+                                    id="quick-notes-open"
+                                    type="checkbox"
+                                    bind:checked={quickNotesEnabled}
+                                />开启快速笔记</label
+                            >
+
+                            {#if quickNotesEnabled}
+                                <label for=""
+                                    >快速笔记位置：
+                                    <input
+                                        type="text"
+                                        placeholder="输入用于存放快速笔记的文档 ID"
+                                        bind:value={quickNotesPosition}
+                                    />
+                                </label>
+                                <label for="quick-notes-position"
+                                    >添加位置：<select
+                                        name="quick-notes-position"
+                                        id="quick-notes-position"
+                                        bind:value={quickNotesAddPosition}
+                                    >
+                                        <option value="bottom">文档最后</option>
+                                        <option value="top">文档最前</option>
+                                    </select></label
+                                >
+                                <label for="quick-notes-timestamp"
+                                    ><input
+                                        id="quick-notes-timestamp"
+                                        type="checkbox"
+                                        bind:checked={
+                                            quickNotesTimestampEnabled
+                                        }
+                                    />
+                                    启用时间戳
+                                </label>
+                            {/if}
+                        </div>
                     </div>
                 {/if}
 
