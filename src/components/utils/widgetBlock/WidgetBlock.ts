@@ -47,6 +47,7 @@ export class WidgetBlock {
 
         this.element.innerHTML = `
             <button class="block-style-button" title="样式设置">🎨</button>
+            <button class="drag-handle" title="拖拽组件">🧲</button>
             <button class="block-content-button" title="内容设置">⚙️</button>
         `;
 
@@ -160,6 +161,7 @@ export class WidgetBlock {
 
         this.element.innerHTML = `
         <button class="block-style-button" title="样式设置">🎨</button>
+        <button class="drag-handle" title="拖拽组件">🧲</button>
         <button class="block-content-button" title="内容设置">⚙️</button>
         <button class="block-update-button" title="刷新组件">🔄</button>
         `;

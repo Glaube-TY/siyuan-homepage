@@ -105,7 +105,10 @@
                     new Sortable(container, {
                         animation: 150,
                         ghostClass: "sortable-ghost",
-                        onEnd: () => saveLayout(plugin),
+                        handle: ".drag-handle",
+                        onEnd: () => {
+                            saveLayout(plugin);
+                        },
                     });
 
                     await restoreLayout(plugin, { value: container });
