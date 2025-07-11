@@ -145,6 +145,9 @@
                 var(--b3-theme-surface) 50%,
                 transparent
             );
+            user-select: text;
+            -webkit-user-select: text;
+            pointer-events: auto;
 
             &::before,
             &::after {
