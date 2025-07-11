@@ -48,12 +48,32 @@
 
 .nav-bar {
     position: relative;
+    width: 100%;
     display: flex;
-    justify-content: center;
-    gap: 16px;
-    flex-wrap: wrap;
+    align-items: center;
     padding-bottom: 8px;
     margin-top: 10px;
+
+    .nav-bar-left {
+        flex: 1; // 自动占据左侧空间
+    }
+
+    .nav-buttons {
+        position: relative;
+        display: flex; // 改用 flex
+        gap: 16px;
+        justify-content: center; // 按钮居中对齐
+        margin: 0 16px; // 两侧加入间距
+
+
+    }
+
+    .nav-bar-right {
+        flex: 1; // 自动占据右侧空间
+        display: flex; // 使用 flex 布局
+        align-items: center; // 垂直居中
+        position: relative;
+    }
 
     .nav-button {
         padding: 8px 16px;
@@ -65,6 +85,9 @@
         border-radius: 6px;
         cursor: pointer;
         transition: all 0.2s ease-in-out;
+        white-space: nowrap; // 添加此行防止文字换行
+        overflow: hidden; // 防止内容溢出
+        text-overflow: ellipsis; // 超出显示省略号
 
         &:hover {
             background-color: var(--b3-theme-primary);
@@ -73,23 +96,29 @@
         }
     }
 
+    .more-button {
+        position: relative;
+        width: fit-content;
+    }
+
     .more-button.hidden {
         opacity: 0;
     }
 
     .more-menu {
         position: absolute;
-        top: 100%;
-        right: 0;
+        top: calc(100% + 8px);
+        left: 0;
         background-color: var(--b3-theme-background);
         border: 1px solid var(--b3-theme-primary);
         border-radius: 4px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         z-index: 20;
-        max-width: 100px;
+        display: flex;
+        flex-direction: column;
+        width: fit-content;
         max-height: 300px;
         overflow-y: auto;
-        margin-top: 4px;
     }
 
     .more-menu-item {
@@ -100,6 +129,7 @@
         background: none;
         cursor: pointer;
         color: var(--b3-theme-text);
+        white-space: nowrap;
 
         &:hover {
             background-color: var(--b3-theme-primary);

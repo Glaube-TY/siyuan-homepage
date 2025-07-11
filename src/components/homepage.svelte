@@ -299,7 +299,7 @@
             {formattedStatsInfoText}
         </div>
 
-        <!-- 导航栏 -->
+        <!-- 快捷按钮栏 -->
         <div
             class="nav-bar"
             role="navigation"
@@ -307,55 +307,61 @@
             on:mouseenter={() => (isHoveringNavBar = true)}
             on:mouseleave={() => (isHoveringNavBar = false)}
         >
-            {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
-                {#if sortedButtons.checked}
-                    <button
-                        class="nav-button"
-                        on:click={() =>
-                            handleButtonClick(
-                                sortedButtons,
-                                plugin,
-                                currentBlockForSettingsRef,
-                                saveLayout,
-                            )}
-                    >
-                        {sortedButtons.label}
-                    </button>
-                {/if}
-            {/each}
-
-            <button
-                class="nav-button more-button"
-                class:hidden={!isHoveringNavBar || filteredButtons.length === 0}
-                on:click={() => {
-                    const newShowMoreMenu = handleMoreButtonClick(showMoreMenu);
-                    showMoreMenu = newShowMoreMenu;
-                }}
-            >
-                更多
-            </button>
-
-            <!-- 下拉菜单也始终渲染，仅控制是否显示 -->
-            {#if showMoreMenu && filteredButtons.length > 0}
-                <div class="more-menu">
-                    {#each filteredButtons as item}
+            <div class="nav-bar-left"></div>
+            <div class="nav-buttons">
+                {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
+                    {#if sortedButtons.checked}
                         <button
-                            class="more-menu-item"
-                            on:click={() => {
+                            class="nav-button"
+                            on:click={() =>
                                 handleButtonClick(
-                                    item,
+                                    sortedButtons,
                                     plugin,
                                     currentBlockForSettingsRef,
                                     saveLayout,
-                                );
-                                showMoreMenu = false;
-                            }}
+                                )}
                         >
-                            {item.label}
+                            {sortedButtons.label}
                         </button>
-                    {/each}
-                </div>
-            {/if}
+                    {/if}
+                {/each}
+            </div>
+
+            <div class="nav-bar-right">
+                <button
+                    class="nav-button more-button"
+                    class:hidden={!isHoveringNavBar ||
+                        filteredButtons.length === 0}
+                    on:click={() => {
+                        const newShowMoreMenu =
+                            handleMoreButtonClick(showMoreMenu);
+                        showMoreMenu = newShowMoreMenu;
+                    }}
+                >
+                    更多
+                </button>
+
+                {#if showMoreMenu && filteredButtons.length > 0}
+                    <div class="more-menu">
+                        {#each filteredButtons as item}
+                            <button
+                                class="more-menu-item"
+                                on:click={() => {
+                                    handleButtonClick(
+                                        item,
+                                        plugin,
+                                        currentBlockForSettingsRef,
+                                        saveLayout,
+                                    );
+                                    showMoreMenu = false;
+                                }}
+                            >
+                                {item.label}
+                            </button>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
         </div>
     </div>
 
