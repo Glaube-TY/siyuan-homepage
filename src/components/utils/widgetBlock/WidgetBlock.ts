@@ -19,6 +19,7 @@ import focus from "./widget/focus/focus.svelte";
 import sql from "./widget/sql/sql.svelte";
 import TaskManPlus from "./widget/tasksPlus/tasksPlus.svelte";
 import quickNotes from "./widget/quickNotes/quickNotes.svelte";
+import dailyQuote from "./widget/dailyQuote/dailyQuote.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -285,6 +286,14 @@ export class WidgetBlock {
             });
         } else if (contentData.type === "quick-notes") {
             new quickNotes({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "dailyQuote") {
+            new dailyQuote({
                 target: this.element,
                 props: {
                     plugin: this.plugin,

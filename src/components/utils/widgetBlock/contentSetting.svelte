@@ -74,6 +74,17 @@
         { value: "baidu", label: "百度" },
     ];
 
+    // 每日一言相关变量
+    let dailyQuoteMode: string = "remote";
+    let customDailyQuoteContent: string = "";
+    let dailyQuoteSource: string = "classic";
+    let dailyQuoteFontSize: number = 1;
+    let dailyQuoteBgSelect = "remote";
+    let dailyQuoteRemoteBg =
+        "https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648";
+    let dailyQuoteLocalBg = "";
+    let dailyQuoteBgInput: HTMLInputElement | null = null;
+
     // 时间范围相关
     let timeRangeType: "past" | "custom" = "past";
     let pastMonthCount: number = 6;
@@ -143,6 +154,20 @@
         reader.onload = () => {
             if (reader.result && typeof reader.result === "string") {
                 countdownLocalBg = reader.result;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // 处理每日一言背景上传
+    function handleDailyQuoteUpload() {
+        const file = dailyQuoteBgInput?.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === "string") {
+                dailyQuoteLocalBg = reader.result;
             }
         };
         reader.readAsDataURL(file);
@@ -347,6 +372,21 @@
             } else if (parsedData.type === "quick-notes") {
                 quickNotesTitle =
                     parsedData.data?.quickNotesTitle || quickNotesTitle;
+            } else if (parsedData.type === "dailyQuote") {
+                dailyQuoteMode =
+                    parsedData.data?.dailyQuoteMode || dailyQuoteMode;
+                customDailyQuoteContent =
+                    parsedData.data?.customDailyQuoteContent ||
+                    customDailyQuoteContent;
+                dailyQuoteSource =
+                    parsedData.data?.dailyQuoteSource || dailyQuoteSource;
+                dailyQuoteFontSize =
+                    parsedData.data?.dailyQuoteFontSize || dailyQuoteFontSize;
+                dailyQuoteBgSelect =
+                    parsedData.data?.dailyQuoteBgSelect || dailyQuoteBgSelect;
+                dailyQuoteRemoteBg =
+                    parsedData.data?.dailyQuoteRemoteBg || dailyQuoteRemoteBg;
+                dailyQuoteLocalBg = parsedData.data?.dailyQuoteLocalBg || "";
             }
         }
     });
@@ -718,6 +758,7 @@
                 <label for="content-type">选择组件：</label>
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="HOT">热搜</option>
+                    <option value="dailyQuote">每日一言</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -736,8 +777,113 @@
                             </select>
                         </div>
                     </div>
-                {:else if selectedContentType === "other"}
-                    <div class="content-panel TaskMan"></div>
+                {:else if selectedContentType === "dailyQuote"}
+                    <div class="content-panel dailyQuote">
+                        <div class="form-group dailyQuoteMode">
+                            <label
+                                >每日一言模式：<select
+                                    bind:value={dailyQuoteMode}
+                                >
+                                    <option value="remote">远程接口</option>
+                                    <option value="custom">自定义文字</option
+                                    ></select
+                                ></label
+                            >
+                            <label for=""
+                                >字体大小：<input
+                                    type="number"
+                                    bind:value={dailyQuoteFontSize}
+                                /></label
+                            >
+                        </div>
+                        {#if dailyQuoteMode === "remote"}
+                            <label for=""
+                                >接口来源：<select
+                                    bind:value={dailyQuoteSource}
+                                >
+                                    <option value="classic">今日语录</option>
+                                    <option value="celebrity">名人名言</option>
+                                    <option value="emotion">情感语录</option
+                                    ><option value="gaoxiao">搞笑语录</option
+                                    ><option value="pyq">朋友圈语录</option
+                                    ><option value="straybirdsZH"
+                                        >飞鸟集（中文版）</option
+                                    ><option value="straybirdsEN"
+                                        >飞鸟集（英文版）</option
+                                    ><option value="lovegarden"
+                                        >爱情公寓语录</option
+                                    ></select
+                                ></label
+                            >
+                        {:else}
+                            <label for=""
+                                >自定义内容：（每句话一行）
+                                <textarea
+                                    name=""
+                                    id=""
+                                    cols="30"
+                                    rows="10"
+                                    bind:value={customDailyQuoteContent}
+                                ></textarea>
+                            </label>
+                        {/if}
+                        <div class="form-group dailyQuoteBackgroundImg">
+                            <div class="type-select-and-input">
+                                <label
+                                    >背景设置：
+                                    <select
+                                        bind:value={dailyQuoteBgSelect}
+                                        on:change={() => {
+                                            if (
+                                                dailyQuoteBgSelect === "remote"
+                                            ) {
+                                                dailyQuoteLocalBg = "";
+                                            } else {
+                                                dailyQuoteRemoteBg = "";
+                                            }
+                                        }}
+                                    >
+                                        <option value="remote">远程图片</option>
+                                        <option value="local">本地图片</option>
+                                    </select>
+                                </label>
+                                {#if dailyQuoteBgSelect === "remote"}
+                                    <input
+                                        type="text"
+                                        bind:value={dailyQuoteRemoteBg}
+                                        placeholder="输入远程图片URL"
+                                    />
+                                {:else}
+                                    <button
+                                        on:click={() =>
+                                            dailyQuoteBgInput?.click()}
+                                        >上传图片</button
+                                    >
+
+                                    <input
+                                        type="file"
+                                        bind:this={dailyQuoteBgInput}
+                                        accept="image/*"
+                                        on:change={handleDailyQuoteUpload}
+                                        style="display: none;"
+                                    />
+                                {/if}
+                            </div>
+                            <div class="image-preview">
+                                {#if dailyQuoteBgSelect === "remote" && dailyQuoteRemoteBg}
+                                    <img
+                                        src={dailyQuoteRemoteBg}
+                                        alt="每日一言背景预览"
+                                    />
+                                {:else if dailyQuoteBgSelect === "local" && dailyQuoteLocalBg}
+                                    <img
+                                        src={dailyQuoteLocalBg}
+                                        alt="每日一言背景预览"
+                                    />
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
                 {/if}
             </div>
         {:else if activeTab === "visualization"}
@@ -1666,6 +1812,21 @@
                         type: "quick-notes",
                         blockId: currentBlockId,
                         data: { quickNotesTitle },
+                    };
+                } else if (selectedContentType === "dailyQuote") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "dailyQuote",
+                        blockId: currentBlockId,
+                        data: {
+                            dailyQuoteMode,
+                            customDailyQuoteContent,
+                            dailyQuoteSource,
+                            dailyQuoteFontSize,
+                            dailyQuoteBgSelect,
+                            dailyQuoteRemoteBg,
+                            dailyQuoteLocalBg,
+                        },
                     };
                 }
 

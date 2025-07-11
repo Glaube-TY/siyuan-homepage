@@ -26,7 +26,6 @@
         const quickNotes = await plugin.client.getChildBlocks({
             id: quickNotesPosition,
         });
-        console.log(quickNotes);
         quickNotesList = quickNotes.data.filter(
             (note) => note.content && note.content.trim() !== "",
         );
