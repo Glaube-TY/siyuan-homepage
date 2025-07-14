@@ -89,7 +89,7 @@
     let timeRangeType: "past" | "custom" = "past";
     let pastMonthCount: number = 6;
 
-    // 颜色相关
+    // 热力图相关
     let selectedColorPreset: "github" | "blue" | "custom" = "github";
     let customColor: string = "#1ea769";
 
@@ -144,6 +144,9 @@
     let sqlInput: string = "";
     let columnOrder: string = "";
     let hiddenFields: string = "";
+
+    // 可视化图表相关
+    let visualChartType: string = "progressBar";
 
     // 处理背景上传函数
     function handleCountdownUpload() {
@@ -214,7 +217,7 @@
                 }
             } else if (timeOfDay === "afternoon") {
                 if (reader.result && typeof reader.result === "string") {
-                    afternoonBgImage = reader.result; // 安全赋值
+                    afternoonBgImage = reader.result;
                 }
             } else if (timeOfDay === "night") {
                 if (reader.result && typeof reader.result === "string") {
@@ -387,6 +390,9 @@
                 dailyQuoteRemoteBg =
                     parsedData.data?.dailyQuoteRemoteBg || dailyQuoteRemoteBg;
                 dailyQuoteLocalBg = parsedData.data?.dailyQuoteLocalBg || "";
+            } else if (parsedData.type === "visualChart") {
+                visualChartType =
+                    parsedData.data?.visualChartType || visualChartType;
             }
         }
     });
@@ -893,6 +899,7 @@
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="heatmap">热力图</option>
                     <option value="sql">SQL 查询</option>
+                    <option value="visualChart">可视化图表</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -990,6 +997,18 @@
                                     bind:value={hiddenFields}
                                 />
                             </label>
+                        </div>
+                    </div>
+                {:else if selectedContentType === "visualChart"}
+                    <div class="content-panel visualChart">
+                        <div class="form-group">
+                            <label for="">
+                                图表类型：
+                                <select bind:value={visualChartType}>
+                                    <option value="progressBar">进度条</option>
+                                    <option value="tagCloud">标签云图</option>
+                                </select></label
+                            >
                         </div>
                     </div>
                 {/if}
@@ -1826,6 +1845,15 @@
                             dailyQuoteBgSelect,
                             dailyQuoteRemoteBg,
                             dailyQuoteLocalBg,
+                        },
+                    };
+                } else if (selectedContentType === "visualChart") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "visualChart",
+                        blockId: currentBlockId,
+                        data: {
+                            visualChartType,
                         },
                     };
                 }

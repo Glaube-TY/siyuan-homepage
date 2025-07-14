@@ -42,7 +42,6 @@
         const counts: { [key: string]: number } = {};
 
         blocks.forEach((block) => {
-            // 改为使用 block.updated
             const dateStr = formatTimestampToDate(block.updated);
 
             if (counts[dateStr]) {
@@ -68,34 +67,30 @@
                 value,
             ]);
 
-            // 默认配置
             let range = getRecentSixMonthsRange();
             let colorPreset = "github";
             let customColor = "#1ea769";
 
-            // 解析传入的配置
             try {
                 const json = JSON.parse(contentTypeJson);
                 if (json?.data?.length > 0) {
                     const config = json.data[0];
 
-                    // ✅ 只保留 past 类型，直接使用 config.pastMonthCount
                     const pastMonthCount = config.pastMonthCount || 6;
                     const now = new Date();
                     const end = new Date(
                         now.getFullYear(),
                         now.getMonth() + 1,
                         0,
-                    ); // 本月最后一天
+                    );
                     const start = new Date(now);
-                    start.setMonth(start.getMonth() - pastMonthCount + 1, 1); // N个月前的第一天
+                    start.setMonth(start.getMonth() - pastMonthCount + 1, 1);
 
                     range = [
                         start.toISOString().split("T")[0],
                         end.toISOString().split("T")[0],
                     ];
 
-                    // 设置颜色风格
                     colorPreset = config.selectedColorPreset || "github";
                     customColor = config.customColor || "#1ea769";
                 }
@@ -103,7 +98,6 @@
                 console.error("Failed to parse contentTypeJson", e);
             }
 
-            // 生成颜色梯度
             function getColorGradient(preset, color) {
                 const opacitySteps = [0.1, 0.3, 0.5, 0.7, 0.9];
                 let baseColor;
@@ -148,7 +142,6 @@
                 themeTextColor = themeColor4;
             }
 
-            // 设置 ECharts 配置
             myChart.setOption({
                 title: {
                     left: "center",

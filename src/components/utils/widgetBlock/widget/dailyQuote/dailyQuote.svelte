@@ -131,6 +131,7 @@
             padding: 1.5rem;
             min-height: 120px;
             display: flex;
+            overflow-y: auto;
             align-items: center;
             justify-content: center;
             text-align: center;
