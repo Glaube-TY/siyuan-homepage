@@ -1,5 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { showMessage } from "siyuan";
+    import DOMPurify from "dompurify";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -26,9 +28,16 @@
         const quickNotes = await plugin.client.getChildBlocks({
             id: quickNotesPosition,
         });
-        quickNotesList = quickNotes.data.filter(
-            (note) => note.content && note.content.trim() !== "",
-        );
+        quickNotesList = quickNotes.data
+            .filter((note) => note.markdown && note.markdown.trim() !== "")
+            .map((note) => {
+                const lute = window.Lute.New();
+                const rawHtml = lute.Md2HTML(note.markdown);
+                return {
+                    ...note,
+                    htmlContent: DOMPurify.sanitize(rawHtml).trimEnd(),
+                };
+            });
     }
 
     async function handleDelete(noteId: string) {
@@ -66,8 +75,16 @@
                         >
                             ×
                         </button>
+                        <button
+                            class="copy-btn"
+                            title="复制笔记"
+                            on:click={() => {
+                                navigator.clipboard.writeText(note.content);
+                                showMessage("复制成功");
+                            }}>C</button
+                        >
                         <div class="note-content">
-                            {note.content}
+                            {@html note.htmlContent}
                         </div>
                     </div>
                 {/each}
@@ -109,7 +126,8 @@
             }
 
             .notes-grid {
-                display: grid;
+                display: flex;
+                flex-direction: column;
                 gap: 1rem;
                 padding: 0.5rem;
 
@@ -120,8 +138,10 @@
                     padding: 1rem;
                     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
                     position: relative;
+                    height: fit-content;
 
-                    &:hover .delete-btn {
+                    &:hover .delete-btn,
+                    &:hover .copy-btn {
                         opacity: 1;
                     }
 
@@ -130,12 +150,15 @@
                         font-size: 14px;
                         line-height: 1.5;
                         white-space: pre-wrap;
+                        word-break: break-all;
+                        overflow-wrap: break-word;
                         user-select: text;
                         -webkit-user-select: text;
                         -moz-user-select: text;
                     }
 
-                    .delete-btn {
+                    .delete-btn,
+                    .copy-btn {
                         position: absolute;
                         top: 4px;
                         right: 4px;
@@ -151,6 +174,15 @@
                         font-size: 18px;
                         line-height: 1;
                         opacity: 0;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                    }
+
+                    .copy-btn {
+                        right: 30px;
+                        background: var(--b3-theme-primary);
+                        font-size: 15px;
                     }
                 }
             }

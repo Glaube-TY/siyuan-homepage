@@ -40,7 +40,7 @@
         }
     }
 
-    // 工具函数：将 hex 转换为 rgba
+    // 将 hex 转换为 rgba
     function hexToRgba(hex: string, opacity: number): string {
         const bigint = parseInt(hex.slice(1), 16);
         const r = (bigint >> 16) & 255;
@@ -87,7 +87,7 @@
         }
     }
 
-    // 工具函数：统一颜色转换器
+    // 统一颜色转换器
     function convertToHex(color: string): string | null {
         const matches = color.match(/(\d+(\.\d+)?)/g);
         if (!matches) return null;

@@ -12,9 +12,11 @@ import * as sdk from "@siyuan-community/siyuan-sdk";
 import Homepage from "./components/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
+import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 
 const STORAGE_NAME = "menu-config";
-const TAB_TYPE = "custom_tab";
+const TAB_TYPE = "homepage_tab";
+const DOCK_TYPE = "homepage_dock";
 
 export default class PluginHomepage extends Plugin {
 
@@ -64,6 +66,7 @@ export default class PluginHomepage extends Plugin {
             }
         });
 
+        // 快速笔记快捷键
         this.addCommand({
             langKey: "快速笔记",
             hotkey: "⇧⌘Q",
@@ -102,12 +105,40 @@ export default class PluginHomepage extends Plugin {
 
             },
         });
+
+        // 注册侧边栏
+        // this.addDock({
+        //     config: {
+        //         position: "RightTop",
+        //         size: { width: 200, height: 0 },
+        //         icon: "iconhomepage",
+        //         title: "侧边栏",
+        //         hotkey: "⌥⌘W",
+        //     },
+        //     data: {
+        //         text: "这是一个主页侧边栏。"
+        //     },
+        //     type: DOCK_TYPE,
+        //     init: (dock) => {
+        //         if (this.isMobile) {
+        //             dock.element.innerHTML = `<div class="toolbar toolbar--border toolbar--dark">侧边栏请到PC端使用</div>`;
+        //         } else {
+        //             const sidebarContainer = document.createElement("div");
+        //             new Sidebar({
+        //                 target: sidebarContainer,
+        //                 props: {
+        //                     plugin: this,
+        //                     app: this.app
+        //                 }
+        //             });
+        //             dock.element.appendChild(sidebarContainer);
+        //         }
+        //     },
+        // });
     }
 
     async onunload() {
-        // 移除文档数右键菜单监听
         this.eventBus.off("open-menu-doctree", this.docTreeMenuEventBindThis);
-
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
     }
 
@@ -229,5 +260,4 @@ export default class PluginHomepage extends Plugin {
             }
         });
     }
-
 }

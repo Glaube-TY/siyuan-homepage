@@ -3,6 +3,7 @@ import WidgetBlockStyle from "./styleSetting.svelte";
 import WidgetBlockContent from "./contentSetting.svelte";
 import { setBlockSize } from "./utils/block-size-handler";
 import { saveLayout } from "./utils/layout-handler";
+import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
 import latestDocs from "./widget/latestDocs/latestDocs.svelte";
 import latestDailyNotes from "./widget/latestDailyNotes/latestDailyNotes.svelte";
 import TaskMan from "./widget/tasks/recentTasks.svelte";
@@ -86,6 +87,7 @@ export class WidgetBlock {
                                     }
                                     dialogRef.close();
                                     saveLayout(this.plugin);
+                                    saveSidebarLayout(this.plugin);
                                     this.plugin.removeData(`widget-${this.id}.json`);
                                 },
                                 onSetSize: (size: number) => {
@@ -260,7 +262,7 @@ export class WidgetBlock {
                 props: {
                     contentTypeJson: contentTypeJson
                 }
-            }); 
+            });
         } else if (contentData.type === "focus") {
             new focus({
                 target: this.element,
@@ -269,7 +271,7 @@ export class WidgetBlock {
                     contentTypeJson: contentTypeJson
                 }
             });
-        } else if (contentData.type === "sql") { 
+        } else if (contentData.type === "sql") {
             new sql({
                 target: this.element,
                 props: {
