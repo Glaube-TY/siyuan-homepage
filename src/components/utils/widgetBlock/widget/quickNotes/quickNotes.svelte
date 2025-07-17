@@ -2,12 +2,14 @@
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import DOMPurify from "dompurify";
+    import { MD2HTML } from "@/components/tools/MD2HTML";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
     const parsed = JSON.parse(contentTypeJson);
 
     const quickNotesTitle = parsed.data?.quickNotesTitle || "📝快速笔记";
+    const quickNotesSort = parsed.data?.quickNotesSort || "DOC_ASC";
 
     let quickNotesEnabled;
     let quickNotesPosition;
@@ -28,16 +30,58 @@
         const quickNotes = await plugin.client.getChildBlocks({
             id: quickNotesPosition,
         });
+
         quickNotesList = quickNotes.data
             .filter((note) => note.markdown && note.markdown.trim() !== "")
             .map((note) => {
-                const lute = window.Lute.New();
-                const rawHtml = lute.Md2HTML(note.markdown);
+                const rawHtml = MD2HTML(note.markdown);
                 return {
                     ...note,
                     htmlContent: DOMPurify.sanitize(rawHtml).trimEnd(),
+                    created: "",
+                    updated: "",
                 };
             });
+
+        if (quickNotesSort === "UPD" && quickNotesList.length > 0) {
+            const blockIds = quickNotesList
+                .map((note) => `'${note.id}'`)
+                .join(",");
+            const sql = `SELECT id, updated FROM blocks WHERE id IN (${blockIds})`;
+            const result = await plugin.client.sql({ stmt: sql });
+
+            const updatedMap = {};
+            result.data.forEach((row) => {
+                updatedMap[row.id] = row.updated;
+            });
+
+            quickNotesList = quickNotesList.map((note) => ({
+                ...note,
+                updated: updatedMap[note.id] || note.updated || "",
+            }));
+
+            quickNotesList.sort((a, b) => b.updated.localeCompare(a.updated));
+        } else if (quickNotesSort === "CRE" && quickNotesList.length > 0) {
+            const blockIds = quickNotesList
+                .map((note) => `'${note.id}'`)
+                .join(",");
+            const sql = `SELECT id, created FROM blocks WHERE id IN (${blockIds})`;
+            const result = await plugin.client.sql({ stmt: sql });
+
+            const createdMap = {};
+            result.data.forEach((row) => {
+                createdMap[row.id] = row.created;
+            });
+
+            quickNotesList = quickNotesList.map((note) => ({
+                ...note,
+                created: createdMap[note.id] || note.created || "",
+            }));
+
+            quickNotesList.sort((a, b) => b.created.localeCompare(a.created));
+        } else if (quickNotesSort === "DOC_INV") {
+            quickNotesList.reverse();
+        }
     }
 
     async function handleDelete(noteId: string) {

@@ -1,15 +1,9 @@
-
 // 头部横幅区域样式
 .top-banner {
     padding: 0 !important;
     overflow: hidden;
-    cursor: grab;
     user-select: none;
     position: relative;
-
-    &:active {
-        cursor: grabbing;
-    }
 }
 
 .hide-top-banner {
@@ -37,9 +31,9 @@
     min-height: 100%;
     object-fit: cover;
     object-position: center;
-    cursor: grab;
     display: block;
     transform-origin: center;
+    cursor: move;
 }
 
 // ========== 按钮样式 ==========
@@ -51,7 +45,6 @@
     font-size: 20px;
     border-radius: 6px;
     border: none;
-    cursor: pointer;
     transition: all 0.2s ease-in-out;
     box-shadow: none;
     background-color: transparent;

@@ -52,6 +52,7 @@
 
     // 快速笔记相关变量
     let quickNotesTitle: string = "📝快速笔记";
+    let quickNotesSort: string = "DOC_ASC";
 
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
@@ -375,6 +376,8 @@
             } else if (parsedData.type === "quick-notes") {
                 quickNotesTitle =
                     parsedData.data?.quickNotesTitle || quickNotesTitle;
+                quickNotesSort =
+                    parsedData.data?.quickNotesSort || quickNotesSort;
             } else if (parsedData.type === "dailyQuote") {
                 dailyQuoteMode =
                     parsedData.data?.dailyQuoteMode || dailyQuoteMode;
@@ -746,7 +749,7 @@
                     <div class="content-panel quick-notes">
                         <div class="form-group quick-notes-title">
                             <label for="quick-notes-title"
-                                >组件标题： 组件标题：
+                                >组件标题：
                                 <input
                                     id="quick-notes-title"
                                     type="text"
@@ -755,6 +758,18 @@
                                 />
                             </label>
                         </div>
+                        <label for="quick-notes-sort"
+                            >排序方式：
+                            <select
+                                id="quick-notes-sort"
+                                bind:value={quickNotesSort}
+                            >
+                                <option value="DOC_ASC">文档正序</option>
+                                <option value="DOC_INV">文档逆序</option>
+                                <option value="UPD">更新时间</option>
+                                <option value="CRE">创建时间</option>
+                            </select>
+                        </label>
                     </div>
                 {/if}
             </div>
@@ -1830,7 +1845,7 @@
                         activeTab: activeTab,
                         type: "quick-notes",
                         blockId: currentBlockId,
-                        data: { quickNotesTitle },
+                        data: { quickNotesTitle, quickNotesSort },
                     };
                 } else if (selectedContentType === "dailyQuote") {
                     contentTypeJson = {

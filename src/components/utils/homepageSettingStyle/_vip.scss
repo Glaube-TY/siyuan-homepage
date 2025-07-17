@@ -1,0 +1,32 @@
+.vip-setting{
+    overflow-y: auto;
+    max-height: 50vh;
+
+    .footer-setting{
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .mouse-setting{
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+
+        div{
+            display: flex;
+            gap: 0.5rem;
+        }
+    }
+
+    .background-effects-setting{
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+
+        .background-effects-setting-checkbox{
+            display: flex;
+            gap: 0.5rem;
+        }
+    }
+}

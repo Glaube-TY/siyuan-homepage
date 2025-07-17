@@ -1,17 +1,89 @@
-@use './_top-banner';  // 导入横幅样式
-@use './_custom-content';  // 导入自定义组件样式
-@use './_workspace-header';  // 导入工作区头部样式
-@use './_plugin-footer';  // 导入插件页脚样式
+@use './_top-banner'; // 导入横幅样式
+@use './_custom-content'; // 导入自定义组件样式
+@use './_workspace-header'; // 导入工作区头部样式
+@use './_plugin-footer'; // 导入插件页脚样式
 
 // 容器布局
-.container {
+.homepage-container {
     display: flex;
     flex-direction: column;
     height: auto;
+
+    .section {
+        width: 100%;
+        padding: 20px;
+        box-sizing: border-box;
+    }
 }
 
-.section {
+.mouse-trail {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background: var(--b3-theme-primary);
+    border-radius: 50%;
+    pointer-events: none;
+    box-shadow:
+        0 0 15px rgba(255, 255, 255, 0.8),
+        0 0 30px rgba(255, 255, 255, 0.6);
+    animation: trail-fall 2.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    transform: translateY(0) scale(1);
+
+    &::before {
+        content: '';
+        position: absolute;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle,
+                rgba(255, 255, 255, 0.4) 10%,
+                transparent 70%);
+        transform: translate(-25%, -25%);
+    }
+}
+
+
+@keyframes trail-fall {
+    0% {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+
+    70% {
+        opacity: 0.6;
+        filter: blur(0.5px);
+    }
+
+    100% {
+        transform: translateY(120px) scale(0.1);
+        opacity: 0;
+        filter: blur(2px);
+    }
+}
+
+.falling-container {
+    position: fixed;
+    top: 0;
+    left: 0;
     width: 100%;
-    padding: 20px;
-    box-sizing: border-box;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9998;
+
+    .falling-flake {
+        position: absolute;
+        animation: fall linear infinite;
+        animation-duration: calc(15s + var(--animation-delay));
+
+        @keyframes falling {
+            0% {
+                transform: translate(0, -10vh) rotate(0deg);
+                opacity: 1;
+            }
+
+            100% {
+                transform: translate(var(--wind), 110vh) rotate(var(--rotation));
+                opacity: 0;
+            }
+        }
+    }
 }

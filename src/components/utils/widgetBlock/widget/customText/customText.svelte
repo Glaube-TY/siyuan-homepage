@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import DOMPurify from "dompurify";
+    import { MD2HTML } from "@/components/tools/MD2HTML";
 
     export let contentTypeJson: string = "{}";
 
@@ -16,22 +16,12 @@
                 typeof data.data[0]?.customText === "string"
             ) {
                 customTextContent = data.data[0].customText;
-                updateHtmlContent();
+                htmlContent = MD2HTML(customTextContent);
             }
         } catch (e) {
             console.error("无法解析 contentTypeJson", e);
         }
     });
-
-    function updateHtmlContent() {
-        if (customTextContent) {
-            const lute = window.Lute.New();
-            const rawHtml = lute.Md2HTML(customTextContent);
-            htmlContent = DOMPurify.sanitize(rawHtml);
-        } else {
-            htmlContent = "";
-        }
-    }
 </script>
 
 <div class="content-display">

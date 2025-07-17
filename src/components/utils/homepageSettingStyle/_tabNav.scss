@@ -10,7 +10,6 @@
     color: var(--b3-theme-on-surface);
     border: none;
     border-radius: 6px;
-    cursor: pointer;
     font-weight: 500;
     transition: all 0.2s ease-in-out;
 }
@@ -31,7 +30,6 @@
         color: var(--b3-theme-on-surface);
         border: none;
         border-radius: 6px;
-        cursor: pointer;
         transition: all 0.2s ease-in-out;
 
         &:hover {

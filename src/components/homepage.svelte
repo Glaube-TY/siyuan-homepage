@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
 
     import { writable } from "svelte/store";
     import Sortable from "sortablejs";
@@ -20,6 +20,7 @@
         reRegisterAllShortcuts,
         unregisterAllShortcuts,
     } from "./utils/quickButton";
+    import { MD2HTML } from "@/components/tools/MD2HTML";
 
     import "./style/homepage.scss";
 
@@ -49,6 +50,299 @@
     let statsInfoText =
         "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
 
+    let footerEnabled = true;
+    let footerContent = "";
+
+    let mouseIcon = "default";
+    let mouseGlobalEnabled = false;
+    let MouseTrailEnabled = false;
+    let ClickEffectEnabled = false;
+    let ClickEffectContent = "";
+    let FallEffectsEnabled = false;
+    let GlobalFallingEffectsEnabled = false;
+    let FallingIcon = "snow";
+    let FallingDensity = "medium";
+    let FallingSpeed = "medium";
+
+    // 点击特效逻辑
+    const defaultClickEffects = [
+        "(￣▽￣)~*",
+        "(>_<)",
+        "٩(◕‿◕｡)۶",
+        "(；´д｀)ゞ",
+        "☆*:.｡.o(≧▽≦)o.｡.:*☆",
+        "ヾ(•ω•`)o",
+        "ヽ(￣ω￣(。。 )ゝ",
+        "(´• ω •`)",
+        "(╯°□°）╯︵ ┻━┻",
+        "¯_(ツ)_/¯",
+        "(✧ω✧)",
+        "(￢_￢)",
+        "ಠ_ಠ",
+        "(⁄ ⁄•⁄ω⁄•⁄ ⁄)",
+        "ヾ(⌐■_■)ノ♪",
+        "༼ つ ◕_◕ ༽つ",
+        "(◕‿◕✿)",
+        "｡：ﾟ(;´∩`;)ﾟ：｡",
+        "ヽ(￣д￣;)ノ=3=3=3",
+        "(๑•̀ㅂ•́)و✧",
+        "╮(─▽─)╭",
+        "(。>︿<)_θ",
+        "٩(｡•́‿•̀｡)۶",
+        "ヽ(￣▽￣)ﾉ",
+        "(´･ω･`)",
+        "(◐ω◑ )",
+        "(◞‸◟ )",
+        "Σ(っ°Д°;)っ",
+        "⊙▃⊙",
+        "(ノへ￣、)",
+        "(づ￣ ³￣)づ",
+        "٩(˘◡˘)۶",
+        "Ｏ(≧口≦)Ｏ",
+        "★~(◠﹏⊙✿)",
+        "✪ ω ✪",
+        "●﹏●",
+        "（>ω<）",
+        "｡ﾟ( ﾟஇ‸இﾟ)ﾟ｡",
+        "(*/ω＼*)",
+        "(,,•́ . •̀,,)",
+    ];
+    let effectIndex = 0;
+    const createClickEffect = (e: MouseEvent) => {
+        if (!ClickEffectEnabled) return;
+
+        const customEffects = ClickEffectContent
+            ? ClickEffectContent.split("\n").filter((line) => line.trim())
+            : defaultClickEffects;
+
+        const effectsToUse =
+            customEffects.length > 0 ? customEffects : defaultClickEffects;
+
+        let container = document.querySelector(
+            ".homepage-container",
+        ) as HTMLElement;
+        if (!mouseGlobalEnabled && container) {
+            const rect = container.getBoundingClientRect();
+            if (
+                e.clientX < rect.left ||
+                e.clientX > rect.right ||
+                e.clientY < rect.top ||
+                e.clientY > rect.bottom
+            ) {
+                return;
+            }
+        }
+
+        const span = document.createElement("span");
+        span.textContent = effectsToUse[effectIndex];
+        effectIndex = (effectIndex + 1) % effectsToUse.length;
+
+        const x = e.pageX;
+        const y = e.pageY;
+        span.style.cssText = `
+            z-index: 999999;
+            top: ${y - 20}px;
+            left: ${x}px;
+            position: fixed;
+            font-weight: bold;
+            color: rgb(${Math.random() * 255},${Math.random() * 255},${Math.random() * 255});
+            transition: all 1.5s ease-out;
+            pointer-events: none;
+        `;
+
+        document.body.appendChild(span);
+
+        requestAnimationFrame(() => {
+            span.style.top = `${y - 180}px`;
+            span.style.opacity = "0";
+        });
+
+        setTimeout(() => span.remove(), 1500);
+    };
+
+    // 飘落特效逻辑
+    let fallingIconCache: { [key: string]: string } = {};
+    function preloadFallingIcons() {
+        const icons = [
+            "snow",
+            "cherry",
+            "cherryPetal",
+            "greenery",
+            "mapleLeaf",
+            "bodhiLeaf",
+            "ginkgoLeaf",
+            "dandelion",
+            "bambooLeaf",
+            "QZHIHE",
+            "paperPlane",
+            "HMBB",
+            "PDX",
+            "Rinka",
+            "heart",
+            "rose",
+            "star",
+        ];
+
+        icons.forEach((icon) => {
+            const iconPath =
+                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/fallingIcon/${icon}.png`.replace(
+                    /\\/g,
+                    "/",
+                );
+            fallingIconCache[icon] = iconPath;
+        });
+    }
+    let animationFrameId: number;
+    const fallingFlakesPool: HTMLImageElement[] = [];
+    const maxFallingElement = 1000;
+    let minInterval = 500;
+    $: {
+        if (FallingDensity === "low") {
+            minInterval = 2000;
+        } else if (FallingDensity === "medium") {
+            minInterval = 100;
+        } else if (FallingDensity === "high") {
+            minInterval = 200;
+        }
+    }
+    let densityBasedDuration = 5;
+    $: {
+        if (FallingSpeed === "low") {
+            densityBasedDuration = 10;
+        } else if (FallingSpeed === "medium") {
+            densityBasedDuration = 5;
+        } else if (FallingSpeed === "high") {
+            densityBasedDuration = 2;
+        }
+    }
+    function createFallingFlake() {
+        if (!FallEffectsEnabled) return;
+
+        const container = GlobalFallingEffectsEnabled
+            ? document.body
+            : document.querySelector(".homepage-container");
+        if (!container) return;
+
+        const activeFlakes = container.querySelectorAll("img").length;
+        if (activeFlakes >= maxFallingElement) return;
+
+        const iconSrc =
+            fallingIconCache[FallingIcon] || fallingIconCache["snow"];
+
+        let flake: HTMLImageElement;
+
+        if (fallingFlakesPool.length > 0) {
+            flake = fallingFlakesPool.pop()!;
+            flake.style.display = "block";
+        } else {
+            flake = document.createElement("img");
+            flake.style.position = "fixed";
+            flake.style.zIndex = "9999";
+            flake.style.pointerEvents = "none";
+            flake.style.opacity = "1";
+            flake.style.animation = `falling ${densityBasedDuration}s linear forwards`;
+            flake.style.animationTimingFunction = "linear";
+            flake.style.animationFillMode = "forwards";
+        }
+
+        flake.src = iconSrc;
+
+        const randomSize = Math.floor(Math.random() * 20) + 10;
+        flake.style.width = `${randomSize}px`;
+        flake.style.height = "auto";
+
+        const wind = `${(Math.random() - 0.5) * 100}px`;
+        const rotation = `${Math.random() * 360}deg`;
+        flake.style.setProperty("--wind", wind);
+        flake.style.setProperty("--rotation", rotation);
+
+        const containerRect = container.getBoundingClientRect();
+        const containerWidth = containerRect.width;
+
+        const startX = Math.random() * containerWidth;
+        flake.style.left = `${startX}px`;
+        flake.style.top = "-10vh";
+        flake.style.position = "absolute";
+
+        animateVisibilityCheck(flake);
+
+        flake.addEventListener("animationiteration", () => {
+            const rect = flake.getBoundingClientRect();
+            const isInViewport =
+                rect.top >= 0 &&
+                rect.left >= 0 &&
+                rect.bottom <= window.innerHeight &&
+                rect.right <= window.innerWidth;
+
+            if (!isInViewport) {
+                flake.style.display = "none";
+                fallingFlakesPool.push(flake);
+            }
+        });
+
+        container.appendChild(flake);
+    }
+    function animateVisibilityCheck(flake: HTMLImageElement) {
+        const check = () => {
+            const rect = flake.getBoundingClientRect();
+            if (rect.top > window.innerHeight * 0.85) {
+                flake.style.display = "none";
+                fallingFlakesPool.push(flake);
+            } else {
+                requestAnimationFrame(check);
+            }
+        };
+        check();
+    }
+    let lastTime = 0;
+    function animateFalling(timestamp: number) {
+        if (!lastTime || timestamp - lastTime > minInterval) {
+            createFallingFlake();
+            lastTime = timestamp;
+        }
+        animationFrameId = requestAnimationFrame(animateFalling);
+    }
+
+    // 鼠标轨迹特效逻辑
+    let trailElements: HTMLElement[] = [];
+    const createMouseTrail = (e: MouseEvent) => {
+        if (!MouseTrailEnabled) return;
+        let containertext = ".homepage-container";
+        if (mouseGlobalEnabled) {
+            containertext = "body";
+        }
+        const container = document.querySelector(containertext);
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
+
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        const trail = document.createElement("div");
+        trail.className = "mouse-trail";
+        trail.style.cssText = `
+            left: ${x}px;
+            top: ${y}px;
+            opacity: 0.7;
+        `;
+
+        container?.appendChild(trail);
+        trailElements.push(trail);
+
+        if (trailElements.length > 1000) {
+            const old = trailElements.shift();
+            old?.remove();
+        }
+
+        requestAnimationFrame(() => {
+            trail.style.opacity = "0";
+            trail.style.transform = "scale(2)";
+        });
+
+        setTimeout(() => trail.remove(), 1000);
+    };
+
     type ButtonItem = {
         id: number;
         label: string;
@@ -70,6 +364,133 @@
         }
     };
 
+    // 光标样式监听
+    $: {
+        let containertext = ".homepage-container";
+        if (mouseGlobalEnabled) {
+            containertext = "body";
+        }
+        const container = document.querySelector(containertext) as HTMLElement;
+        if (container) {
+            if (mouseIcon === "default") {
+                container.style.cursor = "auto";
+            } else if (mouseIcon === "CYWL1") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CYWL1.png`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "CYWL2") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CYWL2.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "WDSJsword") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/WDSJsword.cur`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "WDSJpickaxe") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/WDSJpickaxe.cur`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "cat1") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat1.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "cat2") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat2.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "cat3") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat3.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "arrow1") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow1.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "arrow2") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow2.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "arrow3") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow3.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "arrow4") {
+                container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow4.ico`.replace(/\\/g, "/"))}'), auto`;
+            } else if (mouseIcon === "arrow5") {
+                container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow5.ico`.replace(/\\/g, "/"))}'), auto`;
+            } else if (mouseIcon === "arrow6") {
+                container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow6.ico`.replace(/\\/g, "/"))}'), auto`;
+            } else if (mouseIcon === "arrow7") {
+                container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow7.ico`.replace(/\\/g, "/"))}'), auto`;
+            } else if (mouseIcon === "LOL1") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL1.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "LOL2") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL2.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "LOL3") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL3.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "LOL4") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL4.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            } else if (mouseIcon === "CBPK2077") {
+                const pointerIconPath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CBPK2077.ico`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+            }
+        }
+    }
+
     $: filteredButtons = buttonsList.filter((b) => b.checked === false);
 
     $: formattedStatsInfoText = (statsInfoText || "")
@@ -82,54 +503,63 @@
             return parseDurationExpression(expr.trim(), statsData) || "";
         });
 
-    onMount(() => {
-        (async () => {
-            // 页面加载完成后初始化拖拽
-            if (document.readyState === "complete") {
-                handleLoad();
-            } else {
-                window.addEventListener("load", handleLoad);
+    onMount(async () => {
+        // 页面加载完成后初始化拖拽
+        if (document.readyState === "complete") {
+            handleLoad();
+        } else {
+            window.addEventListener("load", handleLoad);
+        }
+
+        // 加载统计数据
+        statsData = await loadStatsData();
+
+        // 初始化区块拖拽排序
+        const observer = new MutationObserver(async () => {
+            const container = document.querySelector(
+                ".custom-content",
+            ) as HTMLElement;
+            if (container) {
+                observer.disconnect();
+
+                new Sortable(container, {
+                    animation: 150,
+                    ghostClass: "sortable-ghost",
+                    handle: ".drag-handle",
+                    onEnd: () => {
+                        saveLayout(plugin);
+                    },
+                });
+
+                await restoreLayout(plugin, { value: container });
             }
+        });
 
-            // 加载统计数据
-            statsData = await loadStatsData();
-
-            // 初始化区块拖拽排序
-            const observer = new MutationObserver(async () => {
-                const container = document.querySelector(
-                    ".custom-content",
-                ) as HTMLElement;
-                if (container) {
-                    observer.disconnect();
-
-                    new Sortable(container, {
-                        animation: 150,
-                        ghostClass: "sortable-ghost",
-                        handle: ".drag-handle",
-                        onEnd: () => {
-                            saveLayout(plugin);
-                        },
-                    });
-
-                    await restoreLayout(plugin, { value: container });
-                }
-            });
-
-            observer.observe(document.body, { childList: true, subtree: true });
-        })();
+        observer.observe(document.body, { childList: true, subtree: true });
 
         setTimeout(async () => {
             await updateHomepage();
         }, 100);
 
-        document.addEventListener("click", handleDocumentClick);
-        reRegisterAllShortcuts(buttonsList);
+        preloadFallingIcons();
+        animationFrameId = requestAnimationFrame(animateFalling);
 
-        return () => {
-            window.removeEventListener("load", handleLoad);
-            document.removeEventListener("click", handleDocumentClick);
-            unregisterAllShortcuts();
-        };
+        document.addEventListener("click", handleDocumentClick);
+        document.addEventListener("click", createClickEffect);
+        document.addEventListener("mousemove", createMouseTrail);
+        reRegisterAllShortcuts(buttonsList);
+    });
+
+    onDestroy(() => {
+        document
+            .querySelectorAll(".falling-flake")
+            .forEach((el) => el.remove());
+        window.removeEventListener("load", handleLoad);
+        document.removeEventListener("click", handleDocumentClick);
+        document.removeEventListener("click", createClickEffect);
+        document.removeEventListener("mousemove", createMouseTrail);
+        unregisterAllShortcuts();
+        cancelAnimationFrame(animationFrameId);
     });
 
     const updateHomepage = async () => {
@@ -148,6 +578,23 @@
         tempTitleIconStyle = config.tempTitleIconStyle || "square";
 
         statsInfoText = config.statsInfoText;
+
+        // 页脚配置
+        footerEnabled = config.footerEnabled ?? true;
+        footerContent = config.footerContent || "";
+
+        // 鼠标特效配置
+        mouseIcon = config.mouseIcon || "default";
+        MouseTrailEnabled = config.MouseTrailEnabled ?? false;
+        mouseGlobalEnabled = config.mouseGlobalEnabled ?? true;
+        ClickEffectEnabled = config.ClickEffectEnabled ?? false;
+        ClickEffectContent = config.ClickEffectContent || "";
+        FallEffectsEnabled = config.FallEffectsEnabled ?? false;
+        GlobalFallingEffectsEnabled =
+            config.GlobalFallingEffectsEnabled ?? false;
+        FallingIcon = config.FallingIcon || "snow";
+        FallingDensity = config.FallingDensity || "medium";
+        FallingSpeed = config.FallingSpeed || "medium";
 
         const bannerElement =
             document.querySelector<HTMLElement>(".top-banner");
@@ -180,7 +627,6 @@
                 shortcut: item.shortcut || "",
             }));
         } else {
-            // 默认按钮数据
             buttonsList = [
                 {
                     id: 1728000000000,
@@ -219,7 +665,7 @@
     }
 </script>
 
-<div class="container">
+<div class="homepage-container">
     <!-- 头部横幅区域 -->
     <div class="section top-banner" class:hide-top-banner={!$showBanner}>
         <img
@@ -376,16 +822,32 @@
     ></div>
 
     <!-- 插件信息底部区域 -->
-    <div class="section plugin-footer">
-        <div class="plugin-info">
-            <div class="plugin-name">🏠思源笔记主页插件</div>
-            <div class="plugin-author">作者: Glaube-TY</div>
-            <div class="plugin-support">
-                <a
-                    href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-S7k1dPUtuomNB3x1hg8coMnunZf"
-                    class="support-link">赞助支持 💸</a
-                >
+    {#if footerEnabled}
+        <div class="section plugin-footer">
+            <div class="plugin-info">
+                {#if footerContent === ""}
+                    <div class="plugin-name">🏠思源笔记主页插件</div>
+                    <div class="plugin-author">作者: Glaube-TY</div>
+                    <div class="plugin-support">
+                        <a
+                            href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-S7k1dPUtuomNB3x1hg8coMnunZf"
+                            class="support-link">赞助支持 💸</a
+                        >
+                    </div>
+                {:else}
+                    {@html MD2HTML(footerContent)}
+                {/if}
             </div>
         </div>
+    {/if}
+
+    <!-- 雪花层 -->
+    <div class="falling-container">
+        {#each Array(20) as _, i}
+            <div
+                class="falling-flake"
+                style="--animation-delay: {i * 0.2}s"
+            ></div>
+        {/each}
     </div>
 </div>

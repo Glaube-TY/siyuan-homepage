@@ -2,13 +2,16 @@
   "name": "siyuan-homepage",
   "author": "Glaube-TY",
   "url": "https://github.com/Glaube-TY/siyuan-homepage",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "minAppVersion": "3.0.12",
   "backends": [
     "windows",
     "linux",
     "darwin",
-    "docker"
+    "docker",
+    "ios",
+    "android",
+    "harmony"
   ],
   "frontends": [
     "desktop",

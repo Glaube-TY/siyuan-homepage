@@ -55,23 +55,21 @@
     margin-top: 10px;
 
     .nav-bar-left {
-        flex: 1; // 自动占据左侧空间
+        flex: 1;
     }
 
     .nav-buttons {
         position: relative;
-        display: flex; // 改用 flex
+        display: flex;
         gap: 16px;
-        justify-content: center; // 按钮居中对齐
-        margin: 0 16px; // 两侧加入间距
-
-
+        justify-content: center;
+        margin: 0 16px;
     }
 
     .nav-bar-right {
-        flex: 1; // 自动占据右侧空间
-        display: flex; // 使用 flex 布局
-        align-items: center; // 垂直居中
+        flex: 1;
+        display: flex;
+        align-items: center;
         position: relative;
     }
 
@@ -83,11 +81,10 @@
         background-color: transparent;
         border: 1px solid var(--b3-theme-primary);
         border-radius: 6px;
-        cursor: pointer;
         transition: all 0.2s ease-in-out;
-        white-space: nowrap; // 添加此行防止文字换行
-        overflow: hidden; // 防止内容溢出
-        text-overflow: ellipsis; // 超出显示省略号
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
 
         &:hover {
             background-color: var(--b3-theme-primary);
@@ -127,7 +124,6 @@
         padding: 8px 12px;
         border: none;
         background: none;
-        cursor: pointer;
         color: var(--b3-theme-text);
         white-space: nowrap;
 

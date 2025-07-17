@@ -25,7 +25,6 @@
                 gap: 0.5rem;
                 padding: 0.6rem 0.8rem;
                 border-radius: 6px;
-                cursor: pointer;
                 transition: all 0.3s ease;
                 background-color: transparent;
                 border: 1px solid transparent;
@@ -39,7 +38,6 @@
 
                 input[type="checkbox"] {
                     margin: 0;
-                    cursor: pointer;
                 }
 
                 span {
@@ -57,7 +55,6 @@
                 background-color: #4a90e2;
                 border: none;
                 border-radius: 6px;
-                cursor: pointer;
                 transition: all 0.3s ease;
                 display: inline-flex;
                 align-items: center;
@@ -99,7 +96,6 @@
 
                 button:disabled {
                     opacity: 0.5;
-                    cursor: not-allowed;
                 }
             }
 
