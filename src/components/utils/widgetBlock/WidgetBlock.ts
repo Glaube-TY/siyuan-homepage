@@ -22,6 +22,7 @@ import TaskManPlus from "./widget/tasksPlus/tasksPlus.svelte";
 import quickNotes from "./widget/quickNotes/quickNotes.svelte";
 import dailyQuote from "./widget/dailyQuote/dailyQuote.svelte";
 import visualChart from "./widget/visualChart/visualChart.svelte";
+import musicPlayer from "./widget/musicPlayer/musicPlayer.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -305,6 +306,14 @@ export class WidgetBlock {
             });
         } else if (contentData.type === "visualChart") {
             new visualChart({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "musicPlayer") {
+            new musicPlayer({
                 target: this.element,
                 props: {
                     plugin: this.plugin,

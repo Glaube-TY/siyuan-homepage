@@ -841,7 +841,7 @@
         </div>
     {/if}
 
-    <!-- 雪花层 -->
+    <!-- 飘落背景层 -->
     <div class="falling-container">
         {#each Array(20) as _, i}
             <div

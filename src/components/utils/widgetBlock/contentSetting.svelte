@@ -149,7 +149,10 @@
     // 可视化图表相关
     let visualChartType: string = "progressBar";
 
-    // 处理背景上传函数
+    // 音乐播放器相关
+    let musicFolderPath = "";
+
+    // 处理倒数日背景上传函数
     function handleCountdownUpload() {
         const file = countdownBgInput?.files?.[0];
         if (!file) return;
@@ -396,6 +399,8 @@
             } else if (parsedData.type === "visualChart") {
                 visualChartType =
                     parsedData.data?.visualChartType || visualChartType;
+            } else if (parsedData.type === "musicPlayer") {
+                musicFolderPath = parsedData.data?.musicFolderPath || "";
             }
         }
     });
@@ -1037,6 +1042,7 @@
                     <option value="countdown">倒数日</option>
                     <option value="weather">今日天气</option>
                     <option value="timedate">时钟</option>
+                    <!-- <option value="musicPlayer">音乐播放器👑</option> -->
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1579,6 +1585,18 @@
                             </div>
                         </div>
                     </div>
+                <!-- {:else if selectedContentType === "musicPlayer"}
+                    <div class="content-panel musicPlayer">
+                        <label class="folder-select-label">
+                            音乐路径：
+                            <input
+                                type="text"
+                                bind:value={musicFolderPath}
+                                class="folder-select-input"
+                                placeholder="请选择音乐文件夹..."
+                            />
+                        </label>
+                    </div> -->
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -1870,6 +1888,13 @@
                         data: {
                             visualChartType,
                         },
+                    };
+                } else if (selectedContentType === "musicPlayer") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "musicPlayer",
+                        blockId: currentBlockId,
+                        data: { musicFolderPath },
                     };
                 }
 

@@ -1,6 +1,6 @@
 {
   "name": "siyuan-homepage",
-  "version": "1.8.2",
+  "version": "1.8.4",
   "type": "module",
   "description": "Provides personalized homepage layout and rich functional modules.",
   "repository": "",
@@ -42,8 +42,8 @@
     "echarts": "^5.6.0",
     "echarts-wordcloud": "^2.1.0",
     "emoji-picker-element": "^1.26.3",
+    "howler": "^2.2.4",
     "mousetrap": "^1.6.5",
-    "pixi.js": "^8.11.0",
     "sortablejs": "^1.15.6",
     "svelte-grid": "^5.1.2"
   }
