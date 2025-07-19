@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { showMessage } from "siyuan";
     import "./contentSettingStyle/contentSetting.scss";
 
     // 弹窗接收的 props
@@ -151,6 +152,27 @@
 
     // 音乐播放器相关
     let musicFolderPath = "";
+
+    async function selectMusicFolder() {
+        try {
+            if (
+                !window.navigator.userAgent.includes("Electron") ||
+                typeof window.require !== "function"
+            )
+                return showMessage("此功能仅在桌面版可用");
+            const { filePaths } = await window
+                .require("@electron/remote")
+                .dialog.showOpenDialog({
+                    properties: ["openDirectory", "createDirectory"],
+                });
+
+            if (filePaths && filePaths.length > 0) {
+                musicFolderPath = filePaths[0];
+            }
+        } catch (error) {
+            console.error("选择文件夹时发生错误：", error);
+        }
+    }
 
     // 处理倒数日背景上传函数
     function handleCountdownUpload() {
@@ -1585,18 +1607,18 @@
                             </div>
                         </div>
                     </div>
-                <!-- {:else if selectedContentType === "musicPlayer"}
+                {:else if selectedContentType === "musicPlayer"}
                     <div class="content-panel musicPlayer">
                         <label class="folder-select-label">
-                            音乐路径：
+                            <span>音乐路径：</span>
                             <input
                                 type="text"
                                 bind:value={musicFolderPath}
-                                class="folder-select-input"
-                                placeholder="请选择音乐文件夹..."
+                                placeholder="请选择音乐文件夹"
                             />
+                            <button title="选择音乐文件夹" on:click={selectMusicFolder}>📁</button>
                         </label>
-                    </div> -->
+                    </div>
                 {/if}
             </div>
         {:else if activeTab === "custom"}

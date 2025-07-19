@@ -1,0 +1,26 @@
+.musicPlayer {
+    display: flex;
+    
+    .folder-select-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        
+        span {
+            white-space: nowrap;  // 禁止文字换行
+            flex-shrink: 0;       // 禁止压缩
+        }
+        
+        input[type="text"] {
+            flex: 1 1 auto;       // 允许压缩和扩展
+            min-width: 120px;    // 设置最小宽度防止过度压缩
+        }
+        
+        button {
+            white-space: nowrap;
+            padding: 6px 12px;
+            flex-shrink: 0;      // 禁止按钮压缩
+        }
+    }
+}
