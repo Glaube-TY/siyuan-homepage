@@ -1,0 +1,38 @@
+.styles-setting {
+    overflow-y: auto;
+    max-height: 50vh;
+
+    .footer-setting {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        border-bottom: 1px solid var(--b3-border-color);
+    }
+
+    .mouse-setting {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        border-bottom: 1px solid var(--b3-border-color);
+
+        .mouse-global-setting {
+            display: flex;
+            gap: 0.5rem;
+        }
+    }
+
+    .background-effects-setting {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        border-bottom: 1px solid var(--b3-border-color);
+
+        .background-effects-setting-checkbox {
+            display: flex;
+            gap: 0.5rem;
+        }
+    }
+}

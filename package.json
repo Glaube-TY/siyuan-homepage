@@ -1,6 +1,6 @@
 {
   "name": "siyuan-homepage",
-  "version": "1.8.5",
+  "version": "1.8.6",
   "type": "module",
   "description": "Provides personalized homepage layout and rich functional modules.",
   "repository": "",
@@ -26,7 +26,6 @@
     "js-yaml": "^4.1.0",
     "minimist": "^1.2.8",
     "rollup-plugin-livereload": "^2.0.5",
-    "sass": "^1.63.3",
     "siyuan": "1.0.4",
     "svelte": "^4.2.19",
     "ts-node": "^10.9.1",
@@ -38,6 +37,7 @@
   "dependencies": {
     "@siyuan-community/siyuan-sdk": "^0.3.13",
     "@types/marked": "^5.0.2",
+    "crypto-js": "^4.2.0",
     "dompurify": "^3.2.6",
     "echarts": "^5.6.0",
     "echarts-wordcloud": "^2.1.0",

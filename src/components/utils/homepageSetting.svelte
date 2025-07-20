@@ -2,6 +2,8 @@
     import { onMount } from "svelte";
     import "emoji-picker-element";
     import "./homepageSettingStyle/homepageSetting.scss";
+    import * as advanced from "./advanced";
+    import { showMessage } from "siyuan";
 
     export let plugin: any;
     export let close: () => void;
@@ -10,6 +12,7 @@
 
     // 主页设置相关配置变量
     let tempAutoOpenHomepage = true;
+    let sidebarEnabled = false;
     let settingsActiveTab = "banner";
     // 横幅区域相关配置变量
     let bannerEnabled = true;
@@ -100,12 +103,22 @@
     let FallingDensity = "medium";
     let FallingSpeed = "medium";
 
+    // VIP设置
+    let USER_NAME: string;
+    let USER_ID: string;
+    let USER_CODE: string;
+    let ActivationCode: string;
+    let activated: boolean;
+    let activationResult: any;
+    let advancedEnabled = false;
+
     // 设置页面加载时读取配置信息
     onMount(async () => {
         const savedConfig = await plugin.loadData("homepageSettingConfig.json");
         if (savedConfig) {
             // 全局配置
             tempAutoOpenHomepage = savedConfig.autoOpenHomepage ?? true;
+            sidebarEnabled = savedConfig.sidebarEnabled ?? false;
 
             // 横幅配置
             bannerEnabled = savedConfig.bannerEnabled ?? true;
@@ -161,6 +174,8 @@
         tempBannerEnabled = bannerEnabled;
         tempBannerType = bannerType;
         tempBannerHeight = bannerHeight;
+
+        advancedEnabled = plugin.ADVANCED;
     });
 
     function handleImageSelect(event: Event) {
@@ -333,6 +348,7 @@
         const config = {
             // 全局配置
             autoOpenHomepage: tempAutoOpenHomepage,
+            sidebarEnabled: sidebarEnabled,
 
             // 横幅配置
             bannerEnabled: tempBannerEnabled,
@@ -407,6 +423,27 @@
             class:active={activeTab === "homepage"}>主页设置</button
         >
         <button
+            on:click={async () => {
+                activeTab = "vip";
+                await advanced.updateVIP().then((res) => {
+                    USER_NAME = res.USER_NAME;
+                    USER_ID = res.USER_ID;
+                    USER_CODE = res.ENCRYPTED_USER_CODE;
+                });
+                activationResult = await advanced.verifyLicense(
+                    plugin,
+                    USER_NAME,
+                    USER_ID,
+                );
+                activated = activationResult.valid;
+                if (!activated && activationResult.code != 2) {
+                    showMessage(activationResult.error);
+                    advanced.deleteLicense(plugin);
+                }
+            }}
+            class:active={activeTab === "vip"}>会员服务</button
+        >
+        <button
             on:click={() => (activeTab = "about")}
             class:active={activeTab === "about"}>关于插件</button
         >
@@ -416,12 +453,19 @@
     <div class="tab-content">
         {#if activeTab === "homepage"}
             <div class="homepage-global-settings">
-                <label for="auto-open-homepage">自动打开主页：</label>
-                <input
-                    type="checkbox"
-                    id="auto-open-homepage"
-                    bind:checked={tempAutoOpenHomepage}
-                />
+                <label for="auto-open-homepage"
+                    >自动打开主页：<input
+                        type="checkbox"
+                        id="auto-open-homepage"
+                        bind:checked={tempAutoOpenHomepage}
+                    /></label
+                >
+                <label for=""
+                    >开启侧边栏👑：<input
+                        type="checkbox"
+                        bind:checked={sidebarEnabled}
+                    /></label
+                >
             </div>
 
             <div class="homepage-content-settings">
@@ -447,11 +491,13 @@
                         class:active={settingsActiveTab === "widgets"}
                         >组件设置</button
                     >
-                    <!-- <button
-                        on:click={() => (settingsActiveTab = "vip")}
-                        class:active={settingsActiveTab === "vip"}
-                        >会员服务</button
-                    > -->
+                    {#if advancedEnabled}
+                        <button
+                            on:click={() => (settingsActiveTab = "styles")}
+                            class:active={settingsActiveTab === "styles"}
+                            >高级样式👑</button
+                        >
+                    {/if}
                 </div>
 
                 {#if settingsActiveTab === "banner"}
@@ -872,8 +918,8 @@
                     </div>
                 {/if}
 
-                <!-- {#if settingsActiveTab === "vip"}
-                    <div class="section-setting vip-setting">
+                {#if settingsActiveTab === "styles"}
+                    <div class="section-setting styles-setting">
                         <div class="footer-setting">
                             <h3>页脚设置</h3>
                             <label for="footer-enable"
@@ -926,7 +972,7 @@
                                     <option value="WDSJpickaxe">钻石镐</option>
                                 </select>
                             </label>
-                            <div>
+                            <div class="mouse-global-setting">
                                 <label for="mouse-global">
                                     <input
                                         id="mouse-global"
@@ -1029,7 +1075,7 @@
                             </div>
                         </div>
                     </div>
-                {/if} -->
+                {/if}
             </div>
             <!-- 操作按钮 -->
             <div class="action-buttons">
@@ -1037,6 +1083,76 @@
                     >✅ 确认</button
                 >
                 <button class="btn" on:click={cancelSave}>❌ 取消</button>
+            </div>
+        {:else if activeTab === "vip"}
+            <div class="vip-section">
+                <div class="vip-info">
+                    <label for="">用户名：{USER_NAME}</label>
+                    <label for="">用户ID：{USER_ID}</label>
+                </div>
+                {#if activated}
+                    <div class="activated">
+                        <h2>👑当前用户已激活👑</h2>
+                        <label for=""
+                            >到期时间：{activationResult.userInfo.due}</label
+                        >
+                        <label for=""
+                            >剩余天数：{activationResult.userInfo
+                                .remainingDays}</label
+                        >
+                        <button
+                            on:click={async () => {
+                                const saveVIPConfDataResult =
+                                    await advanced.saveVIPConfData(plugin, "");
+                                if (saveVIPConfDataResult) {
+                                    activated = false;
+                                    advanced.deleteLicense(plugin);
+                                }
+                            }}>注销激活</button
+                        >
+                    </div>
+                {:else}
+                    <div class="vip-code">
+                        <h2>👑 VIP 激活</h2>
+                        <label for=""
+                            >购买 VIP 时，请将下列标识码附在留言区域！</label
+                        >
+                        <label for="" class="user-code">{USER_CODE}</label>
+                        <label for=""
+                            >激活码：<textarea bind:value={ActivationCode}
+                            ></textarea></label
+                        >
+                        <div class="btn-group">
+                            <button
+                                on:click={async () => {
+                                    const saveVIPConfDataResult =
+                                        await advanced.saveVIPConfData(
+                                            plugin,
+                                            ActivationCode,
+                                        );
+                                    if (saveVIPConfDataResult) {
+                                        activationResult =
+                                            await advanced.verifyLicense(
+                                                plugin,
+                                                USER_NAME,
+                                                USER_ID,
+                                            );
+                                        activated = activationResult.valid;
+                                        if (
+                                            !activated &&
+                                            activationResult.code != 2
+                                        ) {
+                                            showMessage(activationResult.error);
+                                            advanced.deleteLicense(plugin);
+                                        } else {
+                                            showMessage("✅激活成功！");
+                                        }
+                                    }
+                                }}>激活</button
+                            >
+                        </div>
+                    </div>
+                {/if}
             </div>
         {:else if activeTab === "about"}
             <div class="about-section">

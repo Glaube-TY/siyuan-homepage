@@ -1,5 +1,7 @@
 .musicPlayer {
     display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
     
     .folder-select-label {
         display: flex;

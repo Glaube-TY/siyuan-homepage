@@ -152,6 +152,9 @@
 
     // 音乐播放器相关
     let musicFolderPath = "";
+    let autoPlay = false;
+
+    let advancedEnabled = false;
 
     async function selectMusicFolder() {
         try {
@@ -423,8 +426,11 @@
                     parsedData.data?.visualChartType || visualChartType;
             } else if (parsedData.type === "musicPlayer") {
                 musicFolderPath = parsedData.data?.musicFolderPath || "";
+                autoPlay = parsedData.data?.autoPlay || false;
             }
         }
+
+        advancedEnabled = plugin.ADVANCED;
     });
 </script>
 
@@ -1064,7 +1070,9 @@
                     <option value="countdown">倒数日</option>
                     <option value="weather">今日天气</option>
                     <option value="timedate">时钟</option>
-                    <!-- <option value="musicPlayer">音乐播放器👑</option> -->
+                    {#if advancedEnabled}
+                        <option value="musicPlayer">音乐播放器👑</option>
+                    {/if}
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1616,7 +1624,14 @@
                                 bind:value={musicFolderPath}
                                 placeholder="请选择音乐文件夹"
                             />
-                            <button title="选择音乐文件夹" on:click={selectMusicFolder}>📁</button>
+                            <button
+                                title="选择音乐文件夹"
+                                on:click={selectMusicFolder}>📁</button
+                            >
+                        </label>
+                        <label>
+                            <input type="checkbox" bind:checked={autoPlay} />
+                            自动播放
                         </label>
                     </div>
                 {/if}
@@ -1916,7 +1931,7 @@
                         activeTab: activeTab,
                         type: "musicPlayer",
                         blockId: currentBlockId,
-                        data: { musicFolderPath },
+                        data: { musicFolderPath, autoPlay },
                     };
                 }
 

@@ -1,32 +1,129 @@
-.vip-setting{
-    overflow-y: auto;
-    max-height: 50vh;
+.vip-section {
+    padding: 1.5rem;
+    border-radius: 12px;
 
-    .footer-setting{
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
+    // 用户信息区域
+    .vip-info {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+        background: var(--b3-theme-surface);
+        border-radius: 8px;
 
-    .mouse-setting{
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-
-        div{
+        label {
             display: flex;
-            gap: 0.5rem;
+            align-items: center;
+            gap: 0.8rem;
+            font-size: 0.95rem;
+            color: var(--b3-theme-text);
+
+            &::before {
+                content: "✦";
+                color: var(--b3-theme-primary);
+                font-size: 1.1em;
+            }
         }
     }
 
-    .background-effects-setting{
+    // 激活状态提示
+    .activated {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 0.8rem;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+        border-radius: 8px;
+        border: 1px solid #81c784;
+        margin-bottom: 2rem;
+
+        h2 {
+            display: block;
+            color: #43a047;
+        }
+
+        label {
+            display: block;
+            font-size: 0.9rem;
+            color: #43a047;
+        }
+
+        button {
+            border: none;
+            background: transparent;
+        }
+    }
+
+    // 激活码区域
+    .vip-code {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        background: linear-gradient(145deg, #fff3e0 0%, #ffe0b2 100%);
+        border: 1px solid #ffb74d;
+        gap: 1rem;
+        padding: 1.5rem;
+        background: var(--b3-theme-surface);
+        border-radius: 8px;
 
-        .background-effects-setting-checkbox{
+        h2 {
+            color: #ffb74d;
+        }
+
+        .user-code {
+            padding: 0.5rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            color: black;
+            background-color: whitesmoke;
+            cursor: text;
+        }
+
+        label {
             display: flex;
-            gap: 0.5rem;
+            flex-direction: column;
+            gap: 0.8rem;
+            font-size: 0.95rem;
+            color: var(--b3-theme-text);
+
+            textarea {
+                width: 100%;
+                padding: 1rem;
+                border: 2px solid var(--b3-theme-primary);
+                border-radius: 6px;
+                background: var(--b3-theme-background);
+                color: var(--b3-theme-text);
+                transition: all 0.3s ease;
+
+                &:focus {
+                    outline: none;
+                    box-shadow: 0 0 0 3px rgba(var(--b3-theme-primary-rgb), 0.2);
+                }
+            }
+        }
+
+        .btn-group {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+
+            button {
+                padding: 0.8rem 2rem;
+                background: linear-gradient(135deg, var(--b3-theme-surface) 0%, var(--b3-theme-primary) 100%);
+                color: white;
+                border: none;
+                border-radius: 25px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: transform 0.2s, box-shadow 0.2s;
+
+                &:hover {
+                    transform: scale(1.1);
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                }
+            }
         }
     }
 }
