@@ -634,53 +634,6 @@
             }
         }
 
-        // 重置远程图片数据
-        remoteBannerImageData = "";
-
-        if (config.bannerEnabled) {
-            if (bannerGlobalType === "custom") {
-                if (config.bannerType === "local") {
-                    bannerImgSrc = bannerLocalData;
-                } else if (config.bannerType === "remote") {
-                    // 使用 getImage 获取远程图片
-                    remoteBannerImageData = await getImage(bannerRemoteUrl);
-                    bannerImgSrc = remoteBannerImageData || bannerRemoteUrl;
-                }
-            } else if (bannerGlobalType === "bing" && advanced) {
-                let bingImageUrl = "";
-                if (bingApiType === "POD_UHD") {
-                    bingImageUrl = "https://bing.img.run/uhd.php";
-                } else if (bingApiType === "POD_1K") {
-                    bingImageUrl = "https://bing.img.run/1920x1080.php";
-                } else if (bingApiType === "POD_Normal") {
-                    bingImageUrl = "https://bing.img.run/1366x768.php";
-                } else if (bingApiType === "rand_uhd") {
-                    bingImageUrl = "https://bing.img.run/rand_uhd.php";
-                } else if (bingApiType === "rand_1K") {
-                    bingImageUrl = "https://bing.img.run/rand.php";
-                } else if (bingApiType === "rand_Normal") {
-                    bingImageUrl = "https://bing.img.run/rand_1366x768.php";
-                } else if (bingApiType === "ECY1") {
-                    bingImageUrl = "https://www.dmoe.cc/random.php";
-                } else if (bingApiType === "RAND1") {
-                    bingImageUrl = "https://api.btstu.cn/sjbz/api.php";
-                }
-
-                // 使用 getImage 获取 Bing 图片
-                if (bingImageUrl) {
-                    remoteBannerImageData = await getImage(bingImageUrl);
-                    bannerImgSrc = remoteBannerImageData || bingImageUrl;
-                }
-            } else if (bannerGlobalType === "bing" && !advanced) {
-                const notVIPImagePath =
-                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/bannerImg/notVIP.jpg`.replace(
-                        /\\/g,
-                        "/",
-                    );
-                bannerImgSrc = notVIPImagePath;
-            }
-        }
-
         if (config.buttonsList) {
             buttonsList = config.buttonsList.map((item) => ({
                 id: item.id,
@@ -688,6 +641,53 @@
                 checked: item.checked,
                 shortcut: item.shortcut || "",
             }));
+
+            // 重置远程图片数据
+            remoteBannerImageData = "";
+
+            if (config.bannerEnabled) {
+                if (bannerGlobalType === "custom") {
+                    if (config.bannerType === "local") {
+                        bannerImgSrc = bannerLocalData;
+                    } else if (config.bannerType === "remote") {
+                        // 使用 getImage 获取远程图片
+                        remoteBannerImageData = await getImage(bannerRemoteUrl);
+                        bannerImgSrc = remoteBannerImageData || bannerRemoteUrl;
+                    }
+                } else if (bannerGlobalType === "bing" && advanced) {
+                    let bingImageUrl = "";
+                    if (bingApiType === "POD_UHD") {
+                        bingImageUrl = "https://bing.img.run/uhd.php";
+                    } else if (bingApiType === "POD_1K") {
+                        bingImageUrl = "https://bing.img.run/1920x1080.php";
+                    } else if (bingApiType === "POD_Normal") {
+                        bingImageUrl = "https://bing.img.run/1366x768.php";
+                    } else if (bingApiType === "rand_uhd") {
+                        bingImageUrl = "https://bing.img.run/rand_uhd.php";
+                    } else if (bingApiType === "rand_1K") {
+                        bingImageUrl = "https://bing.img.run/rand.php";
+                    } else if (bingApiType === "rand_Normal") {
+                        bingImageUrl = "https://bing.img.run/rand_1366x768.php";
+                    } else if (bingApiType === "ECY1") {
+                        bingImageUrl = "https://www.dmoe.cc/random.php";
+                    } else if (bingApiType === "RAND1") {
+                        bingImageUrl = "https://api.btstu.cn/sjbz/api.php";
+                    }
+
+                    // 使用 getImage 获取 Bing 图片
+                    if (bingImageUrl) {
+                        remoteBannerImageData = await getImage(bingImageUrl);
+                        bannerImgSrc = remoteBannerImageData || bingImageUrl;
+                    }
+                } else if (bannerGlobalType === "bing" && !advanced) {
+                    const notVIPImagePath =
+                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/bannerImg/notVIP.jpg`.replace(
+                            /\\/g,
+                            "/",
+                        );
+                    bannerImgSrc = notVIPImagePath;
+                }
+            }
         } else {
             buttonsList = [
                 {
