@@ -7,7 +7,6 @@
     import "./siderBar.scss";
 
     export let plugin: any;
-    export let app: any;
 
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };

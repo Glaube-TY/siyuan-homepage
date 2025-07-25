@@ -228,7 +228,6 @@ export class WidgetBlock {
             new weather({
                 target: this.element,
                 props: {
-                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });
@@ -236,7 +235,6 @@ export class WidgetBlock {
             new HOT({
                 target: this.element,
                 props: {
-                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });

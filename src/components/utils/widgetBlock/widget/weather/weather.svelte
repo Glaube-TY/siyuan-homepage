@@ -1,7 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let plugin: any;
     export let contentTypeJson: string = "{}";
 
     let city: string = "加载中...";

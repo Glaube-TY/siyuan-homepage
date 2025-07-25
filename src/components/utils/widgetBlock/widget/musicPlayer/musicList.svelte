@@ -2,7 +2,6 @@
     import { onMount } from "svelte";
 
     export let plugin: any;
-    export let parsedContent: any;
     export let musicFiles: any;
     export let currentTrackIndex: number; // 接收当前曲目索引
     export let playTrack: (index: number) => void; // 接收播放方法

@@ -1,7 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let plugin: any;
     export let contentTypeJson: string = "{}";
 
     // 热搜通用数据结构定义
