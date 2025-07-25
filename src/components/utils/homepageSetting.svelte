@@ -1180,6 +1180,12 @@
                 {:else}
                     <div class="vip-activate">
                         <h2>👑 VIP 激活</h2>
+                        <h3>
+                            <a
+                                href="https://ttl8ygt82u.feishu.cn/wiki/GEHMwHxE0icZZ8kq124cCAP6njh?from=from_copylink"
+                                target="_blank">👑查看会员权益👑</a
+                            >
+                        </h3>
                         {#if USER_NAME || USER_ID}
                             <label for=""
                                 >购买时，请将下列标识码附在留言区域：</label

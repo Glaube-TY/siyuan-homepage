@@ -160,7 +160,7 @@
 
     // 数据库图表相关
     let databaseChartID: string = "";
-    let databaseChartInfo: any = null;
+    let databaseChartInfo: any[] = [];
     let confirmDatabaseChartID: Boolean = false;
     let databaseChartType: string = "line";
     let databaseChartTitle: string = "";
