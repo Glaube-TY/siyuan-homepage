@@ -1,16 +1,17 @@
-.sidebar-display {
+.mobile-homepage {
     padding: 10px;
+    width: 100vh;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
 
-    .sidebar-widget {
+    .mobile-homepage-widget {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         grid-auto-flow: dense;
         flex-grow: 1;
-        height: auto;
-        background-color: var(--b3-theme-background);
+        max-height: fit-content;
+        background-color: transparent;
         gap: 5px;
 
         .widget-block {
@@ -82,18 +83,13 @@
         }
     }
 
-    .sidebar-setting {
+    .mobile-homepage-setting {
         display: flex;
         align-items: center;
         justify-content: center;
         margin-top: 10px;
         gap: 10px;
-        opacity: 0;
         transition: all 0.3s;
-
-        &:hover {
-            opacity: 1;
-        }
 
         button {
             padding: 10px;
@@ -108,7 +104,11 @@
         }
     }
 
-    .sidebar-not-advanced {
+    .mobile-homepage-fit {
+        flex: 1;
+    }
+
+    .mobile-homepage-not-advanced {
         display: flex;
         flex-direction: column;
         align-items: center;

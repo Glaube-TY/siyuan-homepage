@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { getLatestTasks, type RecentTasksInfo } from "./recentTasks";
-    import { openTab } from "siyuan";
+    import { openDocs } from "@/components/tools/openDocs";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -181,12 +181,7 @@
     }
 
     function handleOpenTask(task: (typeof displayedTasks)[number]) {
-        openTab({
-            app: plugin.app,
-            doc: {
-                id: task.id,
-            },
-        });
+        openDocs(plugin, task.id);
     }
 </script>
 

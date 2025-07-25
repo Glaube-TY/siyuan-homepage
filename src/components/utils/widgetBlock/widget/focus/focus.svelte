@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
+    import { getImage } from "@/components/tools/getImage";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -77,6 +78,13 @@
         }
 
         resetTimer("focus");
+
+        if (focusImageType === "remote") {
+            focusBgImage = await getImage(focusBgImage);
+        }
+        if (breakImageType === "remote") {
+            breakBgImage = await getImage(breakBgImage);
+        }
     });
 
     function showSystemNotification(title: string, body: string) {

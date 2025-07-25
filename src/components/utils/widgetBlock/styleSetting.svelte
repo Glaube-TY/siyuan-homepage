@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { saveLayout } from "./utils/layout-handler";
+    import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
+    import { saveLayout as saveMobileLayout } from "@/components/utils/mobileHomepage/mobileHomepage_layout";
 
     // 弹窗接收的 props
     export let plugin: any;
@@ -141,6 +143,8 @@
                     on:click={() => {
                         onSetSize(11);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -181,6 +185,8 @@
                     on:click={() => {
                         onSetSize(12);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -221,6 +227,8 @@
                     on:click={() => {
                         onSetSize(21);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -261,6 +269,8 @@
                     on:click={() => {
                         onSetSize(22);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -303,6 +313,8 @@
                     on:click={() => {
                         onSetSize(13);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -383,6 +395,8 @@
                     on:click={() => {
                         onSetSize(31);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -463,6 +477,8 @@
                     on:click={() => {
                         onSetSize(23);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -543,6 +559,8 @@
                     on:click={() => {
                         onSetSize(32);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -623,6 +641,8 @@
                     on:click={() => {
                         onSetSize(33);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -705,6 +725,8 @@
                     on:click={() => {
                         onSetSize(14);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -834,6 +856,8 @@
                     on:click={() => {
                         onSetSize(24);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -965,6 +989,8 @@
                     on:click={() => {
                         onSetSize(41);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -1095,6 +1121,8 @@
                     on:click={() => {
                         onSetSize(42);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -1226,6 +1254,8 @@
                     on:click={() => {
                         onSetSize(44);
                         saveLayout(plugin);
+                        saveSidebarLayout(plugin);
+                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -1369,6 +1399,8 @@
                         on:change={() => {
                             updateBackground();
                             saveLayout(plugin);
+                            saveSidebarLayout(plugin);
+                            saveMobileLayout(plugin);
                         }}
                     />
                 </div>
@@ -1386,6 +1418,8 @@
                         on:input={() => {
                             updateBackground();
                             saveLayout(plugin);
+                            saveSidebarLayout(plugin);
+                            saveMobileLayout(plugin);
                         }}
                     />
                     <span>{Math.round(backgroundOpacity * 100)}%</span>
@@ -1404,6 +1438,8 @@
                         on:change={() => {
                             updateBorder();
                             saveLayout(plugin);
+                            saveSidebarLayout(plugin);
+                            saveMobileLayout(plugin);
                         }}
                     />
                 </div>
@@ -1421,6 +1457,8 @@
                         on:input={() => {
                             updateBorder();
                             saveLayout(plugin);
+                            saveSidebarLayout(plugin);
+                            saveMobileLayout(plugin);
                         }}
                     />
                     <span>{borderWidth}px</span>

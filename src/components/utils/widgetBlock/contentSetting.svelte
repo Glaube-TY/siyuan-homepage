@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
+    import { getDatabase } from "./widget/databaseChart/getDatabase";
+    import { getImage } from "@/components/tools/getImage";
     import "./contentSettingStyle/contentSetting.scss";
 
     // 弹窗接收的 props
@@ -55,6 +57,9 @@
     let quickNotesTitle: string = "📝快速笔记";
     let quickNotesSort: string = "DOC_ASC";
 
+    // 便签相关变量
+    let stikynotStyle: string = "default";
+
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
     let countdownStyle = "list";
@@ -77,7 +82,7 @@
     ];
 
     // 每日一言相关变量
-    let dailyQuoteMode: string = "remote";
+    let dailyQuoteMode: string = "custom";
     let customDailyQuoteContent: string = "";
     let dailyQuoteSource: string = "classic";
     let dailyQuoteFontSize: number = 1;
@@ -86,6 +91,9 @@
         "https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648";
     let dailyQuoteLocalBg = "";
     let dailyQuoteBgInput: HTMLInputElement | null = null;
+
+    // 新闻资讯相关变量
+    let NewsType: string = "daily-news-bulletin";
 
     // 时间范围相关
     let timeRangeType: "past" | "custom" = "past";
@@ -149,6 +157,27 @@
 
     // 可视化图表相关
     let visualChartType: string = "progressBar";
+
+    // 数据库图表相关
+    let databaseChartID: string = "";
+    let databaseChartInfo: any = null;
+    let confirmDatabaseChartID: Boolean = false;
+    let databaseChartType: string = "line";
+    let databaseChartTitle: string = "";
+    let databaseChartLineType: string = "XY";
+    let databaseChartLineXAxisSource: string = "";
+    let databaseChartLineXAxisTitle: string = "";
+    let databaseChartLineYAxisSource: string[] = [];
+    let databaseChartLineYAxisTitle: string = "";
+    let databaseChartLineCountColumn: string = "";
+    let databaseChartLineCountXAxisTitle: string = "";
+    let databaseChartLineCountYAxisTitle: string = "";
+    let databaseChartLineSmooth: boolean = false;
+    let databaseChartLineCountSort: string = "none";
+    let databaseChartLineMarkPoint: string = "circle";
+    let databaseChartLineMarkPointSize: number = 8;
+    let databaseChartLineStyle: string = "solid";
+    let databaseChartLineWidth: number = 2;
 
     // 音乐播放器相关
     let musicFolderPath = "";
@@ -266,6 +295,34 @@
         eventList = eventList.filter((_, i) => i !== index);
     }
 
+    // 预览图片变量
+    // 时间组件预览图
+    let morningBgImageData: string = "";
+    let afternoonBgImageData: string = "";
+    let nightBgImageData: string = "";
+    async function getTimeBGImage() {
+        if (morningImageType === "remote") {
+            morningBgImageData = await getImage(morningBgUrl);
+        }
+        if (afternoonImageType === "remote") {
+            afternoonBgImageData = await getImage(afternoonBgUrl);
+        }
+        if (nightImageType === "remote") {
+            nightBgImageData = await getImage(nightBgUrl);
+        }
+    }
+    // 番茄钟组件预览图
+    let focusBgImageData: string = "";
+    let breakBgImageData: string = "";
+    async function getFocusBreakImage() {
+        if (focusImageType === "remote") {
+            focusBgImageData = await getImage(focusBgImage);
+        }
+        if (breakImageType === "remote") {
+            breakBgImageData = await getImage(breakBgImage);
+        }
+    }
+
     onMount(async () => {
         const settingData = await plugin.loadData(
             `widget-${currentBlockId}.json`,
@@ -363,6 +420,8 @@
                 afternoonBgUrl = parsedData.data?.afternoonBgUrl || "";
                 nightBgUrl = parsedData.data?.nightBgUrl || "";
 
+                await getTimeBGImage();
+
                 // 初始化 Base64 数据
                 morningBgImage = parsedData.data?.morningBgImage || "";
                 afternoonBgImage = parsedData.data?.afternoonBgImage || "";
@@ -382,6 +441,8 @@
 
                 focusBgImage = parsedData.data?.focusBgImage || focusBgImage;
                 breakBgImage = parsedData.data?.breakBgImage || breakBgImage;
+
+                await getFocusBreakImage();
 
                 focusLocalImage =
                     parsedData.data?.focusLocalImage || focusLocalImage;
@@ -427,6 +488,71 @@
             } else if (parsedData.type === "musicPlayer") {
                 musicFolderPath = parsedData.data?.musicFolderPath || "";
                 autoPlay = parsedData.data?.autoPlay || false;
+            } else if (parsedData.type === "stikynot") {
+                stikynotStyle = parsedData.data?.stikynotStyle || "";
+            } else if (parsedData.type === "News") {
+                NewsType = parsedData.data?.NewsType || NewsType;
+            } else if (parsedData.type === "databaseChart") {
+                databaseChartID =
+                    parsedData.data?.databaseChartID || databaseChartID;
+                if (databaseChartID) {
+                    databaseChartInfo = await getDatabase(databaseChartID);
+                    if (databaseChartInfo.length === 0) {
+                        showMessage("查询数据库失败");
+                    } else {
+                        confirmDatabaseChartID = true;
+                    }
+                }
+                databaseChartType =
+                    parsedData.data?.databaseChartType || databaseChartType;
+                databaseChartTitle =
+                    parsedData.data?.databaseChartTitle || databaseChartTitle;
+
+                databaseChartLineType =
+                    parsedData.data?.databaseChartLineType ||
+                    databaseChartLineType;
+
+                databaseChartLineXAxisSource =
+                    parsedData.data?.databaseChartLineXAxisSource ||
+                    databaseChartLineXAxisSource;
+                databaseChartLineXAxisTitle =
+                    parsedData.data?.databaseChartLineXAxisTitle ||
+                    databaseChartLineXAxisTitle;
+                databaseChartLineYAxisSource =
+                    parsedData.data?.databaseChartLineYAxisSource ||
+                    databaseChartLineYAxisSource;
+                databaseChartLineYAxisTitle =
+                    parsedData.data?.databaseChartLineYAxisTitle ||
+                    databaseChartLineYAxisTitle;
+
+                databaseChartLineCountColumn =
+                    parsedData.data?.databaseChartLineCountColumn ||
+                    databaseChartLineCountColumn;
+                databaseChartLineCountXAxisTitle =
+                    parsedData.data?.databaseChartLineCountXAxisTitle ||
+                    databaseChartLineCountXAxisTitle;
+                databaseChartLineCountYAxisTitle =
+                    parsedData.data?.databaseChartLineCountYAxisTitle ||
+                    databaseChartLineCountYAxisTitle;
+
+                databaseChartLineSmooth =
+                    parsedData.data?.databaseChartLineSmooth ||
+                    databaseChartLineSmooth;
+                databaseChartLineCountSort =
+                    parsedData.data?.databaseChartLineCountSort ||
+                    databaseChartLineCountSort;
+                databaseChartLineMarkPoint =
+                    parsedData.data?.databaseChartLineMarkPoint ||
+                    databaseChartLineMarkPoint;
+                databaseChartLineMarkPointSize =
+                    parsedData.data?.databaseChartLineMarkPointSize ||
+                    databaseChartLineMarkPointSize;
+                databaseChartLineWidth =
+                    parsedData.data?.databaseChartLineWidth ||
+                    databaseChartLineWidth;
+                databaseChartLineStyle =
+                    parsedData.data?.databaseChartLineStyle ||
+                    databaseChartLineStyle;
             }
         }
 
@@ -442,16 +568,16 @@
             class:active={activeTab === "note"}>笔记数据</button
         >
         <button
-            on:click={() => (activeTab = "info")}
-            class:active={activeTab === "info"}>信息资讯</button
-        >
-        <button
             on:click={() => (activeTab = "visualization")}
             class:active={activeTab === "visualization"}>可视化</button
         >
         <button
             on:click={() => (activeTab = "tool")}
             class:active={activeTab === "tool"}>日常工具</button
+        >
+        <button
+            on:click={() => (activeTab = "info")}
+            class:active={activeTab === "info"}>信息资讯</button
         >
         <button
             on:click={() => (activeTab = "custom")}
@@ -472,6 +598,7 @@
                     <option value="latest-docs">最近文档</option>
                     <option value="recent-journals">最近日记</option>
                     <option value="quick-notes">快速笔记</option>
+                    <option value="stikynot">便签👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -804,6 +931,40 @@
                             </select>
                         </label>
                     </div>
+                {:else if selectedContentType === "stikynot"}
+                    {#if advancedEnabled}
+                        <div class="content-panel stikynot">
+                            <div class="form-group stikynot-background">
+                                <label for="stikynot-style">
+                                    便签样式：
+                                    <select
+                                        name="stikynot-style"
+                                        id="stikynot-style"
+                                        bind:value={stikynotStyle}
+                                    >
+                                        <option value="default">默认</option>
+                                        <option value="kraftPaper"
+                                            >牛皮纸</option
+                                        >
+                                        <option value="wood">木纹</option>
+                                        <option value="marble">大理石</option>
+                                        <option value="Ink">水墨</option>
+                                        <option value="beach">海滩</option>
+                                        <option value="BlueSky">蓝天</option>
+                                        <option value="sunsetHeart">夕阳</option
+                                        >
+                                        <option value="Stars">星空</option>
+                                        <option value="waterDrop">雨窗</option>
+                                        <option value="PinkPorcelain"
+                                            >粉瓷</option
+                                        >
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                    {:else}
+                        <h3>👑会员专属权益👑</h3>
+                    {/if}
                 {/if}
             </div>
         {:else if activeTab === "info"}
@@ -813,6 +974,7 @@
                 <select id="content-type" bind:value={selectedContentType}>
                     <option value="HOT">热搜</option>
                     <option value="dailyQuote">每日一言</option>
+                    <option value="News">新闻资讯👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -838,10 +1000,9 @@
                                 >每日一言模式：<select
                                     bind:value={dailyQuoteMode}
                                 >
-                                    <option value="remote">远程接口</option>
-                                    <option value="custom">自定义文字</option
-                                    ></select
-                                ></label
+                                    <option value="custom">自定义文字</option>
+                                    <option value="remote">远程接口👑</option>
+                                </select></label
                             >
                             <label for=""
                                 >字体大小：<input
@@ -851,24 +1012,32 @@
                             >
                         </div>
                         {#if dailyQuoteMode === "remote"}
-                            <label for=""
-                                >接口来源：<select
-                                    bind:value={dailyQuoteSource}
+                            {#if advancedEnabled}
+                                <label for=""
+                                    >接口来源：<select
+                                        bind:value={dailyQuoteSource}
+                                    >
+                                        <option value="classic">今日语录</option
+                                        >
+                                        <option value="celebrity"
+                                            >名人名言</option
+                                        >
+                                        <option value="emotion">情感语录</option
+                                        ><option value="gaoxiao"
+                                            >搞笑语录</option
+                                        ><option value="pyq">朋友圈语录</option
+                                        ><option value="straybirdsZH"
+                                            >飞鸟集（中文版）</option
+                                        ><option value="straybirdsEN"
+                                            >飞鸟集（英文版）</option
+                                        ><option value="lovegarden"
+                                            >爱情公寓语录</option
+                                        ></select
+                                    ></label
                                 >
-                                    <option value="classic">今日语录</option>
-                                    <option value="celebrity">名人名言</option>
-                                    <option value="emotion">情感语录</option
-                                    ><option value="gaoxiao">搞笑语录</option
-                                    ><option value="pyq">朋友圈语录</option
-                                    ><option value="straybirdsZH"
-                                        >飞鸟集（中文版）</option
-                                    ><option value="straybirdsEN"
-                                        >飞鸟集（英文版）</option
-                                    ><option value="lovegarden"
-                                        >爱情公寓语录</option
-                                    ></select
-                                ></label
-                            >
+                            {:else}
+                                <h3>👑会员专属权益👑</h3>
+                            {/if}
                         {:else}
                             <label for=""
                                 >自定义内容：（每句话一行）
@@ -938,6 +1107,40 @@
                             </div>
                         </div>
                     </div>
+                {:else if selectedContentType === "News"}
+                    {#if advancedEnabled}
+                        <div class="content-panel News">
+                            <div class="form-group News-type">
+                                <label for="News-type">
+                                    新闻类型：
+                                    <select
+                                        name="News-type"
+                                        id="News-type"
+                                        bind:value={NewsType}
+                                    >
+                                        <option value="daily-news-bulletin"
+                                            >每日新闻快报</option
+                                        >
+                                        <option value="daily-news-bulletin-v2"
+                                            >每日新闻快报v2</option
+                                        >
+                                        <option value="daily-news-bulletin-v3"
+                                            >每日新闻快报v3</option
+                                        >
+                                        <option
+                                            value="daily-news-bulletin-weather"
+                                            >每日新闻快报+当地天气</option
+                                        >
+                                        <option value="daily-news-zhihu"
+                                            >知乎日报</option
+                                        >
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                    {:else}
+                        <h3>👑会员专属权益👑</h3>
+                    {/if}
                 {/if}
             </div>
         {:else if activeTab === "visualization"}
@@ -948,6 +1151,7 @@
                     <option value="heatmap">热力图</option>
                     <option value="sql">SQL 查询</option>
                     <option value="visualChart">可视化图表</option>
+                    <option value="databaseChart">数据库图表👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1059,6 +1263,283 @@
                             >
                         </div>
                     </div>
+                {:else if selectedContentType === "databaseChart"}
+                    {#if advancedEnabled}
+                        <div class="content-panel databaseChart">
+                            <div class="database-chart-ID">
+                                <label for="">数据库ID： </label>
+                                <input
+                                    type="text"
+                                    placeholder="请输入数据库ID"
+                                    bind:value={databaseChartID}
+                                    on:change={async () => {
+                                        databaseChartInfo =
+                                            await getDatabase(databaseChartID);
+
+                                        if (databaseChartInfo.length === 0) {
+                                            showMessage("❌查询数据库失败");
+                                        } else {
+                                            confirmDatabaseChartID = true;
+                                            console.log(databaseChartInfo);
+                                        }
+                                    }}
+                                />
+                                {#if confirmDatabaseChartID}
+                                    <span>✅数据库验证成功</span>
+                                {:else}
+                                    <span>❌数据库验证失败</span>
+                                {/if}
+                            </div>
+                            <div class="database-chart-type">
+                                <label for=""
+                                    >图表类型：<select
+                                        bind:value={databaseChartType}
+                                    >
+                                        <option value="line">折线图</option>
+                                        <option value="bar">柱状图</option>
+                                        <option value="pie">饼图</option>
+                                        <option value="point">散点图</option>
+                                    </select></label
+                                >
+                                <label for="">图表标题： </label>
+                                <input
+                                    type="text"
+                                    placeholder="请输入图表标题"
+                                    bind:value={databaseChartTitle}
+                                />
+                            </div>
+                            {#if databaseChartType === "line"}
+                                <div class="database-chart-line">
+                                    <label for=""
+                                        >数据类型：
+                                        <select
+                                            bind:value={databaseChartLineType}
+                                        >
+                                            <option value="XY">XY轴</option>
+                                            <option value="count">数量</option>
+                                        </select>
+                                    </label>
+                                    {#if databaseChartLineType === "XY"}
+                                        <div class="database-chart-line-XY">
+                                            <div class="database-chart-x-axis">
+                                                <label for="">
+                                                    X轴来源：
+                                                    <select
+                                                        bind:value={
+                                                            databaseChartLineXAxisSource
+                                                        }
+                                                    >
+                                                        {#each databaseChartInfo as column}
+                                                            {#if column.type === "block" || column.type === "text" || column.type === "number" || column.type === "date" || column.type === "select" || column.type === "url" || column.type === "email" || column.type === "phone"}
+                                                                <option
+                                                                    value={column.id}
+                                                                >
+                                                                    {column.name}
+                                                                    ({column.type})
+                                                                </option>
+                                                            {/if}
+                                                        {/each}
+                                                    </select>
+                                                </label>
+                                                <label for="">X轴标题：</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="请输入X轴标题"
+                                                    bind:value={
+                                                        databaseChartLineXAxisTitle
+                                                    }
+                                                />
+                                            </div>
+                                            <div class="database-chart-y-axis">
+                                                <label for="">
+                                                    Y轴来源（多选）：
+                                                    <div
+                                                        class="multi-select-wrapper"
+                                                    >
+                                                        <select
+                                                            multiple
+                                                            bind:value={
+                                                                databaseChartLineYAxisSource
+                                                            }
+                                                            size="2.5"
+                                                            class="collapsed-multiselect"
+                                                        >
+                                                            {#each databaseChartInfo as column}
+                                                                {#if column.type === "number"}
+                                                                    <option
+                                                                        value={column.id}
+                                                                    >
+                                                                        {column.name}
+                                                                        ({column.type})
+                                                                    </option>
+                                                                {/if}
+                                                            {/each}
+                                                        </select>
+                                                    </div>
+                                                </label>
+                                                <label for="">Y轴标题：</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="请输入Y轴标题"
+                                                    bind:value={
+                                                        databaseChartLineYAxisTitle
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    {:else if databaseChartLineType === "count"}
+                                        <div class="database-chart-count">
+                                            <label for=""
+                                                >统计列：
+                                                <select
+                                                    bind:value={
+                                                        databaseChartLineCountColumn
+                                                    }
+                                                >
+                                                    {#each databaseChartInfo as column}
+                                                        {#if column.type === "block" || column.type === "text" || column.type === "number" || column.type === "date" || column.type === "select" || column.type === "url" || column.type === "email" || column.type === "phone"}
+                                                            <option
+                                                                value={column.id}
+                                                            >
+                                                                {column.name}
+                                                                ({column.type})
+                                                            </option>
+                                                        {/if}
+                                                    {/each}
+                                                </select>
+                                            </label>
+                                            <div
+                                                class="database-chart-count-axis"
+                                            >
+                                                <label for="">X轴标题： </label>
+                                                <input
+                                                    type="text"
+                                                    bind:value={
+                                                        databaseChartLineCountXAxisTitle
+                                                    }
+                                                />
+                                                <label for="">Y轴标题： </label>
+                                                <input
+                                                    type="text"
+                                                    bind:value={
+                                                        databaseChartLineCountYAxisTitle
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    {/if}
+                                    <div class="line-chart-style">
+                                        <div class="line-chart-style-item">
+                                            <label for=""
+                                                >平滑曲线：<input
+                                                    type="checkbox"
+                                                    bind:checked={
+                                                        databaseChartLineSmooth
+                                                    }
+                                                /></label
+                                            >
+                                            <label for=""
+                                                >线条宽度：
+                                                <input
+                                                    type="number"
+                                                    bind:value={
+                                                        databaseChartLineWidth
+                                                    }
+                                                />
+                                            </label>
+                                            <label for=""
+                                                >线条样式：
+                                                <select
+                                                    bind:value={
+                                                        databaseChartLineStyle
+                                                    }
+                                                >
+                                                    <option value="solid"
+                                                        >实线</option
+                                                    >
+                                                    <option value="dashed"
+                                                        >虚线</option
+                                                    >
+                                                    <option value="dotted"
+                                                        >点线</option
+                                                    >
+                                                </select>
+                                            </label>
+                                        </div>
+
+                                        <div class="line-chart-style-item">
+                                            <label for=""
+                                                >标记点：
+                                                <select
+                                                    bind:value={
+                                                        databaseChartLineMarkPoint
+                                                    }
+                                                >
+                                                    <option value="circle"
+                                                        >圆点</option
+                                                    >
+                                                    <option value="rect"
+                                                        >矩形</option
+                                                    >
+                                                    <option value="roundRect"
+                                                        >圆角矩形</option
+                                                    >
+                                                    <option value="triangle"
+                                                        >三角形</option
+                                                    >
+                                                    <option value="diamond"
+                                                        >菱形</option
+                                                    >
+                                                    <option value="pin"
+                                                        >大头针</option
+                                                    >
+                                                    <option value="arrow"
+                                                        >箭头</option
+                                                    >
+                                                    <option value="none"
+                                                        >无</option
+                                                    >
+                                                </select>
+                                            </label>
+                                            <label for=""
+                                                >标记点大小：
+                                                <input
+                                                    type="number"
+                                                    bind:value={
+                                                        databaseChartLineMarkPointSize
+                                                    }
+                                                />
+                                            </label>
+                                        </div>
+                                        <label for=""
+                                            >排序方式：
+                                            <select
+                                                bind:value={
+                                                    databaseChartLineCountSort
+                                                }
+                                            >
+                                                <option value="none">无</option>
+                                                <option value="asc">升序</option
+                                                >
+                                                <option value="desc"
+                                                    >降序</option
+                                                >
+                                            </select>
+                                        </label>
+                                    </div>
+                                </div>
+                            {:else if databaseChartType === "bar"}
+                                <div>
+                                    开发中……
+                                </div>{:else if databaseChartType === "pie"}
+                                <div>
+                                    开发中……
+                                </div>{:else if databaseChartType === "point"}
+                                <div>开发中……</div>{/if}
+                        </div>
+                    {:else}
+                        <h3>👑会员专属权益👑</h3>
+                    {/if}
                 {/if}
             </div>
         {:else if activeTab === "tool"}
@@ -1070,9 +1551,7 @@
                     <option value="countdown">倒数日</option>
                     <option value="weather">今日天气</option>
                     <option value="timedate">时钟</option>
-                    {#if advancedEnabled}
-                        <option value="musicPlayer">音乐播放器👑</option>
-                    {/if}
+                    <option value="musicPlayer">音乐播放器👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1320,6 +1799,9 @@
                                             <input
                                                 type="text"
                                                 bind:value={morningBgUrl}
+                                                on:change={async () => {
+                                                    await getTimeBGImage();
+                                                }}
                                                 placeholder="请输入早晨背景图URL"
                                             />
                                         {:else}
@@ -1345,7 +1827,7 @@
                                     <div class="image-preview">
                                         {#if morningImageType === "remote" && morningBgUrl}
                                             <img
-                                                src={morningBgUrl}
+                                                src={morningBgImageData}
                                                 alt="早晨预览"
                                             />
                                         {:else if morningImageType === "local" && morningBgImage}
@@ -1384,6 +1866,9 @@
                                             <input
                                                 type="text"
                                                 bind:value={afternoonBgUrl}
+                                                on:change={async () => {
+                                                    await getTimeBGImage();
+                                                }}
                                                 placeholder="请输入中午背景图URL"
                                             />
                                         {:else}
@@ -1409,7 +1894,7 @@
                                     <div class="image-preview">
                                         {#if afternoonImageType === "remote" && afternoonBgUrl}
                                             <img
-                                                src={afternoonBgUrl}
+                                                src={afternoonBgImageData}
                                                 alt="中午预览"
                                             />
                                         {:else if afternoonImageType === "local" && afternoonBgImage}
@@ -1448,6 +1933,9 @@
                                             <input
                                                 type="text"
                                                 bind:value={nightBgUrl}
+                                                on:change={async () => {
+                                                    await getTimeBGImage();
+                                                }}
                                                 placeholder="请输入晚上背景图URL"
                                             />
                                         {:else}
@@ -1473,7 +1961,7 @@
                                     <div class="image-preview">
                                         {#if nightImageType === "remote" && nightBgUrl}
                                             <img
-                                                src={nightBgUrl}
+                                                src={nightBgImageData}
                                                 alt="晚上预览"
                                             />
                                         {:else if nightImageType === "local" && nightBgImage}
@@ -1532,6 +2020,9 @@
                                             <input
                                                 type="text"
                                                 bind:value={focusBgImage}
+                                                on:change={async () => {
+                                                    await getFocusBreakImage();
+                                                }}
                                                 placeholder="请输入专注背景图URL"
                                             />
                                         {:else}
@@ -1547,7 +2038,7 @@
                                     <div class="image-preview">
                                         {#if focusImageType === "remote" && focusBgImage}
                                             <img
-                                                src={focusBgImage}
+                                                src={focusBgImageData}
                                                 alt="专注背景预览"
                                             />
                                         {:else if focusImageType === "local" && focusLocalImage}
@@ -1586,6 +2077,9 @@
                                             <input
                                                 type="text"
                                                 bind:value={breakBgImage}
+                                                on:change={async () => {
+                                                    await getFocusBreakImage();
+                                                }}
                                                 placeholder="请输入休息背景图URL"
                                             />
                                         {:else}
@@ -1601,7 +2095,7 @@
                                     <div class="image-preview">
                                         {#if breakImageType === "remote" && breakBgImage}
                                             <img
-                                                src={breakBgImage}
+                                                src={breakBgImageData}
                                                 alt="休息背景预览"
                                             />
                                         {:else if breakImageType === "local" && breakLocalImage}
@@ -1616,24 +2110,31 @@
                         </div>
                     </div>
                 {:else if selectedContentType === "musicPlayer"}
-                    <div class="content-panel musicPlayer">
-                        <label class="folder-select-label">
-                            <span>音乐路径：</span>
-                            <input
-                                type="text"
-                                bind:value={musicFolderPath}
-                                placeholder="请选择音乐文件夹"
-                            />
-                            <button
-                                title="选择音乐文件夹"
-                                on:click={selectMusicFolder}>📁</button
-                            >
-                        </label>
-                        <label>
-                            <input type="checkbox" bind:checked={autoPlay} />
-                            自动播放
-                        </label>
-                    </div>
+                    {#if advancedEnabled}
+                        <div class="content-panel musicPlayer">
+                            <label class="folder-select-label">
+                                <span>音乐路径：</span>
+                                <input
+                                    type="text"
+                                    bind:value={musicFolderPath}
+                                    placeholder="请选择音乐文件夹"
+                                />
+                                <button
+                                    title="选择音乐文件夹"
+                                    on:click={selectMusicFolder}>📁</button
+                                >
+                            </label>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    bind:checked={autoPlay}
+                                />
+                                自动播放
+                            </label>
+                        </div>
+                    {:else}
+                        <h3>👑会员专属权益👑</h3>
+                    {/if}
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -1932,6 +2433,51 @@
                         type: "musicPlayer",
                         blockId: currentBlockId,
                         data: { musicFolderPath, autoPlay },
+                    };
+                } else if (selectedContentType === "stikynot") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "stikynot",
+                        blockId: currentBlockId,
+                        data: { stikynotStyle },
+                    };
+                } else if (selectedContentType === "News") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "News",
+                        blockId: currentBlockId,
+                        data: { NewsType },
+                    };
+                } else if (selectedContentType === "databaseChart") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "databaseChart",
+                        blockId: currentBlockId,
+                        data: {
+                            databaseChartID,
+                            databaseChartType,
+                            databaseChartTitle,
+                            databaseChartLineType,
+                            databaseChartLineXAxisSource,
+                            databaseChartLineXAxisTitle,
+                            databaseChartLineYAxisSource: Array.isArray(
+                                databaseChartLineYAxisSource,
+                            )
+                                ? databaseChartLineYAxisSource
+                                : databaseChartLineYAxisSource
+                                  ? [databaseChartLineYAxisSource]
+                                  : [],
+                            databaseChartLineYAxisTitle,
+                            databaseChartLineCountColumn,
+                            databaseChartLineCountXAxisTitle,
+                            databaseChartLineCountYAxisTitle,
+                            databaseChartLineSmooth,
+                            databaseChartLineWidth,
+                            databaseChartLineStyle,
+                            databaseChartLineCountSort,
+                            databaseChartLineMarkPoint,
+                            databaseChartLineMarkPointSize,
+                        },
                     };
                 }
 

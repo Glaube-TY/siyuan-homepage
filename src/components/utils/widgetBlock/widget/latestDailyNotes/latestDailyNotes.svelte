@@ -1,11 +1,11 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { openTab } from "siyuan";
     import * as echarts from "echarts";
     import {
         getLatestDailyNotes,
         type DailyNoteInfo,
     } from "./latestDailyNotes";
+    import { openDocs } from "@/components/tools/openDocs";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -292,12 +292,7 @@
                     const date = params.name;
                     const note = dailyNotes.find((n) => n.content === date);
                     if (note) {
-                        openTab({
-                            app: plugin.app,
-                            doc: {
-                                id: note.id,
-                            },
-                        });
+                        openDocs(plugin, note.id);
                     }
                 }
             });
@@ -319,17 +314,20 @@
             {#if displayedDocs.length > 0}
                 {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                     <li class="document-item">
-                        <button
+                        <div
                             class="document-item-content"
-                            on:click={() =>
-                                openTab({
-                                    app: plugin.app,
-                                    doc: { id: doc.id },
-                                })}
+                            on:click={() => openDocs(plugin, doc.id)}
+                            on:keydown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    openDocs(plugin, doc.id);
+                                }
+                            }}
+                            role="button"
+                            tabindex="0"
                             aria-label="打开最近日记：{doc.content}"
                         >
                             📅 {doc.content || "(无标题)"}
-                        </button>
+                        </div>
                     </li>
                 {/each}
             {:else}

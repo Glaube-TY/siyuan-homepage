@@ -9,6 +9,7 @@
 @use "./_latestDailyNotes";
 @use "./_dailyQuote";
 @use "./_musicPlayer";
+@use "./_databaseChart";
 
 // 设置窗口整体样式
 .settings-container {
@@ -18,8 +19,15 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
     border: 1px solid var(--b3-border-color);
     width: 100%;
-    height: auto;
+    height: fit-content;
+    max-height: 80vh;
     font-family: "Segoe UI", system-ui, sans-serif;
+    overflow-y: auto;
+
+    .tab-content {
+        max-height: 60vh;
+        overflow-y: auto;
+    }
 
     .content-type-select {
         margin-bottom: 1.5rem;
@@ -76,7 +84,7 @@
 
             &:checked {
                 background: var(--b3-theme-primary-light);
-                color: var(--b3-theme-primary);
+                color: white;
             }
 
             &:hover {

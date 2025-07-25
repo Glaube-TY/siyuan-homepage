@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { getImage } from "@/components/tools/getImage";
 
     export let contentTypeJson: string = "{}";
 
@@ -79,8 +80,12 @@
         return `${year}年${month}月${day}日`;
     }
 
-    onMount(() => {
+    onMount(async () => {
         initCountdownData();
+
+        if (countdownFullBgSelect === "remote") {
+            countdownFullBg = await getImage(countdownFullBg);
+        }
     });
 </script>
 
@@ -265,7 +270,11 @@
         padding: 4rem 2rem;
         box-sizing: border-box;
         border-radius: 12px;
-        background-color: color-mix(in srgb, var(--b3-theme-surface) 50%, transparent);
+        background-color: color-mix(
+            in srgb,
+            var(--b3-theme-surface) 50%,
+            transparent
+        );
         margin: 0 1rem;
         display: flex;
         flex-direction: column;
@@ -278,7 +287,11 @@
         top: 50%;
         transform: translateY(-50%);
         z-index: 10;
-        background-color: color-mix(in srgb, var(--b3-theme-primary) 50%, transparent);
+        background-color: color-mix(
+            in srgb,
+            var(--b3-theme-primary) 50%,
+            transparent
+        );
         border: none;
         color: var(--b3-theme-on-primary);
         font-size: 20px;

@@ -4,6 +4,7 @@ import WidgetBlockContent from "./contentSetting.svelte";
 import { setBlockSize } from "./utils/block-size-handler";
 import { saveLayout } from "./utils/layout-handler";
 import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
+import { saveLayout as saveMobileLayout } from "@/components/utils/mobileHomepage/mobileHomepage_layout";
 import latestDocs from "./widget/latestDocs/latestDocs.svelte";
 import latestDailyNotes from "./widget/latestDailyNotes/latestDailyNotes.svelte";
 import TaskMan from "./widget/tasks/recentTasks.svelte";
@@ -23,6 +24,9 @@ import quickNotes from "./widget/quickNotes/quickNotes.svelte";
 import dailyQuote from "./widget/dailyQuote/dailyQuote.svelte";
 import visualChart from "./widget/visualChart/visualChart.svelte";
 import musicPlayer from "./widget/musicPlayer/musicPlayer.svelte";
+import Stikynot from "./widget/stikynot/stikynot.svelte";
+import News from "./widget/News/News.svelte";
+import databaseChart from "./widget/databaseChart/databaseChart.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -89,6 +93,7 @@ export class WidgetBlock {
                                     dialogRef.close();
                                     saveLayout(this.plugin);
                                     saveSidebarLayout(this.plugin);
+                                    saveMobileLayout(this.plugin);
                                     this.plugin.removeData(`widget-${this.id}.json`);
                                 },
                                 onSetSize: (size: number) => {
@@ -314,6 +319,30 @@ export class WidgetBlock {
             });
         } else if (contentData.type === "musicPlayer") {
             new musicPlayer({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "stikynot") {
+            new Stikynot({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "News") {
+            new News({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "databaseChart") {
+            new databaseChart({
                 target: this.element,
                 props: {
                     plugin: this.plugin,

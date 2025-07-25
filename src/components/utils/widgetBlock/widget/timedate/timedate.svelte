@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { getImage } from "@/components/tools/getImage";
 
     export let contentTypeJson: string = "{}";
 
@@ -47,12 +48,20 @@
     // 更新时间段（早/中/晚）
     const updateTimeOfDay = () => {
         const hour = currentTime.getHours();
+        let newTimeOfDay = "afternoon";
+
         if (hour >= 6 && hour < 12) {
-            timeOfDay = "morning";
+            newTimeOfDay = "morning";
         } else if (hour >= 12 && hour < 18) {
-            timeOfDay = "afternoon";
+            newTimeOfDay = "afternoon";
         } else {
-            timeOfDay = "night";
+            newTimeOfDay = "night";
+        }
+
+        // 如果时间段改变，加载相应图片
+        if (newTimeOfDay !== timeOfDay) {
+            timeOfDay = newTimeOfDay;
+            loadImageForTimeOfDay(timeOfDay);
         }
     };
 
@@ -162,23 +171,6 @@
     let nightBgImage: string = "";
 
     onMount(() => {
-        updateTime();
-        updateDateAndLunar();
-
-        const intervalId = setInterval(updateTime, 50);
-        const timeUntilMidnight = getMidnightTimestamp() - Date.now();
-        const tomorrowUpdateTimeout = setTimeout(() => {
-            updateDateAndLunar();
-            setInterval(updateDateAndLunar, 24 * 60 * 60 * 1000);
-        }, timeUntilMidnight);
-
-        return () => {
-            clearInterval(intervalId);
-            clearTimeout(tomorrowUpdateTimeout);
-        };
-    });
-
-    $: {
         if (contentTypeJson) {
             try {
                 const config = JSON.parse(contentTypeJson);
@@ -203,15 +195,54 @@
                         config.data.afternoonBgUrl || afternoonBgUrl;
                     nightBgUrl = config.data.nightBgUrl || nightBgUrl;
 
-                    morningBgImage = config.data.morningBgImage || "";
-                    afternoonBgImage = config.data.afternoonBgImage || "";
-                    nightBgImage = config.data.nightBgImage || "";
+                    // 保留本地图片设置
+                    morningBgImage =
+                        config.data.morningBgImage || morningBgImage;
+                    afternoonBgImage =
+                        config.data.afternoonBgImage || afternoonBgImage;
+                    nightBgImage = config.data.nightBgImage || nightBgImage;
+
                     timedateFontSize =
                         config.data.timedateFontSize || timedateFontSize;
                 }
             } catch (e) {
                 console.warn("无法解析 contentTypeJson", e);
             }
+        }
+        updateTime();
+        updateDateAndLunar();
+
+        const intervalId = setInterval(updateTime, 50);
+        const timeUntilMidnight = getMidnightTimestamp() - Date.now();
+        const tomorrowUpdateTimeout = setTimeout(() => {
+            updateDateAndLunar();
+            setInterval(updateDateAndLunar, 24 * 60 * 60 * 1000);
+        }, timeUntilMidnight);
+
+        return () => {
+            clearInterval(intervalId);
+            clearTimeout(tomorrowUpdateTimeout);
+        };
+    });
+
+    async function loadImageForTimeOfDay(timeOfDay: string) {
+        // 根据当前时间段加载相应的图片
+        switch (timeOfDay) {
+            case "morning":
+                if (morningImageType === "remote") {
+                    morningBgImage = await getImage(morningBgUrl);
+                }
+                break;
+            case "afternoon":
+                if (afternoonImageType === "remote") {
+                    afternoonBgImage = await getImage(afternoonBgUrl);
+                }
+                break;
+            case "night":
+                if (nightImageType === "remote") {
+                    nightBgImage = await getImage(nightBgUrl);
+                }
+                break;
         }
     }
 </script>
@@ -333,7 +364,11 @@
     }
 
     .text-overlay {
-        background-color: color-mix(in srgb, var(--b3-theme-surface) 50%, transparent);
+        background-color: color-mix(
+            in srgb,
+            var(--b3-theme-surface) 50%,
+            transparent
+        );
         padding: 0.4rem 0.8rem;
         border-radius: 8px;
         display: inline-block;

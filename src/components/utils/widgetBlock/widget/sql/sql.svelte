@@ -1,7 +1,7 @@
 <script lang="ts">
     import { sql } from "@/api";
     import { onMount } from "svelte";
-    import { openTab } from "siyuan";
+    import { openDocs } from "@/components/tools/openDocs";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -136,10 +136,7 @@
     }
 
     function openDocument(id: string) {
-        openTab({
-            app: plugin.app,
-            doc: { id },
-        });
+        openDocs(plugin, id);
     }
 
     function getSortedColumns(item: Record<string, any>) {

@@ -1,0 +1,104 @@
+.databaseChart {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 60vh;
+    overflow-y: auto;
+
+    .database-chart-ID {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+
+        input {
+            flex: 1;
+            min-width: 0;
+        }
+    }
+
+    .database-chart-type {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+
+        input {
+            flex: 1;
+            min-width: 0;
+        }
+    }
+
+    .database-chart-line {
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+        gap: 0.5rem;
+
+        .database-chart-line-XY {
+            display: flex;
+            align-items: center;
+            flex-direction: column;
+            gap: 0.5rem;
+
+            .database-chart-x-axis,
+            .database-chart-y-axis {
+                display: flex;
+                align-items: center;
+                justify-content: flex-start;
+
+                input {
+                    flex: 1;
+                    min-width: 0;
+                }
+            }
+        }
+
+        .database-chart-count {
+            display: flex;
+            align-items: center;
+            flex-direction: column;
+            gap: 0.5rem;
+
+            .database-chart-count-axis {
+                display: flex;
+                align-items: center;
+                justify-content: flex-start;
+
+                input {
+                    flex: 1;
+                    min-width: 0;
+                }
+            }
+        }
+
+        .line-chart-style {
+            display: flex;
+            align-items: center;
+            flex-direction: column;
+            gap: 0.5rem;
+
+            .line-chart-style-item {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+        }
+    }
+
+    .multi-select-wrapper {
+        position: relative;
+        display: inline-block;
+        width: fit-content;
+
+        .collapsed-multiselect {
+            width: fit-content;
+            height: fit-content;
+            appearance: none;
+            cursor: pointer;
+            background-image: none;
+
+            &::-webkit-scrollbar {
+                display: none;
+            }
+        }
+    }
+}

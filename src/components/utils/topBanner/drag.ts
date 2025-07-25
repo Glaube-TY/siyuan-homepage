@@ -1,7 +1,14 @@
 export type DragPositionCallback = (position: { scrollTop: number }) => Promise<void>;
 export type LoadPositionCallback = () => Promise<{ scrollTop: number } | null>;
 
-export function initDrag(
+// 横幅拖动逻辑
+export function handleLoad(plugin: any, bannerImage: HTMLImageElement | null) {
+    if (bannerImage && bannerImage.parentElement) {
+        initDrag(bannerImage, plugin);
+    }
+}
+
+function initDrag(
     imageElement: HTMLImageElement,
     plugin: any,
     onSavePosition?: DragPositionCallback,

@@ -8,7 +8,7 @@
         saveLayout,
         restoreLayout,
     } from "./utils/widgetBlock/utils/layout-handler";
-    import { initDrag } from "./utils/topBanner/drag";
+    import { handleLoad } from "./utils/topBanner/drag";
     import {
         loadStatsData,
         type StatsData,
@@ -21,6 +21,7 @@
         unregisterAllShortcuts,
     } from "./utils/quickButton";
     import { MD2HTML } from "@/components/tools/MD2HTML";
+    import { getImage } from "@/components/tools/getImage";
 
     import "./style/homepage.scss";
 
@@ -28,7 +29,15 @@
     export let plugin: any;
     export let showIcon = writable(true);
 
+    let showBanner = writable(true);
     let bannerImage: HTMLImageElement;
+    let bannerGlobalType = "custom";
+    let bannerImgSrc = "";
+    let remoteBannerImageData: string = "";
+    let bannerLocalData: string;
+    let bannerRemoteUrl: string;
+    let bingApiType = "POD_UHD";
+
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };
 
@@ -40,7 +49,6 @@
         nowDate: "(日期)",
     };
 
-    let showBanner = writable(true);
     let titleIconType: "emoji" | "image" = "emoji";
     let tempTitleIconEmoji = "🏠";
     let tempTitleIconImage: string | null = null;
@@ -64,6 +72,216 @@
     let FallingDensity = "medium";
     let FallingSpeed = "medium";
     let advanced = false;
+
+    type ButtonItem = {
+        id: number;
+        label: string;
+        checked: boolean;
+        shortcut?: string;
+        order: number;
+    };
+    let buttonsList: ButtonItem[] = [];
+    let showMoreMenu = false;
+    let isHoveringNavBar = false;
+
+    onMount(async () => {
+        // 页面加载完成后初始化拖拽
+        if (document.readyState === "complete") {
+            handleLoad(plugin, bannerImage);
+        } else {
+            window.addEventListener("load", () =>
+                handleLoad(plugin, bannerImage),
+            );
+        }
+
+        // 加载统计数据
+        statsData = await loadStatsData();
+
+        // 初始化区块拖拽排序
+        const observer = new MutationObserver(async () => {
+            const container = document.querySelector(
+                ".custom-content",
+            ) as HTMLElement;
+            if (container) {
+                observer.disconnect();
+
+                new Sortable(container, {
+                    animation: 150,
+                    ghostClass: "sortable-ghost",
+                    handle: ".drag-handle",
+                    onEnd: () => {
+                        saveLayout(plugin);
+                    },
+                });
+
+                await restoreLayout(plugin, { value: container });
+            }
+        });
+
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        setTimeout(async () => {
+            await updateHomepage();
+        }, 100);
+
+        reRegisterAllShortcuts(buttonsList);
+        document.addEventListener("click", handleDocumentClick);
+
+        preloadFallingIcons();
+        animationFrameId = requestAnimationFrame(animateFalling);
+        document.addEventListener("click", createClickEffect);
+        document.addEventListener("mousemove", createMouseTrail);
+    });
+
+    onDestroy(() => {
+        document
+            .querySelectorAll(".falling-flake")
+            .forEach((el) => el.remove());
+        window.removeEventListener("load", () =>
+            handleLoad(plugin, bannerImage),
+        );
+        document.removeEventListener("click", handleDocumentClick);
+        document.removeEventListener("click", createClickEffect);
+        document.removeEventListener("mousemove", createMouseTrail);
+        unregisterAllShortcuts();
+        cancelAnimationFrame(animationFrameId);
+    });
+
+    // 光标样式监听
+    $: {
+        if (
+            window.navigator.userAgent.includes("Electron") ||
+            typeof window.require === "function"
+        ) {
+            if (advanced) {
+                let containertext = ".homepage-container";
+                if (mouseGlobalEnabled) {
+                    containertext = "body";
+                }
+                const container = document.querySelector(
+                    containertext,
+                ) as HTMLElement;
+                if (container) {
+                    if (mouseIcon === "default") {
+                        container.style.cursor = "auto";
+                    } else if (mouseIcon === "CYWL1") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CYWL1.png`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "CYWL2") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CYWL2.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "WDSJsword") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/WDSJsword.cur`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "WDSJpickaxe") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/WDSJpickaxe.cur`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "cat1") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat1.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "cat2") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat2.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "cat3") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat3.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "arrow1") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow1.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "arrow2") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow2.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "arrow3") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow3.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "arrow4") {
+                        container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow4.ico`.replace(/\\/g, "/"))}'), auto`;
+                    } else if (mouseIcon === "arrow5") {
+                        container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow5.ico`.replace(/\\/g, "/"))}'), auto`;
+                    } else if (mouseIcon === "arrow6") {
+                        container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow6.ico`.replace(/\\/g, "/"))}'), auto`;
+                    } else if (mouseIcon === "arrow7") {
+                        container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow7.ico`.replace(/\\/g, "/"))}'), auto`;
+                    } else if (mouseIcon === "LOL1") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL1.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "LOL2") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL2.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "LOL3") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL3.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "LOL4") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL4.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    } else if (mouseIcon === "CBPK2077") {
+                        const pointerIconPath =
+                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CBPK2077.ico`.replace(
+                                /\\/g,
+                                "/",
+                            );
+                        container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
+                    }
+                }
+            }
+        }
+    }
 
     // 点击特效逻辑
     const defaultClickEffects = [
@@ -109,8 +327,14 @@
         "(,,•́ . •̀,,)",
     ];
     let effectIndex = 0;
-    const createClickEffect = (e: MouseEvent) => {
+    function createClickEffect(e: MouseEvent) {
         if (!advanced) return;
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            return;
+        }
         if (!ClickEffectEnabled) return;
 
         const customEffects = ClickEffectContent
@@ -160,7 +384,54 @@
         });
 
         setTimeout(() => span.remove(), 1500);
-    };
+    }
+
+    // 鼠标轨迹特效逻辑
+    let trailElements: HTMLElement[] = [];
+    function createMouseTrail(e: MouseEvent) {
+        if (!advanced) return;
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            return;
+        }
+        if (!MouseTrailEnabled) return;
+        let containertext = ".homepage-container";
+        if (mouseGlobalEnabled) {
+            containertext = "body";
+        }
+        const container = document.querySelector(containertext);
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
+
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        const trail = document.createElement("div");
+        trail.className = "mouse-trail";
+        trail.style.cssText = `
+            left: ${x}px;
+            top: ${y}px;
+            opacity: 0.7;
+        `;
+
+        container?.appendChild(trail);
+        trailElements.push(trail);
+
+        if (trailElements.length > 1000) {
+            const old = trailElements.shift();
+            old?.remove();
+        }
+
+        requestAnimationFrame(() => {
+            trail.style.opacity = "0";
+            trail.style.transform = "scale(2)";
+        });
+
+        setTimeout(() => trail.remove(), 1000);
+    }
 
     // 飘落特效逻辑
     let fallingIconCache: { [key: string]: string } = {};
@@ -219,6 +490,12 @@
     }
     function createFallingFlake() {
         if (!advanced) return;
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            return;
+        }
         if (!FallEffectsEnabled) return;
 
         const container = GlobalFallingEffectsEnabled
@@ -306,282 +583,21 @@
         animationFrameId = requestAnimationFrame(animateFalling);
     }
 
-    // 鼠标轨迹特效逻辑
-    let trailElements: HTMLElement[] = [];
-    const createMouseTrail = (e: MouseEvent) => {
-        if (!advanced) return;
-        if (!MouseTrailEnabled) return;
-        let containertext = ".homepage-container";
-        if (mouseGlobalEnabled) {
-            containertext = "body";
-        }
-        const container = document.querySelector(containertext);
-        if (!container) return;
-
-        const rect = container.getBoundingClientRect();
-
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        const trail = document.createElement("div");
-        trail.className = "mouse-trail";
-        trail.style.cssText = `
-            left: ${x}px;
-            top: ${y}px;
-            opacity: 0.7;
-        `;
-
-        container?.appendChild(trail);
-        trailElements.push(trail);
-
-        if (trailElements.length > 1000) {
-            const old = trailElements.shift();
-            old?.remove();
-        }
-
-        requestAnimationFrame(() => {
-            trail.style.opacity = "0";
-            trail.style.transform = "scale(2)";
-        });
-
-        setTimeout(() => trail.remove(), 1000);
-    };
-
-    // 光标样式监听
-    $: {
-        if (advanced) {
-            let containertext = ".homepage-container";
-            if (mouseGlobalEnabled) {
-                containertext = "body";
-            }
-            const container = document.querySelector(
-                containertext,
-            ) as HTMLElement;
-            if (container) {
-                if (mouseIcon === "default") {
-                    container.style.cursor = "auto";
-                } else if (mouseIcon === "CYWL1") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CYWL1.png`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "CYWL2") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CYWL2.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "WDSJsword") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/WDSJsword.cur`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "WDSJpickaxe") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/WDSJpickaxe.cur`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "cat1") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat1.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "cat2") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat2.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "cat3") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat3.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "arrow1") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow1.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "arrow2") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow2.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "arrow3") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow3.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "arrow4") {
-                    container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow4.ico`.replace(/\\/g, "/"))}'), auto`;
-                } else if (mouseIcon === "arrow5") {
-                    container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow5.ico`.replace(/\\/g, "/"))}'), auto`;
-                } else if (mouseIcon === "arrow6") {
-                    container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow6.ico`.replace(/\\/g, "/"))}'), auto`;
-                } else if (mouseIcon === "arrow7") {
-                    container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow7.ico`.replace(/\\/g, "/"))}'), auto`;
-                } else if (mouseIcon === "LOL1") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL1.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "LOL2") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL2.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "LOL3") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL3.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "LOL4") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL4.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                } else if (mouseIcon === "CBPK2077") {
-                    const pointerIconPath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CBPK2077.ico`.replace(
-                            /\\/g,
-                            "/",
-                        );
-                    container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
-                }
-            }
-        }
-    }
-
-    type ButtonItem = {
-        id: number;
-        label: string;
-        checked: boolean;
-        shortcut?: string;
-        order: number;
-    };
-    let buttonsList: ButtonItem[] = [];
-    let showMoreMenu = false;
-    let isHoveringNavBar = false;
-
-    const handleDocumentClick = (event: MouseEvent) => {
-        const target = event.target as Node;
-        const isMoreButton = document
-            .querySelector(".more-button")
-            ?.contains(target);
-        if (!isMoreButton && showMoreMenu) {
-            showMoreMenu = false;
-        }
-    };
-
-    $: filteredButtons = buttonsList.filter((b) => b.checked === false);
-
-    $: formattedStatsInfoText = (statsInfoText || "")
-        .replace("{{startDate}}", statsData.startDate || "")
-        .replace("{{notesCount}}", statsData.notesCount.toString())
-        .replace("{{notebooksCount}}", statsData.notebooksCount.toString())
-        .replace("{{DocsCount}}", statsData.DocsCount.toString())
-        .replace("{{nowDate}}", statsData.nowDate || "")
-        .replace(/\$\$(.*?)\$\$/g, (_, expr) => {
-            return parseDurationExpression(expr.trim(), statsData) || "";
-        });
-
-    onMount(async () => {
-        // 页面加载完成后初始化拖拽
-        if (document.readyState === "complete") {
-            handleLoad();
-        } else {
-            window.addEventListener("load", handleLoad);
-        }
-
-        // 加载统计数据
-        statsData = await loadStatsData();
-
-        // 初始化区块拖拽排序
-        const observer = new MutationObserver(async () => {
-            const container = document.querySelector(
-                ".custom-content",
-            ) as HTMLElement;
-            if (container) {
-                observer.disconnect();
-
-                new Sortable(container, {
-                    animation: 150,
-                    ghostClass: "sortable-ghost",
-                    handle: ".drag-handle",
-                    onEnd: () => {
-                        saveLayout(plugin);
-                    },
-                });
-
-                await restoreLayout(plugin, { value: container });
-            }
-        });
-
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        setTimeout(async () => {
-            await updateHomepage();
-        }, 100);
-
-        reRegisterAllShortcuts(buttonsList);
-        document.addEventListener("click", handleDocumentClick);
-
-        setTimeout(() => {
-            advanced = plugin.ADVANCED;
-        }, 1000);
-
-        preloadFallingIcons();
-        animationFrameId = requestAnimationFrame(animateFalling);
-        document.addEventListener("click", createClickEffect);
-        document.addEventListener("mousemove", createMouseTrail);
-    });
-
-    onDestroy(() => {
-        document
-            .querySelectorAll(".falling-flake")
-            .forEach((el) => el.remove());
-        window.removeEventListener("load", handleLoad);
-        document.removeEventListener("click", handleDocumentClick);
-        document.removeEventListener("click", createClickEffect);
-        document.removeEventListener("mousemove", createMouseTrail);
-        unregisterAllShortcuts();
-        cancelAnimationFrame(animationFrameId);
-    });
-
-    const updateHomepage = async () => {
+    // 更新加载主页配置
+    async function updateHomepage() {
         const config =
             (await plugin.loadData("homepageSettingConfig.json")) || {};
 
-        // 标题相关配置
-        showBanner.set(config.bannerEnabled !== false);
-        showIcon.set(config.showIcon !== false);
+        advanced = plugin.ADVANCED;
 
+        // 横幅相关配置
+        showBanner.set(config.bannerEnabled !== false);
+        bannerGlobalType = config.bannerGlobalType || "custom";
+        bannerLocalData = config.bannerLocalData || "";
+        bannerRemoteUrl = config.bannerRemoteUrl || "";
+        bingApiType = config.bingApiType || "POD_UHD";
+
+        showIcon.set(config.showIcon !== false);
         // 标题区域配置
         tempTitleIconEmoji = config.TitleIconEmoji;
         tempTitleIconImage = config.TitleIconImage;
@@ -618,17 +634,51 @@
             }
         }
 
+        // 重置远程图片数据
+        remoteBannerImageData = "";
+
         if (config.bannerEnabled) {
-            if (config.bannerType === "local" && config.bannerLocalData) {
-                bannerImage.src = config.bannerLocalData;
-            } else if (
-                config.bannerType === "remote" &&
-                config.bannerRemoteUrl
-            ) {
-                bannerImage.src = config.bannerRemoteUrl;
+            if (bannerGlobalType === "custom") {
+                if (config.bannerType === "local") {
+                    bannerImgSrc = bannerLocalData;
+                } else if (config.bannerType === "remote") {
+                    // 使用 getImage 获取远程图片
+                    remoteBannerImageData = await getImage(bannerRemoteUrl);
+                    bannerImgSrc = remoteBannerImageData || bannerRemoteUrl;
+                }
+            } else if (bannerGlobalType === "bing" && advanced) {
+                let bingImageUrl = "";
+                if (bingApiType === "POD_UHD") {
+                    bingImageUrl = "https://bing.img.run/uhd.php";
+                } else if (bingApiType === "POD_1K") {
+                    bingImageUrl = "https://bing.img.run/1920x1080.php";
+                } else if (bingApiType === "POD_Normal") {
+                    bingImageUrl = "https://bing.img.run/1366x768.php";
+                } else if (bingApiType === "rand_uhd") {
+                    bingImageUrl = "https://bing.img.run/rand_uhd.php";
+                } else if (bingApiType === "rand_1K") {
+                    bingImageUrl = "https://bing.img.run/rand.php";
+                } else if (bingApiType === "rand_Normal") {
+                    bingImageUrl = "https://bing.img.run/rand_1366x768.php";
+                } else if (bingApiType === "ECY1") {
+                    bingImageUrl = "https://www.dmoe.cc/random.php";
+                } else if (bingApiType === "RAND1") {
+                    bingImageUrl = "https://api.btstu.cn/sjbz/api.php";
+                }
+
+                // 使用 getImage 获取 Bing 图片
+                if (bingImageUrl) {
+                    remoteBannerImageData = await getImage(bingImageUrl);
+                    bannerImgSrc = remoteBannerImageData || bingImageUrl;
+                }
+            } else if (bannerGlobalType === "bing" && !advanced) {
+                const notVIPImagePath =
+                    `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/bannerImg/notVIP.jpg`.replace(
+                        /\\/g,
+                        "/",
+                    );
+                bannerImgSrc = notVIPImagePath;
             }
-        } else {
-            bannerImage.style.display = "none";
         }
 
         if (config.buttonsList) {
@@ -668,11 +718,30 @@
                 },
             ];
         }
-    };
+    }
 
-    function handleLoad() {
-        if (bannerImage && bannerImage.parentElement) {
-            initDrag(bannerImage, plugin);
+    // 格式化状态语言，将变量替换为统计信息
+    $: formattedStatsInfoText = (statsInfoText || "")
+        .replace("{{startDate}}", statsData.startDate || "")
+        .replace("{{notesCount}}", statsData.notesCount.toString())
+        .replace("{{notebooksCount}}", statsData.notebooksCount.toString())
+        .replace("{{DocsCount}}", statsData.DocsCount.toString())
+        .replace("{{nowDate}}", statsData.nowDate || "")
+        .replace(/\$\$(.*?)\$\$/g, (_, expr) => {
+            return parseDurationExpression(expr.trim(), statsData) || "";
+        });
+
+    // 过滤按钮列表，只显示未选中的按钮
+    $: filteredButtons = buttonsList.filter((b) => b.checked === false);
+
+    // 更多按钮点击事件处理
+    function handleDocumentClick(event: MouseEvent) {
+        const target = event.target as Node;
+        const isMoreButton = document
+            .querySelector(".more-button")
+            ?.contains(target);
+        if (!isMoreButton && showMoreMenu) {
+            showMoreMenu = false;
         }
     }
 </script>
@@ -682,7 +751,7 @@
     <div class="section top-banner" class:hide-top-banner={!$showBanner}>
         <img
             bind:this={bannerImage}
-            src="https://haowallpaper.com/link/common/file/previewFileImg/16994939099139456"
+            src={bannerImgSrc}
             crossorigin="anonymous"
             alt="Header Banner"
             class="banner-image"
@@ -834,21 +903,36 @@
     ></div>
 
     <!-- 插件信息底部区域 -->
-    {#if footerEnabled}
+    {#if advanced}
+        {#if footerEnabled}
+            <div class="section plugin-footer">
+                <div class="plugin-info">
+                    {#if footerContent === ""}
+                        <div class="plugin-name">🏠思源笔记主页插件</div>
+                        <div class="plugin-author">作者: Glaube-TY</div>
+                        <div class="plugin-support">
+                            <a
+                                href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-S7k1dPUtuomNB3x1hg8coMnunZf"
+                                class="support-link">赞助支持 💸</a
+                            >
+                        </div>
+                    {:else}
+                        {@html MD2HTML(footerContent)}
+                    {/if}
+                </div>
+            </div>
+        {/if}
+    {:else}
         <div class="section plugin-footer">
             <div class="plugin-info">
-                {#if footerContent === ""}
-                    <div class="plugin-name">🏠思源笔记主页插件</div>
-                    <div class="plugin-author">作者: Glaube-TY</div>
-                    <div class="plugin-support">
-                        <a
-                            href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-S7k1dPUtuomNB3x1hg8coMnunZf"
-                            class="support-link">赞助支持 💸</a
-                        >
-                    </div>
-                {:else}
-                    {@html MD2HTML(footerContent)}
-                {/if}
+                <div class="plugin-name">🏠思源笔记主页插件</div>
+                <div class="plugin-author">作者: Glaube-TY</div>
+                <div class="plugin-support">
+                    <a
+                        href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-S7k1dPUtuomNB3x1hg8coMnunZf"
+                        class="support-link">赞助支持 💸</a
+                    >
+                </div>
             </div>
         </div>
     {/if}

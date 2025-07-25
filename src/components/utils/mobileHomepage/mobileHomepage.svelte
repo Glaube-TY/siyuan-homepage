@@ -1,13 +1,13 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import Sortable from "sortablejs";
-    import { saveLayout, restoreLayout } from "./widget_layout";
+    import { saveLayout, restoreLayout } from "./mobileHomepage_layout";
     import { addCustomBlock } from "./block-creator";
 
-    import "./siderBar.scss";
+    import "./mobileHomepage.scss";
 
     export let plugin: any;
-    export let app: any;
+    export let close: () => void;
 
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };
@@ -18,7 +18,7 @@
         // 组件拖拽
         const observer = new MutationObserver(async () => {
             const container = document.querySelector(
-                ".sidebar-widget",
+                ".mobile-homepage-widget",
             ) as HTMLElement;
             if (container) {
                 observer.disconnect();
@@ -44,19 +44,23 @@
     });
 </script>
 
-<div class="sidebar-display">
+<div class="mobile-homepage">
     {#if advanced}
-        <div class="sidebar-widget"></div>
-        <div class="sidebar-setting">
+        <div class="mobile-homepage-widget"></div>
+        <div class="mobile-homepage-setting">
             <button
-                class="add-widget-btn"
+                class="mobile-homepage-add-widget-btn"
                 on:click={() =>
                     addCustomBlock(plugin, currentBlockForSettingsRef)}
                 >➕添加组件</button
             >
+            <button class="mobile-homepage-close-btn" on:click={() => close()}
+                >返回</button
+            >
         </div>
+        <div class="mobile-homepage-fit"></div>
     {:else}
-        <div class="sidebar-not-advanced">
+        <div class="mobile-homepage-not-advanced">
             <h2>👑高级会员专属功能👑</h2>
             <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
         </div>

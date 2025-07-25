@@ -1,10 +1,10 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { openTab } from "siyuan";
     import {
         getLatestFavoritesNotes,
         type FavoritesNoteInfo,
     } from "./favorites";
+    import { openDocs } from "@/components/tools/openDocs";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -46,21 +46,12 @@
                     <li class="favorites-item">
                         <div
                             class="favorites-item-content"
-                            on:click={() =>
-                                openTab({
-                                    app: plugin.app,
-                                    doc: {
-                                        id: note.id,
-                                    },
-                                })}
+                            on:click={() => {
+                                openDocs(plugin, note.id);
+                            }}
                             on:keydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
-                                    openTab({
-                                        app: plugin.app,
-                                        doc: {
-                                            id: note.id,
-                                        },
-                                    });
+                                    openDocs(plugin, note.id);
                                 }
                             }}
                             role="button"

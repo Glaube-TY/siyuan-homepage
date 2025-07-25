@@ -346,7 +346,7 @@
 <style lang="scss">
     .content-display {
         width: 100%;
-        max-width: 500px;
+        max-width: 90vh;
         height: calc(100%);
         display: flex;
         flex-direction: column;

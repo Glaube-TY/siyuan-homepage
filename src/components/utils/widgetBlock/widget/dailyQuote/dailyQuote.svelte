@@ -5,7 +5,7 @@
     export let contentTypeJson: string = "{}";
     const parsed = JSON.parse(contentTypeJson);
 
-    const dailyQuoteMode = parsed.data?.dailyQuoteMode || "remote";
+    const dailyQuoteMode = parsed.data?.dailyQuoteMode || "custom";
     const dailyQuoteSource = parsed.data?.dailyQuoteSource || "classic";
     const customDailyQuoteContent = parsed.data?.customDailyQuoteContent || "";
     const dailyQuoteFontSize = parsed.data?.dailyQuoteFontSize || 1;
@@ -17,7 +17,10 @@
 
     let dailyQuote = "";
 
+    let advancedEnabled = false;
+
     onMount(async () => {
+        advancedEnabled = plugin.ADVANCED;
         await getDailyQuote();
     });
 
@@ -92,9 +95,20 @@
     "
 >
     <div class="overlay"></div>
-    <div class="daily-quote-content-container">
-        {dailyQuote || "每日一言加载中..."}
-    </div>
+    {#if advancedEnabled}
+        <div class="daily-quote-content-container">
+            {dailyQuote || "每日一言加载中..."}
+        </div>
+    {:else if dailyQuoteMode === "custom"}
+        <div class="daily-quote-content-container">
+            {dailyQuote || "每日一言加载中..."}
+        </div>
+    {:else if dailyQuoteMode === "remote"}
+        <div class="content-not-advanced">
+            <h2>👑高级会员专属功能👑</h2>
+            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+        </div>
+    {/if}
 </div>
 
 <style lang="scss">
@@ -175,6 +189,17 @@
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
                 transition: all 0.3s ease;
             }
+        }
+
+        .content-not-advanced {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            z-index: 2;
         }
     }
 </style>

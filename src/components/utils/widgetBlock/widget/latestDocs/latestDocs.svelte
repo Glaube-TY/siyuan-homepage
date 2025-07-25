@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { openTab } from "siyuan";
     import { getLatestDocuments, type latestDocumentInfo } from "./latestDocs";
+    import { openDocs } from "@/components/tools/openDocs";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -65,12 +65,7 @@
                     <div
                         class="document-item-content"
                         on:click={() =>
-                            openTab({
-                                app: plugin.app,
-                                doc: {
-                                    id: doc.id,
-                                },
-                            })}
+                            openDocs(plugin, doc.id)}
                         role="button"
                         tabindex="0"
                         aria-label="打开最近文档：{doc.content}"

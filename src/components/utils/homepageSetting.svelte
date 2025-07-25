@@ -13,10 +13,13 @@
     // 主页设置相关配置变量
     let tempAutoOpenHomepage = true;
     let sidebarEnabled = false;
+    let autoOpenMobileHomepage = false;
     let settingsActiveTab = "banner";
     // 横幅区域相关配置变量
     let bannerEnabled = true;
-    let bannerType = "local"; // 默认是本地图片
+    let bannerGlobalType = "custom";
+    let bingApiType = "POD_UHD";
+    let bannerType = "local";
     let tempBannerEnabled = bannerEnabled;
     let tempBannerType = bannerType;
     let bannerLocalData: string | null = null;
@@ -119,9 +122,13 @@
             // 全局配置
             tempAutoOpenHomepage = savedConfig.autoOpenHomepage ?? true;
             sidebarEnabled = savedConfig.sidebarEnabled ?? false;
+            autoOpenMobileHomepage =
+                savedConfig.autoOpenMobileHomepage ?? false;
 
             // 横幅配置
             bannerEnabled = savedConfig.bannerEnabled ?? true;
+            bannerGlobalType = savedConfig.bannerGlobalType || "custom";
+            bingApiType = savedConfig.bingApiType || "POD_UHD";
             bannerType = savedConfig.bannerType ?? "local";
             bannerLocalData = savedConfig.bannerLocalData || "";
             bannerRemoteUrl = savedConfig.bannerRemoteUrl || "";
@@ -349,9 +356,12 @@
             // 全局配置
             autoOpenHomepage: tempAutoOpenHomepage,
             sidebarEnabled: sidebarEnabled,
+            autoOpenMobileHomepage: autoOpenMobileHomepage,
 
             // 横幅配置
             bannerEnabled: tempBannerEnabled,
+            bannerGlobalType: bannerGlobalType,
+            bingApiType: bingApiType,
             bannerType: tempBannerType,
             bannerLocalData: bannerLocalData,
             bannerRemoteUrl: bannerRemoteUrl,
@@ -466,6 +476,12 @@
                         bind:checked={sidebarEnabled}
                     /></label
                 >
+                <label for=""
+                    >自动打开移动端主页👑：<input
+                        type="checkbox"
+                        bind:checked={autoOpenMobileHomepage}
+                    /></label
+                >
             </div>
 
             <div class="homepage-content-settings">
@@ -502,120 +518,166 @@
 
                 {#if settingsActiveTab === "banner"}
                     <div class="section-setting">
-                        <!-- 横幅设置容器 -->
-                        <div class="banner-settings-container">
-                            <!-- 左侧设置区域 -->
-                            <div class="banner-settings-left">
-                                <!-- 是否启用横幅 -->
-                                <div class="form-group">
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            bind:checked={tempBannerEnabled}
-                                        />
-                                        启用横幅图片
-                                    </label>
-                                </div>
-
-                                {#if tempBannerEnabled}
-                                    <!-- 横幅高度设置 -->
-                                    <div class="form-group">
-                                        <label for="banner-height-input"
-                                            >横幅高度(px)：</label
-                                        >
-                                        <input
-                                            id="banner-height-input"
-                                            type="number"
-                                            bind:value={tempBannerHeight}
-                                            min="100"
-                                            max="800"
-                                            step="10"
-                                            placeholder="例如：300"
-                                        />
-                                    </div>
-
-                                    <!-- 横幅来源选择 -->
-                                    <div class="form-group">
-                                        <label for="banner-source-select"
-                                            >横幅来源：</label
-                                        >
-                                        <select
-                                            id="banner-source-select"
-                                            bind:value={tempBannerType}
-                                        >
-                                            <option value="local"
-                                                >本地图片</option
-                                            >
-                                            <option value="remote"
-                                                >网络图片</option
-                                            >
-                                        </select>
-                                    </div>
-
-                                    <!-- 来源具体内容 -->
-                                    {#if tempBannerType === "local"}
+                        <div class="form-group">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    bind:checked={tempBannerEnabled}
+                                />
+                                启用横幅图片
+                            </label>
+                        </div>
+                        {#if tempBannerEnabled}
+                            <div class="form-group">
+                                <label for=""
+                                    >横幅类型：<select
+                                        bind:value={bannerGlobalType}
+                                    >
+                                        <option value="custom">自定义</option>
+                                        <option value="bing">每日一图👑</option>
+                                    </select></label
+                                >
+                                <label for="banner-height-input"
+                                    >横幅高度(px)：<input
+                                        id="banner-height-input"
+                                        type="number"
+                                        bind:value={tempBannerHeight}
+                                        min="100"
+                                        max="800"
+                                        step="10"
+                                        placeholder="例如：300"
+                                    /></label
+                                >
+                            </div>
+                            {#if bannerGlobalType === "custom"}
+                                <div class="banner-settings-container">
+                                    <!-- 左侧设置区域 -->
+                                    <div class="banner-settings-left">
+                                        <!-- 横幅来源选择 -->
                                         <div class="form-group">
-                                            <label for="local-image-input"
-                                                >本地路径：</label
+                                            <label for="banner-source-select"
+                                                >横幅来源：</label
                                             >
-                                            <button
-                                                on:click={() =>
-                                                    fileInputEl.click()}
-                                                class="btn-select-file"
-                                                id="local-image-input"
-                                                >📂 选择图片</button
+                                            <select
+                                                id="banner-source-select"
+                                                bind:value={tempBannerType}
                                             >
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                bind:this={fileInputEl}
-                                                on:change={handleImageSelect}
-                                                style="display:none;"
-                                            />
+                                                <option value="local"
+                                                    >本地图片</option
+                                                >
+                                                <option value="remote"
+                                                    >网络图片</option
+                                                >
+                                            </select>
                                         </div>
-                                    {:else if tempBannerType === "remote"}
-                                        <div
-                                            class="form-group remote-url-input"
-                                        >
-                                            <div class="input-row">
-                                                <label for="remote-image-url"
-                                                    >远程地址：</label
+
+                                        <!-- 来源具体内容 -->
+                                        {#if tempBannerType === "local"}
+                                            <div class="form-group">
+                                                <label for="local-image-input"
+                                                    >本地路径：</label
+                                                >
+                                                <button
+                                                    on:click={() =>
+                                                        fileInputEl.click()}
+                                                    class="btn-select-file"
+                                                    id="local-image-input"
+                                                    >📂 选择图片</button
                                                 >
                                                 <input
-                                                    id="remote-image-url"
-                                                    type="text"
-                                                    bind:value={bannerRemoteUrl}
-                                                    placeholder="输入远程图片地址"
+                                                    type="file"
+                                                    accept="image/*"
+                                                    bind:this={fileInputEl}
+                                                    on:change={handleImageSelect}
+                                                    style="display:none;"
                                                 />
                                             </div>
-                                        </div>
-                                    {/if}
-                                {/if}
-                            </div>
+                                        {:else if tempBannerType === "remote"}
+                                            <div
+                                                class="form-group remote-url-input"
+                                            >
+                                                <div class="input-row">
+                                                    <label
+                                                        for="remote-image-url"
+                                                        >远程地址：</label
+                                                    >
+                                                    <input
+                                                        id="remote-image-url"
+                                                        type="text"
+                                                        bind:value={
+                                                            bannerRemoteUrl
+                                                        }
+                                                        placeholder="输入远程图片地址"
+                                                    />
+                                                </div>
+                                            </div>
+                                        {/if}
+                                    </div>
 
-                            <!-- 右侧图片预览区域 -->
-                            <div class="banner-preview-container">
-                                {#if tempBannerEnabled}
-                                    {#if tempBannerType === "local" && bannerLocalData}
-                                        <img
-                                            src={bannerLocalData}
-                                            alt="本地预览图"
-                                            class="banner-preview"
-                                        />
-                                    {:else if tempBannerType === "remote" && bannerRemoteUrl}
-                                        <img
-                                            src={bannerRemoteUrl}
-                                            alt="远程预览图"
-                                            class="banner-preview"
-                                        />
-                                    {:else}
-                                        <div class="banner-preview-placeholder">
-                                            未选择图片
-                                        </div>
-                                    {/if}
+                                    <!-- 右侧图片预览区域 -->
+                                    <div class="banner-preview-container">
+                                        {#if tempBannerEnabled}
+                                            {#if tempBannerType === "local" && bannerLocalData}
+                                                <img
+                                                    src={bannerLocalData}
+                                                    alt="本地预览图"
+                                                    class="banner-preview"
+                                                />
+                                            {:else if tempBannerType === "remote" && bannerRemoteUrl}
+                                                <img
+                                                    src={bannerRemoteUrl}
+                                                    alt="远程预览图"
+                                                    class="banner-preview"
+                                                />
+                                            {:else}
+                                                <div
+                                                    class="banner-preview-placeholder"
+                                                >
+                                                    未选择图片
+                                                </div>
+                                            {/if}
+                                        {/if}
+                                    </div>
+                                </div>
+                            {:else if bannerGlobalType === "bing"}
+                                {#if advancedEnabled}
+                                    <div class="banner-setting-bing">
+                                        <label for=""
+                                            >远程接口：<select
+                                                bind:value={bingApiType}
+                                            >
+                                                <option value="POD_UHD"
+                                                    >Bing 每日一图（原图）</option
+                                                >
+                                                <option value="POD_1K"
+                                                    >Bing 每日一图（1080P）</option
+                                                >
+                                                <option value="POD_Normal"
+                                                    >Bing 每日一图（普通）</option
+                                                >
+                                                <option value="rand_uhd"
+                                                    >Bing 历史随机（原图）</option
+                                                >
+                                                <option value="rand_1K"
+                                                    >Bing 历史随机（1080P）</option
+                                                >
+                                                <option value="rand_Normal"
+                                                    >Bing 历史随机（普通）</option
+                                                >
+                                                <option value="ECY1"
+                                                    >二次元壁纸</option
+                                                >
+                                                <option value="RAND1"
+                                                    >随机壁纸</option
+                                                >
+                                            </select></label
+                                        >
+                                    </div>
+                                {:else}
+                                    <h3>👑会员专属权益👑</h3>
                                 {/if}
-                            </div>
-                        </div>
+                            {/if}
+                        {/if}
                     </div>
                 {/if}
 
@@ -1030,8 +1092,8 @@
                                         bind:value={FallingIcon}
                                     >
                                         <option value="snow">雪花</option>
-                                        <option value="heart">❤️</option>
-                                        <option value="star">⭐️</option>
+                                        <option value="heart">爱心</option>
+                                        <option value="star">五角星</option>
                                         <option value="greenery">绿叶</option>
                                         <option value="mapleLeaf">枫叶</option>
                                         <option value="ginkgoLeaf"
@@ -1087,8 +1149,12 @@
         {:else if activeTab === "vip"}
             <div class="vip-section">
                 <div class="vip-info">
-                    <label for="">用户名：{USER_NAME}</label>
-                    <label for="">用户ID：{USER_ID}</label>
+                    {#if USER_NAME || USER_ID}
+                        <label for="">用户名：{USER_NAME}</label>
+                        <label for="">用户ID：{USER_ID}</label>
+                    {:else}
+                        <label for="">请先登录后进行查看！</label>
+                    {/if}
                 </div>
                 {#if activated}
                     <div class="activated">
@@ -1112,45 +1178,160 @@
                         >
                     </div>
                 {:else}
-                    <div class="vip-code">
+                    <div class="vip-activate">
                         <h2>👑 VIP 激活</h2>
-                        <label for=""
-                            >购买 VIP 时，请将下列标识码附在留言区域！</label
-                        >
-                        <label for="" class="user-code">{USER_CODE}</label>
-                        <label for=""
-                            >激活码：<textarea bind:value={ActivationCode}
-                            ></textarea></label
-                        >
-                        <div class="btn-group">
-                            <button
-                                on:click={async () => {
-                                    const saveVIPConfDataResult =
-                                        await advanced.saveVIPConfData(
-                                            plugin,
-                                            ActivationCode,
-                                        );
-                                    if (saveVIPConfDataResult) {
-                                        activationResult =
-                                            await advanced.verifyLicense(
-                                                plugin,
-                                                USER_NAME,
-                                                USER_ID,
-                                            );
-                                        activated = activationResult.valid;
-                                        if (
-                                            !activated &&
-                                            activationResult.code != 2
-                                        ) {
-                                            showMessage(activationResult.error);
-                                            advanced.deleteLicense(plugin);
-                                        } else {
-                                            showMessage("✅激活成功！");
-                                        }
-                                    }
-                                }}>激活</button
+                        {#if USER_NAME || USER_ID}
+                            <label for=""
+                                >购买时，请将下列标识码附在留言区域：</label
                             >
-                        </div>
+                            <div class="code-box">
+                                <input
+                                    type="text"
+                                    class="user-code"
+                                    value={USER_CODE}
+                                    readonly
+                                />
+                                <button
+                                    on:click={() => {
+                                        navigator.clipboard
+                                            .writeText(USER_CODE)
+                                            .then(() => {
+                                                showMessage(
+                                                    "✅ 用户标识码已复制到剪贴板",
+                                                );
+                                            })
+                                            .catch((err) => {
+                                                console.error("复制失败", err);
+                                            });
+                                    }}
+                                    class="btn copy-button"
+                                    title="复制用户标识码"
+                                    aria-label="复制用户标识码">复制</button
+                                >
+                            </div>
+                            <div class="purchase-plan">
+                                <h4>💰 订阅方案</h4>
+                                <div class="plan-card">
+                                    <div class="plan-item monthly">
+                                        <div class="plan-price">8 元</div>
+                                        <div class="plan-duration">/ 月</div>
+                                    </div>
+                                    <div class="plan-item yearly">
+                                        <div class="plan-price">69 元</div>
+                                        <div class="plan-duration">/ 年</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="purchase-address">
+                                <h4>🛍️ 购买地址</h4>
+                                <div class="address-card">
+                                    <div class="address-item">
+                                        <span class="icon">🔗</span>
+                                        <div class="address-content">
+                                            <strong>地址：</strong>
+                                            <a
+                                                href="https://afdian.com/a/glaube-ty"
+                                                >爱发电</a
+                                            >
+                                        </div>
+                                    </div>
+                                    <div class="qrcode-container">
+                                        <img
+                                            class="qrcode"
+                                            src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/afdian-Glaube_TY.jpg"
+                                            alt="爱发电二维码"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="reminder">
+                                <div class="reminder-card">
+                                    <div class="reminder-item">
+                                        <span class="icon">💬</span>
+                                        <p>
+                                            工作日 09:00 - 22:00
+                                            回复会比较快，其他时候看到会第一时间处理。
+                                        </p>
+                                    </div>
+                                    <div class="reminder-item">
+                                        <span class="icon">💡</span>
+                                        <p>虚拟产品购买后不支持退款！</p>
+                                    </div>
+                                    <div class="reminder-item">
+                                        <span class="icon">🎁</span>
+                                        <p>
+                                            若在插件 2.0
+                                            版本前打赏过，可将打赏订单号及标识码发送至下方邮箱或联系频道管理员，赠送一年
+                                            VIP。
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="purchase-question">
+                                <h4>❓ 问题咨询</h4>
+                                <div class="question-card">
+                                    <div class="question-item">
+                                        <span class="icon">📧</span>
+                                        <div class="question-content">
+                                            <strong>邮箱：</strong>
+                                            <a href="mailto:glaube_ty@qq.com"
+                                                >glaube_ty@qq.com</a
+                                            >
+                                        </div>
+                                    </div>
+                                    <div class="question-item">
+                                        <span class="icon">💬</span>
+                                        <div class="question-content">
+                                            <strong
+                                                >腾讯频道：(订阅问题请私信管理员)</strong
+                                            >
+                                            <a
+                                                href="https://pd.qq.com/s/2ks4079x0"
+                                                >思源笔记主页插件</a
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <label for=""
+                                >激活码：<textarea bind:value={ActivationCode}
+                                ></textarea></label
+                            >
+                            <div class="btn-group">
+                                <button
+                                    on:click={async () => {
+                                        const saveVIPConfDataResult =
+                                            await advanced.saveVIPConfData(
+                                                plugin,
+                                                ActivationCode,
+                                            );
+                                        if (saveVIPConfDataResult) {
+                                            activationResult =
+                                                await advanced.verifyLicense(
+                                                    plugin,
+                                                    USER_NAME,
+                                                    USER_ID,
+                                                );
+                                            if (activationResult.code !== 0) {
+                                                showMessage(
+                                                    activationResult.error,
+                                                );
+                                                advanced.deleteLicense(plugin);
+                                            } else {
+                                                showMessage("✅激活成功！");
+                                                activated = true;
+                                            }
+                                        }
+                                    }}>激活</button
+                                >
+                            </div>
+                        {:else}
+                            <label for=""
+                                >由于会员功能与账号绑定，<br
+                                />请先登录后进行查看！</label
+                            >
+                        {/if}
                     </div>
                 {/if}
             </div>

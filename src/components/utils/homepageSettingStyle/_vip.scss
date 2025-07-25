@@ -1,6 +1,8 @@
 .vip-section {
     padding: 1.5rem;
     border-radius: 12px;
+    max-height: 60vh;
+    overflow-y: auto;
 
     // 用户信息区域
     .vip-info {
@@ -58,10 +60,10 @@
     }
 
     // 激活码区域
-    .vip-code {
+    .vip-activate {
         display: flex;
         flex-direction: column;
-        background: linear-gradient(145deg, #fff3e0 0%, #ffe0b2 100%);
+        width: 500px;
         border: 1px solid #ffb74d;
         gap: 1rem;
         padding: 1.5rem;
@@ -72,14 +74,215 @@
             color: #ffb74d;
         }
 
-        .user-code {
-            padding: 0.5rem;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            color: black;
-            background-color: whitesmoke;
-            cursor: text;
+        .code-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+
+            .user-code {
+                flex: 1;
+                padding: 0.5rem;
+                border-radius: 8px;
+                font-size: 0.9rem;
+                color: black;
+                background-color: whitesmoke;
+                cursor: text;
+            }
+
+            .copy-button {
+                padding: 0.4rem 0.8rem;
+                font-size: 14px;
+                cursor: pointer;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+
+                &:hover {
+                    background-color: #e0e0e0;
+                }
+            }
         }
+
+        .purchase-address {
+            margin-top: 1rem;
+
+            h4 {
+                margin-bottom: 0.5rem;
+                font-size: 1.1rem;
+                color: var(--b3-theme-text);
+            }
+
+            .address-card {
+                background: var(--b3-theme-surface);
+                border-radius: 8px;
+                padding: 1rem;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .address-item {
+                display: flex;
+                align-items: center;
+                gap: 0.8rem;
+
+                .icon {
+                    font-size: 1.5rem;
+                    color: var(--b3-theme-primary);
+                }
+
+                .address-content {
+                    font-size: 0.95rem;
+                    color: var(--b3-theme-text);
+
+                    a {
+                        color: var(--b3-theme-primary);
+                        text-decoration: none;
+                        font-weight: bold;
+
+                        &:hover {
+                            text-decoration: underline;
+                        }
+                    }
+                }
+            }
+
+            .qrcode-container {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 1rem;
+
+                .qrcode {
+                    width: 300px;
+                    max-width: 100%;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    transition: box-shadow 0.3s ease;
+
+                    &:hover {
+                        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+                        transform: scale(1.5);
+                    }
+                }
+            }
+        }
+
+        .purchase-plan,
+        .purchase-question {
+            margin-top: 1rem;
+
+            h4 {
+                margin-bottom: 0.5rem;
+                font-size: 1.1rem;
+                color: var(--b3-theme-text);
+            }
+        }
+
+        .plan-card {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .plan-item {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            text-align: center;
+            transition: transform 0.2s ease;
+
+            &:hover {
+                transform: translateY(-4px);
+            }
+
+            .plan-name {
+                font-size: 1rem;
+                color: #666;
+            }
+
+            .plan-price {
+                font-size: 1.5rem;
+                color: var(--b3-theme-primary);
+                font-weight: bold;
+            }
+
+            .plan-duration {
+                font-size: 0.9rem;
+                color: #999;
+            }
+        }
+
+        .question-card {
+            background: var(--b3-theme-surface);
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .question-item {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            margin-bottom: 1rem;
+
+            .icon {
+                font-size: 1.5rem;
+            }
+
+            .question-content {
+                font-size: 0.95rem;
+                color: var(--b3-theme-text);
+
+                a {
+                    color: var(--b3-theme-primary);
+                    text-decoration: none;
+
+                    &:hover {
+                        text-decoration: underline;
+                    }
+                }
+            }
+        }
+
+        .reminder {
+            margin-top: 1rem;
+
+            .reminder-card {
+                background: var(--b3-theme-surface);
+                border-radius: 8px;
+                padding: 1rem;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .reminder-item {
+                display: flex;
+                align-items: flex-start;
+                gap: 0.8rem;
+                font-size: 0.95rem;
+                color: var(--b3-theme-text);
+
+                .icon {
+                    font-size: 1.5rem;
+                    color: var(--b3-theme-primary);
+                    flex-shrink: 0;
+                }
+
+                p {
+                    margin: 0;
+                }
+            }
+        }
+
+
 
         label {
             display: flex;

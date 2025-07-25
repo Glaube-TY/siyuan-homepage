@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
-    import { openTab } from "siyuan";
+    import { openDocs } from "@/components/tools/openDocs";
     import { gettasksList, formatTasksList } from "./tasksPlus";
 
     export let plugin: any;
@@ -349,13 +349,7 @@
                             <button
                                 type="button"
                                 class="task-name"
-                                on:click={() =>
-                                    openTab({
-                                        app: plugin.app,
-                                        doc: {
-                                            id: task.id,
-                                        },
-                                    })}
+                                on:click={() => openDocs(plugin, task.id)}
                             >
                                 {task.taskname || "未命名任务"}
                             </button>
