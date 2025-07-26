@@ -301,25 +301,68 @@
     let afternoonBgImageData: string = "";
     let nightBgImageData: string = "";
     async function getTimeBGImage() {
-        if (morningImageType === "remote") {
-            morningBgImageData = await getImage(morningBgUrl);
-        }
-        if (afternoonImageType === "remote") {
-            afternoonBgImageData = await getImage(afternoonBgUrl);
-        }
-        if (nightImageType === "remote") {
-            nightBgImageData = await getImage(nightBgUrl);
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            if (morningImageType === "remote") {
+                morningBgImageData = await getImage(morningBgUrl);
+            }
+            if (afternoonImageType === "remote") {
+                afternoonBgImageData = await getImage(afternoonBgUrl);
+            }
+            if (nightImageType === "remote") {
+                nightBgImageData = await getImage(nightBgUrl);
+            }
+        } else {
+            if (morningImageType === "remote") {
+                morningBgImageData = morningBgUrl;
+            }
+            if (afternoonImageType === "remote") {
+                afternoonBgImageData = afternoonBgUrl;
+            }
+            if (nightImageType === "remote") {
+                nightBgImageData = nightBgUrl;
+            }
         }
     }
     // 番茄钟组件预览图
     let focusBgImageData: string = "";
     let breakBgImageData: string = "";
     async function getFocusBreakImage() {
-        if (focusImageType === "remote") {
-            focusBgImageData = await getImage(focusBgImage);
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            if (focusImageType === "remote") {
+                focusBgImageData = await getImage(focusBgImage);
+            }
+            if (breakImageType === "remote") {
+                breakBgImageData = await getImage(breakBgImage);
+            }
+        } else {
+            if (focusImageType === "remote") {
+                focusBgImageData = focusBgImage;
+            }
+            if (breakImageType === "remote") {
+                breakBgImageData = breakBgImage;
+            }
         }
-        if (breakImageType === "remote") {
-            breakBgImageData = await getImage(breakBgImage);
+    }
+    // 每日一言组件预览图
+    let dailyQuoteBgImageData: string = "";
+    async function getDailyQuoteBgImage() {
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            if (dailyQuoteBgSelect === "remote") {
+                dailyQuoteBgImageData = await getImage(dailyQuoteRemoteBg);
+            }
+        } else {
+            if (dailyQuoteBgSelect === "remote") {
+                dailyQuoteBgImageData = dailyQuoteRemoteBg;
+            }
         }
     }
 
@@ -441,7 +484,6 @@
 
                 focusBgImage = parsedData.data?.focusBgImage || focusBgImage;
                 breakBgImage = parsedData.data?.breakBgImage || breakBgImage;
-
                 await getFocusBreakImage();
 
                 focusLocalImage =
@@ -481,6 +523,7 @@
                     parsedData.data?.dailyQuoteBgSelect || dailyQuoteBgSelect;
                 dailyQuoteRemoteBg =
                     parsedData.data?.dailyQuoteRemoteBg || dailyQuoteRemoteBg;
+                    await getDailyQuoteBgImage();
                 dailyQuoteLocalBg = parsedData.data?.dailyQuoteLocalBg || "";
             } else if (parsedData.type === "visualChart") {
                 visualChartType =
@@ -1074,6 +1117,7 @@
                                     <input
                                         type="text"
                                         bind:value={dailyQuoteRemoteBg}
+                                        on:change={getDailyQuoteBgImage}
                                         placeholder="输入远程图片URL"
                                     />
                                 {:else}
@@ -1093,9 +1137,9 @@
                                 {/if}
                             </div>
                             <div class="image-preview">
-                                {#if dailyQuoteBgSelect === "remote" && dailyQuoteRemoteBg}
+                                {#if dailyQuoteBgSelect === "remote" && dailyQuoteBgImageData}
                                     <img
-                                        src={dailyQuoteRemoteBg}
+                                        src={dailyQuoteBgImageData}
                                         alt="每日一言背景预览"
                                     />
                                 {:else if dailyQuoteBgSelect === "local" && dailyQuoteLocalBg}

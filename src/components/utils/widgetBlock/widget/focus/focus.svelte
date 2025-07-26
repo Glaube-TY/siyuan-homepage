@@ -79,11 +79,23 @@
 
         resetTimer("focus");
 
-        if (focusImageType === "remote") {
-            focusBgImage = await getImage(focusBgImage);
-        }
-        if (breakImageType === "remote") {
-            breakBgImage = await getImage(breakBgImage);
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            if (focusImageType === "remote") {
+                focusBgImage = await getImage(focusBgImage);
+            }
+            if (breakImageType === "remote") {
+                breakBgImage = await getImage(breakBgImage);
+            }
+        } else {
+            if (focusImageType === "remote") {
+                focusBgImage = focusBgImage;
+            }
+            if (breakImageType === "remote") {
+                breakBgImage = breakBgImage;
+            }
         }
     });
 

@@ -57,12 +57,6 @@
         } else {
             newTimeOfDay = "night";
         }
-
-        // 如果时间段改变，加载相应图片
-        if (newTimeOfDay !== timeOfDay) {
-            timeOfDay = newTimeOfDay;
-            loadImageForTimeOfDay(timeOfDay);
-        }
     };
 
     // 根据当前时间更新显示内容
@@ -209,6 +203,7 @@
                 console.warn("无法解析 contentTypeJson", e);
             }
         }
+        loadImageForTimeOfDay();
         updateTime();
         updateDateAndLunar();
 
@@ -225,24 +220,22 @@
         };
     });
 
-    async function loadImageForTimeOfDay(timeOfDay: string) {
-        // 根据当前时间段加载相应的图片
-        switch (timeOfDay) {
-            case "morning":
-                if (morningImageType === "remote") {
-                    morningBgImage = await getImage(morningBgUrl);
-                }
-                break;
-            case "afternoon":
-                if (afternoonImageType === "remote") {
-                    afternoonBgImage = await getImage(afternoonBgUrl);
-                }
-                break;
-            case "night":
-                if (nightImageType === "remote") {
-                    nightBgImage = await getImage(nightBgUrl);
-                }
-                break;
+    async function loadImageForTimeOfDay() {
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            if (morningImageType === "remote") {
+                morningBgUrl = await getImage(morningBgUrl);
+            }
+
+            if (afternoonImageType === "remote") {
+                afternoonBgUrl = await getImage(afternoonBgUrl);
+            }
+
+            if (nightImageType === "remote") {
+                nightBgUrl = await getImage(nightBgUrl);
+            }
         }
     }
 </script>

@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { getImage } from "@/components/tools/getImage";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -9,7 +10,7 @@
     const dailyQuoteSource = parsed.data?.dailyQuoteSource || "classic";
     const customDailyQuoteContent = parsed.data?.customDailyQuoteContent || "";
     const dailyQuoteFontSize = parsed.data?.dailyQuoteFontSize || 1;
-    const dailyQuoteRemoteBg =
+    let dailyQuoteRemoteBg =
         parsed.data?.dailyQuoteRemoteBg ||
         "https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648";
     const dailyQuoteLocalBg = parsed.data?.dailyQuoteLocalBg || "";
@@ -22,6 +23,13 @@
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;
         await getDailyQuote();
+
+        if (
+            !window.navigator.userAgent.includes("Electron") ||
+            typeof window.require !== "function"
+        ) {
+            dailyQuoteRemoteBg = await getImage(dailyQuoteRemoteBg);
+        }
     });
 
     async function getDailyQuote() {

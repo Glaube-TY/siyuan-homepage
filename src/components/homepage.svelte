@@ -650,8 +650,14 @@
                     if (config.bannerType === "local") {
                         bannerImgSrc = bannerLocalData;
                     } else if (config.bannerType === "remote") {
-                        // 使用 getImage 获取远程图片
-                        remoteBannerImageData = await getImage(bannerRemoteUrl);
+                        if (
+                            !window.navigator.userAgent.includes("Electron") ||
+                            typeof window.require !== "function"
+                        ) {
+                            // 使用 getImage 获取远程图片
+                            remoteBannerImageData =
+                                await getImage(bannerRemoteUrl);
+                        }
                         bannerImgSrc = remoteBannerImageData || bannerRemoteUrl;
                     }
                 } else if (bannerGlobalType === "bing" && advanced) {
@@ -676,7 +682,13 @@
 
                     // 使用 getImage 获取 Bing 图片
                     if (bingImageUrl) {
-                        remoteBannerImageData = await getImage(bingImageUrl);
+                        if (
+                            !window.navigator.userAgent.includes("Electron") ||
+                            typeof window.require !== "function"
+                        ) {
+                            remoteBannerImageData =
+                                await getImage(bingImageUrl);
+                        }
                         bannerImgSrc = remoteBannerImageData || bingImageUrl;
                     }
                 } else if (bannerGlobalType === "bing" && !advanced) {
