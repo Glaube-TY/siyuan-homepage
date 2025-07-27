@@ -38,6 +38,34 @@
                 link: item.mobilUrl || item.url,
             }));
         },
+        zhihu(data: any): HotItem[] {
+            return data.items.map((item) => ({
+                title: item.title,
+                heat: item.extra.info,
+                link: item.url,
+            }));
+        },
+        toutiao(data: any): HotItem[] {
+            return data.items.map((item) => ({
+                title: item.title,
+                heat: "热度未知", // 头条数据中没有提供具体的热度信息
+                link: item.url,
+            }));
+        },
+        douyin(data: any): HotItem[] {
+            return data.result.list.map((item) => ({
+                title: item.word,
+                heat: `${item.hotindex.toLocaleString()}热度`,
+                link: `https://www.douyin.com/search/${encodeURIComponent(item.word)}`,
+            }));
+        },
+        GitHub(data: any): HotItem[] {
+            return data.items.map((item) => ({
+                title: item.title,
+                heat: item.extra.info,
+                link: item.url,
+            }));
+        },
     };
 
     async function fetchData(source: string) {
@@ -48,6 +76,14 @@
             url = "https://zj.v.api.aa1.cn/api/baidu-rs/";
         } else if (source === "weibo") {
             url = "https://zj.v.api.aa1.cn/api/weibo-rs/";
+        } else if (source === "zhihu") {
+            url = "https://whyta.cn/api/zhihu?key=d8c6d4c75ba0";
+        } else if (source === "toutiao") {
+            url = "https://whyta.cn/api/toutiao?key=d8c6d4c75ba0";
+        } else if (source === "douyin") {
+            url = "https://whyta.cn/api/tx/douyinhot?key=d8c6d4c75ba0";
+        } else if (source === "GitHub") {
+            url = "https://whyta.cn/api/github?key=d8c6d4c75ba0";
         } else {
             throw new Error("未知平台");
         }
@@ -61,7 +97,23 @@
             if (!parser) throw new Error(`未找到 ${source} 的解析器`);
 
             hotList = parser(data);
-            widgetTitle = `${source === "bilibili" ? "哔哩哔哩" : source === "baidu" ? "百度" : source === "weibo" ? "微博" : "未知"}热榜🔥`;
+            widgetTitle = `${
+                source === "bilibili"
+                    ? "哔哩哔哩"
+                    : source === "baidu"
+                      ? "百度"
+                      : source === "weibo"
+                        ? "微博"
+                        : source === "zhihu"
+                          ? "知乎"
+                          : source === "toutiao"
+                            ? "今日头条"
+                            : source === "douyin"
+                              ? "抖音"
+                              : source === "GitHub"
+                                ? "GitHub"
+                                : "未知"
+            }热榜🔥`;
         } catch (err) {
             console.error(err);
             error = `加载${widgetTitle}失败`;

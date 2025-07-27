@@ -79,6 +79,10 @@
         { value: "bilibili", label: "B站" },
         { value: "weibo", label: "微博" },
         { value: "baidu", label: "百度" },
+        { value: "zhihu", label: "知乎" },
+        { value: "toutiao", label: "头条" },
+        { value: "douyin", label: "抖音" },
+        { value: "GitHub", label: "GitHub" },
     ];
 
     // 每日一言相关变量
