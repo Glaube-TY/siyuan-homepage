@@ -3,6 +3,8 @@
     import { showMessage } from "siyuan";
     import { getDatabase } from "./widget/databaseChart/getDatabase";
     import { getImage } from "@/components/tools/getImage";
+    import { getNotebooks } from "@/components/tools/getNotebooks";
+    import MultiSelect from "svelte-multiselect";
     import "./contentSettingStyle/contentSetting.scss";
 
     // 弹窗接收的 props
@@ -15,6 +17,8 @@
 
     let activeTab = "note";
 
+    let notebooks = [];
+
     // 下拉选项绑定值
     let selectedContentType: string = "latest-docs";
     let customTextInputValue: string = "";
@@ -22,6 +26,7 @@
     // 最近文档配置
     let docLimit: number = 5;
     let ensureOpenDocs: boolean = false;
+    let selectedNotebookIds: { label: string; value: string }[] = [];
     let docNotebookId: string = "";
     let latestDocsTitle: string = "🕒最近文档";
     let latestDocsPrefix: string = "📄";
@@ -39,12 +44,14 @@
     let showNoteMeta: boolean = true;
     let favoritiesDocPrefix: string = "❤";
     let favoritesNotebookId: string = ""; // 指定收藏文档所在笔记本 ID
+    let selectedFavoritesNotebookIds: { label: string; value: string }[] = [];
 
     // 任务管理相关变量
     let showCompletedTasks = true; // 默认显示已完成任务
     let tasksNotebookId: string = ""; // 任务管理笔记本 ID
     let showTasksDetails = true; // 默认显示任务详情
     let TaskManTitle: string = "📋任务管理";
+    let selectedTasksNotebookIds: { label: string; value: string }[] = [];
 
     // 任务管理Plus 相关变量
     let TaskManPlusTitle: string = "📋任务管理Plus";
@@ -114,6 +121,7 @@
     let customWebUrl: string = "";
 
     // 自定义显示块ID
+    let isRandomDoc: boolean = false;
     let customBlockID: string = "";
 
     // 时间日期相关
@@ -374,6 +382,9 @@
         const settingData = await plugin.loadData(
             `widget-${currentBlockId}.json`,
         );
+
+        notebooks = await getNotebooks(plugin);
+
         if (settingData) {
             let parsedData: any;
 
@@ -395,6 +406,18 @@
                 docLimit = parsedData.data?.[0]?.limit || 5;
                 ensureOpenDocs = parsedData.data?.[0]?.ensureOpenDocs || false;
                 docNotebookId = parsedData.data?.[0]?.docNotebookId || "";
+                selectedNotebookIds = docNotebookId
+                    ? docNotebookId.split(",").map((id) => {
+                          // 根据ID在notebooks数组中查找对应的笔记本名称
+                          const notebook = notebooks.find(
+                              (notebook) => notebook.id === id,
+                          );
+                          return {
+                              label: notebook ? notebook.name : id, // 如果找不到匹配的笔记本，使用ID作为标签
+                              value: id,
+                          };
+                      })
+                    : [];
                 latestDocsTitle =
                     parsedData.data?.[0]?.latestDocsTitle || "🕒最近文档";
                 latestDocsPrefix =
@@ -411,6 +434,18 @@
                     parsedData.data?.favoritiesDocPrefix || favoritiesDocPrefix;
                 favoritesNotebookId =
                     parsedData.data?.favoritesNotebookId || "";
+                selectedFavoritesNotebookIds = favoritesNotebookId
+                    ? favoritesNotebookId.split(",").map((id) => {
+                          // 根据ID在notebooks数组中查找对应的笔记本名称
+                          const notebook = notebooks.find(
+                              (notebook) => notebook.id === id,
+                          );
+                          return {
+                              label: notebook ? notebook.name : id, // 如果找不到匹配的笔记本，使用ID作为标签
+                              value: id,
+                          };
+                      })
+                    : [];
             } else if (parsedData.type === "heatmap") {
                 pastMonthCount = parsedData.data?.[0]?.pastMonthCount || 6;
                 selectedColorPreset =
@@ -446,6 +481,7 @@
             } else if (parsedData.type === "custom-web") {
                 customWebUrl = parsedData.data?.[0]?.url || "";
             } else if (parsedData.type === "custom-protyle") {
+                isRandomDoc = parsedData.data?.[0]?.isRandomDoc || false;
                 customBlockID = parsedData.data?.[0]?.customBlockId || "";
             } else if (parsedData.type === "timedate") {
                 showSeconds = parsedData.data?.showSeconds ?? true;
@@ -480,6 +516,18 @@
                 showCompletedTasks =
                     parsedData.data?.showCompletedTasks ?? true;
                 tasksNotebookId = parsedData.data?.tasksNotebookId || "";
+                selectedTasksNotebookIds = tasksNotebookId
+                    ? tasksNotebookId.split(",").map((id) => {
+                          // 根据ID在notebooks数组中查找对应的笔记本名称
+                          const notebook = notebooks.find(
+                              (notebook) => notebook.id === id,
+                          );
+                          return {
+                              label: notebook ? notebook.name : id, // 如果找不到匹配的笔记本，使用ID作为标签
+                              value: id,
+                          };
+                      })
+                    : [];
                 showTasksDetails = parsedData.data?.showTasksDetails ?? true;
                 TaskManTitle = parsedData.data?.TaskManTitle || "📋任务管理";
             } else if (parsedData.type === "focus") {
@@ -527,7 +575,7 @@
                     parsedData.data?.dailyQuoteBgSelect || dailyQuoteBgSelect;
                 dailyQuoteRemoteBg =
                     parsedData.data?.dailyQuoteRemoteBg || dailyQuoteRemoteBg;
-                    await getDailyQuoteBgImage();
+                await getDailyQuoteBgImage();
                 dailyQuoteLocalBg = parsedData.data?.dailyQuoteLocalBg || "";
             } else if (parsedData.type === "visualChart") {
                 visualChartType =
@@ -700,14 +748,15 @@
                             </label>
                         </div>
                         <div class="form-group doc-notebook-id">
-                            <label for="doc-notebook-id"
-                                >文档笔记本 ID：（多个以逗号隔开）</label
-                            >
-                            <input
+                            <label for="doc-notebook-id">文档笔记本：</label>
+                            <MultiSelect
                                 id="doc-notebook-id"
-                                type="text"
-                                bind:value={docNotebookId}
-                                placeholder="输入笔记本ID"
+                                bind:selected={selectedNotebookIds}
+                                options={notebooks.map((notebook) => ({
+                                    label: notebook.name,
+                                    value: notebook.id,
+                                }))}
+                                placeholder="选择笔记本..."
                             />
                         </div>
                     </div>
@@ -768,14 +817,16 @@
                         </div>
                         <div class="favorites-setting-bottom">
                             <div class="form-group doc-notebook-id">
-                                <label for="doc-notebook-id"
-                                    >文档笔记本 ID：（多个以逗号隔开）</label
+                                <label for="doc-notebook-id">文档笔记本：</label
                                 >
-                                <input
+                                <MultiSelect
                                     id="doc-notebook-id"
-                                    type="text"
-                                    bind:value={favoritesNotebookId}
-                                    placeholder="输入笔记本ID"
+                                    bind:selected={selectedFavoritesNotebookIds}
+                                    options={notebooks.map((notebook) => ({
+                                        label: notebook.name,
+                                        value: notebook.id,
+                                    }))}
+                                    placeholder="选择笔记本..."
                                 />
                             </div>
                         </div>
@@ -867,14 +918,16 @@
                             </label>
                         </div>
                         <div class="form-group TaskMan-notebook-id">
-                            <label for="TaskMan-notebook-id"
-                                >任务笔记本 ID：（多个以逗号隔开）</label
+                            <label for="TaskMan-notebook-id">任务笔记本：</label
                             >
-                            <input
+                            <MultiSelect
                                 id="TaskMan-notebook-id"
-                                type="text"
-                                bind:value={tasksNotebookId}
-                                placeholder="输入笔记本ID"
+                                bind:selected={selectedTasksNotebookIds}
+                                options={notebooks.map((notebook) => ({
+                                    label: notebook.name,
+                                    value: notebook.id,
+                                }))}
+                                placeholder="选择笔记本..."
                             />
                         </div>
                     </div>
@@ -2222,17 +2275,28 @@
                     </div>
                 {:else if selectedContentType === "custom-protyle"}
                     <div class="content-panel custom-protyle">
-                        <h4>自定义文档编辑器</h4>
-                        <p>请输入你想要显示的文档块 ID：</p>
                         <div class="form-group">
-                            <label for="protyle-block-id">块 ID：</label>
-                            <input
-                                id="protyle-block-id"
-                                type="text"
-                                bind:value={customBlockID}
-                                placeholder="例如：20250310094404-1yla4zz"
-                            />
+                            <label for="">
+                                <input
+                                    type="checkbox"
+                                    bind:checked={isRandomDoc}
+                                />
+                                随机漫游文档
+                            </label>
                         </div>
+                        {#if !isRandomDoc}
+                            <div class="form-group">
+                                <label for="protyle-block-id"
+                                    >输入想要显示的文档块 ID：</label
+                                >
+                                <input
+                                    id="protyle-block-id"
+                                    type="text"
+                                    bind:value={customBlockID}
+                                    placeholder="例如：20250310094404-1yla4zz"
+                                />
+                            </div>
+                        {/if}
                     </div>
                 {/if}
             </div>
@@ -2256,6 +2320,9 @@
                 let contentTypeJson = {};
 
                 if (selectedContentType === "latest-docs") {
+                    docNotebookId = selectedNotebookIds
+                        .map((item) => item.value)
+                        .join(",");
                     contentTypeJson = {
                         activeTab: activeTab,
                         type: "latest-docs",
@@ -2272,6 +2339,10 @@
                         ],
                     };
                 } else if (selectedContentType === "favorites") {
+                    // 保存前更新favoritesNotebookId字符串
+                    favoritesNotebookId = selectedFavoritesNotebookIds
+                        .map((item) => item.value)
+                        .join(",");
                     contentTypeJson = {
                         activeTab: activeTab,
                         type: "favorites",
@@ -2310,6 +2381,10 @@
                         },
                     };
                 } else if (selectedContentType === "TaskMan") {
+                    // 保存前更新tasksNotebookId字符串
+                    tasksNotebookId = selectedTasksNotebookIds
+                        .map((item) => item.value)
+                        .join(",");
                     contentTypeJson = {
                         activeTab: activeTab,
                         type: "TaskMan",
@@ -2376,6 +2451,7 @@
                         blockId: currentBlockId,
                         data: [
                             {
+                                isRandomDoc,
                                 customBlockId: customBlockID,
                             },
                         ],

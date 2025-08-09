@@ -108,6 +108,9 @@
         }
 
         .favorites-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            grid-gap: 1rem;
             list-style: none;
             padding-left: 0;
             margin: 0;
@@ -115,11 +118,13 @@
 
         .favorites-item {
             padding: 0.5rem 0.75rem;
-            margin-bottom: 0.5rem;
             background-color: var(--b3-theme-surface);
             border-radius: 6px;
             font-size: 14px;
             transition: background-color 0.2s ease;
+            break-inside: avoid;
+            display: flex;
+            flex-direction: column;
 
             &:hover {
                 background-color: var(--b3-list-hover);
@@ -135,6 +140,7 @@
             text-decoration: none;
             font-weight: bold;
             cursor: pointer;
+            flex-grow: 1;
 
             &:hover {
                 text-decoration: underline;

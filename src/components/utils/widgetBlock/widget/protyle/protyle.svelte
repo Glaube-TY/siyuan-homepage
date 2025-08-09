@@ -1,34 +1,42 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { Protyle } from "siyuan";
+    import { sql } from "@/api";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
+    const parsed = JSON.parse(contentTypeJson);
+    let blockID = parsed.data?.[0]?.customBlockId;
+    const isRandomDoc = parsed.data?.[0]?.isRandomDoc;
 
     let divProtyle: HTMLDivElement;
     let protyle: any;
-    let blockID: string = "";
 
     onMount(async () => {
+        if (isRandomDoc) {
+            await getRandomDocID();
+        }
         protyle = await initProtyle(); // 初始化编辑器
     });
 
     // 初始化 Protyle 编辑器
     async function initProtyle() {
-        const parsed = JSON.parse(contentTypeJson);
-
-        if (parsed.type === "custom-protyle") {
-            blockID = parsed.data?.[0]?.customBlockId;
-        }
-
-        return new Protyle(plugin.app, divProtyle, { // 创建编辑器实例
-            blockId: blockID
+        return new Protyle(plugin.app, divProtyle, {
+            blockId: blockID,
         });
+    }
+
+    async function getRandomDocID() {
+        const query =
+            "SELECT * FROM blocks WHERE type = 'd' order by random() limit 1";
+        const response = await sql(query);
+        const randomDocID = response[0].id;
+        blockID = randomDocID;
     }
 </script>
 
 <div class="content-display">
-    <div id="protyle" bind:this={divProtyle}/>
+    <div id="protyle" bind:this={divProtyle} />
 </div>
 
 <style>

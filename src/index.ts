@@ -249,7 +249,6 @@ export default class PluginHomepage extends Plugin {
                         target: sidebarContainer,
                         props: {
                             plugin: this,
-                            app: this.app
                         }
                     });
                     dock.element.appendChild(sidebarContainer);

@@ -64,6 +64,7 @@
                 <li class="document-item">
                     <div
                         class="document-item-content"
+                        on:keydown={(e) => e.key === 'Enter' && openDocs(plugin, doc.id)}
                         on:click={() =>
                             openDocs(plugin, doc.id)}
                         role="button"
@@ -116,15 +117,21 @@
             padding-left: 0;
             margin: 0;
             overflow-y: auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            grid-gap: 1rem;
+            align-items: start;
         }
 
         .document-item {
             padding: 0.5rem 0.75rem;
-            margin-bottom: 0.5rem;
             background-color: var(--b3-theme-surface);
             border-radius: 6px;
             font-size: 14px;
             transition: background-color 0.2s ease;
+            break-inside: avoid;
+            display: flex;
+            flex-direction: column;
 
             &:hover {
                 background-color: var(--b3-list-hover);
@@ -139,6 +146,7 @@
                 text-decoration: none;
                 font-weight: bold;
                 cursor: pointer;
+                flex-grow: 1;
 
                 &:hover {
                     text-decoration: underline;
@@ -147,7 +155,7 @@
 
             .document-updated-container {
                 font-size: 12px;
-                margin-left: 20px;
+                margin-left: 0;
                 margin-top: 4px;
             }
         }
