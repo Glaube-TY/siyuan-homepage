@@ -24,7 +24,7 @@ export async function getLatestDailyNotes(): Promise<DailyNoteInfo[]> {
             WHERE type = 'd'
             AND ial LIKE '%custom-dailynote-%'
             ORDER BY created DESC
-            LIMIT 20;
+            LIMIT 100;
         `;
         return await sql(query);
     } catch (error) {

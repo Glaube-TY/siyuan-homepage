@@ -253,7 +253,6 @@
                     props: {
                         plugin: plugin,
                         musicFiles: musicFiles,
-                        parsedContent: parsedContent,
                         currentTrackIndex: currentTrackIndex,
                         playTrack: (index: number) => {
                             playTrack(index);
@@ -500,9 +499,33 @@
         border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 
+        .track-info {
+            width: 100%;
+            overflow: hidden;
+        }
+
         .track-info h3 {
             text-align: center;
             font-size: 1.2rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            // 添加滚动效果
+            &:hover {
+                overflow: visible;
+                text-overflow: clip;
+                animation: scroll-left 10s linear infinite;
+            }
+        }
+
+        // 添加滚动动画
+        @keyframes scroll-left {
+            0% {
+                transform: translateX(0%);
+            }
+            100% {
+                transform: translateX(-100%);
+            }
         }
 
         .controls {

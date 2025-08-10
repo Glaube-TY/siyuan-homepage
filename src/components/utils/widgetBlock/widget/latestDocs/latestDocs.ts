@@ -60,7 +60,7 @@ export async function getLatestDocuments(
 
         query += `
             ORDER BY updated DESC
-            LIMIT 20;
+            LIMIT 100;
         `;
 
         const result = await sql(query);

@@ -115,7 +115,7 @@
     let customColor: string = "#1ea769";
 
     // 下拉选项
-    const limitOptions = [5, 10, 15, 20];
+    const limitOptions = [5, 10, 15, 20, 50, 100];
 
     // 自定义网页链接
     let customWebUrl: string = "";
