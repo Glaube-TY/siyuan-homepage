@@ -23,6 +23,13 @@
     let selectedContentType: string = "latest-docs";
     let customTextInputValue: string = "";
 
+    // 子文档配置
+    let childDocsTitle: string = "📄子文档";
+    let childDocsPrefix: string = "📄";
+    let showChildDocsDetails: boolean = true;
+    let childDocsParentId: string = "";
+    let childDocsSortOrder: string = "updated";
+
     // 最近文档配置
     let docLimit: number = 5;
     let ensureOpenDocs: boolean = false;
@@ -648,6 +655,18 @@
                 databaseChartLineStyle =
                     parsedData.data?.databaseChartLineStyle ||
                     databaseChartLineStyle;
+            } else if (parsedData.type === "childDocs") {
+                childDocsTitle =
+                    parsedData.data?.childDocsTitle || childDocsTitle;
+                childDocsPrefix =
+                    parsedData.data?.childDocsPrefix || childDocsPrefix;
+                showChildDocsDetails =
+                    parsedData.data?.showChildDocsDetails ??
+                    showChildDocsDetails;
+                childDocsParentId =
+                    parsedData.data?.childDocsParentId || childDocsParentId;
+                childDocsSortOrder =
+                    parsedData.data?.childDocsSortOrder || childDocsSortOrder;
             }
         }
 
@@ -693,6 +712,7 @@
                     <option value="latest-docs">最近文档</option>
                     <option value="recent-journals">最近日记</option>
                     <option value="quick-notes">快速笔记</option>
+                    <option value="childDocs">子文档👑</option>
                     <option value="stikynot">便签👑</option>
                 </select>
             </div>
@@ -1059,6 +1079,66 @@
                                             >粉瓷</option
                                         >
                                     </select>
+                                </label>
+                            </div>
+                        </div>
+                    {:else}
+                        <h3>👑会员专属权益👑</h3>
+                    {/if}
+                {:else if selectedContentType === "childDocs"}
+                    {#if advancedEnabled}
+                        <div class="content-panel childDocs">
+                            <div class="form-group childDocs-title">
+                                <label for="childDocs-title">
+                                    组件标题：
+                                    <input
+                                        id="childDocs-title"
+                                        type="text"
+                                        bind:value={childDocsTitle}
+                                        placeholder="输入组件标题"
+                                    />
+                                </label>
+                            </div>
+                            <div class="form-group childDocs-prefix">
+                                <label for="childDocs-prefix">
+                                    文档前缀：
+                                    <input
+                                        id="childDocs-prefix"
+                                        type="text"
+                                        bind:value={childDocsPrefix}
+                                        placeholder="输入文档前缀"
+                                    />
+                                </label>
+                                <label for="childDocs-sortOrder">
+                                    排序方式：
+                                    <select
+                                        id="childDocs-sortOrder"
+                                        bind:value={childDocsSortOrder}
+                                    >
+                                        <option value="updated">更新时间</option
+                                        >
+                                        <option value="created">创建时间</option
+                                        >
+                                    </select>
+                                </label>
+                                <label for="childDocs-showChildDocsDetails">
+                                    显示详情：
+                                    <input
+                                        id="childDocs-showChildDocsDetails"
+                                        type="checkbox"
+                                        bind:checked={showChildDocsDetails}
+                                    />
+                                </label>
+                            </div>
+                            <div class="form-group childDocs-parentId">
+                                <label for="childDocs-parentId">
+                                    父文档ID：
+                                    <input
+                                        id="childDocs-parentId"
+                                        type="text"
+                                        bind:value={childDocsParentId}
+                                        placeholder="输入父文档ID"
+                                    />
                                 </label>
                             </div>
                         </div>
@@ -2601,6 +2681,19 @@
                             databaseChartLineCountSort,
                             databaseChartLineMarkPoint,
                             databaseChartLineMarkPointSize,
+                        },
+                    };
+                } else if (selectedContentType === "childDocs") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "childDocs",
+                        blockId: currentBlockId,
+                        data: {
+                            childDocsTitle,
+                            childDocsPrefix,
+                            showChildDocsDetails,
+                            childDocsParentId,
+                            childDocsSortOrder,
                         },
                     };
                 }

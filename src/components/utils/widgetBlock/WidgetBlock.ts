@@ -27,6 +27,7 @@ import musicPlayer from "./widget/musicPlayer/musicPlayer.svelte";
 import Stikynot from "./widget/stikynot/stikynot.svelte";
 import News from "./widget/News/News.svelte";
 import databaseChart from "./widget/databaseChart/databaseChart.svelte";
+import childDocs from "./widget/childDocs/childDocs.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -347,7 +348,16 @@ export class WidgetBlock {
                     contentTypeJson: contentTypeJson
                 }
             });
+        } else if (contentData.type === "childDocs") {
+            new childDocs({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
         }
+
 
         // 重新绑定按钮事件（如果需要）
         this.setupEventListeners();
