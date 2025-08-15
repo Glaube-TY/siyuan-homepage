@@ -113,6 +113,23 @@
     // 新闻资讯相关变量
     let NewsType: string = "daily-news-bulletin";
 
+    // 星座运势相关变量
+    let selectedConstellation: string = "摩羯";
+    const constellations = [
+        "摩羯",
+        "水瓶",
+        "双鱼",
+        "白羊",
+        "金牛",
+        "双子",
+        "巨蟹",
+        "狮子",
+        "处女",
+        "天秤",
+        "天蝎",
+        "射手",
+    ];
+
     // 时间范围相关
     let timeRangeType: "past" | "custom" = "past";
     let pastMonthCount: number = 6;
@@ -667,7 +684,12 @@
                     parsedData.data?.childDocsParentId || childDocsParentId;
                 childDocsSortOrder =
                     parsedData.data?.childDocsSortOrder || childDocsSortOrder;
+            } else if (parsedData.type === "constellation") {
+                selectedConstellation =
+                    parsedData.data?.selectedConstellation ||
+                    selectedConstellation;
             }
+
         }
 
         advancedEnabled = plugin.ADVANCED;
@@ -1155,6 +1177,7 @@
                     <option value="HOT">热搜</option>
                     <option value="dailyQuote">每日一言</option>
                     <option value="News">新闻资讯👑</option>
+                    <option value="constellation">星座运势👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1317,6 +1340,27 @@
                                         >
                                     </select>
                                 </label>
+                            </div>
+                        </div>
+                    {:else}
+                        <h3>👑会员专属权益👑</h3>
+                    {/if}
+                {:else if selectedContentType === "constellation"}
+                    {#if advancedEnabled}
+                        <div class="content-panel constellation">
+                            <h4>星座运势设置</h4>
+                            <div class="form-group">
+                                <label for="constellation">选择星座：</label>
+                                <select
+                                    id="constellation"
+                                    bind:value={selectedConstellation}
+                                >
+                                    {#each constellations as constellation}
+                                        <option value={constellation}
+                                            >{constellation}</option
+                                        >
+                                    {/each}
+                                </select>
                             </div>
                         </div>
                     {:else}
@@ -2694,6 +2738,15 @@
                             showChildDocsDetails,
                             childDocsParentId,
                             childDocsSortOrder,
+                        },
+                    };
+                } else if (selectedContentType === "constellation") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "constellation",
+                        blockId: currentBlockId,
+                        data: {
+                            selectedConstellation,
                         },
                     };
                 }

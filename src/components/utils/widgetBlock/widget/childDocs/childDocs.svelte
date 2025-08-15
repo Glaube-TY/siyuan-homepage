@@ -31,7 +31,6 @@
             ORDER BY ${childDocsSortOrder} DESC
         `;
         displayedDocs = await sql(query);
-        console.log(displayedDocs);
     }
 </script>
 
