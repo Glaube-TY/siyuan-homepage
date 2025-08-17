@@ -203,9 +203,8 @@
                             />
                         </span>
 
-                        <a
+                        <div
                             class="task-content"
-                            href=""
                             on:click={(e) => {
                                 e.preventDefault();
                                 handleOpenTask(task);
@@ -221,7 +220,7 @@
                             aria-label={task.content}
                         >
                             {task.content}
-                        </a>
+                        </div>
                     </div>
 
                     {#if showTasksDetails}

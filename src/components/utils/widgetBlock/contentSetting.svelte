@@ -130,13 +130,12 @@
         "射手",
     ];
 
-    // 时间范围相关
+    // 热力图相关
     let timeRangeType: "past" | "custom" = "past";
     let pastMonthCount: number = 6;
-
-    // 热力图相关
     let selectedColorPreset: "github" | "blue" | "custom" = "github";
     let customColor: string = "#1ea769";
+    let heatmapCountType: string = "block";
 
     // 下拉选项
     const limitOptions = [5, 10, 15, 20, 50, 100];
@@ -471,10 +470,11 @@
                       })
                     : [];
             } else if (parsedData.type === "heatmap") {
-                pastMonthCount = parsedData.data?.[0]?.pastMonthCount || 6;
+                pastMonthCount = parsedData.data?.pastMonthCount || 6;
                 selectedColorPreset =
-                    parsedData.data?.[0]?.selectedColorPreset || "github";
-                customColor = parsedData.data?.[0]?.customColor || "#1ea769";
+                    parsedData.data?.selectedColorPreset || "github";
+                customColor = parsedData.data?.customColor || "#1ea769";
+                heatmapCountType = parsedData.data?.heatmapCountType || "block";
             } else if (parsedData.type === "recent-journals") {
                 docJournalLimit = parsedData.data?.limit || 5;
                 recentJournalsShowType =
@@ -689,7 +689,6 @@
                     parsedData.data?.selectedConstellation ||
                     selectedConstellation;
             }
-
         }
 
         advancedEnabled = plugin.ADVANCED;
@@ -1429,9 +1428,23 @@
                             </div>
                         {/if}
 
-                        <p>
-                            注：热力图统计的是每日的块（block）数，而不是字数。
-                        </p>
+                        <div class="form-group">
+                            <label for=""
+                                >计数类型：<select
+                                    bind:value={heatmapCountType}
+                                >
+                                    <option value="block">内容块</option>
+                                    <option value="words">字数👑</option>
+                                </select></label
+                            >
+                            {#if heatmapCountType === "words"}
+                                <p>👑订阅会员专属</p>
+                                <p>字数统计的块类型为：</p>
+                                <p>
+                                    段落块、标题块、列表块、代码块、公式块、引注块、表格块
+                                </p>
+                            {/if}
+                        </div>
                     </div>
                 {:else if selectedContentType === "sql"}
                     <div class="content-panel sql">
@@ -2480,17 +2493,17 @@
                         },
                     };
                 } else if (selectedContentType === "heatmap") {
-                    const config = {
-                        timeRangeType,
-                        pastMonthCount,
-                        selectedColorPreset,
-                        customColor,
-                    };
                     contentTypeJson = {
                         activeTab: activeTab,
                         type: "heatmap",
                         blockId: currentBlockId,
-                        data: [config],
+                        data: {
+                            timeRangeType,
+                            pastMonthCount,
+                            selectedColorPreset,
+                            customColor,
+                            heatmapCountType,
+                        },
                     };
                 } else if (selectedContentType === "recent-journals") {
                     contentTypeJson = {

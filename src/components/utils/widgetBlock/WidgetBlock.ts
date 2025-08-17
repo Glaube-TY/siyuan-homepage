@@ -192,6 +192,7 @@ export class WidgetBlock {
             new heatmap({
                 target: this.element,
                 props: {
+                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });
