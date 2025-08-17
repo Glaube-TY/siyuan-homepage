@@ -14,12 +14,6 @@
     const heatmapCountType = parsedContent?.data?.heatmapCountType || "block";
 
     onMount(async () => {
-        const advancedEnabled = plugin.ADVANCED;
-        if (!advancedEnabled && heatmapCountType === "words") {
-            showMessage("❌字数统计热力图仅订阅会员可用！");
-            return;
-        }
-
         // 根据 pastMonthCount 计算时间范围
         let range = getRecentSixMonthsRange();
         const now = new Date();
@@ -72,6 +66,12 @@
         }
 
         setTimeout(async () => {
+            const advancedEnabled = plugin.ADVANCED;
+            if (!advancedEnabled && heatmapCountType === "words") {
+                showMessage("❌字数统计热力图仅订阅会员可用！");
+                return;
+            }
+            
             myChart.setOption({
                 title: {
                     left: "center",
