@@ -75,38 +75,45 @@ export default class PluginHomepage extends Plugin {
             },
         });
 
-        // 自动打开主页
-        const savedConfig = await this.loadData("homepageSettingConfig.json");
-        if (savedConfig.autoOpenHomepage === true) {
-            if (this.isMobile && savedConfig.autoOpenMobileHomepage === true) {
-                // 移动端打开方式
-                this.currentMobileDialog = svelteDialog({
-                    title: "移动主页",
-                    width: "100vh",
-                    height: "100vh",
-                    constructor: (containerEl: HTMLElement) => {
-                        return new MobileHomepage({
-                            target: containerEl,
-                            props: {
-                                plugin: this,
-                                close: () => {
-                                    this.currentMobileDialog.close();
+        // 检查是否在新窗口中打开
+        const urlParams = new URLSearchParams(window.location.search);
+        const isNewWindow = urlParams.has('json');
+
+        // 只在非新窗口中自动打开主页
+        if (!isNewWindow) {
+            // 自动打开主页
+            const savedConfig = await this.loadData("homepageSettingConfig.json");
+            if (savedConfig.autoOpenHomepage === true) {
+                if (this.isMobile && savedConfig.autoOpenMobileHomepage === true) {
+                    // 移动端打开方式
+                    this.currentMobileDialog = svelteDialog({
+                        title: "移动主页",
+                        width: "100vh",
+                        height: "100vh",
+                        constructor: (containerEl: HTMLElement) => {
+                            return new MobileHomepage({
+                                target: containerEl,
+                                props: {
+                                    plugin: this,
+                                    close: () => {
+                                        this.currentMobileDialog.close();
+                                    },
                                 },
-                            },
-                        });
-                    },
-                });
-            } else {
-                // 桌面端保持原有逻辑
-                openTab({
-                    app: this.app,
-                    custom: {
-                        icon: "iconhomepage",
-                        title: "首页",
-                        data: { text: "思源笔记首页" },
-                        id: this.name + TAB_TYPE,
-                    },
-                });
+                            });
+                        },
+                    });
+                } else {
+                    // 桌面端保持原有逻辑
+                    openTab({
+                        app: this.app,
+                        custom: {
+                            icon: "iconhomepage",
+                            title: "首页",
+                            data: { text: "思源笔记首页" },
+                            id: this.name + TAB_TYPE,
+                        },
+                    });
+                }
             }
         }
 
