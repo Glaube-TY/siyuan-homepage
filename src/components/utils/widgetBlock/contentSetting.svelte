@@ -132,7 +132,9 @@
 
     // 热力图相关
     let timeRangeType: "past" | "custom" = "past";
+    let heatmapTitle: string = "📅创作热力图";
     let pastMonthCount: number = 6;
+    let showLabel: boolean = true;
     let selectedColorPreset: "github" | "blue" | "custom" = "github";
     let customColor: string = "#1ea769";
     let heatmapCountType: string = "block";
@@ -470,7 +472,9 @@
                       })
                     : [];
             } else if (parsedData.type === "heatmap") {
+                heatmapTitle = parsedData.data?.heatmapTitle || "";
                 pastMonthCount = parsedData.data?.pastMonthCount || 6;
+                showLabel = parsedData.data?.showLabel ?? true;
                 selectedColorPreset =
                     parsedData.data?.selectedColorPreset || "github";
                 customColor = parsedData.data?.customColor || "#1ea769";
@@ -1382,9 +1386,14 @@
             <div class="dynamic-content-area">
                 {#if selectedContentType === "heatmap"}
                     <div class="content-panel heatmap">
-                        <h4>热力图设置</h4>
-
-                        <!-- 时间范围类型 -->
+                        <div class="form-group">
+                            <label for="heatmap-title">热力图标题：</label>
+                            <input
+                                type="text"
+                                id="heatmap-title"
+                                bind:value={heatmapTitle}
+                            />
+                        </div>
                         <div class="form-group">
                             <label for="month-count">显示范围：</label>
                             <select
@@ -1397,6 +1406,15 @@
                                     >
                                 {/each}
                             </select>
+
+                            <label for="show-label">
+                                显示标签：
+                                <input
+                                    type="checkbox"
+                                    id="show-label"
+                                    bind:checked={showLabel}
+                                />
+                            </label>
                         </div>
 
                         <!-- 颜色选择 -->
@@ -2499,7 +2517,9 @@
                         blockId: currentBlockId,
                         data: {
                             timeRangeType,
+                            heatmapTitle,
                             pastMonthCount,
+                            showLabel,
                             selectedColorPreset,
                             customColor,
                             heatmapCountType,

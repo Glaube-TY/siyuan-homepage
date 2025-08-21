@@ -8,7 +8,9 @@
     export let contentTypeJson: string = "{}";
     const parsedContent = JSON.parse(contentTypeJson);
 
+    const heatmapTitle = parsedContent?.data?.heatmapTitle || "";
     const pastMonthCount = parsedContent?.data?.pastMonthCount || 6;
+    const showLabel = parsedContent?.data?.showLabel ?? true;
     const colorPreset = parsedContent?.data?.selectedColorPreset || "github";
     const customColor = parsedContent?.data?.customColor || "#1ea769";
     const heatmapCountType = parsedContent?.data?.heatmapCountType || "block";
@@ -74,8 +76,9 @@
             
             myChart.setOption({
                 title: {
+                    show: !!heatmapTitle,
                     left: "center",
-                    text: "📅创作热力图",
+                    text: heatmapTitle,
                     textStyle: {
                         color: themeTextColor,
                     },
@@ -89,12 +92,13 @@
                     },
                 },
                 visualMap: {
+                    show: showLabel,
                     min: 0,
                     max: Math.max(0, ...(Object.values(counts) as number[])),
                     type: "piecewise",
                     orient: "horizontal",
                     left: "center",
-                    top: 40,
+                    top: heatmapTitle ? 40 : 0,
                     textStyle: {
                         color: themeTextColor,
                     },
@@ -103,7 +107,7 @@
                     },
                 },
                 calendar: {
-                    top: 100,
+                    top: (!showLabel && !heatmapTitle) ? 30 : (showLabel && heatmapTitle) ? 100 : 50,
                     left: 30,
                     right: 10,
                     cellSize: ["auto", "auto"],
