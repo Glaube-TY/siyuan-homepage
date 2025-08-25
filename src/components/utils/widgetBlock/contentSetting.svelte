@@ -130,6 +130,9 @@
         "射手",
     ];
 
+    // 历史上的今天相关变量
+    let historyDaysType: string = "list";
+
     // 热力图相关
     let timeRangeType: "past" | "custom" = "past";
     let heatmapTitle: string = "📅创作热力图";
@@ -692,6 +695,9 @@
                 selectedConstellation =
                     parsedData.data?.selectedConstellation ||
                     selectedConstellation;
+            } else if (parsedData.type === "historyDays") {
+                historyDaysType =
+                    parsedData.data?.historyDaysType || historyDaysType;
             }
         }
 
@@ -1181,6 +1187,7 @@
                     <option value="dailyQuote">每日一言</option>
                     <option value="News">新闻资讯👑</option>
                     <option value="constellation">星座运势👑</option>
+                    <option value="historyDays">历史上的今天👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1366,6 +1373,21 @@
                                 </select>
                             </div>
                         </div>
+                    {:else}
+                        <h3>👑会员专属权益👑</h3>
+                    {/if}
+                {:else if selectedContentType === "historyDays"}
+                    {#if advancedEnabled}
+                        <label for="historyDaysType">
+                            显示类型：
+                            <select
+                                id="historyDaysType"
+                                bind:value={historyDaysType}
+                            >
+                                <option value="list">列表</option>
+                                <option value="img">图片</option>
+                            </select>
+                        </label>
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
@@ -2780,6 +2802,15 @@
                         blockId: currentBlockId,
                         data: {
                             selectedConstellation,
+                        },
+                    };
+                } else if (selectedContentType === "historyDays") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "historyDays",
+                        blockId: currentBlockId,
+                        data: {
+                            historyDaysType,
                         },
                     };
                 }
