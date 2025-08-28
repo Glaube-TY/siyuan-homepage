@@ -1,4 +1,4 @@
-import { WidgetBlock } from "@/components/utils/widgetBlock/WidgetBlock";
+import { WidgetBlock } from "./sidebarWidgetBlock";
 import { saveLayout } from "./widget_layout";
 
 export function addCustomBlock(

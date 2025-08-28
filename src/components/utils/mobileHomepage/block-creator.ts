@@ -1,4 +1,4 @@
-import { WidgetBlock } from "@/components/utils/widgetBlock/WidgetBlock";
+import { WidgetBlock } from "./mobileWidgetBlock";
 import { saveLayout } from "./mobileHomepage_layout";
 
 export function addCustomBlock(

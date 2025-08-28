@@ -21,6 +21,16 @@
     export let borderColor: string = "#000000";
     export let borderWidth: number = 1;
 
+    let widgetLayoutNumber = 4;
+
+    let rowSize = 1;
+    let colSize = 1;
+
+    $: sizeOptions = Array.from(
+        { length: widgetLayoutNumber },
+        (_, i) => i + 1,
+    );
+
     // 更新背景的方法
     function updateBackground() {
         const rgbaColor = hexToRgba(backgroundColor, backgroundOpacity);
@@ -87,6 +97,18 @@
                 borderWidth = widthValue;
             }
         }
+
+        // 获取并设置组件的宽高比
+        const aspectRatio = computedStyle.aspectRatio;
+        if (aspectRatio) {
+            const [widthRatio, heightRatio] = aspectRatio
+                .split("/")
+                .map((s) => s.trim());
+            if (widthRatio && heightRatio) {
+                colSize = parseInt(widthRatio);
+                rowSize = parseInt(heightRatio);
+            }
+        }
     }
 
     // 统一颜色转换器
@@ -123,7 +145,10 @@
         return null;
     }
 
-    onMount(() => {
+    onMount(async () => {
+        const config = await plugin.loadData("homepageSettingConfig.json");
+        widgetLayoutNumber = config.widgetLayoutNumber || 4;
+
         loadCurrentStyles();
         updateBackground();
         updateBorder();
@@ -133,1259 +158,38 @@
 <div class="settings-group">
     <div class="setting-item">
         <div class="size-options-row">
-            <h4 style="margin-bottom: 0.5rem;">改变尺寸</h4>
-
-            <div class="size-options-row-one">
-                <!-- 1x1 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(11);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 1x2 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(12);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 2x1 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(21);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 2x2 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(22);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                    </svg>
-                </button>
+            <div class="size-option-group">
+                <label for="rowSize">列尺寸：</label>
+                <select id="rowSize" bind:value={rowSize}>
+                    {#each sizeOptions as size}
+                        <option value={size}>{size}</option>
+                    {/each}
+                </select>
+                <label for="colSize">行尺寸：</label>
+                <select id="colSize" bind:value={colSize}>
+                    {#each sizeOptions as size}
+                        <option value={size}>{size}</option>
+                    {/each}
+                </select>
             </div>
 
-            <div class="size-options-row-two">
-                <!-- 1x3 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(13);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一行 - 黑色 -->
-                        <rect x="5" y="5" width="28" height="28" fill="black" />
-                        <rect
-                            x="38"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="71"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第二行 - 灰色 -->
-                        <rect
-                            x="5"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="38"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-
-                        <!-- 第三行 - 灰色 -->
-                        <rect
-                            x="5"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="38"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 3x1 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(31);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一列 - 黑色 -->
-                        <rect x="5" y="5" width="28" height="28" fill="black" />
-                        <rect
-                            x="5"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第二列 - 灰色 -->
-                        <rect
-                            x="38"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="38"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="38"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-
-                        <!-- 第三列 - 灰色 -->
-                        <rect
-                            x="71"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 2x3 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(23);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一行 - 黑色 -->
-                        <rect x="5" y="5" width="28" height="28" fill="black" />
-                        <rect
-                            x="38"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="71"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第二行 - 黑色 -->
-                        <rect
-                            x="5"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="38"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="71"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第三行 - 灰色 -->
-                        <rect
-                            x="5"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="38"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 3x2 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(32);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一列 - 黑色 -->
-                        <rect x="5" y="5" width="28" height="28" fill="black" />
-                        <rect
-                            x="5"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第二列 - 黑色 -->
-                        <rect
-                            x="38"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="38"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="38"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第三列 - 灰色 -->
-                        <rect
-                            x="71"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 3x3 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(33);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一行 -->
-                        <rect x="5" y="5" width="28" height="28" fill="black" />
-                        <rect
-                            x="38"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="71"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第二行 -->
-                        <rect
-                            x="5"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="38"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="71"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第三行 -->
-                        <rect
-                            x="5"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="38"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="71"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                    </svg>
-                </button>
-            </div>
-
-            <div class="size-options-row-three">
-                <!-- 1x4 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(14);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 200 200"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一行 - 黑色 -->
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="105"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="155"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 其他行 - 灰色 -->
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <rect
-                            x="5"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="55"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <rect
-                            x="5"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="55"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 2x4 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(24);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 200 200"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一行 - 黑色 -->
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="105"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="155"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 第二行 - 黑色 -->
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="105"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="155"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 第三行 - 灰色 -->
-                        <rect
-                            x="5"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="55"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <!-- 第四行 - 灰色 -->
-                        <rect
-                            x="5"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="55"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 4x1 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(41);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 200 200"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一列 - 黑色 -->
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 其他列 - 灰色 -->
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <rect
-                            x="55"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <rect
-                            x="55"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 4x2 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(42);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 200 200"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一列 - 黑色 -->
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 第二列 - 黑色 -->
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 第三列 - 灰色 -->
-                        <rect
-                            x="105"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <!-- 第四列 - 灰色 -->
-                        <rect
-                            x="155"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 4x4 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    on:click={() => {
-                        onSetSize(44);
-                        saveLayout(plugin);
-                        saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 200 200"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一行 -->
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="105"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="155"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 第二行 -->
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="105"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="155"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 第三行 -->
-                        <rect
-                            x="5"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="105"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="155"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 第四行 -->
-                        <rect
-                            x="5"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="105"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="155"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                    </svg>
-                </button>
-            </div>
+            <button
+                type="button"
+                class="apply-size-button"
+                on:click={() => {
+                    onSetSize(parseInt(`${rowSize}${colSize}`));
+                    saveLayout(plugin);
+                    saveSidebarLayout(plugin);
+                    saveMobileLayout(plugin);
+                }}
+            >
+                应用尺寸
+            </button>
         </div>
     </div>
 
     <div class="setting-item">
         <div class="style-controls-row">
-            <h4 style="margin-bottom: 0.5rem;">自定义样式</h4>
 
             <!-- 第一行：背景颜色 + 背景透明度 -->
             <div class="style-subgroup" style="margin-bottom: 0.5rem; ">
@@ -1474,7 +278,7 @@
     </div>
 </div>
 
-<style>
+<style lang="scss">
     .settings-group {
         display: inline-flex;
         flex-direction: column;
@@ -1489,28 +293,6 @@
         gap: 0.5rem;
         flex-direction: column;
         align-items: center;
-    }
-
-    .size-options-row-one,
-    .size-options-row-two,
-    .size-options-row-three {
-        display: flex;
-        gap: 1rem;
-        flex-wrap: wrap;
-        align-items: center;
-    }
-
-    .size-option {
-        background: var(--b3-theme-background);
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .size-option:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-        border-color: var(--b3-theme-primary);
     }
 
     .color-picker-group label,
@@ -1577,5 +359,65 @@
         box-sizing: border-box;
         padding-left: 1rem;
         align-items: center;
+    }
+
+    select {
+        width: max-content;
+        padding: 0.5rem 2.5rem 0.5rem 1rem;
+        font-size: 14px;
+        border: 1px solid var(--b3-theme-primary-lighter);
+        border-radius: 8px;
+        background-color: var(--b3-theme-surface);
+        appearance: none;
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2390a3bf' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right 0.75rem center;
+        background-size: 16px;
+        transition: all 0.2s ease;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        color: var(--b3-theme-text);
+
+        &:hover {
+            border-color: var(--b3-theme-primary);
+            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1);
+        }
+
+        &:focus {
+            outline: none;
+            border-color: var(--b3-theme-primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        &:disabled {
+            background-color: var(--b3-theme-surface);
+            cursor: not-allowed;
+        }
+
+        option {
+            padding: 0.5rem;
+            background: var(--b3-theme-surface);
+
+            &:checked {
+                background: var(--b3-theme-primary-light);
+                color: white;
+            }
+
+            &:hover {
+                background: var(--b3-theme-primary-light);
+            }
+        }
+    }
+
+    .apply-size-button {
+        background-color: var(--b3-theme-primary);
+        color: white;
+        border: none;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        cursor: pointer;
+
+        &:hover {
+            transform: translateY(-1px);
+        }
     }
 </style>

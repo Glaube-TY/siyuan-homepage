@@ -1,11 +1,9 @@
 .custom-content {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
     grid-auto-flow: dense;
     flex-grow: 1;
     height: auto;
     background-color: var(--b3-theme-background);
-    gap: 5px;
 
     .widget-block {
         position: relative;

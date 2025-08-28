@@ -219,6 +219,15 @@
     let databaseChartLineStyle: string = "solid";
     let databaseChartLineWidth: number = 2;
 
+    // 统计卡片相关
+    let statisticalCardTitle: string = "统计卡片";
+    let statisticalCardTitleSize: number = 1;
+    let statisticalCardTitleColor: string = "#000000";
+    let statisticalCardContent: string = "notebooksCount";
+    let statisticalCardCountSize: number = 2;
+    let statisticalCardCountColor: string = "#000000";
+    let customSQLCount: string = "";
+
     // 音乐播放器相关
     let musicFolderPath = "";
     let autoPlay = false;
@@ -698,6 +707,26 @@
             } else if (parsedData.type === "historyDays") {
                 historyDaysType =
                     parsedData.data?.historyDaysType || historyDaysType;
+            } else if (parsedData.type === "statisticalCard") {
+                statisticalCardTitle =
+                    parsedData.data?.statisticalCardTitle ||
+                    statisticalCardTitle;
+                statisticalCardTitleSize =
+                    parsedData.data?.statisticalCardTitleSize ||
+                    statisticalCardTitleSize;
+                statisticalCardTitleColor =
+                    parsedData.data?.statisticalCardTitleColor ||
+                    statisticalCardTitleColor;
+                statisticalCardContent =
+                    parsedData.data?.statisticalCardContent ||
+                    statisticalCardContent;
+                statisticalCardCountSize =
+                    parsedData.data?.statisticalCardCountSize ||
+                    statisticalCardCountSize;
+                statisticalCardCountColor =
+                    parsedData.data?.statisticalCardCountColor ||
+                    statisticalCardCountColor;
+                customSQLCount = parsedData.data?.customSQLCount || "";
             }
         }
 
@@ -1402,6 +1431,7 @@
                     <option value="sql">SQL 查询</option>
                     <option value="visualChart">可视化图表</option>
                     <option value="databaseChart">数据库图表👑</option>
+                    <option value="statisticalCard">统计卡片👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1814,6 +1844,110 @@
                                     开发中……
                                 </div>{:else if databaseChartType === "point"}
                                 <div>开发中……</div>{/if}
+                        </div>
+                    {:else}
+                        <h3>👑会员专属权益👑</h3>
+                    {/if}
+                {:else if selectedContentType === "statisticalCard"}
+                    {#if advancedEnabled}
+                        <div class="content-panel statisticalCard">
+                            <div class="form-group statisticalCardTitle">
+                                <div>
+                                    <label for="">标题：</label><input
+                                        type="text"
+                                        bind:value={statisticalCardTitle}
+                                    />
+                                </div>
+                                <div>
+                                    <label for=""
+                                        >标题大小：<input
+                                            type="number"
+                                            bind:value={
+                                                statisticalCardTitleSize
+                                            }
+                                        /></label
+                                    >
+                                    <label for=""
+                                        >标题颜色：<input
+                                            type="color"
+                                            bind:value={
+                                                statisticalCardTitleColor
+                                            }
+                                        /></label
+                                    >
+                                </div>
+                            </div>
+                            <div class="form-group statisticalCardContent">
+                                <label for=""
+                                    >统计内容：<select
+                                        name=""
+                                        id=""
+                                        bind:value={statisticalCardContent}
+                                    >
+                                        <option value="notebooksCount"
+                                            >笔记本数</option
+                                        >
+                                        <option value="docsCount">文档数</option
+                                        >
+                                        <option value="blocksCount">块数</option
+                                        >
+                                        <option value="wordsCount">字数</option>
+                                        <option value="tasksCount"
+                                            >任务数</option
+                                        >
+                                        <option value="doneTasksCount"
+                                            >已完成任务数</option
+                                        >
+                                        <option value="undoneTasksCount"
+                                            >未完成任务数</option
+                                        >
+                                        <option value="dailynotesCount"
+                                            >日记数</option
+                                        >
+                                        <option value="tagsCount">标签数</option
+                                        >
+                                        <option value="citationCount"
+                                            >引述数</option
+                                        >
+                                        <option value="codeBlocksCount"
+                                            >代码数</option
+                                        >
+                                        <option value="mathBlocksCount"
+                                            >公式数</option
+                                        >
+                                        <option value="customSQLCount"
+                                            >SQL 查询结果数</option
+                                        >
+                                    </select></label
+                                >
+                                <div>
+                                    <label for=""
+                                        >数字大小：<input
+                                            type="number"
+                                            bind:value={
+                                                statisticalCardCountSize
+                                            }
+                                        /></label
+                                    >
+                                    <label for=""
+                                        >数字颜色：<input
+                                            type="color"
+                                            bind:value={
+                                                statisticalCardCountColor
+                                            }
+                                        /></label
+                                    >
+                                </div>
+                            </div>
+                            {#if statisticalCardContent === "customSQLCount"}
+                                <div class="form-group">
+                                    <label for=""
+                                        >自定义 SQL 查询：<textarea
+                                            bind:value={customSQLCount}
+                                        /></label
+                                    >
+                                </div>
+                            {/if}
                         </div>
                     {:else}
                         <h3>👑会员专属权益👑</h3>
@@ -2811,6 +2945,21 @@
                         blockId: currentBlockId,
                         data: {
                             historyDaysType,
+                        },
+                    };
+                } else if (selectedContentType === "statisticalCard") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "statisticalCard",
+                        blockId: currentBlockId,
+                        data: {
+                            statisticalCardTitle,
+                            statisticalCardTitleSize,
+                            statisticalCardTitleColor,
+                            statisticalCardContent,
+                            statisticalCardCountSize,
+                            statisticalCardCountColor,
+                            customSQLCount,
                         },
                     };
                 }

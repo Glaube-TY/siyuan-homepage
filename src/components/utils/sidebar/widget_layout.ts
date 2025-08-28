@@ -1,5 +1,5 @@
 import type { Plugin } from 'siyuan';
-import { WidgetBlock } from "@/components/utils/widgetBlock/WidgetBlock";
+import { WidgetBlock } from "./sidebarWidgetBlock";
 
 /**
  * 保存当前布局信息到 widgetLayout.json

@@ -1,0 +1,14 @@
+.statisticalCard{
+    .form-group{
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+
+        div{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+    }
+}

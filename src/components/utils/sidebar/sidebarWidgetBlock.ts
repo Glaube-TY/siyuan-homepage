@@ -1,43 +1,42 @@
 import { svelteDialog } from "../../../libs/dialog";
-import WidgetBlockStyle from "./styleSetting.svelte";
-import WidgetBlockContent from "./contentSetting.svelte";
-import { setBlockSize } from "./utils/block-size-handler";
-import { saveLayout } from "./utils/layout-handler";
+import WidgetBlockStyle from "./sidebarStyleSetting.svelte";
+import WidgetBlockContent from "../widgetBlock/contentSetting.svelte";
+import { setBlockSize } from "../widgetBlock/utils/block-size-handler";
+import { saveLayout } from "../widgetBlock/utils/layout-handler";
 import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
 import { saveLayout as saveMobileLayout } from "@/components/utils/mobileHomepage/mobileHomepage_layout";
-import latestDocs from "./widget/latestDocs/latestDocs.svelte";
-import latestDailyNotes from "./widget/latestDailyNotes/latestDailyNotes.svelte";
-import TaskMan from "./widget/tasks/recentTasks.svelte";
-import countdown from "./widget/countdown/countdown.svelte";
-import weather from "./widget/weather/weather.svelte";
-import HOT from "./widget/HOT/HOT.svelte";
-import favorites from "./widget/favorites/favorites.svelte";
-import heatmap from "./widget/heatmap/heatmap.svelte";
-import customText from "./widget/customText/customText.svelte";
-import customWeb from "./widget/webview/webview.svelte";
-import customProtyle from "./widget/protyle/protyle.svelte";
-import timedate from "./widget/timedate/timedate.svelte";
-import focus from "./widget/focus/focus.svelte";
-import sql from "./widget/sql/sql.svelte";
-import TaskManPlus from "./widget/tasksPlus/tasksPlus.svelte";
-import quickNotes from "./widget/quickNotes/quickNotes.svelte";
-import dailyQuote from "./widget/dailyQuote/dailyQuote.svelte";
-import visualChart from "./widget/visualChart/visualChart.svelte";
-import musicPlayer from "./widget/musicPlayer/musicPlayer.svelte";
-import Stikynot from "./widget/stikynot/stikynot.svelte";
-import News from "./widget/News/News.svelte";
-import databaseChart from "./widget/databaseChart/databaseChart.svelte";
-import childDocs from "./widget/childDocs/childDocs.svelte";
-import constellation from "./widget/constellation/constellation.svelte";
-import historyDays from "./widget/historyDays/historyDays.svelte";
-import statisticalCard from "./widget/statisticalCard/statisticalCard.svelte";
+import latestDocs from "../widgetBlock/widget/latestDocs/latestDocs.svelte";
+import latestDailyNotes from "../widgetBlock/widget/latestDailyNotes/latestDailyNotes.svelte";
+import TaskMan from "../widgetBlock/widget/tasks/recentTasks.svelte";
+import countdown from "../widgetBlock/widget/countdown/countdown.svelte";
+import weather from "../widgetBlock/widget/weather/weather.svelte";
+import HOT from "../widgetBlock/widget/HOT/HOT.svelte";
+import favorites from "../widgetBlock/widget/favorites/favorites.svelte";
+import heatmap from "../widgetBlock/widget/heatmap/heatmap.svelte";
+import customText from "../widgetBlock/widget/customText/customText.svelte";
+import customWeb from "../widgetBlock/widget/webview/webview.svelte";
+import customProtyle from "../widgetBlock/widget/protyle/protyle.svelte";
+import timedate from "../widgetBlock/widget/timedate/timedate.svelte";
+import focus from "../widgetBlock/widget/focus/focus.svelte";
+import sql from "../widgetBlock/widget/sql/sql.svelte";
+import TaskManPlus from "../widgetBlock/widget/tasksPlus/tasksPlus.svelte";
+import quickNotes from "../widgetBlock/widget/quickNotes/quickNotes.svelte";
+import dailyQuote from "../widgetBlock/widget/dailyQuote/dailyQuote.svelte";
+import visualChart from "../widgetBlock/widget/visualChart/visualChart.svelte";
+import musicPlayer from "../widgetBlock/widget/musicPlayer/musicPlayer.svelte";
+import Stikynot from "../widgetBlock/widget/stikynot/stikynot.svelte";
+import News from "../widgetBlock/widget/News/News.svelte";
+import databaseChart from "../widgetBlock/widget/databaseChart/databaseChart.svelte";
+import childDocs from "../widgetBlock/widget/childDocs/childDocs.svelte";
+import constellation from "../widgetBlock/widget/constellation/constellation.svelte";
+import historyDays from "../widgetBlock/widget/historyDays/historyDays.svelte";
+import statisticalCard from "../widgetBlock/widget/statisticalCard/statisticalCard.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
     public readonly id: string;
     public style: string;
     public loadcontent: string;
-    public widgetLayoutNumber: number;
 
     private readonly plugin: any;
     private readonly currentBlockForSettingsRef: { value: HTMLElement | null };
@@ -47,17 +46,13 @@ export class WidgetBlock {
         currentBlockForSettingsRef: { value: HTMLElement | null },
         id?: string,
         style?: string,
-        loadcontent?: string,
+        loadcontent?: string
     ) {
         this.id = id || `block-${Date.now()}`;
         this.plugin = plugin;
         this.currentBlockForSettingsRef = currentBlockForSettingsRef;
         this.style = style || 'aspect-ratio: 1 / 1;background-color: rgba(0, 0, 0, 0.03);draggable: true;border: 2px solid var(--b3-theme-primary);box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);transition: all 0.2s ease-in-out;border-radius: 8px;';
         this.loadcontent = loadcontent || '';
-
-        plugin.loadData("homepageSettingConfig.json").then((config: { widgetLayoutNumber?: number }) => {
-            this.widgetLayoutNumber = config.widgetLayoutNumber || 4;
-        });
 
         this.element = document.createElement("div");
         this.element.className = "widget-block";
@@ -74,7 +69,7 @@ export class WidgetBlock {
         this.setupEventListeners();
     }
 
-    private setupEventListeners() { 
+    private setupEventListeners() {
         const styleButton = this.element.querySelector(".block-style-button");
         const contentButton = this.element.querySelector(".block-content-button");
         const updateButton = this.element.querySelector(".block-update-button");
@@ -106,7 +101,7 @@ export class WidgetBlock {
                                     this.plugin.removeData(`widget-${this.id}.json`);
                                 },
                                 onSetSize: (size: number) => {
-                                    setBlockSize(this.currentBlockForSettingsRef.value, size, this.widgetLayoutNumber);
+                                    setBlockSize(this.currentBlockForSettingsRef.value, size, 4);
                                     dialogRef.close();
                                 },
                             },

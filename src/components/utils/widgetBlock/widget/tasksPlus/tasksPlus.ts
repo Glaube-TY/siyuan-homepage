@@ -125,7 +125,7 @@ export async function formatTasksList(
     return [];
 }
 
-function customFilterTasks(tasksList: any[], filter: string) {
+export function customFilterTasks(tasksList: any[], filter: string) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrow = new Date(today.getTime() + 86400000);

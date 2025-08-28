@@ -1,8 +1,8 @@
 import type { Plugin } from 'siyuan';
-import { WidgetBlock } from "@/components/utils/widgetBlock/WidgetBlock";
+import { WidgetBlock } from "./mobileWidgetBlock";
 
 /**
- * 保存当前布局信息到 widgetLayout.json
+ * 保存当前布局信息到 mobileHomepageWidgetLayout.json
  */
 export async function saveLayout(plugin: Plugin) {
     const container = document.querySelector(".mobile-homepage-widget");

@@ -86,6 +86,8 @@
     let selectedButtonIndex: number = -1;
 
     // 组件设置内容
+    let widgetLayoutNumber = 4;
+    let widgetGap = 0.2;
     // 快速笔记设置
     let quickNotesEnabled = false;
     let quickNotesPosition = "";
@@ -154,6 +156,10 @@
             if (savedConfig.selectedButton) {
                 selectedButton = savedConfig.selectedButton;
             }
+
+            // 组件设置
+            widgetLayoutNumber = savedConfig.widgetLayoutNumber || 4;
+            widgetGap = savedConfig.widgetGap || 0.2;
 
             quickNotesEnabled = savedConfig.quickNotesEnabled ?? false;
             quickNotesPosition = savedConfig.quickNotesPosition || "";
@@ -388,6 +394,8 @@
             selectedButton: selectedButton,
 
             // 组件配置
+            widgetLayoutNumber: widgetLayoutNumber,
+            widgetGap: widgetGap,
             quickNotesEnabled: quickNotesEnabled,
             quickNotesPosition: quickNotesPosition,
             quickNotesTimestampEnabled: quickNotesTimestampEnabled,
@@ -936,6 +944,19 @@
 
                 {#if settingsActiveTab === "widgets"}
                     <div class="section-setting widgets-setting">
+                        <div class="form-group widget-layout-setting">
+                            <h3>组件布局设置</h3>
+                            <label for=""
+                                >每行组件数量：<input
+                                    type="number"
+                                    bind:value={widgetLayoutNumber}
+                                /></label
+                            >
+                            <label for="widget-gap">组件间距：<input
+                                    type="number"
+                                    bind:value={widgetGap}
+                                /></label>
+                        </div>
                         <div class="form-group quick-notes-setting">
                             <h3>快速笔记设置</h3>
                             <label for="quick-notes-open"

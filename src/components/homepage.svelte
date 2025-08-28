@@ -84,6 +84,9 @@
     let showMoreMenu = false;
     let isHoveringNavBar = false;
 
+    let widgetLayoutNumber = 4;
+    let widgetGap = 0.2;
+
     onMount(async () => {
         // 页面加载完成后初始化拖拽
         if (document.readyState === "complete") {
@@ -588,6 +591,10 @@
         const config =
             (await plugin.loadData("homepageSettingConfig.json")) || {};
 
+        // 组件设置
+        widgetLayoutNumber = config.widgetLayoutNumber || 4;
+        widgetGap = config.widgetGap || 0.2;
+
         advanced = plugin.ADVANCED;
 
         // 横幅相关配置
@@ -912,6 +919,8 @@
         class="section custom-content"
         role="region"
         aria-label="自定义组件区域"
+        style="grid-template-columns: repeat({widgetLayoutNumber}, 1fr);
+        gap: {widgetGap}rem;"
     ></div>
 
     <!-- 插件信息底部区域 -->
