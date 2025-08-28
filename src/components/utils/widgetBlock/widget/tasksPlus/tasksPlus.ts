@@ -146,6 +146,8 @@ function customFilterTasks(tasksList: any[], filter: string) {
                 return ['x', 'X'].some(c => task.taskCheck.includes(c));
             } else if (condition === 'start') {
                 return !!startDate;
+            } else if (condition === 'not start') {
+                return !startDate;
             } else if (condition.startsWith('start date ')) {
                 const dateStr = condition.replace('start date ', '').trim();
                 const targetDate = parseCustomDate(dateStr);
@@ -202,6 +204,8 @@ function customFilterTasks(tasksList: any[], filter: string) {
                 return startDate && startDate < nextmonth;
             } else if (condition === 'deadline') {
                 return !!deadline;
+            } else if (condition === 'not deadline') {
+                return !deadline;
             } else if (condition === 'deadline today') {
                 return deadline && isWithinDay(deadline, today);
             } else if (condition === 'deadline after today') {
@@ -252,12 +256,14 @@ function customFilterTasks(tasksList: any[], filter: string) {
                 if (match) {
                     const amount = parseInt(match[1], 10);
                     const unit = match[2] as 'day' | 'week' | 'month';
-                    const targetDate = addTimeToDate(today, -amount, unit); // 往前推
+                    const targetDate = addTimeToDate(today, -amount, unit);
                     return deadline && deadline > targetDate;
                 }
                 return false;
             } else if (condition === 'priority') {
                 return !!task.parsed.priority;
+            } else if (condition === 'not priority') {
+                return !task.parsed.priority;
             } else if (/^priority \d(?:,\d)*$/.test(condition)) {
                 const priorityLevels = condition.replace('priority ', '')
                     .split(',')
@@ -270,6 +276,8 @@ function customFilterTasks(tasksList: any[], filter: string) {
                 return priorityLevels.includes(exclamationCount);
             } else if (condition === 'recurrence') {
                 return !!task.parsed.recurrence;
+            } else if (condition === 'not recurrence') {
+                return !task.parsed.recurrence;
             } else if (/^recurrence (everyday|everyweek|everymonth|everyyear|every \d+ (day|month|year)s?)$/.test(condition)) {
                 const recurrenceText = task.parsed.recurrence || "";
                 let match;
@@ -293,6 +301,8 @@ function customFilterTasks(tasksList: any[], filter: string) {
                 }
             } else if (condition === 'tag') {
                 return task.parsed.tags.length > 0;
+            } else if (condition === 'not tag') {
+                return task.parsed.tags.length === 0;
             } else if (condition.startsWith('tag ')) {
                 const tags = condition
                     .split(' ')[1]
@@ -305,11 +315,15 @@ function customFilterTasks(tasksList: any[], filter: string) {
                 return tags.some(tag => task.parsed.tags.includes(tag));
             } else if (condition === 'location') {
                 return !!task.parsed.location;
+            } else if (condition === 'not location') {
+                return !task.parsed.location;
             } else if (condition.startsWith('location ')) {
                 const locationKeyword = condition.replace('location ', '').trim();
                 return task.parsed.location.trim() === locationKeyword;
             } else if (condition === 'reminder') {
                 return !!task.parsed.reminder?.trim();
+            } else if (condition === 'not reminder') {
+                return !task.parsed.reminder?.trim();
             } else if (condition.startsWith('notebook ')) {
                 const boxNames = condition.replace('notebook ', '')
                     .split(/[，,]/)
