@@ -22,7 +22,11 @@
 
     let statisticalCount = 0;
 
+    let advancedEnabled = false;
+
     onMount(async () => {
+        advancedEnabled = plugin.ADVANCED;
+
         if (statisticalCardContent === "customSQLCount") {
             const res = await plugin.client.sql({
                 stmt: customSQLCount,
@@ -38,12 +42,29 @@
 </script>
 
 <div class="content-display">
-    <div class="card-header">
-        <div class="card-title" style="font-size: {statisticalCardTitleSize}rem; color: {statisticalCardTitleColor};">{statisticalCardTitle}</div>
-    </div>
-    <div class="card-body">
-        <div class="statistical-count" style="font-size: {statisticalCardCountSize}rem; color: {statisticalCardCountColor};">{statisticalCount}</div>
-    </div>
+    {#if advancedEnabled}
+        <div class="card-header">
+            <div
+                class="card-title"
+                style="font-size: {statisticalCardTitleSize}rem; color: {statisticalCardTitleColor};"
+            >
+                {statisticalCardTitle}
+            </div>
+        </div>
+        <div class="card-body">
+            <div
+                class="statistical-count"
+                style="font-size: {statisticalCardCountSize}rem; color: {statisticalCardCountColor};"
+            >
+                {statisticalCount}
+            </div>
+        </div>
+    {:else}
+        <div class="content-not-advanced">
+            <h2>👑高级会员专属功能👑</h2>
+            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+        </div>
+    {/if}
 </div>
 
 <style lang="scss">
@@ -74,11 +95,22 @@
             align-items: center;
             justify-content: center;
             padding-top: 0.5rem;
+            word-break: break-all;
 
             .statistical-count {
                 font-size: 2.5rem;
                 font-weight: 700;
             }
+        }
+
+        .content-not-advanced {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
         }
     }
 </style>

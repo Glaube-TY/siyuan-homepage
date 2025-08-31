@@ -93,6 +93,8 @@
     let quickNotesPosition = "";
     let quickNotesTimestampEnabled = true;
     let quickNotesAddPosition = "bottom";
+    // 任务管理Plus设置
+    let taskEditorEnabled = true;
 
     // vip设置
     let footerEnabled = true;
@@ -167,6 +169,8 @@
                 savedConfig.quickNotesTimestampEnabled ?? true;
             quickNotesAddPosition =
                 savedConfig.quickNotesAddPosition || "bottom";
+
+            taskEditorEnabled = savedConfig.taskEditorEnabled ?? true;
 
             footerEnabled = savedConfig.footerEnabled ?? true;
             footerContent = savedConfig.footerContent || "";
@@ -400,6 +404,7 @@
             quickNotesPosition: quickNotesPosition,
             quickNotesTimestampEnabled: quickNotesTimestampEnabled,
             quickNotesAddPosition: quickNotesAddPosition,
+            taskEditorEnabled: taskEditorEnabled,
 
             // 页脚配置
             footerEnabled: footerEnabled,
@@ -952,10 +957,12 @@
                                     bind:value={widgetLayoutNumber}
                                 /></label
                             >
-                            <label for="widget-gap">组件间距：<input
+                            <label for="widget-gap"
+                                >组件间距：<input
                                     type="number"
                                     bind:value={widgetGap}
-                                /></label>
+                                /></label
+                            >
                         </div>
                         <div class="form-group quick-notes-setting">
                             <h3>快速笔记设置</h3>
@@ -997,6 +1004,16 @@
                                     启用时间戳
                                 </label>
                             {/if}
+                        </div>
+                        <div class="form-group task-plus-setting">
+                            <h3>任务管理Plus设置</h3>
+                            <label for="task-editor-enabled"
+                                ><input
+                                    id="task-editor-enabled"
+                                    type="checkbox"
+                                    bind:checked={taskEditorEnabled}
+                                /> 开启任务编辑器</label
+                            >
                         </div>
                     </div>
                 {/if}

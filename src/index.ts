@@ -35,6 +35,7 @@ export default class PluginHomepage extends Plugin {
     workplacePath: string;
 
     async onload() {
+        const config = await this.loadData("homepageSettingConfig.json");
         this.registerIcon();
 
         const frontEnd = getFrontend();
@@ -44,13 +45,16 @@ export default class PluginHomepage extends Plugin {
         this.workplacePath = confRes.data.conf.system.workspaceDir;
 
         this.eventBus.on("open-menu-doctree", this.docTreeMenuEventBindThis);
-        this.eventBus.on("open-menu-content", this.contentMenuEventBindThis);
-
+        if (config.taskEditorEnabled) {
+            this.eventBus.on("open-menu-content", this.contentMenuEventBindThis);
+        }
         this.data[STORAGE_NAME] = { readonlyText: "Readonly" };
 
         this.registerTopBar();
         this.registerCommand();
-        await this.registerDock();
+        if (config.sidebarEnabled) {
+            this.registerDock();
+        }
     }
 
     async onunload() {
@@ -234,34 +238,30 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async registerDock() {
-        const sidebarEnabled = await this.loadData("homepageSettingConfig.json").then((res) => {
-            return res.sidebarEnabled;
-        })
-        if (sidebarEnabled) {
-            this.addDock({
-                config: {
-                    position: "RightTop",
-                    size: { width: 200, height: 0 },
-                    icon: "iconhomepage",
-                    title: "侧边栏",
-                    hotkey: "⌥⌘C",
-                },
-                data: {
-                    text: "这是一个主页侧边栏。"
-                },
-                type: DOCK_TYPE,
-                init: (dock) => {
-                    const sidebarContainer = document.createElement("div");
-                    new Sidebar({
-                        target: sidebarContainer,
-                        props: {
-                            plugin: this,
-                        }
-                    });
-                    dock.element.appendChild(sidebarContainer);
-                },
-            });
-        }
+        this.addDock({
+            config: {
+                position: "RightTop",
+                size: { width: 200, height: 0 },
+                icon: "iconhomepage",
+                title: "侧边栏",
+                hotkey: "⌥⌘C",
+            },
+            data: {
+                text: "这是一个主页侧边栏。"
+            },
+            type: DOCK_TYPE,
+            init: (dock) => {
+                const sidebarContainer = document.createElement("div");
+                new Sidebar({
+                    target: sidebarContainer,
+                    props: {
+                        plugin: this,
+                    }
+                });
+                dock.element.appendChild(sidebarContainer);
+            },
+        });
+
     }
 
     private handleDocTreeMenu({ detail }: any) {
@@ -316,13 +316,12 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    private handleContentMenu({ detail }: any) {
+    private async handleContentMenu({ detail }: any) {
         const blockElement = detail.element?.closest?.('[data-node-id]');
         if (!blockElement) {
             console.warn('未找到块元素');
             return;
         }
-
         detail.menu.addItem({
             icon: "iconTask",
             label: "任务编辑器（主页插件）",
