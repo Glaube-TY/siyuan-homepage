@@ -839,11 +839,12 @@
                                 placeholder="选择笔记本..."
                             />
                         </div>
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/G0S9wtMEqi5R4LkvRd7cTRVXnGf?from=from_copylink" target="_blank">最近文档</a></div>
                     </div>
                 {:else if selectedContentType === "favorites"}
                     <div class="content-panel favorites">
                         <!-- 收藏文档设置区域 -->
-                        <h4>收藏文档设置</h4>
                         <div class="favorites-setting-top">
                             <div>
                                 <div class="form-group">
@@ -910,6 +911,8 @@
                                 />
                             </div>
                         </div>
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/HCICwChqpi9Iglkw6nwcVuP1nsf?from=from_copylink" target="_blank">收藏文档</a></div>
                     </div>
                 {:else if selectedContentType === "recent-journals"}
                     <div class="content-panel recent-journals">
@@ -966,6 +969,8 @@
                                 </label>
                             </div>
                         {/if}
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/JeWrwUDxmiPX5lk0XbZcHI1bn5g?from=from_copylink" target="_blank">最近日记</a></div>
                     </div>
                 {:else if selectedContentType === "TaskMan"}
                     <div class="content-panel TaskMan">
@@ -1010,6 +1015,8 @@
                                 placeholder="选择笔记本..."
                             />
                         </div>
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/T18vwmZeqinQW2kxoxccpYVHndf?from=from_copylink" target="_blank">任务管理</a></div>
                     </div>
                 {:else if selectedContentType === "TaskManPlus"}
                     <div class="content-panel TaskManPlus">
@@ -1084,6 +1091,8 @@
                                 <option value="priority">优先级❗</option>
                             </select>
                         </label>
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/CCwfwq75Ziu8m5kQ0HXcnVbfnod?from=from_copylink" target="_blank">任务管理Plus</a></div>
                     </div>
                 {:else if selectedContentType === "quick-notes"}
                     <div class="content-panel quick-notes">
@@ -1110,6 +1119,8 @@
                                 <option value="CRE">创建时间</option>
                             </select>
                         </label>
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/XhZ7ww1PDimrZxkbxPqcvZrKnIb?from=from_copylink" target="_blank">快速笔记</a></div>
                     </div>
                 {:else if selectedContentType === "stikynot"}
                     {#if advancedEnabled}
@@ -1145,6 +1156,8 @@
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
+                    <hr>
+                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/Dmm6wkiPCi8sNzk1ju4cD14JnKy?from=from_copylink" target="_blank">便签</a></div>
                 {:else if selectedContentType === "childDocs"}
                     {#if advancedEnabled}
                         <div class="content-panel childDocs">
@@ -1205,6 +1218,8 @@
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
+                    <hr>
+                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/DAaIweKDBipUhbkGXOvcL6Q5nqh?from=from_copylink" target="_blank">子文档</a></div>
                 {/if}
             </div>
         {:else if activeTab === "info"}
@@ -1223,7 +1238,6 @@
             <div class="dynamic-content-area">
                 {#if selectedContentType === "HOT"}
                     <div class="content-panel hot">
-                        <h4>热搜设置</h4>
                         <div class="form-group">
                             <label for="hot-source">选择热搜平台：</label>
                             <select id="hot-source" bind:value={hotSource}>
@@ -1234,6 +1248,9 @@
                                 {/each}
                             </select>
                         </div>
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/W7u5wQCEOibCxhkyA7mc5mDWnWh?from=from_copylink" target="_blank">热搜</a></div>
+                        <p>注：若某一热搜来源失效请联系我更新~</p>
                     </div>
                 {:else if selectedContentType === "dailyQuote"}
                     <div class="content-panel dailyQuote">
@@ -1349,6 +1366,9 @@
                                 {/if}
                             </div>
                         </div>
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/QRVowj3azihjGukBoR5cmBKsnKg?from=from_copylink" target="_blank">每日一言</a></div>
+                        <p>注：若某一接口失效请联系我更新~</p>
                     </div>
                 {:else if selectedContentType === "News"}
                     {#if advancedEnabled}
@@ -1384,6 +1404,9 @@
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
+                    <hr>
+                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/FM0PwE2KVin6ytkQBuzca5pWnZf?from=from_copylink" target="_blank">新闻资讯</a></div>
+                    <p>注：若某一接口失效请联系我更新~</p>
                 {:else if selectedContentType === "constellation"}
                     {#if advancedEnabled}
                         <div class="content-panel constellation">
@@ -1405,6 +1428,9 @@
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
+                    <hr>
+                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/RqNUwkJaBiJwHHkFAc4cHmWenqb?from=from_copylink" target="_blank">星座运势</a></div>
+                    <p>注：若某一接口失效请联系我更新~</p>
                 {:else if selectedContentType === "historyDays"}
                     {#if advancedEnabled}
                         <label for="historyDaysType">
@@ -1420,6 +1446,9 @@
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
+                    <hr>
+                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/SgHPwf76fiVlsnkxUNTcZ0ADnXg?from=from_copylink" target="_blank">历史上的今天</a></div>
+                    <p>注：若接口失效请联系我更新~</p>
                 {/if}
             </div>
         {:else if activeTab === "visualization"}
@@ -1515,6 +1544,9 @@
                                 </p>
                             {/if}
                         </div>
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/W2QjwU3DkiCMaok69yqcfV5knLc?from=from_copylink" target="_blank">热力图</a></div>
                     </div>
                 {:else if selectedContentType === "sql"}
                     <div class="content-panel sql">
@@ -1558,6 +1590,9 @@
                                 />
                             </label>
                         </div>
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/QG5nw3GPkiKjk3kIG9lcYpzOn6g?from=from_copylink" target="_blank">SQL查询</a></div>
                     </div>
                 {:else if selectedContentType === "visualChart"}
                     <div class="content-panel visualChart">
@@ -1570,6 +1605,9 @@
                                 </select></label
                             >
                         </div>
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/M7FzwiwMQiNdKXkrIrucpOtenxb?from=from_copylink" target="_blank">可视化图表</a></div>
                     </div>
                 {:else if selectedContentType === "databaseChart"}
                     {#if advancedEnabled}
@@ -1848,6 +1886,9 @@
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
+                    <hr>
+                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/TVpYw7TRPiG6hRksrYKc7oBjnmd?from=from_copylink" target="_blank">数据库图表</a></div>
+                    <p>组件开发中~</p>
                 {:else if selectedContentType === "statisticalCard"}
                     {#if advancedEnabled}
                         <div class="content-panel statisticalCard">
@@ -1952,6 +1993,8 @@
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
+                    <hr>
+                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/B8kGwSDdui3vy3kz55EcJkVHnHD?from=from_copylink" target="_blank">统计卡片</a></div>
                 {/if}
             </div>
         {:else if activeTab === "tool"}
@@ -1970,7 +2013,6 @@
             <div class="dynamic-content-area">
                 {#if selectedContentType === "countdown"}
                     <div class="content-panel countdown">
-                        <h4>倒数日设置</h4>
                         <div class="form-group">
                             <label for="countdown-style">选择显示方式：</label>
                             <select
@@ -2070,10 +2112,12 @@
                             style="margin: 1rem;"
                             on:click={() => addEvent()}>➕ 添加</button
                         >
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/KjYew1TbViBCIQkmsbBcBO6vnOd?from=from_copylink" target="_blank">倒数日</a></div>
                     </div>
                 {:else if selectedContentType === "weather"}
                     <div class="content-panel weather">
-                        <h4>今日天气设置</h4>
                         <div class="form-group">
                             <label for="weather-city">城市名称：</label>
                             <input
@@ -2082,6 +2126,9 @@
                                 bind:value={customWeatherCity}
                                 placeholder="例如：北京"
                             />
+
+                            <hr>
+                            <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/ER44wITRDi0m8okvcsGcxtZInix?from=from_copylink" target="_blank">今日天气</a></div>
                         </div>
                     </div>
                 {:else if selectedContentType === "timedate"}
@@ -2386,6 +2433,9 @@
                                 </div>
                             </div>
                         </div>
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/NlvZweO3LiUA2XkC2escjktKnXg?from=from_copylink" target="_blank">时钟</a></div>
                     </div>
                 {:else if selectedContentType === "focus"}
                     <div class="content-panel focus">
@@ -2520,6 +2570,9 @@
                                 </div>
                             </div>
                         </div>
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/R1KPw7ZqNi4iVJkjGdhcVYmtnkd?from=from_copylink" target="_blank">番茄钟</a></div>
                     </div>
                 {:else if selectedContentType === "musicPlayer"}
                     {#if advancedEnabled}
@@ -2547,6 +2600,8 @@
                     {:else}
                         <h3>👑会员专属权益👑</h3>
                     {/if}
+                    <hr>
+                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/GJQNwPxiBiRGYAkbJxMcCHTanag?from=from_copylink" target="_blank">音乐播放器</a></div>
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -2569,11 +2624,13 @@
                             格式编写..."
                             bind:value={customTextInputValue}
                         ></textarea>
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/DkJnwuWzuipxpgkcTKZcEyaMnHf?from=from_copylink" target="_blank">自定义文字</a></div>
                     </div>
                 {:else if selectedContentType === "custom-web"}
                     <div class="content-panel custom-web">
-                        <h4>自定义网页浏览器</h4>
-                        <p>请输入你想要显示的网页地址：</p>
+                        <p>输入要显示的网页地址：</p>
                         <div class="form-group">
                             <label for="custom-web-url">网页地址：</label>
                             <input
@@ -2583,6 +2640,9 @@
                                 placeholder="https://example.com"
                             />
                         </div>
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/Tk3mwYwMTiQrpSkkzQpcPsdGnUd?from=from_copylink" target="_blank">网页浏览器</a></div>
                     </div>
                 {:else if selectedContentType === "custom-protyle"}
                     <div class="content-panel custom-protyle">
@@ -2608,6 +2668,9 @@
                                 />
                             </div>
                         {/if}
+
+                        <hr>
+                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/XQV7wtEtsihu2IkbYpWcOWSunKf?from=from_copylink" target="_blank">文档编辑器</a></div>
                     </div>
                 {/if}
             </div>

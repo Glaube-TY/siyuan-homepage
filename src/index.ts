@@ -45,14 +45,14 @@ export default class PluginHomepage extends Plugin {
         this.workplacePath = confRes.data.conf.system.workspaceDir;
 
         this.eventBus.on("open-menu-doctree", this.docTreeMenuEventBindThis);
-        if (config.taskEditorEnabled) {
+        if (config.taskEditorEnabled ?? true) {
             this.eventBus.on("open-menu-content", this.contentMenuEventBindThis);
         }
         this.data[STORAGE_NAME] = { readonlyText: "Readonly" };
 
         this.registerTopBar();
         this.registerCommand();
-        if (config.sidebarEnabled) {
+        if (config.sidebarEnabled ?? false) {
             this.registerDock();
         }
     }
