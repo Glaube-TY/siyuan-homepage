@@ -195,6 +195,30 @@ export default class PluginHomepage extends Plugin {
 
             },
         });
+
+        // 添加快速打开主页的快捷键命令
+        this.addCommand({
+            langKey: "打开主页",
+            hotkey: "⇧⌘H",
+            callback: async () => {
+                // 检查是否为移动端
+                if (this.isMobile) {
+                    showMessage("❌移动端不支持快捷键开启");
+                    return;
+                } else {
+                    // 桌面端打开方式
+                    openTab({
+                        app: this.app,
+                        custom: {
+                            icon: "iconhomepage",
+                            title: "首页",
+                            data: { text: "思源笔记首页" },
+                            id: this.name + TAB_TYPE,
+                        },
+                    });
+                }
+            },
+        });
     }
 
     private registerTopBar() {
