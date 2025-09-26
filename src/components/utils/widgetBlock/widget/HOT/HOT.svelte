@@ -27,8 +27,8 @@
         baidu(data: any): HotItem[] {
             return data.data.map((item) => ({
                 title: item.title,
-                heat: `${parseInt(item.hot).toLocaleString()}热度`,
-                link: item.mobilUrl || item.url,
+                heat: item.hot,
+                link: item.url,
             }));
         },
         weibo(data: any): HotItem[] {
@@ -53,9 +53,9 @@
             }));
         },
         douyin(data: any): HotItem[] {
-            return data.result.list.map((item) => ({
+            return data.data.map((item) => ({
                 title: item.word,
-                heat: `${item.hotindex.toLocaleString()}热度`,
+                heat: `${item.hot_value.toLocaleString()}热度`,
                 link: `https://www.douyin.com/search/${encodeURIComponent(item.word)}`,
             }));
         },
@@ -73,15 +73,15 @@
         if (source === "bilibili") {
             url = "https://v.api.aa1.cn/api/bilibili-rs/";
         } else if (source === "baidu") {
-            url = "https://zj.v.api.aa1.cn/api/baidu-rs/";
+            url = "https://v2.xxapi.cn/api/baiduhot";
         } else if (source === "weibo") {
-            url = "https://zj.v.api.aa1.cn/api/weibo-rs/";
+            url = "https://v2.xxapi.cn/api/weibohot";
         } else if (source === "zhihu") {
             url = "https://whyta.cn/api/zhihu?key=d8c6d4c75ba0";
         } else if (source === "toutiao") {
             url = "https://whyta.cn/api/toutiao?key=d8c6d4c75ba0";
         } else if (source === "douyin") {
-            url = "https://whyta.cn/api/tx/douyinhot?key=d8c6d4c75ba0";
+            url = "https://v2.xxapi.cn/api/douyinhot";
         } else if (source === "GitHub") {
             url = "https://whyta.cn/api/github?key=d8c6d4c75ba0";
         } else {
