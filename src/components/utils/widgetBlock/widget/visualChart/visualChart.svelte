@@ -403,9 +403,9 @@
     }
 
     async function getTag() {
-        const repo = await fetchSyncPost("/api/tag/getTag", { sort: 1 });
+        const repo = await fetchSyncPost("/api/tag/getTag", { sort: 1, ignoreMaxListHint: true, app: "homepageVisualChart" });
         const tagsList = repo.data;
-        const tagData = tagsList.map((tag) => ({
+        const tagData = tagsList.map((tag: { name: string; count: number }) => ({
             name: tag.name,
             count: tag.count,
         }));
