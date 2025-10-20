@@ -30,7 +30,7 @@ export async function getStatisticalData(statisticalType: string, plugin: any) {
         const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE type = 'd' AND ial LIKE '%custom-dailynote-%' LIMIT 9999999999999;" });
         statisticalCount = res.data.length;
     } else if (statisticalType === "tagsCount") {
-        const res = await fetchSyncPost("/api/tag/getTag", { sort: 1 });
+        const res = await fetchSyncPost("/api/tag/getTag", { sort: 1, ignoreMaxListHint: true, app: "statisticalCard" });
         statisticalCount = res.data.length;
     } else if (statisticalType === "codeBlocksCount") {
         const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE type = 'c' LIMIT 9999999999999;" });

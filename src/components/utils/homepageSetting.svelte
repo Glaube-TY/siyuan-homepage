@@ -143,6 +143,7 @@
             titleIconType = savedConfig.titleIconType || "emoji";
             tempTitleIconEmoji = savedConfig.TitleIconEmoji || "🏠";
             tempTitleIconImage = savedConfig.TitleIconImage || null;
+            tempTitleIconStyle = savedConfig.tempTitleIconStyle || "square";
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
             tempStatsInfoText = savedConfig.statsInfoText;
 
