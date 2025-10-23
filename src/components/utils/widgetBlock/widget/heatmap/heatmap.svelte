@@ -17,7 +17,7 @@
 
     onMount(async () => {
         // 根据 pastMonthCount 计算时间范围
-        let range = getRecentSixMonthsRange();
+        let range = getRecentYearRange();
         const now = new Date();
         const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         const start = new Date(now);
@@ -151,7 +151,7 @@
 
     async function getblocks(): Promise<any> {
         try {
-            const [startDate, endDate] = getRecentSixMonthsRange();
+            const [startDate, endDate] = getRecentYearRange();
             const query = `
             SELECT *
             FROM blocks 
@@ -167,7 +167,7 @@
 
     async function getTextBlocks(): Promise<any> {
         try {
-            const [startDate, endDate] = getRecentSixMonthsRange();
+            const [startDate, endDate] = getRecentYearRange();
             const query = `
             SELECT *
             FROM blocks 
@@ -183,11 +183,11 @@
         }
     }
 
-    function getRecentSixMonthsRange(): string[] {
+    function getRecentYearRange(): string[] {
         const now = new Date();
         const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         const start = new Date(now);
-        start.setMonth(start.getMonth() - 5, 1);
+        start.setMonth(start.getMonth() - 11, 1);
 
         return [
             start.toISOString().split("T")[0],

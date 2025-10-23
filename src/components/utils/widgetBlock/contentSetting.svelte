@@ -1481,7 +1481,7 @@
                                 id="month-count"
                                 bind:value={pastMonthCount}
                             >
-                                {#each [1, 2, 3, 4, 5, 6] as month}
+                                {#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as month}
                                     <option value={month}
                                         >前 {month} 个月</option
                                     >
