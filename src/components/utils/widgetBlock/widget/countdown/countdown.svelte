@@ -159,7 +159,6 @@
     .widget-title {
         font-size: 18px;
         font-weight: 600;
-        color: var(--b3-theme-on-primary);
         margin-bottom: 0.5rem;
         padding-bottom: 0.3rem;
         border-bottom: 1px solid var(--b3-border-color);
@@ -227,12 +226,12 @@
     .countdown-name {
         font-size: 14px;
         font-weight: 600;
-        color: var(--b3-theme-on-primary);
+        color: var(--b3-theme-primary);
     }
 
     .countdown-date {
         font-size: 12px;
-        color: var(--b3-theme-on-secondary);
+        color: var(--b3-theme-secondary);
         margin-left: 1rem;
     }
 
@@ -293,7 +292,7 @@
             transparent
         );
         border: none;
-        color: var(--b3-theme-on-primary);
+        color: var(--b3-theme-primary);
         font-size: 20px;
         padding: 0.5rem;
         cursor: pointer;
