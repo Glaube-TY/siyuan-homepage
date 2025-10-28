@@ -159,13 +159,13 @@
     <div class="setting-item">
         <div class="size-options-row">
             <div class="size-option-group">
-                <label for="rowSize">列尺寸：</label>
+                <label for="rowSize">行尺寸：</label>
                 <select id="rowSize" bind:value={rowSize}>
                     {#each sizeOptions as size}
                         <option value={size}>{size}</option>
                     {/each}
                 </select>
-                <label for="colSize">行尺寸：</label>
+                <label for="colSize">列尺寸：</label>
                 <select id="colSize" bind:value={colSize}>
                     {#each sizeOptions as size}
                         <option value={size}>{size}</option>
