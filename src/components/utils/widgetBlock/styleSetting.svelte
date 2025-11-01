@@ -150,6 +150,49 @@
         widgetLayoutNumber = config.widgetLayoutNumber || 4;
 
         loadCurrentStyles();
+
+        // 加载保存的行列尺寸
+        try {
+            const widgetConfig = await plugin.loadData(`widget-${currentBlockId}.json`);
+            if (widgetConfig && widgetConfig.rowSize && widgetConfig.colSize) {
+                rowSize = widgetConfig.rowSize;
+                colSize = widgetConfig.colSize;
+            } else {
+                // 如果没有保存的尺寸，从当前样式获取
+                const blockElement = document.getElementById(currentBlockId);
+                if (blockElement) {
+                    const computedStyle = window.getComputedStyle(blockElement);
+                    const aspectRatio = computedStyle.aspectRatio;
+                    if (aspectRatio) {
+                        const [widthRatio, heightRatio] = aspectRatio
+                            .split("/")
+                            .map((s) => s.trim());
+                        if (widthRatio && heightRatio) {
+                            colSize = parseInt(widthRatio);
+                            rowSize = parseInt(heightRatio);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn(`Failed to load saved size for widget ${currentBlockId}:`, error);
+            // 如果加载失败，从当前样式获取
+            const blockElement = document.getElementById(currentBlockId);
+            if (blockElement) {
+                const computedStyle = window.getComputedStyle(blockElement);
+                const aspectRatio = computedStyle.aspectRatio;
+                if (aspectRatio) {
+                    const [widthRatio, heightRatio] = aspectRatio
+                        .split("/")
+                        .map((s) => s.trim());
+                    if (widthRatio && heightRatio) {
+                        colSize = parseInt(widthRatio);
+                        rowSize = parseInt(heightRatio);
+                    }
+                }
+            }
+        }
+
         updateBackground();
         updateBorder();
     });
@@ -177,7 +220,16 @@
                 type="button"
                 class="apply-size-button"
                 on:click={() => {
-                    onSetSize(parseInt(`${rowSize}${colSize}`));
+                    onSetSize(parseInt(`${rowSize}${colSize}`)); 
+                    // 保存行列尺寸到组件设置文件中
+                    plugin.loadData(`widget-${currentBlockId}.json`).then(widgetConfig => {
+                        const updatedConfig = {
+                            ...widgetConfig,
+                            rowSize: rowSize,
+                            colSize: colSize
+                        };
+                        plugin.saveData(`widget-${currentBlockId}.json`, updatedConfig);
+                    });
                     saveLayout(plugin);
                     saveSidebarLayout(plugin);
                     saveMobileLayout(plugin);
