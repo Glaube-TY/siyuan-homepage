@@ -338,7 +338,7 @@
         justify-content: center;
         align-items: center;
         border-radius: 16px;
-        padding: 2rem;
+        padding: 0.5rem;
         box-sizing: border-box;
         box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
         font-family: "Segoe UI", sans-serif;
@@ -362,7 +362,7 @@
             var(--b3-theme-surface) 50%,
             transparent
         );
-        padding: 0.4rem 0.8rem;
+        padding: 0 0.5rem;
         border-radius: 8px;
         display: inline-block;
         margin: 0.3rem 0;
@@ -412,7 +412,7 @@
         justify-content: center;
         text-align: center;
         width: 100%;
-        padding: 0 1rem;
+        padding: 0 0.5rem;
         box-sizing: border-box;
     }
 
@@ -446,18 +446,5 @@
         word-break: break-all;
         white-space: normal;
         max-width: 100%;
-    }
-
-    @media (max-width: 480px) {
-        .time {
-            font-size: 1.4rem;
-        }
-
-        .date,
-        .day-status,
-        .lunar,
-        .zodiac {
-            font-size: 0.95rem;
-        }
     }
 </style>
