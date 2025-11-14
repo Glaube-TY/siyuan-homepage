@@ -7,6 +7,18 @@
     // 时间相关状态
     let currentTime = new Date();
     let timeOfDay = "afternoon";
+    
+    // 初始化时间段
+    const initTimeOfDay = () => {
+        const hour = currentTime.getHours();
+        if (hour >= 6 && hour < 12) {
+            timeOfDay = "morning";
+        } else if (hour >= 12 && hour < 18) {
+            timeOfDay = "afternoon";
+        } else {
+            timeOfDay = "night";
+        }
+    };
     let timedateFontSize = 2;
 
     // 农历信息
@@ -57,6 +69,8 @@
         } else {
             newTimeOfDay = "night";
         }
+        
+        timeOfDay = newTimeOfDay;
     };
 
     // 根据当前时间更新显示内容
@@ -203,6 +217,7 @@
                 console.warn("无法解析 contentTypeJson", e);
             }
         }
+        initTimeOfDay(); // 初始化时间段
         loadImageForTimeOfDay();
         updateTime();
         updateDateAndLunar();

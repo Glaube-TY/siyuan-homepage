@@ -245,6 +245,7 @@ export class WidgetBlock {
             new HOT({
                 target: this.element,
                 props: {
+                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });

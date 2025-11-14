@@ -1,18 +1,3 @@
-@use "./_timedate";
-@use "./_countdown";
-@use "./_customText";
-@use "./_weather";
-@use "./_latestDocs";
-@use "./tasks";
-@use "./_favorites";
-@use "./_focus";
-@use "./_latestDailyNotes";
-@use "./_dailyQuote";
-@use "./_musicPlayer";
-@use "./_databaseChart";
-@use "./_childDocs";
-@use "./_statisticalCard";
-
 // 设置窗口整体样式
 .settings-container {
     padding: 1.5rem;

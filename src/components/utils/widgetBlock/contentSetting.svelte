@@ -1,10 +1,36 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { showMessage } from "siyuan";
-    import { getDatabase } from "./widget/databaseChart/getDatabase";
     import { getImage } from "@/components/tools/getImage";
     import { getNotebooks } from "@/components/tools/getNotebooks";
-    import MultiSelect from "svelte-multiselect";
+    import FavoritesSet from "./widget/favorites/favoritesSet.svelte";
+    import FocusSet from "./widget/focus/focusSet.svelte";
+
+    import ConstellationSet from "./widget/constellation/constellationSet.svelte";
+    import ChildDocsSet from "./widget/childDocs/childDocsSet.svelte";
+    import CountdownSet from "./widget/countdown/countdownSet.svelte";
+    import CustomTextSet from "./widget/customText/customTextSet.svelte";
+    import DailyQuoteSet from "./widget/dailyQuote/dailyQuoteSet.svelte";
+    import HeatmapSet from "./widget/heatmap/heatmapSet.svelte";
+    import HistoryDaysSet from "./widget/historyDays/historyDaysSet.svelte";
+    import HOTSet from "./widget/HOT/HOTSet.svelte";
+    import LatestDailyNotesSet from "./widget/latestDailyNotes/latestDailyNotesSet.svelte";
+    import LatestDocsSet from "./widget/latestDocs/latestDocsSet.svelte";
+    import MusicPlayerSet from "./widget/musicPlayer/musicPlayerSet.svelte";
+    import NewsSet from "./widget/News/NewsSet.svelte";
+    import ProtyleSet from "./widget/protyle/protyleSet.svelte";
+    import QuickNotesSet from "./widget/quickNotes/quickNotesSet.svelte";
+    import SqlSet from "./widget/sql/sqlSet.svelte";
+    import StatisticalCardSet from "./widget/statisticalCard/statisticalCardSet.svelte";
+    import StikynotSet from "./widget/stikynot/stikynotSet.svelte";
+    import TimedateSet from "./widget/timedate/timedateSet.svelte";
+    import VisualChartSet from "./widget/visualChart/visualChartSet.svelte";
+    import WeatherSet from "./widget/weather/weatherSet.svelte";
+    import WebviewSet from "./widget/webview/webviewSet.svelte";
+    import TasksPlusSet from "./widget/tasksPlus/tasksPlusSet.svelte";
+    import RecentTasksSet from "./widget/tasks/recentTasksSet.svelte";
+
+    // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
+
     import "./contentSettingStyle/contentSetting.scss";
 
     // 弹窗接收的 props
@@ -81,7 +107,6 @@
     let countdownFullBg =
         "https://haowallpaper.com/link/common/file/previewFileImg/17021275790298496";
     let countdownLocalBg = null;
-    let countdownBgInput: HTMLInputElement | null = null;
     let countdownFontSize: number = 3;
 
     // 天气相关变量
@@ -89,15 +114,6 @@
 
     // 热搜相关变量
     let hotSource: string = "bilibili";
-    const hotSources = [
-        { value: "bilibili", label: "B站" },
-        { value: "weibo", label: "微博" },
-        { value: "baidu", label: "百度" },
-        { value: "zhihu", label: "知乎" },
-        { value: "toutiao", label: "头条" },
-        { value: "douyin", label: "抖音" },
-        { value: "GitHub", label: "GitHub" },
-    ];
 
     // 每日一言相关变量
     let dailyQuoteMode: string = "custom";
@@ -115,20 +131,6 @@
 
     // 星座运势相关变量
     let selectedConstellation: string = "摩羯";
-    const constellations = [
-        "摩羯",
-        "水瓶",
-        "双鱼",
-        "白羊",
-        "金牛",
-        "双子",
-        "巨蟹",
-        "狮子",
-        "处女",
-        "天秤",
-        "天蝎",
-        "射手",
-    ];
 
     // 历史上的今天相关变量
     let historyDaysType: string = "list";
@@ -141,9 +143,6 @@
     let selectedColorPreset: "github" | "blue" | "custom" = "github";
     let customColor: string = "#1ea769";
     let heatmapCountType: string = "block";
-
-    // 下拉选项
-    const limitOptions = [5, 10, 15, 20, 50, 100];
 
     // 自定义网页链接
     let customWebUrl: string = "";
@@ -167,9 +166,6 @@
         "https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504";
     let nightBgUrl =
         "https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440";
-    let morningBgInput: HTMLInputElement | null = null;
-    let afternoonBgInput: HTMLInputElement | null = null;
-    let nightBgInput: HTMLInputElement | null = null;
     let morningBgImage = null;
     let afternoonBgImage = null;
     let nightBgImage = null;
@@ -186,8 +182,6 @@
         "https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d";
     let focusLocalImage = null;
     let breakLocalImage = null;
-    let focusBgInput: HTMLInputElement | null = null;
-    let breakBgInput: HTMLInputElement | null = null;
 
     // SQL 查询
     let sqlTitle: string = "🔍SQL 查询结果";
@@ -200,8 +194,6 @@
 
     // 数据库图表相关
     let databaseChartID: string = "";
-    let databaseChartInfo: any[] = [];
-    let confirmDatabaseChartID: Boolean = false;
     let databaseChartType: string = "line";
     let databaseChartTitle: string = "";
     let databaseChartLineType: string = "XY";
@@ -234,170 +226,6 @@
 
     let advancedEnabled = false;
 
-    async function selectMusicFolder() {
-        try {
-            if (
-                !window.navigator.userAgent.includes("Electron") ||
-                typeof window.require !== "function"
-            )
-                return showMessage("此功能仅在桌面版可用");
-            const { filePaths } = await window
-                .require("@electron/remote")
-                .dialog.showOpenDialog({
-                    properties: ["openDirectory", "createDirectory"],
-                });
-
-            if (filePaths && filePaths.length > 0) {
-                musicFolderPath = filePaths[0];
-            }
-        } catch (error) {
-            console.error("选择文件夹时发生错误：", error);
-        }
-    }
-
-    // 处理倒数日背景上传函数
-    function handleCountdownUpload() {
-        const file = countdownBgInput?.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (reader.result && typeof reader.result === "string") {
-                countdownLocalBg = reader.result;
-            }
-        };
-        reader.readAsDataURL(file);
-    }
-
-    // 处理每日一言背景上传
-    function handleDailyQuoteUpload() {
-        const file = dailyQuoteBgInput?.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (typeof reader.result === "string") {
-                dailyQuoteLocalBg = reader.result;
-            }
-        };
-        reader.readAsDataURL(file);
-    }
-
-    // 处理专注背景上传
-    function handleFocusUpload() {
-        const file = focusBgInput?.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (reader.result && typeof reader.result === "string") {
-                focusLocalImage = reader.result;
-            }
-        };
-        reader.readAsDataURL(file);
-    }
-
-    // 处理休息背景上传
-    function handleBreakUpload() {
-        const file = breakBgInput?.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (reader.result && typeof reader.result === "string") {
-                breakLocalImage = reader.result;
-            }
-        };
-        reader.readAsDataURL(file);
-    }
-
-    const handleBackgroundUpload = (timeOfDay) => {
-        const reader = new FileReader();
-        const file = eval(`${timeOfDay}BgInput`).files[0];
-
-        if (!file) return;
-
-        reader.onload = () => {
-            if (timeOfDay === "morning") {
-                if (reader.result && typeof reader.result === "string") {
-                    morningBgImage = reader.result;
-                }
-            } else if (timeOfDay === "afternoon") {
-                if (reader.result && typeof reader.result === "string") {
-                    afternoonBgImage = reader.result;
-                }
-            } else if (timeOfDay === "night") {
-                if (reader.result && typeof reader.result === "string") {
-                    nightBgImage = reader.result;
-                }
-            }
-        };
-
-        reader.readAsDataURL(file);
-    };
-
-    function addEvent() {
-        eventList = [...eventList, { name: "", date: "" }];
-    }
-
-    function removeEvent(index) {
-        eventList = eventList.filter((_, i) => i !== index);
-    }
-
-    // 预览图片变量
-    // 时间组件预览图
-    let morningBgImageData: string = "";
-    let afternoonBgImageData: string = "";
-    let nightBgImageData: string = "";
-    async function getTimeBGImage() {
-        if (
-            !window.navigator.userAgent.includes("Electron") ||
-            typeof window.require !== "function"
-        ) {
-            if (morningImageType === "remote") {
-                morningBgImageData = await getImage(morningBgUrl);
-            }
-            if (afternoonImageType === "remote") {
-                afternoonBgImageData = await getImage(afternoonBgUrl);
-            }
-            if (nightImageType === "remote") {
-                nightBgImageData = await getImage(nightBgUrl);
-            }
-        } else {
-            if (morningImageType === "remote") {
-                morningBgImageData = morningBgUrl;
-            }
-            if (afternoonImageType === "remote") {
-                afternoonBgImageData = afternoonBgUrl;
-            }
-            if (nightImageType === "remote") {
-                nightBgImageData = nightBgUrl;
-            }
-        }
-    }
-    // 番茄钟组件预览图
-    let focusBgImageData: string = "";
-    let breakBgImageData: string = "";
-    async function getFocusBreakImage() {
-        if (
-            !window.navigator.userAgent.includes("Electron") ||
-            typeof window.require !== "function"
-        ) {
-            if (focusImageType === "remote") {
-                focusBgImageData = await getImage(focusBgImage);
-            }
-            if (breakImageType === "remote") {
-                breakBgImageData = await getImage(breakBgImage);
-            }
-        } else {
-            if (focusImageType === "remote") {
-                focusBgImageData = focusBgImage;
-            }
-            if (breakImageType === "remote") {
-                breakBgImageData = breakBgImage;
-            }
-        }
-    }
     // 每日一言组件预览图
     let dailyQuoteBgImageData: string = "";
     async function getDailyQuoteBgImage() {
@@ -543,8 +371,6 @@
                 afternoonBgUrl = parsedData.data?.afternoonBgUrl || "";
                 nightBgUrl = parsedData.data?.nightBgUrl || "";
 
-                await getTimeBGImage();
-
                 // 初始化 Base64 数据
                 morningBgImage = parsedData.data?.morningBgImage || "";
                 afternoonBgImage = parsedData.data?.afternoonBgImage || "";
@@ -576,7 +402,6 @@
 
                 focusBgImage = parsedData.data?.focusBgImage || focusBgImage;
                 breakBgImage = parsedData.data?.breakBgImage || breakBgImage;
-                await getFocusBreakImage();
 
                 focusLocalImage =
                     parsedData.data?.focusLocalImage || focusLocalImage;
@@ -630,14 +455,6 @@
             } else if (parsedData.type === "databaseChart") {
                 databaseChartID =
                     parsedData.data?.databaseChartID || databaseChartID;
-                if (databaseChartID) {
-                    databaseChartInfo = await getDatabase(databaseChartID);
-                    if (databaseChartInfo.length === 0) {
-                        showMessage("查询数据库失败");
-                    } else {
-                        confirmDatabaseChartID = true;
-                    }
-                }
                 databaseChartType =
                     parsedData.data?.databaseChartType || databaseChartType;
                 databaseChartTitle =
@@ -779,447 +596,62 @@
             <!-- 动态内容区域 -->
             <div class="dynamic-content-area">
                 {#if selectedContentType === "latest-docs"}
-                    <!-- 最近文档设置区域 -->
-                    <div class="content-panel latest-docs">
-                        <div class="form-group group1">
-                            <label for="latest-docs-title"
-                                >组件标题：<input
-                                    id="latest-docs-title"
-                                    type="text"
-                                    bind:value={latestDocsTitle}
-                                    placeholder="输入组件标题"
-                                /></label
-                            >
-                            <label for="latest-docs-prefix"
-                                >文档前缀：<input
-                                    id="latest-docs-prefix"
-                                    type="text"
-                                    bind:value={latestDocsPrefix}
-                                    placeholder="输入文档前缀"
-                                /></label
-                            >
-                        </div>
-                        <div class="form-group group2">
-                            <label for="doc-limit"
-                                >显示条目数：<select
-                                    id="doc-limit"
-                                    bind:value={docLimit}
-                                >
-                                    {#each limitOptions as option}
-                                        <option value={option}
-                                            >{option} 条</option
-                                        >
-                                    {/each}
-                                </select></label
-                            >
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    bind:checked={ensureOpenDocs}
-                                />
-                                包含打开文档
-                            </label>
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    bind:checked={showLatestDocDetails}
-                                />
-                                显示文档信息
-                            </label>
-                        </div>
-                        <div class="form-group doc-notebook-id">
-                            <label for="doc-notebook-id">文档笔记本：</label>
-                            <MultiSelect
-                                id="doc-notebook-id"
-                                bind:selected={selectedNotebookIds}
-                                options={notebooks.map((notebook) => ({
-                                    label: notebook.name,
-                                    value: notebook.id,
-                                }))}
-                                placeholder="选择笔记本..."
-                            />
-                        </div>
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/G0S9wtMEqi5R4LkvRd7cTRVXnGf?from=from_copylink" target="_blank">最近文档</a></div>
-                    </div>
+                    <LatestDocsSet
+                        bind:docLimit
+                        bind:ensureOpenDocs
+                        bind:selectedNotebookIds
+                        bind:docNotebookId
+                        bind:latestDocsTitle
+                        bind:latestDocsPrefix
+                        bind:showLatestDocDetails
+                        {notebooks}
+                    />
                 {:else if selectedContentType === "favorites"}
-                    <div class="content-panel favorites">
-                        <!-- 收藏文档设置区域 -->
-                        <div class="favorites-setting-top">
-                            <div>
-                                <div class="form-group">
-                                    <label for="favorities-title"
-                                        >组件标题：
-                                        <input
-                                            id="favorities-title"
-                                            type="text"
-                                            bind:value={favoritiesTitle}
-                                            placeholder="输入组件标题"
-                                        />
-                                    </label>
-                                </div>
-                                <div class="form-group">
-                                    <label for="favorities-doc-prefix">
-                                        文档前缀：
-                                        <input
-                                            id="favorities-doc-prefix"
-                                            type="text"
-                                            bind:value={favoritiesDocPrefix}
-                                        />
-                                    </label>
-                                </div>
-                            </div>
-                            <div>
-                                <div class="form-group">
-                                    <label for="favorities-sort-order"
-                                        >排序方式：</label
-                                    >
-                                    <select
-                                        id="favorities-sort-order"
-                                        bind:value={favoritiesSortOrder}
-                                    >
-                                        <option value="created">创建时间</option
-                                        >
-                                        <option value="updated">更新时间</option
-                                        >
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="favorities-show-note-meta">
-                                        <input
-                                            id="favorities-show-note-meta"
-                                            type="checkbox"
-                                            bind:checked={showNoteMeta}
-                                        />
-                                        显示文档信息</label
-                                    >
-                                </div>
-                            </div>
-                        </div>
-                        <div class="favorites-setting-bottom">
-                            <div class="form-group doc-notebook-id">
-                                <label for="doc-notebook-id">文档笔记本：</label
-                                >
-                                <MultiSelect
-                                    id="doc-notebook-id"
-                                    bind:selected={selectedFavoritesNotebookIds}
-                                    options={notebooks.map((notebook) => ({
-                                        label: notebook.name,
-                                        value: notebook.id,
-                                    }))}
-                                    placeholder="选择笔记本..."
-                                />
-                            </div>
-                        </div>
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/HCICwChqpi9Iglkw6nwcVuP1nsf?from=from_copylink" target="_blank">收藏文档</a></div>
-                    </div>
+                    <FavoritesSet
+                        bind:favoritiesTitle
+                        bind:favoritiesSortOrder
+                        bind:showNoteMeta
+                        bind:favoritiesDocPrefix
+                        bind:favoritesNotebookId
+                        bind:selectedFavoritesNotebookIds
+                        {notebooks}
+                    />
                 {:else if selectedContentType === "recent-journals"}
-                    <div class="content-panel recent-journals">
-                        <!-- 最近日记设置区域 -->
-                        <div>
-                            <label for="recentJournalsShowType"
-                                >选择显示模式：</label
-                            >
-                            <select
-                                id="recentJournalsShowType"
-                                class="form-control"
-                                bind:value={recentJournalsShowType}
-                            >
-                                <option value="list">列表模式</option>
-                                <option value="calendar">日历模式</option>
-                            </select>
-                        </div>
-                        {#if recentJournalsShowType === "list"}
-                            <div class="form-group">
-                                <label for="journal-limit">显示日记数：</label>
-                                <select
-                                    id="journal-limit"
-                                    bind:value={docJournalLimit}
-                                >
-                                    {#each limitOptions as option}
-                                        <option value={option}
-                                            >{option}
-                                        </option>
-                                    {/each}
-                                </select>
-                            </div>
-                        {/if}
-                        {#if recentJournalsShowType === "calendar"}
-                            <div class="form-group recent-journals-calendar">
-                                <label for="recentJournalsCalendarIcon">
-                                    日记图标：
-                                    <input
-                                        id="recentJournalsCalendarIcon"
-                                        type="text"
-                                        bind:value={recentJournalsCalendarIcon}
-                                    />
-                                </label>
-                                <label for="recentJournalsCalendarIconSize">
-                                    图标大小：
-                                    <input
-                                        id="recentJournalsCalendarIconSize"
-                                        min="10"
-                                        max="50"
-                                        type="number"
-                                        bind:value={
-                                            recentJournalsCalendarIconSize
-                                        }
-                                    />
-                                </label>
-                            </div>
-                        {/if}
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/JeWrwUDxmiPX5lk0XbZcHI1bn5g?from=from_copylink" target="_blank">最近日记</a></div>
-                    </div>
+                    <LatestDailyNotesSet
+                        bind:docJournalLimit
+                        bind:recentJournalsShowType
+                        bind:recentJournalsCalendarIcon
+                        bind:recentJournalsCalendarIconSize
+                    />
                 {:else if selectedContentType === "TaskMan"}
-                    <div class="content-panel TaskMan">
-                        <!-- 任务管理设置区域 -->
-                        <div class="form-group">
-                            <label for="TaskMan-title">
-                                组件标题：
-                                <input
-                                    id="TaskMan-title"
-                                    type="text"
-                                    bind:value={TaskManTitle}
-                                    placeholder="输入组件标题"
-                                />
-                            </label>
-                        </div>
-                        <div class="form-group TaskMan-checkbox">
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    bind:checked={showCompletedTasks}
-                                />
-                                显示已完成的任务
-                            </label>
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    bind:checked={showTasksDetails}
-                                />
-                                显示任务详情
-                            </label>
-                        </div>
-                        <div class="form-group TaskMan-notebook-id">
-                            <label for="TaskMan-notebook-id">任务笔记本：</label
-                            >
-                            <MultiSelect
-                                id="TaskMan-notebook-id"
-                                bind:selected={selectedTasksNotebookIds}
-                                options={notebooks.map((notebook) => ({
-                                    label: notebook.name,
-                                    value: notebook.id,
-                                }))}
-                                placeholder="选择笔记本..."
-                            />
-                        </div>
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/T18vwmZeqinQW2kxoxccpYVHndf?from=from_copylink" target="_blank">任务管理</a></div>
-                    </div>
+                    <RecentTasksSet
+                        bind:TaskManTitle
+                        bind:showCompletedTasks
+                        bind:showTasksDetails
+                        bind:selectedTasksNotebookIds
+                        {notebooks}
+                    />
                 {:else if selectedContentType === "TaskManPlus"}
-                    <div class="content-panel TaskManPlus">
-                        <!-- 任务管理Plus设置区域 -->
-                        <div class="form-group TaskManPlus-title">
-                            <label for="TaskManPlus-title">
-                                组件标题：
-                                <input
-                                    id="TaskManPlus-title"
-                                    type="text"
-                                    bind:value={TaskManPlusTitle}
-                                    placeholder="输入组件标题"
-                                />
-                            </label>
-                        </div>
-                        <div class="form-group TaskManPlus-isCustomFilter">
-                            <label for="TaskManPlus-isCustomFilter">
-                                <input
-                                    id="TaskManPlus-isCustomFilter"
-                                    type="checkbox"
-                                    bind:checked={isCustomFilter}
-                                />
-                                自定义筛选条件
-                            </label>
-                        </div>
-                        {#if !isCustomFilter}
-                            <div class="form-group TaskManPlus-taskFilter">
-                                <label for="TaskManPlus-taskFilter"
-                                    >筛选条件：<select
-                                        id="TaskManPlus-internalFilter"
-                                        bind:value={internalFilter}
-                                    >
-                                        <option value="all">所有任务</option>
-                                        <option value="uncompleted"
-                                            >未完成任务</option
-                                        >
-                                        <option value="completed"
-                                            >已完成任务</option
-                                        >
-                                        <option value="today">今天任务</option>
-                                        <option value="tomorrow"
-                                            >明天任务</option
-                                        >
-                                        <option value="mostImportant"
-                                            >❗❗❗❗任务</option
-                                        >
-                                    </select></label
-                                >
-                            </div>
-                        {:else}
-                            <div class="form-group TaskManPlus-customFilter">
-                                <label for="TaskManPlus-customFilter"
-                                    >筛选语法：<textarea
-                                        id="TaskManPlus-customFilter"
-                                        placeholder="输入筛选语法"
-                                        bind:value={customFilter}
-                                    ></textarea></label
-                                >
-                                <p>
-                                    使用前请先了解<a
-                                        href="https://ttl8ygt82u.feishu.cn/wiki/CCwfwq75Ziu8m5kQ0HXcnVbfnod?from=from_copylink"
-                                        target="_blank">筛选语法</a
-                                    >，并根据需求进行调整。
-                                </p>
-                            </div>
-                        {/if}
-                        <label for="tasks-sort">
-                            排序方式：
-                            <select id="tasks-sort" bind:value={tasksSort}>
-                                <option value="startdate">开始日期</option>
-                                <option value="deadline">截止日期</option>
-                                <option value="priority">优先级❗</option>
-                            </select>
-                        </label>
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/CCwfwq75Ziu8m5kQ0HXcnVbfnod?from=from_copylink" target="_blank">任务管理Plus</a></div>
-                    </div>
+                    <TasksPlusSet
+                        bind:TaskManPlusTitle
+                        bind:isCustomFilter
+                        bind:internalFilter
+                        bind:customFilter
+                        bind:tasksSort
+                    />
                 {:else if selectedContentType === "quick-notes"}
-                    <div class="content-panel quick-notes">
-                        <div class="form-group quick-notes-title">
-                            <label for="quick-notes-title"
-                                >组件标题：
-                                <input
-                                    id="quick-notes-title"
-                                    type="text"
-                                    bind:value={quickNotesTitle}
-                                    placeholder="输入组件标题"
-                                />
-                            </label>
-                        </div>
-                        <label for="quick-notes-sort"
-                            >排序方式：
-                            <select
-                                id="quick-notes-sort"
-                                bind:value={quickNotesSort}
-                            >
-                                <option value="DOC_ASC">文档正序</option>
-                                <option value="DOC_INV">文档逆序</option>
-                                <option value="UPD">更新时间</option>
-                                <option value="CRE">创建时间</option>
-                            </select>
-                        </label>
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/XhZ7ww1PDimrZxkbxPqcvZrKnIb?from=from_copylink" target="_blank">快速笔记</a></div>
-                    </div>
+                    <QuickNotesSet bind:quickNotesTitle bind:quickNotesSort />
                 {:else if selectedContentType === "stikynot"}
-                    {#if advancedEnabled}
-                        <div class="content-panel stikynot">
-                            <div class="form-group stikynot-background">
-                                <label for="stikynot-style">
-                                    便签样式：
-                                    <select
-                                        name="stikynot-style"
-                                        id="stikynot-style"
-                                        bind:value={stikynotStyle}
-                                    >
-                                        <option value="default">默认</option>
-                                        <option value="kraftPaper"
-                                            >牛皮纸</option
-                                        >
-                                        <option value="wood">木纹</option>
-                                        <option value="marble">大理石</option>
-                                        <option value="Ink">水墨</option>
-                                        <option value="beach">海滩</option>
-                                        <option value="BlueSky">蓝天</option>
-                                        <option value="sunsetHeart">夕阳</option
-                                        >
-                                        <option value="Stars">星空</option>
-                                        <option value="waterDrop">雨窗</option>
-                                        <option value="PinkPorcelain"
-                                            >粉瓷</option
-                                        >
-                                    </select>
-                                </label>
-                            </div>
-                        </div>
-                    {:else}
-                        <h3>👑会员专属权益👑</h3>
-                    {/if}
-                    <hr>
-                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/Dmm6wkiPCi8sNzk1ju4cD14JnKy?from=from_copylink" target="_blank">便签</a></div>
+                    <StikynotSet {advancedEnabled} bind:stikynotStyle />
                 {:else if selectedContentType === "childDocs"}
-                    {#if advancedEnabled}
-                        <div class="content-panel childDocs">
-                            <div class="form-group childDocs-title">
-                                <label for="childDocs-title">
-                                    组件标题：
-                                    <input
-                                        id="childDocs-title"
-                                        type="text"
-                                        bind:value={childDocsTitle}
-                                        placeholder="输入组件标题"
-                                    />
-                                </label>
-                            </div>
-                            <div class="form-group childDocs-prefix">
-                                <label for="childDocs-prefix">
-                                    文档前缀：
-                                    <input
-                                        id="childDocs-prefix"
-                                        type="text"
-                                        bind:value={childDocsPrefix}
-                                        placeholder="输入文档前缀"
-                                    />
-                                </label>
-                                <label for="childDocs-sortOrder">
-                                    排序方式：
-                                    <select
-                                        id="childDocs-sortOrder"
-                                        bind:value={childDocsSortOrder}
-                                    >
-                                        <option value="updated">更新时间</option
-                                        >
-                                        <option value="created">创建时间</option
-                                        >
-                                    </select>
-                                </label>
-                                <label for="childDocs-showChildDocsDetails">
-                                    显示详情：
-                                    <input
-                                        id="childDocs-showChildDocsDetails"
-                                        type="checkbox"
-                                        bind:checked={showChildDocsDetails}
-                                    />
-                                </label>
-                            </div>
-                            <div class="form-group childDocs-parentId">
-                                <label for="childDocs-parentId">
-                                    父文档ID：
-                                    <input
-                                        id="childDocs-parentId"
-                                        type="text"
-                                        bind:value={childDocsParentId}
-                                        placeholder="输入父文档ID"
-                                    />
-                                </label>
-                            </div>
-                        </div>
-                    {:else}
-                        <h3>👑会员专属权益👑</h3>
-                    {/if}
-                    <hr>
-                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/DAaIweKDBipUhbkGXOvcL6Q5nqh?from=from_copylink" target="_blank">子文档</a></div>
+                    <ChildDocsSet
+                        {advancedEnabled}
+                        bind:childDocsTitle
+                        bind:childDocsPrefix
+                        bind:showChildDocsDetails
+                        bind:childDocsParentId
+                        bind:childDocsSortOrder
+                    />
                 {/if}
             </div>
         {:else if activeTab === "info"}
@@ -1237,218 +669,30 @@
             <!-- 动态内容区域 -->
             <div class="dynamic-content-area">
                 {#if selectedContentType === "HOT"}
-                    <div class="content-panel hot">
-                        <div class="form-group">
-                            <label for="hot-source">选择热搜平台：</label>
-                            <select id="hot-source" bind:value={hotSource}>
-                                {#each hotSources as source}
-                                    <option value={source.value}
-                                        >{source.label}</option
-                                    >
-                                {/each}
-                            </select>
-                        </div>
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/W7u5wQCEOibCxhkyA7mc5mDWnWh?from=from_copylink" target="_blank">热搜</a></div>
-                        <p>注：若某一热搜来源失效请联系我更新~</p>
-                    </div>
+                    <HOTSet bind:hotSource />
                 {:else if selectedContentType === "dailyQuote"}
-                    <div class="content-panel dailyQuote">
-                        <div class="form-group dailyQuoteMode">
-                            <label
-                                >每日一言模式：<select
-                                    bind:value={dailyQuoteMode}
-                                >
-                                    <option value="custom">自定义文字</option>
-                                    <option value="remote">远程接口👑</option>
-                                </select></label
-                            >
-                            <label for=""
-                                >字体大小：<input
-                                    type="number"
-                                    bind:value={dailyQuoteFontSize}
-                                /></label
-                            >
-                        </div>
-                        {#if dailyQuoteMode === "remote"}
-                            {#if advancedEnabled}
-                                <label for=""
-                                    >接口来源：<select
-                                        bind:value={dailyQuoteSource}
-                                    >
-                                        <option value="classic">今日语录</option
-                                        >
-                                        <option value="celebrity"
-                                            >名人名言</option
-                                        >
-                                        <option value="emotion">情感语录</option
-                                        ><option value="gaoxiao"
-                                            >搞笑语录</option
-                                        ><option value="pyq">朋友圈语录</option
-                                        ><option value="straybirdsZH"
-                                            >飞鸟集（中文版）</option
-                                        ><option value="straybirdsEN"
-                                            >飞鸟集（英文版）</option
-                                        ><option value="lovegarden"
-                                            >爱情公寓语录</option
-                                        ></select
-                                    ></label
-                                >
-                            {:else}
-                                <h3>👑会员专属权益👑</h3>
-                            {/if}
-                        {:else}
-                            <label for=""
-                                >自定义内容：（每句话一行）
-                                <textarea
-                                    name=""
-                                    id=""
-                                    cols="30"
-                                    rows="10"
-                                    bind:value={customDailyQuoteContent}
-                                ></textarea>
-                            </label>
-                        {/if}
-                        <div class="form-group dailyQuoteBackgroundImg">
-                            <div class="type-select-and-input">
-                                <label
-                                    >背景设置：
-                                    <select
-                                        bind:value={dailyQuoteBgSelect}
-                                        on:change={() => {
-                                            if (
-                                                dailyQuoteBgSelect === "remote"
-                                            ) {
-                                                dailyQuoteLocalBg = "";
-                                            } else {
-                                                dailyQuoteRemoteBg = "";
-                                            }
-                                        }}
-                                    >
-                                        <option value="remote">远程图片</option>
-                                        <option value="local">本地图片</option>
-                                    </select>
-                                </label>
-                                {#if dailyQuoteBgSelect === "remote"}
-                                    <input
-                                        type="text"
-                                        bind:value={dailyQuoteRemoteBg}
-                                        on:change={getDailyQuoteBgImage}
-                                        placeholder="输入远程图片URL"
-                                    />
-                                {:else}
-                                    <button
-                                        on:click={() =>
-                                            dailyQuoteBgInput?.click()}
-                                        >上传图片</button
-                                    >
-
-                                    <input
-                                        type="file"
-                                        bind:this={dailyQuoteBgInput}
-                                        accept="image/*"
-                                        on:change={handleDailyQuoteUpload}
-                                        style="display: none;"
-                                    />
-                                {/if}
-                            </div>
-                            <div class="image-preview">
-                                {#if dailyQuoteBgSelect === "remote" && dailyQuoteBgImageData}
-                                    <img
-                                        src={dailyQuoteBgImageData}
-                                        alt="每日一言背景预览"
-                                    />
-                                {:else if dailyQuoteBgSelect === "local" && dailyQuoteLocalBg}
-                                    <img
-                                        src={dailyQuoteLocalBg}
-                                        alt="每日一言背景预览"
-                                    />
-                                {/if}
-                            </div>
-                        </div>
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/QRVowj3azihjGukBoR5cmBKsnKg?from=from_copylink" target="_blank">每日一言</a></div>
-                        <p>注：若某一接口失效请联系我更新~</p>
-                    </div>
+                    <DailyQuoteSet
+                        {plugin}
+                        {advancedEnabled}
+                        bind:dailyQuoteMode
+                        bind:dailyQuoteFontSize
+                        bind:dailyQuoteSource
+                        bind:customDailyQuoteContent
+                        bind:dailyQuoteBgSelect
+                        bind:dailyQuoteRemoteBg
+                        bind:dailyQuoteLocalBg
+                        bind:dailyQuoteBgImageData
+                        bind:dailyQuoteBgInput
+                    />
                 {:else if selectedContentType === "News"}
-                    {#if advancedEnabled}
-                        <div class="content-panel News">
-                            <div class="form-group News-type">
-                                <label for="News-type">
-                                    新闻类型：
-                                    <select
-                                        name="News-type"
-                                        id="News-type"
-                                        bind:value={NewsType}
-                                    >
-                                        <option value="daily-news-bulletin"
-                                            >每日新闻快报</option
-                                        >
-                                        <option value="daily-news-bulletin-v2"
-                                            >每日新闻快报v2</option
-                                        >
-                                        <option value="daily-news-bulletin-v3"
-                                            >每日新闻快报v3</option
-                                        >
-                                        <option
-                                            value="daily-news-bulletin-weather"
-                                            >每日新闻快报+当地天气</option
-                                        >
-                                        <option value="daily-news-zhihu"
-                                            >知乎日报</option
-                                        >
-                                    </select>
-                                </label>
-                            </div>
-                        </div>
-                    {:else}
-                        <h3>👑会员专属权益👑</h3>
-                    {/if}
-                    <hr>
-                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/FM0PwE2KVin6ytkQBuzca5pWnZf?from=from_copylink" target="_blank">新闻资讯</a></div>
-                    <p>注：若某一接口失效请联系我更新~</p>
+                    <NewsSet {advancedEnabled} bind:NewsType />
                 {:else if selectedContentType === "constellation"}
-                    {#if advancedEnabled}
-                        <div class="content-panel constellation">
-                            <h4>星座运势设置</h4>
-                            <div class="form-group">
-                                <label for="constellation">选择星座：</label>
-                                <select
-                                    id="constellation"
-                                    bind:value={selectedConstellation}
-                                >
-                                    {#each constellations as constellation}
-                                        <option value={constellation}
-                                            >{constellation}</option
-                                        >
-                                    {/each}
-                                </select>
-                            </div>
-                        </div>
-                    {:else}
-                        <h3>👑会员专属权益👑</h3>
-                    {/if}
-                    <hr>
-                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/RqNUwkJaBiJwHHkFAc4cHmWenqb?from=from_copylink" target="_blank">星座运势</a></div>
-                    <p>注：若某一接口失效请联系我更新~</p>
+                    <ConstellationSet
+                        {advancedEnabled}
+                        bind:selectedConstellation
+                    />
                 {:else if selectedContentType === "historyDays"}
-                    {#if advancedEnabled}
-                        <label for="historyDaysType">
-                            显示类型：
-                            <select
-                                id="historyDaysType"
-                                bind:value={historyDaysType}
-                            >
-                                <option value="list">列表</option>
-                                <option value="img">图片</option>
-                            </select>
-                        </label>
-                    {:else}
-                        <h3>👑会员专属权益👑</h3>
-                    {/if}
-                    <hr>
-                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/SgHPwf76fiVlsnkxUNTcZ0ADnXg?from=from_copylink" target="_blank">历史上的今天</a></div>
-                    <p>注：若接口失效请联系我更新~</p>
+                    <HistoryDaysSet {advancedEnabled} bind:historyDaysType />
                 {/if}
             </div>
         {:else if activeTab === "visualization"}
@@ -1459,542 +703,63 @@
                     <option value="heatmap">热力图</option>
                     <option value="sql">SQL 查询</option>
                     <option value="visualChart">可视化图表</option>
-                    <option value="databaseChart">数据库图表👑</option>
+                    <!-- <option value="databaseChart">数据库图表👑</option> -->
                     <option value="statisticalCard">统计卡片👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
             <div class="dynamic-content-area">
                 {#if selectedContentType === "heatmap"}
-                    <div class="content-panel heatmap">
-                        <div class="form-group">
-                            <label for="heatmap-title">热力图标题：</label>
-                            <input
-                                type="text"
-                                id="heatmap-title"
-                                bind:value={heatmapTitle}
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label for="month-count">显示范围：</label>
-                            <select
-                                id="month-count"
-                                bind:value={pastMonthCount}
-                            >
-                                {#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as month}
-                                    <option value={month}
-                                        >前 {month} 个月</option
-                                    >
-                                {/each}
-                            </select>
-
-                            <label for="show-label">
-                                显示标签：
-                                <input
-                                    type="checkbox"
-                                    id="show-label"
-                                    bind:checked={showLabel}
-                                />
-                            </label>
-                        </div>
-
-                        <!-- 颜色选择 -->
-                        <div class="form-group">
-                            <label for="color-preset-select"
-                                >选择区块颜色：</label
-                            >
-                            <select
-                                id="color-preset-select"
-                                bind:value={selectedColorPreset}
-                            >
-                                <option value="github">GitHub 绿色</option>
-                                <option value="blue">蓝色</option>
-                                <option value="custom">自定义颜色</option>
-                            </select>
-                        </div>
-
-                        <!-- 自定义颜色选择器 -->
-                        {#if selectedColorPreset === "custom"}
-                            <div class="form-group">
-                                <label for="custom-color-picker"
-                                    >选择基础颜色：</label
-                                >
-                                <input
-                                    id="custom-color-picker"
-                                    type="color"
-                                    bind:value={customColor}
-                                />
-                            </div>
-                        {/if}
-
-                        <div class="form-group">
-                            <label for=""
-                                >计数类型：<select
-                                    bind:value={heatmapCountType}
-                                >
-                                    <option value="block">内容块</option>
-                                    <option value="words">字数👑</option>
-                                </select></label
-                            >
-                            {#if heatmapCountType === "words"}
-                                <p>👑订阅会员专属</p>
-                                <p>字数统计的块类型为：</p>
-                                <p>
-                                    段落块、标题块、列表块、代码块、公式块、引注块、表格块
-                                </p>
-                            {/if}
-                        </div>
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/W2QjwU3DkiCMaok69yqcfV5knLc?from=from_copylink" target="_blank">热力图</a></div>
-                    </div>
+                    <HeatmapSet
+                        bind:heatmapTitle
+                        bind:pastMonthCount
+                        bind:showLabel
+                        bind:selectedColorPreset
+                        bind:customColor
+                        bind:heatmapCountType
+                    />
                 {:else if selectedContentType === "sql"}
-                    <div class="content-panel sql">
-                        <div class="form-group">
-                            <label for="sql-title">
-                                组件标题：
-                                <input
-                                    id="sql-title"
-                                    type="text"
-                                    bind:value={sqlTitle}
-                                />
-                            </label>
-                        </div>
-                        <div class="form-group">
-                            <label for="sql-input">SQL 语句：</label>
-                            <textarea
-                                id="sql-input"
-                                bind:value={sqlInput}
-                                placeholder="请输入 SQL 语句"
-                            ></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label for="column-order">
-                                列排序（逗号分隔）：
-                                <input
-                                    id="column-order"
-                                    type="text"
-                                    placeholder="例如：id,alias"
-                                    bind:value={columnOrder}
-                                />
-                            </label>
-                        </div>
-                        <div class="form-group">
-                            <label for="hidden-fields">
-                                隐藏字段（逗号分隔）：
-                                <input
-                                    id="hidden-fields"
-                                    type="text"
-                                    placeholder="例如：alias,path"
-                                    bind:value={hiddenFields}
-                                />
-                            </label>
-                        </div>
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/QG5nw3GPkiKjk3kIG9lcYpzOn6g?from=from_copylink" target="_blank">SQL查询</a></div>
-                    </div>
+                    <SqlSet
+                        bind:sqlTitle
+                        bind:sqlInput
+                        bind:columnOrder
+                        bind:hiddenFields
+                    />
                 {:else if selectedContentType === "visualChart"}
-                    <div class="content-panel visualChart">
-                        <div class="form-group">
-                            <label for="">
-                                图表类型：
-                                <select bind:value={visualChartType}>
-                                    <option value="progressBar">进度条</option>
-                                    <option value="tagCloud">标签云图</option>
-                                </select></label
-                            >
-                        </div>
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/M7FzwiwMQiNdKXkrIrucpOtenxb?from=from_copylink" target="_blank">可视化图表</a></div>
-                    </div>
-                {:else if selectedContentType === "databaseChart"}
-                    {#if advancedEnabled}
-                        <div class="content-panel databaseChart">
-                            <div class="database-chart-ID">
-                                <label for="">数据库ID： </label>
-                                <input
-                                    type="text"
-                                    placeholder="请输入数据库ID"
-                                    bind:value={databaseChartID}
-                                    on:change={async () => {
-                                        databaseChartInfo =
-                                            await getDatabase(databaseChartID);
-
-                                        if (databaseChartInfo.length === 0) {
-                                            showMessage("❌查询数据库失败");
-                                        } else {
-                                            confirmDatabaseChartID = true;
-                                            console.log(databaseChartInfo);
-                                        }
-                                    }}
-                                />
-                                {#if confirmDatabaseChartID}
-                                    <span>✅数据库验证成功</span>
-                                {:else}
-                                    <span>❌数据库验证失败</span>
-                                {/if}
-                            </div>
-                            <div class="database-chart-type">
-                                <label for=""
-                                    >图表类型：<select
-                                        bind:value={databaseChartType}
-                                    >
-                                        <option value="line">折线图</option>
-                                        <option value="bar">柱状图</option>
-                                        <option value="pie">饼图</option>
-                                        <option value="point">散点图</option>
-                                    </select></label
-                                >
-                                <label for="">图表标题： </label>
-                                <input
-                                    type="text"
-                                    placeholder="请输入图表标题"
-                                    bind:value={databaseChartTitle}
-                                />
-                            </div>
-                            {#if databaseChartType === "line"}
-                                <div class="database-chart-line">
-                                    <label for=""
-                                        >数据类型：
-                                        <select
-                                            bind:value={databaseChartLineType}
-                                        >
-                                            <option value="XY">XY轴</option>
-                                            <option value="count">数量</option>
-                                        </select>
-                                    </label>
-                                    {#if databaseChartLineType === "XY"}
-                                        <div class="database-chart-line-XY">
-                                            <div class="database-chart-x-axis">
-                                                <label for="">
-                                                    X轴来源：
-                                                    <select
-                                                        bind:value={
-                                                            databaseChartLineXAxisSource
-                                                        }
-                                                    >
-                                                        {#each databaseChartInfo as column}
-                                                            {#if column.type === "block" || column.type === "text" || column.type === "number" || column.type === "date" || column.type === "select" || column.type === "url" || column.type === "email" || column.type === "phone"}
-                                                                <option
-                                                                    value={column.id}
-                                                                >
-                                                                    {column.name}
-                                                                    ({column.type})
-                                                                </option>
-                                                            {/if}
-                                                        {/each}
-                                                    </select>
-                                                </label>
-                                                <label for="">X轴标题：</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="请输入X轴标题"
-                                                    bind:value={
-                                                        databaseChartLineXAxisTitle
-                                                    }
-                                                />
-                                            </div>
-                                            <div class="database-chart-y-axis">
-                                                <label for="">
-                                                    Y轴来源（多选）：
-                                                    <div
-                                                        class="multi-select-wrapper"
-                                                    >
-                                                        <select
-                                                            multiple
-                                                            bind:value={
-                                                                databaseChartLineYAxisSource
-                                                            }
-                                                            size="2.5"
-                                                            class="collapsed-multiselect"
-                                                        >
-                                                            {#each databaseChartInfo as column}
-                                                                {#if column.type === "number"}
-                                                                    <option
-                                                                        value={column.id}
-                                                                    >
-                                                                        {column.name}
-                                                                        ({column.type})
-                                                                    </option>
-                                                                {/if}
-                                                            {/each}
-                                                        </select>
-                                                    </div>
-                                                </label>
-                                                <label for="">Y轴标题：</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="请输入Y轴标题"
-                                                    bind:value={
-                                                        databaseChartLineYAxisTitle
-                                                    }
-                                                />
-                                            </div>
-                                        </div>
-                                    {:else if databaseChartLineType === "count"}
-                                        <div class="database-chart-count">
-                                            <label for=""
-                                                >统计列：
-                                                <select
-                                                    bind:value={
-                                                        databaseChartLineCountColumn
-                                                    }
-                                                >
-                                                    {#each databaseChartInfo as column}
-                                                        {#if column.type === "block" || column.type === "text" || column.type === "number" || column.type === "date" || column.type === "select" || column.type === "url" || column.type === "email" || column.type === "phone"}
-                                                            <option
-                                                                value={column.id}
-                                                            >
-                                                                {column.name}
-                                                                ({column.type})
-                                                            </option>
-                                                        {/if}
-                                                    {/each}
-                                                </select>
-                                            </label>
-                                            <div
-                                                class="database-chart-count-axis"
-                                            >
-                                                <label for="">X轴标题： </label>
-                                                <input
-                                                    type="text"
-                                                    bind:value={
-                                                        databaseChartLineCountXAxisTitle
-                                                    }
-                                                />
-                                                <label for="">Y轴标题： </label>
-                                                <input
-                                                    type="text"
-                                                    bind:value={
-                                                        databaseChartLineCountYAxisTitle
-                                                    }
-                                                />
-                                            </div>
-                                        </div>
-                                    {/if}
-                                    <div class="line-chart-style">
-                                        <div class="line-chart-style-item">
-                                            <label for=""
-                                                >平滑曲线：<input
-                                                    type="checkbox"
-                                                    bind:checked={
-                                                        databaseChartLineSmooth
-                                                    }
-                                                /></label
-                                            >
-                                            <label for=""
-                                                >线条宽度：
-                                                <input
-                                                    type="number"
-                                                    bind:value={
-                                                        databaseChartLineWidth
-                                                    }
-                                                />
-                                            </label>
-                                            <label for=""
-                                                >线条样式：
-                                                <select
-                                                    bind:value={
-                                                        databaseChartLineStyle
-                                                    }
-                                                >
-                                                    <option value="solid"
-                                                        >实线</option
-                                                    >
-                                                    <option value="dashed"
-                                                        >虚线</option
-                                                    >
-                                                    <option value="dotted"
-                                                        >点线</option
-                                                    >
-                                                </select>
-                                            </label>
-                                        </div>
-
-                                        <div class="line-chart-style-item">
-                                            <label for=""
-                                                >标记点：
-                                                <select
-                                                    bind:value={
-                                                        databaseChartLineMarkPoint
-                                                    }
-                                                >
-                                                    <option value="circle"
-                                                        >圆点</option
-                                                    >
-                                                    <option value="rect"
-                                                        >矩形</option
-                                                    >
-                                                    <option value="roundRect"
-                                                        >圆角矩形</option
-                                                    >
-                                                    <option value="triangle"
-                                                        >三角形</option
-                                                    >
-                                                    <option value="diamond"
-                                                        >菱形</option
-                                                    >
-                                                    <option value="pin"
-                                                        >大头针</option
-                                                    >
-                                                    <option value="arrow"
-                                                        >箭头</option
-                                                    >
-                                                    <option value="none"
-                                                        >无</option
-                                                    >
-                                                </select>
-                                            </label>
-                                            <label for=""
-                                                >标记点大小：
-                                                <input
-                                                    type="number"
-                                                    bind:value={
-                                                        databaseChartLineMarkPointSize
-                                                    }
-                                                />
-                                            </label>
-                                        </div>
-                                        <label for=""
-                                            >排序方式：
-                                            <select
-                                                bind:value={
-                                                    databaseChartLineCountSort
-                                                }
-                                            >
-                                                <option value="none">无</option>
-                                                <option value="asc">升序</option
-                                                >
-                                                <option value="desc"
-                                                    >降序</option
-                                                >
-                                            </select>
-                                        </label>
-                                    </div>
-                                </div>
-                            {:else if databaseChartType === "bar"}
-                                <div>
-                                    开发中……
-                                </div>{:else if databaseChartType === "pie"}
-                                <div>
-                                    开发中……
-                                </div>{:else if databaseChartType === "point"}
-                                <div>开发中……</div>{/if}
-                        </div>
-                    {:else}
-                        <h3>👑会员专属权益👑</h3>
-                    {/if}
-                    <hr>
-                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/TVpYw7TRPiG6hRksrYKc7oBjnmd?from=from_copylink" target="_blank">数据库图表</a></div>
-                    <p>组件开发中~</p>
+                    <VisualChartSet bind:visualChartType />
+                    <!-- {:else if selectedContentType === "databaseChart"}
+                    <DatabaseChartSet
+                        {plugin}
+                        {advancedEnabled}
+                        bind:databaseChartID
+                        bind:databaseChartTitle
+                        bind:databaseChartType
+                        bind:databaseChartLineType
+                        bind:databaseChartLineXAxisSource
+                        bind:databaseChartLineXAxisTitle
+                        bind:databaseChartLineYAxisSource
+                        bind:databaseChartLineYAxisTitle
+                        bind:databaseChartLineCountColumn
+                        bind:databaseChartLineCountXAxisTitle
+                        bind:databaseChartLineCountYAxisTitle
+                        bind:databaseChartLineSmooth
+                        bind:databaseChartLineWidth
+                        bind:databaseChartLineStyle
+                        bind:databaseChartLineMarkPoint
+                        bind:databaseChartLineMarkPointSize
+                        bind:databaseChartLineCountSort
+                    /> -->
                 {:else if selectedContentType === "statisticalCard"}
-                    {#if advancedEnabled}
-                        <div class="content-panel statisticalCard">
-                            <div class="form-group statisticalCardTitle">
-                                <div>
-                                    <label for="">标题：</label><input
-                                        type="text"
-                                        bind:value={statisticalCardTitle}
-                                    />
-                                </div>
-                                <div>
-                                    <label for=""
-                                        >标题大小：<input
-                                            type="number"
-                                            bind:value={
-                                                statisticalCardTitleSize
-                                            }
-                                        /></label
-                                    >
-                                    <label for=""
-                                        >标题颜色：<input
-                                            type="color"
-                                            bind:value={
-                                                statisticalCardTitleColor
-                                            }
-                                        /></label
-                                    >
-                                </div>
-                            </div>
-                            <div class="form-group statisticalCardContent">
-                                <label for=""
-                                    >统计内容：<select
-                                        name=""
-                                        id=""
-                                        bind:value={statisticalCardContent}
-                                    >
-                                        <option value="notebooksCount"
-                                            >笔记本数</option
-                                        >
-                                        <option value="docsCount">文档数</option
-                                        >
-                                        <option value="blocksCount">块数</option
-                                        >
-                                        <option value="wordsCount">字数</option>
-                                        <option value="tasksCount"
-                                            >任务数</option
-                                        >
-                                        <option value="doneTasksCount"
-                                            >已完成任务数</option
-                                        >
-                                        <option value="undoneTasksCount"
-                                            >未完成任务数</option
-                                        >
-                                        <option value="dailynotesCount"
-                                            >日记数</option
-                                        >
-                                        <option value="tagsCount">标签数</option
-                                        >
-                                        <option value="citationCount"
-                                            >引述数</option
-                                        >
-                                        <option value="codeBlocksCount"
-                                            >代码数</option
-                                        >
-                                        <option value="mathBlocksCount"
-                                            >公式数</option
-                                        >
-                                        <option value="customSQLCount"
-                                            >SQL 查询结果数</option
-                                        >
-                                    </select></label
-                                >
-                                <div>
-                                    <label for=""
-                                        >数字大小：<input
-                                            type="number"
-                                            bind:value={
-                                                statisticalCardCountSize
-                                            }
-                                        /></label
-                                    >
-                                    <label for=""
-                                        >数字颜色：<input
-                                            type="color"
-                                            bind:value={
-                                                statisticalCardCountColor
-                                            }
-                                        /></label
-                                    >
-                                </div>
-                            </div>
-                            {#if statisticalCardContent === "customSQLCount"}
-                                <div class="form-group">
-                                    <label for=""
-                                        >自定义 SQL 查询：<textarea
-                                            bind:value={customSQLCount}
-                                        /></label
-                                    >
-                                </div>
-                            {/if}
-                        </div>
-                    {:else}
-                        <h3>👑会员专属权益👑</h3>
-                    {/if}
-                    <hr>
-                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/B8kGwSDdui3vy3kz55EcJkVHnHD?from=from_copylink" target="_blank">统计卡片</a></div>
+                    <StatisticalCardSet
+                        {advancedEnabled}
+                        bind:statisticalCardTitle
+                        bind:statisticalCardTitleSize
+                        bind:statisticalCardTitleColor
+                        bind:statisticalCardContent
+                        bind:statisticalCardCountSize
+                        bind:statisticalCardCountColor
+                        bind:customSQLCount
+                    />
                 {/if}
             </div>
         {:else if activeTab === "tool"}
@@ -2012,596 +777,51 @@
             <!-- 动态内容区域 -->
             <div class="dynamic-content-area">
                 {#if selectedContentType === "countdown"}
-                    <div class="content-panel countdown">
-                        <div class="form-group">
-                            <label for="countdown-style">选择显示方式：</label>
-                            <select
-                                id="countdown-style"
-                                bind:value={countdownStyle}
-                            >
-                                <option value="list">列表</option>
-                                <option value="full">整页</option>
-                            </select>
-                        </div>
-                        {#if countdownStyle === "full"}
-                            <div class="form-group">
-                                <label
-                                    >背景设置：
-                                    <select bind:value={countdownFullBgSelect}>
-                                        <option value="remote">远程图片</option>
-                                        <option value="local">本地图片</option>
-                                    </select>
-                                </label>
-                                {#if countdownFullBgSelect === "remote"}
-                                    <input
-                                        type="text"
-                                        bind:value={countdownFullBg}
-                                        placeholder="输入远程图片URL"
-                                    />
-                                {:else}
-                                    <button
-                                        on:click={() =>
-                                            countdownBgInput?.click()}
-                                        >上传图片</button
-                                    >
-                                    <input
-                                        type="file"
-                                        bind:this={countdownBgInput}
-                                        accept="image/*"
-                                        on:change={handleCountdownUpload}
-                                        style="display: none;"
-                                    />
-                                    <span>无预览直接确认</span>
-                                {/if}
-                            </div>
-                            <div class="form-group">
-                                <label>
-                                    字体大小：
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        max="10"
-                                        bind:value={countdownFontSize}
-                                        placeholder="例如：3"
-                                    />
-                                </label>
-                            </div>
-                        {/if}
-                        <div class="countdown-grid">
-                            {#each eventList as event, index}
-                                <div
-                                    class="event-form-group"
-                                    data-index={index}
-                                >
-                                    <div class="form-group">
-                                        <label for="event-name-{index}"
-                                            >名称：</label
-                                        >
-                                        <input
-                                            id="event-name-{index}"
-                                            type="text"
-                                            bind:value={event.name}
-                                            placeholder="例如：纪念日"
-                                        />
-                                        <button
-                                            class="remove-event"
-                                            title="删除"
-                                            on:click={() => removeEvent(index)}
-                                            style="margin-top: 0.5rem;"
-                                        >
-                                            🗑
-                                        </button>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="event-date-{index}"
-                                            >日期：</label
-                                        >
-                                        <input
-                                            id="event-date-{index}"
-                                            class="date-input"
-                                            type="date"
-                                            bind:value={event.date}
-                                        />
-                                    </div>
-                                </div>
-                            {/each}
-                        </div>
-                        <button
-                            class="add-event-btn"
-                            style="margin: 1rem;"
-                            on:click={() => addEvent()}>➕ 添加</button
-                        >
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/KjYew1TbViBCIQkmsbBcBO6vnOd?from=from_copylink" target="_blank">倒数日</a></div>
-                    </div>
+                    <CountdownSet
+                        bind:countdownStyle
+                        bind:countdownFullBgSelect
+                        bind:countdownFullBg
+                        bind:countdownFontSize
+                        bind:eventList
+                        bind:countdownLocalBg
+                    />
                 {:else if selectedContentType === "weather"}
-                    <div class="content-panel weather">
-                        <div class="form-group">
-                            <label for="weather-city">城市名称：</label>
-                            <input
-                                id="weather-city"
-                                type="text"
-                                bind:value={customWeatherCity}
-                                placeholder="例如：北京"
-                            />
-
-                            <hr>
-                            <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/ER44wITRDi0m8okvcsGcxtZInix?from=from_copylink" target="_blank">今日天气</a></div>
-                        </div>
-                    </div>
+                    <WeatherSet bind:customWeatherCity />
                 {:else if selectedContentType === "timedate"}
-                    <div class="content-panel timedate">
-                        <div
-                            class="form-group"
-                            style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;"
-                        >
-                            <label
-                                ><input
-                                    type="checkbox"
-                                    bind:checked={showSeconds}
-                                /> 显示秒数</label
-                            >
-                            <label
-                                ><input
-                                    type="checkbox"
-                                    bind:checked={showDate}
-                                /> 显示日期</label
-                            >
-                            <label
-                                ><input
-                                    type="checkbox"
-                                    bind:checked={showWeek}
-                                /> 显示星期</label
-                            >
-                            <label
-                                ><input
-                                    type="checkbox"
-                                    bind:checked={showLunar}
-                                /> 显示农历</label
-                            >
-                            <label
-                                ><input
-                                    type="checkbox"
-                                    bind:checked={showZodiac}
-                                /> 显示生肖</label
-                            >
-                            <label
-                                ><input
-                                    type="checkbox"
-                                    bind:checked={showSolarTerm}
-                                /> 显示节气</label
-                            >
-                        </div>
-
-                        <div class="form-group">
-                            {#if showDate}
-                                <label for="dateFormat">日期格式：</label>
-                                <select id="dateFormat" bind:value={dateFormat}>
-                                    <option value="YYYY年MM月DD日"
-                                        >YYYY年MM月DD日</option
-                                    >
-                                    <option value="YYYY-MM-DD"
-                                        >YYYY-MM-DD</option
-                                    >
-                                    <option value="YYYY/MM/DD"
-                                        >YYYY/MM/DD</option
-                                    >
-                                    <option value="YYYY.MM.DD"
-                                        >YYYY.MM.DD</option
-                                    >
-                                </select>
-                            {/if}
-                            <label for="timedate-fontSize">
-                                字体大小：
-                                <input
-                                    type="number"
-                                    min="1"
-                                    max="10"
-                                    bind:value={timedateFontSize}
-                                    placeholder="例如：3"
-                                />
-                            </label>
-                        </div>
-
-                        <!-- 隐藏的文件输入 -->
-                        <input
-                            type="file"
-                            bind:this={morningBgInput}
-                            accept="image/*"
-                            on:change={() => handleBackgroundUpload("morning")}
-                            style="display: none;"
-                        />
-                        <input
-                            type="file"
-                            bind:this={afternoonBgInput}
-                            accept="image/*"
-                            on:change={() =>
-                                handleBackgroundUpload("afternoon")}
-                            style="display: none;"
-                        />
-                        <input
-                            type="file"
-                            bind:this={nightBgInput}
-                            accept="image/*"
-                            on:change={() => handleBackgroundUpload("night")}
-                            style="display: none;"
-                        />
-
-                        <div class="form-group">
-                            <h5>背景图片设置</h5>
-
-                            <!-- 早晨 -->
-                            <div class="background-option">
-                                <div class="background-row">
-                                    <!-- 左侧配置 -->
-                                    <div class="type-select-and-input">
-                                        <label for="morning-bg-select"
-                                            >早晨：（6点 ~ 12点）</label
-                                        >
-                                        <div class="type-select">
-                                            <select
-                                                id="morning-bg-select"
-                                                bind:value={morningImageType}
-                                            >
-                                                <option value="remote"
-                                                    >远程图片</option
-                                                >
-                                                <option value="local"
-                                                    >本地图片</option
-                                                >
-                                            </select>
-                                        </div>
-
-                                        {#if morningImageType === "remote"}
-                                            <input
-                                                type="text"
-                                                bind:value={morningBgUrl}
-                                                on:change={async () => {
-                                                    await getTimeBGImage();
-                                                }}
-                                                placeholder="请输入早晨背景图URL"
-                                            />
-                                        {:else}
-                                            <button
-                                                on:click={() =>
-                                                    morningBgInput.click()}
-                                                >上传图片</button
-                                            >
-                                            <input
-                                                type="file"
-                                                bind:this={morningBgInput}
-                                                accept="image/*"
-                                                on:change={() =>
-                                                    handleBackgroundUpload(
-                                                        "morning",
-                                                    )}
-                                                style="display: none;"
-                                            />
-                                        {/if}
-                                    </div>
-
-                                    <!-- 右侧预览 -->
-                                    <div class="image-preview">
-                                        {#if morningImageType === "remote" && morningBgUrl}
-                                            <img
-                                                src={morningBgImageData}
-                                                alt="早晨预览"
-                                            />
-                                        {:else if morningImageType === "local" && morningBgImage}
-                                            <img
-                                                src={morningBgImage}
-                                                alt="早晨预览"
-                                            />
-                                        {/if}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 中午 -->
-                            <div class="background-option">
-                                <div class="background-row">
-                                    <!-- 左侧配置 -->
-                                    <div class="type-select-and-input">
-                                        <label for="afternoon-bg-select"
-                                            >中午：（12点 ~ 18点）</label
-                                        >
-                                        <div class="type-select">
-                                            <select
-                                                id="afternoon-bg-select"
-                                                bind:value={afternoonImageType}
-                                            >
-                                                <option value="remote"
-                                                    >远程图片</option
-                                                >
-                                                <option value="local"
-                                                    >本地图片</option
-                                                >
-                                            </select>
-                                        </div>
-
-                                        {#if afternoonImageType === "remote"}
-                                            <input
-                                                type="text"
-                                                bind:value={afternoonBgUrl}
-                                                on:change={async () => {
-                                                    await getTimeBGImage();
-                                                }}
-                                                placeholder="请输入中午背景图URL"
-                                            />
-                                        {:else}
-                                            <button
-                                                on:click={() =>
-                                                    afternoonBgInput.click()}
-                                                >上传图片</button
-                                            >
-                                            <input
-                                                type="file"
-                                                bind:this={afternoonBgInput}
-                                                accept="image/*"
-                                                on:change={() =>
-                                                    handleBackgroundUpload(
-                                                        "afternoon",
-                                                    )}
-                                                style="display: none;"
-                                            />
-                                        {/if}
-                                    </div>
-
-                                    <!-- 右侧预览 -->
-                                    <div class="image-preview">
-                                        {#if afternoonImageType === "remote" && afternoonBgUrl}
-                                            <img
-                                                src={afternoonBgImageData}
-                                                alt="中午预览"
-                                            />
-                                        {:else if afternoonImageType === "local" && afternoonBgImage}
-                                            <img
-                                                src={afternoonBgImage}
-                                                alt="中午预览"
-                                            />
-                                        {/if}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 晚上 -->
-                            <div class="background-option">
-                                <div class="background-row">
-                                    <!-- 左侧配置 -->
-                                    <div class="type-select-and-input">
-                                        <label for="night-bg-select"
-                                            >晚上：（18点 ~ 6点）</label
-                                        >
-                                        <div class="type-select">
-                                            <select
-                                                id="night-bg-select"
-                                                bind:value={nightImageType}
-                                            >
-                                                <option value="remote"
-                                                    >远程图片</option
-                                                >
-                                                <option value="local"
-                                                    >本地图片</option
-                                                >
-                                            </select>
-                                        </div>
-
-                                        {#if nightImageType === "remote"}
-                                            <input
-                                                type="text"
-                                                bind:value={nightBgUrl}
-                                                on:change={async () => {
-                                                    await getTimeBGImage();
-                                                }}
-                                                placeholder="请输入晚上背景图URL"
-                                            />
-                                        {:else}
-                                            <button
-                                                on:click={() =>
-                                                    nightBgInput.click()}
-                                                >上传图片</button
-                                            >
-                                            <input
-                                                type="file"
-                                                bind:this={nightBgInput}
-                                                accept="image/*"
-                                                on:change={() =>
-                                                    handleBackgroundUpload(
-                                                        "night",
-                                                    )}
-                                                style="display: none;"
-                                            />
-                                        {/if}
-                                    </div>
-
-                                    <!-- 右侧预览 -->
-                                    <div class="image-preview">
-                                        {#if nightImageType === "remote" && nightBgUrl}
-                                            <img
-                                                src={nightBgImageData}
-                                                alt="晚上预览"
-                                            />
-                                        {:else if nightImageType === "local" && nightBgImage}
-                                            <img
-                                                src={nightBgImage}
-                                                alt="晚上预览"
-                                            />
-                                        {/if}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/NlvZweO3LiUA2XkC2escjktKnXg?from=from_copylink" target="_blank">时钟</a></div>
-                    </div>
+                    <TimedateSet
+                        bind:showSeconds
+                        bind:dateFormat
+                        bind:showLunar
+                        bind:showZodiac
+                        bind:showSolarTerm
+                        bind:showWeek
+                        bind:showDate
+                        bind:timedateFontSize
+                        bind:morningImageType
+                        bind:afternoonImageType
+                        bind:nightImageType
+                        bind:morningBgUrl
+                        bind:afternoonBgUrl
+                        bind:nightBgUrl
+                        bind:morningBgImage
+                        bind:afternoonBgImage
+                        bind:nightBgImage
+                    />
                 {:else if selectedContentType === "focus"}
-                    <div class="content-panel focus">
-                        <!-- 隐藏输入框 -->
-                        <input
-                            type="file"
-                            bind:this={focusBgInput}
-                            accept="image/*"
-                            on:change={handleFocusUpload}
-                            style="display: none;"
-                        />
-                        <input
-                            type="file"
-                            bind:this={breakBgInput}
-                            accept="image/*"
-                            on:change={handleBreakUpload}
-                            style="display: none;"
-                        />
-                        <div class="form-group">
-                            <h5>背景图片设置</h5>
-                            <!-- 专注背景 -->
-                            <div class="background-option">
-                                <div class="background-row">
-                                    <!-- 左侧配置 -->
-                                    <div class="type-select-and-input">
-                                        <label for="focus-bg-select"
-                                            >专注背景：</label
-                                        >
-                                        <div class="type-select">
-                                            <select
-                                                id="focus-bg-select"
-                                                bind:value={focusImageType}
-                                            >
-                                                <option value="remote"
-                                                    >远程图片</option
-                                                >
-                                                <option value="local"
-                                                    >本地图片</option
-                                                >
-                                            </select>
-                                        </div>
-
-                                        {#if focusImageType === "remote"}
-                                            <input
-                                                type="text"
-                                                bind:value={focusBgImage}
-                                                on:change={async () => {
-                                                    await getFocusBreakImage();
-                                                }}
-                                                placeholder="请输入专注背景图URL"
-                                            />
-                                        {:else}
-                                            <button
-                                                on:click={() =>
-                                                    focusBgInput.click()}
-                                                >上传图片</button
-                                            >
-                                        {/if}
-                                    </div>
-
-                                    <!-- 右侧预览 -->
-                                    <div class="image-preview">
-                                        {#if focusImageType === "remote" && focusBgImage}
-                                            <img
-                                                src={focusBgImageData}
-                                                alt="专注背景预览"
-                                            />
-                                        {:else if focusImageType === "local" && focusLocalImage}
-                                            <img
-                                                src={focusLocalImage}
-                                                alt="专注背景预览"
-                                            />
-                                        {/if}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 休息背景 -->
-                            <div class="background-option">
-                                <div class="background-row">
-                                    <!-- 左侧配置 -->
-                                    <div class="type-select-and-input">
-                                        <label for="break-bg-select"
-                                            >休息背景：</label
-                                        >
-                                        <div class="type-select">
-                                            <select
-                                                id="break-bg-select"
-                                                bind:value={breakImageType}
-                                            >
-                                                <option value="remote"
-                                                    >远程图片</option
-                                                >
-                                                <option value="local"
-                                                    >本地图片</option
-                                                >
-                                            </select>
-                                        </div>
-
-                                        {#if breakImageType === "remote"}
-                                            <input
-                                                type="text"
-                                                bind:value={breakBgImage}
-                                                on:change={async () => {
-                                                    await getFocusBreakImage();
-                                                }}
-                                                placeholder="请输入休息背景图URL"
-                                            />
-                                        {:else}
-                                            <button
-                                                on:click={() =>
-                                                    breakBgInput.click()}
-                                                >上传图片</button
-                                            >
-                                        {/if}
-                                    </div>
-
-                                    <!-- 右侧预览 -->
-                                    <div class="image-preview">
-                                        {#if breakImageType === "remote" && breakBgImage}
-                                            <img
-                                                src={breakBgImageData}
-                                                alt="休息背景预览"
-                                            />
-                                        {:else if breakImageType === "local" && breakLocalImage}
-                                            <img
-                                                src={breakLocalImage}
-                                                alt="休息背景预览"
-                                            />
-                                        {/if}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/R1KPw7ZqNi4iVJkjGdhcVYmtnkd?from=from_copylink" target="_blank">番茄钟</a></div>
-                    </div>
+                    <FocusSet
+                        bind:focusImageType
+                        bind:breakImageType
+                        bind:focusBgImage
+                        bind:breakBgImage
+                        bind:focusLocalImage
+                        bind:breakLocalImage
+                    />
                 {:else if selectedContentType === "musicPlayer"}
-                    {#if advancedEnabled}
-                        <div class="content-panel musicPlayer">
-                            <label class="folder-select-label">
-                                <span>音乐路径：</span>
-                                <input
-                                    type="text"
-                                    bind:value={musicFolderPath}
-                                    placeholder="请选择音乐文件夹"
-                                />
-                                <button
-                                    title="选择音乐文件夹"
-                                    on:click={selectMusicFolder}>📁</button
-                                >
-                            </label>
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    bind:checked={autoPlay}
-                                />
-                                自动播放
-                            </label>
-                        </div>
-                    {:else}
-                        <h3>👑会员专属权益👑</h3>
-                    {/if}
-                    <hr>
-                    <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/GJQNwPxiBiRGYAkbJxMcCHTanag?from=from_copylink" target="_blank">音乐播放器</a></div>
+                    <MusicPlayerSet
+                        bind:advancedEnabled
+                        bind:musicFolderPath
+                        bind:autoPlay
+                    />
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -2617,61 +837,11 @@
             <!-- 动态内容区域 -->
             <div class="dynamic-content-area">
                 {#if selectedContentType === "custom-text"}
-                    <div class="content-panel custom-text">
-                        <h4>自定义文字内容</h4>
-                        <textarea
-                            placeholder="在这里输入你想要显示的自定义文字内容，以 Markdown
-                            格式编写..."
-                            bind:value={customTextInputValue}
-                        ></textarea>
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/DkJnwuWzuipxpgkcTKZcEyaMnHf?from=from_copylink" target="_blank">自定义文字</a></div>
-                    </div>
+                    <CustomTextSet bind:customTextInputValue />
                 {:else if selectedContentType === "custom-web"}
-                    <div class="content-panel custom-web">
-                        <p>输入要显示的网页地址：</p>
-                        <div class="form-group">
-                            <label for="custom-web-url">网页地址：</label>
-                            <input
-                                id="custom-web-url"
-                                type="text"
-                                bind:value={customWebUrl}
-                                placeholder="https://example.com"
-                            />
-                        </div>
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/Tk3mwYwMTiQrpSkkzQpcPsdGnUd?from=from_copylink" target="_blank">网页浏览器</a></div>
-                    </div>
+                    <WebviewSet bind:customWebUrl />
                 {:else if selectedContentType === "custom-protyle"}
-                    <div class="content-panel custom-protyle">
-                        <div class="form-group">
-                            <label for="">
-                                <input
-                                    type="checkbox"
-                                    bind:checked={isRandomDoc}
-                                />
-                                随机漫游文档
-                            </label>
-                        </div>
-                        {#if !isRandomDoc}
-                            <div class="form-group">
-                                <label for="protyle-block-id"
-                                    >输入想要显示的文档块 ID：</label
-                                >
-                                <input
-                                    id="protyle-block-id"
-                                    type="text"
-                                    bind:value={customBlockID}
-                                    placeholder="例如：20250310094404-1yla4zz"
-                                />
-                            </div>
-                        {/if}
-
-                        <hr>
-                        <div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/XQV7wtEtsihu2IkbYpWcOWSunKf?from=from_copylink" target="_blank">文档编辑器</a></div>
-                    </div>
+                    <ProtyleSet bind:isRandomDoc bind:customBlockID />
                 {/if}
             </div>
         {/if}

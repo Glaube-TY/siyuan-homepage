@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
 
     export let contentTypeJson: string = "{}";
+    export let plugin: any;
 
     // 热搜通用数据结构定义
     interface HotItem {
