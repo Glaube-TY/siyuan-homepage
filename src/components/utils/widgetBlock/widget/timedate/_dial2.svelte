@@ -105,7 +105,7 @@
 	{#if dial2ShowMarkers}
 		<!-- numbers - 位于内正方形上 -->
 		{#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as num}
-			{@const angle = num * 30} {@const rad = (angle * Math.PI) / 180}
+			{@const angle = num * 30 - 90} {@const rad = (angle * Math.PI) / 180}
 			{@const cos = Math.cos(rad)} {@const sin = Math.sin(rad)}
 			<!-- 数字位置在内正方形(35)上 -->
 			{@const textIntersection = getSquareIntersection(cos, sin, 35)}
