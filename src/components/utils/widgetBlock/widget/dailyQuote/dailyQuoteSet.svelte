@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { getImage } from "@/components/tools/getImage";
 
-    export let plugin: any;
     export let advancedEnabled: boolean = false;
     export let dailyQuoteMode: string = "custom";
     export let dailyQuoteFontSize: number = 1;
@@ -11,11 +11,12 @@
     export let dailyQuoteRemoteBg: string =
         "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80";
     export let dailyQuoteLocalBg: string = "";
-    export let dailyQuoteBgImageData: string = "";
     export let dailyQuoteBgInput: HTMLInputElement | null = null;
 
     let getDailyQuoteBgImage: () => Promise<void>;
     let handleDailyQuoteUpload: () => void;
+
+    let dailyQuoteBgImageData: string = "";
 
     onMount(async () => {
         // 初始化背景图片
@@ -27,9 +28,9 @@
     // 获取背景图片
     getDailyQuoteBgImage = async () => {
         if (dailyQuoteBgSelect === "remote") {
-            dailyQuoteBgImageData = await plugin.getImage(dailyQuoteRemoteBg);
+            dailyQuoteBgImageData = await getImage(dailyQuoteRemoteBg);
         } else {
-            dailyQuoteBgImageData = dailyQuoteRemoteBg;
+            dailyQuoteBgImageData = dailyQuoteLocalBg;
         }
     };
 

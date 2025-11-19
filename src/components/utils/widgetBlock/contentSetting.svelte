@@ -1,6 +1,5 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { getImage } from "@/components/tools/getImage";
     import { getNotebooks } from "@/components/tools/getNotebooks";
     import FavoritesSet from "./widget/favorites/favoritesSet.svelte";
     import FocusSet from "./widget/focus/focusSet.svelte";
@@ -151,7 +150,9 @@
     let isRandomDoc: boolean = false;
     let customBlockID: string = "";
 
-    // 时间日期相关
+    // 时钟组件相关变量
+    let timeType: string = "classic";
+    // 时钟组件经典样式相关变量
     let timedateFontSize: number = 3;
     let showSeconds: boolean = true;
     let dateFormat: string = "YYYY年MM月DD日";
@@ -172,6 +173,25 @@
     let morningImageType = "remote";
     let afternoonImageType = "remote";
     let nightImageType = "remote";
+    // 简单时钟配置
+    let simple1Size: number = 3;
+    let simple1FontWeight: number = 4;
+    let simple1ShowSecond: boolean = true;
+    let simple1ShowDate: boolean = true;
+    // 简单时钟2配置
+    let simple2BgSelect: string = "remote";
+    let simple2RemoteBg: string =
+        "https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944";
+    let simple2LocalBg: string = "";
+    let simple2BgInput: HTMLInputElement | null = null;
+    // 表盘时钟配置
+    let dial1ShowSecond: boolean = true;
+    let dial1ShowMarkers: boolean = true;
+    let dial1ShowDate: boolean = true;
+    // 表盘2配置
+    let dial2ShowSecond: boolean = true;
+    let dial2ShowMarkers: boolean = true;
+    let dial2ShowDate: boolean = true;
 
     // 专注设置
     let focusImageType = "remote";
@@ -225,23 +245,6 @@
     let autoPlay = false;
 
     let advancedEnabled = false;
-
-    // 每日一言组件预览图
-    let dailyQuoteBgImageData: string = "";
-    async function getDailyQuoteBgImage() {
-        if (
-            !window.navigator.userAgent.includes("Electron") ||
-            typeof window.require !== "function"
-        ) {
-            if (dailyQuoteBgSelect === "remote") {
-                dailyQuoteBgImageData = await getImage(dailyQuoteRemoteBg);
-            }
-        } else {
-            if (dailyQuoteBgSelect === "remote") {
-                dailyQuoteBgImageData = dailyQuoteRemoteBg;
-            }
-        }
-    }
 
     onMount(async () => {
         const settingData = await plugin.loadData(
@@ -352,6 +355,9 @@
                 isRandomDoc = parsedData.data?.[0]?.isRandomDoc || false;
                 customBlockID = parsedData.data?.[0]?.customBlockId || "";
             } else if (parsedData.type === "timedate") {
+                // 时钟组件相关变量
+                timeType = parsedData.data?.timeType || "classic";
+                // 时钟组件经典样式相关变量
                 showSeconds = parsedData.data?.showSeconds ?? true;
                 dateFormat = parsedData.data?.dateFormat ?? "YYYY年MM月DD日";
                 showLunar = parsedData.data?.showLunar ?? true;
@@ -378,6 +384,25 @@
 
                 timedateFontSize =
                     parsedData.data?.timedateFontSize || timedateFontSize;
+
+                // 简单时钟配置
+                simple1Size = parsedData.data?.simple1Size || 3;
+                simple1FontWeight = parsedData.data?.simple1FontWeight || 4;
+                simple1ShowSecond = parsedData.data?.simple1ShowSecond ?? true;
+                simple1ShowDate = parsedData.data?.simple1ShowDate ?? true;
+                // 简单时钟2配置
+                simple2BgSelect = parsedData.data?.simple2BgSelect || "remote";
+                simple2RemoteBg = parsedData.data?.simple2RemoteBg || "";
+                simple2LocalBg = parsedData.data?.simple2LocalBg || "";
+                simple2BgInput = parsedData.data?.simple2BgInput || null;
+                // 表盘时钟配置
+                dial1ShowSecond = parsedData.data?.dial1ShowSecond ?? true;
+                dial1ShowMarkers = parsedData.data?.dial1ShowMarkers ?? true;
+                dial1ShowDate = parsedData.data?.dial1ShowDate ?? true;
+                // 表盘2配置
+                dial2ShowSecond = parsedData.data?.dial2ShowSecond ?? true;
+                dial2ShowMarkers = parsedData.data?.dial2ShowMarkers ?? true;
+                dial2ShowDate = parsedData.data?.dial2ShowDate ?? true;
             } else if (parsedData.type === "TaskMan") {
                 showCompletedTasks =
                     parsedData.data?.showCompletedTasks ?? true;
@@ -440,7 +465,6 @@
                     parsedData.data?.dailyQuoteBgSelect || dailyQuoteBgSelect;
                 dailyQuoteRemoteBg =
                     parsedData.data?.dailyQuoteRemoteBg || dailyQuoteRemoteBg;
-                await getDailyQuoteBgImage();
                 dailyQuoteLocalBg = parsedData.data?.dailyQuoteLocalBg || "";
             } else if (parsedData.type === "visualChart") {
                 visualChartType =
@@ -672,7 +696,6 @@
                     <HOTSet bind:hotSource />
                 {:else if selectedContentType === "dailyQuote"}
                     <DailyQuoteSet
-                        {plugin}
                         {advancedEnabled}
                         bind:dailyQuoteMode
                         bind:dailyQuoteFontSize
@@ -681,7 +704,6 @@
                         bind:dailyQuoteBgSelect
                         bind:dailyQuoteRemoteBg
                         bind:dailyQuoteLocalBg
-                        bind:dailyQuoteBgImageData
                         bind:dailyQuoteBgInput
                     />
                 {:else if selectedContentType === "News"}
@@ -789,6 +811,8 @@
                     <WeatherSet bind:customWeatherCity />
                 {:else if selectedContentType === "timedate"}
                     <TimedateSet
+                        {plugin}
+                        bind:timeType
                         bind:showSeconds
                         bind:dateFormat
                         bind:showLunar
@@ -806,6 +830,20 @@
                         bind:morningBgImage
                         bind:afternoonBgImage
                         bind:nightBgImage
+                        bind:simple1Size
+                        bind:simple1FontWeight
+                        bind:simple1ShowSecond
+                        bind:simple1ShowDate
+                        bind:simple2BgSelect
+                        bind:simple2RemoteBg
+                        bind:simple2LocalBg
+                        bind:simple2BgInput
+                        bind:dial1ShowSecond
+                        bind:dial1ShowMarkers
+                        bind:dial1ShowDate
+                        bind:dial2ShowSecond
+                        bind:dial2ShowMarkers
+                        bind:dial2ShowDate
                     />
                 {:else if selectedContentType === "focus"}
                     <FocusSet
@@ -1008,6 +1046,9 @@
                         type: "timedate",
                         blockId: currentBlockId,
                         data: {
+                            // 时钟组件相关变量
+                            timeType,
+                            // 时钟组件经典样式相关变量
                             showSeconds,
                             dateFormat,
                             showLunar,
@@ -1025,6 +1066,24 @@
                             afternoonBgImage,
                             nightBgImage,
                             timedateFontSize,
+                            // 简单时钟配置
+                            simple1Size,
+                            simple1FontWeight,
+                            simple1ShowSecond,
+                            simple1ShowDate,
+                            // 简单时钟2配置
+                            simple2BgSelect,
+                            simple2RemoteBg,
+                            simple2LocalBg,
+                            simple2BgInput,
+                            // 表盘时钟配置
+                            dial1ShowSecond,
+                            dial1ShowMarkers,
+                            dial1ShowDate,
+                            // 表盘2配置
+                            dial2ShowSecond,
+                            dial2ShowMarkers,
+                            dial2ShowDate,
                         },
                     };
                 } else if (selectedContentType === "focus") {
