@@ -102,11 +102,11 @@
     // 倒数日相关变量
     let eventList = [{ name: "", date: "" }];
     let countdownStyle = "list";
-    let countdownFullBgSelect = "remote";
-    let countdownFullBg =
-        "https://haowallpaper.com/link/common/file/previewFileImg/17021275790298496";
-    let countdownLocalBg = null;
-    let countdownFontSize: number = 3;
+    let countdownCard1BgSelect = "remote";
+    let countdownCard1RemoteBg =
+        "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
+    let countdownCard1LocalBg = "";
+    let countdownCard2BgColor: string = "#000000";
 
     // 天气相关变量
     let customWeatherCity: string = "北京";
@@ -183,7 +183,6 @@
     let simple2RemoteBg: string =
         "https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944";
     let simple2LocalBg: string = "";
-    let simple2BgInput: HTMLInputElement | null = null;
     // 表盘时钟配置
     let dial1ShowSecond: boolean = true;
     let dial1ShowMarkers: boolean = true;
@@ -335,14 +334,14 @@
                     { name: "", date: "" },
                 ];
                 countdownStyle = parsedData.data?.countdownStyle || "list";
-                countdownLocalBg = parsedData.data?.countdownLocalBg || null;
-                countdownFullBg =
-                    parsedData.data?.countdownFullBg || countdownFullBg;
-                countdownFullBgSelect =
-                    parsedData.data?.countdownFullBgSelect ||
-                    countdownFullBgSelect;
-                countdownFontSize =
-                    parsedData.data?.countdownFontSize || countdownFontSize;
+                countdownCard1BgSelect =
+                    parsedData.data?.countdownCard1BgSelect || "remote";
+                countdownCard1RemoteBg =
+                    parsedData.data?.countdownCard1RemoteBg || "";
+                countdownCard1LocalBg =
+                    parsedData.data?.countdownCard1LocalBg || "";
+                countdownCard2BgColor =
+                    parsedData.data?.countdownCard2BgColor || "#000000";
             } else if (parsedData.type === "weather") {
                 customWeatherCity = parsedData.data?.city || "北京";
             } else if (parsedData.type === "HOT") {
@@ -394,7 +393,6 @@
                 simple2BgSelect = parsedData.data?.simple2BgSelect || "remote";
                 simple2RemoteBg = parsedData.data?.simple2RemoteBg || "";
                 simple2LocalBg = parsedData.data?.simple2LocalBg || "";
-                simple2BgInput = parsedData.data?.simple2BgInput || null;
                 // 表盘时钟配置
                 dial1ShowSecond = parsedData.data?.dial1ShowSecond ?? true;
                 dial1ShowMarkers = parsedData.data?.dial1ShowMarkers ?? true;
@@ -801,11 +799,11 @@
                 {#if selectedContentType === "countdown"}
                     <CountdownSet
                         bind:countdownStyle
-                        bind:countdownFullBgSelect
-                        bind:countdownFullBg
-                        bind:countdownFontSize
                         bind:eventList
-                        bind:countdownLocalBg
+                        bind:countdownCard1BgSelect
+                        bind:countdownCard1RemoteBg
+                        bind:countdownCard1LocalBg
+                        bind:countdownCard2BgColor
                     />
                 {:else if selectedContentType === "weather"}
                     <WeatherSet bind:customWeatherCity />
@@ -837,7 +835,6 @@
                         bind:simple2BgSelect
                         bind:simple2RemoteBg
                         bind:simple2LocalBg
-                        bind:simple2BgInput
                         bind:dial1ShowSecond
                         bind:dial1ShowMarkers
                         bind:dial1ShowDate
@@ -893,7 +890,8 @@
                 if (focusImageType === "remote") focusLocalImage = null;
                 if (breakImageType === "remote") breakLocalImage = null;
 
-                if (countdownFullBgSelect === "remote") countdownLocalBg = null;
+                if (countdownCard1BgSelect === "remote")
+                    countdownCard1LocalBg = null;
 
                 if (morningImageType === "remote") morningBgImage = null;
                 if (afternoonImageType === "remote") afternoonBgImage = null;
@@ -986,14 +984,14 @@
                         type: "countdown",
                         blockId: currentBlockId,
                         data: {
-                            countdownFontSize,
                             countdownStyle,
-                            countdownLocalBg,
-                            countdownFullBg,
-                            countdownFullBgSelect,
                             eventList: eventList.filter(
                                 (event) => event.name && event.date,
                             ),
+                            countdownCard1BgSelect,
+                            countdownCard1RemoteBg,
+                            countdownCard1LocalBg,
+                            countdownCard2BgColor,
                         },
                     };
                 } else if (selectedContentType === "weather") {
@@ -1075,7 +1073,6 @@
                             simple2BgSelect,
                             simple2RemoteBg,
                             simple2LocalBg,
-                            simple2BgInput,
                             // 表盘时钟配置
                             dial1ShowSecond,
                             dial1ShowMarkers,

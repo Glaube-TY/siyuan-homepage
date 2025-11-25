@@ -39,7 +39,6 @@
     export let simple2RemoteBg: string =
         "https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944";
     export let simple2LocalBg: string = "";
-    export let simple2BgInput: HTMLInputElement | null = null;
 
     // 表盘时钟配置
     export let dial1ShowSecond: boolean = true;
@@ -136,6 +135,7 @@
         }
     };
     let handleSimple2Upload: () => void;
+    let simple2BgInput: HTMLInputElement;
     // 处理图片上传
     handleSimple2Upload = () => {
         const file = simple2BgInput?.files?.[0];

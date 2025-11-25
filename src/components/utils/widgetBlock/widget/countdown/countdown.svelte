@@ -3,54 +3,39 @@
     import { getImage } from "@/components/tools/getImage";
 
     export let contentTypeJson: string = "{}";
+    const parsed = JSON.parse(contentTypeJson);
 
-    let countdownEvents = [];
-    let countdownStyle = "list";
-    let currentIndex = 0;
-    let countdownLocalBg = "";
-    let countdownFullBg =
-        "https://haowallpaper.com/link/common/file/previewFileImg/17021275790298496";
-    let countdownFullBgSelect = "remote";
-    let countdownFontSize = 3;
+    let countdownEvents = parsed.data?.eventList || [];
+    let countdownStyle = parsed.data?.countdownStyle || "list";
 
-    function nextEvent() {
-        if (currentIndex < countdownEvents.length - 1) {
-            currentIndex += 1;
-        }
-    }
+    let countdownCard1LocalBg = parsed.data?.countdownCard1LocalBg || "";
+    let countdownCard1RemoteBg =
+        parsed.data?.countdownCard1RemoteBg ||
+        "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
+    let countdownCard1BgSelect =
+        parsed.data?.countdownCard1BgSelect || "remote";
 
-    function prevEvent() {
-        if (currentIndex > 0) {
-            currentIndex -= 1;
-        }
-    }
-    // 解析并初始化倒计时数据
-    function initCountdownData() {
-        try {
-            const parsedData = JSON.parse(contentTypeJson);
-            countdownStyle = parsedData.data?.countdownStyle || countdownStyle;
-            countdownLocalBg = parsedData.data?.countdownLocalBg || "";
-            countdownFullBg = parsedData.data?.countdownFullBg || "";
-            countdownFullBgSelect =
-                parsedData.data?.countdownFullBgSelect || "";
-            countdownFontSize =
-                parsedData.data?.countdownFontSize || countdownFontSize;
+    let countdownCard2BgColor = parsed.data?.countdownCard2BgColor || "#000000";
 
-            if (
-                parsedData &&
-                parsedData.data?.eventList &&
-                parsedData.data.eventList.length > 0
-            ) {
-                countdownEvents = [...parsedData.data.eventList];
-            } else {
-                // 默认示例数据
-                countdownEvents = [{ name: "纪念日", date: "2023-05-20" }];
-            }
-        } catch (e) {
-            console.error("无法解析 contentTypeJson", e);
-            countdownEvents = [{ name: "纪念日", date: "2023-05-20" }];
-        }
-    }
+    // 当前事件索引
+    let currentEventIndex = 0;
+
+    // 卡片配置管理器（方便后续扩展更多卡片类型）
+    const cardConfig = {
+        card1: {
+            fontSize: { maxSize: 40, minSize: 20, decrement: 8 },
+            dimensions: { width: 90, height: 90, rx: 5, ry: 5 },
+            colors: { bg: "rgba(0, 0, 0, 0.5)", text: "rgba(255, 255, 255, 0.8)" }
+        },
+        card2: {
+            fontSize: { maxSize: 35, minSize: 20, decrement: 6 },
+            dimensions: { width: 100, height: 30, rx: 0, ry: 0 },
+            colors: { bg: countdownCard2BgColor, text: "black" }
+        },
+        // 可以继续添加更多卡片配置...
+        // card3: { ... },
+        // card4: { ... },
+    };
 
     // 计算倒计时天数
     function getDaysLeft(targetDateStr: string): {
@@ -63,11 +48,11 @@
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
         if (diffDays > 0) {
-            return { text: `还剩 ${diffDays} 天`, status: "future" };
+            return { text: `${diffDays}`, status: "future" };
         } else if (diffDays === 0) {
             return { text: "今天", status: "today" };
         } else {
-            return { text: `已过 ${Math.abs(diffDays)} 天`, status: "expired" };
+            return { text: `${Math.abs(diffDays)}`, status: "expired" };
         }
     }
 
@@ -80,28 +65,53 @@
         return `${year}年${month}月${day}日`;
     }
 
-    onMount(async () => {
-        initCountdownData();
+    // 根据数字长度获取适配的字体大小（使用配置管理器）
+    function getAdaptiveFontSize(daysText: string, cardType: string): number {
+        // 获取当前卡片的字体配置，默认为card1的配置
+        const config = cardConfig[cardType]?.fontSize || cardConfig.card1.fontSize;
+        const { maxSize, minSize, decrement } = config;
+        
+        // 数字长度
+        const length = daysText.length;
+        
+        // 根据长度调整字体大小
+        if (length <= 2) {
+            return maxSize; // 两位数及以下用最大字体
+        } else if (length === 3) {
+            return Math.max(minSize, maxSize - decrement); // 三位数减小
+        } else if (length === 4) {
+            return Math.max(minSize, maxSize - decrement * 1.5); // 四位数减小更多
+        } else {
+            return minSize; // 五位数及以上用最小字体
+        }
+    }
 
-        if (countdownFullBgSelect === "remote") {
-            countdownFullBg = await getImage(countdownFullBg);
+    onMount(async () => {
+        if (countdownCard1BgSelect === "remote") {
+            countdownCard1RemoteBg = await getImage(countdownCard1RemoteBg);
         }
     });
+
+    // 切换到上一个事件
+    function previousEvent() {
+        if (countdownEvents.length === 0) return;
+        currentEventIndex =
+            currentEventIndex > 0
+                ? currentEventIndex - 1
+                : countdownEvents.length - 1;
+    }
+
+    // 切换到下一个事件
+    function nextEvent() {
+        if (countdownEvents.length === 0) return;
+        currentEventIndex =
+            currentEventIndex < countdownEvents.length - 1
+                ? currentEventIndex + 1
+                : 0;
+    }
 </script>
 
-<svelte:head>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Mountains+of+Christmas:wght@700&family=Caveat:wght@700&family=Fredericka+the+Great&display=swap"
-        rel="stylesheet"
-    />
-</svelte:head>
-
-<div
-    class="content-display {countdownStyle === 'full' ? 'mode-full' : ''}"
-    style:background-image={countdownStyle === "full"
-        ? `url(${countdownFullBgSelect === "remote" ? countdownFullBg : countdownLocalBg})`
-        : ""}
->
+<div class="content-display">
     {#if countdownStyle === "list"}
         <h3 class="widget-title">📅 倒数日</h3>
         <ul class="countdown-list">
@@ -119,257 +129,315 @@
                 </li>
             {/each}
         </ul>
-    {:else if countdownStyle === "full"}
-        <div class="overlay"></div>
-        <div class="full-page-container">
-            <button class="nav-button left" on:click={prevEvent}>&lt;</button>
-            <div class="full-page-event">
-                <div
-                    class="full-page-name"
-                    style="font-size: {countdownFontSize}rem;"
-                >
-                    {countdownEvents[currentIndex].name}
-                </div>
-
-                <div
-                    class="full-page-date"
-                    style="font-size: {countdownFontSize / 2 + 0.5}rem;"
-                >
-                    {formatDate(countdownEvents[currentIndex].date)}
-                </div>
-
-                <div
-                    class="full-page-days {getDaysLeft(
-                        countdownEvents[currentIndex].date,
-                    ).status}"
-                    style="font-size: {countdownFontSize}rem;"
-                >
-                    <strong
-                        >{getDaysLeft(countdownEvents[currentIndex].date)
-                            .text}</strong
+    {:else if countdownStyle === "card1"}
+        <div
+            class="content-display-card1"
+            style="
+        background-image: url({countdownCard1BgSelect === 'remote'
+                ? countdownCard1RemoteBg
+                : countdownCard1LocalBg});
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+    "
+        >
+            <button
+                class="countdown-button countdown-button-left"
+                on:click={previousEvent}>◀︎</button
+            >
+            {#if countdownEvents.length > 0}
+                <svg viewBox="0 0 100 100">
+                    <!-- 倒计时卡片背景 -->
+                    <rect
+                        x="5"
+                        y="5"
+                        width="90"
+                        height="90"
+                        rx="5"
+                        ry="5"
+                        fill="rgba(0, 0, 0, 0.5)"
+                    />
+                    <!-- 倒计时卡片虚线 -->
+                    <line
+                        x1="10"
+                        y1="50"
+                        x2="90"
+                        y2="50"
+                        stroke="rgba(255, 255, 255, 0.8)"
+                        stroke-width="1"
+                        stroke-linecap="round"
+                        stroke-dasharray="10,6"
+                    />
+                    <!-- 倒计时卡片数字 -->
+                    <text
+                        x="50%"
+                        y="30%"
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        font-size="{getAdaptiveFontSize(getDaysLeft(countdownEvents[currentEventIndex].date).text, 'card1')}"
+                        font-weight="600"
+                        fill="rgba(255, 255, 255, 0.8)"
                     >
-                </div>
-            </div>
-            <button class="nav-button right" on:click={nextEvent}>&gt;</button>
+                        {getDaysLeft(countdownEvents[currentEventIndex].date)
+                            .text}
+                    </text>
+                    <!-- 事件名称 -->
+                    <text
+                        x="50%"
+                        y="65%"
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        font-size="12"
+                        font-weight="600"
+                        fill="rgba(255, 255, 255, 0.8)"
+                    >
+                        {#if getDaysLeft(countdownEvents[currentEventIndex].date).status === "future"}
+                            距{countdownEvents[currentEventIndex].name}
+                        {:else}
+                            {countdownEvents[currentEventIndex].name}
+                        {/if}
+                    </text>
+                    <!-- 日期 -->
+                    <text
+                        x="50%"
+                        y="80%"
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        font-size="10"
+                        fill="rgba(255, 255, 255, 0.8)"
+                    >
+                        {formatDate(countdownEvents[currentEventIndex].date)}
+                    </text>
+                </svg>
+            {:else}
+                <svg viewBox="0 0 100 100">
+                    <rect
+                        x="5"
+                        y="5"
+                        width="90"
+                        height="90"
+                        rx="5"
+                        ry="5"
+                        fill="rgba(255, 255, 255, 0.8)"
+                    />
+                    <text
+                        x="50%"
+                        y="50%"
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        font-size="14px"
+                        fill="var(--b3-theme-secondary)"
+                    >
+                        暂无事件
+                    </text>
+                </svg>
+            {/if}
+            <button
+                class="countdown-button countdown-button-right"
+                on:click={nextEvent}>▶︎</button
+            >
+        </div>
+    {:else if countdownStyle === "card2"}
+        <div class="content-display-card2">
+            <button
+                class="countdown-button countdown-button-left"
+                on:click={previousEvent}>◀︎</button
+            >
+            {#if countdownEvents.length > 0}
+                <svg viewBox="0 0 100 100">
+                    <!-- 倒计时卡片背景 -->
+                    <rect
+                        x="0"
+                        y="0"
+                        width="100"
+                        height="30"
+                        fill={countdownCard2BgColor}
+                    />
+                    <!-- 倒计时卡片数字 -->
+                    <text
+                        x="50%"
+                        y="60%"
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        font-size="{getAdaptiveFontSize(getDaysLeft(countdownEvents[currentEventIndex].date).text, 'card2')}"
+                        font-weight="600"
+                        fill="black"
+                    >
+                        {getDaysLeft(countdownEvents[currentEventIndex].date)
+                            .text}
+                    </text>
+                    <!-- 事件名称 -->
+                    <text
+                        x="50%"
+                        y="15%"
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        font-size="12"
+                        font-weight="600"
+                        fill="white"
+                    >
+                        {#if getDaysLeft(countdownEvents[currentEventIndex].date).status === "future"}
+                            距{countdownEvents[currentEventIndex].name}
+                        {:else if getDaysLeft(countdownEvents[currentEventIndex].date).status === "expired"}
+                            {countdownEvents[currentEventIndex].name}已过
+                        {:else if getDaysLeft(countdownEvents[currentEventIndex].date).status === "today"}
+                            {countdownEvents[currentEventIndex].name}
+                        {/if}
+                    </text>
+                    <!-- 日期 -->
+                    <text
+                        x="50%"
+                        y="85%"
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        font-size="8"
+                        fill="rgba(0, 0, 0, 0.6)"
+                    >
+                        {formatDate(countdownEvents[currentEventIndex].date)}
+                    </text>
+                </svg>
+            {:else}
+                <svg viewBox="0 0 100 100">
+                    <rect
+                        x="5"
+                        y="5"
+                        width="90"
+                        height="90"
+                        rx="5"
+                        ry="5"
+                        fill="rgba(255, 255, 255, 0.8)"
+                    />
+                    <text
+                        x="50%"
+                        y="50%"
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        font-size="14px"
+                        fill="var(--b3-theme-secondary)"
+                    >
+                        暂无事件
+                    </text>
+                </svg>
+            {/if}
+            <button
+                class="countdown-button countdown-button-right"
+                on:click={nextEvent}>▶︎</button
+            >
         </div>
     {/if}
 </div>
 
 <style lang="scss">
-    .widget-title {
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-        padding-bottom: 0.3rem;
-        border-bottom: 1px solid var(--b3-border-color);
-        text-align: center;
-        display: inline-block;
-        line-height: 1.2;
-    }
-
     .content-display {
         width: 100%;
-        height: calc(100%);
-        display: flex;
-        flex-direction: column;
-        padding: 1rem;
-        box-sizing: border-box;
-        background-color: var(--b3-theme-background);
-        border-radius: 12px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        overflow: hidden;
-        transition: background-image 0.3s ease;
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-    }
-
-    .overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
         height: 100%;
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 12px;
-        box-shadow: 0 4px 16px 0 rgba(31, 38, 135, 0.1);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-        z-index: 1;
-        pointer-events: none;
-    }
 
-    .countdown-list {
-        list-style: none;
-        padding-left: 0;
-        margin: 0;
-        overflow-y: auto;
-    }
-
-    .countdown-item {
-        background-color: var(--b3-theme-surface);
-        border-radius: 6px;
-        padding: 0.75rem 1rem;
-        margin-bottom: 0.5rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        transition: background-color 0.2s ease;
-
-        &:hover {
-            background-color: var(--b3-list-icon-hover);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-    }
-
-    .countdown-name {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--b3-theme-primary);
-    }
-
-    .countdown-date {
-        font-size: 12px;
-        color: var(--b3-theme-secondary);
-        margin-left: 1rem;
-    }
-
-    .countdown-days {
-        font-size: 14px;
-        font-weight: 500;
-
-        &.today strong {
-            color: #e53e3e;
+        .widget-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.3rem;
+            border-bottom: 1px solid var(--b3-border-color);
+            text-align: center;
+            display: inline-block;
+            line-height: 1.2;
         }
 
-        &.expired strong {
-            color: #94a3b8;
-        }
+        .countdown-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+            overflow-y: auto;
 
-        &.future strong {
-            color: var(--b3-theme-primary);
-        }
-    }
-
-    .full-page-container {
-        display: flex;
-        z-index: 2;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-        height: 100%;
-        position: relative;
-        box-sizing: border-box;
-    }
-
-    .full-page-event {
-        flex: 1;
-        text-align: center;
-        padding: 4rem 2rem;
-        box-sizing: border-box;
-        border-radius: 12px;
-        background-color: color-mix(
-            in srgb,
-            var(--b3-theme-surface) 50%,
-            transparent
-        );
-        margin: 0 1rem;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-
-    .nav-button {
-        display: none;
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        z-index: 10;
-        background-color: color-mix(
-            in srgb,
-            var(--b3-theme-primary) 50%,
-            transparent
-        );
-        border: none;
-        color: var(--b3-theme-primary);
-        font-size: 20px;
-        padding: 0.5rem;
-        cursor: pointer;
-        transition: background-color 0.2s ease;
-    }
-
-    .content-display:hover .nav-button {
-        display: flex;
-        align-items: center;
-    }
-
-    .left {
-        left: 1rem;
-    }
-
-    .right {
-        right: 1rem;
-    }
-
-    .mode-full {
-        .full-page-name {
-            font-size: 3rem;
-            font-family: "Great Vibes", cursive; /* 艺术标题字体 */
-            font-weight: 400;
-            margin-bottom: 1rem;
-            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
-        }
-
-        .full-page-date {
-            font-size: 1.5rem;
-            font-family: "Caveat", cursive; /* 手写风日期 */
-            margin-bottom: 2rem;
-            text-shadow: 1px 1px 6px rgba(0, 0, 0, 0.4);
-        }
-
-        .full-page-days {
-            font-size: 3rem;
-            font-family: "Caveat", cursive;
-            font-weight: 700;
-            text-shadow: 1px 1px 6px rgba(0, 0, 0, 0.4);
-
-            &.today {
-                strong {
-                    color: rgb(226, 60, 60); /* 今天：红色 */
-                }
+            .countdown-item {
+                background-color: var(--b3-theme-surface);
+                border-radius: 6px;
+                padding: 0.75rem 1rem;
+                margin-bottom: 0.5rem;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                transition: background-color 0.2s ease;
 
                 &:hover {
-                    border-radius: 50%;
-                    background-color: var(--b3-list-hover);
+                    background-color: var(--b3-list-icon-hover);
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
                 }
             }
 
-            &.expired {
-                strong {
+            .countdown-name {
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--b3-theme-primary);
+            }
+
+            .countdown-date {
+                font-size: 12px;
+                color: var(--b3-theme-secondary);
+                margin-left: 1rem;
+            }
+
+            .countdown-days {
+                font-size: 14px;
+                font-weight: 500;
+
+                &.today strong {
+                    color: #e53e3e;
+                }
+
+                &.expired strong {
                     color: #94a3b8;
                 }
 
-                &:hover {
-                    border-radius: 50%;
-                    background-color: var(--b3-list-hover);
-                }
-            }
-
-            &.future {
-                &:hover {
-                    border-radius: 50%;
-                    background-color: var(--b3-list-hover);
-                }
-
-                strong {
+                &.future strong {
                     color: var(--b3-theme-primary);
                 }
             }
+        }
 
-            strong {
-                font-weight: 700;
+        .content-display-card1 {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            gap: 0;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .countdown-button {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            border: none;
+            background-color: transparent;
+            color: var(--b3-theme-primary);
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+
+            &:hover {
+                transform: translateY(-50%) scale(1.1);
             }
+        }
+
+        .countdown-button-left {
+            left: 10px;
+        }
+
+        .countdown-button-right {
+            right: 10px;
+        }
+
+        &:hover .countdown-button {
+            opacity: 1;
         }
     }
 </style>
