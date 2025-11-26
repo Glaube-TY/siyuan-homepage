@@ -107,6 +107,7 @@
         "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
     let countdownCard1LocalBg = "";
     let countdownCard2BgColor: string = "#000000";
+    let countdownList2BgColor: string = "#000000";
 
     // 天气相关变量
     let customWeatherCity: string = "北京";
@@ -342,6 +343,8 @@
                     parsedData.data?.countdownCard1LocalBg || "";
                 countdownCard2BgColor =
                     parsedData.data?.countdownCard2BgColor || "#000000";
+                countdownList2BgColor =
+                    parsedData.data?.countdownList2BgColor || "#000000";
             } else if (parsedData.type === "weather") {
                 customWeatherCity = parsedData.data?.city || "北京";
             } else if (parsedData.type === "HOT") {
@@ -804,6 +807,7 @@
                         bind:countdownCard1RemoteBg
                         bind:countdownCard1LocalBg
                         bind:countdownCard2BgColor
+                        bind:countdownList2BgColor
                     />
                 {:else if selectedContentType === "weather"}
                     <WeatherSet bind:customWeatherCity />
@@ -992,6 +996,7 @@
                             countdownCard1RemoteBg,
                             countdownCard1LocalBg,
                             countdownCard2BgColor,
+                            countdownList2BgColor,
                         },
                     };
                 } else if (selectedContentType === "weather") {

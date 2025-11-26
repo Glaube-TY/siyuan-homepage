@@ -16,6 +16,9 @@
     // 卡片2配置
     export let countdownCard2BgColor: string = "#000000";
 
+    // 列表2配置
+    export let countdownList2BgColor: string = "#000000";
+
     let countdownCard1BgImageData: string = "";
     // 获取卡片1背景图片
     async function getCountdownCard1BgImage() {
@@ -117,7 +120,8 @@
         <div class="form-group">
             <label for="countdown-style">样式：</label>
             <select id="countdown-style" bind:value={countdownStyle}>
-                <option value="list">列表</option>
+                <option value="list1">列表1</option>
+                <option value="list2">列表2</option>
                 <option value="card1">卡片1</option>
                 <option value="card2">卡片2</option>
             </select>
@@ -187,6 +191,17 @@
                         id="countdown-card2-bg-color"
                         type="color"
                         bind:value={countdownCard2BgColor}
+                    /></label
+                >
+            </div>
+        {:else if countdownStyle === "list2"}
+            <div class="form-group">
+                <label for="countdown-list2-bg-color"
+                    >背景颜色：
+                    <input
+                        id="countdown-list2-bg-color"
+                        type="color"
+                        bind:value={countdownList2BgColor}
                     /></label
                 >
             </div>

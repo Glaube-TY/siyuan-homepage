@@ -17,6 +17,8 @@
 
     let countdownCard2BgColor = parsed.data?.countdownCard2BgColor || "#000000";
 
+    let countdownList2BgColor = parsed.data?.countdownList2BgColor || "#000000";
+
     // 当前事件索引
     let currentEventIndex = 0;
 
@@ -25,12 +27,15 @@
         card1: {
             fontSize: { maxSize: 40, minSize: 20, decrement: 8 },
             dimensions: { width: 90, height: 90, rx: 5, ry: 5 },
-            colors: { bg: "rgba(0, 0, 0, 0.5)", text: "rgba(255, 255, 255, 0.8)" }
+            colors: {
+                bg: "rgba(0, 0, 0, 0.5)",
+                text: "rgba(255, 255, 255, 0.8)",
+            },
         },
         card2: {
             fontSize: { maxSize: 35, minSize: 20, decrement: 6 },
             dimensions: { width: 100, height: 30, rx: 0, ry: 0 },
-            colors: { bg: countdownCard2BgColor, text: "black" }
+            colors: { bg: countdownCard2BgColor, text: "black" },
         },
         // 可以继续添加更多卡片配置...
         // card3: { ... },
@@ -68,12 +73,13 @@
     // 根据数字长度获取适配的字体大小（使用配置管理器）
     function getAdaptiveFontSize(daysText: string, cardType: string): number {
         // 获取当前卡片的字体配置，默认为card1的配置
-        const config = cardConfig[cardType]?.fontSize || cardConfig.card1.fontSize;
+        const config =
+            cardConfig[cardType]?.fontSize || cardConfig.card1.fontSize;
         const { maxSize, minSize, decrement } = config;
-        
+
         // 数字长度
         const length = daysText.length;
-        
+
         // 根据长度调整字体大小
         if (length <= 2) {
             return maxSize; // 两位数及以下用最大字体
@@ -112,23 +118,50 @@
 </script>
 
 <div class="content-display">
-    {#if countdownStyle === "list"}
-        <h3 class="widget-title">📅 倒数日</h3>
-        <ul class="countdown-list">
-            {#each countdownEvents as event (event.name)}
-                <li class="countdown-item">
-                    <div class="countdown-name">{event.name}</div>
-                    <div class="countdown-date">
-                        📅 {formatDate(event.date)}
-                    </div>
-                    <div
-                        class="countdown-days {getDaysLeft(event.date).status}"
-                    >
-                        <strong>{getDaysLeft(event.date).text}</strong>
-                    </div>
-                </li>
-            {/each}
-        </ul>
+    {#if countdownStyle === "list1"}
+        <div class="content-display-list1">
+            <h3 class="widget-title">📅 倒数日</h3>
+            <ul class="countdown-list">
+                {#each countdownEvents as event (event.name)}
+                    <li class="countdown-item">
+                        <div class="countdown-name">{event.name}</div>
+                        <div class="countdown-date">
+                            📅 {formatDate(event.date)}
+                        </div>
+                        <div
+                            class="countdown-days {getDaysLeft(event.date)
+                                .status}"
+                        >
+                            <strong>{getDaysLeft(event.date).text}</strong>
+                        </div>
+                    </li>
+                {/each}
+            </ul>
+        </div>
+    {:else if countdownStyle === "list2"}
+        <div class="content-display-list2">
+            <ul class="countdown-list">
+                {#each countdownEvents as event (event.name)}
+                    <li class="countdown-item">
+                        <div class="countdown-name">
+                            {#if getDaysLeft(event.date).status === "expired"}
+                                {event.name}已过
+                            {:else}
+                                {event.name}
+                            {/if}
+                        </div>
+                        <div
+                            class="countdown-days"
+                            style="
+                                background-color: {countdownList2BgColor};
+                            "
+                        >
+                            {getDaysLeft(event.date).text}
+                        </div>
+                    </li>
+                {/each}
+            </ul>
+        </div>
     {:else if countdownStyle === "card1"}
         <div
             class="content-display-card1"
@@ -174,7 +207,11 @@
                         y="30%"
                         dominant-baseline="middle"
                         text-anchor="middle"
-                        font-size="{getAdaptiveFontSize(getDaysLeft(countdownEvents[currentEventIndex].date).text, 'card1')}"
+                        font-size={getAdaptiveFontSize(
+                            getDaysLeft(countdownEvents[currentEventIndex].date)
+                                .text,
+                            "card1",
+                        )}
                         font-weight="600"
                         fill="rgba(255, 255, 255, 0.8)"
                     >
@@ -259,7 +296,11 @@
                         y="60%"
                         dominant-baseline="middle"
                         text-anchor="middle"
-                        font-size="{getAdaptiveFontSize(getDaysLeft(countdownEvents[currentEventIndex].date).text, 'card2')}"
+                        font-size={getAdaptiveFontSize(
+                            getDaysLeft(countdownEvents[currentEventIndex].date)
+                                .text,
+                            "card2",
+                        )}
                         font-weight="600"
                         fill="black"
                     >
@@ -329,69 +370,134 @@
 
 <style lang="scss">
     .content-display {
-        width: 100%;
+        display: flex;
+        flex-direction: column;
         height: 100%;
 
-        .widget-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            padding-bottom: 0.3rem;
-            border-bottom: 1px solid var(--b3-border-color);
-            text-align: center;
-            display: inline-block;
-            line-height: 1.2;
+        .content-display-list1 {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+            box-sizing: border-box;
+
+            .widget-title {
+                font-size: 18px;
+                font-weight: 600;
+                margin-bottom: 0.5rem;
+                padding-bottom: 0.3rem;
+                border-bottom: 1px solid var(--b3-border-color);
+                text-align: center;
+                display: inline-block;
+                line-height: 1.2;
+            }
+
+            .countdown-list {
+                display: flex;
+                flex-direction: column;
+                overflow-y: auto;
+                list-style: none;
+                padding-left: 0;
+                margin: 0;
+
+                .countdown-item {
+                    background-color: var(--b3-theme-surface);
+                    border-radius: 6px;
+                    padding: 0.75rem 1rem;
+                    margin-bottom: 0.5rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    transition: background-color 0.2s ease;
+
+                    &:hover {
+                        background-color: var(--b3-list-icon-hover);
+                        transform: translateY(-2px);
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    }
+                }
+
+                .countdown-name {
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: var(--b3-theme-primary);
+                }
+
+                .countdown-date {
+                    font-size: 12px;
+                    color: var(--b3-theme-secondary);
+                    margin-left: 1rem;
+                }
+
+                .countdown-days {
+                    font-size: 14px;
+                    font-weight: 500;
+
+                    &.today strong {
+                        color: #e53e3e;
+                    }
+
+                    &.expired strong {
+                        color: #94a3b8;
+                    }
+
+                    &.future strong {
+                        color: var(--b3-theme-primary);
+                    }
+                }
+            }
         }
 
-        .countdown-list {
-            list-style: none;
-            padding-left: 0;
-            margin: 0;
+        .content-display-list2 {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+            box-sizing: border-box;
             overflow-y: auto;
 
-            .countdown-item {
-                background-color: var(--b3-theme-surface);
-                border-radius: 6px;
-                padding: 0.75rem 1rem;
-                margin-bottom: 0.5rem;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                transition: background-color 0.2s ease;
+            .countdown-list {
+                list-style: none;
+                padding-left: 0;
+                margin: 0;
+                overflow-y: auto;
 
-                &:hover {
-                    background-color: var(--b3-list-icon-hover);
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-                }
-            }
+                .countdown-item {
+                    background-color: white;
+                    border-radius: 6px;
+                    margin-bottom: 0.5rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
 
-            .countdown-name {
-                font-size: 14px;
-                font-weight: 600;
-                color: var(--b3-theme-primary);
-            }
+                    &:hover {
+                        background-color: var(--b3-list-icon-hover);
+                        transform: translateY(-2px);
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    }
 
-            .countdown-date {
-                font-size: 12px;
-                color: var(--b3-theme-secondary);
-                margin-left: 1rem;
-            }
+                    .countdown-name {
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: black;
+                        padding: 0.5rem;
+                    }
 
-            .countdown-days {
-                font-size: 14px;
-                font-weight: 500;
-
-                &.today strong {
-                    color: #e53e3e;
-                }
-
-                &.expired strong {
-                    color: #94a3b8;
-                }
-
-                &.future strong {
-                    color: var(--b3-theme-primary);
+                    .countdown-days {
+                        width: auto;
+                        height: 100%;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: white;
+                        background-color: var(--b3-theme-primary);
+                        padding: 0.5rem 1.5rem;
+                        border-radius: 0 6px 6px 0;
+                    }
                 }
             }
         }
