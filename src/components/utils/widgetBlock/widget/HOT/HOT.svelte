@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { UapiClient } from "uapi-sdk-typescript";
 
     export let contentTypeJson: string = "{}";
     export let plugin: any;
@@ -39,20 +40,6 @@
                 link: item.mobilUrl || item.url,
             }));
         },
-        zhihu(data: any): HotItem[] {
-            return data.items.map((item) => ({
-                title: item.title,
-                heat: item.extra.info,
-                link: item.url,
-            }));
-        },
-        toutiao(data: any): HotItem[] {
-            return data.items.map((item) => ({
-                title: item.title,
-                heat: "热度未知", // 头条数据中没有提供具体的热度信息
-                link: item.url,
-            }));
-        },
         douyin(data: any): HotItem[] {
             return data.data.map((item) => ({
                 title: item.word,
@@ -60,39 +47,246 @@
                 link: `https://www.douyin.com/search/${encodeURIComponent(item.word)}`,
             }));
         },
-        GitHub(data: any): HotItem[] {
-            return data.items.map((item) => ({
-                title: item.title,
-                heat: item.extra.info,
-                link: item.url,
-            }));
+        // 合并处理 uapisSource 相同格式的热榜数据
+        zhihu(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        toutiao(data: any): HotItem[] {
+            return parseUapisHotData(data, false); // 今日头条热度未知
+        },
+        kuaishou(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        acfun(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        tieba(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        "douban-movie"(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        "douban-group"(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        hellogithub(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        hupu(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        miyoushe(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        ngabbs(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        v2ex(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        "52pojie"(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        hostloc(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        coolapk(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        thepaper(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        "qq-news"(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        sina(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        "sina-news"(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        "netease-news"(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        huxiu(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        ifanr(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        sspai(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        ithome(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        "ithome-xijiayi"(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        juejin(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        jianshu(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        guokr(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        "36kr"(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        "51cto"(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        csdn(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        nodeseek(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        lol(data: any): HotItem[] {
+            return parseUapisHotData(data);
+        },
+        genshin(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        honkai(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        starrail(data: any): HotItem[] {
+            return parseUapisHotData(data, false);
+        },
+        weread(data: any): HotItem[] {
+            return parseUapisHotData(data);
         },
     };
 
+    // 统一处理 uapisSource 返回的热榜数据
+    function parseUapisHotData(data: any, hasHeat: boolean = true): HotItem[] {
+        return data.map((item) => ({
+            title: item.title,
+            heat: hasHeat ? item.hot_value : "热度未知",
+            link: item.url,
+        }));
+    }
+
     async function fetchData(source: string) {
         let url = "";
+        let data: any = {};
         if (source === "bilibili") {
             url = "https://v.api.aa1.cn/api/bilibili-rs/";
         } else if (source === "baidu") {
             url = "https://v2.xxapi.cn/api/baiduhot";
         } else if (source === "weibo") {
             url = "https://v2.xxapi.cn/api/weibohot";
-        } else if (source === "zhihu") {
-            url = "https://whyta.cn/api/zhihu?key=d8c6d4c75ba0";
-        } else if (source === "toutiao") {
-            url = "https://whyta.cn/api/toutiao?key=d8c6d4c75ba0";
         } else if (source === "douyin") {
             url = "https://v2.xxapi.cn/api/douyinhot";
-        } else if (source === "GitHub") {
-            url = "https://whyta.cn/api/github?key=d8c6d4c75ba0";
         } else {
-            throw new Error("未知平台");
+            data = await uapisSource(source);
+            const parser = parsers[source];
+            if (!parser) throw new Error(`未找到 ${source} 的解析器`);
+            hotList = parser(data);
+            widgetTitle = `${
+                source === "zhihu"
+                    ? "知乎"
+                    : source === "toutiao"
+                      ? "今日头条"
+                      : source === "kuaishou"
+                        ? "快手"
+                        : source === "acfun"
+                          ? "ACFun"
+                          : source === "tieba"
+                            ? "百度贴吧"
+                            : source === "douban-movie"
+                              ? "豆瓣电影"
+                              : source === "douban-group"
+                                ? "豆瓣小组"
+                                : source === "hellogithub"
+                                  ? "HelloGitHub"
+                                  : source === "hupu"
+                                    ? "虎扑"
+                                    : source === "miyoushe"
+                                      ? "米游社"
+                                      : source === "ngabbs"
+                                        ? "NGA"
+                                        : source === "v2ex"
+                                          ? "V2EX"
+                                          : source === "52pojie"
+                                            ? "吾爱破解"
+                                            : source === "hostloc"
+                                              ? "全球主机交流"
+                                              : source === "coolapk"
+                                                ? "酷安"
+                                                : source === "thepaper"
+                                                  ? "澎湃新闻"
+                                                  : source === "qq-news"
+                                                    ? "腾讯新闻"
+                                                    : source === "sina"
+                                                      ? "新浪"
+                                                      : source === "sina-news"
+                                                        ? "新浪新闻"
+                                                        : source ===
+                                                            "netease-news"
+                                                          ? "网易新闻"
+                                                          : source === "huxiu"
+                                                            ? "虎嗅网"
+                                                            : source === "ifanr"
+                                                              ? "爱范儿"
+                                                              : source ===
+                                                                  "sspai"
+                                                                ? "少数派"
+                                                                : source ===
+                                                                    "ithome"
+                                                                  ? "IT之家"
+                                                                  : source ===
+                                                                      "ithome-xijiayi"
+                                                                    ? "IT之家·喜加一"
+                                                                    : source ===
+                                                                        "juejin"
+                                                                      ? "掘金"
+                                                                      : source ===
+                                                                          "jianshu"
+                                                                        ? "简书"
+                                                                        : source ===
+                                                                            "guokr"
+                                                                          ? "果壳"
+                                                                          : source ===
+                                                                              "36kr"
+                                                                            ? "36氪"
+                                                                            : source ===
+                                                                                "51cto"
+                                                                              ? "51CTO"
+                                                                              : source ===
+                                                                                  "csdn"
+                                                                                ? "CSDN"
+                                                                                : source ===
+                                                                                    "nodeseek"
+                                                                                  ? "NodeSeek"
+                                                                                  : source ===
+                                                                                      "lol"
+                                                                                    ? "英雄联盟"
+                                                                                    : source ===
+                                                                                        "genshin"
+                                                                                      ? "原神"
+                                                                                      : source ===
+                                                                                          "honkai"
+                                                                                        ? "崩坏3"
+                                                                                        : source ===
+                                                                                            "starrail"
+                                                                                          ? "星穹铁道"
+                                                                                          : source ===
+                                                                                              "weread"
+                                                                                            ? "微信读书"
+                                                                                            : "未知"
+            }热榜🔥`;
+            loading = false;
+            return;
         }
 
         try {
             const response = await fetch(url);
             if (!response.ok) throw new Error("网络响应失败");
-            const data = await response.json();
+            data = await response.json();
 
             const parser = parsers[source];
             if (!parser) throw new Error(`未找到 ${source} 的解析器`);
@@ -105,21 +299,34 @@
                       ? "百度"
                       : source === "weibo"
                         ? "微博"
-                        : source === "zhihu"
-                          ? "知乎"
-                          : source === "toutiao"
-                            ? "今日头条"
-                            : source === "douyin"
-                              ? "抖音"
-                              : source === "GitHub"
-                                ? "GitHub"
-                                : "未知"
+                        : source === "douyin"
+                          ? "抖音"
+                          : "未知"
             }热榜🔥`;
         } catch (err) {
             console.error(err);
             error = `加载${widgetTitle}失败`;
         } finally {
             loading = false;
+        }
+    }
+
+    async function uapisSource(source: string) {
+        try {
+            const client = new UapiClient("https://uapis.cn");
+            const payload = {
+                type: source,
+            };
+            // @ts-ignore - 临时忽略类型检查
+            const response = await client.misc.getMiscHotboard(payload);
+
+            // 处理响应数据
+            if (response && response.list) {
+                return response.list;
+            }
+        } catch (error) {
+            console.error("uapis API调用失败:", error);
+            // 可以在这里添加备用处理逻辑
         }
     }
 
