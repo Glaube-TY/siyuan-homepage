@@ -100,7 +100,7 @@
     let stikynotStyle: string = "default";
 
     // 倒数日相关变量
-    let eventList = [{ name: "", date: "" }];
+    let eventList = [{ name: "", date: "", anniversary: false }];
     let countdownStyle = "list";
     let countdownCard1BgSelect = "remote";
     let countdownCard1RemoteBg =
@@ -332,7 +332,7 @@
                     parsedData.data?.recentJournalsCalendarIconSize || 16;
             } else if (parsedData.type === "countdown") {
                 eventList = parsedData.data?.eventList || [
-                    { name: "", date: "" },
+                    { name: "", date: "", anniversary: false },
                 ];
                 countdownStyle = parsedData.data?.countdownStyle || "list";
                 countdownCard1BgSelect =
@@ -989,9 +989,7 @@
                         blockId: currentBlockId,
                         data: {
                             countdownStyle,
-                            eventList: eventList.filter(
-                                (event) => event.name && event.date,
-                            ),
+                            eventList: eventList,
                             countdownCard1BgSelect,
                             countdownCard1RemoteBg,
                             countdownCard1LocalBg,

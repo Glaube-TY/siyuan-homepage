@@ -43,21 +43,49 @@
     };
 
     // 计算倒计时天数
-    function getDaysLeft(targetDateStr: string): {
+    function getDaysLeft(targetDateStr: string, isAnniversary: boolean = false): {
         text: string;
         status: "today" | "expired" | "future";
     } {
         const now = new Date();
         const targetDate = new Date(targetDateStr);
-        const diffTime = targetDate.getTime() - now.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        // 如果是周年事件，计算到下一个周年还有多少天
+        if (isAnniversary) {
+            const currentYear = now.getFullYear();
+            const targetMonth = targetDate.getMonth();
+            const targetDay = targetDate.getDate();
+            
+            // 创建今年的周年日期
+            let anniversaryDate = new Date(currentYear, targetMonth, targetDay);
+            
+            // 如果今年的周年日期已经过了，则计算到明年的周年日期
+            if (anniversaryDate < now) {
+                anniversaryDate = new Date(currentYear + 1, targetMonth, targetDay);
+            }
+            
+            const diffTime = anniversaryDate.getTime() - now.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        if (diffDays > 0) {
-            return { text: `${diffDays}`, status: "future" };
-        } else if (diffDays === 0) {
-            return { text: "今天", status: "today" };
+            if (diffDays > 0) {
+                return { text: `${diffDays}`, status: "future" };
+            } else if (diffDays === 0) {
+                return { text: "今天", status: "today" };
+            } else {
+                return { text: `${Math.abs(diffDays)}`, status: "expired" };
+            }
         } else {
-            return { text: `${Math.abs(diffDays)}`, status: "expired" };
+            // 非周年事件，按原始逻辑处理
+            const diffTime = targetDate.getTime() - now.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays > 0) {
+                return { text: `${diffDays}`, status: "future" };
+            } else if (diffDays === 0) {
+                return { text: "今天", status: "today" };
+            } else {
+                return { text: `${Math.abs(diffDays)}`, status: "expired" };
+            }
         }
     }
 
@@ -127,12 +155,15 @@
                         <div class="countdown-name">{event.name}</div>
                         <div class="countdown-date">
                             📅 {formatDate(event.date)}
+                            {#if event.anniversary}
+                                <span class="anniversary-badge">周年</span>
+                            {/if}
                         </div>
                         <div
-                            class="countdown-days {getDaysLeft(event.date)
+                            class="countdown-days {getDaysLeft(event.date, event.anniversary)
                                 .status}"
                         >
-                            <strong>{getDaysLeft(event.date).text}</strong>
+                            <strong>{getDaysLeft(event.date, event.anniversary).text}</strong>
                         </div>
                     </li>
                 {/each}
@@ -144,10 +175,13 @@
                 {#each countdownEvents as event (event.name)}
                     <li class="countdown-item">
                         <div class="countdown-name">
-                            {#if getDaysLeft(event.date).status === "expired"}
+                            {#if getDaysLeft(event.date, event.anniversary).status === "expired"}
                                 {event.name}已过
                             {:else}
                                 {event.name}
+                                {#if event.anniversary}
+                                    <span class="anniversary-badge">周年</span>
+                                {/if}
                             {/if}
                         </div>
                         <div
@@ -156,7 +190,7 @@
                                 background-color: {countdownList2BgColor};
                             "
                         >
-                            {getDaysLeft(event.date).text}
+                            {getDaysLeft(event.date, event.anniversary).text}
                         </div>
                     </li>
                 {/each}
@@ -208,14 +242,14 @@
                         dominant-baseline="middle"
                         text-anchor="middle"
                         font-size={getAdaptiveFontSize(
-                            getDaysLeft(countdownEvents[currentEventIndex].date)
+                            getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary)
                                 .text,
                             "card1",
                         )}
                         font-weight="600"
                         fill="rgba(255, 255, 255, 0.8)"
                     >
-                        {getDaysLeft(countdownEvents[currentEventIndex].date)
+                        {getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary)
                             .text}
                     </text>
                     <!-- 事件名称 -->
@@ -228,10 +262,16 @@
                         font-weight="600"
                         fill="rgba(255, 255, 255, 0.8)"
                     >
-                        {#if getDaysLeft(countdownEvents[currentEventIndex].date).status === "future"}
-                            距{countdownEvents[currentEventIndex].name}
+                        {#if getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary).status === "future"}
+                            {countdownEvents[currentEventIndex].name}
+                            {#if countdownEvents[currentEventIndex].anniversary}
+                                (周年)
+                            {/if}
                         {:else}
                             {countdownEvents[currentEventIndex].name}
+                            {#if countdownEvents[currentEventIndex].anniversary}
+                                (周年)
+                            {/if}
                         {/if}
                     </text>
                     <!-- 日期 -->
@@ -297,14 +337,14 @@
                         dominant-baseline="middle"
                         text-anchor="middle"
                         font-size={getAdaptiveFontSize(
-                            getDaysLeft(countdownEvents[currentEventIndex].date)
+                            getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary)
                                 .text,
                             "card2",
                         )}
                         font-weight="600"
                         fill="black"
                     >
-                        {getDaysLeft(countdownEvents[currentEventIndex].date)
+                        {getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary)
                             .text}
                     </text>
                     <!-- 事件名称 -->
@@ -317,12 +357,21 @@
                         font-weight="600"
                         fill="white"
                     >
-                        {#if getDaysLeft(countdownEvents[currentEventIndex].date).status === "future"}
-                            距{countdownEvents[currentEventIndex].name}
-                        {:else if getDaysLeft(countdownEvents[currentEventIndex].date).status === "expired"}
-                            {countdownEvents[currentEventIndex].name}已过
-                        {:else if getDaysLeft(countdownEvents[currentEventIndex].date).status === "today"}
+                        {#if getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary).status === "future"}
                             {countdownEvents[currentEventIndex].name}
+                            {#if countdownEvents[currentEventIndex].anniversary}
+                                (周年)
+                            {/if}
+                        {:else if getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary).status === "expired"}
+                            {countdownEvents[currentEventIndex].name}已过
+                            {#if countdownEvents[currentEventIndex].anniversary}
+                                (周年)
+                            {/if}
+                        {:else if getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary).status === "today"}
+                            {countdownEvents[currentEventIndex].name}
+                            {#if countdownEvents[currentEventIndex].anniversary}
+                                (周年)
+                            {/if}
                         {/if}
                     </text>
                     <!-- 日期 -->
@@ -446,6 +495,17 @@
                         color: var(--b3-theme-primary);
                     }
                 }
+
+                .anniversary-badge {
+                    display: inline-block;
+                    background-color: var(--b3-theme-primary);
+                    color: white;
+                    font-size: 10px;
+                    padding: 2px 6px;
+                    border-radius: 10px;
+                    margin-left: 6px;
+                    font-weight: 500;
+                }
             }
         }
 
@@ -483,6 +543,19 @@
                         font-weight: 600;
                         color: black;
                         padding: 0.5rem;
+                        display: flex;
+                        align-items: center;
+
+                        .anniversary-badge {
+                            display: inline-block;
+                            background-color: var(--b3-theme-primary);
+                            color: white;
+                            font-size: 10px;
+                            padding: 2px 6px;
+                            border-radius: 10px;
+                            margin-left: 8px;
+                            font-weight: 500;
+                        }
                     }
 
                     .countdown-days {

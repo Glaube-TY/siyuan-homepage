@@ -2,9 +2,11 @@
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
 
-    export let eventList: Array<{ name: string; date: string }> = [
-        { name: "", date: "" },
-    ];
+    export let eventList: Array<{
+        name: string;
+        date: string;
+        anniversary: boolean;
+    }> = [{ name: "", date: "", anniversary: false }];
     export let countdownStyle: string = "list";
 
     // 卡片1配置
@@ -57,7 +59,7 @@
     onMount(async () => {
         // 组件挂载时的初始化逻辑
         if (eventList.length === 0) {
-            eventList = [{ name: "", date: "" }];
+            eventList = [{ name: "", date: "", anniversary: false }];
         }
 
         // 初始化卡片1背景图片
@@ -68,7 +70,7 @@
 
     // 处理添加倒数日事件
     function addEvent() {
-        eventList = [...eventList, { name: "", date: "" }];
+        eventList = [...eventList, { name: "", date: "", anniversary: false }];
     }
 
     // 处理删除倒数日事件
@@ -82,6 +84,12 @@
         <div class="countdown-table">
             <table>
                 <tbody>
+                    <tr>
+                        <th>事件名称</th>
+                        <th>事件日期</th>
+                        <th>周年</th>
+                        <th>删除</th>
+                    </tr>
                     {#each eventList as event, index}
                         <tr class="event-form-group" data-index={index}>
                             <td>
@@ -98,6 +106,12 @@
                                     class="date-input"
                                     type="date"
                                     bind:value={event.date}
+                                />
+                            </td>
+                            <td style="text-align: center;">
+                                <input
+                                    type="checkbox"
+                                    bind:checked={event.anniversary}
                                 />
                             </td>
                             <td>
