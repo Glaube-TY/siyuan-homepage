@@ -2,7 +2,7 @@
   "name": "siyuan-homepage",
   "author": "Glaube-TY",
   "url": "https://github.com/Glaube-TY/siyuan-homepage",
-  "version": "2.4.20",
+  "version": "2.4.21",
   "minAppVersion": "3.3.5",
   "backends": [
     "windows",
@@ -31,8 +31,7 @@
     "zh_CN": "提供个性化首页布局和丰富的功能模块。"
   },
   "readme": {
-    "en_US": "README.md",
-    "zh_CN": "README_zh_CN.md"
+    "default": "README.md"
   },
   "funding": {
     "custom": [
