@@ -309,7 +309,7 @@ export default class PluginHomepage extends Plugin {
                         this.client.setBlockAttrs({
                             id: nodeId,
                             attrs: {
-                                "customFavorites": "true"
+                                "custom-homepage-favorites": "true"
                             }
                         }).then(() => {
                             showMessage("已收藏");
@@ -326,7 +326,7 @@ export default class PluginHomepage extends Plugin {
                         this.client.setBlockAttrs({
                             id: nodeId,
                             attrs: {
-                                "customFavorites": "false"
+                                "custom-homepage-favorites": ""
                             }
                         }).then(() => {
                             showMessage("已取消收藏");

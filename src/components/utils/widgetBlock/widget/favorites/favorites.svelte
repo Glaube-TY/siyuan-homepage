@@ -2,14 +2,13 @@
     import { onMount } from "svelte";
     import {
         getLatestFavoritesNotes,
-        type FavoritesNoteInfo,
     } from "./favorites";
     import { openDocs } from "@/components/tools/openDocs";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
 
-    let favoritesNotes: FavoritesNoteInfo[] = [];
+    let favoritesNotes: any[] = [];
     let favoritiesTitle: string = "💖收藏文档";
     let contentTypeJsonObj: any;
     let showNoteMeta: boolean = true;
@@ -29,6 +28,7 @@
             contentTypeJsonObj.data?.favoritiesSortOrder,
             contentTypeJsonObj.data?.favoritesNotebookId,
         );
+        console.log(favoritesNotes);
         favoritiesTitle =
             contentTypeJsonObj.data?.favoritiesTitle || favoritiesTitle;
         showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? showNoteMeta;
