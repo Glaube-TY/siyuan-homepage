@@ -27,6 +27,7 @@
     import WebviewSet from "./widget/webview/webviewSet.svelte";
     import TasksPlusSet from "./widget/tasksPlus/tasksPlusSet.svelte";
     import RecentTasksSet from "./widget/tasks/recentTasksSet.svelte";
+    import AlmanacSet from "./widget/almanac/almanacSet.svelte";
 
     // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
@@ -243,6 +244,9 @@
     // 音乐播放器相关
     let musicFolderPath = "";
     let autoPlay = false;
+
+    //  黄历相关
+    let almanacStyle: string = "classic";
 
     let advancedEnabled = false;
 
@@ -473,6 +477,8 @@
             } else if (parsedData.type === "musicPlayer") {
                 musicFolderPath = parsedData.data?.musicFolderPath || "";
                 autoPlay = parsedData.data?.autoPlay || false;
+            } else if (parsedData.type === "almanac") {
+                almanacStyle = parsedData.data?.almanacStyle || "";
             } else if (parsedData.type === "stikynot") {
                 stikynotStyle = parsedData.data?.stikynotStyle || "";
             } else if (parsedData.type === "News") {
@@ -795,6 +801,7 @@
                     <option value="weather">今日天气</option>
                     <option value="timedate">时钟</option>
                     <option value="musicPlayer">音乐播放器👑</option>
+                    <option value="almanac">黄历👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -860,6 +867,11 @@
                         bind:advancedEnabled
                         bind:musicFolderPath
                         bind:autoPlay
+                    />
+                {:else if selectedContentType === "almanac"}
+                    <AlmanacSet
+                        bind:advancedEnabled
+                        bind:almanacStyle
                     />
                 {/if}
             </div>
@@ -1162,6 +1174,13 @@
                         type: "musicPlayer",
                         blockId: currentBlockId,
                         data: { musicFolderPath, autoPlay },
+                    };
+                } else if (selectedContentType === "almanac") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "almanac",
+                        blockId: currentBlockId,
+                        data: { almanacStyle },
                     };
                 } else if (selectedContentType === "stikynot") {
                     contentTypeJson = {

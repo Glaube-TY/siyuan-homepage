@@ -28,7 +28,6 @@
             contentTypeJsonObj.data?.favoritiesSortOrder,
             contentTypeJsonObj.data?.favoritesNotebookId,
         );
-        console.log(favoritesNotes);
         favoritiesTitle =
             contentTypeJsonObj.data?.favoritiesTitle || favoritiesTitle;
         showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? showNoteMeta;

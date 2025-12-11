@@ -31,6 +31,7 @@ import childDocs from "./widget/childDocs/childDocs.svelte";
 import constellation from "./widget/constellation/constellation.svelte";
 import historyDays from "./widget/historyDays/historyDays.svelte";
 import statisticalCard from "./widget/statisticalCard/statisticalCard.svelte";
+import almanac from "./widget/almanac/almanac.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -245,7 +246,6 @@ export class WidgetBlock {
             new HOT({
                 target: this.element,
                 props: {
-                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });
@@ -384,6 +384,14 @@ export class WidgetBlock {
             });
         } else if (contentData.type === "statisticalCard") {
             new statisticalCard({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "almanac") {
+            new almanac({
                 target: this.element,
                 props: {
                     plugin: this.plugin,

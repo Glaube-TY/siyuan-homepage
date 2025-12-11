@@ -31,6 +31,7 @@ import childDocs from "../widgetBlock/widget/childDocs/childDocs.svelte";
 import constellation from "../widgetBlock/widget/constellation/constellation.svelte";
 import historyDays from "../widgetBlock/widget/historyDays/historyDays.svelte";
 import statisticalCard from "../widgetBlock/widget/statisticalCard/statisticalCard.svelte";
+import almanac from "../widgetBlock/widget/almanac/almanac.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -384,7 +385,17 @@ export class WidgetBlock {
                     contentTypeJson: contentTypeJson
                 }
             });
+        } else if (contentData.type === "almanac") {
+            new almanac({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
         }
+
+
 
         // 重新绑定按钮事件（如果需要）
         this.setupEventListeners();
