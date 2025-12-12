@@ -21,8 +21,8 @@
         bilibili(data: any): HotItem[] {
             return data.data.map((item) => ({
                 title: item.title,
-                heat: item.heat,
-                link: item.link,
+                heat: item.hot,
+                link: item.url,
             }));
         },
         baidu(data: any): HotItem[] {
@@ -173,7 +173,7 @@
         let url = "";
         let data: any = {};
         if (source === "bilibili") {
-            url = "https://v.api.aa1.cn/api/bilibili-rs/";
+            url = "https://dailyhotapi.3yu3.top/bilibili";
         } else if (source === "baidu") {
             url = "https://v2.xxapi.cn/api/baiduhot";
         } else if (source === "weibo") {

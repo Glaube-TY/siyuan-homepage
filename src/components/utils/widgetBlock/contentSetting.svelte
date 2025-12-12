@@ -28,6 +28,7 @@
     import TasksPlusSet from "./widget/tasksPlus/tasksPlusSet.svelte";
     import RecentTasksSet from "./widget/tasks/recentTasksSet.svelte";
     import AlmanacSet from "./widget/almanac/almanacSet.svelte";
+    import PicCaroSet from "./widget/PicCaro/PicCaroSet.svelte";
 
     // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
@@ -111,7 +112,9 @@
     let countdownList2BgColor: string = "#000000";
 
     // 天气相关变量
-    let customWeatherCity: string = "北京";
+    let customWeatherCityName: string = "";
+    let customWeatherCityCode: string = "";
+    let weatherStyle: string = "default";
 
     // 热搜相关变量
     let hotSource: string = "bilibili";
@@ -248,6 +251,19 @@
     //  黄历相关
     let almanacStyle: string = "classic";
 
+    // 图片轮播相关
+    let PicFolderPath: string = ""; // 图片文件夹路径
+    let PicAutoPlay: boolean = false; // 是否自动播放
+    let PicInterval: number = 3; // 切换间隔（秒）
+    let PicNavigation: boolean = false; // 是否显示导航按钮
+    let PicPagination: boolean = false; // 是否显示分页按钮
+    let PicPaginationType: string = "bullets"; // 分页按钮类型
+    let PicPaginationDyBu: boolean = false; // 动态分页圆点
+    let PicPaginationPrOp: boolean = false; // 分页进度条是否反方向
+    let PicEffect: string = "slide"; // 切换效果
+    let PicSlidesPerView: string = "1"; // 每页显示的图片数量
+    let PicRandomSwitch: boolean = false; // 是否随机切换
+
     let advancedEnabled = false;
 
     onMount(async () => {
@@ -350,7 +366,9 @@
                 countdownList2BgColor =
                     parsedData.data?.countdownList2BgColor || "#000000";
             } else if (parsedData.type === "weather") {
-                customWeatherCity = parsedData.data?.city || "北京";
+                customWeatherCityName = parsedData.data?.cityName || "";
+                customWeatherCityCode = parsedData.data?.cityCode || "";
+                weatherStyle = parsedData.data?.weatherStyle || "default";
             } else if (parsedData.type === "HOT") {
                 hotSource = parsedData.data?.source || "bilibili";
             } else if (parsedData.type === "custom-text") {
@@ -575,6 +593,18 @@
                     parsedData.data?.statisticalCardCountColor ||
                     statisticalCardCountColor;
                 customSQLCount = parsedData.data?.customSQLCount || "";
+            } else if (parsedData.type === "PicCaro") {
+                PicFolderPath = parsedData.data?.PicFolderPath || "";
+                PicAutoPlay = parsedData.data?.PicAutoPlay ?? false;
+                PicInterval = parsedData.data?.PicInterval || 3;
+                PicNavigation = parsedData.data?.PicNavigation ?? false;
+                PicPagination = parsedData.data?.PicPagination ?? false;
+                PicPaginationType = parsedData.data?.PicPaginationType || "bullets";
+                PicPaginationDyBu = parsedData.data?.PicPaginationDyBu ?? false;
+                PicPaginationPrOp = parsedData.data?.PicPaginationPrOp ?? false;
+                PicEffect = parsedData.data?.PicEffect || "slide"; // 切换效果
+                PicSlidesPerView = parsedData.data?.PicSlidesPerView || "1"; // 每页显示的图片数量
+                PicRandomSwitch = parsedData.data?.PicRandomSwitch ?? false; // 是否随机切换
             }
         }
 
@@ -802,6 +832,7 @@
                     <option value="timedate">时钟</option>
                     <option value="musicPlayer">音乐播放器👑</option>
                     <option value="almanac">黄历👑</option>
+                    <option value="PicCaro">图片轮播👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -817,7 +848,7 @@
                         bind:countdownList2BgColor
                     />
                 {:else if selectedContentType === "weather"}
-                    <WeatherSet bind:customWeatherCity />
+                    <WeatherSet bind:customWeatherCityName bind:customWeatherCityCode bind:weatherStyle />
                 {:else if selectedContentType === "timedate"}
                     <TimedateSet
                         {plugin}
@@ -869,9 +900,21 @@
                         bind:autoPlay
                     />
                 {:else if selectedContentType === "almanac"}
-                    <AlmanacSet
+                    <AlmanacSet bind:advancedEnabled bind:almanacStyle />
+                {:else if selectedContentType === "PicCaro"}
+                    <PicCaroSet
                         bind:advancedEnabled
-                        bind:almanacStyle
+                        bind:PicFolderPath
+                        bind:PicAutoPlay
+                        bind:PicInterval
+                        bind:PicNavigation
+                        bind:PicPagination
+                        bind:PicPaginationType
+                        bind:PicPaginationDyBu
+                        bind:PicPaginationPrOp
+                        bind:PicEffect
+                        bind:PicSlidesPerView
+                        bind:PicRandomSwitch
                     />
                 {/if}
             </div>
@@ -1015,7 +1058,9 @@
                         type: "weather",
                         blockId: currentBlockId,
                         data: {
-                            city: customWeatherCity,
+                            cityName: customWeatherCityName,
+                            cityCode: customWeatherCityCode,
+                            weatherStyle,
                         },
                     };
                 } else if (selectedContentType === "custom-text") {
@@ -1271,6 +1316,25 @@
                             statisticalCardCountSize,
                             statisticalCardCountColor,
                             customSQLCount,
+                        },
+                    };
+                } else if (selectedContentType === "PicCaro") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "PicCaro",
+                        blockId: currentBlockId,
+                        data: {
+                            PicFolderPath,
+                            PicAutoPlay,
+                            PicInterval,
+                            PicNavigation,
+                            PicPagination,
+                            PicPaginationType,
+                            PicPaginationDyBu,
+                            PicPaginationPrOp,
+                            PicEffect,
+                            PicSlidesPerView,
+                            PicRandomSwitch,
                         },
                     };
                 }

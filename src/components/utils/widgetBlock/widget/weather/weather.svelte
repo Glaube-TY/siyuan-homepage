@@ -1,70 +1,92 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { UapiClient } from "uapi-sdk-typescript";
 
+    import Simple1 from "./_simple1.svelte";
+
+    export let plugin: any;
     export let contentTypeJson: string = "{}";
+
+    const parsedContent = JSON.parse(contentTypeJson);
+    const cityName = parsedContent?.data?.cityName || "";
+    const cityCode = parsedContent?.data?.cityCode || "";
+    const weatherStyle = parsedContent?.data?.weatherStyle || "default";
 
     let city: string = "加载中...";
     let temperature: string = "加载中...";
     let weather: string = "加载中...";
-    let fengdu: string = "加载中...";
-    let pm: string = "加载中...";
+    let wind_direction: string = "加载中...";
+    let wind_power: string = "加载中...";
+    let humidity: string = "加载中...";
+    let reportTime: string = "加载中...";
     let result: WeatherResponse | null = null;
 
-    $: parsedContent = (() => {
-        try {
-            return JSON.parse(contentTypeJson);
-        } catch (e) {
-            console.error("解析配置失败:", e);
-            return { data: {} };
-        }
-    })();
-    $: cityName = parsedContent?.data?.city || "西安";
-
-    // 定义天气数据接口
-    interface WeatherItem {
-        riqi: string;
-        wendu: string;
-        tianqi: string;
-        fengdu: string;
-        pm: string;
-    }
-
+    // 定义新的天气数据接口
     interface WeatherResponse {
-        code: string | number;
-        data?: WeatherItem[];
+        province: string;
+        city: string;
+        adcode: string;
+        weather: string;
+        temperature: number;
+        wind_direction: string;
+        wind_power: string;
+        humidity: number;
+        report_time: string;
     }
 
-    async function loadWeather(): Promise<WeatherResponse> {
-        const url = `https://v.api.aa1.cn/api/api-tianqi-3/index.php?msg=${encodeURIComponent(cityName)}&type=1`;
-        const response = await fetch(url);
+    async function loadWeather() {
+        try {
+            const client = new UapiClient("https://uapis.cn");
+            const payload = {
+                city: cityName,
+                adcode: cityCode,
+            };
+            // @ts-ignore - 临时忽略类型检查
+            const response = await client.misc.getMiscWeather(payload);
 
-        if (!response.ok) {
-            throw new Error("请求失败");
+            return response;
+        } catch (error) {
+            console.error("uapis API调用失败:", error);
+            // 可以在这里添加备用处理逻辑
         }
-
-        return await response.json();
     }
 
     onMount(async () => {
         try {
             result = await loadWeather();
 
-            if (
-                (result.code === "1" || result.code === 1) &&
-                result.data?.length > 0
-            ) {
-                const today = result.data[1];
-                city = cityName;
-                temperature = today.wendu;
-                weather = today.tianqi;
-                fengdu = today.fengdu;
-                pm = today.pm;
-            } else {
-                city = temperature = weather = fengdu = pm = "获取失败";
+            // 处理新的接口数据格式
+            if (result) {
+                city = result.city || "未知城市";
+                temperature =
+                    result.temperature !== undefined
+                        ? `${result.temperature}`
+                        : "未知";
+                weather = result.weather || "未知";
+
+                wind_direction =
+                    result.wind_direction && result.wind_direction !== "无"
+                        ? `${result.wind_direction}`
+                        : "未知";
+                wind_power =
+                    result.wind_power && result.wind_power !== "无"
+                        ? `${result.wind_power}`
+                        : "未知";
+                humidity =
+                    result.humidity !== undefined
+                        ? `${result.humidity}`
+                        : "未知";
+                reportTime = result.report_time ? `${result.report_time}` : "";
             }
         } catch (error) {
             console.error("获取天气数据出错:", error);
-            city = temperature = weather = "网络错误";
+            city =
+                temperature =
+                weather =
+                wind_direction =
+                wind_power =
+                humidity =
+                    "网络错误";
         }
     });
 </script>
@@ -77,46 +99,45 @@
 </svelte:head>
 
 <div class="content-display">
-    <h3 class="widget-title">🌦{city}的天气</h3>
-
-    <!-- 新增的天气内容容器 -->
-    <div class="weather-content-container">
-        <div class="weather-info-grid">
-            <div class="info-item">
-                <i class="fas fa-thermometer-half"></i>
-                <span id="temperature">{temperature}</span>
-            </div>
-            <div class="info-item">
-                <i class="fas fa-cloud-sun"></i>
-                <span id="weather">{weather}</span>
-            </div>
-            <div class="info-item">
-                <i class="fas fa-wind"></i>
-                <span id="fengdu">{fengdu}</span>
-            </div>
-            <div class="info-item">
-                <i class="fas fa-smog"></i>
-                <span id="pm">{pm}</span>
+    {#if weatherStyle === "default"}
+        <div style="display: flex; flex-direction: column; padding: 1rem; overflow: auto;">
+            <h3 class="widget-title">🌦{city}的天气</h3>
+            <div class="weather-content-container">
+                <div class="weather-info-grid">
+                    <div class="info-item">
+                        <i class="fas fa-thermometer-half"></i>
+                        <span id="temperature">{temperature}℃</span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-cloud-sun"></i>
+                        <span id="weather">{weather}</span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-wind"></i>
+                        <span id="wind-direction">{wind_direction}</span>
+                        <span id="wind-power">{wind_power}级</span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-tint"></i>
+                        <span id="humidity">{humidity}%</span>
+                    </div>
+                </div>
+                {#if reportTime}
+                    <div class="report-time">更新时间：{reportTime}</div>
+                {/if}
             </div>
         </div>
-
-        <div class="forecast">
-            <h4>未来天气</h4>
-            {#if result?.data}
-                {#each result.data.slice(2) as forecasts}
-                    {#if forecasts}
-                        <div class="forecast-day">
-                            <strong>{forecasts.riqi}</strong>: {forecasts.tianqi},
-                            {forecasts.wendu}
-                        </div>
-                    {/if}
-                {/each}
-            {/if}
-        </div>
-    </div>
+    {:else if weatherStyle === "simple1"}
+        <Simple1
+            bind:city
+            bind:temperature
+            bind:weather
+            bind:plugin
+        />
+    {/if}
 </div>
 
-<style>
+<style lang="scss">
     .widget-title {
         font-size: 18px;
         font-weight: 600;
@@ -133,7 +154,6 @@
         height: calc(100%);
         display: flex;
         flex-direction: column;
-        padding: 1rem;
         box-sizing: border-box;
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
@@ -172,27 +192,6 @@
     .info-item i:hover {
         transform: scale(1.1);
         transition: transform 0.2s ease-in-out;
-    }
-
-    .forecast {
-        margin-top: 1rem;
-        padding-top: 0.75rem;
-        border-top: 1px solid var(--b3-border-color);
-        font-size: 0.9rem;
-    }
-
-    .forecast h4 {
-        font-size: 14px;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-    }
-
-    .forecast-day {
-        margin-bottom: 0.5rem;
-        line-height: 1.4;
-        background-color: var(--b3-theme-surface);
-        padding: 0.5rem;
-        border-radius: 6px;
     }
 
     @media (max-width: 480px) {
