@@ -29,6 +29,7 @@
     import RecentTasksSet from "./widget/tasks/recentTasksSet.svelte";
     import AlmanacSet from "./widget/almanac/almanacSet.svelte";
     import PicCaroSet from "./widget/PicCaro/PicCaroSet.svelte";
+    import CYBMOKSet from "./widget/CYBMOK/CYBMOKSet.svelte";
 
     // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
@@ -196,6 +197,20 @@
     let dial2ShowSecond: boolean = true;
     let dial2ShowMarkers: boolean = true;
     let dial2ShowDate: boolean = true;
+    // 表盘3配置
+    let dial3ShowSecond: boolean = true;
+    // 表盘4配置
+    let dial4ShowSecond: boolean = true;
+    // 表盘5配置
+    let dial5ShowSecond: boolean = true;
+    // 表盘6配置
+    let dial6ShowSecond: boolean = true;
+    // 表盘7配置
+    let dial7ShowSecond: boolean = true;
+    // 表盘8配置
+    let dial8ShowSecond: boolean = true;
+    // 表盘9配置
+    let dial9ShowSecond: boolean = true;
 
     // 专注设置
     let focusImageType = "remote";
@@ -263,6 +278,9 @@
     let PicEffect: string = "slide"; // 切换效果
     let PicSlidesPerView: string = "1"; // 每页显示的图片数量
     let PicRandomSwitch: boolean = false; // 是否随机切换
+
+    // 赛博木鱼配置
+    let CMKnockSound: string = "普通";
 
     let advancedEnabled = false;
 
@@ -426,6 +444,20 @@
                 dial2ShowSecond = parsedData.data?.dial2ShowSecond ?? true;
                 dial2ShowMarkers = parsedData.data?.dial2ShowMarkers ?? true;
                 dial2ShowDate = parsedData.data?.dial2ShowDate ?? true;
+                // 表盘3配置
+                dial3ShowSecond = parsedData.data?.dial3ShowSecond ?? true;
+                // 表盘4配置
+                dial4ShowSecond = parsedData.data?.dial4ShowSecond ?? true;
+                // 表盘5配置
+                dial5ShowSecond = parsedData.data?.dial5ShowSecond ?? true;
+                // 表盘6配置
+                dial6ShowSecond = parsedData.data?.dial6ShowSecond ?? true;
+                // 表盘7配置
+                dial7ShowSecond = parsedData.data?.dial7ShowSecond ?? true;
+                // 表盘8配置
+                dial8ShowSecond = parsedData.data?.dial8ShowSecond ?? true;
+                // 表盘9配置
+                dial9ShowSecond = parsedData.data?.dial9ShowSecond ?? true;
             } else if (parsedData.type === "TaskMan") {
                 showCompletedTasks =
                     parsedData.data?.showCompletedTasks ?? true;
@@ -599,12 +631,15 @@
                 PicInterval = parsedData.data?.PicInterval || 3;
                 PicNavigation = parsedData.data?.PicNavigation ?? false;
                 PicPagination = parsedData.data?.PicPagination ?? false;
-                PicPaginationType = parsedData.data?.PicPaginationType || "bullets";
+                PicPaginationType =
+                    parsedData.data?.PicPaginationType || "bullets";
                 PicPaginationDyBu = parsedData.data?.PicPaginationDyBu ?? false;
                 PicPaginationPrOp = parsedData.data?.PicPaginationPrOp ?? false;
                 PicEffect = parsedData.data?.PicEffect || "slide"; // 切换效果
                 PicSlidesPerView = parsedData.data?.PicSlidesPerView || "1"; // 每页显示的图片数量
                 PicRandomSwitch = parsedData.data?.PicRandomSwitch ?? false; // 是否随机切换
+            } else if (parsedData.type === "CYBMOK") {
+                CMKnockSound = parsedData.data?.CMKnockSound || "普通";
             }
         }
 
@@ -833,6 +868,7 @@
                     <option value="musicPlayer">音乐播放器👑</option>
                     <option value="almanac">黄历👑</option>
                     <option value="PicCaro">图片轮播👑</option>
+                    <option value="CYBMOK">赛博木鱼👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -848,7 +884,11 @@
                         bind:countdownList2BgColor
                     />
                 {:else if selectedContentType === "weather"}
-                    <WeatherSet bind:customWeatherCityName bind:customWeatherCityCode bind:weatherStyle />
+                    <WeatherSet
+                        bind:customWeatherCityName
+                        bind:customWeatherCityCode
+                        bind:weatherStyle
+                    />
                 {:else if selectedContentType === "timedate"}
                     <TimedateSet
                         {plugin}
@@ -883,6 +923,13 @@
                         bind:dial2ShowSecond
                         bind:dial2ShowMarkers
                         bind:dial2ShowDate
+                        bind:dial3ShowSecond
+                        bind:dial4ShowSecond
+                        bind:dial5ShowSecond
+                        bind:dial6ShowSecond
+                        bind:dial7ShowSecond
+                        bind:dial8ShowSecond
+                        bind:dial9ShowSecond
                     />
                 {:else if selectedContentType === "focus"}
                     <FocusSet
@@ -916,6 +963,8 @@
                         bind:PicSlidesPerView
                         bind:PicRandomSwitch
                     />
+                {:else if selectedContentType === "CYBMOK"}
+                    <CYBMOKSet bind:advancedEnabled {plugin} bind:CMKnockSound />
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -1141,6 +1190,20 @@
                             dial2ShowSecond,
                             dial2ShowMarkers,
                             dial2ShowDate,
+                            // 表盘3配置
+                            dial3ShowSecond,
+                            // 表盘4配置
+                            dial4ShowSecond,
+                            // 表盘5配置
+                            dial5ShowSecond,
+                            // 表盘6配置
+                            dial6ShowSecond,
+                            // 表盘7配置
+                            dial7ShowSecond,
+                            // 表盘8配置
+                            dial8ShowSecond,
+                            // 表盘9配置
+                            dial9ShowSecond,
                         },
                     };
                 } else if (selectedContentType === "focus") {
@@ -1335,6 +1398,15 @@
                             PicEffect,
                             PicSlidesPerView,
                             PicRandomSwitch,
+                        },
+                    };
+                } else if (selectedContentType === "CYBMOK") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "CYBMOK",
+                        blockId: currentBlockId,
+                        data: {
+                            CMKnockSound,
                         },
                     };
                 }

@@ -100,7 +100,9 @@
 
 <div class="content-display">
     {#if weatherStyle === "default"}
-        <div style="display: flex; flex-direction: column; padding: 1rem; overflow: auto;">
+        <div
+            style="display: flex; flex-direction: column; padding: 1rem; overflow: auto;"
+        >
             <h3 class="widget-title">🌦{city}的天气</h3>
             <div class="weather-content-container">
                 <div class="weather-info-grid">
@@ -128,12 +130,7 @@
             </div>
         </div>
     {:else if weatherStyle === "simple1"}
-        <Simple1
-            bind:city
-            bind:temperature
-            bind:weather
-            bind:plugin
-        />
+        <Simple1 bind:city bind:temperature bind:weather bind:plugin />
     {/if}
 </div>
 

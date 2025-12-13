@@ -1261,6 +1261,10 @@
                                         <div class="plan-price">8 元</div>
                                         <div class="plan-duration">/ 月</div>
                                     </div>
+                                    <div class="plan-item monthly">
+                                        <div class="plan-price">20 元</div>
+                                        <div class="plan-duration">/ 季</div>
+                                    </div>
                                     <div class="plan-item yearly">
                                         <div class="plan-price">69 元</div>
                                         <div class="plan-duration">/ 年</div>

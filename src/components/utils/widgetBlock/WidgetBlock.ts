@@ -33,6 +33,7 @@ import historyDays from "./widget/historyDays/historyDays.svelte";
 import statisticalCard from "./widget/statisticalCard/statisticalCard.svelte";
 import almanac from "./widget/almanac/almanac.svelte";
 import PicCaro from "./widget/PicCaro/PicCaro.svelte";
+import CYBMOK from "./widget/CYBMOK/CYBMOK.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -277,6 +278,7 @@ export class WidgetBlock {
             new timedate({
                 target: this.element,
                 props: {
+                    plugin: this.plugin,
                     contentTypeJson: contentTypeJson
                 }
             });
@@ -408,7 +410,15 @@ export class WidgetBlock {
                     contentTypeJson: contentTypeJson
                 }
             });
-        } 
+        } else if (contentData.type === "CYBMOK") {
+            new CYBMOK({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        }
 
         // 重新绑定按钮事件（如果需要）
         this.setupEventListeners();

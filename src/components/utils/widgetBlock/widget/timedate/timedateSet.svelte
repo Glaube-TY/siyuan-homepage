@@ -50,6 +50,29 @@
     export let dial2ShowMarkers: boolean = true;
     export let dial2ShowDate: boolean = true;
 
+    // 表盘3配置
+    export let dial3ShowSecond: boolean = true;
+
+    // 表盘4配置
+    export let dial4ShowSecond: boolean = true;
+
+    // 表盘5配置
+    export let dial5ShowSecond: boolean = true;
+
+    // 表盘6配置
+    export let dial6ShowSecond: boolean = true;
+
+    // 表盘7配置
+    export let dial7ShowSecond: boolean = true;
+
+    // 表盘8配置
+    export let dial8ShowSecond: boolean = true;
+
+    // 表盘9配置
+    export let dial9ShowSecond: boolean = true;
+
+    let advancedEnabled = false;
+
     let morningBgInput: HTMLInputElement;
     let afternoonBgInput: HTMLInputElement;
     let nightBgInput: HTMLInputElement;
@@ -153,6 +176,8 @@
     let nightBgImageData: string = "";
 
     onMount(async () => {
+        advancedEnabled = plugin.ADVANCED;
+
         await initializeImages();
 
         // 初始化背景图片
@@ -212,6 +237,13 @@
                 <option value="simple2">简约2</option>
                 <option value="dial1">表盘1</option>
                 <option value="dial2">表盘2</option>
+                <option value="dial3">表盘3👑</option>
+                <option value="dial4">表盘4👑</option>
+                <option value="dial5">表盘5👑</option>
+                <option value="dial6">表盘6👑</option>
+                <option value="dial7">中国风表盘1👑</option>
+                <option value="dial8">水墨表盘1👑</option>
+                <option value="dial9">卡通熊表盘👑</option>
             </select>
         </label>
     </div>
@@ -520,6 +552,55 @@
                 显示日期
             </label>
         </div>
+    {:else if timeType === "dial3" && advancedEnabled}
+        <div class="form-group form-group-dial3">
+            <label for="">
+                <input type="checkbox" bind:checked={dial3ShowSecond} />
+                显示秒针
+            </label>
+        </div>
+    {:else if timeType === "dial4" && advancedEnabled}
+        <div class="form-group form-group-dial4">
+            <label for="">
+                <input type="checkbox" bind:checked={dial4ShowSecond} />
+                显示秒针
+            </label>
+        </div>
+    {:else if timeType === "dial5" && advancedEnabled}
+        <div class="form-group form-group-dial5">
+            <label for="">
+                <input type="checkbox" bind:checked={dial5ShowSecond} />
+                显示秒针
+            </label>
+        </div>
+    {:else if timeType === "dial6" && advancedEnabled}
+        <div class="form-group form-group-dial6">
+            <label for="">
+                <input type="checkbox" bind:checked={dial6ShowSecond} />
+                显示秒针
+            </label>
+        </div>
+    {:else if timeType === "dial7" && advancedEnabled}
+        <div class="form-group form-group-dial7">
+            <label for="">
+                <input type="checkbox" bind:checked={dial7ShowSecond} />
+                显示秒针
+            </label>
+        </div>
+    {:else if timeType === "dial8" && advancedEnabled}
+        <div class="form-group form-group-dial8">
+            <label for="">
+                <input type="checkbox" bind:checked={dial8ShowSecond} />
+                显示秒针
+            </label>
+        </div>
+    {:else if timeType === "dial9" && advancedEnabled}
+        <div class="form-group form-group-dial9">
+            <label for="">
+                <input type="checkbox" bind:checked={dial9ShowSecond} />
+                显示秒针
+            </label>
+        </div>
     {/if}
 
     <hr />
@@ -632,91 +713,91 @@
     }
 
     .simple2BackgroundImg {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        flex-wrap: wrap;
+        border-top: 1px solid var(--b3-border-color);
+        padding: 1rem 0;
+
+        .type-select-and-input {
+            flex: 1 1 auto;
+            max-width: 200px;
             display: flex;
-            align-items: flex-start;
-            gap: 1rem;
-            flex-wrap: wrap;
-            border-top: 1px solid var(--b3-border-color);
-            padding: 1rem 0;
+            flex-direction: column;
+            gap: 0.5rem;
 
-            .type-select-and-input {
-                flex: 1 1 auto;
-                max-width: 200px;
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-
-                label {
-                    font-size: 14px;
-                    font-weight: 500;
-                }
-
-                select,
-                input[type="text"] {
-                    padding: 0.4rem;
-                    box-sizing: border-box;
-                    font-size: 14px;
-                    border-radius: 6px;
-                    width: 100%;
-                    transition: all 0.2s ease;
-
-                    &:focus {
-                        outline: none;
-                        border-color: var(--b3-theme-primary);
-                        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-                    }
-
-                    &:hover {
-                        border-color: var(--b3-theme-primary-light);
-                    }
-                }
-
-                button {
-                    padding: 0.4rem 0.6rem;
-                    font-size: 14px;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                    width: 100%;
-                    align-self: flex-start;
-
-                    &:hover {
-                        background-color: var(--b3-theme-primary-light);
-                        border-color: var(--b3-theme-primary);
-                    }
-
-                    &:focus {
-                        outline: none;
-                        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-                    }
-                }
+            label {
+                font-size: 14px;
+                font-weight: 500;
             }
 
-            .image-preview {
-                flex: 0 0 auto;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: auto; // 固定宽度为 200px
-                background-color: rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                overflow: hidden;
-                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-                border: 1px solid #ccc;
-                transition: box-shadow 0.3s ease;
-                padding: 0.5rem;
+            select,
+            input[type="text"] {
+                padding: 0.4rem;
+                box-sizing: border-box;
+                font-size: 14px;
+                border-radius: 6px;
+                width: 100%;
+                transition: all 0.2s ease;
 
-                img {
-                    width: 150px; // 宽度填满容器（200px）
-                    height: auto; // 高度自适应，保持图片比例
-                    max-height: 100px;
-                    object-fit: contain;
-                    border-radius: 6px;
+                &:focus {
+                    outline: none;
+                    border-color: var(--b3-theme-primary);
+                    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
                 }
 
                 &:hover {
-                    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+                    border-color: var(--b3-theme-primary-light);
+                }
+            }
+
+            button {
+                padding: 0.4rem 0.6rem;
+                font-size: 14px;
+                border-radius: 6px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                width: 100%;
+                align-self: flex-start;
+
+                &:hover {
+                    background-color: var(--b3-theme-primary-light);
+                    border-color: var(--b3-theme-primary);
+                }
+
+                &:focus {
+                    outline: none;
+                    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
                 }
             }
         }
+
+        .image-preview {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: auto; // 固定宽度为 200px
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            border: 1px solid #ccc;
+            transition: box-shadow 0.3s ease;
+            padding: 0.5rem;
+
+            img {
+                width: 150px; // 宽度填满容器（200px）
+                height: auto; // 高度自适应，保持图片比例
+                max-height: 100px;
+                object-fit: contain;
+                border-radius: 6px;
+            }
+
+            &:hover {
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+            }
+        }
+    }
 </style>

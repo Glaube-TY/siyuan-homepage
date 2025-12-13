@@ -11,6 +11,8 @@
     let BGImgPath: string = "";
     let displayCity: string = "";
 
+    let advancedEnabled = false;
+
     // 城市名称裁剪函数
     function truncateCityName(cityName: string): string {
         if (cityName.length > 5) {
@@ -91,6 +93,8 @@
     };
 
     onMount(() => {
+        advancedEnabled = plugin.ADVANCED;
+
         // 裁剪城市名称
         setInterval(() => {
             displayCity = truncateCityName(city);
@@ -121,42 +125,68 @@
     });
 </script>
 
-<div class="content-display-tradition1">
-    <svg viewBox="0 0 100 100">
-        <image href={BGImgPath} x="0" y="0" width="100" height="100" />
+<div class="content-display-simple1">
+    {#if advancedEnabled}
+        <svg viewBox="0 0 100 100">
+            <image href={BGImgPath} x="0" y="0" width="100" height="100" />
 
-        {#if weatherIconPath}
-            <image href={weatherIconPath} x="50" y="5" width="40" height="40" />
-        {/if}
+            {#if weatherIconPath}
+                <image
+                    href={weatherIconPath}
+                    x="50"
+                    y="5"
+                    width="40"
+                    height="40"
+                />
+            {/if}
 
-        {#if locationIconPath}
-            <image
-                href={locationIconPath}
+            {#if locationIconPath}
+                <image
+                    href={locationIconPath}
+                    x="5"
+                    y="50"
+                    width="12"
+                    height="12"
+                />
+            {/if}
+
+            <text x="20" y="58" font-size="8" fill="#FDFFFE">{displayCity}</text
+            >
+            <text
                 x="5"
-                y="50"
-                width="12"
-                height="12"
-            />
-        {/if}
-
-        <text x="20" y="58" font-size="8" fill="#FDFFFE">{displayCity}</text>
-        <text
-            x="5"
-            y="85"
-            font-size="25"
-            font-weight="bold"
-            font-family="Arial"
-            fill="white">{temperature}℃</text
-        >
-        <text x="5" y="95" font-size="8" font-family="Arial" fill="white"
-            >C U R R E N T</text
-        >
-    </svg>
+                y="85"
+                font-size="25"
+                font-weight="bold"
+                font-family="Arial"
+                fill="white">{temperature}℃</text
+            >
+            <text x="5" y="95" font-size="8" font-family="Arial" fill="white"
+                >C U R R E N T</text
+            >
+        </svg>
+    {:else}
+        <div class="content-not-advanced">
+            <h2>👑高级会员专属功能👑</h2>
+            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+        </div>
+    {/if}
 </div>
 
 <style lang="scss">
-    .content-display-tradition1 {
+    .content-display-simple1 {
         width: 100%;
         height: 100%;
+
+        .content-not-advanced {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            text-align: center;
+            color: #666;
+        }
     }
 </style>
