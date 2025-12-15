@@ -11,10 +11,11 @@
             <select id="weather-style" bind:value={weatherStyle}>
                 <option value="default">默认</option>
                 <option value="simple1">简约1👑</option>
+                <option value="simple2">简约2👑</option>
             </select>
         </div>
     </div>
-    {#if weatherStyle === "default" || weatherStyle === "simple1"}
+    {#if weatherStyle === "default" || weatherStyle === "simple1" || weatherStyle === "simple2"}
         <div class="setting-item">
             <div class="form-group">
                 <label for="weather-city">城市名称：</label>

@@ -3,6 +3,7 @@
     import { UapiClient } from "uapi-sdk-typescript";
 
     import Simple1 from "./_simple1.svelte";
+    import Simple2 from "./_simple2.svelte";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -131,6 +132,8 @@
         </div>
     {:else if weatherStyle === "simple1"}
         <Simple1 bind:city bind:temperature bind:weather bind:plugin />
+    {:else if weatherStyle === "simple2"}
+        <Simple2 bind:city bind:temperature bind:weather bind:humidity bind:wind_direction bind:wind_power bind:plugin />
     {/if}
 </div>
 
