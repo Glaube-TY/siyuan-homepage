@@ -6,6 +6,11 @@
         type DailyNoteInfo,
     } from "./latestDailyNotes";
     import { openDocs } from "@/components/tools/openDocs";
+    import {
+        createFloatingDocPopup,
+        setMouseOnTrigger,
+        hideImmediately,
+    } from "@/components/tools/floatingDoc";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -292,8 +297,45 @@
                     const date = params.name;
                     const note = dailyNotes.find((n) => n.content === date);
                     if (note) {
+                        // Immediately hide popup and open document when clicked
+                        hideImmediately();
                         openDocs(plugin, note.id);
                     }
+                }
+            });
+
+            // Add mouse events for floating window functionality in calendar mode
+            myChart.on("mouseover", (params) => {
+                if (
+                    params.componentType === "series" &&
+                    params.seriesType === "custom"
+                ) {
+                    const date = params.name;
+                    const note = dailyNotes.find((n) => n.content === date);
+                    if (note) {
+                        // Create a synthetic mouse event for the floating window
+                        const syntheticEvent = new MouseEvent("mouseover", {
+                            clientX: params.event?.offsetX || 0,
+                            clientY: params.event?.offsetY || 0,
+                            bubbles: true,
+                            cancelable: true,
+                        });
+                        
+                        setTimeout(() => {
+                            createFloatingDocPopup(note, syntheticEvent, plugin);
+                        }, 100);
+                    }
+                }
+            });
+
+            myChart.on("mouseout", (params) => {
+                if (
+                    params.componentType === "series" &&
+                    params.seriesType === "custom"
+                ) {
+                    setTimeout(() => {
+                        setMouseOnTrigger(false);
+                    }, 150);
                 }
             });
         }, 0);
@@ -315,19 +357,35 @@
                 {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                     <li class="document-item">
                         <div
-                            class="document-item-content"
-                            on:click={() => openDocs(plugin, doc.id)}
-                            on:keydown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
+                                class="document-item-content"
+                                on:click={() => {
+                                    // Immediately hide popup and open document when clicked
+                                    hideImmediately();
                                     openDocs(plugin, doc.id);
-                                }
-                            }}
-                            role="button"
-                            tabindex="0"
-                            aria-label="打开最近日记：{doc.content}"
-                        >
-                            📅 {doc.content || "(无标题)"}
-                        </div>
+                                }}
+                                on:keydown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                        openDocs(plugin, doc.id);
+                                    }
+                                }}
+                                on:mouseenter={(e) => {
+                                    // Delay display to avoid triggering when mouse quickly passes over
+                                    setTimeout(() => {
+                                        createFloatingDocPopup(doc, e, plugin);
+                                    }, 100);
+                                }}
+                                on:mouseleave={() => {
+                                    // Delay hiding to give user time to move mouse into popup
+                                    setTimeout(() => {
+                                        setMouseOnTrigger(false);
+                                    }, 150);
+                                }}
+                                role="button"
+                                tabindex="0"
+                                aria-label="打开最近日记：{doc.content}"
+                            >
+                                📅 {doc.content || "(无标题)"}
+                            </div>
                     </li>
                 {/each}
             {:else}

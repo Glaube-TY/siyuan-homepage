@@ -3,6 +3,11 @@
     import { openDocs } from "@/components/tools/openDocs";
     import { sql } from "@/api";
     import { formatDateShort } from "@/components/tools/formatDate";
+    import {
+        createFloatingDocPopup,
+        setMouseOnTrigger,
+        hideImmediately,
+    } from "@/components/tools/floatingDoc";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -43,9 +48,29 @@
                     <li class="document-item">
                         <div
                             class="document-item-content"
-                            on:keydown={(e) =>
-                                e.key === "Enter" && openDocs(plugin, doc.id)}
+                            on:keydown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    openDocs(plugin, doc.id);
+                                }
+                            }}
+                            on:mouseenter={(e) => {
+                                // 延迟显示，避免鼠标快速滑过时触发
+                                setTimeout(() => {
+                                    createFloatingDocPopup(doc, e, plugin);
+                                }, 100);
+                            }}
                             on:click={() => openDocs(plugin, doc.id)}
+                            on:mouseleave={() => {
+                                // 延迟隐藏，让用户有时间移入弹窗
+                                setTimeout(() => {
+                                    setMouseOnTrigger(false);
+                                }, 150);
+                            }}
+                            on:click={() => {
+                                // 点击时立即隐藏弹窗并打开文档
+                                hideImmediately();
+                                openDocs(plugin, doc.id);
+                            }}
                             role="button"
                             tabindex="0"
                             aria-label="打开最近文档：{doc.content}"

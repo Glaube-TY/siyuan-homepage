@@ -57,9 +57,4 @@
 </div>
 
 <style lang="scss">
-    .weather {
-        input[type="text"] {
-            max-width: 100px;
-        }
-    }
 </style>

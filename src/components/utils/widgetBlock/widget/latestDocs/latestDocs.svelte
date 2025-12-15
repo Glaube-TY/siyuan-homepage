@@ -2,6 +2,11 @@
     import { onMount } from "svelte";
     import { getLatestDocuments, type latestDocumentInfo } from "./latestDocs";
     import { openDocs } from "@/components/tools/openDocs";
+    import {
+        createFloatingDocPopup,
+        setMouseOnTrigger,
+        hideImmediately,
+    } from "@/components/tools/floatingDoc";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -65,8 +70,23 @@
                     <div
                         class="document-item-content"
                         on:keydown={(e) => e.key === 'Enter' && openDocs(plugin, doc.id)}
-                        on:click={() =>
-                            openDocs(plugin, doc.id)}
+                        on:click={() => {
+                            // Immediately hide popup and open document when clicked
+                            hideImmediately();
+                            openDocs(plugin, doc.id);
+                        }}
+                        on:mouseenter={(e) => {
+                            // Delay display to avoid triggering when mouse quickly passes over
+                            setTimeout(() => {
+                                createFloatingDocPopup(doc, e, plugin);
+                            }, 100);
+                        }}
+                        on:mouseleave={() => {
+                            // Delay hiding to give user time to move mouse into popup
+                            setTimeout(() => {
+                                setMouseOnTrigger(false);
+                            }, 150);
+                        }}
                         role="button"
                         tabindex="0"
                         aria-label="打开最近文档：{doc.content}"

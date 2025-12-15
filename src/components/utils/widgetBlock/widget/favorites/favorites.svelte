@@ -1,9 +1,13 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import {
-        getLatestFavoritesNotes,
-    } from "./favorites";
+    import { getLatestFavoritesNotes } from "./favorites";
     import { openDocs } from "@/components/tools/openDocs";
+
+    import {
+    createFloatingDocPopup,
+    setMouseOnTrigger,
+    hideImmediately,
+} from "@/components/tools/floatingDoc";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
@@ -33,6 +37,8 @@
         showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? showNoteMeta;
         favoritiesDocPrefix =
             contentTypeJsonObj.data?.favoritiesDocPrefix || favoritiesDocPrefix;
+            
+
     });
 </script>
 
@@ -45,13 +51,27 @@
                     <li class="favorites-item">
                         <div
                             class="favorites-item-content"
-                            on:click={() => {
-                                openDocs(plugin, note.id);
-                            }}
                             on:keydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                     openDocs(plugin, note.id);
                                 }
+                            }}
+                            on:mouseenter={(e) => {
+                                // 延迟显示，避免鼠标快速滑过时触发
+                                setTimeout(() => {
+                                    createFloatingDocPopup(note, e, plugin);
+                                }, 100);
+                            }}
+                            on:mouseleave={() => {
+                                // 延迟隐藏，让用户有时间移入弹窗
+                                setTimeout(() => {
+                                    setMouseOnTrigger(false);
+                                }, 150);
+                            }}
+                            on:click={() => {
+                                // 点击时立即隐藏弹窗并打开文档
+                                hideImmediately();
+                                openDocs(plugin, note.id);
                             }}
                             role="button"
                             tabindex="0"
