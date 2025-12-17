@@ -23,6 +23,9 @@
 
     let displayedDocs: any[] = [];
     let advancedEnabled = false;
+    
+    // 悬浮窗定时器
+    let floatDocTimeout: number | null = null;
 
     // 模拟加载文档数据
     onMount(async () => {
@@ -58,15 +61,26 @@
                             }}
                             on:mouseenter={(e) => {
                                 // 延迟显示，避免鼠标快速滑过时触发弹窗
-                                if (showChildDocsFloatDoc) {
-                                    setTimeout(() => {
-                                        createFloatingDocPopup(doc, e, plugin);
-                                    }, childDocsFloatDocShowTime * 1000);
+                            if (showChildDocsFloatDoc) {
+                                // 清除之前的定时器
+                                if (floatDocTimeout) {
+                                    clearTimeout(floatDocTimeout);
                                 }
+                                // 设置新的定时器
+                                floatDocTimeout = window.setTimeout(() => {
+                                    createFloatingDocPopup(doc, e, plugin);
+                                    floatDocTimeout = null;
+                                }, childDocsFloatDocShowTime * 1000);
+                            }
                             }}
                             on:mouseleave={() => {
                                 // 延迟隐藏，让用户有时间移入弹窗
                                 if (showChildDocsFloatDoc) {
+                                    // 清除悬浮窗显示定时器
+                                    if (floatDocTimeout) {
+                                        clearTimeout(floatDocTimeout);
+                                        floatDocTimeout = null;
+                                    }
                                     setTimeout(() => {
                                         setMouseOnTrigger(false);
                                     }, 150);

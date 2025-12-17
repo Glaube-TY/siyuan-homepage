@@ -24,6 +24,9 @@
     // 文档数据源
     let documentList: latestDocumentInfo[] = [];
     let displayedDocs: latestDocumentInfo[] = [];
+    
+    // 悬浮窗定时器
+    let floatDocTimeout: number | null = null;
 
     // 模拟加载文档数据
     onMount(async () => {
@@ -77,13 +80,24 @@
                         }}
                         on:mouseenter={(e) => {
                             if (showLatestDocFloatDoc) {
-                                setTimeout(() => {
+                                // 清除之前的定时器
+                                if (floatDocTimeout) {
+                                    clearTimeout(floatDocTimeout);
+                                }
+                                // 设置新的定时器
+                                floatDocTimeout = window.setTimeout(() => {
                                     createFloatingDocPopup(doc, e, plugin);
+                                    floatDocTimeout = null;
                                 }, latestDocsFloatDocShowTime * 1000);
                             }
                         }}
                         on:mouseleave={() => {
                             if (showLatestDocFloatDoc) {
+                                // 清除悬浮窗显示定时器
+                                if (floatDocTimeout) {
+                                    clearTimeout(floatDocTimeout);
+                                    floatDocTimeout = null;
+                                }
                                 setTimeout(() => {
                                     setMouseOnTrigger(false);
                                 }, 150);

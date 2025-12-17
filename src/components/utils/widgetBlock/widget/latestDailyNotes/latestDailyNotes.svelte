@@ -35,6 +35,11 @@
     let displayedDocs: DailyNoteInfo[] = [];
 
     let currentDate: Date = new Date();
+    
+    // 悬浮窗定时器（列表模式）
+    let listFloatDocTimeout: number | null = null;
+    // 悬浮窗定时器（日历模式）
+    let calendarFloatDocTimeout: number | null = null;
 
     function getMonthRange(date: Date): string {
         const year = date.getFullYear();
@@ -323,12 +328,18 @@
                         });
 
                         if (showLatestDailyNotesFloatDoc) {
-                            setTimeout(() => {
+                            // 清除之前的定时器
+                            if (calendarFloatDocTimeout) {
+                                clearTimeout(calendarFloatDocTimeout);
+                            }
+                            // 设置新的定时器
+                            calendarFloatDocTimeout = window.setTimeout(() => {
                                 createFloatingDocPopup(
                                     note,
                                     syntheticEvent,
                                     plugin,
                                 );
+                                calendarFloatDocTimeout = null;
                             }, latestDailyNotesFloatDocShowTime * 1000);
                         }
                     }
@@ -341,6 +352,11 @@
                     params.seriesType === "custom"
                 ) {
                     if (showLatestDailyNotesFloatDoc) {
+                        // 清除悬浮窗显示定时器
+                        if (calendarFloatDocTimeout) {
+                            clearTimeout(calendarFloatDocTimeout);
+                            calendarFloatDocTimeout = null;
+                        }
                         setTimeout(() => {
                             setMouseOnTrigger(false);
                         }, 150);
@@ -379,19 +395,30 @@
                                 }
                             }}
                             on:mouseenter={(e) => {
-                                if (showLatestDailyNotesFloatDoc) {
-                                    setTimeout(() => {
-                                        createFloatingDocPopup(doc, e, plugin);
-                                    }, latestDailyNotesFloatDocShowTime * 1000);
+                            if (showLatestDailyNotesFloatDoc) {
+                                // 清除之前的定时器
+                                if (listFloatDocTimeout) {
+                                    clearTimeout(listFloatDocTimeout);
                                 }
-                            }}
-                            on:mouseleave={() => {
-                                if (showLatestDailyNotesFloatDoc) {
-                                    setTimeout(() => {
-                                        setMouseOnTrigger(false);
-                                    }, 150);
+                                // 设置新的定时器
+                                listFloatDocTimeout = window.setTimeout(() => {
+                                    createFloatingDocPopup(doc, e, plugin);
+                                    listFloatDocTimeout = null;
+                                }, latestDailyNotesFloatDocShowTime * 1000);
+                            }
+                        }}
+                        on:mouseleave={() => {
+                            if (showLatestDailyNotesFloatDoc) {
+                                // 清除悬浮窗显示定时器
+                                if (listFloatDocTimeout) {
+                                    clearTimeout(listFloatDocTimeout);
+                                    listFloatDocTimeout = null;
                                 }
-                            }}
+                                setTimeout(() => {
+                                    setMouseOnTrigger(false);
+                                }, 150);
+                            }
+                        }}
                             role="button"
                             tabindex="0"
                             aria-label="打开最近日记：{doc.content}"

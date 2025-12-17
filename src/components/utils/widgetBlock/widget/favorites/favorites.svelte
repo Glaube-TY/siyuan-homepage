@@ -31,6 +31,9 @@
         const day = raw.slice(6, 8);
         return `${year}年${month}月${day}日`;
     }
+    
+    // 悬浮窗定时器
+    let floatDocTimeout: number | null = null;
 
     onMount(async () => {
         favoritesNotes = await getLatestFavoritesNotes(
@@ -58,14 +61,25 @@
                                 // 根据配置决定是否显示悬浮窗
                                 if (showFavFloatDoc) {
                                     // 使用配置的延迟时间，避免鼠标快速滑过时触发
-                                    setTimeout(() => {
+                                    // 清除之前的定时器
+                                    if (floatDocTimeout) {
+                                        clearTimeout(floatDocTimeout);
+                                    }
+                                    // 设置新的定时器
+                                    floatDocTimeout = window.setTimeout(() => {
                                         createFloatingDocPopup(note, e, plugin);
+                                        floatDocTimeout = null;
                                     }, favFloatDocShowTime * 1000);
                                 }
                             }}
                             on:mouseleave={() => {
                                 // 根据配置决定是否延迟隐藏弹窗
                                 if (showFavFloatDoc) {
+                                    // 清除悬浮窗显示定时器
+                                    if (floatDocTimeout) {
+                                        clearTimeout(floatDocTimeout);
+                                        floatDocTimeout = null;
+                                    }
                                     // 使用配置的延迟时间，确保用户有足够时间查看弹窗
                                     setTimeout(() => {
                                         setMouseOnTrigger(false);
