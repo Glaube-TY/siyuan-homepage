@@ -57,6 +57,8 @@
     let showChildDocsDetails: boolean = true;
     let childDocsParentId: string = "";
     let childDocsSortOrder: string = "updated";
+    let showChildDocsFloatDoc: boolean = true;
+    let childDocsFloatDocShowTime: number = 0.1;
 
     // 最近文档配置
     let docLimit: number = 5;
@@ -66,12 +68,16 @@
     let latestDocsTitle: string = "🕒最近文档";
     let latestDocsPrefix: string = "📄";
     let showLatestDocDetails: boolean = true;
+    let showLatestDocFloatDoc: boolean = true;
+    let latestDocsFloatDocShowTime: number = 0.1;
 
     // 最近日记配置
     let docJournalLimit: number = 5;
     let recentJournalsShowType: string = "list";
     let recentJournalsCalendarIcon: string = "📝";
     let recentJournalsCalendarIconSize: number = 16;
+    let showLatestDailyNotesFloatDoc: boolean = true;
+    let latestDailyNotesFloatDocShowTime: number = 0.1;
 
     // 收藏文档配置
     let favoritiesTitle: string = "💖收藏文档";
@@ -80,6 +86,8 @@
     let favoritiesDocPrefix: string = "❤";
     let favoritesNotebookId: string = ""; // 指定收藏文档所在笔记本 ID
     let selectedFavoritesNotebookIds: { label: string; value: string }[] = [];
+    let showFavFloatDoc: boolean = true;
+    let favFloatDocShowTime: number = 0.1;
 
     // 任务管理相关变量
     let showCompletedTasks = true; // 默认显示已完成任务
@@ -330,6 +338,10 @@
                     parsedData.data?.[0]?.latestDocsPrefix || "📄";
                 showLatestDocDetails =
                     parsedData.data?.[0]?.showLatestDocDetails ?? true;
+                showLatestDocFloatDoc =
+                    parsedData.data?.[0]?.showLatestDocFloatDoc ?? true;
+                latestDocsFloatDocShowTime =
+                    parsedData.data?.[0]?.latestDocsFloatDocShowTime || 0.1;
             } else if (parsedData.type === "favorites") {
                 favoritiesTitle =
                     parsedData.data?.favoritiesTitle || "💖收藏文档";
@@ -352,6 +364,9 @@
                           };
                       })
                     : [];
+                showFavFloatDoc = parsedData.data?.showFavFloatDoc ?? true;
+                favFloatDocShowTime =
+                    parsedData.data?.favFloatDocShowTime || 0.1;
             } else if (parsedData.type === "heatmap") {
                 heatmapTitle = parsedData.data?.heatmapTitle || "";
                 pastMonthCount = parsedData.data?.pastMonthCount || 6;
@@ -368,6 +383,10 @@
                     parsedData.data?.recentJournalsCalendarIcon || "📝";
                 recentJournalsCalendarIconSize =
                     parsedData.data?.recentJournalsCalendarIconSize || 16;
+                showLatestDailyNotesFloatDoc =
+                    parsedData.data?.showLatestDailyNotesFloatDoc ?? true;
+                latestDailyNotesFloatDocShowTime =
+                    parsedData.data?.latestDailyNotesFloatDocShowTime || 0.1;
             } else if (parsedData.type === "countdown") {
                 eventList = parsedData.data?.eventList || [
                     { name: "", date: "", anniversary: false },
@@ -598,6 +617,12 @@
                     parsedData.data?.childDocsParentId || childDocsParentId;
                 childDocsSortOrder =
                     parsedData.data?.childDocsSortOrder || childDocsSortOrder;
+                showChildDocsFloatDoc =
+                    parsedData.data?.showChildDocsFloatDoc ??
+                    showChildDocsFloatDoc;
+                childDocsFloatDocShowTime =
+                    parsedData.data?.childDocsFloatDocShowTime ||
+                    childDocsFloatDocShowTime;
             } else if (parsedData.type === "constellation") {
                 selectedConstellation =
                     parsedData.data?.selectedConstellation ||
@@ -700,6 +725,8 @@
                         bind:latestDocsTitle
                         bind:latestDocsPrefix
                         bind:showLatestDocDetails
+                        bind:showLatestDocFloatDoc
+                        bind:latestDocsFloatDocShowTime
                         {notebooks}
                     />
                 {:else if selectedContentType === "favorites"}
@@ -710,6 +737,8 @@
                         bind:favoritiesDocPrefix
                         bind:favoritesNotebookId
                         bind:selectedFavoritesNotebookIds
+                        bind:showFavFloatDoc
+                        bind:favFloatDocShowTime
                         {notebooks}
                     />
                 {:else if selectedContentType === "recent-journals"}
@@ -718,6 +747,8 @@
                         bind:recentJournalsShowType
                         bind:recentJournalsCalendarIcon
                         bind:recentJournalsCalendarIconSize
+                        bind:showLatestDailyNotesFloatDoc
+                        bind:latestDailyNotesFloatDocShowTime
                     />
                 {:else if selectedContentType === "TaskMan"}
                     <RecentTasksSet
@@ -747,6 +778,8 @@
                         bind:showChildDocsDetails
                         bind:childDocsParentId
                         bind:childDocsSortOrder
+                        bind:showChildDocsFloatDoc
+                        bind:childDocsFloatDocShowTime
                     />
                 {/if}
             </div>
@@ -1023,6 +1056,8 @@
                                 latestDocsTitle,
                                 latestDocsPrefix,
                                 showLatestDocDetails,
+                                showLatestDocFloatDoc,
+                                latestDocsFloatDocShowTime,
                             },
                         ],
                     };
@@ -1041,6 +1076,8 @@
                             showNoteMeta,
                             favoritiesDocPrefix,
                             favoritesNotebookId,
+                            showFavFloatDoc,
+                            favFloatDocShowTime,
                         },
                     };
                 } else if (selectedContentType === "heatmap") {
@@ -1068,6 +1105,8 @@
                             recentJournalsShowType,
                             recentJournalsCalendarIcon,
                             recentJournalsCalendarIconSize,
+                            showLatestDailyNotesFloatDoc,
+                            latestDailyNotesFloatDocShowTime,
                         },
                     };
                 } else if (selectedContentType === "TaskMan") {
@@ -1346,6 +1385,8 @@
                             showChildDocsDetails,
                             childDocsParentId,
                             childDocsSortOrder,
+                            showChildDocsFloatDoc,
+                            childDocsFloatDocShowTime,
                         },
                     };
                 } else if (selectedContentType === "constellation") {

@@ -3,6 +3,8 @@
     export let recentJournalsShowType: string = "list";
     export let recentJournalsCalendarIcon: string = "📝";
     export let recentJournalsCalendarIconSize: number = 16;
+    export let showLatestDailyNotesFloatDoc: boolean = true;
+    export let latestDailyNotesFloatDocShowTime: number = 0.1;
 
     // 下拉选项
     const limitOptions = [5, 10, 15, 20, 50, 100];
@@ -52,6 +54,27 @@
             </label>
         </div>
     {/if}
+
+    <div class="form-group">
+        <label for="show-latest-daily-notes-float-doc">
+            <input
+                id="show-latest-daily-notes-float-doc"
+                type="checkbox"
+                bind:checked={showLatestDailyNotesFloatDoc}
+            />
+            显示预览弹窗
+        </label>
+        <label for="latest-daily-notes-float-doc-show-time">
+            悬停时间：
+            <input
+                type="number"
+                title="悬停多长时间显示预览弹窗"
+                bind:value={latestDailyNotesFloatDocShowTime}
+            />
+            秒
+        </label>
+    </div>
+
     <hr />
     <div>
         组件说明：<a

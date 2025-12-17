@@ -5,6 +5,8 @@
     export let showChildDocsDetails: boolean = true;
     export let childDocsParentId: string = "";
     export let childDocsSortOrder: string = "updated";
+    export let showChildDocsFloatDoc: boolean = true;
+    export let childDocsFloatDocShowTime: number = 0.1;
 </script>
 
 <div class="content-display">
@@ -59,6 +61,25 @@
                         bind:value={childDocsParentId}
                         placeholder="输入父文档ID"
                     />
+                </label>
+            </div>
+            <div class="form-group">
+                <label for="show-childDocs-float-doc">
+                    <input
+                        id="show-childDocs-float-doc"
+                        type="checkbox"
+                        bind:checked={showChildDocsFloatDoc}
+                    />
+                    显示预览弹窗
+                </label>
+                <label for="childDocs-float-doc-show-time">
+                    悬停时间：
+                    <input
+                        type="number"
+                        title="悬停多长时间显示预览弹窗"
+                        bind:value={childDocsFloatDocShowTime}
+                    />
+                    秒
                 </label>
             </div>
         </div>

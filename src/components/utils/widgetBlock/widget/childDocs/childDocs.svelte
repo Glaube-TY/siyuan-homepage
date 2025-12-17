@@ -17,6 +17,9 @@
     const showChildDocsDetails = parsed.data?.showChildDocsDetails ?? true;
     const childDocsParentId = parsed.data?.childDocsParentId || "";
     const childDocsSortOrder = parsed.data?.childDocsSortOrder || "updated";
+    const showChildDocsFloatDoc = parsed.data?.showChildDocsFloatDoc ?? true;
+    const childDocsFloatDocShowTime =
+        parsed.data?.childDocsFloatDocShowTime || 0.1;
 
     let displayedDocs: any[] = [];
     let advancedEnabled = false;
@@ -54,21 +57,26 @@
                                 }
                             }}
                             on:mouseenter={(e) => {
-                                // 延迟显示，避免鼠标快速滑过时触发
-                                setTimeout(() => {
-                                    createFloatingDocPopup(doc, e, plugin);
-                                }, 100);
+                                // 延迟显示，避免鼠标快速滑过时触发弹窗
+                                if (showChildDocsFloatDoc) {
+                                    setTimeout(() => {
+                                        createFloatingDocPopup(doc, e, plugin);
+                                    }, childDocsFloatDocShowTime * 1000);
+                                }
                             }}
-                            on:click={() => openDocs(plugin, doc.id)}
                             on:mouseleave={() => {
                                 // 延迟隐藏，让用户有时间移入弹窗
-                                setTimeout(() => {
-                                    setMouseOnTrigger(false);
-                                }, 150);
+                                if (showChildDocsFloatDoc) {
+                                    setTimeout(() => {
+                                        setMouseOnTrigger(false);
+                                    }, 150);
+                                }
                             }}
                             on:click={() => {
                                 // 点击时立即隐藏弹窗并打开文档
-                                hideImmediately();
+                                if (showChildDocsFloatDoc) {
+                                    hideImmediately();
+                                }
                                 openDocs(plugin, doc.id);
                             }}
                             role="button"

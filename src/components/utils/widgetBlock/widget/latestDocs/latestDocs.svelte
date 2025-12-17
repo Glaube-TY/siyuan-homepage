@@ -12,16 +12,18 @@
     export let contentTypeJson: string = "{}";
 
     const parsed = JSON.parse(contentTypeJson);
+    const limit = parsed.data?.[0]?.limit || 5;
+    const title = parsed.data?.[0]?.latestDocsTitle || "🕒最近文档";
+    const prefix = parsed.data?.[0]?.latestDocsPrefix || "📄";
+    const showLatestDocDetails = parsed.data?.[0]?.showLatestDocDetails ?? true;
+    const showLatestDocFloatDoc =
+        parsed.data?.[0]?.showLatestDocFloatDoc ?? true;
+    const latestDocsFloatDocShowTime =
+        parsed.data?.[0]?.latestDocsFloatDocShowTime || 0.1;
 
     // 文档数据源
     let documentList: latestDocumentInfo[] = [];
-
-    // 最终显示的文档
     let displayedDocs: latestDocumentInfo[] = [];
-
-    let title = "";
-    let prefix = "";
-    let showLatestDocDetails: boolean;
 
     // 模拟加载文档数据
     onMount(async () => {
@@ -29,11 +31,7 @@
             parsed.data?.[0]?.docNotebookId,
             parsed.data?.[0]?.ensureOpenDocs,
         );
-        const limit = parsed.data?.[0]?.limit || 5;
         displayedDocs = documentList.slice(0, limit);
-        title = parsed.data?.[0]?.latestDocsTitle || "🕒最近文档";
-        prefix = parsed.data?.[0]?.latestDocsPrefix || "📄";
-        showLatestDocDetails = parsed.data?.[0]?.showLatestDocDetails ?? true;
     });
 
     // 获取时间差并格式化为“X天前”或“今天”
@@ -69,23 +67,27 @@
                 <li class="document-item">
                     <div
                         class="document-item-content"
-                        on:keydown={(e) => e.key === 'Enter' && openDocs(plugin, doc.id)}
+                        on:keydown={(e) =>
+                            e.key === "Enter" && openDocs(plugin, doc.id)}
                         on:click={() => {
-                            // Immediately hide popup and open document when clicked
-                            hideImmediately();
+                            if (showLatestDocFloatDoc) {
+                                hideImmediately();
+                            }
                             openDocs(plugin, doc.id);
                         }}
                         on:mouseenter={(e) => {
-                            // Delay display to avoid triggering when mouse quickly passes over
-                            setTimeout(() => {
-                                createFloatingDocPopup(doc, e, plugin);
-                            }, 100);
+                            if (showLatestDocFloatDoc) {
+                                setTimeout(() => {
+                                    createFloatingDocPopup(doc, e, plugin);
+                                }, latestDocsFloatDocShowTime * 1000);
+                            }
                         }}
                         on:mouseleave={() => {
-                            // Delay hiding to give user time to move mouse into popup
-                            setTimeout(() => {
-                                setMouseOnTrigger(false);
-                            }, 150);
+                            if (showLatestDocFloatDoc) {
+                                setTimeout(() => {
+                                    setMouseOnTrigger(false);
+                                }, 150);
+                            }
                         }}
                         role="button"
                         tabindex="0"

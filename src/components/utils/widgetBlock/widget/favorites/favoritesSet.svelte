@@ -12,6 +12,8 @@
         label: string;
         value: string;
     }[] = [];
+    export let showFavFloatDoc: boolean = true;
+    export let favFloatDocShowTime: number = 0.1;
 
     // 笔记本列表
     export let notebooks: any[] = [];
@@ -120,6 +122,25 @@
                 }))}
                 placeholder="选择笔记本..."
             />
+            <div class="form-group">
+                <label for="show-fav-float-doc">
+                    <input
+                        id="show-fav-float-doc"
+                        type="checkbox"
+                        bind:checked={showFavFloatDoc}
+                    />
+                    显示预览弹窗
+                </label>
+                <label for="fav-float-doc-show-time">
+                    悬停时间：
+                    <input
+                        type="number"
+                        title="悬停多长时间显示预览弹窗"
+                        bind:value={favFloatDocShowTime}
+                    />
+                    秒
+                </label>
+            </div>
         </div>
     </div>
     <hr />

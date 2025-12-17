@@ -15,7 +15,18 @@
     export let plugin: any;
     export let contentTypeJson: string = "{}";
 
-    let recentJournalsShowType: string = "list";
+    const parsed = JSON.parse(contentTypeJson);
+    const limit = parsed.data?.limit || 5;
+    const recentJournalsShowType =
+        parsed.data?.recentJournalsShowType || "list";
+    const recentJournalsCalendarIcon =
+        parsed.data?.recentJournalsCalendarIcon || "📝";
+    const recentJournalsCalendarIconSize =
+        parsed.data?.recentJournalsCalendarIconSize || 16;
+    const showLatestDailyNotesFloatDoc =
+        parsed.data?.showLatestDailyNotesFloatDoc ?? true;
+    const latestDailyNotesFloatDocShowTime =
+        parsed.data?.latestDailyNotesFloatDocShowTime || 0.1;
 
     // 原始数据
     let dailyNotes: DailyNoteInfo[] = [];
@@ -99,20 +110,12 @@
 
     onMount(async () => {
         dailyNotes = await getLatestDailyNotes();
-        const parsed = JSON.parse(contentTypeJson);
-
-        const limit = parsed.data?.limit || 5;
-        recentJournalsShowType = parsed.data?.recentJournalsShowType || "list";
 
         const sorted = [...dailyNotes].sort((a, b) =>
             b.created.localeCompare(a.created),
         );
-        displayedDocs = sorted.slice(0, limit);
 
-        const recentJournalsCalendarIcon =
-            parsed.data?.recentJournalsCalendarIcon || "📝";
-        const recentJournalsCalendarIconSize =
-            parsed.data?.recentJournalsCalendarIconSize || 16;
+        displayedDocs = sorted.slice(0, limit);
 
         setTimeout(async () => {
             const chartDom = document.getElementById(
@@ -297,14 +300,13 @@
                     const date = params.name;
                     const note = dailyNotes.find((n) => n.content === date);
                     if (note) {
-                        // Immediately hide popup and open document when clicked
-                        hideImmediately();
+                        if (recentJournalsShowType === "calendar") {
+                            hideImmediately();
+                        }
                         openDocs(plugin, note.id);
                     }
                 }
             });
-
-            // Add mouse events for floating window functionality in calendar mode
             myChart.on("mouseover", (params) => {
                 if (
                     params.componentType === "series" &&
@@ -313,17 +315,22 @@
                     const date = params.name;
                     const note = dailyNotes.find((n) => n.content === date);
                     if (note) {
-                        // Create a synthetic mouse event for the floating window
                         const syntheticEvent = new MouseEvent("mouseover", {
                             clientX: params.event?.offsetX || 0,
                             clientY: params.event?.offsetY || 0,
                             bubbles: true,
                             cancelable: true,
                         });
-                        
-                        setTimeout(() => {
-                            createFloatingDocPopup(note, syntheticEvent, plugin);
-                        }, 100);
+
+                        if (showLatestDailyNotesFloatDoc) {
+                            setTimeout(() => {
+                                createFloatingDocPopup(
+                                    note,
+                                    syntheticEvent,
+                                    plugin,
+                                );
+                            }, latestDailyNotesFloatDocShowTime * 1000);
+                        }
                     }
                 }
             });
@@ -333,9 +340,11 @@
                     params.componentType === "series" &&
                     params.seriesType === "custom"
                 ) {
-                    setTimeout(() => {
-                        setMouseOnTrigger(false);
-                    }, 150);
+                    if (showLatestDailyNotesFloatDoc) {
+                        setTimeout(() => {
+                            setMouseOnTrigger(false);
+                        }, 150);
+                    }
                 }
             });
         }, 0);
@@ -357,35 +366,38 @@
                 {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                     <li class="document-item">
                         <div
-                                class="document-item-content"
-                                on:click={() => {
-                                    // Immediately hide popup and open document when clicked
+                            class="document-item-content"
+                            on:click={() => {
+                                if (recentJournalsShowType === "calendar") {
                                     hideImmediately();
+                                }
+                                openDocs(plugin, doc.id);
+                            }}
+                            on:keydown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
                                     openDocs(plugin, doc.id);
-                                }}
-                                on:keydown={(e) => {
-                                    if (e.key === "Enter" || e.key === " ") {
-                                        openDocs(plugin, doc.id);
-                                    }
-                                }}
-                                on:mouseenter={(e) => {
-                                    // Delay display to avoid triggering when mouse quickly passes over
+                                }
+                            }}
+                            on:mouseenter={(e) => {
+                                if (showLatestDailyNotesFloatDoc) {
                                     setTimeout(() => {
                                         createFloatingDocPopup(doc, e, plugin);
-                                    }, 100);
-                                }}
-                                on:mouseleave={() => {
-                                    // Delay hiding to give user time to move mouse into popup
+                                    }, latestDailyNotesFloatDocShowTime * 1000);
+                                }
+                            }}
+                            on:mouseleave={() => {
+                                if (showLatestDailyNotesFloatDoc) {
                                     setTimeout(() => {
                                         setMouseOnTrigger(false);
                                     }, 150);
-                                }}
-                                role="button"
-                                tabindex="0"
-                                aria-label="打开最近日记：{doc.content}"
-                            >
-                                📅 {doc.content || "(无标题)"}
-                            </div>
+                                }
+                            }}
+                            role="button"
+                            tabindex="0"
+                            aria-label="打开最近日记：{doc.content}"
+                        >
+                            📅 {doc.content || "(无标题)"}
+                        </div>
                     </li>
                 {/each}
             {:else}

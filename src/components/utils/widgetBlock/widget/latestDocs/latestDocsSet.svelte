@@ -12,6 +12,8 @@
     export let latestDocsTitle: string = "最近文档";
     export let latestDocsPrefix: string = "";
     export let showLatestDocDetails: boolean = true;
+    export let showLatestDocFloatDoc: boolean = true;
+    export let latestDocsFloatDocShowTime: number = 0.1;
 
     let limitOptions = [
         { value: 3, label: "3条" },
@@ -119,6 +121,26 @@
                 placeholder="选择笔记本..."
             /></label
         >
+    </div>
+
+    <div class="form-group">
+        <label for="show-latest-docs-float-doc">
+            <input
+                id="show-latest-docs-float-doc"
+                type="checkbox"
+                bind:checked={showLatestDocFloatDoc}
+            />
+            显示预览弹窗
+        </label>
+        <label for="latest-docs-float-doc-show-time">
+            悬停时间：
+            <input
+                type="number"
+                title="悬停多长时间显示预览弹窗"
+                bind:value={latestDocsFloatDocShowTime}
+            />
+            秒
+        </label>
     </div>
 
     <div class="component-help">

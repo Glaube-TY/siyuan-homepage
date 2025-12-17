@@ -4,19 +4,25 @@
     import { openDocs } from "@/components/tools/openDocs";
 
     import {
-    createFloatingDocPopup,
-    setMouseOnTrigger,
-    hideImmediately,
-} from "@/components/tools/floatingDoc";
+        createFloatingDocPopup,
+        setMouseOnTrigger,
+        hideImmediately,
+    } from "@/components/tools/floatingDoc";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";
 
+    const contentTypeJsonObj = JSON.parse(contentTypeJson);
+
     let favoritesNotes: any[] = [];
-    let favoritiesTitle: string = "💖收藏文档";
-    let contentTypeJsonObj: any;
-    let showNoteMeta: boolean = true;
-    let favoritiesDocPrefix: string = "❤";
+    const favoritiesTitle =
+        contentTypeJsonObj.data?.favoritiesTitle || "💖收藏文档";
+    const showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? true;
+    const favoritiesDocPrefix =
+        contentTypeJsonObj.data?.favoritiesDocPrefix || "❤";
+    const showFavFloatDoc = contentTypeJsonObj.data?.showFavFloatDoc ?? true;
+    const favFloatDocShowTime =
+        contentTypeJsonObj.data?.favFloatDocShowTime || 0.1;
 
     // 时间戳格式化函数
     function formatDate(raw: string): string {
@@ -27,18 +33,10 @@
     }
 
     onMount(async () => {
-        contentTypeJsonObj = JSON.parse(contentTypeJson);
         favoritesNotes = await getLatestFavoritesNotes(
             contentTypeJsonObj.data?.favoritiesSortOrder,
             contentTypeJsonObj.data?.favoritesNotebookId,
         );
-        favoritiesTitle =
-            contentTypeJsonObj.data?.favoritiesTitle || favoritiesTitle;
-        showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? showNoteMeta;
-        favoritiesDocPrefix =
-            contentTypeJsonObj.data?.favoritiesDocPrefix || favoritiesDocPrefix;
-            
-
     });
 </script>
 
@@ -57,20 +55,28 @@
                                 }
                             }}
                             on:mouseenter={(e) => {
-                                // 延迟显示，避免鼠标快速滑过时触发
-                                setTimeout(() => {
-                                    createFloatingDocPopup(note, e, plugin);
-                                }, 100);
+                                // 根据配置决定是否显示悬浮窗
+                                if (showFavFloatDoc) {
+                                    // 使用配置的延迟时间，避免鼠标快速滑过时触发
+                                    setTimeout(() => {
+                                        createFloatingDocPopup(note, e, plugin);
+                                    }, favFloatDocShowTime * 1000);
+                                }
                             }}
                             on:mouseleave={() => {
-                                // 延迟隐藏，让用户有时间移入弹窗
-                                setTimeout(() => {
-                                    setMouseOnTrigger(false);
-                                }, 150);
+                                // 根据配置决定是否延迟隐藏弹窗
+                                if (showFavFloatDoc) {
+                                    // 使用配置的延迟时间，确保用户有足够时间查看弹窗
+                                    setTimeout(() => {
+                                        setMouseOnTrigger(false);
+                                    }, 150);
+                                }
                             }}
                             on:click={() => {
                                 // 点击时立即隐藏弹窗并打开文档
-                                hideImmediately();
+                                if (showFavFloatDoc) {
+                                    hideImmediately();
+                                }
                                 openDocs(plugin, note.id);
                             }}
                             role="button"
