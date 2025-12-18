@@ -34,6 +34,7 @@ import statisticalCard from "./widget/statisticalCard/statisticalCard.svelte";
 import almanac from "./widget/almanac/almanac.svelte";
 import PicCaro from "./widget/PicCaro/PicCaro.svelte";
 import CYBMOK from "./widget/CYBMOK/CYBMOK.svelte";
+import countdownTimer from "./widget/countdownTimer/countdownTimer.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -77,7 +78,7 @@ export class WidgetBlock {
         this.setupEventListeners();
     }
 
-    private setupEventListeners() { 
+    private setupEventListeners() {
         const styleButton = this.element.querySelector(".block-style-button");
         const contentButton = this.element.querySelector(".block-content-button");
         const updateButton = this.element.querySelector(".block-update-button");
@@ -418,7 +419,17 @@ export class WidgetBlock {
                     contentTypeJson: contentTypeJson
                 }
             });
+        } else if (contentData.type === "countdownTimer") {
+            new countdownTimer({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
         }
+
+
 
         // 重新绑定按钮事件（如果需要）
         this.setupEventListeners();

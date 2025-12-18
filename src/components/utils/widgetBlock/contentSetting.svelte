@@ -30,6 +30,7 @@
     import AlmanacSet from "./widget/almanac/almanacSet.svelte";
     import PicCaroSet from "./widget/PicCaro/PicCaroSet.svelte";
     import CYBMOKSet from "./widget/CYBMOK/CYBMOKSet.svelte";
+    import CountdownTimerSet from "./widget/countdownTimer/countdownTimerSet.svelte";
 
     // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
@@ -289,6 +290,9 @@
 
     // 赛博木鱼配置
     let CMKnockSound: string = "普通";
+
+    // 倒计时定时器样式
+    let countdownTimerStyle: string = "default";
 
     let advancedEnabled = false;
 
@@ -665,6 +669,9 @@
                 PicRandomSwitch = parsedData.data?.PicRandomSwitch ?? false; // 是否随机切换
             } else if (parsedData.type === "CYBMOK") {
                 CMKnockSound = parsedData.data?.CMKnockSound || "普通";
+            } else if (parsedData.type === "countdownTimer") {
+                countdownTimerStyle =
+                    parsedData.data?.countdownTimerStyle || countdownTimerStyle;
             }
         }
 
@@ -902,6 +909,7 @@
                     <option value="almanac">黄历👑</option>
                     <option value="PicCaro">图片轮播👑</option>
                     <option value="CYBMOK">赛博木鱼👑</option>
+                    <option value="countdownTimer">倒计时👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -997,7 +1005,13 @@
                         bind:PicRandomSwitch
                     />
                 {:else if selectedContentType === "CYBMOK"}
-                    <CYBMOKSet bind:advancedEnabled {plugin} bind:CMKnockSound />
+                    <CYBMOKSet
+                        bind:advancedEnabled
+                        {plugin}
+                        bind:CMKnockSound
+                    />
+                {:else if selectedContentType === "countdownTimer"}
+                    <CountdownTimerSet bind:advancedEnabled bind:countdownTimerStyle />
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -1448,6 +1462,16 @@
                         blockId: currentBlockId,
                         data: {
                             CMKnockSound,
+                        },
+                    };
+                } else if (selectedContentType === "countdownTimer") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "countdownTimer",
+                        blockId: currentBlockId,
+                        data: {
+                            advancedEnabled,
+                            countdownTimerStyle,
                         },
                     };
                 }

@@ -34,6 +34,7 @@ import statisticalCard from "../widgetBlock/widget/statisticalCard/statisticalCa
 import almanac from "../widgetBlock/widget/almanac/almanac.svelte";
 import PicCaro from "../widgetBlock/widget/PicCaro/PicCaro.svelte";
 import CYBMOK from "../widgetBlock/widget/CYBMOK/CYBMOK.svelte";
+import countdownTimer from "../widgetBlock/widget/countdownTimer/countdownTimer.svelte";
 
 
 
@@ -409,6 +410,14 @@ export class WidgetBlock {
             });
         } else if (contentData.type === "CYBMOK") {
             new CYBMOK({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "countdownTimer") {
+            new countdownTimer({
                 target: this.element,
                 props: {
                     plugin: this.plugin,
