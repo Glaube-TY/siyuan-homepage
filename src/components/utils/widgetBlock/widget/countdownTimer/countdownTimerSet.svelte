@@ -23,13 +23,11 @@
     <hr />
     <div>
         组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/DAaIweKDBipUhbkGXOvcL6Q5nqh?from=from_copylink"
+            href="https://ai.feishu.cn/wiki/R3bswPuXkiM8pYkUJ0VcSAben4c?from=from_copylink"
             target="_blank">倒计时</a
         >
     </div>
 </div>
 
 <style lang="scss">
-    .countdownTimer {
-    }
 </style>
