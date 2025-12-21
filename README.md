@@ -312,6 +312,42 @@
                     UAPI SDK TypeScript is a TypeScript library specifically designed for calling UAPI interfaces. It provides encapsulation and type definitions for UAPI. The hot search component in this plugin uses UAPI SDK TypeScript.
                 </span>
             </li>
+            <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
+                <a href="https://floating-ui.com/" 
+                   style="color: #8a3ffc; 
+                          text-decoration: none;
+                          font-weight: 500;
+                          display: block;
+                          margin-bottom: 4px;"
+                   onmouseover="this.style.textDecoration='underline'"
+                   onmouseout="this.style.textDecoration='none'">
+                    Floating UI
+                </a>
+                <span style="color: #666; display: block; line-height: 1.5;">
+                    Floating UI 是一个用于创建浮动元素的库，提供了丰富的浮动元素交互功能。本插件中的浮动预览窗口来自 Floating UI。
+                </span>
+                <span style="color: #666; display: block; line-height: 1.5;">
+                    Floating UI is a library for creating floating elements with rich interaction features. The floating preview window in this plugin is from Floating UI.
+                </span>
+            </li>
+            <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
+                <a href="https://swiper.com.cn/" 
+                   style="color: #8a3ffc; 
+                          text-decoration: none;
+                          font-weight: 500;
+                          display: block;
+                          margin-bottom: 4px;"
+                   onmouseover="this.style.textDecoration='underline'"
+                   onmouseout="this.style.textDecoration='none'">
+                    Swiper
+                </a>
+                <span style="color: #666; display: block; line-height: 1.5;">
+                    Swiper是一个非常强大的轮播图插件，支持多种轮播图效果，如水平、垂直、淡入淡出等。本插件中的轮播图组件来自 Swiper。
+                </span>
+                <span style="color: #666; display: block; line-height: 1.5;">
+                    Swiper is a highly powerful carousel plugin that supports multiple carousel effects such as horizontal, vertical, fade, etc. The carousel component in this plugin is from Swiper.
+                </span>
+            </li>
         </ul>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff5f5; border-left: 4px solid #ff4d4f; border-radius: 8px;">
