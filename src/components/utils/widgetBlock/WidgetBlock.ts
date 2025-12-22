@@ -35,6 +35,7 @@ import almanac from "./widget/almanac/almanac.svelte";
 import PicCaro from "./widget/PicCaro/PicCaro.svelte";
 import CYBMOK from "./widget/CYBMOK/CYBMOK.svelte";
 import countdownTimer from "./widget/countdownTimer/countdownTimer.svelte";
+import conditionDocs from "./widget/conditionDocs/conditionDocs.svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -421,6 +422,14 @@ export class WidgetBlock {
             });
         } else if (contentData.type === "countdownTimer") {
             new countdownTimer({
+                target: this.element,
+                props: {
+                    plugin: this.plugin,
+                    contentTypeJson: contentTypeJson
+                }
+            });
+        } else if (contentData.type === "conditionDocs") {
+            new conditionDocs({
                 target: this.element,
                 props: {
                     plugin: this.plugin,

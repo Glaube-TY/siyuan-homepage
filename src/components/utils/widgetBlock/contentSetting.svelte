@@ -31,6 +31,7 @@
     import PicCaroSet from "./widget/PicCaro/PicCaroSet.svelte";
     import CYBMOKSet from "./widget/CYBMOK/CYBMOKSet.svelte";
     import CountdownTimerSet from "./widget/countdownTimer/countdownTimerSet.svelte";
+    import ConditionDocsSet from "./widget/conditionDocs/conditionDocsSet.svelte";
 
     // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
@@ -60,6 +61,16 @@
     let childDocsSortOrder: string = "updated";
     let showChildDocsFloatDoc: boolean = true;
     let childDocsFloatDocShowTime: number = 0.1;
+
+    // 条件文档配置
+    let conditionDocsTitle: string = "📄条件文档";
+    let conditionDocsCondition: string = "keyword";
+    let conditionDocsKeyPosition: string = "anywhere";
+    let conditionDocsKeyWord: string = "";
+    let conditionDocsSortOrder: string = "updated";
+    let showConditionDocsFloatDoc: boolean = true;
+    let conditionDocsFloatDocShowTime: number = 0.1;
+    let conditionDocsTag: string = "";
 
     // 最近文档配置
     let docLimit: number = 5;
@@ -672,6 +683,29 @@
             } else if (parsedData.type === "countdownTimer") {
                 countdownTimerStyle =
                     parsedData.data?.countdownTimerStyle || countdownTimerStyle;
+            } else if (parsedData.type === "conditionDocs") {
+                conditionDocsTitle =
+                    parsedData.data?.conditionDocsTitle || conditionDocsTitle;
+                conditionDocsCondition =
+                    parsedData.data?.conditionDocsCondition ||
+                    conditionDocsCondition;
+                conditionDocsKeyPosition =
+                    parsedData.data?.conditionDocsKeyPosition ||
+                    conditionDocsKeyPosition;
+                conditionDocsKeyWord =
+                    parsedData.data?.conditionDocsKeyWord ||
+                    conditionDocsKeyWord;
+                conditionDocsSortOrder =
+                    parsedData.data?.conditionDocsSortOrder ||
+                    conditionDocsSortOrder;
+                showConditionDocsFloatDoc =
+                    parsedData.data?.showConditionDocsFloatDoc ??
+                    showConditionDocsFloatDoc;
+                conditionDocsFloatDocShowTime =
+                    parsedData.data?.conditionDocsFloatDocShowTime ||
+                    conditionDocsFloatDocShowTime;
+                conditionDocsTag =
+                    parsedData.data?.conditionDocsTag || conditionDocsTag;
             }
         }
 
@@ -719,6 +753,7 @@
                     <option value="quick-notes">快速笔记</option>
                     <option value="childDocs">子文档👑</option>
                     <option value="stikynot">便签👑</option>
+                    <option value="conditionDocs">条件文档👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -787,6 +822,18 @@
                         bind:childDocsSortOrder
                         bind:showChildDocsFloatDoc
                         bind:childDocsFloatDocShowTime
+                    />
+                {:else if selectedContentType === "conditionDocs"}
+                    <ConditionDocsSet
+                        {advancedEnabled}
+                        bind:conditionDocsTitle
+                        bind:conditionDocsCondition
+                        bind:conditionDocsKeyPosition
+                        bind:conditionDocsKeyWord
+                        bind:conditionDocsSortOrder
+                        bind:showConditionDocsFloatDoc
+                        bind:conditionDocsFloatDocShowTime
+                        bind:conditionDocsTag
                     />
                 {/if}
             </div>
@@ -1011,7 +1058,10 @@
                         bind:CMKnockSound
                     />
                 {:else if selectedContentType === "countdownTimer"}
-                    <CountdownTimerSet bind:advancedEnabled bind:countdownTimerStyle />
+                    <CountdownTimerSet
+                        bind:advancedEnabled
+                        bind:countdownTimerStyle
+                    />
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -1472,6 +1522,22 @@
                         data: {
                             advancedEnabled,
                             countdownTimerStyle,
+                        },
+                    };
+                } else if (selectedContentType === "conditionDocs") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "conditionDocs",
+                        blockId: currentBlockId,
+                        data: {
+                            conditionDocsTitle,
+                            conditionDocsCondition,
+                            conditionDocsKeyPosition,
+                            conditionDocsKeyWord,
+                            conditionDocsSortOrder,
+                            showConditionDocsFloatDoc,
+                            conditionDocsFloatDocShowTime,
+                            conditionDocsTag,
                         },
                     };
                 }
