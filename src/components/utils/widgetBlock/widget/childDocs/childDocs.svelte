@@ -23,7 +23,7 @@
 
     let displayedDocs: any[] = [];
     let advancedEnabled = false;
-    
+
     // 悬浮窗定时器
     let floatDocTimeout: number | null = null;
 
@@ -60,22 +60,20 @@
                                 }
                             }}
                             on:mouseenter={(e) => {
-                                // 延迟显示，避免鼠标快速滑过时触发弹窗
-                            if (showChildDocsFloatDoc) {
-                                // 清除之前的定时器
-                                if (floatDocTimeout) {
-                                    clearTimeout(floatDocTimeout);
+                                if (showChildDocsFloatDoc && !plugin.isMobile) {
+                                    // 清除之前的定时器
+                                    if (floatDocTimeout) {
+                                        clearTimeout(floatDocTimeout);
+                                    }
+                                    // 设置新的定时器
+                                    floatDocTimeout = window.setTimeout(() => {
+                                        createFloatingDocPopup(doc, e, plugin);
+                                        floatDocTimeout = null;
+                                    }, childDocsFloatDocShowTime * 1000);
                                 }
-                                // 设置新的定时器
-                                floatDocTimeout = window.setTimeout(() => {
-                                    createFloatingDocPopup(doc, e, plugin);
-                                    floatDocTimeout = null;
-                                }, childDocsFloatDocShowTime * 1000);
-                            }
                             }}
                             on:mouseleave={() => {
-                                // 延迟隐藏，让用户有时间移入弹窗
-                                if (showChildDocsFloatDoc) {
+                                if (showChildDocsFloatDoc && !plugin.isMobile) {
                                     // 清除悬浮窗显示定时器
                                     if (floatDocTimeout) {
                                         clearTimeout(floatDocTimeout);
@@ -88,7 +86,7 @@
                             }}
                             on:click={() => {
                                 // 点击时立即隐藏弹窗并打开文档
-                                if (showChildDocsFloatDoc) {
+                                if (showChildDocsFloatDoc && !plugin.isMobile) {
                                     hideImmediately();
                                 }
                                 openDocs(plugin, doc.id);

@@ -58,9 +58,7 @@
                                 }
                             }}
                             on:mouseenter={(e) => {
-                                // 根据配置决定是否显示悬浮窗
-                                if (showFavFloatDoc) {
-                                    // 使用配置的延迟时间，避免鼠标快速滑过时触发
+                                if (showFavFloatDoc && !plugin.isMobile) {
                                     // 清除之前的定时器
                                     if (floatDocTimeout) {
                                         clearTimeout(floatDocTimeout);
@@ -73,8 +71,7 @@
                                 }
                             }}
                             on:mouseleave={() => {
-                                // 根据配置决定是否延迟隐藏弹窗
-                                if (showFavFloatDoc) {
+                                if (showFavFloatDoc && !plugin.isMobile) {
                                     // 清除悬浮窗显示定时器
                                     if (floatDocTimeout) {
                                         clearTimeout(floatDocTimeout);
@@ -88,7 +85,7 @@
                             }}
                             on:click={() => {
                                 // 点击时立即隐藏弹窗并打开文档
-                                if (showFavFloatDoc) {
+                                if (showFavFloatDoc && !plugin.isMobile) {
                                     hideImmediately();
                                 }
                                 openDocs(plugin, note.id);

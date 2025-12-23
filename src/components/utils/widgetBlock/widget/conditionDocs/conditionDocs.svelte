@@ -69,8 +69,7 @@
                                 }
                             }}
                             on:mouseenter={(e) => {
-                                // 延迟显示，避免鼠标快速滑过时触发弹窗
-                                if (showConditionDocsFloatDoc) {
+                                if (showConditionDocsFloatDoc && !plugin.isMobile) {
                                     // 清除之前的定时器
                                     if (floatDocTimeout) {
                                         clearTimeout(floatDocTimeout);
@@ -84,7 +83,7 @@
                             }}
                             on:mouseleave={() => {
                                 // 延迟隐藏，让用户有时间移入弹窗
-                                if (showConditionDocsFloatDoc) {
+                                if (showConditionDocsFloatDoc && !plugin.isMobile) {
                                     // 清除悬浮窗显示定时器
                                     if (floatDocTimeout) {
                                         clearTimeout(floatDocTimeout);
@@ -97,7 +96,7 @@
                             }}
                             on:click={() => {
                                 // 点击时立即隐藏弹窗并打开文档
-                                if (showConditionDocsFloatDoc) {
+                                if (showConditionDocsFloatDoc && !plugin.isMobile) {
                                     hideImmediately();
                                 }
                                 openDocs(plugin, doc.id);

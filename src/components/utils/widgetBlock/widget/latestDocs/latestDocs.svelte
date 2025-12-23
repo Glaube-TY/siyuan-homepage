@@ -73,13 +73,13 @@
                         on:keydown={(e) =>
                             e.key === "Enter" && openDocs(plugin, doc.id)}
                         on:click={() => {
-                            if (showLatestDocFloatDoc) {
+                            if (showLatestDocFloatDoc && !plugin.isMobile) {
                                 hideImmediately();
                             }
                             openDocs(plugin, doc.id);
                         }}
                         on:mouseenter={(e) => {
-                            if (showLatestDocFloatDoc) {
+                            if (showLatestDocFloatDoc && !plugin.isMobile) {
                                 // 清除之前的定时器
                                 if (floatDocTimeout) {
                                     clearTimeout(floatDocTimeout);
@@ -92,7 +92,7 @@
                             }
                         }}
                         on:mouseleave={() => {
-                            if (showLatestDocFloatDoc) {
+                            if (showLatestDocFloatDoc && !plugin.isMobile) {
                                 // 清除悬浮窗显示定时器
                                 if (floatDocTimeout) {
                                     clearTimeout(floatDocTimeout);

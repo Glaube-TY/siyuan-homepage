@@ -305,7 +305,7 @@
                     const date = params.name;
                     const note = dailyNotes.find((n) => n.content === date);
                     if (note) {
-                        if (recentJournalsShowType === "calendar") {
+                        if (recentJournalsShowType === "calendar" && !plugin.isMobile) {
                             hideImmediately();
                         }
                         openDocs(plugin, note.id);
@@ -327,7 +327,7 @@
                             cancelable: true,
                         });
 
-                        if (showLatestDailyNotesFloatDoc) {
+                        if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
                             // 清除之前的定时器
                             if (calendarFloatDocTimeout) {
                                 clearTimeout(calendarFloatDocTimeout);
@@ -351,7 +351,7 @@
                     params.componentType === "series" &&
                     params.seriesType === "custom"
                 ) {
-                    if (showLatestDailyNotesFloatDoc) {
+                    if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
                         // 清除悬浮窗显示定时器
                         if (calendarFloatDocTimeout) {
                             clearTimeout(calendarFloatDocTimeout);
@@ -384,7 +384,7 @@
                         <div
                             class="document-item-content"
                             on:click={() => {
-                                if (recentJournalsShowType === "calendar") {
+                                if (recentJournalsShowType === "calendar" && !plugin.isMobile) {
                                     hideImmediately();
                                 }
                                 openDocs(plugin, doc.id);
@@ -395,7 +395,7 @@
                                 }
                             }}
                             on:mouseenter={(e) => {
-                            if (showLatestDailyNotesFloatDoc) {
+                            if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
                                 // 清除之前的定时器
                                 if (listFloatDocTimeout) {
                                     clearTimeout(listFloatDocTimeout);
@@ -408,7 +408,7 @@
                             }
                         }}
                         on:mouseleave={() => {
-                            if (showLatestDailyNotesFloatDoc) {
+                            if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
                                 // 清除悬浮窗显示定时器
                                 if (listFloatDocTimeout) {
                                     clearTimeout(listFloatDocTimeout);
