@@ -21,7 +21,8 @@ class FloatingDocManager {
     private plugin: any = null;
 
     constructor() {
-        this.createFloatingElement();
+        // 不再立即创建元素，改为延迟创建
+        // this.createFloatingElement();
     }
 
     private createFloatingElement(): void {
@@ -47,6 +48,9 @@ class FloatingDocManager {
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            /* 初始状态完全隐藏，不影响点击 */
+            visibility: hidden;
+            pointer-events: none;
         `;
 
         // 添加鼠标事件监听
@@ -80,7 +84,8 @@ class FloatingDocManager {
     }
 
     private async updateContent(note: any): Promise<void> {
-        if (!this.floatingElement || !note) return;
+        this.ensureInitialized();
+        if (!this.floatingElement) return;
 
         // 创建Protyle编辑器容器
         this.floatingElement.innerHTML = `
@@ -156,6 +161,7 @@ class FloatingDocManager {
     }
 
     private async updatePosition(referenceElement: HTMLElement, mouseX?: number, mouseY?: number): Promise<void> {
+        this.ensureInitialized();
         if (!this.floatingElement) return;
 
         if (mouseX && mouseY) {
@@ -200,11 +206,20 @@ class FloatingDocManager {
         }
     }
 
+    private ensureInitialized(): void {
+        if (!this.floatingElement) {
+            this.createFloatingElement();
+        }
+    }
+
     public async show(note: any, event: MouseEvent, plugin?: any): Promise<void> {
         this.currentNote = note;
         this.referenceElement = event.currentTarget as HTMLElement;
         this.isMouseOnTrigger = true;
         this.plugin = plugin;
+
+        // 确保元素已创建
+        this.ensureInitialized();
 
         // 清除之前的隐藏定时器
         if (this.hideTimeout) {
@@ -219,6 +234,7 @@ class FloatingDocManager {
             this.floatingElement.style.opacity = '1';
             this.floatingElement.style.pointerEvents = 'auto';
             this.floatingElement.style.transform = 'translateY(0)';
+            this.floatingElement.style.visibility = 'visible';
         }
     }
 
@@ -271,6 +287,7 @@ class FloatingDocManager {
             this.floatingElement.style.opacity = '0';
             this.floatingElement.style.pointerEvents = 'none';
             this.floatingElement.style.transform = 'translateY(4px)';
+            this.floatingElement.style.visibility = 'hidden';
         }
 
         this.currentNote = null;
@@ -294,16 +311,31 @@ class FloatingDocManager {
         }
 
         this.hide();
+        
+        // 清理所有定时器
+        if (this.hideTimeout) {
+            clearTimeout(this.hideTimeout);
+            this.hideTimeout = null;
+        }
+        
+        // 从DOM中移除元素
         if (this.floatingElement) {
             this.floatingElement.remove();
             this.floatingElement = null;
         }
+        
         if (this.cleanupAutoUpdate) {
             this.cleanupAutoUpdate();
             this.cleanupAutoUpdate = null;
         }
+        
+        // 重置所有状态
         this.protyleContainer = null;
         this.plugin = null;
+        this.currentNote = null;
+        this.referenceElement = null;
+        this.isMouseInPopup = false;
+        this.isMouseOnTrigger = false;
     }
 }
 

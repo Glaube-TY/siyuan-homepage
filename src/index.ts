@@ -52,7 +52,9 @@ export default class PluginHomepage extends Plugin {
 
         this.registerTopBar();
         this.registerCommand();
-        if (config.sidebarEnabled ?? false) {
+
+        // 在非移动端时注册 dock 侧边栏
+        if ((config.sidebarEnabled ?? false) && !this.isMobile) {
             this.registerDock();
         }
     }
@@ -87,37 +89,35 @@ export default class PluginHomepage extends Plugin {
         if (!isNewWindow) {
             // 自动打开主页
             const savedConfig = await this.loadData("homepageSettingConfig.json");
-            if (savedConfig.autoOpenHomepage === true) {
-                if (this.isMobile && savedConfig.autoOpenMobileHomepage === true) {
-                    // 移动端打开方式
-                    this.currentMobileDialog = svelteDialog({
-                        title: "移动主页",
-                        width: "100vh",
-                        height: "100vh",
-                        constructor: (containerEl: HTMLElement) => {
-                            return new MobileHomepage({
-                                target: containerEl,
-                                props: {
-                                    plugin: this,
-                                    close: () => {
-                                        this.currentMobileDialog.close();
-                                    },
+            if (this.isMobile && savedConfig.autoOpenMobileHomepage === true) {
+                // 移动端打开方式
+                this.currentMobileDialog = svelteDialog({
+                    title: "移动主页",
+                    width: "100vh",
+                    height: "100vh",
+                    constructor: (containerEl: HTMLElement) => {
+                        return new MobileHomepage({
+                            target: containerEl,
+                            props: {
+                                plugin: this,
+                                close: () => {
+                                    this.currentMobileDialog.close();
                                 },
-                            });
-                        },
-                    });
-                } else {
-                    // 桌面端保持原有逻辑
-                    openTab({
-                        app: this.app,
-                        custom: {
-                            icon: "iconhomepage",
-                            title: "首页",
-                            data: { text: "思源笔记首页" },
-                            id: this.name + TAB_TYPE,
-                        },
-                    });
-                }
+                            },
+                        });
+                    },
+                });
+            } else if (savedConfig.autoOpenHomepage === true && !this.isMobile) {
+                // 桌面端保持原有逻辑
+                openTab({
+                    app: this.app,
+                    custom: {
+                        icon: "iconhomepage",
+                        title: "首页",
+                        data: { text: "思源笔记首页" },
+                        id: this.name + TAB_TYPE,
+                    },
+                });
             }
         }
 
@@ -267,7 +267,7 @@ export default class PluginHomepage extends Plugin {
                 position: "RightTop",
                 size: { width: 200, height: 0 },
                 icon: "iconhomepage",
-                title: "侧边栏",
+                title: "主页侧边栏",
                 hotkey: "⌥⌘C",
             },
             data: {
@@ -285,7 +285,6 @@ export default class PluginHomepage extends Plugin {
                 dock.element.appendChild(sidebarContainer);
             },
         });
-
     }
 
     private handleDocTreeMenu({ detail }: any) {
