@@ -98,30 +98,18 @@
         // 裁剪城市名称
         setInterval(() => {
             displayCity = truncateCityName(city);
-        }, 1000);
+        }, 500);
 
-        locationIconPath =
-            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/Icon/location1.svg`.replace(
-                /\\/g,
-                "/",
-            );
+        locationIconPath = "/plugins/siyuan-homepage/asset/Icon/location1.svg";
 
         // 定时更新图标
         setInterval(() => {
             const iconFile =
                 weatherIconMap[weather] || weatherIconMap["default"];
-            weatherIconPath =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/Icon/${iconFile}`.replace(
-                    /\\/g,
-                    "/",
-                );
-        }, 1000);
+            weatherIconPath = `/plugins/siyuan-homepage/asset/Icon/${iconFile}`;
+        }, 500);
 
-        BGImgPath =
-            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/weatherImg/BGImg1.jpg`.replace(
-                /\\/g,
-                "/",
-            );
+        BGImgPath = "/plugins/siyuan-homepage/asset/weatherImg/BGImg1.jpg";
     });
 </script>
 

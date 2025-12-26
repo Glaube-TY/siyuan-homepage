@@ -4,7 +4,6 @@ import {
     openTab,
     getFrontend,
     IModel,
-    fetchSyncPost
 } from "siyuan";
 
 import { svelteDialog } from "@/libs/dialog";
@@ -32,17 +31,12 @@ export default class PluginHomepage extends Plugin {
 
     client = new sdk.Client(undefined, 'fetch');
 
-    workplacePath: string;
-
     async onload() {
         const config = await this.loadData("homepageSettingConfig.json");
         this.registerIcon();
 
         const frontEnd = getFrontend();
         this.isMobile = frontEnd === "mobile" || frontEnd === "browser-mobile";
-
-        const confRes = await fetchSyncPost("/api/system/getConf");
-        this.workplacePath = confRes.data.conf.system.workspaceDir;
 
         this.eventBus.on("open-menu-doctree", this.docTreeMenuEventBindThis);
         if (config.taskEditorEnabled ?? true) {

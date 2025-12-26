@@ -20,11 +20,7 @@
         if (!advancedEnabled) {
             return;
         }
-        BGImgPath =
-            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/clockImg/dial3.png`.replace(
-                /\\/g,
-                "/",
-            );
+        BGImgPath = `/plugins/siyuan-homepage/asset/clockImg/dial3.png`;
 
         try {
             const config = JSON.parse(contentTypeJson);

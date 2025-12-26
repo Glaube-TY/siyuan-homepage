@@ -20,11 +20,7 @@
         if (!advancedEnabled) {
             return;
         }
-        BGImgPath =
-            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/clockImg/dial8.png`.replace(
-                /\\/g,
-                "/",
-            );
+        BGImgPath = `/plugins/siyuan-homepage/asset/clockImg/dial8.png`;
 
         try {
             const config = JSON.parse(contentTypeJson);
@@ -96,20 +92,20 @@
     }
 
     .hour-hand line {
-        stroke: #2C2C2C; /* 深墨色 */
+        stroke: #2c2c2c; /* 深墨色 */
         stroke-linecap: round;
-        filter: drop-shadow(0 0 2px rgba(0,0,0,0.3)); /* 水墨晕染效果 */
+        filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.3)); /* 水墨晕染效果 */
     }
 
     .minute-hand line {
         stroke: #404040; /* 中墨色 */
         stroke-linecap: round;
-        filter: drop-shadow(0 0 1px rgba(0,0,0,0.2));
+        filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.2));
     }
 
     .second-hand line {
         stroke: #606060; /* 淡墨色 */
         stroke-linecap: round;
-        filter: drop-shadow(0 0 1px rgba(0,0,0,0.1));
+        filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.1));
     }
 </style>

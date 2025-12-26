@@ -309,13 +309,13 @@
                 <button on:click={prevTrack} title="上一曲">
                     {#if themeMode === 0}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/backwardLight.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/backwardLight.svg`}
                             alt="上一曲"
                             style="width: 1rem; height: 1rem;"
                         />
                     {:else}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/backwardDark.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/backwardDark.svg`}
                             alt="上一曲"
                             style="width: 1rem; height: 1rem;"
                         />
@@ -325,26 +325,26 @@
                     {#if isPlaying}
                         {#if themeMode === 0}
                             <img
-                                src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/pauseLight.svg`}
+                                src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/pauseLight.svg`}
                                 alt="暂停"
                                 style="width: 1rem; height: 1rem;"
                             />
                         {:else}
                             <img
-                                src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/pauseDark.svg`}
+                                src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/pauseDark.svg`}
                                 alt="暂停"
                                 style="width: 1rem; height: 1rem;"
                             />
                         {/if}
                     {:else if themeMode === 0}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/playLight.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/playLight.svg`}
                             alt="播放"
                             style="width: 1rem; height: 1rem;"
                         />
                     {:else}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/playDark.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/playDark.svg`}
                             alt="播放"
                             style="width: 1rem; height: 1rem;"
                         />
@@ -353,13 +353,13 @@
                 <button on:click={nextTrack} title="下一曲">
                     {#if themeMode === 0}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/forwardLight.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/forwardLight.svg`}
                             alt="上一曲"
                             style="width: 1rem; height: 1rem;"
                         />
                     {:else}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/forwardDark.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/forwardDark.svg`}
                             alt="上一曲"
                             style="width: 1rem; height: 1rem;"
                         />
@@ -369,13 +369,13 @@
                     {#if playMode === "order"}
                         {#if themeMode === 0}
                             <img
-                                src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/orderLight.svg`}
+                                src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/orderLight.svg`}
                                 alt="顺序播放"
                                 style="width: 1rem; height: 1rem;"
                             />
                         {:else}
                             <img
-                                src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/orderDark.svg`}
+                                src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/orderDark.svg`}
                                 alt="顺序播放"
                                 style="width: 1rem; height: 1rem;"
                             />
@@ -383,26 +383,26 @@
                     {:else if playMode === "repeat"}
                         {#if themeMode === 0}
                             <img
-                                src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/repeatLight.svg`}
+                                src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/repeatLight.svg`}
                                 alt="单曲循环"
                                 style="width: 1rem; height: 1rem;"
                             />
                         {:else}
                             <img
-                                src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/repeatDark.svg`}
+                                src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/repeatDark.svg`}
                                 alt="单曲循环"
                                 style="width: 1rem; height: 1rem;"
                             />
                         {/if}
                     {:else if themeMode === 0}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/shuffleLight.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/shuffleLight.svg`}
                             alt="随机播放"
                             style="width: 1rem; height: 1rem;"
                         />
                     {:else}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/shuffleDark.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/shuffleDark.svg`}
                             alt="随机播放"
                             style="width: 1rem; height: 1rem;"
                         />
@@ -415,26 +415,26 @@
                     {#if isMuted}
                         {#if themeMode === 0}
                             <img
-                                src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/muteLight.svg`}
+                                src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/muteLight.svg`}
                                 alt="静音"
                                 style="width: 1rem; height: 1rem;"
                             />
                         {:else}
                             <img
-                                src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/muteDark.svg`}
+                                src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/muteDark.svg`}
                                 alt="静音"
                                 style="width: 1rem; height: 1rem;"
                             />
                         {/if}
                     {:else if themeMode === 0}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/volumeLight.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/volumeLight.svg`}
                             alt="音量"
                             style="width: 1rem; height: 1rem;"
                         />
                     {:else}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/volumeDark.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/volumeDark.svg`}
                             alt="音量"
                             style="width: 1rem; height: 1rem;"
                         />
@@ -453,13 +453,13 @@
                 <button class="music-list-btn" on:click={openMusicList}>
                     {#if themeMode === 0}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/musicListLight.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/musicListLight.svg`}
                             alt="音乐列表"
                             style="width: 1rem; height: 1rem;"
                         />
                     {:else}
                         <img
-                            src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/musicListDark.svg`}
+                            src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/musicListDark.svg`}
                             alt="音乐列表"
                             style="width: 1rem; height: 1rem;"
                         />

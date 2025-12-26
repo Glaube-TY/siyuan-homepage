@@ -36,13 +36,13 @@
                         {#if i === currentTrackIndex}
                             {#if themeMode === 0}
                                 <img
-                                    src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/playLight.svg`}
+                                    src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/playLight.svg`}
                                     alt="播放"
                                     style="width: 1rem; height: 1rem;"
                                 />
                             {:else}
                                 <img
-                                    src={`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/musicPlayerIcon/playDark.svg`}
+                                    src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/playDark.svg`}
                                     alt="播放"
                                     style="width: 1rem; height: 1rem;"
                                 />

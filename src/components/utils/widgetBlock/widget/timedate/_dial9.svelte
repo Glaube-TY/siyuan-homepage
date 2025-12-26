@@ -20,11 +20,7 @@
         if (!advancedEnabled) {
             return;
         }
-        BGImgPath =
-            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/clockImg/dial9.png`.replace(
-                /\\/g,
-                "/",
-            );
+        BGImgPath = `/plugins/siyuan-homepage/asset/clockImg/dial9.png`;
 
         try {
             const config = JSON.parse(contentTypeJson);
@@ -99,20 +95,20 @@
     }
 
     .hour-hand line {
-        stroke: #FF6B6B; /* 糖果红色，活泼可爱 */
+        stroke: #ff6b6b; /* 糖果红色，活泼可爱 */
         stroke-linecap: round;
-        filter: drop-shadow(0 0 3px rgba(255,107,107,0.4));
+        filter: drop-shadow(0 0 3px rgba(255, 107, 107, 0.4));
     }
 
     .minute-hand line {
-        stroke: #4ECDC4; /* 薄荷绿色，清新自然 */
+        stroke: #4ecdc4; /* 薄荷绿色，清新自然 */
         stroke-linecap: round;
-        filter: drop-shadow(0 0 3px rgba(78,205,196,0.4));
+        filter: drop-shadow(0 0 3px rgba(78, 205, 196, 0.4));
     }
 
     .second-hand line {
-        stroke: #FFE66D; /* 柠檬黄色，阳光活力 */
+        stroke: #ffe66d; /* 柠檬黄色，阳光活力 */
         stroke-linecap: round;
-        filter: drop-shadow(0 0 3px rgba(255,230,109,0.4));
+        filter: drop-shadow(0 0 3px rgba(255, 230, 109, 0.4));
     }
 </style>

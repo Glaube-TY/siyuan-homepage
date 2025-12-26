@@ -1,20 +1,20 @@
 <div class="sy__outline" style="margin: 0 auto;">
     <div style="margin-top: 1.5em; text-align: center; padding: 2em; background: linear-gradient(135deg, #2d8cf0, #1e6bff); border-radius: 12px;">
-        <h1 style="color: white; margin: 0; font-size: 2.2em;">🏠 Siyuan Homepage Plugin</h1>
+        <h1 style="color: white; margin: 0; font-size: 2.2em;">🏠 思源主页插件</h1>
         <hr>
-        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">Provide a highly customizable homepage interface for Siyuan</div>
-        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">The plugin data is entirely based on the Siyuan document. Uninstalling the plugin will not have any impact on the notes.</div>
+        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">为思源笔记提供一个可高度定制的首页界面</div>
+        <div style="color: rgba(255,255,255,0.9); margin-top: 0.5em;">插件数据完全基于思源笔记文档，卸载插件不会对笔记造成任何影响。</div>
     </div>
     <div style="margin-top: 1.5em; padding: 1.5em; background: #f8fafc; border-radius: 8px; border: 1px solid rgba(45,140,240,0.1);">
-        <h2 style="color: #2d8cf0; margin: 0 0 1em;">🚀 Core Functions</h2>
+        <h2 style="color: #2d8cf0; margin: 0 0 1em;">🚀 核心功能</h2>
         <ul style="margin: 0; padding-left: 1.2em; color: black;">
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🎨 Compatible with multiple themes and night mode</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧩 Rich and customizable component areas</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧲 Draggable layout</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">✈ Advanced features such as task management Plus, SQL query, and quick notes</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⭐ Favorite document, conditional document, recent document, etc.</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🍅 Pomodoro timer, anniversaries, today's weather, etc.</li>
-            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">💡 For more details, please refer to the detailed tutorial</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🎨 适配多主题及夜间模式</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧩 丰富可自定义的组件区域</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🧲 可拖动布局</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">✈ 任务管理 Plus、SQL 查询、快速笔记等高级功能</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">⭐ 收藏文档、条件文档、最近文档等功能</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">🍅 番茄钟、纪念日、今日天气等小工具</li>
+            <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">💡 更多内容请看详细教程</li>
         </ul>
         <div style="text-align: center;">
             <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink" 
@@ -33,13 +33,13 @@
                 onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
                 onmousedown="this.style.transform='translateY(1px)'"
                 onmouseup="this.style.transform='translateY(-2px)'">
-                    📖 Detailed Usage Tutorial
+                    📖 详细使用教程
             </a>
         </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 8px;">
-        <h2 style="color: #ff9f00; margin: 0 0 1em;">🌹 Support Development</h2>
-        <p style="margin: 0.5em 0; color: black;">If this plugin is helpful to you, please give the author a thumbs up or a cup of coffee as a reward. This will encourage the author to update and create more useful plugins</p>
+        <h2 style="color: #ff9f00; margin: 0 0 1em;">🌹 支持开发</h2>
+        <p style="margin: 0.5em 0; color: black;">如果这个插件对你有帮助，欢迎给作者点个赞或打赏一杯咖啡，这将鼓励作者更新制作更多有用的插件：</p>
         <div style="margin: 1em 0; text-align: center;">
             <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/ReQR.png"
                  alt="ReQR"
@@ -62,13 +62,13 @@
                 onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(255,159,0,0.1)'"
                 onmousedown="this.style.transform='translateY(1px)'"
                 onmouseup="this.style.transform='translateY(-2px)'">
-                💖 Special Thanks
+                💖 特别鸣谢
             </a>
         </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-        <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 Changelog</h2>
-        <p style="margin: 0.5em 0; color: black;">The update log will no longer be displayed here. Please click the 👇 button below to view the full update log.</p>
+        <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
+        <p style="margin: 0.5em 0; color: black;">此处将不再显示更新日志，请点击下方👇按钮查看完整的更新日志。</p>
         <div style="text-align: center;">
         <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 
            style="display: inline-flex;
@@ -85,13 +85,13 @@
                   margin-top: 1.2em;
                   gap: 8px;">
             <span style="font-size: 1.1em; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));">📄</span>
-            <span style="font-weight: 500; letter-spacing: 0.5px;">Full Update Log</span>
+            <span style="font-weight: 500; letter-spacing: 0.5px;">完整更新日志 / Full Update Log</span>
         </a>
         </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #f0f9ff; border-left: 4px solid #2d8cf0; border-radius: 8px;">
-        <h2 style="color: #2d8cf0; margin: 0 0 1em;">💬 Join Discussion</h2>
-        <p style="margin: 0.5em 0; color: black;">Currently, I am developing plugins such as the homepage, notebook, empty document cleanup, and colored icons. Therefore, a unified channel has been created to facilitate viewing and management.</p>
+        <h2 style="color: #2d8cf0; margin: 0 0 1em;">💬 加入讨论</h2>
+        <p style="margin: 0.5em 0; color: black;">目前我在开发的插件有主页、读书笔记、空文档清理、彩色图标，所以统一用一个频道了，方便查看管理~</p>
         <div style="margin: 1em 0; text-align: center;">
             <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/TCQR.jpg"
                  alt="TCQR"
@@ -117,13 +117,13 @@
                 onmousedown="this.style.transform='translateY(1px)'"
                 onmouseup="this.style.transform='translateY(-2px)'">
                 <span style="font-size: 1.1em; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));">👥</span>
-                <span style="font-weight: 500; letter-spacing: 0.5px;">Join the QQ Discussion Channel</span>
+                <span style="font-weight: 500; letter-spacing: 0.5px;">加入腾讯讨论频道</span>
             </a>
         </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #f8f5ff; border-left: 4px solid #8a3ffc; border-radius: 8px;">
-        <h2 style="color: #8a3ffc; margin: 0 0 1em;">🔮 Reference Projects</h2>
-        <p style="margin: 0.5em 0; color: black;">This plugin references the following excellent projects:</p>
+        <h2 style="color: #8a3ffc; margin: 0 0 1em;">🔮 参考项目</h2>
+        <p style="margin: 0.5em 0; color: black;">本插件部分功能参考了以下优秀项目：</p>
         <ul style="margin: 0; padding-left: 1.2em;">
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
                 <a href="https://github.com/obsidian-tasks-group/obsidian-tasks" 
@@ -137,7 +137,7 @@
                     Obsidian Tasks
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    The Task Management Plus component references its icon task mode and implementation logic
+                    任务管理 Plus 组件参考了其图标化的任务模式和实现逻辑
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -152,8 +152,7 @@
                     Echarts
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Echarts is an open-source JavaScript visualization library that provides a rich variety of chart types and interactive features. 
-                    This plugin uses Echarts to generate all charts.
+                    Echarts 是一个基于 JavaScript 的开源可视化库，提供了丰富的图表类型和交互功能。本插件中的所有图表基本来自 Echarts。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -168,7 +167,7 @@
                     Emoji Picker Element
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Emoji Picker Element is an Emoji selector component based on Web Components, providing rich Emoji selection functions. The Emoji selector component in this plugin comes from Emoji Picker Element.
+                    Emoji Picker Element 是一个基于 Web Components 的 Emoji 选择器组件，提供了丰富的 Emoji 选择功能。本插件中的 Emoji 选择器组件来自 Emoji Picker Element。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -183,7 +182,7 @@
                     Howler
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Howler is a JavaScript audio library based on Web Audio API, providing rich audio playback functions. The music playback feature in this plugin comes from Howler.
+                    Howler 是一个基于 Web Audio API 的 JavaScript 音频库，提供了丰富的音频播放功能。本插件中的音乐播放功能来自 Howler。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -198,7 +197,7 @@
                     Mousetrap
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Mousetrap is a simple library for handling keyboard shortcuts in Javascript. This plugin uses Mousetrap to handle keyboard shortcuts.
+                    Mousetrap 是一个简单的库，用于处理 Javascript 中的键盘快捷键。本插件使用 Mousetrap 来处理键盘快捷键。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -213,7 +212,7 @@
                     Quill
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Quill is a rich text editor component based on Web Components, providing rich text editing functions. The note-taking component in this plugin comes from Quill.
+                    Quill 是一个基于 Web Components 的富文本编辑器组件，提供了丰富的文本编辑功能。本插件中的便签组件来自 Quill。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -228,7 +227,7 @@
                     Sortable
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Sortable is a drag-and-drop sorting library based on Web Components. The component layout in this plugin is from Sortable.
+                    Sortable 是一个基于 Web Components 的可拖拽排序库。本插件中的组件拖拽布局来自 Sortable。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -243,7 +242,7 @@
                     Multiselect
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Multiselect is a multi-select component based on Web Components, providing rich multi-select functions. The multi-select component in this plugin is from Multiselect.
+                    Multiselect 是一个基于 Web Components 的多选框组件，提供了丰富的多选功能。本插件中的多选框来自 Multiselect。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -258,7 +257,7 @@
                     Tyme
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Tyme is an exceptionally powerful calendar toolkit, serving as an upgraded version of Lunar with enhanced design and extensibility. It supports Gregorian, Lunar, Tibetan calendars, zodiac signs, Chinese zodiac signs, solar terms, and statutory holidays. This plugin incorporates certain date algorithms from Tyme.
+                    Tyme是一个非常强大的日历工具库，可以看作 Lunar 的升级版，拥有更优的设计和扩展性，支持公历、农历、藏历、星座、干支、生肖、节气、法定假日等。本插件部分日期算法来自 Tyme。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -273,7 +272,7 @@
                     UAPI SDK TypeScript
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    UAPI SDK TypeScript is a TypeScript library specifically designed for calling UAPI interfaces. It provides encapsulation and type definitions for UAPI. The hot search component in this plugin uses UAPI SDK TypeScript.
+                    UAPI SDK TypeScript 是一个专门用于调用 UAPI 接口的 TypeScript 库，提供了对 UAPI 的封装和类型定义。本插件的热搜组件相关功能使用了 UAPI SDK TypeScript。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -288,7 +287,7 @@
                     Floating UI
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Floating UI is a library for creating floating elements with rich interaction features. The floating preview window in this plugin is from Floating UI.
+                    Floating UI 是一个用于创建浮动元素的库，提供了丰富的浮动元素交互功能。本插件中的浮动预览窗口来自 Floating UI。
                 </span>
             </li>
             <li style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 6px;">
@@ -303,17 +302,17 @@
                     Swiper
                 </a>
                 <span style="color: #666; display: block; line-height: 1.5;">
-                    Swiper is a highly powerful carousel plugin that supports multiple carousel effects such as horizontal, vertical, fade, etc. The carousel component in this plugin is from Swiper.
+                    Swiper是一个非常强大的轮播图插件，支持多种轮播图效果，如水平、垂直、淡入淡出等。本插件中的轮播图组件来自 Swiper。
                 </span>
             </li>
         </ul>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff5f5; border-left: 4px solid #ff4d4f; border-radius: 8px;">
-        <h2 style="color: #ff4d4f; margin: 0 0 1em;">⚠️ Disclaimer</h2>
+        <h2 style="color: #ff4d4f; margin: 0 0 1em;">⚠️ 免责声明</h2>
         <ul style="margin: 0.5em 0; padding-left: 1.2em; color: #666;">
-            <li style="margin: 0.5em 0;">The plugin is only used for information summarization and display, and all operations are performed locally. It does not collect any user privacy information.</li>
-            <li style="margin: 0.5em 0;">The plugin data is only used for personal information management and is not allowed for commercial use or other illegal activities.</li>
-            <li style="margin: 0.5em 0;">The developer is not responsible for any losses incurred by using this plugin.</li>
+            <li style="margin: 0.5em 0;">该插件只用于信息的汇总展示，所有操作均在本地进行，不会获取用户的隐私信息。</li>
+            <li style="margin: 0.5em 0;">本插件数据仅用于个人信息管理，禁止用于商业用途等违规行为。</li>
+            <li style="margin: 0.5em 0;">开发者对使用本插件造成的任何损失不承担责任。</li>
         </ul>
     </div>
 </div>

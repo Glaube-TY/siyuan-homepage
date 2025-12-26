@@ -1,20 +1,21 @@
 <script lang="ts">
     export let advancedEnabled: boolean = false;
-    export let selectedConstellation: string = "摩羯";
+    export let selectedConstellation: string = "capricorn";
 
+    // 星座选项：显示中文，值为英文
     const constellations = [
-        "摩羯",
-        "水瓶",
-        "双鱼",
-        "白羊",
-        "金牛",
-        "双子",
-        "巨蟹",
-        "狮子",
-        "处女",
-        "天秤",
-        "天蝎",
-        "射手",
+        { value: "capricorn", label: "摩羯" },
+        { value: "aquarius", label: "水瓶" },
+        { value: "pisces", label: "双鱼" },
+        { value: "aries", label: "白羊" },
+        { value: "taurus", label: "金牛" },
+        { value: "gemini", label: "双子" },
+        { value: "cancer", label: "巨蟹" },
+        { value: "leo", label: "狮子" },
+        { value: "virgo", label: "处女" },
+        { value: "libra", label: "天秤" },
+        { value: "scorpio", label: "天蝎" },
+        { value: "sagittarius", label: "射手" },
     ];
 </script>
 
@@ -25,7 +26,7 @@
                 >选择星座：
                 <select id="constellation" bind:value={selectedConstellation}>
                     {#each constellations as constellation}
-                        <option value={constellation}>{constellation}</option>
+                        <option value={constellation.value}>{constellation.label}</option>
                     {/each}
                 </select>
             </label>

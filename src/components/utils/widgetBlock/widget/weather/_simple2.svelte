@@ -176,12 +176,8 @@
         setInterval(() => {
             const iconFile =
                 weatherIconMap[weather] || weatherIconMap["default"];
-            weatherIconPath =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/Icon/${iconFile}`.replace(
-                    /\\/g,
-                    "/",
-                );
-        }, 1000);
+            weatherIconPath = `/plugins/siyuan-homepage/asset/Icon/${iconFile}`;
+        }, 500);
     });
 </script>
 
@@ -190,15 +186,31 @@
         <svg viewBox="0 0 100 100">
             <!-- 渐变定义 -->
             <defs>
-                <linearGradient id="weatherGradient" x1="100%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stop-color="{weatherGradientMap[weather] || weatherGradientMap['default']}" />
+                <linearGradient
+                    id="weatherGradient"
+                    x1="100%"
+                    y1="0%"
+                    x2="0%"
+                    y2="100%"
+                >
+                    <stop
+                        offset="0%"
+                        stop-color={weatherGradientMap[weather] ||
+                            weatherGradientMap["default"]}
+                    />
                     <stop offset="50%" stop-color="#C0E3FF" />
                     <stop offset="100%" stop-color="#C0E3FF" />
                 </linearGradient>
             </defs>
-            
+
             <!-- 使用渐变填充的背景矩形 -->
-            <rect x="0" y="0" width="100" height="100" fill="url(#weatherGradient)" />
+            <rect
+                x="0"
+                y="0"
+                width="100"
+                height="100"
+                fill="url(#weatherGradient)"
+            />
 
             <text
                 x="10"

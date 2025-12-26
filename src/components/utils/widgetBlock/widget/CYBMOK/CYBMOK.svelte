@@ -17,27 +17,19 @@
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;
 
-        MOKImgPath =
-            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/Icon/木鱼.svg`.replace(
-                /\\/g,
-                "/",
-            );
-            
-        knockSoundPath = 
-            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/music/CYBMOK/${CMKnockSound}.mp3`.replace(
-                /\\/g,
-                "/",
-            );
+        MOKImgPath = `/plugins/siyuan-homepage/asset/Icon/木鱼.svg`;
+
+        knockSoundPath = `/plugins/siyuan-homepage/asset/music/CYBMOK/${CMKnockSound}.mp3`;
     });
 
     async function handleKnock() {
         // 播放音效
         playKnockSound();
-        
+
         // 显示功德文字
         showMeritText = true;
         meritTextY = 25;
-        
+
         // 文字漂浮动画
         const floatAnimation = setInterval(() => {
             meritTextY -= 1;
@@ -46,7 +38,7 @@
                 showMeritText = false;
             }
         }, 50);
-        
+
         // 记录敲击次数 - 立即执行，不等待
         recordKnock();
 
@@ -56,13 +48,13 @@
             isKnocking = false;
         }, 200);
     }
-    
+
     function playKnockSound() {
         try {
             // 创建音频对象
             const audio = new Audio(knockSoundPath);
             audio.volume = 0.7; // 设置音量
-            audio.play().catch(error => {
+            audio.play().catch((error) => {
                 console.log("音效播放失败:", error);
             });
         } catch (error) {
@@ -112,15 +104,27 @@
                 <stop offset="0%" stop-color="#4A4A4A" />
                 <stop offset="100%" stop-color="#535353" />
             </linearGradient>
-            <linearGradient id="bottomGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <linearGradient
+                id="bottomGradient"
+                x1="0%"
+                y1="0%"
+                x2="0%"
+                y2="100%"
+            >
                 <stop offset="0%" stop-color="#2A2A2A" />
                 <stop offset="100%" stop-color="#1A1A1A" />
             </linearGradient>
         </defs>
-        
+
         <!-- 渐变背景 -->
         <rect width="100" height="50" fill="url(#topGradient)" />
-        <rect x="0" y="50" width="100" height="50" fill="url(#bottomGradient)" />
+        <rect
+            x="0"
+            y="50"
+            width="100"
+            height="50"
+            fill="url(#bottomGradient)"
+        />
 
         <!-- 渐变定义 -->
         <defs>
@@ -155,13 +159,13 @@
 
         <!-- 功德+1漂浮文字 -->
         {#if showMeritText}
-            <text 
-                x="50" 
-                y={meritTextY} 
-                text-anchor="middle" 
-                font-size="8" 
+            <text
+                x="50"
+                y={meritTextY}
+                text-anchor="middle"
+                font-size="8"
                 font-family="Courier New, monospace"
-                fill="#e6e6e6" 
+                fill="#e6e6e6"
                 font-weight="bold"
                 opacity={meritTextY > 15 ? "1" : "0"}
                 style="transition: opacity 0.1s ease-in-out;"
@@ -171,13 +175,13 @@
         {/if}
 
         <!-- 功德数 -->
-        <text 
-            x="50" 
-            y="85" 
-            text-anchor="middle" 
-            font-size="12" 
+        <text
+            x="50"
+            y="85"
+            text-anchor="middle"
+            font-size="12"
             font-family="Courier New, monospace"
-            fill="#e6e6e6" 
+            fill="#e6e6e6"
             font-weight="bold"
         >
             功德无量
@@ -185,20 +189,20 @@
 
         <!-- 木鱼棒 -->
         <g transform="translate(75, 35)">
-            <rect 
-                x="-2" 
-                y="-15" 
-                width="4" 
-                height="30" 
-                fill="#e6e6e6" 
+            <rect
+                x="-2"
+                y="-15"
+                width="4"
+                height="30"
+                fill="#e6e6e6"
                 rx="2"
                 transform={isKnocking ? "rotate(-70)" : "rotate(5)"}
                 style="transition: transform 0.2s ease-in-out;"
             />
-            <circle 
-                cx="0" 
-                cy="-15" 
-                r="3" 
+            <circle
+                cx="0"
+                cy="-15"
+                r="3"
                 fill="#e6e6e6"
                 transform={isKnocking ? "rotate(-70)" : "rotate(5)"}
                 style="transition: transform 0.2s ease-in-out;"

@@ -64,74 +64,34 @@
 
     function setBackground() {
         if (stikynotStyle === "kraftPaper") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/kraftPaper.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/kraftPaper.jpg`;
             customColor = "black";
         } else if (stikynotStyle === "marble") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/marble.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/marble.jpg`;
             customColor = "black";
         } else if (stikynotStyle === "BlueSky") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/BlueSky.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/BlueSky.jpg`;
             customColor = "black";
         } else if (stikynotStyle === "waterDrop") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/waterDrop.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/waterDrop.jpg`;
             customColor = "black";
         } else if (stikynotStyle === "Stars") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/Stars.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/Stars.jpg`;
             customColor = "white";
         } else if (stikynotStyle === "Ink") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/Ink.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/Ink.jpg`;
             customColor = "black";
         } else if (stikynotStyle === "sunsetHeart") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/sunsetHeart.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/sunsetHeart.jpg`;
             customColor = "black";
         } else if (stikynotStyle === "PinkPorcelain") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/PinkPorcelain.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/PinkPorcelain.jpg`;
             customColor = "black";
         } else if (stikynotStyle === "beach") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/beach.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/beach.jpg`;
             customColor = "black";
         } else if (stikynotStyle === "wood") {
-            backgroundImage =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/stikynotimg/wood.jpg`.replace(
-                    /\\/g,
-                    "/",
-                );
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/wood.jpg`;
             customColor = "white";
         }
     }

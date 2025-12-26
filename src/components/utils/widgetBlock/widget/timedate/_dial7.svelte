@@ -20,11 +20,7 @@
         if (!advancedEnabled) {
             return;
         }
-        BGImgPath =
-            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/clockImg/dial7.png`.replace(
-                /\\/g,
-                "/",
-            );
+        BGImgPath = `/plugins/siyuan-homepage/asset/clockImg/dial7.png`;
 
         try {
             const config = JSON.parse(contentTypeJson);
@@ -99,17 +95,17 @@
     }
 
     .hour-hand line {
-        stroke: #8B4513; /* 古铜棕色 */
+        stroke: #8b4513; /* 古铜棕色 */
         stroke-linecap: round;
     }
 
     .minute-hand line {
-        stroke: #A0522D; /* 赭石色 */
+        stroke: #a0522d; /* 赭石色 */
         stroke-linecap: round;
     }
 
     .second-hand line {
-        stroke: #CD5C5C; /* 古红色 */
+        stroke: #cd5c5c; /* 古红色 */
         stroke-linecap: round;
     }
 </style>

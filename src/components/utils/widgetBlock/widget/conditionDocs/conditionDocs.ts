@@ -15,8 +15,6 @@ export async function getConditionDocsByKeyword(conditionDocsKeyPosition: string
 
         const searchResults = await sql(query);
 
-        console.log(searchResults);
-
         if (!Array.isArray(searchResults) || searchResults.length === 0) {
             return [];
         }

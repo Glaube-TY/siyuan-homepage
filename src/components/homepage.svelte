@@ -168,117 +168,57 @@
                     if (mouseIcon === "default") {
                         container.style.cursor = "auto";
                     } else if (mouseIcon === "CYWL1") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CYWL1.png`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/CYWL1.png`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "CYWL2") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CYWL2.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/CYWL2.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "WDSJsword") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/WDSJsword.cur`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/WDSJsword.cur`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "WDSJpickaxe") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/WDSJpickaxe.cur`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/WDSJpickaxe.cur`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "cat1") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat1.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/cat1.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "cat2") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat2.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/cat2.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "cat3") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/cat3.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/cat3.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "arrow1") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow1.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/arrow1.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "arrow2") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow2.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/arrow2.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "arrow3") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow3.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/arrow3.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "arrow4") {
-                        container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow4.ico`.replace(/\\/g, "/"))}'), auto`;
+                        container.style.cursor = `url('${encodeURI(`/plugins/siyuan-homepage/asset/mouseIcon/arrow4.ico`.replace(/\\/g, "/"))}'), auto`;
                     } else if (mouseIcon === "arrow5") {
-                        container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow5.ico`.replace(/\\/g, "/"))}'), auto`;
+                        container.style.cursor = `url('${encodeURI(`/plugins/siyuan-homepage/asset/mouseIcon/arrow5.ico`.replace(/\\/g, "/"))}'), auto`;
                     } else if (mouseIcon === "arrow6") {
-                        container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow6.ico`.replace(/\\/g, "/"))}'), auto`;
+                        container.style.cursor = `url('${encodeURI(`/plugins/siyuan-homepage/asset/mouseIcon/arrow6.ico`.replace(/\\/g, "/"))}'), auto`;
                     } else if (mouseIcon === "arrow7") {
-                        container.style.cursor = `url('${encodeURI(`${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/arrow7.ico`.replace(/\\/g, "/"))}'), auto`;
+                        container.style.cursor = `url('${encodeURI(`/plugins/siyuan-homepage/asset/mouseIcon/arrow7.ico`.replace(/\\/g, "/"))}'), auto`;
                     } else if (mouseIcon === "LOL1") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL1.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/LOL1.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "LOL2") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL2.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/LOL2.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "LOL3") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL3.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/LOL3.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "LOL4") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/LOL4.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/LOL4.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     } else if (mouseIcon === "CBPK2077") {
-                        const pointerIconPath =
-                            `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/mouseIcon/CBPK2077.ico`.replace(
-                                /\\/g,
-                                "/",
-                            );
+                        const pointerIconPath = `/plugins/siyuan-homepage/asset/mouseIcon/CBPK2077.ico`;
                         container.style.cursor = `url('${encodeURI(pointerIconPath)}'), auto`;
                     }
                 }
@@ -461,7 +401,7 @@
 
         icons.forEach((icon) => {
             const iconPath =
-                `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/fallingIcon/${icon}.png`.replace(
+                `/plugins/siyuan-homepage/asset/fallingIcon/${icon}.png`.replace(
                     /\\/g,
                     "/",
                 );
@@ -699,11 +639,7 @@
                         bannerImgSrc = remoteBannerImageData || bingImageUrl;
                     }
                 } else if (bannerGlobalType === "bing" && !advanced) {
-                    const notVIPImagePath =
-                        `${plugin.workplacePath}/data/plugins/siyuan-homepage/asset/bannerImg/notVIP.jpg`.replace(
-                            /\\/g,
-                            "/",
-                        );
+                    const notVIPImagePath = `/plugins/siyuan-homepage/asset/bannerImg/notVIP.jpg`;
                     bannerImgSrc = notVIPImagePath;
                 }
             }
