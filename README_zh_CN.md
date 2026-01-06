@@ -121,6 +121,53 @@
             </a>
         </div>
     </div>
+    <div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 8px;">
+        <h2 style="color: #ff9f00; margin: 0 0 1em;">👑 VIP 说明</h2>
+        <p style="margin: 0.5em 0; color: black;">插件一开始是没有会员功能的，但随着后面开发内容的增大，大家的需求也渐渐增加，我一个人开发就有点吃力了。因此我将 2.0 版本后的大部分主要内容增加了VIP才能使用。但即便如此，插件也会继续保持开源，源代码在 GitHub仓库可看见。</p>
+        <p style="margin: 0.5em 0; color: black;">有代码基础的朋友可自行修改以激活会员功能，这里给了一个简单粗暴的方法，喜欢折腾的可自行查看：</p>
+        <div style="text-align: center;">
+            <a href="https://ai.feishu.cn/wiki/AFBLwGsdwicWEYkQkjbczLTxnpg?from=from_copylink" 
+                style="display: inline-flex; 
+                        align-items: center; 
+                        padding: 12px 24px; 
+                        background: linear-gradient(135deg, #ff9f00, #ffc107); 
+                        color: white; 
+                        border-radius: 6px; 
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 6px rgba(255,159,0,0.1);
+                        border: 1px solid rgba(255,159,0,0.2);"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(255,159,0,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(255,159,0,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                💻 自主激活 VIP 教程
+            </a>
+        </div>
+        <p style="margin: 0.5em 0; color: black;">通过上述方法激活后，后面的更新则需要再次手动进行激活，不会持久激活。</p>
+        <p style="margin: 0.5em 0; color: red; font-weight: 500;">若不愿折腾的人想直接使用全部功能，则欢迎支持我哦！🌹🌹🌹</p>
+        <div style="text-align: center;">
+            <a href="https://ai.feishu.cn/wiki/GEHMwHxE0icZZ8kq124cCAP6njh?from=from_copylink" 
+                style="display: inline-flex; 
+                        align-items: center; 
+                        padding: 12px 24px; 
+                        background: linear-gradient(135deg, #ff9f00, #ffc107); 
+                        color: white; 
+                        border-radius: 6px; 
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 6px rgba(255,159,0,0.1);
+                        border: 1px solid rgba(255,159,0,0.2);"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(255,159,0,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(255,159,0,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                👑 VIP 权益
+            </a>
+        </div>
+    </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #f8f5ff; border-left: 4px solid #8a3ffc; border-radius: 8px;">
         <h2 style="color: #8a3ffc; margin: 0 0 1em;">🔮 参考项目</h2>
         <p style="margin: 0.5em 0; color: black;">本插件部分功能参考了以下优秀项目：</p>

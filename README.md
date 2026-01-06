@@ -121,6 +121,53 @@
             </a>
         </div>
     </div>
+    <div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 8px;">
+        <h2 style="color: #ff9f00; margin: 0 0 1em;">👑 VIP Description</h2>
+        <p style="margin: 0.5em 0; color: black;">The plugin initially did not have a membership function. However, as the development content increased later on, the demands from everyone gradually rose. It became a bit challenging for me to develop it alone. Therefore, I have added that most of the main contents after version 2.0 can only be used by VIPs. Even so, the plugin will remain open source, and the source code can be seen in the GitHub repository.</p>
+        <p style="margin: 0.5em 0; color: black;">Friends with a foundation in coding can modify it themselves to activate the membership function. Here is a simple and straightforward method. Those who like to tinker can check it out by themselves:</p>
+        <div style="text-align: center;">
+            <a href="https://ai.feishu.cn/wiki/AFBLwGsdwicWEYkQkjbczLTxnpg?from=from_copylink" 
+                style="display: inline-flex; 
+                        align-items: center; 
+                        padding: 12px 24px; 
+                        background: linear-gradient(135deg, #ff9f00, #ffc107); 
+                        color: white; 
+                        border-radius: 6px; 
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 6px rgba(255,159,0,0.1);
+                        border: 1px solid rgba(255,159,0,0.2);"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(255,159,0,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(255,159,0,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                💻 Self-activation VIP tutorial
+            </a>
+        </div>
+        <p style="margin: 0.5em 0; color: black;">After activation by the above method, the subsequent updates need to be manually activated again and will not be permanently activated.</p>
+        <p style="margin: 0.5em 0; color: red; font-weight: 500;">If you don't want to tinker and prefer to use all the functions directly, please feel free to support me!🌹🌹🌹</p>
+        <div style="text-align: center;">
+            <a href="https://ai.feishu.cn/wiki/GEHMwHxE0icZZ8kq124cCAP6njh?from=from_copylink" 
+                style="display: inline-flex; 
+                        align-items: center; 
+                        padding: 12px 24px; 
+                        background: linear-gradient(135deg, #ff9f00, #ffc107); 
+                        color: white; 
+                        border-radius: 6px; 
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 6px rgba(255,159,0,0.1);
+                        border: 1px solid rgba(255,159,0,0.2);"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(255,159,0,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(255,159,0,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                👑 VIP Benefits
+            </a>
+        </div>
+    </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #f8f5ff; border-left: 4px solid #8a3ffc; border-radius: 8px;">
         <h2 style="color: #8a3ffc; margin: 0 0 1em;">🔮 Reference Projects</h2>
         <p style="margin: 0.5em 0; color: black;">This plugin references the following excellent projects:</p>
