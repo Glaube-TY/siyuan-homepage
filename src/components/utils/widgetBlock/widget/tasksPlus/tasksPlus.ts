@@ -56,7 +56,7 @@ export async function formatTasksList(
             const id = task.id;
             const hpath = task.hpath;
 
-            const regex = /([📅⌛❗🔁⏰📍#]+\s*[^📅⌛❗🔁⏰📍#]+)/g;
+            const regex = /([📅⌛❗🔁⏰📍#]+(?:\s*[^📅⌛❗🔁⏰📍#]+)?)/g;
             const matches = markdown.match(regex) || [];
             const parsed = {
                 deadline: "", // 截止日期 📅
@@ -84,6 +84,12 @@ export async function formatTasksList(
                     parsed.location = trimmed.replace("📍", "").trim();
                 }
             });
+
+            // 额外检查：确保独立的优先级符号被捕获
+            const priorityOnlyMatch = markdown.match(/❗+$/);
+            if (priorityOnlyMatch && !parsed.priority) {
+                parsed.priority = priorityOnlyMatch[0];
+            }
 
             const tagRegex = /#([^#]+)#/g;
             let tagMatch;
@@ -264,7 +270,7 @@ export function customFilterTasks(tasksList: any[], filter: string) {
                 return !!task.parsed.priority;
             } else if (condition === 'not priority') {
                 return !task.parsed.priority;
-            } else if (/^priority \d(?:,\d)*$/.test(condition)) {
+            } else if (/^priority \d+(?:,\d+)*$/.test(condition)) {
                 const priorityLevels = condition.replace('priority ', '')
                     .split(',')
                     .map(level => parseInt(level, 10))
@@ -272,7 +278,9 @@ export function customFilterTasks(tasksList: any[], filter: string) {
 
                 if (priorityLevels.length === 0) return false;
 
-                const exclamationCount = (task.parsed.priority?.match(/❗/g) || []).length;
+                // 获取优先级符号数量，处理只有❗的情况
+                const priorityText = task.parsed.priority || '';
+                const exclamationCount = (priorityText.match(/❗/g) || []).length;
                 return priorityLevels.includes(exclamationCount);
             } else if (condition === 'recurrence') {
                 return !!task.parsed.recurrence;

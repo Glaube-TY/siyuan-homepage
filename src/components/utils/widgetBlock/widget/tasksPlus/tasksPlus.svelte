@@ -335,87 +335,85 @@
     <h3 class="widget-title">{TaskManPlusTitle}</h3>
     <div class="tasks-list-container">
         {#if Array.isArray(tasksListFormat) && tasksListFormat.length > 0}
-            <ul class="task-list">
-                {#each tasksListFormat as task}
-                    <li class="task-item">
-                        <label class="checkbox-label">
-                            <input
-                                type="checkbox"
-                                checked={task.taskCheck?.includes("X") ||
-                                    task.taskCheck?.includes("x")}
-                                class="task-checkbox"
-                                on:change={(e) => handleCheck(e, task)}
-                            />
-                            <button
-                                type="button"
-                                class="task-name"
-                                on:click={() => openDocs(plugin, task.id)}
-                            >
-                                {task.taskname || "未命名任务"}
-                            </button>
-                        </label>
-                        <div class="tasks-details">
-                            <div class="meta-row">
-                                {#if task.parsed.startDate || task.parsed.deadline}
-                                    <div class="date-group">
-                                        {#if task.parsed.startDate}
-                                            <span class="date-item">
-                                                ⌛
-                                                {task.parsed.startDate}
-                                            </span>
-                                        {/if}
-                                        {#if task.parsed.deadline}
-                                            <span class="date-item">
-                                                📅
-                                                {task.parsed.deadline}
-                                            </span>
-                                        {/if}
-                                    </div>
-                                {/if}
-                                {#if task.parsed.priority}
-                                    <span class="priority">
-                                        {task.parsed.priority}
-                                    </span>
-                                {/if}
-                            </div>
-
-                            <div class="meta-row">
-                                {#if task.parsed.recurrence}
-                                    <span class="meta-item">
-                                        🔁
-                                        {task.parsed.recurrence}
-                                    </span>
-                                {/if}
-                                {#if task.parsed.reminder}
-                                    <span class="meta-item">
-                                        ⏰
-                                        {task.parsed.reminder}
-                                    </span>
-                                {/if}
-                                {#if task.parsed.location}
-                                    <span class="meta-item">
-                                        📍
-                                        {task.parsed.location}
-                                    </span>
-                                {/if}
-                            </div>
-
-                            {#if task.parsed.tags?.length > 0}
-                                <div class="tags">
-                                    {#each task.parsed.tags as tag}
-                                        <span class="tag">{tag}</span>
-                                    {/each}
+            {#each tasksListFormat as task}
+                <div class="task-item">
+                    <label class="checkbox-label">
+                        <input
+                            type="checkbox"
+                            checked={task.taskCheck?.includes("X") ||
+                                task.taskCheck?.includes("x")}
+                            class="task-checkbox"
+                            on:change={(e) => handleCheck(e, task)}
+                        />
+                        <button
+                            type="button"
+                            class="task-name"
+                            on:click={() => openDocs(plugin, task.id)}
+                        >
+                            {task.taskname || "未命名任务"}
+                        </button>
+                    </label>
+                    <div class="tasks-details">
+                        <div class="meta-row">
+                            {#if task.parsed.startDate || task.parsed.deadline}
+                                <div class="date-group">
+                                    {#if task.parsed.startDate}
+                                        <span class="date-item">
+                                            ⌛
+                                            {task.parsed.startDate}
+                                        </span>
+                                    {/if}
+                                    {#if task.parsed.deadline}
+                                        <span class="date-item">
+                                            📅
+                                            {task.parsed.deadline}
+                                        </span>
+                                    {/if}
                                 </div>
                             {/if}
-
-                            <div class="hpath">
-                                📄
-                                {task.hpath}
-                            </div>
+                            {#if task.parsed.priority}
+                                <span class="priority">
+                                    {task.parsed.priority}
+                                </span>
+                            {/if}
                         </div>
-                    </li>
-                {/each}
-            </ul>
+
+                        <div class="meta-row">
+                            {#if task.parsed.recurrence}
+                                <span class="meta-item">
+                                    🔁
+                                    {task.parsed.recurrence}
+                                </span>
+                            {/if}
+                            {#if task.parsed.reminder}
+                                <span class="meta-item">
+                                    ⏰
+                                    {task.parsed.reminder}
+                                </span>
+                            {/if}
+                            {#if task.parsed.location}
+                                <span class="meta-item">
+                                    📍
+                                    {task.parsed.location}
+                                </span>
+                            {/if}
+                        </div>
+
+                        {#if task.parsed.tags?.length > 0}
+                            <div class="tags">
+                                {#each task.parsed.tags as tag}
+                                    <span class="tag">{tag}</span>
+                                {/each}
+                            </div>
+                        {/if}
+
+                        <div class="hpath">
+                            📄
+                            {task.hpath}
+                        </div>
+                    </div>
+                </div>
+            {/each}
         {:else}
             <div class="empty-tips">暂无待办事项</div>
         {/if}
@@ -425,7 +423,7 @@
 <style lang="scss">
     .content-display {
         width: 100%;
-        height: calc(100%);
+        height: 100%;
         display: flex;
         flex-direction: column;
         padding: 10px;
@@ -444,25 +442,21 @@
 
         .tasks-list-container {
             width: 100%;
-            height: calc(100%);
+            flex: 1;
             overflow-y: auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 1rem;
-
-            .task-list {
-                list-style: none;
-                margin: 1rem;
-                display: contents;
-            }
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            min-height: 0;
 
             .task-item {
-                padding: 1rem;
+                padding: 0.75rem;
                 background-color: var(--b3-theme-surface);
                 border-radius: 6px;
                 transition: background-color 0.2s ease;
-                min-width: max-content;
-                height: auto;
+                width: 100%;
+                box-sizing: border-box;
+                min-height: fit-content;
 
                 &:hover {
                     background-color: var(--b3-list-hover);
@@ -492,28 +486,27 @@
                     text-align: left;
                     cursor: pointer;
                     flex-grow: 1;
-                    max-width: 260px;
+                    word-break: break-word;
+                    overflow-wrap: break-word;
+                    white-space: normal;
+                    line-height: 1.4;
 
                     &:hover {
                         text-decoration: underline;
                     }
                 }
 
-                .empty-tips {
-                    text-align: center;
-                    color: var(--b3-theme-secondary);
-                    padding: 1rem;
-                }
-
                 .tasks-details {
-                    margin-top: 0.5rem;
+                    margin-top: 0.75rem;
                     font-size: 0.9em;
+                    width: 100%;
 
                     .meta-row {
                         display: flex;
-                        gap: 1rem;
+                        gap: 0.8rem;
                         flex-wrap: wrap;
-                        margin-bottom: 0.3rem;
+                        margin-bottom: 0.4rem;
+                        align-items: flex-start;
                     }
 
                     .date-group {
@@ -522,10 +515,11 @@
                     }
 
                     .tags {
-                        margin-top: 0.5rem;
+                        margin-top: 0.6rem;
                         display: flex;
-                        gap: 0.5rem;
+                        gap: 0.4rem;
                         flex-wrap: wrap;
+                        align-items: flex-start;
                     }
 
                     .tag {
@@ -541,6 +535,12 @@
                         opacity: 0.7;
                     }
                 }
+            }
+
+            .empty-tips {
+                text-align: center;
+                color: var(--b3-theme-secondary);
+                padding: 1rem;
             }
         }
     }
