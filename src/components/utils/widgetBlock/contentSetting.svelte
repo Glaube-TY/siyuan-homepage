@@ -751,9 +751,9 @@
                     <option value="latest-docs">最近文档</option>
                     <option value="recent-journals">最近日记</option>
                     <option value="quick-notes">快速笔记</option>
-                    <option value="childDocs">子文档👑</option>
+                    <option value="childDocs">子文档</option>
+                    <option value="conditionDocs">条件文档</option>
                     <option value="stikynot">便签👑</option>
-                    <option value="conditionDocs">条件文档👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -814,7 +814,6 @@
                     <StikynotSet {advancedEnabled} bind:stikynotStyle />
                 {:else if selectedContentType === "childDocs"}
                     <ChildDocsSet
-                        {advancedEnabled}
                         bind:childDocsTitle
                         bind:childDocsPrefix
                         bind:showChildDocsDetails
@@ -825,7 +824,6 @@
                     />
                 {:else if selectedContentType === "conditionDocs"}
                     <ConditionDocsSet
-                        {advancedEnabled}
                         bind:conditionDocsTitle
                         bind:conditionDocsCondition
                         bind:conditionDocsKeyPosition

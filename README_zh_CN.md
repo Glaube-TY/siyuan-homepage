@@ -17,7 +17,7 @@
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">💡 更多内容请看详细教程</li>
         </ul>
         <div style="text-align: center;">
-            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink" 
+            <a href="https://blog.glaube-ty.top/zhu-ye-cha-jian" 
                 style="display: inline-flex; 
                         align-items: center; 
                         padding: 10px 20px; 
@@ -35,6 +35,24 @@
                 onmouseup="this.style.transform='translateY(-2px)'">
                     📖 详细使用教程
             </a>
+            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink" 
+                style="display: inline-flex; 
+                        align-items: center; 
+                        padding: 10px 20px; 
+                        background: #2d8cf0; 
+                        color: white; 
+                        border-radius: 6px; 
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 6px rgba(45,140,240,0.1);
+                        border: 1px solid rgba(45,140,240,0.2);"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                    📖 详细使用教程（备用）
+            </a>
         </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 8px;">
@@ -46,7 +64,7 @@
                  style="width: 600px; border-radius: 8px; margin-bottom: 1em;">
         </div>
         <div style="text-align: center;">
-            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-XBtxdkEYqo7cHjx0FArcQlZWnFd" 
+            <a href="https://blog.glaube-ty.top/da-shang" 
                 style="display: inline-flex; 
                         align-items: center; 
                         padding: 12px 24px; 
@@ -70,7 +88,7 @@
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 更新日志</h2>
         <p style="margin: 0.5em 0; color: black;">此处将不再显示更新日志，请点击下方👇按钮查看完整的更新日志。</p>
         <div style="text-align: center;">
-        <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 
+        <a href="https://blog.glaube-ty.top/archives/019d23a8-9381-70b7-8561-68c22fb1aedf" 
            style="display: inline-flex;
                   align-items: center;
                   padding: 12px 24px;
@@ -85,7 +103,7 @@
                   margin-top: 1.2em;
                   gap: 8px;">
             <span style="font-size: 1.1em; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));">📄</span>
-            <span style="font-weight: 500; letter-spacing: 0.5px;">完整更新日志 / Full Update Log</span>
+            <span style="font-weight: 500; letter-spacing: 0.5px;">完整更新日志</span>
         </a>
         </div>
     </div>
@@ -126,7 +144,7 @@
         <p style="margin: 0.5em 0; color: black;">插件一开始是没有会员功能的，但随着后面开发内容的增大，大家的需求也渐渐增加，我一个人开发就有点吃力了。因此我将 2.0 版本后的大部分主要内容增加了VIP才能使用。但即便如此，插件也会继续保持开源，源代码在 GitHub仓库可看见。</p>
         <p style="margin: 0.5em 0; color: black;">有代码基础的朋友可自行修改以激活会员功能，这里给了一个简单粗暴的方法，喜欢折腾的可自行查看：</p>
         <div style="text-align: center;">
-            <a href="https://ai.feishu.cn/wiki/AFBLwGsdwicWEYkQkjbczLTxnpg?from=from_copylink" 
+            <a href="https://blog.glaube-ty.top/archives/019d3f22-745d-7175-b19c-ca2ddc4da463" 
                 style="display: inline-flex; 
                         align-items: center; 
                         padding: 12px 24px; 
@@ -148,7 +166,7 @@
         <p style="margin: 0.5em 0; color: black;">通过上述方法激活后，后面的更新则需要再次手动进行激活，不会持久激活。</p>
         <p style="margin: 0.5em 0; color: red; font-weight: 500;">若不愿折腾的人想直接使用全部功能，则欢迎支持我哦！🌹🌹🌹</p>
         <div style="text-align: center;">
-            <a href="https://ai.feishu.cn/wiki/GEHMwHxE0icZZ8kq124cCAP6njh?from=from_copylink" 
+            <a href="https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab" 
                 style="display: inline-flex; 
                         align-items: center; 
                         padding: 12px 24px; 

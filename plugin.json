@@ -2,7 +2,7 @@
   "name": "siyuan-homepage",
   "author": "Glaube-TY",
   "url": "https://github.com/Glaube-TY/siyuan-homepage",
-  "version": "2.10.6",
+  "version": "2.11.0",
   "minAppVersion": "3.3.5",
   "backends": [
     "windows",
@@ -36,7 +36,7 @@
   },
   "funding": {
     "custom": [
-      "https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-Of80d3yVRoeAdvxOmFnc9WG9nUe"
+      "https://blog.glaube-ty.top/da-shang"
     ]
   },
   "keywords": [

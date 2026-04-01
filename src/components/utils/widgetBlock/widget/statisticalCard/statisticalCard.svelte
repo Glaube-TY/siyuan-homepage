@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { getStatisticalData } from "./statisticalAPI";
+    import { getStatisticalData } from "../../../../tools/statisticalAPI";
 
     export let plugin: any;
     export let contentTypeJson: string = "{}";

@@ -17,7 +17,7 @@
             <li style="margin: 0.5em 0; padding: 8px 12px; background: #f8fafc; border-radius: 6px;">💡 For more details, please refer to the detailed tutorial</li>
         </ul>
         <div style="text-align: center;">
-            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink" 
+            <a href="https://blog.glaube-ty.top/zhu-ye-cha-jian" 
                 style="display: inline-flex; 
                         align-items: center; 
                         padding: 10px 20px; 
@@ -35,6 +35,24 @@
                 onmouseup="this.style.transform='translateY(-2px)'">
                     📖 Detailed Usage Tutorial
             </a>
+            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink" 
+                style="display: inline-flex; 
+                        align-items: center; 
+                        padding: 10px 20px; 
+                        background: #2d8cf0; 
+                        color: white; 
+                        border-radius: 6px; 
+                        text-decoration: none;
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateY(0);
+                        box-shadow: 0 4px 6px rgba(45,140,240,0.1);
+                        border: 1px solid rgba(45,140,240,0.2);"
+                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
+                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
+                onmousedown="this.style.transform='translateY(1px)'"
+                onmouseup="this.style.transform='translateY(-2px)'">
+                    📖 Detailed Usage Tutorial (Standby)
+            </a>
         </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 8px;">
@@ -46,7 +64,7 @@
                  style="width: 600px; border-radius: 8px; margin-bottom: 1em;">
         </div>
         <div style="text-align: center;">
-            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-XBtxdkEYqo7cHjx0FArcQlZWnFd" 
+            <a href="https://blog.glaube-ty.top/da-shang" 
                 style="display: inline-flex; 
                         align-items: center; 
                         padding: 12px 24px; 
@@ -70,7 +88,7 @@
         <h2 style="color: #2d8cf0; margin: 0 0 1em;">📅 Changelog</h2>
         <p style="margin: 0.5em 0; color: black;">The update log will no longer be displayed here. Please click the 👇 button below to view the full update log.</p>
         <div style="text-align: center;">
-        <a href="https://ttl8ygt82u.feishu.cn/wiki/SsoTww8CFiDD4WkLsSwctgWqnAd?from=from_copylink" 
+        <a href="https://blog.glaube-ty.top/archives/019d23a8-9381-70b7-8561-68c22fb1aedf" 
            style="display: inline-flex;
                   align-items: center;
                   padding: 12px 24px;
@@ -126,7 +144,7 @@
         <p style="margin: 0.5em 0; color: black;">The plugin initially did not have a membership function. However, as the development content increased later on, the demands from everyone gradually rose. It became a bit challenging for me to develop it alone. Therefore, I have added that most of the main contents after version 2.0 can only be used by VIPs. Even so, the plugin will remain open source, and the source code can be seen in the GitHub repository.</p>
         <p style="margin: 0.5em 0; color: black;">Friends with a foundation in coding can modify it themselves to activate the membership function. Here is a simple and straightforward method. Those who like to tinker can check it out by themselves:</p>
         <div style="text-align: center;">
-            <a href="https://ai.feishu.cn/wiki/AFBLwGsdwicWEYkQkjbczLTxnpg?from=from_copylink" 
+            <a href="https://blog.glaube-ty.top/archives/019d3f22-745d-7175-b19c-ca2ddc4da463" 
                 style="display: inline-flex; 
                         align-items: center; 
                         padding: 12px 24px; 
@@ -148,7 +166,7 @@
         <p style="margin: 0.5em 0; color: black;">After activation by the above method, the subsequent updates need to be manually activated again and will not be permanently activated.</p>
         <p style="margin: 0.5em 0; color: red; font-weight: 500;">If you don't want to tinker and prefer to use all the functions directly, please feel free to support me!🌹🌹🌹</p>
         <div style="text-align: center;">
-            <a href="https://ai.feishu.cn/wiki/GEHMwHxE0icZZ8kq124cCAP6njh?from=from_copylink" 
+            <a href="https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab" 
                 style="display: inline-flex; 
                         align-items: center; 
                         padding: 12px 24px; 

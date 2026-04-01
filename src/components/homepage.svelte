@@ -11,7 +11,6 @@
     import { handleLoad } from "./utils/topBanner/drag";
     import {
         loadStatsData,
-        type StatsData,
         parseDurationExpression,
     } from "./utils/stats-loader";
     import {
@@ -40,14 +39,6 @@
 
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };
-
-    let statsData: StatsData = {
-        startDate: "(日期)",
-        notesCount: 0,
-        notebooksCount: 0,
-        DocsCount: 0,
-        nowDate: "(日期)",
-    };
 
     let titleIconType: "emoji" | "image" = "emoji";
     let tempTitleIconEmoji = "🏠";
@@ -96,9 +87,6 @@
                 handleLoad(plugin, bannerImage),
             );
         }
-
-        // 加载统计数据
-        statsData = await loadStatsData();
 
         // 初始化区块拖拽排序
         const observer = new MutationObserver(async () => {
@@ -675,16 +663,74 @@
         }
     }
 
-    // 格式化状态语言，将变量替换为统计信息
-    $: formattedStatsInfoText = (statsInfoText || "")
-        .replace("{{startDate}}", statsData.startDate || "")
-        .replace("{{notesCount}}", statsData.notesCount.toString())
-        .replace("{{notebooksCount}}", statsData.notebooksCount.toString())
-        .replace("{{DocsCount}}", statsData.DocsCount.toString())
-        .replace("{{nowDate}}", statsData.nowDate || "")
-        .replace(/\$\$(.*?)\$\$/g, (_, expr) => {
-            return parseDurationExpression(expr.trim(), statsData) || "";
-        });
+    // 格式化状态语言，将变量替换为统计信息（异步处理）
+    let formattedStatsInfoText = "";
+    
+    async function updateFormattedStatsInfoText() {
+        if (!statsInfoText) {
+            formattedStatsInfoText = "";
+            return;
+        }
+        
+        let result = statsInfoText;
+        
+        // 异步加载所有统计数据
+        const [
+            startDate, blocksCount, notebooksCount, docsCount, nowDate,
+            tasksCount, doneTasksCount, undoneTasksCount, dailynotesCount,
+            tagsCount, codeBlocksCount, mathBlocksCount, citationCount
+        ] = await Promise.all([
+            loadStatsData("startDate", plugin),
+            loadStatsData("blocksCount", plugin),
+            loadStatsData("notebooksCount", plugin),
+            loadStatsData("docsCount", plugin),
+            loadStatsData("nowDate", plugin),
+            loadStatsData("tasksCount", plugin),
+            loadStatsData("doneTasksCount", plugin),
+            loadStatsData("undoneTasksCount", plugin),
+            loadStatsData("dailynotesCount", plugin),
+            loadStatsData("tagsCount", plugin),
+            loadStatsData("codeBlocksCount", plugin),
+            loadStatsData("mathBlocksCount", plugin),
+            loadStatsData("citationCount", plugin)
+        ]);
+        
+        // 替换所有变量
+        result = result
+            .replace("{{startDate}}", startDate?.toString() || "")
+            .replace("{{blocksCount}}", blocksCount?.toString() || "")
+            .replace("{{notebooksCount}}", notebooksCount?.toString() || "")
+            .replace("{{docsCount}}", docsCount?.toString() || "")
+            .replace("{{nowDate}}", nowDate?.toString() || "")
+            .replace("{{tasksCount}}", tasksCount?.toString() || "")
+            .replace("{{doneTasksCount}}", doneTasksCount?.toString() || "")
+            .replace("{{undoneTasksCount}}", undoneTasksCount?.toString() || "")
+            .replace("{{dailynotesCount}}", dailynotesCount?.toString() || "")
+            .replace("{{tagsCount}}", tagsCount?.toString() || "")
+            .replace("{{codeBlocksCount}}", codeBlocksCount?.toString() || "")
+            .replace("{{mathBlocksCount}}", mathBlocksCount?.toString() || "")
+            .replace("{{citationCount}}", citationCount?.toString() || "");
+        
+        // 处理 $...$ 表达式（异步）
+        const durationRegex = /\$\$(.*?)\$\$/g;
+        let match;
+        const matches = [];
+        while ((match = durationRegex.exec(result)) !== null) {
+            matches.push({ full: match[0], expr: match[1].trim() });
+        }
+        
+        for (const { full, expr } of matches) {
+            const replacement = await parseDurationExpression(expr, plugin) || "";
+            result = result.replace(full, replacement);
+        }
+        
+        formattedStatsInfoText = result;
+    }
+    
+    // 当 statsInfoText 变化时更新格式化文本
+    $: if (statsInfoText !== undefined) {
+        updateFormattedStatsInfoText();
+    }
 
     // 过滤按钮列表，只显示未选中的按钮
     $: filteredButtons = buttonsList.filter((b) => b.checked === false);

@@ -826,8 +826,8 @@
                         <div class="stats-info-setting">
                             <div>
                                 自定义状态语：<a
-                                    href="https://ttl8ygt82u.feishu.cn/wiki/Z4QOwYEXpifRb9kZQg4c2FafnXc?from=from_copylink"
-                                    target="_blank">查看可用变量</a
+                                    href="https://blog.glaube-ty.top/archives/019d2484-7d4f-7573-89dd-772a2c600e2b"
+                                    target="_blank">查看可用变量（展开标题记快捷区）</a
                                 >
                             </div>
                             <textarea
@@ -1258,18 +1258,56 @@
                                 <h4>💰 订阅方案</h4>
                                 <div class="plan-card">
                                     <div class="plan-item monthly">
-                                        <div class="plan-price">8 元</div>
+                                        <div class="plan-price">
+                                            <span
+                                                class="old-price"
+                                                style="text-decoration: line-through; color: #999; font-size: 14px; margin-right: 5px;"
+                                                >8 元</span
+                                            >
+                                            <span
+                                                class="new-price"
+                                                style="color: var(--b3-theme-primary); font-weight: bold; font-size: 18px;"
+                                                >5 元</span
+                                            >
+                                        </div>
                                         <div class="plan-duration">/ 月</div>
                                     </div>
                                     <div class="plan-item monthly">
-                                        <div class="plan-price">20 元</div>
+                                        <div class="plan-price">
+                                            <span
+                                                class="old-price"
+                                                style="text-decoration: line-through; color: #999; font-size: 14px; margin-right: 5px;"
+                                                >20 元</span
+                                            >
+                                            <span
+                                                class="new-price"
+                                                style="color: var(--b3-theme-primary); font-weight: bold; font-size: 18px;"
+                                                >12 元</span
+                                            >
+                                        </div>
                                         <div class="plan-duration">/ 季</div>
                                     </div>
                                     <div class="plan-item yearly">
-                                        <div class="plan-price">69 元</div>
+                                        <div class="plan-price">
+                                            <span
+                                                class="old-price"
+                                                style="text-decoration: line-through; color: #999; font-size: 14px; margin-right: 5px;"
+                                                >69 元</span
+                                            >
+                                            <span
+                                                class="new-price"
+                                                style="color: var(--b3-theme-primary); font-weight: bold; font-size: 18px;"
+                                                >35 元</span
+                                            >
+                                        </div>
                                         <div class="plan-duration">/ 年</div>
                                     </div>
                                 </div>
+                                <p>
+                                    以后大概率会保持目前的降价价格，若最近有原价购买过会员的用户且还在会员期内，可以在爱发电私信我，根据用户情况赠送增加相应的天数。
+                                </p>
+                                <p>感谢大家的支持~</p>
+                                <p>调整时间：2026年3月15日</p>
                             </div>
                             <div class="purchase-address">
                                 <h4>🛍️ 购买地址</h4>
@@ -1405,10 +1443,18 @@
                         <span class="icon">📜</span>
                         <div>
                             <p class="label">插件教程：</p>
-                            <a
-                                href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
-                                class="link">飞书文档</a
-                            >
+                            <p>
+                                <a
+                                    href="https://blog.glaube-ty.top/zhu-ye-cha-jian"
+                                    class="link">我的博客</a
+                                >
+                            </p>
+                            <p>
+                                <a
+                                    href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
+                                    class="link">飞书文档(备用)</a
+                                >
+                            </p>
                         </div>
                     </div>
 
@@ -1451,7 +1497,7 @@
                                 🌹 您的支持是持续开发的动力！
                             </p>
                             <a
-                                href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-Ej8kdvO2iohj1dxWXEzcGZ8Xn7d"
+                                href="https://blog.glaube-ty.top/da-shang"
                                 class="link support-link"
                             >
                                 <i class="fas fa-hand-holding-heart"></i>
