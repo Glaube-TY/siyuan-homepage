@@ -7,7 +7,6 @@
   "backends": [
     "windows",
     "linux",
-    "darwin",
     "ios",
     "android",
     "harmony",

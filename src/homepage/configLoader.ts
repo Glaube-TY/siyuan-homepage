@@ -1,0 +1,237 @@
+import { getImage } from "@/components/tools/getImage";
+
+export type TitleIconType = "emoji" | "image";
+export type TitleIconStyle = "square" | "round" | "circle";
+export type BannerGlobalType = "custom" | "bing";
+export type FallingDensity = "low" | "medium" | "high";
+export type FallingSpeed = "low" | "medium" | "high";
+
+export interface HomepageButtonItem {
+    id: number;
+    label: string;
+    checked: boolean;
+    shortcut: string;
+    order: number;
+}
+
+export interface HomepageConfig {
+    widgetLayoutNumber: number;
+    widgetGap: number;
+    bannerEnabled: boolean;
+    bannerGlobalType: BannerGlobalType;
+    bannerLocalData: string;
+    bannerRemoteUrl: string;
+    bingApiType: string;
+    showIcon: boolean;
+    TitleIconEmoji: string;
+    TitleIconImage: string | null;
+    titleIconType: TitleIconType;
+    customTitle: string;
+    tempTitleIconStyle: TitleIconStyle;
+    statsInfoText: string;
+    footerEnabled: boolean;
+    footerContent: string;
+    mouseIcon: string;
+    MouseTrailEnabled: boolean;
+    mouseGlobalEnabled: boolean;
+    ClickEffectEnabled: boolean;
+    ClickEffectContent: string;
+    FallEffectsEnabled: boolean;
+    GlobalFallingEffectsEnabled: boolean;
+    FallingIcon: string;
+    FallingDensity: FallingDensity;
+    FallingSpeed: FallingSpeed;
+    bannerHeight: number;
+    bannerType?: string;
+    buttonsList: HomepageButtonItem[];
+}
+
+export interface BannerImageResult {
+    bannerImgSrc: string;
+    remoteBannerImageData: string;
+}
+
+const DEFAULT_BUTTONS: HomepageButtonItem[] = [
+    { id: 1728000000000, label: "🔍 搜索笔记", checked: true, shortcut: "Ctrl+P", order: 0 },
+    { id: 1728000001000, label: "📅 今日日记", checked: true, shortcut: "Alt+5", order: 1 },
+    { id: 1728000002000, label: "➕ 添加组件", checked: true, shortcut: "", order: 2 },
+    { id: 1728000003000, label: "⚙ 主页设置", checked: true, shortcut: "", order: 3 },
+];
+
+export const defaultButtonsList = DEFAULT_BUTTONS.map((item) => ({ ...item }));
+
+const VALID_TITLE_ICON_TYPES: TitleIconType[] = ["emoji", "image"];
+const VALID_TITLE_ICON_STYLES: TitleIconStyle[] = ["square", "round", "circle"];
+const VALID_BANNER_GLOBAL_TYPES: BannerGlobalType[] = ["custom", "bing"];
+const VALID_FALLING_DENSITIES: FallingDensity[] = ["low", "medium", "high"];
+const VALID_FALLING_SPEEDS: FallingSpeed[] = ["low", "medium", "high"];
+
+const DEFAULT_HOMEPAGE_CONFIG: HomepageConfig = {
+    widgetLayoutNumber: 4,
+    widgetGap: 0.2,
+    bannerEnabled: true,
+    bannerGlobalType: "custom",
+    bannerLocalData: "",
+    bannerRemoteUrl: "",
+    bingApiType: "POD_UHD",
+    showIcon: true,
+    TitleIconEmoji: "",
+    TitleIconImage: null,
+    titleIconType: "emoji",
+    customTitle: "思源笔记首页",
+    tempTitleIconStyle: "square",
+    statsInfoText: "",
+    footerEnabled: true,
+    footerContent: "",
+    mouseIcon: "default",
+    MouseTrailEnabled: false,
+    mouseGlobalEnabled: true,
+    ClickEffectEnabled: false,
+    ClickEffectContent: "",
+    FallEffectsEnabled: false,
+    GlobalFallingEffectsEnabled: false,
+    FallingIcon: "snow",
+    FallingDensity: "medium",
+    FallingSpeed: "medium",
+    bannerHeight: 300,
+    buttonsList: DEFAULT_BUTTONS.map((item) => ({ ...item })),
+};
+
+function normalizeNumber(value: unknown, defaultValue: number, min?: number, max?: number): number {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return defaultValue;
+    let result = num;
+    if (min !== undefined && result < min) result = min;
+    if (max !== undefined && result > max) result = max;
+    return result;
+}
+
+function normalizeString(value: unknown, defaultValue: string): string {
+    return typeof value === "string" ? value : defaultValue;
+}
+
+function normalizeStringOrNull(value: unknown): string | null {
+    return typeof value === "string" ? value : null;
+}
+
+function normalizeEnum<T extends string>(value: unknown, validValues: T[], defaultValue: T): T {
+    if (typeof value === "string" && (validValues as string[]).includes(value)) {
+        return value as T;
+    }
+    return defaultValue;
+}
+
+function normalizeBoolean(value: unknown, defaultValue: boolean): boolean {
+    return typeof value === "boolean" ? value : defaultValue;
+}
+
+function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
+    if (!Array.isArray(rawList) || rawList.length === 0) {
+        return DEFAULT_BUTTONS.map((item) => ({ ...item }));
+    }
+
+    return rawList.map((item, index): HomepageButtonItem => {
+        const raw = item as Record<string, unknown>;
+        return {
+            id: normalizeNumber(raw?.id, Date.now() + index),
+            label: normalizeString(raw?.label, ""),
+            checked: normalizeBoolean(raw?.checked, true),
+            shortcut: normalizeString(raw?.shortcut, ""),
+            order: normalizeNumber(raw?.order, index),
+        };
+    });
+}
+
+export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
+    const config = (await plugin.loadData("homepageSettingConfig.json")) || {};
+
+    return {
+        widgetLayoutNumber: normalizeNumber(config.widgetLayoutNumber, DEFAULT_HOMEPAGE_CONFIG.widgetLayoutNumber, 1, 12),
+        widgetGap: normalizeNumber(config.widgetGap, DEFAULT_HOMEPAGE_CONFIG.widgetGap, 0, 1),
+        bannerEnabled: config.bannerEnabled !== false,
+        bannerGlobalType: normalizeEnum(config.bannerGlobalType, VALID_BANNER_GLOBAL_TYPES, DEFAULT_HOMEPAGE_CONFIG.bannerGlobalType),
+        bannerLocalData: normalizeString(config.bannerLocalData, DEFAULT_HOMEPAGE_CONFIG.bannerLocalData),
+        bannerRemoteUrl: normalizeString(config.bannerRemoteUrl, DEFAULT_HOMEPAGE_CONFIG.bannerRemoteUrl),
+        bingApiType: normalizeString(config.bingApiType, DEFAULT_HOMEPAGE_CONFIG.bingApiType),
+        showIcon: config.showIcon !== false,
+        TitleIconEmoji: normalizeString(config.TitleIconEmoji, DEFAULT_HOMEPAGE_CONFIG.TitleIconEmoji),
+        TitleIconImage: normalizeStringOrNull(config.TitleIconImage),
+        titleIconType: normalizeEnum(config.titleIconType, VALID_TITLE_ICON_TYPES, DEFAULT_HOMEPAGE_CONFIG.titleIconType),
+        customTitle: normalizeString(config.customTitle, DEFAULT_HOMEPAGE_CONFIG.customTitle),
+        tempTitleIconStyle: normalizeEnum(config.tempTitleIconStyle, VALID_TITLE_ICON_STYLES, DEFAULT_HOMEPAGE_CONFIG.tempTitleIconStyle),
+        statsInfoText: normalizeString(config.statsInfoText, DEFAULT_HOMEPAGE_CONFIG.statsInfoText),
+        footerEnabled: config.footerEnabled ?? DEFAULT_HOMEPAGE_CONFIG.footerEnabled,
+        footerContent: normalizeString(config.footerContent, DEFAULT_HOMEPAGE_CONFIG.footerContent),
+        mouseIcon: normalizeString(config.mouseIcon, DEFAULT_HOMEPAGE_CONFIG.mouseIcon),
+        MouseTrailEnabled: config.MouseTrailEnabled ?? DEFAULT_HOMEPAGE_CONFIG.MouseTrailEnabled,
+        mouseGlobalEnabled: config.mouseGlobalEnabled ?? DEFAULT_HOMEPAGE_CONFIG.mouseGlobalEnabled,
+        ClickEffectEnabled: config.ClickEffectEnabled ?? DEFAULT_HOMEPAGE_CONFIG.ClickEffectEnabled,
+        ClickEffectContent: normalizeString(config.ClickEffectContent, DEFAULT_HOMEPAGE_CONFIG.ClickEffectContent),
+        FallEffectsEnabled: config.FallEffectsEnabled ?? DEFAULT_HOMEPAGE_CONFIG.FallEffectsEnabled,
+        GlobalFallingEffectsEnabled: config.GlobalFallingEffectsEnabled ?? DEFAULT_HOMEPAGE_CONFIG.GlobalFallingEffectsEnabled,
+        FallingIcon: normalizeString(config.FallingIcon, DEFAULT_HOMEPAGE_CONFIG.FallingIcon),
+        FallingDensity: normalizeEnum(config.FallingDensity, VALID_FALLING_DENSITIES, DEFAULT_HOMEPAGE_CONFIG.FallingDensity),
+        FallingSpeed: normalizeEnum(config.FallingSpeed, VALID_FALLING_SPEEDS, DEFAULT_HOMEPAGE_CONFIG.FallingSpeed),
+        bannerHeight: normalizeNumber(config.bannerHeight, DEFAULT_HOMEPAGE_CONFIG.bannerHeight, 50, 1000),
+        bannerType: config.bannerType ? normalizeString(config.bannerType, "") : undefined,
+        buttonsList: normalizeButtonsList(config.buttonsList),
+    };
+}
+
+export async function resolveBannerImage(
+    config: HomepageConfig,
+    advanced: boolean,
+): Promise<BannerImageResult> {
+    let bannerImgSrc = "";
+    let remoteBannerImageData = "";
+
+    if (!config.bannerEnabled) {
+        return { bannerImgSrc, remoteBannerImageData };
+    }
+
+    const isElectron =
+        window.navigator.userAgent.includes("Electron") ||
+        typeof (window as any).require === "function";
+
+    if (config.bannerGlobalType === "custom") {
+        if (config.bannerType === "local") {
+            bannerImgSrc = config.bannerLocalData;
+        } else if (config.bannerType === "remote") {
+            if (!isElectron && config.bannerRemoteUrl) {
+                remoteBannerImageData = await getImage(config.bannerRemoteUrl);
+            }
+            bannerImgSrc = remoteBannerImageData || config.bannerRemoteUrl;
+        }
+    } else if (config.bannerGlobalType === "bing") {
+        if (advanced) {
+            const bingUrlMap: Record<string, string> = {
+                POD_UHD: "https://bing.img.run/uhd.php",
+                POD_1K: "https://bing.img.run/1920x1080.php",
+                POD_Normal: "https://bing.img.run/1366x768.php",
+                rand_uhd: "https://bing.img.run/rand_uhd.php",
+                rand_1K: "https://bing.img.run/rand.php",
+                rand_Normal: "https://bing.img.run/rand_1366x768.php",
+                ECY1: "https://www.dmoe.cc/random.php",
+                RAND1: "https://api.btstu.cn/sjbz/api.php",
+            };
+            const bingImageUrl = bingUrlMap[config.bingApiType];
+            if (bingImageUrl) {
+                if (!isElectron) {
+                    remoteBannerImageData = await getImage(bingImageUrl);
+                }
+                bannerImgSrc = remoteBannerImageData || bingImageUrl;
+            }
+        } else {
+            bannerImgSrc = "/plugins/siyuan-homepage/asset/bannerImg/notVIP.jpg";
+        }
+    }
+
+    return { bannerImgSrc, remoteBannerImageData };
+}
+
+export function resolveButtonsList(config: HomepageConfig): HomepageButtonItem[] {
+    if (!config.buttonsList || config.buttonsList.length === 0) {
+        return DEFAULT_BUTTONS.map((item) => ({ ...item }));
+    }
+    return config.buttonsList.map((item) => ({ ...item }));
+}

@@ -3,8 +3,8 @@
   "version": "2.11.0",
   "type": "module",
   "description": "Provides personalized homepage layout and rich functional modules.",
-  "repository": "",
-  "homepage": "",
+  "repository": "https://github.com/Glaube-TY/siyuan-homepage",
+  "homepage": "https://github.com/Glaube-TY/siyuan-homepage",
   "author": "Glaube-TY",
   "license": "MIT",
   "scripts": {

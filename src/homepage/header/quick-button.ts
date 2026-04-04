@@ -1,6 +1,6 @@
-import { addCustomBlock } from "./widgetBlock/utils/block-creator";
+import { addCustomBlock } from "../../components/utils/widgetBlock/utils/block-creator";
 import { svelteDialog } from "@/libs/dialog";
-import HomepageSetting from "./homepageSetting.svelte";
+import HomepageSetting from "../../components/utils/homepageSetting.svelte";
 import Mousetrap from "mousetrap";
 
 type ExtendedKeyboardEvent = KeyboardEvent & {

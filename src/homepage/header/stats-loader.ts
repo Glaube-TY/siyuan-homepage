@@ -1,5 +1,5 @@
 import { sql } from "@/api";
-import { getStatisticalData } from "../tools/statisticalAPI";
+import { getStatisticalData } from "../../components/tools/statisticalAPI";
 
 function parseDateToTimestamp(dateStr: string): number | null {
     if (!dateStr || typeof dateStr !== "string") return null;

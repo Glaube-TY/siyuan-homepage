@@ -2,7 +2,7 @@
     import { onMount } from "svelte";
     import "emoji-picker-element";
     import "./homepageSettingStyle/homepageSetting.scss";
-    import * as advanced from "./advanced";
+    import * as advanced from "../tools/advanced";
     import { showMessage } from "siyuan";
 
     export let plugin: any;
