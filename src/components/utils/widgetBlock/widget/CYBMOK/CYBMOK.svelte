@@ -8,8 +8,8 @@
 
     let { contentTypeJson = "{}", plugin }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const CMKnockSound = parsedContent.data?.CMKnockSound || "普通";
+    let parsedContent = $derived(JSON.parse(contentTypeJson));
+    let CMKnockSound = $derived(parsedContent.data?.CMKnockSound || "普通");
 
     let advancedEnabled: boolean = $state(false);
     let MOKImgPath: string = $state("");

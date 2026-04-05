@@ -132,6 +132,21 @@ export function createMouseTrail(
     const container = document.querySelector(containerSelector);
     if (!container) return;
 
+    if (!config.mouseGlobalEnabled) {
+        const homepageContainer = document.querySelector(".homepage-container") as HTMLElement;
+        if (homepageContainer) {
+            const rect = homepageContainer.getBoundingClientRect();
+            if (
+                e.clientX < rect.left ||
+                e.clientX > rect.right ||
+                e.clientY < rect.top ||
+                e.clientY > rect.bottom
+            ) {
+                return;
+            }
+        }
+    }
+
     const rect = container.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;

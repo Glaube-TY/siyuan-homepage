@@ -1,4 +1,5 @@
 import { getImage } from "@/components/tools/getImage";
+import type { DeviceProfilesMap } from "./utils/deviceProfile";
 
 export type TitleIconType = "emoji" | "image";
 export type TitleIconStyle = "square" | "round" | "circle";
@@ -15,8 +16,6 @@ export interface HomepageButtonItem {
 }
 
 export interface HomepageConfig {
-    widgetLayoutNumber: number;
-    widgetGap: number;
     bannerEnabled: boolean;
     bannerGlobalType: BannerGlobalType;
     bannerLocalData: string;
@@ -44,6 +43,7 @@ export interface HomepageConfig {
     bannerHeight: number;
     bannerType?: string;
     buttonsList: HomepageButtonItem[];
+    deviceProfiles: DeviceProfilesMap;
 }
 
 export interface BannerImageResult {
@@ -66,9 +66,7 @@ const VALID_BANNER_GLOBAL_TYPES: BannerGlobalType[] = ["custom", "bing"];
 const VALID_FALLING_DENSITIES: FallingDensity[] = ["low", "medium", "high"];
 const VALID_FALLING_SPEEDS: FallingSpeed[] = ["low", "medium", "high"];
 
-const DEFAULT_HOMEPAGE_CONFIG: HomepageConfig = {
-    widgetLayoutNumber: 4,
-    widgetGap: 0.2,
+const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles'> & { deviceProfiles: DeviceProfilesMap } = {
     bannerEnabled: true,
     bannerGlobalType: "custom",
     bannerLocalData: "",
@@ -95,6 +93,7 @@ const DEFAULT_HOMEPAGE_CONFIG: HomepageConfig = {
     FallingSpeed: "medium",
     bannerHeight: 300,
     buttonsList: DEFAULT_BUTTONS.map((item) => ({ ...item })),
+    deviceProfiles: {},
 };
 
 function normalizeNumber(value: unknown, defaultValue: number, min?: number, max?: number): number {
@@ -142,12 +141,23 @@ function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
     });
 }
 
+function normalizeDeviceProfiles(value: unknown): DeviceProfilesMap {
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        return value as DeviceProfilesMap;
+    }
+    return {};
+}
+
+// 注意：getDeviceLayout 已废弃，请使用 loadWidgetLayoutSettings(plugin) 从 widgetLayout.json 读取
+// 保留此函数仅为兼容旧代码，新代码不应再使用
+
 export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
     const config = (await plugin.loadData("homepageSettingConfig.json")) || {};
 
+    // 注意：widgetLayoutNumber/widgetGap 已从本配置移除
+    // 请使用 loadWidgetLayoutSettings(plugin) 从 widgetLayout.json 读取
+
     return {
-        widgetLayoutNumber: normalizeNumber(config.widgetLayoutNumber, DEFAULT_HOMEPAGE_CONFIG.widgetLayoutNumber, 1, 12),
-        widgetGap: normalizeNumber(config.widgetGap, DEFAULT_HOMEPAGE_CONFIG.widgetGap, 0, 1),
         bannerEnabled: config.bannerEnabled !== false,
         bannerGlobalType: normalizeEnum(config.bannerGlobalType, VALID_BANNER_GLOBAL_TYPES, DEFAULT_HOMEPAGE_CONFIG.bannerGlobalType),
         bannerLocalData: normalizeString(config.bannerLocalData, DEFAULT_HOMEPAGE_CONFIG.bannerLocalData),
@@ -175,6 +185,7 @@ export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
         bannerHeight: normalizeNumber(config.bannerHeight, DEFAULT_HOMEPAGE_CONFIG.bannerHeight, 50, 1000),
         bannerType: config.bannerType ? normalizeString(config.bannerType, "") : undefined,
         buttonsList: normalizeButtonsList(config.buttonsList),
+        deviceProfiles: normalizeDeviceProfiles(config.deviceProfiles),
     };
 }
 

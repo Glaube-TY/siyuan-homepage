@@ -1,13 +1,13 @@
-import { WidgetBlock } from "./sidebarWidgetBlock";
-import { addCustomBlockToContainer } from "../widgetBlock/utils/block-creator-shared";
-import { saveLayout } from "./widget_layout";
+import { WidgetBlock } from "./mobileWidgetBlock";
+import { addCustomBlockToContainer } from "../../components/utils/widgetBlock/utils/block-creator-shared";
+import { saveLayout } from "./mobileHomepage_layout";
 
 export function addCustomBlock(
     plugin: any,
     currentBlockForSettingsRef: { value: HTMLElement | null },
 ) {
     addCustomBlockToContainer(plugin, currentBlockForSettingsRef, {
-        containerSelector: ".sidebar-widget",
+        containerSelector: ".mobile-homepage-widget",
         WidgetBlockClass: WidgetBlock,
         afterAppend: () => {
             saveLayout(plugin);

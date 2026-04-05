@@ -20,6 +20,7 @@ export type ButtonItem = {
     checked: boolean;
     shortcut?: string;
     order: number;
+    action?: string;
 };
 
 const registeredShortcuts = new Map<string, ButtonItem>();
@@ -176,6 +177,19 @@ export function handleMoreButtonClick(showMoreMenu: boolean): boolean {
     return !showMoreMenu;
 }
 
+function getButtonAction(item: ButtonItem): string {
+    if (item.action) {
+        return item.action;
+    }
+    if (item.label.includes("➕ 添加组件")) {
+        return "addWidget";
+    }
+    if (item.label.includes("⚙ 主页设置")) {
+        return "settings";
+    }
+    return "";
+}
+
 export function handleButtonClick(
     item: ButtonItem,
     plugin: any,
@@ -184,10 +198,12 @@ export function handleButtonClick(
 ): void {
     const OpenHomepageSetting = createOpenHomepageSetting(plugin);
 
-    if (item.label.includes("➕ 添加组件")) {
+    const action = getButtonAction(item);
+
+    if (action === "addWidget") {
         addCustomBlock(plugin, currentBlockForSettingsRef);
         saveLayoutFn(plugin);
-    } else if (item.label.includes("⚙ 主页设置")) {
+    } else if (action === "settings") {
         OpenHomepageSetting();
     } else if (item.shortcut) {
         triggerShortcut(item);

@@ -208,15 +208,19 @@
         updateDateAndLunar();
 
         const intervalId = setInterval(updateTime, 50);
+        let dailyUpdateInterval: ReturnType<typeof setInterval> | null = null;
         const timeUntilMidnight = getMidnightTimestamp() - Date.now();
         const tomorrowUpdateTimeout = setTimeout(() => {
             updateDateAndLunar();
-            setInterval(updateDateAndLunar, 24 * 60 * 60 * 1000);
+            dailyUpdateInterval = setInterval(updateDateAndLunar, 24 * 60 * 60 * 1000);
         }, timeUntilMidnight);
 
         return () => {
             clearInterval(intervalId);
             clearTimeout(tomorrowUpdateTimeout);
+            if (dailyUpdateInterval) {
+                clearInterval(dailyUpdateInterval);
+            }
         };
     });
 

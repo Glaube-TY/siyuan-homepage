@@ -8,6 +8,7 @@ export function createDefaultButtons(): ButtonItem[] {
             checked: true,
             shortcut: "Ctrl+P",
             order: 0,
+            action: "search",
         },
         {
             id: 1728000001000,
@@ -15,18 +16,21 @@ export function createDefaultButtons(): ButtonItem[] {
             checked: true,
             shortcut: "Alt+5",
             order: 1,
+            action: "diary",
         },
         {
             id: 1728000002000,
             label: "➕ 添加组件",
             checked: true,
             order: 2,
+            action: "addWidget",
         },
         {
             id: 1728000003000,
             label: "⚙ 主页设置",
             checked: true,
             order: 3,
+            action: "settings",
         },
     ];
 }
@@ -82,7 +86,11 @@ export function deleteButton(buttons: ButtonItem[], buttonId: number): ButtonIte
     return buttons.filter((item) => item.id !== buttonId);
 }
 
-export function isCoreButton(label: string): boolean {
-    const coreButtons = ["➕ 添加组件", "⚙ 主页设置"];
-    return coreButtons.includes(label);
+export function isCoreButton(button: ButtonItem): boolean {
+    const coreActions = ["addWidget", "settings"];
+    if (button.action) {
+        return coreActions.includes(button.action);
+    }
+    const coreLabels = ["➕ 添加组件", "⚙ 主页设置"];
+    return coreLabels.includes(button.label);
 }

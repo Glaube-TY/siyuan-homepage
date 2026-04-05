@@ -13,34 +13,32 @@ export async function getStatisticalData(statisticalType: string, plugin: any) {
         const res = await plugin.client.sql({ stmt: "SELECT COUNT(*) AS totalBlocks FROM blocks" });
         statisticalCount = res.data[0].totalBlocks;
     } else if (statisticalType === "wordsCount") {
-        const res = await plugin.client.sql({ stmt: "SELECT content FROM blocks LIMIT 9999999999999;" });
-        statisticalCount = res.data.reduce((total: number, block: any) => {
-            return total + (block.content ? block.content.length : 0);
-        }, 0);
+        const res = await plugin.client.sql({ stmt: "SELECT SUM(LENGTH(content)) AS totalWords FROM blocks" });
+        statisticalCount = res.data[0]?.totalWords || 0;
     } else if (statisticalType === "tasksCount") {
-        const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE subtype = 't' AND type != 'l' LIMIT 9999999999999;" });
-        statisticalCount = res.data.length;
+        const res = await plugin.client.sql({ stmt: "SELECT COUNT(*) AS totalTasks FROM blocks WHERE subtype = 't' AND type != 'l'" });
+        statisticalCount = res.data[0]?.totalTasks || 0;
     } else if (statisticalType === "doneTasksCount") {
-        const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE subtype = 't' AND type != 'l' AND markdown LIKE '%[x]%' LIMIT 9999999999999;" });
-        statisticalCount = res.data.length;
+        const res = await plugin.client.sql({ stmt: "SELECT COUNT(*) AS doneTasks FROM blocks WHERE subtype = 't' AND type != 'l' AND markdown LIKE '%[x]%'" });
+        statisticalCount = res.data[0]?.doneTasks || 0;
     } else if (statisticalType === "undoneTasksCount") {
-        const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE subtype = 't' AND type != 'l' AND markdown LIKE '%[ ]%' LIMIT 9999999999999;" });
-        statisticalCount = res.data.length;
+        const res = await plugin.client.sql({ stmt: "SELECT COUNT(*) AS undoneTasks FROM blocks WHERE subtype = 't' AND type != 'l' AND markdown LIKE '%[ ]%'" });
+        statisticalCount = res.data[0]?.undoneTasks || 0;
     } else if (statisticalType === "dailynotesCount") {
-        const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE type = 'd' AND ial LIKE '%custom-dailynote-%' LIMIT 9999999999999;" });
-        statisticalCount = res.data.length;
+        const res = await plugin.client.sql({ stmt: "SELECT COUNT(*) AS dailynotes FROM blocks WHERE type = 'd' AND ial LIKE '%custom-dailynote-%'" });
+        statisticalCount = res.data[0]?.dailynotes || 0;
     } else if (statisticalType === "tagsCount") {
         const res = await fetchSyncPost("/api/tag/getTag", { sort: 1, ignoreMaxListHint: true, app: "statisticalCard" });
         statisticalCount = res.data.length;
     } else if (statisticalType === "codeBlocksCount") {
-        const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE type = 'c' LIMIT 9999999999999;" });
-        statisticalCount = res.data.length;
+        const res = await plugin.client.sql({ stmt: "SELECT COUNT(*) AS codeBlocks FROM blocks WHERE type = 'c'" });
+        statisticalCount = res.data[0]?.codeBlocks || 0;
     } else if (statisticalType === "mathBlocksCount") {
-        const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE type = 'm' LIMIT 9999999999999;" });
-        statisticalCount = res.data.length;
+        const res = await plugin.client.sql({ stmt: "SELECT COUNT(*) AS mathBlocks FROM blocks WHERE type = 'm'" });
+        statisticalCount = res.data[0]?.mathBlocks || 0;
     } else if (statisticalType === "citationCount") {
-        const res = await plugin.client.sql({ stmt: "SELECT * FROM blocks WHERE type = 'b' LIMIT 9999999999999;" });
-        statisticalCount = res.data.length;
+        const res = await plugin.client.sql({ stmt: "SELECT COUNT(*) AS citations FROM blocks WHERE type = 'b'" });
+        statisticalCount = res.data[0]?.citations || 0;
     }
 
     return statisticalCount;

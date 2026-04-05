@@ -22,5 +22,6 @@ export const subTabs: SubTabItem[] = [
     { key: "title", label: "标题设置" },
     { key: "button", label: "按钮设置" },
     { key: "widgets", label: "组件设置" },
+    { key: "devices", label: "设备管理" },
     { key: "styles", label: "高级样式👑", requiresAdvanced: true },
 ];

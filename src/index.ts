@@ -15,7 +15,7 @@ import Homepage from "./homepage/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
-import MobileHomepage from "./components/utils/mobileHomepage/mobileHomepage.svelte";
+import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 
 const STORAGE_NAME = "menu-config";
 const TAB_TYPE = "homepage_tab";
@@ -45,6 +45,7 @@ export default class PluginHomepage extends Plugin {
     isMobile = false;
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
     private homepageInstance: Record<string, any> | null = null;
+    private homepageTabDiv: HTMLDivElement | null = null;
     ADVANCED = false;
     private docTreeMenuEventBindThis = this.handleDocTreeMenu.bind(this);
     private contentMenuEventBindThis = this.handleContentMenu.bind(this);
@@ -78,10 +79,7 @@ export default class PluginHomepage extends Plugin {
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
 
         // 销毁 Homepage 组件实例
-        if (this.homepageInstance) {
-            unmount(this.homepageInstance);
-            this.homepageInstance = null;
-        }
+        this.destroyHomepageInstance();
 
         // 关闭移动端对话框
         if (this.currentMobileDialog) {
@@ -91,19 +89,16 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onLayoutReady() {
-        const tabDiv = document.createElement("div");
-        this.homepageInstance = mount(Homepage as any, {
-            target: tabDiv,
-            props: {
-                app: this.app,
-                plugin: this,
-            }
-        } as any);
+        this.homepageTabDiv = document.createElement("div");
+        this.createHomepageInstance();
 
+        const self = this;
         this.customTab = this.addTab({
             type: TAB_TYPE,
             init() {
-                this.element.appendChild(tabDiv);
+                if (self.homepageTabDiv) {
+                    this.element.appendChild(self.homepageTabDiv);
+                }
             },
         });
 
@@ -123,6 +118,42 @@ export default class PluginHomepage extends Plugin {
 
         // 会员校验（非阻塞）
         void this.verifyLicense();
+    }
+
+    // 创建主页实例
+    private createHomepageInstance(): void {
+        if (!this.homepageTabDiv) {
+            this.homepageTabDiv = document.createElement("div");
+        }
+        this.homepageInstance = mount(Homepage as any, {
+            target: this.homepageTabDiv,
+            props: {
+                app: this.app,
+                plugin: this,
+            }
+        } as any);
+    }
+
+    // 销毁主页实例
+    private destroyHomepageInstance(): void {
+        if (this.homepageInstance) {
+            try {
+                unmount(this.homepageInstance);
+            } catch (e) {
+                console.warn("[Plugin] 销毁主页实例失败:", e);
+            }
+            this.homepageInstance = null;
+        }
+        // 清空容器内容
+        if (this.homepageTabDiv) {
+            this.homepageTabDiv.innerHTML = "";
+        }
+    }
+
+    // 重建主页实例（用于恢复坏掉的实例）
+    public reloadHomepageInstance(): void {
+        this.destroyHomepageInstance();
+        this.createHomepageInstance();
     }
 
     private async verifyLicense() {

@@ -9,18 +9,18 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const PicFolderPath = parsedContent.data.PicFolderPath || "";
-    const PicAutoPlay = parsedContent.data.PicAutoPlay ?? false;
-    const PicInterval = parsedContent.data.PicInterval || 3;
-    const PicNavigation = parsedContent.data.PicNavigation ?? false;
-    const PicPagination = parsedContent.data.PicPagination ?? false;
-    const PicPaginationType = parsedContent.data.PicPaginationType || "bullets";
-    const PicPaginationDyBu = parsedContent.data.PicPaginationDyBu ?? false;
-    const PicPaginationPrOp = parsedContent.data.PicPaginationPrOp ?? false;
-    const PicEffect = parsedContent.data.PicEffect || "slide";
-    const PicSlidesPerView = parsedContent.data.PicSlidesPerView || "1";
-    const PicRandomSwitch = parsedContent.data.PicRandomSwitch ?? false;
+    let parsedContent = $derived(JSON.parse(contentTypeJson));
+    let PicFolderPath = $derived(parsedContent.data.PicFolderPath || "");
+    let PicAutoPlay = $derived(parsedContent.data.PicAutoPlay ?? false);
+    let PicInterval = $derived(parsedContent.data.PicInterval || 3);
+    let PicNavigation = $derived(parsedContent.data.PicNavigation ?? false);
+    let PicPagination = $derived(parsedContent.data.PicPagination ?? false);
+    let PicPaginationType = $derived(parsedContent.data.PicPaginationType || "bullets");
+    let PicPaginationDyBu = $derived(parsedContent.data.PicPaginationDyBu ?? false);
+    let PicPaginationPrOp = $derived(parsedContent.data.PicPaginationPrOp ?? false);
+    let PicEffect = $derived(parsedContent.data.PicEffect || "slide");
+    let PicSlidesPerView = $derived(parsedContent.data.PicSlidesPerView || "1");
+    let PicRandomSwitch = $derived(parsedContent.data.PicRandomSwitch ?? false);
 
     let advancedEnabled = $state(false);
     let images: Array<{ name: string; path: string }> = $state([]);

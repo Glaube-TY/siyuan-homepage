@@ -1,5 +1,5 @@
 export type HomepageSettingMainTab = "homepage" | "vip" | "about";
-export type HomepageSettingSubTab = "banner" | "title" | "button" | "widgets" | "styles";
+export type HomepageSettingSubTab = "banner" | "title" | "button" | "widgets" | "styles" | "devices";
 
 export interface HomepageSettingProps {
     plugin: any;
@@ -12,6 +12,7 @@ export type ButtonItem = {
     checked: boolean;
     shortcut?: string;
     order: number;
+    action?: string;
 };
 
 export interface ButtonSettingsActions {

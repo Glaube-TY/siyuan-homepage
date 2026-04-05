@@ -9,20 +9,16 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const statisticalCardTitle =
-        parsedContent.data?.statisticalCardTitle || "统计卡片";
-    const statisticalCardTitleSize =
-        parsedContent.data?.statisticalCardTitleSize || 1;
-    const statisticalCardTitleColor =
-        parsedContent.data?.statisticalCardTitleColor || "#000000";
-    const statisticalCardContent =
-        parsedContent.data?.statisticalCardContent || "notebooksCount";
+    let parsedContent = $derived(JSON.parse(contentTypeJson));
+    let statisticalCardTitle = $derived(parsedContent.data?.statisticalCardTitle || "统计卡片");
+    let statisticalCardTitleSize = $derived(parsedContent.data?.statisticalCardTitleSize || 1);
+    let statisticalCardTitleColor = $derived(parsedContent.data?.statisticalCardTitleColor || "#000000");
+    let statisticalCardContent = $derived(parsedContent.data?.statisticalCardContent || "notebooksCount");
     const statisticalCardCountSize =
-        parsedContent.data?.statisticalCardCountSize || 2;
+        $derived(parsedContent.data?.statisticalCardCountSize || 2);
     const statisticalCardCountColor =
-        parsedContent.data?.statisticalCardCountColor || "#000000";
-    const customSQLCount = parsedContent.data?.customSQLCount || "";
+        $derived(parsedContent.data?.statisticalCardCountColor || "#000000");
+    let customSQLCount = $derived(parsedContent.data?.customSQLCount || "");
 
     let statisticalCount = $state(0);
 

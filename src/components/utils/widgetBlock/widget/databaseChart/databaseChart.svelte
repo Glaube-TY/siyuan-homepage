@@ -10,45 +10,45 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const databaseChartID = parsedContent.data?.databaseChartID;
-    const databaseChartType = parsedContent.data?.databaseChartType;
-    const databaseChartTitle = parsedContent.data?.databaseChartTitle;
+    let parsedContent = $derived(JSON.parse(contentTypeJson));
+    let databaseChartID = $derived(parsedContent.data?.databaseChartID);
+    let databaseChartType = $derived(parsedContent.data?.databaseChartType);
+    let databaseChartTitle = $derived(parsedContent.data?.databaseChartTitle);
 
     // 折线图设置变量
-    const databaseChartLineType = parsedContent.data?.databaseChartLineType;
-    const databaseChartLineSmooth = parsedContent.data?.databaseChartLineSmooth;
-    const databaseChartLineCountSort =
-        parsedContent.data?.databaseChartLineCountSort;
-    const databaseChartLineMarkPoint =
-        parsedContent.data?.databaseChartLineMarkPoint;
-    const databaseChartLineMarkPointSize =
-        parsedContent.data?.databaseChartLineMarkPointSize;
-    const databaseChartLineWidth =
-        parsedContent.data?.databaseChartLineWidth || 2;
-    const databaseChartLineStyle =
-        parsedContent.data?.databaseChartLineStyle || "solid";
+    let databaseChartLineType = $derived(parsedContent.data?.databaseChartLineType);
+    let databaseChartLineSmooth = $derived(parsedContent.data?.databaseChartLineSmooth);
+    let databaseChartLineCountSort =
+        $derived(parsedContent.data?.databaseChartLineCountSort);
+    let databaseChartLineMarkPoint =
+        $derived(parsedContent.data?.databaseChartLineMarkPoint);
+    let databaseChartLineMarkPointSize =
+        $derived(parsedContent.data?.databaseChartLineMarkPointSize);
+    let databaseChartLineWidth =
+        $derived(parsedContent.data?.databaseChartLineWidth || 2);
+    let databaseChartLineStyle =
+        $derived(parsedContent.data?.databaseChartLineStyle || "solid");
     // 折线图XY
-    const databaseChartLineXAxisSource =
-        parsedContent.data?.databaseChartLineXAxisSource;
-    const databaseChartLineXAxisTitle =
-        parsedContent.data?.databaseChartLineXAxisTitle;
-    const databaseChartLineYAxisSource =
-        parsedContent.data?.databaseChartLineYAxisSource;
-    const databaseChartLineYAxisTitle =
-        parsedContent.data?.databaseChartLineYAxisTitle;
+    let databaseChartLineXAxisSource =
+        $derived(parsedContent.data?.databaseChartLineXAxisSource);
+    let databaseChartLineXAxisTitle =
+        $derived(parsedContent.data?.databaseChartLineXAxisTitle);
+    let databaseChartLineYAxisSource =
+        $derived(parsedContent.data?.databaseChartLineYAxisSource);
+    let databaseChartLineYAxisTitle =
+        $derived(parsedContent.data?.databaseChartLineYAxisTitle);
     // 折线图count
-    const databaseChartLineCountColumn =
-        parsedContent.data?.databaseChartLineCountColumn;
-    const databaseChartLineCountXAxisTitle =
-        parsedContent.data?.databaseChartLineCountXAxisTitle;
-    const databaseChartLineCountYAxisTitle =
-        parsedContent.data?.databaseChartLineCountYAxisTitle;
+    let databaseChartLineCountColumn =
+        $derived(parsedContent.data?.databaseChartLineCountColumn);
+    let databaseChartLineCountXAxisTitle =
+        $derived(parsedContent.data?.databaseChartLineCountXAxisTitle);
+    let databaseChartLineCountYAxisTitle =
+        $derived(parsedContent.data?.databaseChartLineCountYAxisTitle);
 
     let advancedEnabled = $state(false);
     let attributeView: any = null;
 
-    const lineChartXYOption = {
+    let lineChartXYOption = $derived({
         tooltip: {
             trigger: "axis",
             axisPointer: {
@@ -74,9 +74,9 @@
             nameRotate: 90,
         },
         series: [{}],
-    };
+    });
 
-    const lineChartCountOptions = {
+    let lineChartCountOptions = $derived({
         tooltip: {
             trigger: "axis",
             axisPointer: {
@@ -102,7 +102,7 @@
             nameRotate: 90,
         },
         series: [{}],
-    };
+    });
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;

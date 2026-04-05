@@ -1,8 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { saveLayout } from "./utils/layout-handler";
-    import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
-    import { saveLayout as saveMobileLayout } from "@/components/utils/mobileHomepage/mobileHomepage_layout";
     import {
         updateElementBackground,
         updateElementBorder,
@@ -10,11 +8,13 @@
         loadWidgetSize,
         saveWidgetSize
     } from "./styleUtils";
+    import { loadWidgetLayoutSettings } from "./utils/layout-shared";
 
     interface Props {
         plugin: any;
         onClose: () => void;
-        onDelete: () => void;
+        onHideForCurrentDevice: () => void;
+        onDeleteGlobally: () => void;
         onSetSize: (size: number) => void;
         currentBlockId?: string;
     }
@@ -22,7 +22,8 @@
     let {
         plugin,
         onClose,
-        onDelete,
+        onHideForCurrentDevice,
+        onDeleteGlobally,
         onSetSize,
         currentBlockId = ""
     }: Props = $props();
@@ -41,21 +42,18 @@
         updateElementBackground(currentBlockId, backgroundColor, backgroundOpacity);
         updateElementBorder(currentBlockId, borderColor, borderWidth);
         saveLayout(plugin);
-        saveSidebarLayout(plugin);
-        saveMobileLayout(plugin);
     }
 
     async function handleApplySize() {
         onSetSize(parseInt(`${rowSize}${colSize}`));
         await saveWidgetSize(plugin, currentBlockId, rowSize, colSize);
         saveLayout(plugin);
-        saveSidebarLayout(plugin);
-        saveMobileLayout(plugin);
     }
 
     onMount(async () => {
-        const config = await plugin.loadData("homepageSettingConfig.json");
-        widgetLayoutNumber = config.widgetLayoutNumber || 4;
+        // 统一从 widgetLayout.json 读取列数
+        const settings = await loadWidgetLayoutSettings(plugin);
+        widgetLayoutNumber = settings.widgetLayoutNumber;
 
         const styles = loadElementStyles(currentBlockId);
         if (styles) {
@@ -164,9 +162,14 @@
         </div>
     </div>
 
-    <!-- 操作按钮：删除和取消在一行 -->
+    <!-- 操作按钮：当前设备隐藏、全局删除、取消 -->
     <div class="action-buttons-row">
-        <button class="delete-button" onclick={onDelete}>🗑 删除组件</button>
+        <button class="hide-button" onclick={onHideForCurrentDevice}>
+            👁 当前设备隐藏
+        </button>
+        <button class="delete-button" onclick={onDeleteGlobally}>
+            🗑 全局删除
+        </button>
         <button class="cancel-button" onclick={onClose}>❌ 取消</button>
     </div>
 </div>
@@ -225,6 +228,17 @@
         margin-top: 1rem;
     }
 
+    .hide-button {
+        background: linear-gradient(45deg, #f59e0b 0%, #d97706 100%);
+        box-shadow: 0 2px 4px rgba(217, 119, 6, 0.2);
+        color: white;
+        border: none;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
     .delete-button {
         background: linear-gradient(45deg, #ef4444 0%, #dc2626 100%);
         box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
@@ -233,6 +247,7 @@
         padding: 0.4rem 0.8rem;
         border-radius: 6px;
         cursor: pointer;
+        font-size: 12px;
     }
 
     .cancel-button {

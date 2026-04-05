@@ -10,7 +10,8 @@
         saveLayout,
         restoreLayout,
     } from "../components/utils/widgetBlock/utils/layout-handler";
-    import { handleLoad } from "../components/utils/topBanner/drag";
+    import { loadWidgetLayoutSettings } from "../components/utils/widgetBlock/utils/layout-shared";
+    import { handleLoad } from "./topBanner/drag";
     import {
         loadStatsData,
         parseDurationExpression,
@@ -39,6 +40,13 @@
         resolveBannerImage,
         resolveButtonsList,
     } from "./configLoader";
+    import {
+        getCurrentDeviceInfo,
+        isDesktopDeviceProfileEnabled,
+        updateDeviceProfile,
+        findExistingDeviceByHardware,
+        deduplicateDeviceProfiles,
+    } from "./utils/deviceProfile";
 
     import "./style/homepage.scss"
 
@@ -95,7 +103,12 @@
 
     let widgetLayoutNumber = $state(4);
     let widgetGap = $state(0.2);
-    let advancedPollInterval: ReturnType<typeof setInterval> | null = null;
+    let sortable: Sortable | null = null;
+    let layoutObserver: MutationObserver | null = null;
+    
+    // 安全刷新锁，避免并发重入
+    let isRefreshingHomepage = false;
+    let refreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     // 实时获取高级功能启用状态
     function getAdvancedEnabled(): boolean {
@@ -158,6 +171,55 @@
             if (config.advanced && config.FallEffectsEnabled) {
                 startFallingEffects();
             }
+            // 同步后兜底刷新（防抖）
+            debouncedSafeRefresh("visibility-visible");
+        }
+    }
+
+    // 窗口聚焦处理
+    function handleWindowFocus(): void {
+        debouncedSafeRefresh("window-focus");
+    }
+
+    // 防抖安全刷新
+    function debouncedSafeRefresh(reason: string): void {
+        if (refreshDebounceTimer) {
+            clearTimeout(refreshDebounceTimer);
+        }
+        refreshDebounceTimer = setTimeout(() => {
+            safeRefreshHomepage(reason);
+        }, 500);
+    }
+
+    // 安全刷新主页（统一容错）
+    async function safeRefreshHomepage(reason: string): Promise<void> {
+        if (isRefreshingHomepage) {
+            return;
+        }
+        
+        isRefreshingHomepage = true;
+        
+        try {
+            // 1. 更新配置
+            await updateHomepage();
+            
+            // 2. 读取最新配置并注册设备
+            const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+            await registerCurrentDevice(rawConfig);
+            
+            // 3. 等待 DOM 更新
+            await tick();
+            
+            // 4. 若容器存在，恢复布局
+            const container = document.querySelector(".custom-content") as HTMLElement;
+            if (container && currentBlockForSettingsRef) {
+                await restoreLayout(plugin, currentBlockForSettingsRef);
+            }
+        } catch (error) {
+            console.error(`[Homepage] 安全刷新失败: ${reason}`, error);
+            // 不抛出错误，保留当前页面状态
+        } finally {
+            isRefreshingHomepage = false;
         }
     }
 
@@ -166,13 +228,139 @@
         await updateHomepage();
     }
 
-    onMount(async () => {
-        // 先加载配置
+    // 会员状态不可用时重新加载配置
+    async function handleAdvancedUnavailable() {
         await updateHomepage();
-        await tick();
+    }
 
-        // 监听会员验证成功事件
+    // 注册当前设备到同步配置（带同机匹配和去重）
+    async function registerCurrentDevice(config: any): Promise<void> {
+        if (!isDesktopDeviceProfileEnabled()) {
+            return;
+        }
+
+        const deviceInfo = getCurrentDeviceInfo();
+        if (!deviceInfo.deviceId) {
+            return;
+        }
+
+        let deviceProfiles = config.deviceProfiles || {};
+        let hasConfigChanged = false;
+        let hasWidgetLayoutChanged = false;
+        
+        // 先做一次去重清理
+        const { cleanedProfiles, deletedIds } = deduplicateDeviceProfiles(deviceProfiles);
+        if (deletedIds.length > 0) {
+            deviceProfiles = cleanedProfiles;
+            hasConfigChanged = true;
+            
+            // 同步清理 widgetLayout.json 中的重复 profiles
+            const widgetLayout = await plugin.loadData("widgetLayout.json");
+            if (widgetLayout?.profiles) {
+                for (const oldId of deletedIds) {
+                    if (widgetLayout.profiles[oldId]) {
+                        delete widgetLayout.profiles[oldId];
+                        hasWidgetLayoutChanged = true;
+                    }
+                }
+                if (hasWidgetLayoutChanged) {
+                    await plugin.saveData("widgetLayout.json", widgetLayout);
+                }
+            }
+        }
+        
+        // 先按当前 deviceId 查找
+        let existingProfile = deviceProfiles[deviceInfo.deviceId];
+        let oldDeviceId: string | null = null;
+        
+        // 如果没找到，尝试同机匹配（修复 localStorage 漂移）
+        if (!existingProfile) {
+            const matchedId = findExistingDeviceByHardware(deviceProfiles, deviceInfo);
+            if (matchedId) {
+                existingProfile = deviceProfiles[matchedId];
+                oldDeviceId = matchedId;
+                hasConfigChanged = true;
+            }
+        }
+        
+        if (existingProfile) {
+            // 检查设备信息字段是否需要更新
+            const needsUpdate = 
+                existingProfile.deviceName !== deviceInfo.deviceName ||
+                existingProfile.platform !== deviceInfo.platform ||
+                existingProfile.arch !== deviceInfo.arch ||
+                existingProfile.hostname !== deviceInfo.hostname;
+            
+            // 检查 lastSeenAt 是否需要更新（至少间隔 1 分钟才更新，避免频繁写盘）
+            const now = new Date();
+            const lastSeen = existingProfile.lastSeenAt ? new Date(existingProfile.lastSeenAt) : null;
+            const needsUpdateLastSeen = !lastSeen || (now.getTime() - lastSeen.getTime() > 60000);
+            
+            if (needsUpdate || oldDeviceId || needsUpdateLastSeen) {
+                // 更新设备信息（不含 layout，layout 已移到 widgetLayout.json）
+                const updatedProfile = updateDeviceProfile(existingProfile, deviceInfo);
+                deviceProfiles[deviceInfo.deviceId] = updatedProfile;
+                hasConfigChanged = true;
+                
+                // 如果发生了迁移，删除旧 key
+                if (oldDeviceId && oldDeviceId !== deviceInfo.deviceId) {
+                    delete deviceProfiles[oldDeviceId];
+                    
+                    // 同步迁移 widgetLayout.json 中的 profile
+                    const widgetLayout = await plugin.loadData("widgetLayout.json");
+                    if (widgetLayout?.profiles?.[oldDeviceId]) {
+                        widgetLayout.profiles[deviceInfo.deviceId] = widgetLayout.profiles[oldDeviceId];
+                        delete widgetLayout.profiles[oldDeviceId];
+                        await plugin.saveData("widgetLayout.json", widgetLayout);
+                    }
+                }
+            }
+        } else {
+            // 新设备：只保存设备信息，layout 从 widgetLayout.json 读取
+            deviceProfiles[deviceInfo.deviceId] = {
+                deviceId: deviceInfo.deviceId,
+                deviceName: deviceInfo.deviceName,
+                platform: deviceInfo.platform,
+                arch: deviceInfo.arch,
+                hostname: deviceInfo.hostname,
+                isMobile: deviceInfo.isMobile,
+                lastSeenAt: new Date().toISOString(),
+            };
+            hasConfigChanged = true;
+        }
+
+        // 只有真正有变化时才保存
+        if (hasConfigChanged) {
+            config.deviceProfiles = deviceProfiles;
+            await plugin.saveData("homepageSettingConfig.json", config);
+        } else {
+            return;
+        }
+    }
+
+    onMount(async () => {
+        // 先添加事件监听器，确保不会错过 VIP 状态变化事件
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
+        window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
+
+        // 首设备首次冷启动：初始化 widgetLayout.json 最小结构
+        const existingLayout = await plugin.loadData("widgetLayout.json");
+        if (!existingLayout) {
+            await plugin.saveData("widgetLayout.json", {
+                defaultOrder: [],
+                profiles: {},
+            });
+            console.info("[Homepage] 已初始化 widgetLayout.json");
+        }
+
+        // 加载配置
+        await updateHomepage();
+
+        // 注册当前设备到同步配置
+        const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+        await registerCurrentDevice(rawConfig);
+
+        await tick();
 
         // 页面加载完成后初始化拖拽
         if (document.readyState === "complete") {
@@ -182,14 +370,14 @@
         }
 
         // 初始化区块拖拽排序
-        const observer = new MutationObserver(async () => {
+        layoutObserver = new MutationObserver(async () => {
             const container = document.querySelector(
                 ".custom-content",
             ) as HTMLElement;
             if (container) {
-                observer.disconnect();
+                layoutObserver?.disconnect();
 
-                new Sortable(container, {
+                sortable = new Sortable(container, {
                     animation: 150,
                     ghostClass: "sortable-ghost",
                     handle: ".drag-handle",
@@ -202,7 +390,7 @@
             }
         });
 
-        observer.observe(document.body, { childList: true, subtree: true });
+        layoutObserver.observe(document.body, { childList: true, subtree: true });
 
         // 配置加载完成后初始化特效和事件监听
         reRegisterAllShortcuts(buttonsList);
@@ -210,6 +398,7 @@
         document.addEventListener("click", handleClickEffect);
         document.addEventListener("mousemove", handleMouseMoveTrail);
         document.addEventListener("visibilitychange", handleVisibilityChange);
+        window.addEventListener("focus", handleWindowFocus);
 
         // 启动飘落特效
         startFallingEffects();
@@ -223,41 +412,26 @@
             ClickEffectContent,
             MouseTrailEnabled,
         });
-
-        // 轮询检测高级功能状态变化
-        let pollCount = 0;
-        const maxPollCount = 20;
-        advancedPollInterval = setInterval(() => {
-            pollCount++;
-            if (getAdvancedEnabled()) {
-                startFallingEffects();
-                updateCursorStyle({
-                    advanced: true,
-                    mouseIcon,
-                    mouseGlobalEnabled,
-                    ClickEffectEnabled,
-                    ClickEffectContent,
-                    MouseTrailEnabled,
-                });
-                clearInterval(advancedPollInterval!);
-                advancedPollInterval = null;
-            } else if (pollCount >= maxPollCount) {
-                clearInterval(advancedPollInterval!);
-                advancedPollInterval = null;
-            }
-        }, 500);
     });
 
     onDestroy(() => {
-        if (advancedPollInterval) {
-            clearInterval(advancedPollInterval);
-            advancedPollInterval = null;
+        if (sortable) {
+            sortable.destroy();
+            sortable = null;
+        }
+        if (layoutObserver) {
+            layoutObserver.disconnect();
+            layoutObserver = null;
         }
         cleanupFallingEffects();
         window.removeEventListener("load", onWindowLoad);
         window.removeEventListener(
             "homepage-advanced-ready",
             handleAdvancedReady,
+        );
+        window.removeEventListener(
+            "homepage-advanced-unavailable",
+            handleAdvancedUnavailable,
         );
         document.removeEventListener("click", handleDocumentClick);
         document.removeEventListener("click", handleClickEffect);
@@ -266,6 +440,11 @@
             "visibilitychange",
             handleVisibilityChange,
         );
+        window.removeEventListener("focus", handleWindowFocus);
+        if (refreshDebounceTimer) {
+            clearTimeout(refreshDebounceTimer);
+            refreshDebounceTimer = null;
+        }
         unregisterAllShortcuts();
         cleanupMouseEffects();
     });
@@ -286,9 +465,10 @@
     async function updateHomepage() {
         const config = await loadHomepageConfig(plugin);
 
-        // 组件设置
-        widgetLayoutNumber = config.widgetLayoutNumber;
-        widgetGap = config.widgetGap;
+        // 组件设置 - 优先从 widgetLayout.json 读取（与组件顺序存储方式一致）
+        const layoutSettings = await loadWidgetLayoutSettings(plugin);
+        widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
+        widgetGap = layoutSettings.widgetGap;
 
         advanced = getAdvancedEnabled();
 

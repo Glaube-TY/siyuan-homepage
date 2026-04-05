@@ -180,16 +180,21 @@
         advancedEnabled = plugin.ADVANCED;
 
         // 裁剪城市名称
-        setInterval(() => {
+        const cityInterval = setInterval(() => {
             displayCity = truncateCityName(city);
         }, 1000);
 
         // 定时更新图标
-        setInterval(() => {
+        const iconInterval = setInterval(() => {
             const iconFile =
                 weatherIconMap[weather] || weatherIconMap["default"];
             weatherIconPath = `/plugins/siyuan-homepage/asset/Icon/${iconFile}`;
         }, 500);
+
+        return () => {
+            clearInterval(cityInterval);
+            clearInterval(iconInterval);
+        };
     });
 </script>
 

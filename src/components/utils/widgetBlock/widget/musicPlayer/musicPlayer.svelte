@@ -28,8 +28,16 @@
     let isPlaying = $state(false);
     let currentTime = $state(0);
     let duration = $state(0);
+    let progressInterval: ReturnType<typeof setInterval> | null = null;
 
     let advancedEnabled = $state(false);
+
+    function clearProgressInterval() {
+        if (progressInterval) {
+            clearInterval(progressInterval);
+            progressInterval = null;
+        }
+    }
 
     onMount(async () => {
         await loadMusicFiles();
@@ -61,6 +69,7 @@
 
     // 清理播放器
     function cleanup() {
+        clearProgressInterval();
         if (sound) {
             sound.stop();
             sound.unload();
@@ -132,12 +141,12 @@
             },
             onload() {
                 duration = sound?.duration() || 0;
-                const interval = setInterval(() => {
+                clearProgressInterval();
+                progressInterval = setInterval(() => {
                     if (sound && isPlaying) {
                         currentTime = sound.seek() as number;
                     }
                 }, 1000);
-                return () => clearInterval(interval);
             },
             onloaderror(error: any) {
                 console.error("加载音频失败:", error);

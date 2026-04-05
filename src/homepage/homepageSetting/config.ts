@@ -1,4 +1,5 @@
 import type { ButtonItem } from './types';
+import type { DeviceProfilesMap } from '../utils/deviceProfile';
 
 export interface HomepageSettingConfig {
     autoOpenHomepage: boolean;
@@ -39,6 +40,7 @@ export interface HomepageSettingConfig {
     FallingIcon: string;
     FallingDensity: string;
     FallingSpeed: string;
+    deviceProfiles?: DeviceProfilesMap;
 }
 
 export async function loadHomepageSettingConfig(plugin: any): Promise<HomepageSettingConfig | null> {

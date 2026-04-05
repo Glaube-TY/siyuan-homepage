@@ -11,9 +11,10 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const countdownTimerStyle =
-        parsedContent?.data?.countdownTimerStyle || "default";
+    let parsedContent = $derived(JSON.parse(contentTypeJson));
+    let countdownTimerStyle = $derived(
+        parsedContent?.data?.countdownTimerStyle || "default"
+    );
 
     let advancedEnabled = $state(false);
     let beforeCountdown = $state(false);
@@ -33,17 +34,17 @@
             {#if countdownTimerStyle === "default"}
                 <Default
                     {plugin}
-                    bind:hours
-                    bind:minutes
-                    bind:seconds
+                    hours={hours}
+                    minutes={minutes}
+                    seconds={seconds}
                     bind:beforeCountdown
                 ></Default>
             {:else if countdownTimerStyle === "ring1"}
                 <Ring1
                     {plugin}
-                    bind:hours
-                    bind:minutes
-                    bind:seconds
+                    hours={hours}
+                    minutes={minutes}
+                    seconds={seconds}
                     bind:beforeCountdown
                 ></Ring1>
             {/if}

@@ -1,11 +1,11 @@
-import { svelteDialog } from "../../../libs/dialog";
-import WidgetBlockStyle from "./sidebarStyleSetting.svelte";
-import WidgetBlockContent from "../widgetBlock/contentSetting.svelte";
-import { setBlockSize } from "../widgetBlock/utils/block-size-handler";
-import { saveLayout } from "../widgetBlock/utils/layout-handler";
+import { svelteDialog } from "../../libs/dialog";
+import WidgetBlockStyle from "./mobileStyleSetting.svelte";
+import WidgetBlockContent from "../../components/utils/widgetBlock/contentSetting.svelte";
+import { setBlockSize } from "../../components/utils/widgetBlock/utils/block-size-handler";
+import { saveLayout } from "../../components/utils/widgetBlock/utils/layout-handler";
 import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
 import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobileHomepage_layout";
-import { mountWidgetContent } from "../widgetBlock/widgetMountRegistry";
+import { mountWidgetContent } from "../../components/utils/widgetBlock/widgetMountRegistry";
 import { mount, unmount } from "svelte";
 
 export class WidgetBlock {

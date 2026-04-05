@@ -1,12 +1,17 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, mount } from "svelte";
     import * as advanced from "../../components/tools/advanced";
     import { showMessage } from "siyuan";
 
     import "./homepageSettingStyle/homepageSetting.scss"
     import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
     import { loadHomepageSettingConfig, saveHomepageSettingConfig } from "./config"
+    import type { HomepageSettingConfig } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
+    import { getLocalDeviceId, isDesktopDeviceProfileEnabled, getCurrentDeviceInfo, updateDeviceProfile, findExistingDeviceByHardware, deduplicateDeviceProfiles } from "../utils/deviceProfile"
+    import { loadWidgetLayoutSettings, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
+    import { svelteDialog } from "../../libs/dialog"
+    import HiddenWidgetsDialog from "./HiddenWidgetsDialog.svelte"
     import AboutSection from "./sections/AboutSection.svelte"
     import VipSection from "./sections/VipSection.svelte"
     import HomepageGlobalSection from "./sections/HomepageGlobalSection.svelte"
@@ -110,6 +115,10 @@
     let activationResult: any = $state();
     let advancedEnabled = $state(false);
 
+    // 设备管理
+    let currentDeviceInfo = $state<ReturnType<typeof getCurrentDeviceInfo> | null>(null);
+    let deviceProfiles = $state<Record<string, any>>({});
+
     let stylesSettingsState = $derived<StylesSettingsState>({
         footerEnabled,
         footerContent,
@@ -178,9 +187,10 @@
                 selectedButton = savedConfig.selectedButton;
             }
 
-            // 组件设置
-            widgetLayoutNumber = savedConfig.widgetLayoutNumber || 4;
-            widgetGap = savedConfig.widgetGap || 0.2;
+            // 组件设置 - 从 widgetLayout.json 读取（与组件顺序存储方式一致）
+            const layoutSettings = await loadWidgetLayoutSettings(plugin);
+            widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
+            widgetGap = layoutSettings.widgetGap;
 
             quickNotesEnabled = savedConfig.quickNotesEnabled ?? false;
             quickNotesPosition = savedConfig.quickNotesPosition || "";
@@ -204,6 +214,84 @@
             FallingIcon = savedConfig.FallingIcon || "snow";
             FallingDensity = savedConfig.FallingDensity || "medium";
             FallingSpeed = savedConfig.FallingSpeed || "medium";
+
+            // 设备管理 - 登记当前设备并加载所有设备（带同机匹配和去重）
+            currentDeviceInfo = getCurrentDeviceInfo();
+            let loadedDeviceProfiles = savedConfig.deviceProfiles || {};
+            
+            // 先做一次去重清理
+            const { cleanedProfiles, deletedIds } = deduplicateDeviceProfiles(loadedDeviceProfiles);
+            if (deletedIds.length > 0) {
+                loadedDeviceProfiles = cleanedProfiles;
+                
+                // 同步清理 widgetLayout.json 中的重复 profiles
+                const widgetLayout = await plugin.loadData("widgetLayout.json");
+                if (widgetLayout?.profiles) {
+                    for (const oldId of deletedIds) {
+                        delete widgetLayout.profiles[oldId];
+                    }
+                    await plugin.saveData("widgetLayout.json", widgetLayout);
+                }
+            }
+            
+            // 桌面端：登记当前设备
+            if (isDesktopDeviceProfileEnabled() && currentDeviceInfo.deviceId) {
+                // 先按当前 deviceId 查找
+                let existingProfile = loadedDeviceProfiles[currentDeviceInfo.deviceId];
+                let oldDeviceId: string | null = null;
+                
+                // 如果没找到，尝试同机匹配（修复 localStorage 漂移）
+                if (!existingProfile) {
+                    const matchedId = findExistingDeviceByHardware(loadedDeviceProfiles, currentDeviceInfo);
+                    if (matchedId) {
+                        existingProfile = loadedDeviceProfiles[matchedId];
+                        oldDeviceId = matchedId;
+                    }
+                }
+                
+                if (existingProfile) {
+                    // 更新现有 profile 的设备信息，保留 layout
+                    loadedDeviceProfiles[currentDeviceInfo.deviceId] = {
+                        ...existingProfile,
+                        deviceName: currentDeviceInfo.deviceName,
+                        platform: currentDeviceInfo.platform,
+                        arch: currentDeviceInfo.arch,
+                        hostname: currentDeviceInfo.hostname,
+                        isMobile: currentDeviceInfo.isMobile,
+                        lastSeenAt: new Date().toISOString(),
+                    };
+                    
+                    // 如果发生了迁移，删除旧 key
+                    if (oldDeviceId && oldDeviceId !== currentDeviceInfo.deviceId) {
+                        delete loadedDeviceProfiles[oldDeviceId];
+                        
+                        // 同步迁移 widgetLayout.json 中的 profile
+                        const widgetLayout = await plugin.loadData("widgetLayout.json");
+                        if (widgetLayout?.profiles?.[oldDeviceId]) {
+                            widgetLayout.profiles[currentDeviceInfo.deviceId] = widgetLayout.profiles[oldDeviceId];
+                            delete widgetLayout.profiles[oldDeviceId];
+                            await plugin.saveData("widgetLayout.json", widgetLayout);
+                        }
+                    }
+                } else {
+                    // 创建新 profile（不含 layout，layout 已移到 widgetLayout.json）
+                    loadedDeviceProfiles[currentDeviceInfo.deviceId] = {
+                        deviceId: currentDeviceInfo.deviceId,
+                        deviceName: currentDeviceInfo.deviceName,
+                        platform: currentDeviceInfo.platform,
+                        arch: currentDeviceInfo.arch,
+                        hostname: currentDeviceInfo.hostname,
+                        isMobile: currentDeviceInfo.isMobile,
+                        lastSeenAt: new Date().toISOString(),
+                    };
+                }
+                // 保存回配置
+                savedConfig.deviceProfiles = loadedDeviceProfiles;
+                await saveHomepageSettingConfig(plugin, savedConfig);
+            }
+            
+            // 更新页面状态
+            deviceProfiles = { ...loadedDeviceProfiles };
         }
 
         // 同步到临时变量
@@ -260,7 +348,7 @@
 
     function deleteCustomButton() {
         if (selectedButton) {
-            if (isCoreButton(selectedButton.label)) {
+            if (isCoreButton(selectedButton)) {
                 return;
             }
             buttonsList = deleteButton(buttonsList, selectedButton.id);
@@ -356,6 +444,34 @@
 
     // 保存配置并关闭对话框
     async function confirmSave() {
+        const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
+        const deviceProfiles = existingConfig.deviceProfiles || {};
+
+        // 桌面端：登记当前设备信息（不含 layout，layout 已移到 widgetLayout.json）
+        if (isDesktopDeviceProfileEnabled()) {
+            const deviceId = getLocalDeviceId();
+            if (deviceId) {
+                const deviceInfo = getCurrentDeviceInfo();
+                const existingProfile = deviceProfiles[deviceId];
+                if (existingProfile) {
+                    deviceProfiles[deviceId] = updateDeviceProfile(existingProfile, deviceInfo);
+                } else {
+                    deviceProfiles[deviceId] = {
+                        deviceId: deviceInfo.deviceId,
+                        deviceName: deviceInfo.deviceName,
+                        platform: deviceInfo.platform,
+                        arch: deviceInfo.arch,
+                        hostname: deviceInfo.hostname,
+                        isMobile: deviceInfo.isMobile,
+                        lastSeenAt: new Date().toISOString(),
+                    };
+                }
+            }
+        }
+
+        // 保存布局设置到 widgetLayout.json（与组件顺序存储方式一致）
+        await saveWidgetLayoutSettings(plugin, { widgetLayoutNumber, widgetGap });
+
         const config = {
             // 全局配置
             autoOpenHomepage: tempAutoOpenHomepage,
@@ -391,7 +507,8 @@
             })),
             selectedButton: selectedButton,
 
-            // 组件配置
+            // 组件配置 - widgetLayoutNumber/widgetGap 已移到 widgetLayout.json
+            // 这里保留移动端的全局值，桌面端不再使用
             widgetLayoutNumber: widgetLayoutNumber,
             widgetGap: widgetGap,
             quickNotesEnabled: quickNotesEnabled,
@@ -415,6 +532,9 @@
             FallingIcon: FallingIcon,
             FallingDensity: FallingDensity,
             FallingSpeed: FallingSpeed,
+
+            // 设备 profiles
+            deviceProfiles: deviceProfiles,
         };
 
         await saveHomepageSettingConfig(plugin, config);
@@ -429,6 +549,62 @@
         if (close) {
             close();
         }
+    }
+
+    // 移除设备配置（带确认）
+    async function removeDeviceProfile(deviceIdToRemove: string) {
+        const isCurrentDevice = deviceIdToRemove === getLocalDeviceId();
+        if (isCurrentDevice) {
+            showMessage("当前设备不可移除");
+            return;
+        }
+
+        // 确认对话框
+        const confirmed = confirm(
+            "确定要移除该设备配置吗？\n\n" +
+            "只会移除该设备的布局配置，不会删除组件内容文件。\n\n" +
+            `设备: ${deviceIdToRemove.slice(0, 8)}...`
+        );
+        if (!confirmed) return;
+
+        // 从 homepageSettingConfig 中删除
+        const savedConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
+        const profiles = savedConfig.deviceProfiles || {};
+        delete profiles[deviceIdToRemove];
+        savedConfig.deviceProfiles = profiles;
+        await saveHomepageSettingConfig(plugin, savedConfig);
+
+        // 从 widgetLayout.json 中删除
+        const widgetLayout = await plugin.loadData("widgetLayout.json");
+        if (widgetLayout?.profiles && widgetLayout.profiles[deviceIdToRemove]) {
+            delete widgetLayout.profiles[deviceIdToRemove];
+            await plugin.saveData("widgetLayout.json", widgetLayout);
+        }
+
+        // 更新本地状态
+        deviceProfiles = profiles;
+
+        showMessage(`已移除设备配置: ${deviceIdToRemove.slice(0, 8)}...`);
+    }
+
+    // 打开隐藏组件管理弹窗
+    function openHiddenWidgetsDialog() {
+        svelteDialog({
+            title: "管理隐藏组件",
+            width: "960px",
+            height: "70vh",
+            constructor: (containerEl: HTMLElement) => {
+                return mount(HiddenWidgetsDialog, {
+                    target: containerEl,
+                    props: {
+                        plugin: plugin,
+                        close: () => {
+                            // 弹窗关闭时会自动处理
+                        },
+                    },
+                });
+            },
+        });
     }
 </script>
 
@@ -518,6 +694,108 @@
                         state={stylesSettingsState}
                         actions={stylesSettingsActions}
                     />
+                {/if}
+
+                {#if settingsActiveTab === "devices"}
+                    <div class="devices-section">
+                        <h3>设备配置管理</h3>
+                        
+                        <div class="current-device">
+                            <div class="current-device-header">
+                                <h4>当前设备</h4>
+                                <button
+                                    class="manage-hidden-btn"
+                                    onclick={openHiddenWidgetsDialog}
+                                    title="查看并恢复当前设备已隐藏的组件"
+                                >
+                                    管理隐藏组件
+                                </button>
+                            </div>
+                            {#if currentDeviceInfo}
+                                <div class="device-info-card current">
+                                    <div class="device-info-row">
+                                        <span class="label">设备名称:</span>
+                                        <span class="value">{currentDeviceInfo.deviceName}</span>
+                                    </div>
+                                    <div class="device-info-row">
+                                        <span class="label">设备 ID:</span>
+                                        <span class="value device-id">{currentDeviceInfo.deviceId}</span>
+                                    </div>
+                                    <div class="device-info-row">
+                                        <span class="label">平台:</span>
+                                        <span class="value">{currentDeviceInfo.platform}</span>
+                                    </div>
+                                    <div class="device-info-row">
+                                        <span class="label">架构:</span>
+                                        <span class="value">{currentDeviceInfo.arch}</span>
+                                    </div>
+                                    <div class="device-info-row">
+                                        <span class="label">主机名:</span>
+                                        <span class="value">{currentDeviceInfo.hostname}</span>
+                                    </div>
+                                </div>
+                            {:else}
+                                <p class="no-device">无法获取当前设备信息</p>
+                            {/if}
+                        </div>
+
+                        <div class="all-devices">
+                            <h4>已登记设备 ({Object.keys(deviceProfiles).length})</h4>
+                            {#if Object.keys(deviceProfiles).length > 0}
+                                {@const sortedDevices = [...Object.entries(deviceProfiles)].sort((a, b) => {
+                                    const [idA] = a;
+                                    const [idB] = b;
+                                    if (idA === currentDeviceInfo?.deviceId) return -1;
+                                    if (idB === currentDeviceInfo?.deviceId) return 1;
+                                    const timeA = a[1].lastSeenAt ? new Date(a[1].lastSeenAt).getTime() : 0;
+                                    const timeB = b[1].lastSeenAt ? new Date(b[1].lastSeenAt).getTime() : 0;
+                                    return timeB - timeA;
+                                })}
+                                <div class="device-list">
+                                    {#each sortedDevices as [id, profile]}
+                                        <div class="device-info-card" class:current-device-card={id === currentDeviceInfo?.deviceId}>
+                                            <div class="device-info-row">
+                                                <span class="label">设备名称:</span>
+                                                <span class="value">{profile.deviceName || '未知'}</span>
+                                            </div>
+                                            <div class="device-info-row">
+                                                <span class="label">设备 ID:</span>
+                                                <span class="value device-id">{id}</span>
+                                            </div>
+                                            <div class="device-info-row">
+                                                <span class="label">平台:</span>
+                                                <span class="value">{profile.platform || '未知'}</span>
+                                            </div>
+                                            <div class="device-info-row">
+                                                <span class="label">架构:</span>
+                                                <span class="value">{profile.arch || '未知'}</span>
+                                            </div>
+                                            <div class="device-info-row">
+                                                <span class="label">主机名:</span>
+                                                <span class="value">{profile.hostname || '未知'}</span>
+                                            </div>
+                                            <div class="device-info-row">
+                                                <span class="label">最后活跃:</span>
+                                                <span class="value">{profile.lastSeenAt ? new Date(profile.lastSeenAt).toLocaleString() : '未知'}</span>
+                                            </div>
+                                            {#if id === currentDeviceInfo?.deviceId}
+                                                <div class="current-badge">当前设备</div>
+                                            {:else}
+                                                <button
+                                                    class="remove-device-btn"
+                                                    onclick={() => removeDeviceProfile(id)}
+                                                >
+                                                    移除配置
+                                                </button>
+                                            {/if}
+                                        </div>
+                                    {/each}
+                                </div>
+                            {:else}
+                                <p class="no-devices">暂无已登记的设备配置</p>
+                            {/if}
+                        </div>
+                    </div>
                 {/if}
             </div>
             <!-- 操作按钮 -->

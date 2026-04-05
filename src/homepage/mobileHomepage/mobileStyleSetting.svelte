@@ -2,15 +2,8 @@
     import { onMount } from "svelte";
     import { saveLayout } from "@/components/utils/widgetBlock/utils/layout-handler";
     import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
-    import { saveLayout as saveMobileLayout } from "@/components/utils/mobileHomepage/mobileHomepage_layout";
+    import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobileHomepage_layout";
 
-    
-
-    
-
-    
-
-    
     interface Props {
         // 弹窗接收的 props
         plugin: any;
@@ -158,6 +151,7 @@
                 <button
                     type="button"
                     class="size-option"
+                    aria-label="设置为 1x1 尺寸"
                     onclick={() => {
                         onSetSize(11);
                         saveLayout(plugin);
@@ -200,6 +194,7 @@
                 <button
                     type="button"
                     class="size-option"
+                    aria-label="设置为 1x2 尺寸"
                     onclick={() => {
                         onSetSize(12);
                         saveLayout(plugin);
@@ -242,6 +237,7 @@
                 <button
                     type="button"
                     class="size-option"
+                    aria-label="设置为 2x1 尺寸"
                     onclick={() => {
                         onSetSize(21);
                         saveLayout(plugin);
@@ -284,6 +280,7 @@
                 <button
                     type="button"
                     class="size-option"
+                    aria-label="设置为 2x2 尺寸"
                     onclick={() => {
                         onSetSize(22);
                         saveLayout(plugin);
@@ -326,6 +323,7 @@
                 <button
                     type="button"
                     class="size-option"
+                    aria-label="设置为 3x1 尺寸"
                     onclick={() => {
                         onSetSize(31);
                         saveLayout(plugin);
@@ -408,6 +406,7 @@
                 <button
                     type="button"
                     class="size-option"
+                    aria-label="设置为 3x2 尺寸"
                     onclick={() => {
                         onSetSize(32);
                         saveLayout(plugin);
@@ -490,6 +489,7 @@
                 <button
                     type="button"
                     class="size-option"
+                    aria-label="设置为 4x1 尺寸"
                     onclick={() => {
                         onSetSize(41);
                         saveLayout(plugin);
@@ -622,6 +622,7 @@
                 <button
                     type="button"
                     class="size-option"
+                    aria-label="设置为 4x2 尺寸"
                     onclick={() => {
                         onSetSize(42);
                         saveLayout(plugin);
