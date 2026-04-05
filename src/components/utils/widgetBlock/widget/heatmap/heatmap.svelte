@@ -4,8 +4,12 @@
     import { sql } from "@/api";
     import { showMessage } from "siyuan";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
     const parsedContent = JSON.parse(contentTypeJson);
 
     const heatmapTitle = parsedContent?.data?.heatmapTitle || "";

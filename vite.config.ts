@@ -2,7 +2,7 @@ import { resolve } from "path"
 import { defineConfig, loadEnv } from "vite"
 import { viteStaticCopy } from "vite-plugin-static-copy"
 import livereload from "rollup-plugin-livereload"
-import { svelte } from "@sveltejs/vite-plugin-svelte"
+import { svelte, vitePreprocess } from "@sveltejs/vite-plugin-svelte"
 import zipPack from "vite-plugin-zip-pack";
 import fg from 'fast-glob';
 
@@ -26,7 +26,9 @@ export default defineConfig({
     },
 
     plugins: [
-        svelte(),
+        svelte({
+            preprocess: vitePreprocess()
+        }),
 
         vitePluginYamlI18n({
             inDir: 'public/i18n',
@@ -35,11 +37,11 @@ export default defineConfig({
 
         viteStaticCopy({
             targets: [
-                { src: "./asset/*", dest: "./asset/" },
-                { src: "./README*.md", dest: "./" },
-                { src: "./plugin.json", dest: "./" },
-                { src: "./preview.png", dest: "./" },
-                { src: "./icon.png", dest: "./" }
+                { src: "asset", dest: "." },
+                { src: "README*.md", dest: "." },
+                { src: "plugin.json", dest: "." },
+                { src: "preview.png", dest: "." },
+                { src: "icon.png", dest: "." }
             ],
         }),
 
@@ -98,9 +100,9 @@ export default defineConfig({
                 entryFileNames: "[name].js",
                 assetFileNames: (assetInfo) => {
                     if (assetInfo.name === "style.css") {
-                        return "index.css"
+                        return "index.css";
                     }
-                    return assetInfo.name
+                    return assetInfo.name ?? "[name]-[hash][extname]";
                 },
             },
         },

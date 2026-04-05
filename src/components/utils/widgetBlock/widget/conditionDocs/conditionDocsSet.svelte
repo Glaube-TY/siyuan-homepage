@@ -1,14 +1,29 @@
 <script lang="ts">
-    export let conditionDocsTitle: string = "📄子文档";
-    export let conditionDocsPrefix: string = "📄";
-    export let showConditionDocsDetails: boolean = true;
-    export let conditionDocsCondition: string = "keyword";
-    export let conditionDocsKeyPosition: string = "anywhere";
-    export let conditionDocsKeyWord: string = "";
-    export let conditionDocsSortOrder: string = "updated";
-    export let showConditionDocsFloatDoc: boolean = true;
-    export let conditionDocsFloatDocShowTime: number = 0.1;
-    export let conditionDocsTag: string = "";
+    interface Props {
+        conditionDocsTitle?: string;
+        conditionDocsPrefix?: string;
+        showConditionDocsDetails?: boolean;
+        conditionDocsCondition?: string;
+        conditionDocsKeyPosition?: string;
+        conditionDocsKeyWord?: string;
+        conditionDocsSortOrder?: string;
+        showConditionDocsFloatDoc?: boolean;
+        conditionDocsFloatDocShowTime?: number;
+        conditionDocsTag?: string;
+    }
+
+    let {
+        conditionDocsTitle = $bindable("📄子文档"),
+        conditionDocsPrefix = $bindable("📄"),
+        showConditionDocsDetails = $bindable(true),
+        conditionDocsCondition = $bindable("keyword"),
+        conditionDocsKeyPosition = $bindable("anywhere"),
+        conditionDocsKeyWord = $bindable(""),
+        conditionDocsSortOrder = $bindable("updated"),
+        showConditionDocsFloatDoc = $bindable(true),
+        conditionDocsFloatDocShowTime = $bindable(0.1),
+        conditionDocsTag = $bindable("")
+    }: Props = $props();
 </script>
 
 <div class="content-display">

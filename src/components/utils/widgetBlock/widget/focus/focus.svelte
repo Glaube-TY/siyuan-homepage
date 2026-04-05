@@ -1,48 +1,56 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import { getImage } from "@/components/tools/getImage";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     let contentTypeJsonObj: any;
     let startTime = 0;
     let duration = 0;
     let endTimeout: any;
-    let isRunning = false;
-    let isBreak = false;
-    let timeLeft: number;
-    let timer: any;
-    let totalFocusTime = 0;
-    let totalFocusTimes = 0;
+    let isRunning = $state(false);
+    let isBreak = $state(false);
+    let timeLeft: number = $state();
+    let timer: any = $state();
+    let totalFocusTime = $state(0);
+    let totalFocusTimes = $state(0);
     let focusBgImage =
-        "https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464");
     let breakBgImage =
-        "https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d"; // 默认休息图
-    let focusLocalImage = "";
-    let breakLocalImage = "";
-    let focusImageType = "remote";
-    let breakImageType = "remote";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d"); // 默认休息图
+    let focusLocalImage = $state("");
+    let breakLocalImage = $state("");
+    let focusImageType = $state("remote");
+    let breakImageType = $state("remote");
 
-    let showSettings = false;
-    let localFocusDuration = 25;
-    let localBreakDuration = 5;
-    let selectedTimerStyle = "classic";
-    let timerFontSize = 3;
-    let showFocusInfo = false;
-    let showSyNotif = true;
+    let showSettings = $state(false);
+    let localFocusDuration = $state(25);
+    let localBreakDuration = $state(5);
+    let selectedTimerStyle = $state("classic");
+    let timerFontSize = $state(3);
+    let showFocusInfo = $state(false);
+    let showSyNotif = $state(true);
 
-    let circumference = Math.PI * 2 * 65;
-    $: baseSize = timerFontSize * 40;
-    $: strokeWidth = timerFontSize * 2;
-    $: radius = baseSize / 2 - strokeWidth;
-    $: circumference = 2 * Math.PI * radius;
-    $: progressOffset =
-        circumference -
+    let circumference = $state(Math.PI * 2 * 65);
+    let baseSize = $derived(timerFontSize * 40);
+    let strokeWidth = $derived(timerFontSize * 2);
+    let radius = $derived(baseSize / 2 - strokeWidth);
+    run(() => {
+        circumference = 2 * Math.PI * radius;
+    });
+    let progressOffset =
+        $derived(circumference -
         (timeLeft /
             (isBreak ? localBreakDuration * 60 : localFocusDuration * 60)) *
-            circumference;
+            circumference);
 
     onMount(async () => {
         contentTypeJsonObj = JSON.parse(contentTypeJson);
@@ -353,8 +361,8 @@
                 </p>
             </div>
             <div class="modal-actions">
-                <button on:click={saveConfig}>保存</button>
-                <button on:click={() => (showSettings = false)}>取消</button>
+                <button onclick={saveConfig}>保存</button>
+                <button onclick={() => (showSettings = false)}>取消</button>
             </div>
         </div>
     {:else}
@@ -429,14 +437,14 @@
                     <div class="timer-controls">
                         <button
                             title="开始"
-                            on:click={startTimer}
+                            onclick={startTimer}
                             disabled={isRunning}
                         >
                             <i class="fas fa-play"></i>
                         </button>
                         <button
                             title="暂停"
-                            on:click={() => {
+                            onclick={() => {
                                 clearInterval(timer);
                                 isRunning = false;
                             }}
@@ -445,7 +453,7 @@
                         </button>
                         <button
                             title="停止"
-                            on:click={() => {
+                            onclick={() => {
                                 clearInterval(timer);
                                 isRunning = false;
                                 resetTimer("focus");
@@ -455,7 +463,7 @@
                         </button>
                         <button
                             title="设置"
-                            on:click={() => {
+                            onclick={() => {
                                 showSettings = true;
                                 resetTimer(isBreak ? "break" : "focus");
                             }}

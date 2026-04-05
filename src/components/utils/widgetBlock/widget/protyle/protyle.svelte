@@ -3,13 +3,17 @@
     import { Protyle } from "siyuan";
     import { sql } from "@/api";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
     const parsed = JSON.parse(contentTypeJson);
     let blockID = parsed.data?.[0]?.customBlockId;
     const isRandomDoc = parsed.data?.[0]?.isRandomDoc;
 
-    let divProtyle: HTMLDivElement;
+    let divProtyle: HTMLDivElement = $state();
     let protyle: any;
 
     onMount(async () => {
@@ -36,7 +40,7 @@
 </script>
 
 <div class="content-display">
-    <div id="protyle" bind:this={divProtyle} />
+    <div id="protyle" bind:this={divProtyle}></div>
 </div>
 
 <style>

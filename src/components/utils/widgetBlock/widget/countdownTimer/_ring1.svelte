@@ -1,35 +1,49 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import { onMount, onDestroy } from "svelte";
 
-    export let plugin: any;
-    export let hours: number = 0;
-    export let minutes: number = 0;
-    export let seconds: number = 0;
-    export let beforeCountdown: boolean;
+    interface Props {
+        plugin: any;
+        hours?: number;
+        minutes?: number;
+        seconds?: number;
+        beforeCountdown: boolean;
+    }
 
-    let advancedEnabled = false;
-    let timeRemaining: number; // 剩余时间（秒）
-    let isRunning: boolean = false;
-    let isPaused: boolean = false;
+    let {
+        plugin,
+        hours = 0,
+        minutes = 0,
+        seconds = 0,
+        beforeCountdown = $bindable()
+    }: Props = $props();
+
+    let advancedEnabled = $state(false);
+    let timeRemaining: number = $state(); // 剩余时间（秒）
+    let isRunning: boolean = $state(false);
+    let isPaused: boolean = $state(false);
     let interval: number | null = null;
 
     // 计算总秒数
-    $: totalSeconds = hours * 3600 + minutes * 60 + seconds;
-    $: timeRemaining = totalSeconds;
+    let totalSeconds = $derived(hours * 3600 + minutes * 60 + seconds);
+    run(() => {
+        timeRemaining = totalSeconds;
+    });
 
     // 格式化显示时间
-    $: displayHours = Math.floor(timeRemaining / 3600);
-    $: displayMinutes = Math.floor((timeRemaining % 3600) / 60);
-    $: displaySeconds = timeRemaining % 60;
+    let displayHours = $derived(Math.floor(timeRemaining / 3600));
+    let displayMinutes = $derived(Math.floor((timeRemaining % 3600) / 60));
+    let displaySeconds = $derived(timeRemaining % 60);
 
     // 环形进度计算 - 反向逻辑：从满到空
-    $: radius = 47; // 与SVG中的半径保持一致
-    $: circumference = 2 * Math.PI * radius;
+     // 与SVG中的半径保持一致
+    let circumference = $derived(2 * Math.PI * radius);
     // 反向进度：从1(满)到0(空)，基于剩余时间比例
-    $: remainingProgress = totalSeconds > 0 ? timeRemaining / totalSeconds : 0;
+    let remainingProgress = $derived(totalSeconds > 0 ? timeRemaining / totalSeconds : 0);
     // 确保进度值在0-1之间
-    $: clampedProgress = Math.max(0, Math.min(1, remainingProgress));
-    $: progressOffset = circumference * (1 - clampedProgress);
+    let clampedProgress = $derived(Math.max(0, Math.min(1, remainingProgress)));
+    let progressOffset = $derived(circumference * (1 - clampedProgress));
 
     // 格式化时间文本
     function formatTimeText(): string {
@@ -161,11 +175,11 @@
             <!-- 暂停/继续按钮 -->
             <g
                 class="control-button pause-button"
-                on:click={togglePause}
+                onclick={togglePause}
                 role="button"
                 tabindex={isRunning ? 0 : -1}
                 aria-label={isPaused ? "继续倒计时" : "暂停倒计时"}
-                on:keydown={(e) => {
+                onkeydown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         togglePause();
@@ -211,11 +225,11 @@
             <!-- 停止按钮 -->
             <g
                 class="control-button stop-button"
-                on:click={stopCountdown}
+                onclick={stopCountdown}
                 role="button"
                 tabindex="0"
                 aria-label="停止倒计时"
-                on:keydown={(e) => {
+                onkeydown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         stopCountdown();

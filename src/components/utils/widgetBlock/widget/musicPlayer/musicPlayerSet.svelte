@@ -1,9 +1,13 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
 
-    export let advancedEnabled: boolean;
-    export let musicFolderPath: string = "";
-    export let autoPlay: boolean = false;
+    interface Props {
+        advancedEnabled: boolean;
+        musicFolderPath?: string;
+        autoPlay?: boolean;
+    }
+
+    let { advancedEnabled, musicFolderPath = $bindable(""), autoPlay = $bindable(false) }: Props = $props();
 
     // 选择音乐文件夹
     async function selectMusicFolder() {
@@ -38,7 +42,7 @@
                     bind:value={musicFolderPath}
                     placeholder="请选择音乐文件夹"
                 />
-                <button title="选择音乐文件夹" on:click={selectMusicFolder}
+                <button title="选择音乐文件夹" onclick={selectMusicFolder}
                     >📁</button
                 >
             </label>

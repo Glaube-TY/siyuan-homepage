@@ -2,16 +2,20 @@
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const historyDaysType = parsedContent.data?.historyDaysType || "list";
 
-    let historyDaysList: any[] = [];
-    let historyDaysImage: string = "";
+    let historyDaysList: any[] = $state([]);
+    let historyDaysImage: string = $state("");
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;

@@ -1,13 +1,17 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let plugin: any;
-    export let advancedEnabled: boolean = false;
-    export let CMKnockSound: string = "普通";
+    interface Props {
+        plugin: any;
+        advancedEnabled?: boolean;
+        CMKnockSound?: string;
+    }
+
+    let { plugin, advancedEnabled = false, CMKnockSound = $bindable("普通") }: Props = $props();
 
     let CYBMOKData: any = {};
-    let totalMerit: number = 0;
-    let maxMeritDate: any = {};
+    let totalMerit: number = $state(0);
+    let maxMeritDate: any = $state({});
 
     onMount(async () => {
         CYBMOKData = await plugin.loadData("CYBMOKData.json");

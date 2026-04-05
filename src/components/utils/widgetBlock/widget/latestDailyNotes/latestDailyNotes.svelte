@@ -12,8 +12,12 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsed = JSON.parse(contentTypeJson);
     const limit = parsed.data?.limit || 5;
@@ -32,12 +36,12 @@
     let dailyNotes: DailyNoteInfo[] = [];
 
     // 最终显示的笔记
-    let displayedDocs: DailyNoteInfo[] = [];
+    let displayedDocs: DailyNoteInfo[] = $state([]);
 
-    let currentDate: Date = new Date();
+    let currentDate: Date = $state(new Date());
     
     // 悬浮窗定时器（列表模式）
-    let listFloatDocTimeout: number | null = null;
+    let listFloatDocTimeout: number | null = $state(null);
     // 悬浮窗定时器（日历模式）
     let calendarFloatDocTimeout: number | null = null;
 
@@ -383,18 +387,18 @@
                     <li class="document-item">
                         <div
                             class="document-item-content"
-                            on:click={() => {
+                            onclick={() => {
                                 if (recentJournalsShowType === "calendar" && !plugin.isMobile) {
                                     hideImmediately();
                                 }
                                 openDocs(plugin, doc.id);
                             }}
-                            on:keydown={(e) => {
+                            onkeydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                     openDocs(plugin, doc.id);
                                 }
                             }}
-                            on:mouseenter={(e) => {
+                            onmouseenter={(e) => {
                             if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
                                 // 清除之前的定时器
                                 if (listFloatDocTimeout) {
@@ -407,7 +411,7 @@
                                 }, latestDailyNotesFloatDocShowTime * 1000);
                             }
                         }}
-                        on:mouseleave={() => {
+                        onmouseleave={() => {
                             if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
                                 // 清除悬浮窗显示定时器
                                 if (listFloatDocTimeout) {
@@ -436,7 +440,7 @@
             <button
                 class="nav-button prev"
                 title="上一个月"
-                on:click={goToPreviousMonth}
+                onclick={goToPreviousMonth}
             >
                 <i class="fas fa-chevron-left"></i>
             </button>
@@ -444,7 +448,7 @@
             <button
                 class="nav-button next"
                 title="下一个月"
-                on:click={goToNextMonth}
+                onclick={goToNextMonth}
             >
                 <i class="fas fa-chevron-right"></i>
             </button>

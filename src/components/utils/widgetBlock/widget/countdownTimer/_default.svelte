@@ -1,26 +1,40 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import { onMount, onDestroy } from "svelte";
 
-    export let plugin: any;
-    export let hours: number = 0;
-    export let minutes: number = 0;
-    export let seconds: number = 0;
-    export let beforeCountdown: boolean;
+    interface Props {
+        plugin: any;
+        hours?: number;
+        minutes?: number;
+        seconds?: number;
+        beforeCountdown: boolean;
+    }
 
-    let advancedEnabled = false;
-    let timeRemaining: number; // 剩余时间（秒）
-    let isRunning: boolean = false;
-    let isPaused: boolean = false;
+    let {
+        plugin,
+        hours = 0,
+        minutes = 0,
+        seconds = 0,
+        beforeCountdown = $bindable()
+    }: Props = $props();
+
+    let advancedEnabled = $state(false);
+    let timeRemaining: number = $state(); // 剩余时间（秒）
+    let isRunning: boolean = $state(false);
+    let isPaused: boolean = $state(false);
     let interval: number | null = null;
 
     // 计算总秒数
-    $: totalSeconds = hours * 3600 + minutes * 60 + seconds;
-    $: timeRemaining = totalSeconds;
+    let totalSeconds = $derived(hours * 3600 + minutes * 60 + seconds);
+    run(() => {
+        timeRemaining = totalSeconds;
+    });
 
     // 格式化显示时间
-    $: displayHours = Math.floor(timeRemaining / 3600);
-    $: displayMinutes = Math.floor((timeRemaining % 3600) / 60);
-    $: displaySeconds = timeRemaining % 60;
+    let displayHours = $derived(Math.floor(timeRemaining / 3600));
+    let displayMinutes = $derived(Math.floor((timeRemaining % 3600) / 60));
+    let displaySeconds = $derived(timeRemaining % 60);
 
     // 开始倒计时
     function startCountdown() {
@@ -98,12 +112,12 @@
         <div class="countdown-controls">
             <button
                 class="control-button pause-button"
-                on:click={togglePause}
+                onclick={togglePause}
                 disabled={!isRunning}
             >
                 <i class="fas {isPaused ? 'fa-play' : 'fa-pause'}"></i>
             </button>
-            <button class="control-button stop-button" on:click={stopCountdown}>
+            <button class="control-button stop-button" onclick={stopCountdown}>
                 <i class="fas fa-stop"></i>
             </button>
         </div>

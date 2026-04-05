@@ -14,11 +14,15 @@
     import Dial8 from "./_dial8.svelte";
     import Dial9 from "./_dial9.svelte";
 
-    export let contentTypeJson: string = "{}";
-    export let plugin: any;
+    interface Props {
+        contentTypeJson?: string;
+        plugin: any;
+    }
+
+    let { contentTypeJson = "{}", plugin }: Props = $props();
 
     // 时钟组件相关变量
-    let timeType: string = "classic";
+    let timeType: string = $state("classic");
 
     onMount(() => {
         if (contentTypeJson) {

@@ -1,8 +1,17 @@
 <script lang="ts">
-    export let sqlTitle: string;
-    export let sqlInput: string;
-    export let columnOrder: string;
-    export let hiddenFields: string;
+    interface Props {
+        sqlTitle: string;
+        sqlInput: string;
+        columnOrder: string;
+        hiddenFields: string;
+    }
+
+    let {
+        sqlTitle = $bindable(),
+        sqlInput = $bindable(),
+        columnOrder = $bindable(),
+        hiddenFields = $bindable()
+    }: Props = $props();
 </script>
 
 <div class="content-panel sql">

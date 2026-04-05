@@ -1,9 +1,10 @@
+import { mount, unmount } from "svelte";
 import {
     Plugin,
     showMessage,
     openTab,
     getFrontend,
-    IModel,
+    Model,
 } from "siyuan";
 
 import { svelteDialog } from "@/libs/dialog";
@@ -39,15 +40,11 @@ interface PluginConfig {
     autoOpenHomepage?: boolean;
 }
 
-type SvelteComponentWithDestroy = {
-    $destroy: () => void;
-};
-
 export default class PluginHomepage extends Plugin {
-    customTab!: () => IModel;
+    customTab!: () => Model;
     isMobile = false;
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
-    private homepageInstance: SvelteComponentWithDestroy | null = null;
+    private homepageInstance: Record<string, any> | null = null;
     ADVANCED = false;
     private docTreeMenuEventBindThis = this.handleDocTreeMenu.bind(this);
     private contentMenuEventBindThis = this.handleContentMenu.bind(this);
@@ -82,7 +79,7 @@ export default class PluginHomepage extends Plugin {
 
         // 销毁 Homepage 组件实例
         if (this.homepageInstance) {
-            this.homepageInstance.$destroy();
+            unmount(this.homepageInstance);
             this.homepageInstance = null;
         }
 
@@ -95,13 +92,13 @@ export default class PluginHomepage extends Plugin {
 
     async onLayoutReady() {
         const tabDiv = document.createElement("div");
-        this.homepageInstance = new Homepage({
+        this.homepageInstance = mount(Homepage as any, {
             target: tabDiv,
             props: {
                 app: this.app,
                 plugin: this,
             }
-        });
+        } as any);
 
         this.customTab = this.addTab({
             type: TAB_TYPE,
@@ -186,7 +183,7 @@ export default class PluginHomepage extends Plugin {
                     const dialog = svelteDialog({
                         title: "快速笔记",
                         constructor: (containerEl: HTMLElement) => {
-                            return new QuickNotesDialog({
+                            return mount(QuickNotesDialog as any, {
                                 target: containerEl,
                                 props: {
                                     quickNotesPosition,
@@ -260,7 +257,7 @@ export default class PluginHomepage extends Plugin {
             width: "100vh",
             height: "100vh",
             constructor: (containerEl: HTMLElement) => {
-                return new MobileHomepage({
+                return mount(MobileHomepage as any, {
                     target: containerEl,
                     props: {
                         plugin: this,
@@ -293,12 +290,12 @@ export default class PluginHomepage extends Plugin {
             type: DOCK_TYPE,
             init: (dock) => {
                 const sidebarContainer = document.createElement("div");
-                new Sidebar({
+                mount(Sidebar as any, {
                     target: sidebarContainer,
                     props: {
                         plugin: this,
                     }
-                });
+                } as any);
                 dock.element.appendChild(sidebarContainer);
             },
         });
@@ -373,7 +370,7 @@ export default class PluginHomepage extends Plugin {
                     const dialog = svelteDialog({
                         title: "任务编辑器",
                         constructor: (containerEl: HTMLElement) => {
-                            return new TasksEditingDialog({
+                            return mount(TasksEditingDialog as any, {
                                 target: containerEl,
                                 props: {
                                     blockId: blockId,

@@ -10,9 +10,19 @@
     import { createEventDispatcher } from "svelte";
     import Form from './Form';
 
-    export let group: string;
-    export let settingItems: ISettingItem[];
-    export let display: boolean = true;
+    interface Props {
+        group: string;
+        settingItems: ISettingItem[];
+        display?: boolean;
+        children?: import('svelte').Snippet;
+    }
+
+    let {
+        group,
+        settingItems,
+        display = true,
+        children
+    }: Props = $props();
 
     const dispatch = createEventDispatcher();
 
@@ -23,12 +33,12 @@
         dispatch("changed", {group: group, ...detail});
     }
 
-    $: fn__none = display ? "" : "fn__none";
+    let fn__none = $derived(display ? "" : "fn__none");
 
 </script>
 
 <div class="config__tab-container {fn__none}" data-name={group}>
-    <slot />
+    {@render children?.()}
     {#each settingItems as item (item.key)}
         <Form.Wrap
             title={item.title}

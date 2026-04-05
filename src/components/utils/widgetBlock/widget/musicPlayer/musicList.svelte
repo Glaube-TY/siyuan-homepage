@@ -1,11 +1,21 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let plugin: any;
-    export let musicFiles: any;
-    export let currentTrackIndex: number; // 接收当前曲目索引
-    export let playTrack: (index: number) => void; // 接收播放方法
-    export let close: () => void;
+    interface Props {
+        plugin: any;
+        musicFiles: any;
+        currentTrackIndex: number; // 接收当前曲目索引
+        playTrack: (index: number) => void; // 接收播放方法
+        close: () => void;
+    }
+
+    let {
+        plugin,
+        musicFiles,
+        currentTrackIndex,
+        playTrack,
+        close
+    }: Props = $props();
 
     const themeMode = window.siyuan.config.appearance.mode;
 
@@ -27,11 +37,11 @@
                     <button
                         class="track-button"
                         aria-pressed={i === currentTrackIndex}
-                        on:click={() => {
+                        onclick={() => {
                             playTrack(i);
                             close();
                         }}
-                        on:keydown={(e) => handleKeydown(e, i)}
+                        onkeydown={(e) => handleKeydown(e, i)}
                     >
                         {#if i === currentTrackIndex}
                             {#if themeMode === 0}

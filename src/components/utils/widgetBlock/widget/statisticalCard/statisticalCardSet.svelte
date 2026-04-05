@@ -1,12 +1,14 @@
-<script>
-    export let advancedEnabled;
-    export let statisticalCardTitle;
-    export let statisticalCardTitleSize;
-    export let statisticalCardTitleColor;
-    export let statisticalCardContent;
-    export let statisticalCardCountSize;
-    export let statisticalCardCountColor;
-    export let customSQLCount;
+<script lang="ts">
+    let {
+        advancedEnabled,
+        statisticalCardTitle = $bindable(),
+        statisticalCardTitleSize = $bindable(),
+        statisticalCardTitleColor = $bindable(),
+        statisticalCardContent = $bindable(),
+        statisticalCardCountSize = $bindable(),
+        statisticalCardCountColor = $bindable(),
+        customSQLCount = $bindable()
+    } = $props();
 </script>
 
 <div class="content-panel statisticalCard">
@@ -76,7 +78,7 @@
                     <label for=""
                         >自定义 SQL 查询：<textarea
                             bind:value={customSQLCount}
-                        /></label
+></textarea></label
                     >
                 </div>
             {/if}

@@ -36,8 +36,7 @@ import PicCaro from "../widgetBlock/widget/PicCaro/PicCaro.svelte";
 import CYBMOK from "../widgetBlock/widget/CYBMOK/CYBMOK.svelte";
 import countdownTimer from "../widgetBlock/widget/countdownTimer/countdownTimer.svelte";
 import conditionDocs from "../widgetBlock/widget/conditionDocs/conditionDocs.svelte";
-
-
+import { mount } from "svelte";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -88,31 +87,31 @@ export class WidgetBlock {
                 const dialogRef = svelteDialog({
                     title: "组件样式",
                     constructor: (containerEl: HTMLElement) => {
-                        return new WidgetBlockStyle({
-                            target: containerEl,
-                            props: {
-                                plugin: this.plugin,
-                                currentBlockId: this.element.id,
-                                onClose: () => {
-                                    dialogRef.close();
-                                },
-                                onDelete: () => {
-                                    if (this.currentBlockForSettingsRef.value) {
-                                        this.currentBlockForSettingsRef.value.remove();
-                                        this.currentBlockForSettingsRef.value = null;
-                                    }
-                                    dialogRef.close();
-                                    saveLayout(this.plugin);
-                                    saveSidebarLayout(this.plugin);
-                                    saveMobileLayout(this.plugin);
-                                    this.plugin.removeData(`widget-${this.id}.json`);
-                                },
-                                onSetSize: (size: number) => {
-                                    setBlockSize(this.currentBlockForSettingsRef.value, size, 4);
-                                    dialogRef.close();
-                                },
-                            },
-                        });
+                        return mount(WidgetBlockStyle, {
+                                                    target: containerEl,
+                                                    props: {
+                                                        plugin: this.plugin,
+                                                        currentBlockId: this.element.id,
+                                                        onClose: () => {
+                                                            dialogRef.close();
+                                                        },
+                                                        onDelete: () => {
+                                                            if (this.currentBlockForSettingsRef.value) {
+                                                                this.currentBlockForSettingsRef.value.remove();
+                                                                this.currentBlockForSettingsRef.value = null;
+                                                            }
+                                                            dialogRef.close();
+                                                            saveLayout(this.plugin);
+                                                            saveSidebarLayout(this.plugin);
+                                                            saveMobileLayout(this.plugin);
+                                                            this.plugin.removeData(`widget-${this.id}.json`);
+                                                        },
+                                                        onSetSize: (size: number) => {
+                                                            setBlockSize(this.currentBlockForSettingsRef.value, size, 4);
+                                                            dialogRef.close();
+                                                        },
+                                                    },
+                                                });
                     },
                 });
             });
@@ -125,24 +124,24 @@ export class WidgetBlock {
                 const dialogRef = svelteDialog({
                     title: "组件内容",
                     constructor: (containerEl: HTMLElement) => {
-                        return new WidgetBlockContent({
-                            target: containerEl,
-                            props: {
-                                plugin: this.plugin,
-                                currentBlockId: this.element.id,
-                                onClose: () => {
-                                    dialogRef.close();
-                                },
-                                onConfirm: (contentTypeJson: string) => {
-                                    const blockElement = document.getElementById(this.id);
-                                    if (blockElement) {
-                                        this.updateContent(contentTypeJson);
-                                    }
-                                    this.plugin.saveData(`widget-${this.id}.json`, contentTypeJson);
-                                    dialogRef.close();
-                                }
-                            },
-                        });
+                        return mount(WidgetBlockContent, {
+                                                    target: containerEl,
+                                                    props: {
+                                                        plugin: this.plugin,
+                                                        currentBlockId: this.element.id,
+                                                        onClose: () => {
+                                                            dialogRef.close();
+                                                        },
+                                                        onConfirm: (contentTypeJson: string) => {
+                                                            const blockElement = document.getElementById(this.id);
+                                                            if (blockElement) {
+                                                                this.updateContent(contentTypeJson);
+                                                            }
+                                                            this.plugin.saveData(`widget-${this.id}.json`, contentTypeJson);
+                                                            dialogRef.close();
+                                                        }
+                                                    },
+                                                });
                     },
                 });
             });
@@ -190,249 +189,249 @@ export class WidgetBlock {
 
         // 根据 content 类型动态加载组件
         if (contentData.type === "latest-docs") {
-            new latestDocs({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(latestDocs, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "heatmap") {
-            new heatmap({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(heatmap, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "favorites") {
-            new favorites({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(favorites, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "recent-journals") {
-            new latestDailyNotes({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(latestDailyNotes, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "TaskMan") {
-            new TaskMan({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(TaskMan, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "countdown") {
-            new countdown({
-                target: this.element,
-                props: {
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(countdown, {
+                            target: this.element,
+                            props: {
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "weather") {
-            new weather({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(weather, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "HOT") {
-            new HOT({
-                target: this.element,
-                props: {
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(HOT, {
+                            target: this.element,
+                            props: {
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "custom-text") {
-            new customText({
-                target: this.element,
-                props: {
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(customText, {
+                            target: this.element,
+                            props: {
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "custom-web") {
-            new customWeb({
-                target: this.element,
-                props: {
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(customWeb, {
+                            target: this.element,
+                            props: {
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "custom-protyle") {
-            new customProtyle({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(customProtyle, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "timedate") {
-            new timedate({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(timedate, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "focus") {
-            new focus({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(focus, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "sql") {
-            new sql({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(sql, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "TaskManPlus") {
-            new TaskManPlus({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(TaskManPlus, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "quick-notes") {
-            new quickNotes({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(quickNotes, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "dailyQuote") {
-            new dailyQuote({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(dailyQuote, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "visualChart") {
-            new visualChart({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(visualChart, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "musicPlayer") {
-            new musicPlayer({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(musicPlayer, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "stikynot") {
-            new Stikynot({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(Stikynot, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "News") {
-            new News({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(News, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "databaseChart") {
-            new databaseChart({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(databaseChart, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "childDocs") {
-            new childDocs({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(childDocs, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "constellation") {
-            new constellation({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(constellation, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "historyDays") {
-            new historyDays({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(historyDays, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "statisticalCard") {
-            new statisticalCard({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(statisticalCard, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "almanac") {
-            new almanac({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(almanac, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "PicCaro") {
-            new PicCaro({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(PicCaro, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "CYBMOK") {
-            new CYBMOK({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(CYBMOK, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "countdownTimer") {
-            new countdownTimer({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(countdownTimer, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         } else if (contentData.type === "conditionDocs") {
-            new conditionDocs({
-                target: this.element,
-                props: {
-                    plugin: this.plugin,
-                    contentTypeJson: contentTypeJson
-                }
-            });
+            mount(conditionDocs, {
+                            target: this.element,
+                            props: {
+                                plugin: this.plugin,
+                                contentTypeJson: contentTypeJson
+                            }
+                        });
         }
 
 

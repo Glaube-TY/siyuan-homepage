@@ -1,6 +1,10 @@
 <script lang="ts">
-    export let isRandomDoc: boolean = false;
-    export let customBlockID: string = "";
+    interface Props {
+        isRandomDoc?: boolean;
+        customBlockID?: string;
+    }
+
+    let { isRandomDoc = $bindable(false), customBlockID = $bindable("") }: Props = $props();
 </script>
 
 <div class="content-panel custom-protyle">

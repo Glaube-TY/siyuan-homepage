@@ -26,7 +26,7 @@
 
     input[type="text"],
     input[type="number"],
-    input[type="date"]{
+    input[type="date"] {
         box-sizing: border-box;
         width: 100%;
         padding: 0.6rem 0.8rem;
@@ -47,6 +47,38 @@
             border-color: var(--b3-theme-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
+    }
+
+    select {
+        box-sizing: border-box;
+        width: auto;
+        padding: 0.6rem 0.8rem;
+        border: 1px solid var(--b3-theme-border-color);
+        border-radius: 6px;
+        background-color: var(--b3-theme-background);
+        color: var(--b3-theme-text);
+        font-size: 0.95rem;
+        transition: all 0.2s ease-in-out;
+        margin: 0.4rem 0;
+
+        &:focus {
+            outline: none;
+            border-color: var(--b3-theme-border-color);
+            box-shadow: 0 1px 3px var(--b3-theme-primary);
+        }
+
+        &:hover {
+            border-color: var(--b3-theme-border-color);
+            box-shadow: 0 1px 3px var(--b3-theme-primary);
+        }
+
+        cursor: pointer;
+        appearance: none;
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2390a3bf' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right 0.6rem center;
+        background-size: 1rem;
+        padding-right: 2.5rem;
     }
 
     input[type="number"] {

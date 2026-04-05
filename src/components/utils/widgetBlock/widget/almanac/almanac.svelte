@@ -4,13 +4,17 @@
     import Classic from "./_classic.svelte";
     import Tradition1 from "./_tradition1.svelte";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const almanacStyle = parsedContent.data.almanacStyle || "classic";
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;

@@ -1,18 +1,22 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let contentTypeJson: string = "{}";
-    export let plugin: any;
+    interface Props {
+        contentTypeJson?: string;
+        plugin: any;
+    }
+
+    let { contentTypeJson = "{}", plugin }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const CMKnockSound = parsedContent.data?.CMKnockSound || "普通";
 
-    let advancedEnabled: boolean = false;
-    let MOKImgPath: string = "";
-    let isKnocking: boolean = false;
+    let advancedEnabled: boolean = $state(false);
+    let MOKImgPath: string = $state("");
+    let isKnocking: boolean = $state(false);
     let knockSoundPath: string = "";
-    let showMeritText: boolean = false;
-    let meritTextY: number = 25;
+    let showMeritText: boolean = $state(false);
+    let meritTextY: number = $state(25);
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;
@@ -146,14 +150,14 @@
         />
 
         <!-- 木鱼 -->
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <image
             href={MOKImgPath}
             x={isKnocking ? "25" : "20"}
             y={isKnocking ? "27.5" : "25"}
             width={isKnocking ? "45" : "50"}
             height={isKnocking ? "45" : "50"}
-            on:click={handleKnock}
+            onclick={handleKnock}
             style="cursor: pointer; transition: all 0.2s ease-in-out;"
         />
 

@@ -3,15 +3,18 @@
     import Sortable from "sortablejs";
     import { saveLayout, restoreLayout } from "./widget_layout";
     import { addCustomBlock } from "./block-creator";
-
     import "./siderBar.scss";
 
-    export let plugin: any;
+    interface Props {
+        plugin: any;
+    }
+
+    let { plugin }: Props = $props();
 
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };
 
-    let advanced: boolean;
+    let advanced: boolean = $state();
 
     onMount(() => {
         // 组件拖拽
@@ -49,7 +52,7 @@
         <div class="sidebar-setting">
             <button
                 class="add-widget-btn"
-                on:click={() =>
+                onclick={() =>
                     addCustomBlock(plugin, currentBlockForSettingsRef)}
                 >➕添加组件</button
             >

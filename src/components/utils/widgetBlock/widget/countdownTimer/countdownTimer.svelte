@@ -4,18 +4,22 @@
     import Default from "./_default.svelte";
     import Ring1 from "./_ring1.svelte";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const countdownTimerStyle =
         parsedContent?.data?.countdownTimerStyle || "default";
 
-    let advancedEnabled = false;
-    let beforeCountdown = false;
-    let hours = 0;
-    let minutes = 0;
-    let seconds = 0;
+    let advancedEnabled = $state(false);
+    let beforeCountdown = $state(false);
+    let hours = $state(0);
+    let minutes = $state(0);
+    let seconds = $state(0);
 
     // 模拟加载文档数据
     onMount(async () => {
@@ -94,7 +98,7 @@
                 </div>
                 <button
                     class="start-button"
-                    on:click={() => (beforeCountdown = true)}
+                    onclick={() => (beforeCountdown = true)}
                     disabled={hours === 0 && minutes === 0 && seconds === 0}
                 >
                     <i class="fas fa-play"></i>

@@ -1,81 +1,140 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
 
-    export let plugin: any;
 
-    // 时间样式
-    export let timeType: string = "classic";
+    
 
-    // 时钟配置
-    export let showSeconds: boolean = true;
-    export let dateFormat: string = "YYYY年MM月DD日";
-    export let showLunar: boolean = true;
-    export let showZodiac: boolean = true;
-    export let showSolarTerm: boolean = true;
-    export let showWeek: boolean = true;
-    export let showDate: boolean = true;
-    export let timedateFontSize: number = 3;
+    
 
-    // 背景图片配置
-    export let morningImageType: string = "remote";
-    export let afternoonImageType: string = "remote";
-    export let nightImageType: string = "remote";
-    export let morningBgUrl: string = "";
-    export let afternoonBgUrl: string = "";
-    export let nightBgUrl: string = "";
-    export let morningBgImage: string = "";
-    export let afternoonBgImage: string = "";
-    export let nightBgImage: string = "";
+    
 
-    // 简单时钟配置
-    export let simple1Size: number = 3;
-    export let simple1FontWeight: number = 4;
-    export let simple1ShowSecond: boolean = true;
-    export let simple1ShowDate: boolean = true;
+    
 
-    // 简单时钟2配置
-    export let simple2BgSelect: string = "remote";
-    export let simple2RemoteBg: string =
-        "https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944";
-    export let simple2LocalBg: string = "";
+    
 
-    // 表盘时钟配置
-    export let dial1ShowSecond: boolean = true;
-    export let dial1ShowMarkers: boolean = true;
-    export let dial1ShowDate: boolean = true;
+    
 
-    // 表盘2配置
-    export let dial2ShowSecond: boolean = true;
-    export let dial2ShowMarkers: boolean = true;
-    export let dial2ShowDate: boolean = true;
+    
 
-    // 表盘3配置
-    export let dial3ShowSecond: boolean = true;
+    
 
-    // 表盘4配置
-    export let dial4ShowSecond: boolean = true;
+    
 
-    // 表盘5配置
-    export let dial5ShowSecond: boolean = true;
+    
 
-    // 表盘6配置
-    export let dial6ShowSecond: boolean = true;
+    
 
-    // 表盘7配置
-    export let dial7ShowSecond: boolean = true;
+    
 
-    // 表盘8配置
-    export let dial8ShowSecond: boolean = true;
+    
 
-    // 表盘9配置
-    export let dial9ShowSecond: boolean = true;
+    
+    interface Props {
+        plugin: any;
+        // 时间样式
+        timeType?: string;
+        // 时钟配置
+        showSeconds?: boolean;
+        dateFormat?: string;
+        showLunar?: boolean;
+        showZodiac?: boolean;
+        showSolarTerm?: boolean;
+        showWeek?: boolean;
+        showDate?: boolean;
+        timedateFontSize?: number;
+        // 背景图片配置
+        morningImageType?: string;
+        afternoonImageType?: string;
+        nightImageType?: string;
+        morningBgUrl?: string;
+        afternoonBgUrl?: string;
+        nightBgUrl?: string;
+        morningBgImage?: string;
+        afternoonBgImage?: string;
+        nightBgImage?: string;
+        // 简单时钟配置
+        simple1Size?: number;
+        simple1FontWeight?: number;
+        simple1ShowSecond?: boolean;
+        simple1ShowDate?: boolean;
+        // 简单时钟2配置
+        simple2BgSelect?: string;
+        simple2RemoteBg?: string;
+        simple2LocalBg?: string;
+        // 表盘时钟配置
+        dial1ShowSecond?: boolean;
+        dial1ShowMarkers?: boolean;
+        dial1ShowDate?: boolean;
+        // 表盘2配置
+        dial2ShowSecond?: boolean;
+        dial2ShowMarkers?: boolean;
+        dial2ShowDate?: boolean;
+        // 表盘3配置
+        dial3ShowSecond?: boolean;
+        // 表盘4配置
+        dial4ShowSecond?: boolean;
+        // 表盘5配置
+        dial5ShowSecond?: boolean;
+        // 表盘6配置
+        dial6ShowSecond?: boolean;
+        // 表盘7配置
+        dial7ShowSecond?: boolean;
+        // 表盘8配置
+        dial8ShowSecond?: boolean;
+        // 表盘9配置
+        dial9ShowSecond?: boolean;
+    }
 
-    let advancedEnabled = false;
+    let {
+        plugin,
+        timeType = $bindable("classic"),
+        showSeconds = $bindable(true),
+        dateFormat = $bindable("YYYY年MM月DD日"),
+        showLunar = $bindable(true),
+        showZodiac = $bindable(true),
+        showSolarTerm = $bindable(true),
+        showWeek = $bindable(true),
+        showDate = $bindable(true),
+        timedateFontSize = $bindable(3),
+        morningImageType = $bindable("remote"),
+        afternoonImageType = $bindable("remote"),
+        nightImageType = $bindable("remote"),
+        morningBgUrl = $bindable(""),
+        afternoonBgUrl = $bindable(""),
+        nightBgUrl = $bindable(""),
+        morningBgImage = $bindable(""),
+        afternoonBgImage = $bindable(""),
+        nightBgImage = $bindable(""),
+        simple1Size = $bindable(3),
+        simple1FontWeight = $bindable(4),
+        simple1ShowSecond = $bindable(true),
+        simple1ShowDate = $bindable(true),
+        simple2BgSelect = $bindable("remote"),
+        simple2RemoteBg = $bindable("https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944"),
+        simple2LocalBg = $bindable(""),
+        dial1ShowSecond = $bindable(true),
+        dial1ShowMarkers = $bindable(true),
+        dial1ShowDate = $bindable(true),
+        dial2ShowSecond = $bindable(true),
+        dial2ShowMarkers = $bindable(true),
+        dial2ShowDate = $bindable(true),
+        dial3ShowSecond = $bindable(true),
+        dial4ShowSecond = $bindable(true),
+        dial5ShowSecond = $bindable(true),
+        dial6ShowSecond = $bindable(true),
+        dial7ShowSecond = $bindable(true),
+        dial8ShowSecond = $bindable(true),
+        dial9ShowSecond = $bindable(true)
+    }: Props = $props();
 
-    let morningBgInput: HTMLInputElement;
-    let afternoonBgInput: HTMLInputElement;
-    let nightBgInput: HTMLInputElement;
+    let advancedEnabled = $state(false);
+
+    let morningBgInput: HTMLInputElement = $state();
+    let afternoonBgInput: HTMLInputElement = $state();
+    let nightBgInput: HTMLInputElement = $state();
 
     // 初始化图片数据
     async function initializeImages() {
@@ -147,8 +206,8 @@
         reader.readAsDataURL(file);
     }
 
-    let simple2BgImageData: string = "";
-    let getSimple2BgImage: () => Promise<void>;
+    let simple2BgImageData: string = $state("");
+    let getSimple2BgImage: () => Promise<void> = $state();
     // 获取简单时钟2背景图片
     getSimple2BgImage = async () => {
         if (simple2BgSelect === "remote") {
@@ -157,8 +216,8 @@
             simple2BgImageData = simple2LocalBg;
         }
     };
-    let handleSimple2Upload: () => void;
-    let simple2BgInput: HTMLInputElement;
+    let handleSimple2Upload: () => void = $state();
+    let simple2BgInput: HTMLInputElement = $state();
     // 处理图片上传
     handleSimple2Upload = () => {
         const file = simple2BgInput?.files?.[0];
@@ -171,9 +230,9 @@
         }
     };
 
-    let morningBgImageData: string = "";
-    let afternoonBgImageData: string = "";
-    let nightBgImageData: string = "";
+    let morningBgImageData: string = $state("");
+    let afternoonBgImageData: string = $state("");
+    let nightBgImageData: string = $state("");
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;
@@ -187,44 +246,50 @@
     });
 
     // 监听图片类型和地址变化
-    $: if (morningImageType === "remote" && morningBgUrl) {
-        (async () => {
-            if (
-                !window.navigator.userAgent.includes("Electron") ||
-                typeof window.require !== "function"
-            ) {
-                morningBgImageData = await getImage(morningBgUrl);
-            } else {
-                morningBgImageData = morningBgUrl;
-            }
-        })();
-    }
+    run(() => {
+        if (morningImageType === "remote" && morningBgUrl) {
+            (async () => {
+                if (
+                    !window.navigator.userAgent.includes("Electron") ||
+                    typeof window.require !== "function"
+                ) {
+                    morningBgImageData = await getImage(morningBgUrl);
+                } else {
+                    morningBgImageData = morningBgUrl;
+                }
+            })();
+        }
+    });
 
-    $: if (afternoonImageType === "remote" && afternoonBgUrl) {
-        (async () => {
-            if (
-                !window.navigator.userAgent.includes("Electron") ||
-                typeof window.require !== "function"
-            ) {
-                afternoonBgImageData = await getImage(afternoonBgUrl);
-            } else {
-                afternoonBgImageData = afternoonBgUrl;
-            }
-        })();
-    }
+    run(() => {
+        if (afternoonImageType === "remote" && afternoonBgUrl) {
+            (async () => {
+                if (
+                    !window.navigator.userAgent.includes("Electron") ||
+                    typeof window.require !== "function"
+                ) {
+                    afternoonBgImageData = await getImage(afternoonBgUrl);
+                } else {
+                    afternoonBgImageData = afternoonBgUrl;
+                }
+            })();
+        }
+    });
 
-    $: if (nightImageType === "remote" && nightBgUrl) {
-        (async () => {
-            if (
-                !window.navigator.userAgent.includes("Electron") ||
-                typeof window.require !== "function"
-            ) {
-                nightBgImageData = await getImage(nightBgUrl);
-            } else {
-                nightBgImageData = nightBgUrl;
-            }
-        })();
-    }
+    run(() => {
+        if (nightImageType === "remote" && nightBgUrl) {
+            (async () => {
+                if (
+                    !window.navigator.userAgent.includes("Electron") ||
+                    typeof window.require !== "function"
+                ) {
+                    nightBgImageData = await getImage(nightBgUrl);
+                } else {
+                    nightBgImageData = nightBgUrl;
+                }
+            })();
+        }
+    });
 </script>
 
 <div class="content-panel timedate">
@@ -301,21 +366,21 @@
                 type="file"
                 bind:this={morningBgInput}
                 accept="image/*"
-                on:change={handleMorningUpload}
+                onchange={handleMorningUpload}
                 style="display: none;"
             />
             <input
                 type="file"
                 bind:this={afternoonBgInput}
                 accept="image/*"
-                on:change={handleAfternoonUpload}
+                onchange={handleAfternoonUpload}
                 style="display: none;"
             />
             <input
                 type="file"
                 bind:this={nightBgInput}
                 accept="image/*"
-                on:change={handleNightUpload}
+                onchange={handleNightUpload}
                 style="display: none;"
             />
 
@@ -347,7 +412,7 @@
                                     placeholder="请输入早晨背景图URL"
                                 />
                             {:else}
-                                <button on:click={() => morningBgInput?.click()}
+                                <button onclick={() => morningBgInput?.click()}
                                     >上传图片</button
                                 >
                             {/if}
@@ -390,7 +455,7 @@
                                 />
                             {:else}
                                 <button
-                                    on:click={() => afternoonBgInput?.click()}
+                                    onclick={() => afternoonBgInput?.click()}
                                     >上传图片</button
                                 >
                             {/if}
@@ -435,7 +500,7 @@
                                     placeholder="请输入晚上背景图URL"
                                 />
                             {:else}
-                                <button on:click={() => nightBgInput?.click()}
+                                <button onclick={() => nightBgInput?.click()}
                                     >上传图片</button
                                 >
                             {/if}
@@ -481,7 +546,7 @@
                     背景设置：
                     <select
                         bind:value={simple2BgSelect}
-                        on:change={() => {
+                        onchange={() => {
                             if (simple2BgSelect === "remote") {
                                 simple2LocalBg = "";
                             } else {
@@ -497,11 +562,11 @@
                     <input
                         type="text"
                         bind:value={simple2RemoteBg}
-                        on:change={getSimple2BgImage}
+                        onchange={getSimple2BgImage}
                         placeholder="输入远程图片URL"
                     />
                 {:else}
-                    <button on:click={() => simple2BgInput?.click()}>
+                    <button onclick={() => simple2BgInput?.click()}>
                         上传图片
                     </button>
 
@@ -509,7 +574,7 @@
                         type="file"
                         bind:this={simple2BgInput}
                         accept="image/*"
-                        on:change={handleSimple2Upload}
+                        onchange={handleSimple2Upload}
                         style="display: none;"
                     />
                 {/if}

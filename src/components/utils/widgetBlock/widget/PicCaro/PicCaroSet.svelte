@@ -1,18 +1,35 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
 
-    export let advancedEnabled: boolean;
-    export let PicFolderPath: string = ""; // 图片文件夹路径
-    export let PicAutoPlay: boolean = false; // 是否自动播放
-    export let PicInterval: number = 3; // 切换间隔（秒）
-    export let PicNavigation: boolean = false; // 是否显示导航按钮
-    export let PicPagination: boolean = false; // 是否显示分页按钮
-    export let PicPaginationType: string = "bullets"; // 分页按钮类型
-    export let PicPaginationDyBu: boolean = false; // 动态分页圆点
-    export let PicPaginationPrOp: boolean = false; // 分页进度条是否反方向
-    export let PicEffect: string = "slide"; // 切换效果
-    export let PicSlidesPerView: string = "1"; // 每页显示的图片数量
-    export let PicRandomSwitch: boolean = false; // 是否随机切换
+    interface Props {
+        advancedEnabled: boolean;
+        PicFolderPath?: string; // 图片文件夹路径
+        PicAutoPlay?: boolean; // 是否自动播放
+        PicInterval?: number; // 切换间隔（秒）
+        PicNavigation?: boolean; // 是否显示导航按钮
+        PicPagination?: boolean; // 是否显示分页按钮
+        PicPaginationType?: string; // 分页按钮类型
+        PicPaginationDyBu?: boolean; // 动态分页圆点
+        PicPaginationPrOp?: boolean; // 分页进度条是否反方向
+        PicEffect?: string; // 切换效果
+        PicSlidesPerView?: string; // 每页显示的图片数量
+        PicRandomSwitch?: boolean; // 是否随机切换
+    }
+
+    let {
+        advancedEnabled,
+        PicFolderPath = $bindable(""),
+        PicAutoPlay = $bindable(false),
+        PicInterval = $bindable(3),
+        PicNavigation = $bindable(false),
+        PicPagination = $bindable(false),
+        PicPaginationType = $bindable("bullets"),
+        PicPaginationDyBu = $bindable(false),
+        PicPaginationPrOp = $bindable(false),
+        PicEffect = $bindable("slide"),
+        PicSlidesPerView = $bindable("1"),
+        PicRandomSwitch = $bindable(false)
+    }: Props = $props();
 
     // 选择图片文件夹
     async function selectPicFolder() {
@@ -47,7 +64,7 @@
                     bind:value={PicFolderPath}
                     placeholder="请选择图片文件夹"
                 />
-                <button title="选择图片文件夹" on:click={selectPicFolder}
+                <button title="选择图片文件夹" onclick={selectPicFolder}
                     >📁</button
                 >
             </label>

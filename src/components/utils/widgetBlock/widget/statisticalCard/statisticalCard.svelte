@@ -2,8 +2,12 @@
     import { onMount } from "svelte";
     import { getStatisticalData } from "../../../../tools/statisticalAPI";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const statisticalCardTitle =
@@ -20,9 +24,9 @@
         parsedContent.data?.statisticalCardCountColor || "#000000";
     const customSQLCount = parsedContent.data?.customSQLCount || "";
 
-    let statisticalCount = 0;
+    let statisticalCount = $state(0);
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;

@@ -3,11 +3,15 @@
     import { getImage } from "@/components/tools/getImage";
     import { SolarDay, LunarDay, EarthBranch } from "tyme4ts";
 
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        contentTypeJson?: string;
+    }
+
+    let { contentTypeJson = "{}" }: Props = $props();
 
     // 时间相关状态
-    let currentTime = new Date();
-    let timeOfDay = "afternoon";
+    let currentTime = $state(new Date());
+    let timeOfDay = $state("afternoon");
 
     // 初始化时间段
     const initTimeOfDay = () => {
@@ -20,16 +24,16 @@
             timeOfDay = "night";
         }
     };
-    let timedateFontSize = 2;
+    let timedateFontSize = $state(2);
 
     // 设置项默认值
-    let showSeconds: boolean = true;
+    let showSeconds: boolean = $state(true);
     let dateFormat: string = "YYYY-MM-DD";
-    let showLunar: boolean = true;
-    let showZodiac: boolean = true;
-    let showSolarTerm: boolean = true;
-    let showWeek: boolean = true;
-    let showDate: boolean = true;
+    let showLunar: boolean = $state(true);
+    let showZodiac: boolean = $state(true);
+    let showSolarTerm: boolean = $state(true);
+    let showWeek: boolean = $state(true);
+    let showDate: boolean = $state(true);
 
     // 更新时间段（早/中/晚）
     const updateTimeOfDay = () => {
@@ -77,11 +81,11 @@
         }
     };
 
-    let lunarDayStr = "";
-    let weekDay = ""; // 星期几
-    let zodiac = ""; // 生肖
-    let lunarZodiacIcon = ""; // 生肖图标
-    let solarTerm = ""; // 节气
+    let lunarDayStr = $state("");
+    let weekDay = $state(""); // 星期几
+    let zodiac = $state(""); // 生肖
+    let lunarZodiacIcon = $state(""); // 生肖图标
+    let solarTerm = $state(""); // 节气
     // 获取农历等信息
     const updateDateAndLunar = () => {
         try {
@@ -133,7 +137,7 @@
     };
 
     // 当前日期字符串（根据格式变化）
-    let currentDateStr = formatDateString(currentTime);
+    let currentDateStr = $state(formatDateString(currentTime));
 
     // 获取今天零点的时间戳
     const getMidnightTimestamp = (): number => {
@@ -143,20 +147,20 @@
         return midnight.getTime();
     };
 
-    let morningImageType = "remote";
-    let afternoonImageType = "remote";
-    let nightImageType = "remote";
+    let morningImageType = $state("remote");
+    let afternoonImageType = $state("remote");
+    let nightImageType = $state("remote");
 
     let morningBgUrl: string =
-        "https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072");
     let afternoonBgUrl: string =
-        "https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504");
     let nightBgUrl: string =
-        "https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440");
 
-    let morningBgImage: string = "";
-    let afternoonBgImage: string = "";
-    let nightBgImage: string = "";
+    let morningBgImage: string = $state("");
+    let afternoonBgImage: string = $state("");
+    let nightBgImage: string = $state("");
 
     onMount(() => {
         if (contentTypeJson) {

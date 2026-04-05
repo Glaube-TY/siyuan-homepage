@@ -1,7 +1,11 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let customTextInputValue: string = "";
+    interface Props {
+        customTextInputValue?: string;
+    }
+
+    let { customTextInputValue = $bindable("") }: Props = $props();
 
     onMount(async () => {
         // 组件挂载时的初始化逻辑

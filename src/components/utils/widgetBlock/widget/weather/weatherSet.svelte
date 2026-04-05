@@ -1,7 +1,11 @@
 <script lang="ts">
-    export let customWeatherCityName: string = "";
-    export let customWeatherCityCode: string = "";
-    export let weatherStyle: string = "default";
+    interface Props {
+        customWeatherCityName?: string;
+        customWeatherCityCode?: string;
+        weatherStyle?: string;
+    }
+
+    let { customWeatherCityName = $bindable(""), customWeatherCityCode = $bindable(""), weatherStyle = $bindable("default") }: Props = $props();
 </script>
 
 <div class="weather-settings">

@@ -2,19 +2,23 @@
     import { onMount } from "svelte";
     import Quill from "quill";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const stikynotStyle = parsedContent.data?.stikynotStyle || "default";
 
     let editor: any;
-    let editorContainer: HTMLDivElement;
-    let toolbarContainer: HTMLDivElement;
-    let backgroundImage: string = "";
-    let customColor: string = "";
+    let editorContainer: HTMLDivElement = $state();
+    let toolbarContainer: HTMLDivElement = $state();
+    let backgroundImage: string = $state("");
+    let customColor: string = $state("");
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
 
     onMount(() => {
         advancedEnabled = plugin.ADVANCED;

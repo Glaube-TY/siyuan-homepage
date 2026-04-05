@@ -3,8 +3,12 @@
     import * as echarts from "echarts";
     import { getAttributeView } from "./getDatabase";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const databaseChartID = parsedContent.data?.databaseChartID;
@@ -41,7 +45,7 @@
     const databaseChartLineCountYAxisTitle =
         parsedContent.data?.databaseChartLineCountYAxisTitle;
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
     let attributeView: any = null;
 
     const lineChartXYOption = {

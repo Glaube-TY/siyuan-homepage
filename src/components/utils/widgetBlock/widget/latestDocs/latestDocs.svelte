@@ -8,8 +8,12 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsed = JSON.parse(contentTypeJson);
     const limit = parsed.data?.[0]?.limit || 5;
@@ -23,10 +27,10 @@
 
     // 文档数据源
     let documentList: latestDocumentInfo[] = [];
-    let displayedDocs: latestDocumentInfo[] = [];
+    let displayedDocs: latestDocumentInfo[] = $state([]);
     
     // 悬浮窗定时器
-    let floatDocTimeout: number | null = null;
+    let floatDocTimeout: number | null = $state(null);
 
     // 模拟加载文档数据
     onMount(async () => {
@@ -70,15 +74,15 @@
                 <li class="document-item">
                     <div
                         class="document-item-content"
-                        on:keydown={(e) =>
+                        onkeydown={(e) =>
                             e.key === "Enter" && openDocs(plugin, doc.id)}
-                        on:click={() => {
+                        onclick={() => {
                             if (showLatestDocFloatDoc && !plugin.isMobile) {
                                 hideImmediately();
                             }
                             openDocs(plugin, doc.id);
                         }}
-                        on:mouseenter={(e) => {
+                        onmouseenter={(e) => {
                             if (showLatestDocFloatDoc && !plugin.isMobile) {
                                 // 清除之前的定时器
                                 if (floatDocTimeout) {
@@ -91,7 +95,7 @@
                                 }, latestDocsFloatDocShowTime * 1000);
                             }
                         }}
-                        on:mouseleave={() => {
+                        onmouseleave={() => {
                             if (showLatestDocFloatDoc && !plugin.isMobile) {
                                 // 清除悬浮窗显示定时器
                                 if (floatDocTimeout) {

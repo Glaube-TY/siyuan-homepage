@@ -9,12 +9,16 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const contentTypeJsonObj = JSON.parse(contentTypeJson);
 
-    let favoritesNotes: any[] = [];
+    let favoritesNotes: any[] = $state([]);
     const favoritiesTitle =
         contentTypeJsonObj.data?.favoritiesTitle || "💖收藏文档";
     const showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? true;
@@ -33,7 +37,7 @@
     }
     
     // 悬浮窗定时器
-    let floatDocTimeout: number | null = null;
+    let floatDocTimeout: number | null = $state(null);
 
     onMount(async () => {
         favoritesNotes = await getLatestFavoritesNotes(
@@ -52,12 +56,12 @@
                     <li class="favorites-item">
                         <div
                             class="favorites-item-content"
-                            on:keydown={(e) => {
+                            onkeydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                     openDocs(plugin, note.id);
                                 }
                             }}
-                            on:mouseenter={(e) => {
+                            onmouseenter={(e) => {
                                 if (showFavFloatDoc && !plugin.isMobile) {
                                     // 清除之前的定时器
                                     if (floatDocTimeout) {
@@ -70,7 +74,7 @@
                                     }, favFloatDocShowTime * 1000);
                                 }
                             }}
-                            on:mouseleave={() => {
+                            onmouseleave={() => {
                                 if (showFavFloatDoc && !plugin.isMobile) {
                                     // 清除悬浮窗显示定时器
                                     if (floatDocTimeout) {
@@ -83,7 +87,7 @@
                                     }, 150);
                                 }
                             }}
-                            on:click={() => {
+                            onclick={() => {
                                 // 点击时立即隐藏弹窗并打开文档
                                 if (showFavFloatDoc && !plugin.isMobile) {
                                     hideImmediately();

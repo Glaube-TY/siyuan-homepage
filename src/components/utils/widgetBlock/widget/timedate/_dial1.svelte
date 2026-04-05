@@ -1,20 +1,24 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
-	export let contentTypeJson: string = "{}";
+	interface Props {
+		contentTypeJson?: string;
+	}
 
-	let time = new Date();
+	let { contentTypeJson = "{}" }: Props = $props();
 
-	$: hours = time.getHours();
-	$: minutes = time.getMinutes();
-	$: seconds = time.getSeconds();
-	$: year = time.getFullYear();
-	$: month = time.getMonth() + 1;
-	$: day = time.getDate();
+	let time = $state(new Date());
 
-	let dial1ShowSecond: boolean = true;
-	let dial1ShowMarkers: boolean = true;
-	let dial1ShowDate: boolean = true;
+	let hours = $derived(time.getHours());
+	let minutes = $derived(time.getMinutes());
+	let seconds = $derived(time.getSeconds());
+	let year = $derived(time.getFullYear());
+	let month = $derived(time.getMonth() + 1);
+	let day = $derived(time.getDate());
+
+	let dial1ShowSecond: boolean = $state(true);
+	let dial1ShowMarkers: boolean = $state(true);
+	let dial1ShowDate: boolean = $state(true);
 
 	onMount(() => {
 		try {

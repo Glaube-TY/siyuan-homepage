@@ -2,21 +2,34 @@
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
 
-    export let advancedEnabled: boolean = false;
-    export let dailyQuoteMode: string = "custom";
-    export let dailyQuoteFontSize: number = 1;
-    export let dailyQuoteSource: string = "classic";
-    export let customDailyQuoteContent: string = "";
-    export let dailyQuoteBgSelect: string = "remote";
-    export let dailyQuoteRemoteBg: string =
-        "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80";
-    export let dailyQuoteLocalBg: string = "";
-    export let dailyQuoteBgInput: HTMLInputElement | null = null;
+    interface Props {
+        advancedEnabled?: boolean;
+        dailyQuoteMode?: string;
+        dailyQuoteFontSize?: number;
+        dailyQuoteSource?: string;
+        customDailyQuoteContent?: string;
+        dailyQuoteBgSelect?: string;
+        dailyQuoteRemoteBg?: string;
+        dailyQuoteLocalBg?: string;
+        dailyQuoteBgInput?: HTMLInputElement | null;
+    }
 
-    let getDailyQuoteBgImage: () => Promise<void>;
-    let handleDailyQuoteUpload: () => void;
+    let {
+        advancedEnabled = false,
+        dailyQuoteMode = $bindable("custom"),
+        dailyQuoteFontSize = $bindable(1),
+        dailyQuoteSource = $bindable("classic"),
+        customDailyQuoteContent = $bindable(""),
+        dailyQuoteBgSelect = $bindable("remote"),
+        dailyQuoteRemoteBg = $bindable("https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80"),
+        dailyQuoteLocalBg = $bindable(""),
+        dailyQuoteBgInput = $bindable(null)
+    }: Props = $props();
 
-    let dailyQuoteBgImageData: string = "";
+    let getDailyQuoteBgImage: () => Promise<void> = $state();
+    let handleDailyQuoteUpload: () => void = $state();
+
+    let dailyQuoteBgImageData: string = $state("");
 
     onMount(async () => {
         // 初始化背景图片
@@ -100,7 +113,7 @@
                     背景设置：
                     <select
                         bind:value={dailyQuoteBgSelect}
-                        on:change={() => {
+                        onchange={() => {
                             if (dailyQuoteBgSelect === "remote") {
                                 dailyQuoteLocalBg = "";
                             } else {
@@ -116,11 +129,11 @@
                     <input
                         type="text"
                         bind:value={dailyQuoteRemoteBg}
-                        on:change={getDailyQuoteBgImage}
+                        onchange={getDailyQuoteBgImage}
                         placeholder="输入远程图片URL"
                     />
                 {:else}
-                    <button on:click={() => dailyQuoteBgInput?.click()}>
+                    <button onclick={() => dailyQuoteBgInput?.click()}>
                         上传图片
                     </button>
 
@@ -128,7 +141,7 @@
                         type="file"
                         bind:this={dailyQuoteBgInput}
                         accept="image/*"
-                        on:change={handleDailyQuoteUpload}
+                        onchange={handleDailyQuoteUpload}
                         style="display: none;"
                     />
                 {/if}

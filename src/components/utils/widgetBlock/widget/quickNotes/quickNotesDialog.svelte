@@ -2,13 +2,23 @@
     import { showMessage } from "siyuan";
     import { onMount } from "svelte";
 
-    export let plugin: any;
-    export let quickNotesPosition: string;
-    export let quickNotesTimestampEnabled: boolean;
-    export let quickNotesAddPosition: string;
-    export let close: () => void;
+    interface Props {
+        plugin: any;
+        quickNotesPosition: string;
+        quickNotesTimestampEnabled: boolean;
+        quickNotesAddPosition: string;
+        close: () => void;
+    }
 
-    let quickNotesContent = "";
+    let {
+        plugin,
+        quickNotesPosition,
+        quickNotesTimestampEnabled,
+        quickNotesAddPosition,
+        close
+    }: Props = $props();
+
+    let quickNotesContent = $state("");
 
     onMount(async () => {});
 
@@ -68,8 +78,8 @@
         bind:value={quickNotesContent}
     ></textarea>
     <div class="button-group">
-        <button on:click={addQuickNote}>添加</button>
-        <button on:click={close}>取消</button>
+        <button onclick={addQuickNote}>添加</button>
+        <button onclick={close}>取消</button>
     </div>
 </div>
 

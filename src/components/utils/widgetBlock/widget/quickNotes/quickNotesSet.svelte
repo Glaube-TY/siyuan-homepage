@@ -1,6 +1,10 @@
 <script lang="ts">
-    export let quickNotesTitle: string;
-    export let quickNotesSort: string;
+    interface Props {
+        quickNotesTitle: string;
+        quickNotesSort: string;
+    }
+
+    let { quickNotesTitle = $bindable(), quickNotesSort = $bindable() }: Props = $props();
 </script>
 
 <div class="content-panel quick-notes">

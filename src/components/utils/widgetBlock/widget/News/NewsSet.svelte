@@ -1,6 +1,10 @@
 <script lang="ts">
-    export let advancedEnabled: boolean;
-    export let NewsType: string = "daily-news-bulletin";
+    interface Props {
+        advancedEnabled: boolean;
+        NewsType?: string;
+    }
+
+    let { advancedEnabled, NewsType = $bindable("daily-news-bulletin") }: Props = $props();
 </script>
 
 <!-- 完全保持现有的UI结构 -->

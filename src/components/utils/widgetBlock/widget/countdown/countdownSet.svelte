@@ -2,26 +2,40 @@
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
 
-    export let eventList: Array<{
+
+    
+
+    
+
+    
+    interface Props {
+        eventList?: Array<{
         name: string;
         date: string;
         anniversary: boolean;
-    }> = [{ name: "", date: "", anniversary: false }];
-    export let countdownStyle: string = "list";
+    }>;
+        countdownStyle?: string;
+        // 卡片1配置
+        countdownCard1BgSelect?: string;
+        countdownCard1RemoteBg?: string;
+        countdownCard1LocalBg?: string;
+        // 卡片2配置
+        countdownCard2BgColor?: string;
+        // 列表2配置
+        countdownList2BgColor?: string;
+    }
 
-    // 卡片1配置
-    export let countdownCard1BgSelect: string = "remote";
-    export let countdownCard1RemoteBg: string =
-        "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
-    export let countdownCard1LocalBg: string = "";
+    let {
+        eventList = $bindable([{ name: "", date: "", anniversary: false }]),
+        countdownStyle = $bindable("list"),
+        countdownCard1BgSelect = $bindable("remote"),
+        countdownCard1RemoteBg = $bindable("https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664"),
+        countdownCard1LocalBg = $bindable(""),
+        countdownCard2BgColor = $bindable("#000000"),
+        countdownList2BgColor = $bindable("#000000")
+    }: Props = $props();
 
-    // 卡片2配置
-    export let countdownCard2BgColor: string = "#000000";
-
-    // 列表2配置
-    export let countdownList2BgColor: string = "#000000";
-
-    let countdownCard1BgImageData: string = "";
+    let countdownCard1BgImageData: string = $state("");
     // 获取卡片1背景图片
     async function getCountdownCard1BgImage() {
         if (countdownCard1BgSelect === "remote") {
@@ -40,7 +54,7 @@
         }
     }
 
-    let countdownCard1BgInput: HTMLInputElement | null = null;
+    let countdownCard1BgInput: HTMLInputElement | null = $state(null);
     // 处理卡片1背景上传
     function handleCountdownCard1Upload() {
         const file = countdownCard1BgInput?.files?.[0];
@@ -118,7 +132,7 @@
                                 <button
                                     class="remove-event"
                                     title="删除"
-                                    on:click={() => removeEvent(index)}
+                                    onclick={() => removeEvent(index)}
                                 >
                                     🗑
                                 </button>
@@ -127,7 +141,7 @@
                     {/each}
                 </tbody>
             </table>
-            <button class="add-event-btn" on:click={addEvent}>添加倒数日</button
+            <button class="add-event-btn" onclick={addEvent}>添加倒数日</button
             >
         </div>
 
@@ -147,7 +161,7 @@
                         背景设置：
                         <select
                             bind:value={countdownCard1BgSelect}
-                            on:change={() => {
+                            onchange={() => {
                                 if (countdownCard1BgSelect === "remote") {
                                     countdownCard1LocalBg = "";
                                     getCountdownCard1BgImage();
@@ -166,11 +180,11 @@
                         <input
                             type="text"
                             bind:value={countdownCard1RemoteBg}
-                            on:change={getCountdownCard1BgImage}
+                            onchange={getCountdownCard1BgImage}
                             placeholder="输入远程图片URL"
                         />
                     {:else}
-                        <button on:click={() => countdownCard1BgInput?.click()}>
+                        <button onclick={() => countdownCard1BgInput?.click()}>
                             上传图片
                         </button>
 
@@ -178,7 +192,7 @@
                             type="file"
                             bind:this={countdownCard1BgInput}
                             accept="image/*"
-                            on:change={handleCountdownCard1Upload}
+                            onchange={handleCountdownCard1Upload}
                             style="display: none;"
                         />
                     {/if}

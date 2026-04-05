@@ -2,7 +2,11 @@
     import { onMount } from "svelte";
     import { UapiClient } from "uapi-sdk-typescript";
 
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        contentTypeJson?: string;
+    }
+
+    let { contentTypeJson = "{}" }: Props = $props();
 
     // 热搜通用数据结构定义
     interface HotItem {
@@ -11,10 +15,10 @@
         link: string;
     }
 
-    let hotList: HotItem[] = [];
-    let loading: boolean = true;
-    let error: string | null = null;
-    let widgetTitle: string = "热榜🔥";
+    let hotList: HotItem[] = $state([]);
+    let loading: boolean = $state(true);
+    let error: string | null = $state(null);
+    let widgetTitle: string = $state("热榜🔥");
 
     // 解析函数集合
     const parsers = {

@@ -1,6 +1,10 @@
 <script lang="ts">
-    export let advancedEnabled: boolean = false;
-    export let selectedConstellation: string = "capricorn";
+    interface Props {
+        advancedEnabled?: boolean;
+        selectedConstellation?: string;
+    }
+
+    let { advancedEnabled = false, selectedConstellation = $bindable("capricorn") }: Props = $props();
 
     // 星座选项：显示中文，值为英文
     const constellations = [

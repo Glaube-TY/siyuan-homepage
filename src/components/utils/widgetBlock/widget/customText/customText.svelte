@@ -2,10 +2,14 @@
     import { onMount } from "svelte";
     import { MD2HTML } from "@/components/tools/MD2HTML";
 
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        contentTypeJson?: string;
+    }
+
+    let { contentTypeJson = "{}" }: Props = $props();
 
     let customTextContent: string = "";
-    let htmlContent: string = "";
+    let htmlContent: string = $state("");
 
     onMount(() => {
         try {

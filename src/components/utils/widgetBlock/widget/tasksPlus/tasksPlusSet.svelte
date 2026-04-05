@@ -1,9 +1,19 @@
 <script lang="ts">
-    export let TaskManPlusTitle: string = "📋任务管理Plus";
-    export let isCustomFilter: boolean = false;
-    export let internalFilter: string = "all";
-    export let customFilter: string = "";
-    export let tasksSort: string = "startdate";
+    interface Props {
+        TaskManPlusTitle?: string;
+        isCustomFilter?: boolean;
+        internalFilter?: string;
+        customFilter?: string;
+        tasksSort?: string;
+    }
+
+    let {
+        TaskManPlusTitle = $bindable("📋任务管理Plus"),
+        isCustomFilter = $bindable(false),
+        internalFilter = $bindable("all"),
+        customFilter = $bindable(""),
+        tasksSort = $bindable("startdate")
+    }: Props = $props();
 </script>
 
 <div class="tasks-plus-settings">

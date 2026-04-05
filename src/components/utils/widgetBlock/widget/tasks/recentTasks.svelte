@@ -1,17 +1,23 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import { onMount } from "svelte";
     import { getLatestTasks, type RecentTasksInfo } from "./recentTasks";
     import { openDocs } from "@/components/tools/openDocs";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsed = JSON.parse(contentTypeJson);
 
     // 原始数据
-    let recentTasks: RecentTasksInfo[] = [];
-    let showTasksDetails: boolean;
-    let TaskManTitle: string;
+    let recentTasks: RecentTasksInfo[] = $state([]);
+    let showTasksDetails: boolean = $state();
+    let TaskManTitle: string = $state();
 
     // 最终显示的任务列表
     let displayedTasks: Array<{
@@ -22,7 +28,7 @@
         updated: string;
         created: string;
         hpath: string;
-    }> = [];
+    }> = $state([]);
 
     onMount(async () => {
         recentTasks = await getLatestTasks(parsed.data?.tasksNotebookId);
@@ -30,53 +36,6 @@
         TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
     });
 
-    $: {
-        if (recentTasks.length > 0 && displayedTasks.length === 0) {
-            // 初始化处理数据
-            const tasks = recentTasks.map((task) => {
-                const checked = parseCheckbox(task.markdown);
-                const cleanMarkdown = stripHTML(task.markdown);
-                const mainTaskContent = extractMainTaskOnly(cleanMarkdown);
-
-                return {
-                    ...task,
-                    markdown: cleanMarkdown,
-                    checked: checked.checked,
-                    content: mainTaskContent,
-                };
-            });
-
-            // 按更新时间排序（最新在前）
-            const sortedTasks = [...tasks].sort(
-                (a, b) =>
-                    new Date(b.updated).getTime() -
-                    new Date(a.updated).getTime(),
-            );
-
-            // 拆分未完成与已完成
-            const pendingTasks = sortedTasks.filter((task) => !task.checked);
-            const completedTasks = sortedTasks.filter((task) => task.checked);
-
-            // 最终顺序：未完成在前，已完成在后
-            try {
-                if (parsed.type === "TaskMan") {
-                    const showCompletedTasks =
-                        parsed.data?.showCompletedTasks ?? true;
-                    displayedTasks = [
-                        ...pendingTasks,
-                        ...(showCompletedTasks ? completedTasks : []),
-                    ];
-                } else {
-                    // 如果类型不是 TaskMan，默认仍然显示所有任务
-                    displayedTasks = [...pendingTasks, ...completedTasks];
-                }
-            } catch (e) {
-                console.error("解析 contentTypeJson 出错", e);
-                // 解析失败时也显示全部任务
-                displayedTasks = [...pendingTasks, ...completedTasks];
-            }
-        }
-    }
 
     function parseCheckbox(markdown: string) {
         const trimmed = markdown.trimStart();
@@ -183,6 +142,53 @@
     function handleOpenTask(task: (typeof displayedTasks)[number]) {
         openDocs(plugin, task.id);
     }
+    run(() => {
+        if (recentTasks.length > 0 && displayedTasks.length === 0) {
+            // 初始化处理数据
+            const tasks = recentTasks.map((task) => {
+                const checked = parseCheckbox(task.markdown);
+                const cleanMarkdown = stripHTML(task.markdown);
+                const mainTaskContent = extractMainTaskOnly(cleanMarkdown);
+
+                return {
+                    ...task,
+                    markdown: cleanMarkdown,
+                    checked: checked.checked,
+                    content: mainTaskContent,
+                };
+            });
+
+            // 按更新时间排序（最新在前）
+            const sortedTasks = [...tasks].sort(
+                (a, b) =>
+                    new Date(b.updated).getTime() -
+                    new Date(a.updated).getTime(),
+            );
+
+            // 拆分未完成与已完成
+            const pendingTasks = sortedTasks.filter((task) => !task.checked);
+            const completedTasks = sortedTasks.filter((task) => task.checked);
+
+            // 最终顺序：未完成在前，已完成在后
+            try {
+                if (parsed.type === "TaskMan") {
+                    const showCompletedTasks =
+                        parsed.data?.showCompletedTasks ?? true;
+                    displayedTasks = [
+                        ...pendingTasks,
+                        ...(showCompletedTasks ? completedTasks : []),
+                    ];
+                } else {
+                    // 如果类型不是 TaskMan，默认仍然显示所有任务
+                    displayedTasks = [...pendingTasks, ...completedTasks];
+                }
+            } catch (e) {
+                console.error("解析 contentTypeJson 出错", e);
+                // 解析失败时也显示全部任务
+                displayedTasks = [...pendingTasks, ...completedTasks];
+            }
+        }
+    });
 </script>
 
 <div class="content-display">
@@ -196,7 +202,7 @@
                             <input
                                 type="checkbox"
                                 bind:checked={task.checked}
-                                on:change={(e) => {
+                                onchange={(e) => {
                                     e.stopPropagation();
                                     handleCheck(e, task);
                                 }}
@@ -205,11 +211,11 @@
 
                         <div
                             class="task-content"
-                            on:click={(e) => {
+                            onclick={(e) => {
                                 e.preventDefault();
                                 handleOpenTask(task);
                             }}
-                            on:keydown={(e) => {
+                            onkeydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                     e.preventDefault();
                                     handleOpenTask(task);

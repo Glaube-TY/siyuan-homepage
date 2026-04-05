@@ -4,22 +4,40 @@
     import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
     import { saveLayout as saveMobileLayout } from "@/components/utils/mobileHomepage/mobileHomepage_layout";
 
-    // 弹窗接收的 props
-    export let plugin: any;
-    export let onClose: () => void;
-    export let onDelete: () => void;
-    export let onSetSize: (size: number) => void;
+    
 
-    // 新增：接收当前区块的ID
-    export let currentBlockId: string = "";
+    
 
-    // 新增：背景颜色和透明度
-    export let backgroundColor: string = "#ffffff";
-    export let backgroundOpacity: number = 0.5;
+    
 
-    // 新增：边框颜色和粗细
-    export let borderColor: string = "#000000";
-    export let borderWidth: number = 1;
+    
+    interface Props {
+        // 弹窗接收的 props
+        plugin: any;
+        onClose: () => void;
+        onDelete: () => void;
+        onSetSize: (size: number) => void;
+        // 新增：接收当前区块的ID
+        currentBlockId?: string;
+        // 新增：背景颜色和透明度
+        backgroundColor?: string;
+        backgroundOpacity?: number;
+        // 新增：边框颜色和粗细
+        borderColor?: string;
+        borderWidth?: number;
+    }
+
+    let {
+        plugin,
+        onClose,
+        onDelete,
+        onSetSize,
+        currentBlockId = "",
+        backgroundColor = $bindable("#ffffff"),
+        backgroundOpacity = $bindable(0.5),
+        borderColor = $bindable("#000000"),
+        borderWidth = $bindable(1)
+    }: Props = $props();
 
     // 更新背景的方法
     function updateBackground() {
@@ -140,7 +158,7 @@
                 <button
                     type="button"
                     class="size-option"
-                    on:click={() => {
+                    onclick={() => {
                         onSetSize(11);
                         saveLayout(plugin);
                         saveSidebarLayout(plugin);
@@ -182,7 +200,7 @@
                 <button
                     type="button"
                     class="size-option"
-                    on:click={() => {
+                    onclick={() => {
                         onSetSize(12);
                         saveLayout(plugin);
                         saveSidebarLayout(plugin);
@@ -224,7 +242,7 @@
                 <button
                     type="button"
                     class="size-option"
-                    on:click={() => {
+                    onclick={() => {
                         onSetSize(21);
                         saveLayout(plugin);
                         saveSidebarLayout(plugin);
@@ -266,7 +284,7 @@
                 <button
                     type="button"
                     class="size-option"
-                    on:click={() => {
+                    onclick={() => {
                         onSetSize(22);
                         saveLayout(plugin);
                         saveSidebarLayout(plugin);
@@ -308,7 +326,7 @@
                 <button
                     type="button"
                     class="size-option"
-                    on:click={() => {
+                    onclick={() => {
                         onSetSize(31);
                         saveLayout(plugin);
                         saveSidebarLayout(plugin);
@@ -390,7 +408,7 @@
                 <button
                     type="button"
                     class="size-option"
-                    on:click={() => {
+                    onclick={() => {
                         onSetSize(32);
                         saveLayout(plugin);
                         saveSidebarLayout(plugin);
@@ -472,7 +490,7 @@
                 <button
                     type="button"
                     class="size-option"
-                    on:click={() => {
+                    onclick={() => {
                         onSetSize(41);
                         saveLayout(plugin);
                         saveSidebarLayout(plugin);
@@ -604,7 +622,7 @@
                 <button
                     type="button"
                     class="size-option"
-                    on:click={() => {
+                    onclick={() => {
                         onSetSize(42);
                         saveLayout(plugin);
                         saveSidebarLayout(plugin);
@@ -749,7 +767,7 @@
                         id="bg-color"
                         type="color"
                         bind:value={backgroundColor}
-                        on:change={() => {
+                        onchange={() => {
                             updateBackground();
                             saveLayout(plugin);
                             saveSidebarLayout(plugin);
@@ -768,7 +786,7 @@
                         max="1"
                         step="0.01"
                         bind:value={backgroundOpacity}
-                        on:input={() => {
+                        oninput={() => {
                             updateBackground();
                             saveLayout(plugin);
                             saveSidebarLayout(plugin);
@@ -788,7 +806,7 @@
                         id="border-color"
                         type="color"
                         bind:value={borderColor}
-                        on:change={() => {
+                        onchange={() => {
                             updateBorder();
                             saveLayout(plugin);
                             saveSidebarLayout(plugin);
@@ -807,7 +825,7 @@
                         max="10"
                         step="1"
                         bind:value={borderWidth}
-                        on:input={() => {
+                        oninput={() => {
                             updateBorder();
                             saveLayout(plugin);
                             saveSidebarLayout(plugin);
@@ -822,8 +840,8 @@
 
     <!-- 操作按钮：删除和取消在一行 -->
     <div class="action-buttons-row">
-        <button class="delete-button" on:click={onDelete}>🗑 删除组件</button>
-        <button class="cancel-button" on:click={onClose}>❌ 取消</button>
+        <button class="delete-button" onclick={onDelete}>🗑 删除组件</button>
+        <button class="cancel-button" onclick={onClose}>❌ 取消</button>
     </div>
 </div>
 

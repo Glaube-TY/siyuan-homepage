@@ -2,8 +2,12 @@
     import { onMount } from "svelte";
     import { register } from "swiper/element/bundle";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const PicFolderPath = parsedContent.data.PicFolderPath || "";
@@ -18,10 +22,10 @@
     const PicSlidesPerView = parsedContent.data.PicSlidesPerView || "1";
     const PicRandomSwitch = parsedContent.data.PicRandomSwitch ?? false;
 
-    let advancedEnabled = false;
-    let images: Array<{ name: string; path: string }> = [];
-    let loading = true;
-    let error = "";
+    let advancedEnabled = $state(false);
+    let images: Array<{ name: string; path: string }> = $state([]);
+    let loading = $state(true);
+    let error = $state("");
 
     // 读取文件夹中的图片
     async function loadImages() {

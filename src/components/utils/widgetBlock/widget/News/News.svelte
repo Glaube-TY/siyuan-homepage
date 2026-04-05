@@ -1,15 +1,19 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const NewsType = parsedContent.data?.NewsType || "daily-news-bulletin";
 
-    let newsList: any;
+    let newsList: any = $state();
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;

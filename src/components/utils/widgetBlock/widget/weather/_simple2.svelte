@@ -1,18 +1,30 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let city: string;
-    export let temperature: string;
-    export let weather: string;
-    export let humidity: string;
-    export let wind_direction: string;
-    export let wind_power: string;
-    export let plugin: any;
+    interface Props {
+        city: string;
+        temperature: string;
+        weather: string;
+        humidity: string;
+        wind_direction: string;
+        wind_power: string;
+        plugin: any;
+    }
 
-    let weatherIconPath: string = "";
-    let displayCity: string = "";
+    let {
+        city,
+        temperature,
+        weather,
+        humidity,
+        wind_direction,
+        wind_power,
+        plugin
+    }: Props = $props();
 
-    let advancedEnabled = false;
+    let weatherIconPath: string = $state("");
+    let displayCity: string = $state("");
+
+    let advancedEnabled = $state(false);
 
     // 城市名称裁剪函数
     function truncateCityName(cityName: string): string {

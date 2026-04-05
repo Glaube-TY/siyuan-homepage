@@ -1,6 +1,10 @@
 <script lang="ts">
-    export let advancedEnabled: boolean;
-    export let historyDaysType: string;
+    interface Props {
+        advancedEnabled: boolean;
+        historyDaysType: string;
+    }
+
+    let { advancedEnabled, historyDaysType = $bindable() }: Props = $props();
 </script>
 
 <div class="historyDays-set">

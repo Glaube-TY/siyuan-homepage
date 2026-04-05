@@ -1,19 +1,23 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let contentTypeJson: string = "{}";
-    export let plugin: any;
+    interface Props {
+        contentTypeJson?: string;
+        plugin: any;
+    }
 
-    let time = new Date();
+    let { contentTypeJson = "{}", plugin }: Props = $props();
 
-    $: hours = time.getHours();
-    $: minutes = time.getMinutes();
-    $: seconds = time.getSeconds();
+    let time = $state(new Date());
 
-    let dial8ShowSecond: boolean = true;
-    let advancedEnabled: boolean = false;
+    let hours = $derived(time.getHours());
+    let minutes = $derived(time.getMinutes());
+    let seconds = $derived(time.getSeconds());
 
-    let BGImgPath: string = "";
+    let dial8ShowSecond: boolean = $state(true);
+    let advancedEnabled: boolean = $state(false);
+
+    let BGImgPath: string = $state("");
 
     onMount(() => {
         advancedEnabled = plugin.ADVANCED;

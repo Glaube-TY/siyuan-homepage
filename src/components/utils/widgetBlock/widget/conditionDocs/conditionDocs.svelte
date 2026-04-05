@@ -12,8 +12,12 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
     const parsed = JSON.parse(contentTypeJson);
     const conditionDocsTitle = parsed.data?.conditionDocsTitle || "📄条件文档";
     const conditionDocsPrefix = parsed.data?.conditionDocsPrefix || "📄";
@@ -32,10 +36,10 @@
         parsed.data?.conditionDocsFloatDocShowTime || 0.1;
     const conditionDocsTag = parsed.data?.conditionDocsTag || "";
 
-    let displayedDocs: any[] = [];
+    let displayedDocs: any[] = $state([]);
 
     // 悬浮窗定时器
-    let floatDocTimeout: number | null = null;
+    let floatDocTimeout: number | null = $state(null);
 
     // 模拟加载文档数据
     onMount(async () => {
@@ -62,12 +66,12 @@
                 <li class="document-item">
                     <div
                         class="document-item-content"
-                        on:keydown={(e) => {
+                        onkeydown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                                 openDocs(plugin, doc.id);
                             }
                         }}
-                        on:mouseenter={(e) => {
+                        onmouseenter={(e) => {
                             if (showConditionDocsFloatDoc && !plugin.isMobile) {
                                 // 清除之前的定时器
                                 if (floatDocTimeout) {
@@ -80,7 +84,7 @@
                                 }, conditionDocsFloatDocShowTime * 1000);
                             }
                         }}
-                        on:mouseleave={() => {
+                        onmouseleave={() => {
                             // 延迟隐藏，让用户有时间移入弹窗
                             if (showConditionDocsFloatDoc && !plugin.isMobile) {
                                 // 清除悬浮窗显示定时器
@@ -93,7 +97,7 @@
                                 }, 150);
                             }
                         }}
-                        on:click={() => {
+                        onclick={() => {
                             // 点击时立即隐藏弹窗并打开文档
                             if (showConditionDocsFloatDoc && !plugin.isMobile) {
                                 hideImmediately();

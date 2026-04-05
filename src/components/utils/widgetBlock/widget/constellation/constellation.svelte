@@ -2,14 +2,18 @@
     import { showMessage } from "siyuan";
     import { onMount } from "svelte";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
     const parsedContent = JSON.parse(contentTypeJson);
     const selectedConstellation =
         parsedContent.data?.selectedConstellation || "摩羯";
 
-    let constellationData: any = null;
-    let advancedEnabled = false;
+    let constellationData: any = $state(null);
+    let advancedEnabled = $state(false);
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;

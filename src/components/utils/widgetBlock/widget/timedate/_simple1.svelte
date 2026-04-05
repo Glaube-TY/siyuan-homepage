@@ -1,26 +1,31 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { onMount } from "svelte";
 
-	export let contentTypeJson: string = "{}";
+	interface Props {
+		contentTypeJson?: string;
+	}
+
+	let { contentTypeJson = "{}" }: Props = $props();
 
 	let date = new Date();
-	let year = date.getFullYear();
-	let month = date.getMonth() + 1;
-	let week = date.getDay();
-	let day = date.getDate();
-	let hour = date.getHours();
-	let minute = date.getMinutes();
-	let second = date.getSeconds();
+	let year = $state(date.getFullYear());
+	let month = $state(date.getMonth() + 1);
+	let week = $state(date.getDay());
+	let day = $state(date.getDate());
+	let hour = $state(date.getHours());
+	let minute = $state(date.getMinutes());
+	let second = $state(date.getSeconds());
 
-	let formatDateStr = "";
+	let formatDateStr = $state("");
 
 	// 简单时钟配置
-	let simple1Size = 3;
-	let simple1FontWeight = 4;
-	let simple1ShowSecond = true;
-	let simple1ShowDate = true;
+	let simple1Size = $state(3);
+	let simple1FontWeight = $state(4);
+	let simple1ShowSecond = $state(true);
+	let simple1ShowDate = $state(true);
 
-	$: formatDateStr = `${getWeekName(week)}, ${day}. ${getMonthName(month)} ${year}`;
 
 	function getMonthName(monthNum) {
 		const months = [
@@ -72,6 +77,9 @@
 		}, 500);
 
 		return () => clearInterval(interval);
+	});
+	run(() => {
+		formatDateStr = `${getWeekName(week)}, ${day}. ${getMonthName(month)} ${year}`;
 	});
 </script>
 

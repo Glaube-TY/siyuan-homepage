@@ -5,8 +5,12 @@
     import * as echarts from "echarts";
     import "echarts-wordcloud";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const visualChartType =
@@ -16,20 +20,20 @@
     let textColor: any;
     let primaryColor: any;
 
-    let progressBars = [];
-    let progressBarType = "number";
-    let newTitle = "";
-    let newProgressType = "number";
-    let newProgressNumber: number;
-    let newProgressSQL = "";
-    let newTargetType = "number";
-    let newTargetNumber: number;
-    let newTargetSQL = "";
-    let newStartDate = "";
-    let newEndDate = "";
-    let tasks = [];
-    let selectedTasks: any;
-    let addedTaskIds = new Set();
+    let progressBars = $state([]);
+    let progressBarType = $state("number");
+    let newTitle = $state("");
+    let newProgressType = $state("number");
+    let newProgressNumber: number = $state();
+    let newProgressSQL = $state("");
+    let newTargetType = $state("number");
+    let newTargetNumber: number = $state();
+    let newTargetSQL = $state("");
+    let newStartDate = $state("");
+    let newEndDate = $state("");
+    let tasks = $state([]);
+    let selectedTasks: any = $state();
+    let addedTaskIds = $state(new Set());
 
     // 进度条配置
     function getProgressOption(bar) {
@@ -627,7 +631,7 @@
                     <div class="chart-container chart-container-{bar.id}"></div>
                     <button
                         title="删除"
-                        on:click={() => removeProgressBar(bar.id)}>×</button
+                        onclick={() => removeProgressBar(bar.id)}>×</button
                     >
                 </div>
             {/each}
@@ -664,7 +668,7 @@
                             <textarea
                                 bind:value={newProgressSQL}
                                 placeholder="SQL 语句"
-                            />
+></textarea>
                         {/if}
                     </label>
                     <label
@@ -684,7 +688,7 @@
                             <textarea
                                 bind:value={newTargetSQL}
                                 placeholder="SQL 语句"
-                            />
+></textarea>
                         {/if}
                     </label>
                 {:else if progressBarType === "date"}
@@ -724,7 +728,7 @@
                         {/if}
                     </div>
                 {/if}
-                <button on:click={addProgressBar}>添加</button>
+                <button onclick={addProgressBar}>添加</button>
             </div>
         </div>
     {:else if visualChartType === "tagCloud"}

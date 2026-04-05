@@ -1,6 +1,10 @@
 <script lang="ts">
-    export let advancedEnabled: boolean;
-    export let almanacStyle: string = "";
+    interface Props {
+        advancedEnabled: boolean;
+        almanacStyle?: string;
+    }
+
+    let { advancedEnabled, almanacStyle = $bindable("") }: Props = $props();
 </script>
 
 <div class="music-player-settings">

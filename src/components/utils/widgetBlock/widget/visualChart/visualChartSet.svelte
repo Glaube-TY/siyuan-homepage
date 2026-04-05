@@ -1,5 +1,9 @@
 <script lang="ts">
-    export let visualChartType: string = "progressBar";
+    interface Props {
+        visualChartType?: string;
+    }
+
+    let { visualChartType = $bindable("progressBar") }: Props = $props();
 </script>
 
 <div class="visualChart-settings">

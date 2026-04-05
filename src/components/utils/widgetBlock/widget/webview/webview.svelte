@@ -1,10 +1,14 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        contentTypeJson?: string;
+    }
 
-    let webviewUrl: string = "";
-    let isElectron: boolean = false;
+    let { contentTypeJson = "{}" }: Props = $props();
+
+    let webviewUrl: string = $state("");
+    let isElectron: boolean = $state(false);
 
     onMount(() => {
         isElectron =

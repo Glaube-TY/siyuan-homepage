@@ -2,8 +2,12 @@
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
     const parsed = JSON.parse(contentTypeJson);
 
     const dailyQuoteMode = parsed.data?.dailyQuoteMode || "custom";
@@ -11,14 +15,14 @@
     const customDailyQuoteContent = parsed.data?.customDailyQuoteContent || "";
     const dailyQuoteFontSize = parsed.data?.dailyQuoteFontSize || 1;
     let dailyQuoteRemoteBg =
-        parsed.data?.dailyQuoteRemoteBg ||
-        "https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648";
+        $state(parsed.data?.dailyQuoteRemoteBg ||
+        "https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648");
     const dailyQuoteLocalBg = parsed.data?.dailyQuoteLocalBg || "";
     const dailyQuoteBgSelect = parsed.data?.dailyQuoteBgSelect || "remote";
 
-    let dailyQuote = "";
+    let dailyQuote = $state("");
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;

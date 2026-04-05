@@ -2,7 +2,11 @@
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
 
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        contentTypeJson?: string;
+    }
+
+    let { contentTypeJson = "{}" }: Props = $props();
     const parsed = JSON.parse(contentTypeJson);
 
     let countdownEvents = parsed.data?.eventList || [];
@@ -10,8 +14,8 @@
 
     let countdownCard1LocalBg = parsed.data?.countdownCard1LocalBg || "";
     let countdownCard1RemoteBg =
-        parsed.data?.countdownCard1RemoteBg ||
-        "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
+        $state(parsed.data?.countdownCard1RemoteBg ||
+        "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664");
     let countdownCard1BgSelect =
         parsed.data?.countdownCard1BgSelect || "remote";
 
@@ -20,7 +24,7 @@
     let countdownList2BgColor = parsed.data?.countdownList2BgColor || "#000000";
 
     // 当前事件索引
-    let currentEventIndex = 0;
+    let currentEventIndex = $state(0);
 
     // 卡片配置管理器（方便后续扩展更多卡片类型）
     const cardConfig = {
@@ -210,7 +214,7 @@
         >
             <button
                 class="countdown-button countdown-button-left"
-                on:click={previousEvent}>◀︎</button
+                onclick={previousEvent}>◀︎</button
             >
             {#if countdownEvents.length > 0}
                 <svg viewBox="0 0 100 100">
@@ -311,14 +315,14 @@
             {/if}
             <button
                 class="countdown-button countdown-button-right"
-                on:click={nextEvent}>▶︎</button
+                onclick={nextEvent}>▶︎</button
             >
         </div>
     {:else if countdownStyle === "card2"}
         <div class="content-display-card2">
             <button
                 class="countdown-button countdown-button-left"
-                on:click={previousEvent}>◀︎</button
+                onclick={previousEvent}>◀︎</button
             >
             {#if countdownEvents.length > 0}
                 <svg viewBox="0 0 100 100">
@@ -411,7 +415,7 @@
             {/if}
             <button
                 class="countdown-button countdown-button-right"
-                on:click={nextEvent}>▶︎</button
+                onclick={nextEvent}>▶︎</button
             >
         </div>
     {/if}

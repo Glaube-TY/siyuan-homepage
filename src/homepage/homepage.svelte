@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import { onMount, onDestroy, tick } from "svelte";
 
     import { writable } from "svelte/store";
@@ -38,43 +40,47 @@
         resolveButtonsList,
     } from "./configLoader";
 
-    import "./style/homepage.scss";
+    import "./style/homepage.scss"
 
     export const app = undefined;
-    export let plugin: any;
-    export let showIcon = writable(true);
+    interface Props {
+        plugin: any;
+        showIcon?: any;
+    }
+
+    let { plugin, showIcon = writable(true) }: Props = $props();
 
     let showBanner = writable(true);
-    let bannerImage: HTMLImageElement;
-    let bannerHeight = 300;
-    let bannerImgSrc = "";
+    let bannerImage: HTMLImageElement = $state();
+    let bannerHeight = $state(300);
+    let bannerImgSrc = $state("");
 
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };
 
-    let titleIconType: "emoji" | "image" = "emoji";
-    let tempTitleIconEmoji = "🏠";
-    let tempTitleIconImage: string | null = null;
-    let pageTitle = "思源笔记首页";
-    let tempTitleIconStyle: string = "square";
+    let titleIconType: "emoji" | "image" = $state("emoji");
+    let tempTitleIconEmoji = $state("🏠");
+    let tempTitleIconImage: string | null = $state(null);
+    let pageTitle = $state("思源笔记首页");
+    let tempTitleIconStyle: string = $state("square");
 
     let statsInfoText =
-        "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤";
+        $state("自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤");
 
-    let footerEnabled = true;
-    let footerContent = "";
+    let footerEnabled = $state(true);
+    let footerContent = $state("");
 
-    let mouseIcon = "default";
-    let mouseGlobalEnabled = false;
-    let MouseTrailEnabled = false;
-    let ClickEffectEnabled = false;
-    let ClickEffectContent = "";
+    let mouseIcon = $state("default");
+    let mouseGlobalEnabled = $state(false);
+    let MouseTrailEnabled = $state(false);
+    let ClickEffectEnabled = $state(false);
+    let ClickEffectContent = $state("");
     let FallEffectsEnabled = false;
     let GlobalFallingEffectsEnabled = false;
     let FallingIcon = "snow";
     let FallingDensity = "medium";
     let FallingSpeed = "medium";
-    let advanced = false;
+    let advanced = $state(false);
 
     type ButtonItem = {
         id: number;
@@ -83,12 +89,12 @@
         shortcut?: string;
         order: number;
     };
-    let buttonsList: ButtonItem[] = [];
-    let showMoreMenu = false;
-    let isHoveringNavBar = false;
+    let buttonsList: ButtonItem[] = $state([]);
+    let showMoreMenu = $state(false);
+    let isHoveringNavBar = $state(false);
 
-    let widgetLayoutNumber = 4;
-    let widgetGap = 0.2;
+    let widgetLayoutNumber = $state(4);
+    let widgetGap = $state(0.2);
     let advancedPollInterval: ReturnType<typeof setInterval> | null = null;
 
     // 实时获取高级功能启用状态
@@ -249,17 +255,23 @@
         }
         cleanupFallingEffects();
         window.removeEventListener("load", onWindowLoad);
-        window.removeEventListener("homepage-advanced-ready", handleAdvancedReady);
+        window.removeEventListener(
+            "homepage-advanced-ready",
+            handleAdvancedReady,
+        );
         document.removeEventListener("click", handleDocumentClick);
         document.removeEventListener("click", handleClickEffect);
         document.removeEventListener("mousemove", handleMouseMoveTrail);
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        document.removeEventListener(
+            "visibilitychange",
+            handleVisibilityChange,
+        );
         unregisterAllShortcuts();
         cleanupMouseEffects();
     });
 
     // 光标样式监听
-    $: {
+    run(() => {
         updateCursorStyle({
             advanced: getAdvancedEnabled(),
             mouseIcon,
@@ -268,7 +280,7 @@
             ClickEffectContent,
             MouseTrailEnabled,
         });
-    }
+    });
 
     // 更新加载主页配置
     async function updateHomepage() {
@@ -316,26 +328,39 @@
         buttonsList = resolveButtonsList(config);
 
         // 横幅图片
-        const bannerResult = await resolveBannerImage(config, getAdvancedEnabled());
+        const bannerResult = await resolveBannerImage(
+            config,
+            getAdvancedEnabled(),
+        );
         bannerImgSrc = bannerResult.bannerImgSrc;
     }
 
     // 格式化状态语言，将变量替换为统计信息（异步处理）
-    let formattedStatsInfoText = "";
-    
+    let formattedStatsInfoText = $state("");
+
     async function updateFormattedStatsInfoText() {
         if (!statsInfoText) {
             formattedStatsInfoText = "";
             return;
         }
-        
+
         let result = statsInfoText;
-        
+
         // 异步加载所有统计数据
         const [
-            startDate, blocksCount, notebooksCount, docsCount, nowDate,
-            tasksCount, doneTasksCount, undoneTasksCount, dailynotesCount,
-            tagsCount, codeBlocksCount, mathBlocksCount, citationCount
+            startDate,
+            blocksCount,
+            notebooksCount,
+            docsCount,
+            nowDate,
+            tasksCount,
+            doneTasksCount,
+            undoneTasksCount,
+            dailynotesCount,
+            tagsCount,
+            codeBlocksCount,
+            mathBlocksCount,
+            citationCount,
         ] = await Promise.all([
             loadStatsData("startDate", plugin),
             loadStatsData("blocksCount", plugin),
@@ -349,9 +374,9 @@
             loadStatsData("tagsCount", plugin),
             loadStatsData("codeBlocksCount", plugin),
             loadStatsData("mathBlocksCount", plugin),
-            loadStatsData("citationCount", plugin)
+            loadStatsData("citationCount", plugin),
         ]);
-        
+
         // 替换所有变量
         result = result
             .replace("{{startDate}}", startDate?.toString() || "")
@@ -367,7 +392,7 @@
             .replace("{{codeBlocksCount}}", codeBlocksCount?.toString() || "")
             .replace("{{mathBlocksCount}}", mathBlocksCount?.toString() || "")
             .replace("{{citationCount}}", citationCount?.toString() || "");
-        
+
         // 处理 $...$ 表达式（异步）
         const durationRegex = /\$\$(.*?)\$\$/g;
         let match;
@@ -375,22 +400,25 @@
         while ((match = durationRegex.exec(result)) !== null) {
             matches.push({ full: match[0], expr: match[1].trim() });
         }
-        
+
         for (const { full, expr } of matches) {
-            const replacement = await parseDurationExpression(expr, plugin) || "";
+            const replacement =
+                (await parseDurationExpression(expr, plugin)) || "";
             result = result.replace(full, replacement);
         }
-        
+
         formattedStatsInfoText = result;
     }
-    
+
     // 当 statsInfoText 变化时更新格式化文本
-    $: if (statsInfoText !== undefined) {
-        updateFormattedStatsInfoText();
-    }
+    run(() => {
+        if (statsInfoText !== undefined) {
+            updateFormattedStatsInfoText();
+        }
+    });
 
     // 过滤按钮列表，只显示未选中的按钮
-    $: filteredButtons = buttonsList.filter((b) => b.checked === false);
+    let filteredButtons = $derived(buttonsList.filter((b) => b.checked === false));
 
     // 更多按钮点击事件处理
     function handleDocumentClick(event: MouseEvent) {
@@ -406,7 +434,11 @@
 
 <div class="homepage-container">
     <!-- 头部横幅区域 -->
-    <div class="section top-banner" class:hide-top-banner={!$showBanner} style:height={`${bannerHeight}px`}>
+    <div
+        class="section top-banner"
+        class:hide-top-banner={!$showBanner}
+        style:height={`${bannerHeight}px`}
+    >
         <img
             bind:this={bannerImage}
             src={bannerImgSrc}
@@ -420,7 +452,7 @@
         <!-- 按钮容器 -->
         <div class="button-wrapper">
             <button
-                on:click={() => (
+                onclick={() => (
                     (bannerImage.style.transform = "translateY(0)"),
                     plugin.saveData("bannerPosition.json", { scrollTop: 0 })
                 )}
@@ -492,8 +524,8 @@
             class="nav-bar"
             role="navigation"
             aria-label="主菜单导航栏"
-            on:mouseenter={() => (isHoveringNavBar = true)}
-            on:mouseleave={() => (isHoveringNavBar = false)}
+            onmouseenter={() => (isHoveringNavBar = true)}
+            onmouseleave={() => (isHoveringNavBar = false)}
         >
             <div class="nav-bar-left"></div>
             <div class="nav-buttons">
@@ -501,7 +533,7 @@
                     {#if sortedButtons.checked}
                         <button
                             class="nav-button"
-                            on:click={() =>
+                            onclick={() =>
                                 handleButtonClick(
                                     sortedButtons,
                                     plugin,
@@ -520,7 +552,7 @@
                     class="nav-button more-button"
                     class:hidden={!isHoveringNavBar ||
                         filteredButtons.length === 0}
-                    on:click={() => {
+                    onclick={() => {
                         const newShowMoreMenu =
                             handleMoreButtonClick(showMoreMenu);
                         showMoreMenu = newShowMoreMenu;
@@ -534,7 +566,7 @@
                         {#each filteredButtons as item}
                             <button
                                 class="more-menu-item"
-                                on:click={() => {
+                                onclick={() => {
                                     handleButtonClick(
                                         item,
                                         plugin,

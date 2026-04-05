@@ -35,277 +35,286 @@
 
     // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
-    import "./contentSettingStyle/contentSetting.scss";
+    
 
-    // 弹窗接收的 props
-    export let plugin: any;
-    export let onClose: () => void;
-    export let onConfirm: (contentTypeJson: string) => void;
+    
+    interface Props {
+        // 弹窗接收的 props
+        plugin: any;
+        onClose: () => void;
+        onConfirm: (contentTypeJson: string) => void;
+        // 当前区块 ID
+        currentBlockId?: string;
+    }
 
-    // 当前区块 ID
-    export let currentBlockId: string = "";
+    let {
+        plugin,
+        onClose,
+        onConfirm,
+        currentBlockId = ""
+    }: Props = $props();
 
-    let activeTab = "note";
+    let activeTab = $state("note");
 
-    let notebooks = [];
+    let notebooks = $state([]);
 
     // 下拉选项绑定值
-    let selectedContentType: string = "latest-docs";
-    let customTextInputValue: string = "";
+    let selectedContentType: string = $state("latest-docs");
+    let customTextInputValue: string = $state("");
 
     // 子文档配置
-    let childDocsTitle: string = "📄子文档";
-    let childDocsPrefix: string = "📄";
-    let showChildDocsDetails: boolean = true;
-    let childDocsParentId: string = "";
-    let childDocsSortOrder: string = "updated";
-    let showChildDocsFloatDoc: boolean = true;
-    let childDocsFloatDocShowTime: number = 0.1;
+    let childDocsTitle: string = $state("📄子文档");
+    let childDocsPrefix: string = $state("📄");
+    let showChildDocsDetails: boolean = $state(true);
+    let childDocsParentId: string = $state("");
+    let childDocsSortOrder: string = $state("updated");
+    let showChildDocsFloatDoc: boolean = $state(true);
+    let childDocsFloatDocShowTime: number = $state(0.1);
 
     // 条件文档配置
-    let conditionDocsTitle: string = "📄条件文档";
-    let conditionDocsCondition: string = "keyword";
-    let conditionDocsKeyPosition: string = "anywhere";
-    let conditionDocsKeyWord: string = "";
-    let conditionDocsSortOrder: string = "updated";
-    let showConditionDocsFloatDoc: boolean = true;
-    let conditionDocsFloatDocShowTime: number = 0.1;
-    let conditionDocsTag: string = "";
+    let conditionDocsTitle: string = $state("📄条件文档");
+    let conditionDocsCondition: string = $state("keyword");
+    let conditionDocsKeyPosition: string = $state("anywhere");
+    let conditionDocsKeyWord: string = $state("");
+    let conditionDocsSortOrder: string = $state("updated");
+    let showConditionDocsFloatDoc: boolean = $state(true);
+    let conditionDocsFloatDocShowTime: number = $state(0.1);
+    let conditionDocsTag: string = $state("");
 
     // 最近文档配置
-    let docLimit: number = 5;
-    let ensureOpenDocs: boolean = false;
-    let selectedNotebookIds: { label: string; value: string }[] = [];
-    let docNotebookId: string = "";
-    let latestDocsTitle: string = "🕒最近文档";
-    let latestDocsPrefix: string = "📄";
-    let showLatestDocDetails: boolean = true;
-    let showLatestDocFloatDoc: boolean = true;
-    let latestDocsFloatDocShowTime: number = 0.1;
+    let docLimit: number = $state(5);
+    let ensureOpenDocs: boolean = $state(false);
+    let selectedNotebookIds: { label: string; value: string }[] = $state([]);
+    let docNotebookId: string = $state("");
+    let latestDocsTitle: string = $state("🕒最近文档");
+    let latestDocsPrefix: string = $state("📄");
+    let showLatestDocDetails: boolean = $state(true);
+    let showLatestDocFloatDoc: boolean = $state(true);
+    let latestDocsFloatDocShowTime: number = $state(0.1);
 
     // 最近日记配置
-    let docJournalLimit: number = 5;
-    let recentJournalsShowType: string = "list";
-    let recentJournalsCalendarIcon: string = "📝";
-    let recentJournalsCalendarIconSize: number = 16;
-    let showLatestDailyNotesFloatDoc: boolean = true;
-    let latestDailyNotesFloatDocShowTime: number = 0.1;
+    let docJournalLimit: number = $state(5);
+    let recentJournalsShowType: string = $state("list");
+    let recentJournalsCalendarIcon: string = $state("📝");
+    let recentJournalsCalendarIconSize: number = $state(16);
+    let showLatestDailyNotesFloatDoc: boolean = $state(true);
+    let latestDailyNotesFloatDocShowTime: number = $state(0.1);
 
     // 收藏文档配置
-    let favoritiesTitle: string = "💖收藏文档";
-    let favoritiesSortOrder: string = "created";
-    let showNoteMeta: boolean = true;
-    let favoritiesDocPrefix: string = "❤";
-    let favoritesNotebookId: string = ""; // 指定收藏文档所在笔记本 ID
-    let selectedFavoritesNotebookIds: { label: string; value: string }[] = [];
-    let showFavFloatDoc: boolean = true;
-    let favFloatDocShowTime: number = 0.1;
+    let favoritiesTitle: string = $state("💖收藏文档");
+    let favoritiesSortOrder: string = $state("created");
+    let showNoteMeta: boolean = $state(true);
+    let favoritiesDocPrefix: string = $state("❤");
+    let favoritesNotebookId: string = $state(""); // 指定收藏文档所在笔记本 ID
+    let selectedFavoritesNotebookIds: { label: string; value: string }[] = $state([]);
+    let showFavFloatDoc: boolean = $state(true);
+    let favFloatDocShowTime: number = $state(0.1);
 
     // 任务管理相关变量
-    let showCompletedTasks = true; // 默认显示已完成任务
-    let tasksNotebookId: string = ""; // 任务管理笔记本 ID
-    let showTasksDetails = true; // 默认显示任务详情
-    let TaskManTitle: string = "📋任务管理";
-    let selectedTasksNotebookIds: { label: string; value: string }[] = [];
+    let showCompletedTasks = $state(true); // 默认显示已完成任务
+    let tasksNotebookId: string = $state(""); // 任务管理笔记本 ID
+    let showTasksDetails = $state(true); // 默认显示任务详情
+    let TaskManTitle: string = $state("📋任务管理");
+    let selectedTasksNotebookIds: { label: string; value: string }[] = $state([]);
 
     // 任务管理Plus 相关变量
-    let TaskManPlusTitle: string = "📋任务管理Plus";
-    let isCustomFilter: boolean = false;
-    let internalFilter: string = "all";
-    let customFilter: string = "";
-    let tasksSort: string = "startdate";
+    let TaskManPlusTitle: string = $state("📋任务管理Plus");
+    let isCustomFilter: boolean = $state(false);
+    let internalFilter: string = $state("all");
+    let customFilter: string = $state("");
+    let tasksSort: string = $state("startdate");
 
     // 快速笔记相关变量
-    let quickNotesTitle: string = "📝快速笔记";
-    let quickNotesSort: string = "DOC_ASC";
+    let quickNotesTitle: string = $state("📝快速笔记");
+    let quickNotesSort: string = $state("DOC_ASC");
 
     // 便签相关变量
-    let stikynotStyle: string = "default";
+    let stikynotStyle: string = $state("default");
 
     // 倒数日相关变量
-    let eventList = [{ name: "", date: "", anniversary: false }];
-    let countdownStyle = "list";
-    let countdownCard1BgSelect = "remote";
+    let eventList = $state([{ name: "", date: "", anniversary: false }]);
+    let countdownStyle = $state("list");
+    let countdownCard1BgSelect = $state("remote");
     let countdownCard1RemoteBg =
-        "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
-    let countdownCard1LocalBg = "";
-    let countdownCard2BgColor: string = "#000000";
-    let countdownList2BgColor: string = "#000000";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664");
+    let countdownCard1LocalBg = $state("");
+    let countdownCard2BgColor: string = $state("#000000");
+    let countdownList2BgColor: string = $state("#000000");
 
     // 天气相关变量
-    let customWeatherCityName: string = "";
-    let customWeatherCityCode: string = "";
-    let weatherStyle: string = "default";
+    let customWeatherCityName: string = $state("");
+    let customWeatherCityCode: string = $state("");
+    let weatherStyle: string = $state("default");
 
     // 热搜相关变量
-    let hotSource: string = "bilibili";
+    let hotSource: string = $state("bilibili");
 
     // 每日一言相关变量
-    let dailyQuoteMode: string = "custom";
-    let customDailyQuoteContent: string = "";
-    let dailyQuoteSource: string = "classic";
-    let dailyQuoteFontSize: number = 1;
-    let dailyQuoteBgSelect = "remote";
+    let dailyQuoteMode: string = $state("custom");
+    let customDailyQuoteContent: string = $state("");
+    let dailyQuoteSource: string = $state("classic");
+    let dailyQuoteFontSize: number = $state(1);
+    let dailyQuoteBgSelect = $state("remote");
     let dailyQuoteRemoteBg =
-        "https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648";
-    let dailyQuoteLocalBg = "";
-    let dailyQuoteBgInput: HTMLInputElement | null = null;
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648");
+    let dailyQuoteLocalBg = $state("");
+    let dailyQuoteBgInput: HTMLInputElement | null = $state(null);
 
     // 新闻资讯相关变量
-    let NewsType: string = "daily-news-bulletin";
+    let NewsType: string = $state("daily-news-bulletin");
 
     // 星座运势相关变量
-    let selectedConstellation: string = "摩羯";
+    let selectedConstellation: string = $state("摩羯");
 
     // 历史上的今天相关变量
-    let historyDaysType: string = "list";
+    let historyDaysType: string = $state("list");
 
     // 热力图相关
     let timeRangeType: "past" | "custom" = "past";
-    let heatmapTitle: string = "📅创作热力图";
-    let pastMonthCount: number = 6;
-    let showLabel: boolean = true;
-    let selectedColorPreset: "github" | "blue" | "custom" = "github";
-    let customColor: string = "#1ea769";
-    let heatmapCountType: string = "block";
+    let heatmapTitle: string = $state("📅创作热力图");
+    let pastMonthCount: number = $state(6);
+    let showLabel: boolean = $state(true);
+    let selectedColorPreset: "github" | "blue" | "custom" = $state("github");
+    let customColor: string = $state("#1ea769");
+    let heatmapCountType: string = $state("block");
 
     // 自定义网页链接
-    let customWebUrl: string = "";
+    let customWebUrl: string = $state("");
 
     // 自定义显示块ID
-    let isRandomDoc: boolean = false;
-    let customBlockID: string = "";
+    let isRandomDoc: boolean = $state(false);
+    let customBlockID: string = $state("");
 
     // 时钟组件相关变量
-    let timeType: string = "classic";
+    let timeType: string = $state("classic");
     // 时钟组件经典样式相关变量
-    let timedateFontSize: number = 3;
-    let showSeconds: boolean = true;
-    let dateFormat: string = "YYYY年MM月DD日";
-    let showLunar: boolean = true;
-    let showZodiac: boolean = true;
-    let showSolarTerm: boolean = true;
-    let showWeek: boolean = true;
-    let showDate: boolean = true;
+    let timedateFontSize: number = $state(3);
+    let showSeconds: boolean = $state(true);
+    let dateFormat: string = $state("YYYY年MM月DD日");
+    let showLunar: boolean = $state(true);
+    let showZodiac: boolean = $state(true);
+    let showSolarTerm: boolean = $state(true);
+    let showWeek: boolean = $state(true);
+    let showDate: boolean = $state(true);
     let morningBgUrl =
-        "https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/16637944029171072");
     let afternoonBgUrl =
-        "https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/16989237330693504");
     let nightBgUrl =
-        "https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440";
-    let morningBgImage = null;
-    let afternoonBgImage = null;
-    let nightBgImage = null;
-    let morningImageType = "remote";
-    let afternoonImageType = "remote";
-    let nightImageType = "remote";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/15477811848581440");
+    let morningBgImage = $state(null);
+    let afternoonBgImage = $state(null);
+    let nightBgImage = $state(null);
+    let morningImageType = $state("remote");
+    let afternoonImageType = $state("remote");
+    let nightImageType = $state("remote");
     // 简单时钟配置
-    let simple1Size: number = 3;
-    let simple1FontWeight: number = 4;
-    let simple1ShowSecond: boolean = true;
-    let simple1ShowDate: boolean = true;
+    let simple1Size: number = $state(3);
+    let simple1FontWeight: number = $state(4);
+    let simple1ShowSecond: boolean = $state(true);
+    let simple1ShowDate: boolean = $state(true);
     // 简单时钟2配置
-    let simple2BgSelect: string = "remote";
+    let simple2BgSelect: string = $state("remote");
     let simple2RemoteBg: string =
-        "https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944";
-    let simple2LocalBg: string = "";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944");
+    let simple2LocalBg: string = $state("");
     // 表盘时钟配置
-    let dial1ShowSecond: boolean = true;
-    let dial1ShowMarkers: boolean = true;
-    let dial1ShowDate: boolean = true;
+    let dial1ShowSecond: boolean = $state(true);
+    let dial1ShowMarkers: boolean = $state(true);
+    let dial1ShowDate: boolean = $state(true);
     // 表盘2配置
-    let dial2ShowSecond: boolean = true;
-    let dial2ShowMarkers: boolean = true;
-    let dial2ShowDate: boolean = true;
+    let dial2ShowSecond: boolean = $state(true);
+    let dial2ShowMarkers: boolean = $state(true);
+    let dial2ShowDate: boolean = $state(true);
     // 表盘3配置
-    let dial3ShowSecond: boolean = true;
+    let dial3ShowSecond: boolean = $state(true);
     // 表盘4配置
-    let dial4ShowSecond: boolean = true;
+    let dial4ShowSecond: boolean = $state(true);
     // 表盘5配置
-    let dial5ShowSecond: boolean = true;
+    let dial5ShowSecond: boolean = $state(true);
     // 表盘6配置
-    let dial6ShowSecond: boolean = true;
+    let dial6ShowSecond: boolean = $state(true);
     // 表盘7配置
-    let dial7ShowSecond: boolean = true;
+    let dial7ShowSecond: boolean = $state(true);
     // 表盘8配置
-    let dial8ShowSecond: boolean = true;
+    let dial8ShowSecond: boolean = $state(true);
     // 表盘9配置
-    let dial9ShowSecond: boolean = true;
+    let dial9ShowSecond: boolean = $state(true);
 
     // 专注设置
-    let focusImageType = "remote";
-    let breakImageType = "remote";
+    let focusImageType = $state("remote");
+    let breakImageType = $state("remote");
     let focusBgImage =
-        "https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464");
     let breakBgImage =
-        "https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d";
-    let focusLocalImage = null;
-    let breakLocalImage = null;
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d");
+    let focusLocalImage = $state(null);
+    let breakLocalImage = $state(null);
 
     // SQL 查询
-    let sqlTitle: string = "🔍SQL 查询结果";
-    let sqlInput: string = "";
-    let columnOrder: string = "";
-    let hiddenFields: string = "";
+    let sqlTitle: string = $state("🔍SQL 查询结果");
+    let sqlInput: string = $state("");
+    let columnOrder: string = $state("");
+    let hiddenFields: string = $state("");
 
     // 可视化图表相关
-    let visualChartType: string = "progressBar";
+    let visualChartType: string = $state("progressBar");
 
     // 数据库图表相关
-    let databaseChartID: string = "";
-    let databaseChartType: string = "line";
-    let databaseChartTitle: string = "";
-    let databaseChartLineType: string = "XY";
-    let databaseChartLineXAxisSource: string = "";
-    let databaseChartLineXAxisTitle: string = "";
-    let databaseChartLineYAxisSource: string[] = [];
-    let databaseChartLineYAxisTitle: string = "";
-    let databaseChartLineCountColumn: string = "";
-    let databaseChartLineCountXAxisTitle: string = "";
-    let databaseChartLineCountYAxisTitle: string = "";
-    let databaseChartLineSmooth: boolean = false;
-    let databaseChartLineCountSort: string = "none";
-    let databaseChartLineMarkPoint: string = "circle";
-    let databaseChartLineMarkPointSize: number = 8;
-    let databaseChartLineStyle: string = "solid";
-    let databaseChartLineWidth: number = 2;
+    let databaseChartID: string = $state("");
+    let databaseChartType: string = $state("line");
+    let databaseChartTitle: string = $state("");
+    let databaseChartLineType: string = $state("XY");
+    let databaseChartLineXAxisSource: string = $state("");
+    let databaseChartLineXAxisTitle: string = $state("");
+    let databaseChartLineYAxisSource: string[] = $state([]);
+    let databaseChartLineYAxisTitle: string = $state("");
+    let databaseChartLineCountColumn: string = $state("");
+    let databaseChartLineCountXAxisTitle: string = $state("");
+    let databaseChartLineCountYAxisTitle: string = $state("");
+    let databaseChartLineSmooth: boolean = $state(false);
+    let databaseChartLineCountSort: string = $state("none");
+    let databaseChartLineMarkPoint: string = $state("circle");
+    let databaseChartLineMarkPointSize: number = $state(8);
+    let databaseChartLineStyle: string = $state("solid");
+    let databaseChartLineWidth: number = $state(2);
 
     // 统计卡片相关
-    let statisticalCardTitle: string = "统计卡片";
-    let statisticalCardTitleSize: number = 1;
-    let statisticalCardTitleColor: string = "#000000";
-    let statisticalCardContent: string = "notebooksCount";
-    let statisticalCardCountSize: number = 2;
-    let statisticalCardCountColor: string = "#000000";
-    let customSQLCount: string = "";
+    let statisticalCardTitle: string = $state("统计卡片");
+    let statisticalCardTitleSize: number = $state(1);
+    let statisticalCardTitleColor: string = $state("#000000");
+    let statisticalCardContent: string = $state("notebooksCount");
+    let statisticalCardCountSize: number = $state(2);
+    let statisticalCardCountColor: string = $state("#000000");
+    let customSQLCount: string = $state("");
 
     // 音乐播放器相关
-    let musicFolderPath = "";
-    let autoPlay = false;
+    let musicFolderPath = $state("");
+    let autoPlay = $state(false);
 
     //  黄历相关
-    let almanacStyle: string = "classic";
+    let almanacStyle: string = $state("classic");
 
     // 图片轮播相关
-    let PicFolderPath: string = ""; // 图片文件夹路径
-    let PicAutoPlay: boolean = false; // 是否自动播放
-    let PicInterval: number = 3; // 切换间隔（秒）
-    let PicNavigation: boolean = false; // 是否显示导航按钮
-    let PicPagination: boolean = false; // 是否显示分页按钮
-    let PicPaginationType: string = "bullets"; // 分页按钮类型
-    let PicPaginationDyBu: boolean = false; // 动态分页圆点
-    let PicPaginationPrOp: boolean = false; // 分页进度条是否反方向
-    let PicEffect: string = "slide"; // 切换效果
-    let PicSlidesPerView: string = "1"; // 每页显示的图片数量
-    let PicRandomSwitch: boolean = false; // 是否随机切换
+    let PicFolderPath: string = $state(""); // 图片文件夹路径
+    let PicAutoPlay: boolean = $state(false); // 是否自动播放
+    let PicInterval: number = $state(3); // 切换间隔（秒）
+    let PicNavigation: boolean = $state(false); // 是否显示导航按钮
+    let PicPagination: boolean = $state(false); // 是否显示分页按钮
+    let PicPaginationType: string = $state("bullets"); // 分页按钮类型
+    let PicPaginationDyBu: boolean = $state(false); // 动态分页圆点
+    let PicPaginationPrOp: boolean = $state(false); // 分页进度条是否反方向
+    let PicEffect: string = $state("slide"); // 切换效果
+    let PicSlidesPerView: string = $state("1"); // 每页显示的图片数量
+    let PicRandomSwitch: boolean = $state(false); // 是否随机切换
 
     // 赛博木鱼配置
-    let CMKnockSound: string = "普通";
+    let CMKnockSound: string = $state("普通");
 
     // 倒计时定时器样式
-    let countdownTimerStyle: string = "default";
+    let countdownTimerStyle: string = $state("default");
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
 
     onMount(async () => {
         const settingData = await plugin.loadData(
@@ -713,27 +722,31 @@
     });
 </script>
 
+<style lang="scss">
+    @use "./contentSettingStyle/contentSetting.scss" as *;
+</style>
+
 <div class="settings-container">
     <!-- 分类导航栏 -->
     <div class="tab-nav">
         <button
-            on:click={() => (activeTab = "note")}
+            onclick={() => (activeTab = "note")}
             class:active={activeTab === "note"}>笔记数据</button
         >
         <button
-            on:click={() => (activeTab = "visualization")}
+            onclick={() => (activeTab = "visualization")}
             class:active={activeTab === "visualization"}>可视化</button
         >
         <button
-            on:click={() => (activeTab = "tool")}
+            onclick={() => (activeTab = "tool")}
             class:active={activeTab === "tool"}>日常工具</button
         >
         <button
-            on:click={() => (activeTab = "info")}
+            onclick={() => (activeTab = "info")}
             class:active={activeTab === "info"}>信息资讯</button
         >
         <button
-            on:click={() => (activeTab = "custom")}
+            onclick={() => (activeTab = "custom")}
             class:active={activeTab === "custom"}>自定义</button
         >
     </div>
@@ -1089,7 +1102,7 @@
     <div class="action-buttons-row">
         <button
             class="confirm-button"
-            on:click={() => {
+            onclick={() => {
                 if (focusImageType === "remote") focusLocalImage = null;
                 if (breakImageType === "remote") breakLocalImage = null;
 
@@ -1545,6 +1558,6 @@
         >
             ✔ 确定
         </button>
-        <button class="cancel-button" on:click={onClose}>❌ 取消</button>
+        <button class="cancel-button" onclick={onClose}>❌ 取消</button>
     </div>
 </div>

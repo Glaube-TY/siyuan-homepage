@@ -3,8 +3,12 @@
     import { openDocs } from "@/components/tools/openDocs";
     import { gettasksList, formatTasksList } from "./tasksPlus";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsed = JSON.parse(contentTypeJson);
     let TaskManPlusTitle = parsed.data?.TaskManPlusTitle || "📋任务管理Plus";
@@ -13,7 +17,7 @@
     let customFilter = parsed.data?.customFilter || "";
     let tasksSort = parsed.data?.tasksSort || "startdate";
     let tasksList: any[] = [];
-    let tasksListFormat: any;
+    let tasksListFormat: any = $state();
     let reminderCheckInterval: number | null = null;
 
     function showSystemNotification(title: string, body: string) {
@@ -343,12 +347,12 @@
                             checked={task.taskCheck?.includes("X") ||
                                 task.taskCheck?.includes("x")}
                             class="task-checkbox"
-                            on:change={(e) => handleCheck(e, task)}
+                            onchange={(e) => handleCheck(e, task)}
                         />
                         <button
                             type="button"
                             class="task-name"
-                            on:click={() => openDocs(plugin, task.id)}
+                            onclick={() => openDocs(plugin, task.id)}
                         >
                             {task.taskname || "未命名任务"}
                         </button>

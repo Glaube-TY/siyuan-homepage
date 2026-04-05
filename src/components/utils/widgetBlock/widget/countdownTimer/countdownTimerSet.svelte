@@ -1,6 +1,10 @@
 <script lang="ts">
-    export let advancedEnabled: boolean = false;
-    export let countdownTimerStyle: string = "default";
+    interface Props {
+        advancedEnabled?: boolean;
+        countdownTimerStyle?: string;
+    }
+
+    let { advancedEnabled = false, countdownTimerStyle = $bindable("default") }: Props = $props();
 </script>
 
 <div class="content-display">

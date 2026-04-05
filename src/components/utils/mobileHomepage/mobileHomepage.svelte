@@ -3,16 +3,20 @@
     import Sortable from "sortablejs";
     import { saveLayout, restoreLayout } from "./mobileHomepage_layout";
     import { addCustomBlock } from "./block-creator";
-
     import "./mobileHomepage.scss";
 
-    export let plugin: any;
-    export let close: () => void;
+    export const app = undefined;
+    interface Props {
+        plugin: any;
+        close: () => void;
+    }
+
+    let { plugin, close }: Props = $props();
 
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };
 
-    let advanced: boolean;
+    let advanced: boolean = $state();
 
     onMount(() => {
         // 组件拖拽
@@ -50,11 +54,11 @@
         <div class="mobile-homepage-setting">
             <button
                 class="mobile-homepage-add-widget-btn"
-                on:click={() =>
+                onclick={() =>
                     addCustomBlock(plugin, currentBlockForSettingsRef)}
                 >➕添加组件</button
             >
-            <button class="mobile-homepage-close-btn" on:click={() => close()}
+            <button class="mobile-homepage-close-btn" onclick={() => close()}
                 >返回</button
             >
         </div>

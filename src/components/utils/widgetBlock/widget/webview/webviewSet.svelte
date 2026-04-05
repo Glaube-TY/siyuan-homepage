@@ -1,5 +1,9 @@
 <script lang="ts">
-    export let customWebUrl: string = "";
+    interface Props {
+        customWebUrl?: string;
+    }
+
+    let { customWebUrl = $bindable("") }: Props = $props();
 </script>
 
 <div class="content-panel custom-web">

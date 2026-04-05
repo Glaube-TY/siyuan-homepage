@@ -4,17 +4,21 @@
     import DOMPurify from "dompurify";
     import { MD2HTML } from "@/components/tools/MD2HTML";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
     const parsed = JSON.parse(contentTypeJson);
 
     const quickNotesTitle = parsed.data?.quickNotesTitle || "📝快速笔记";
     const quickNotesSort = parsed.data?.quickNotesSort || "DOC_ASC";
 
-    let quickNotesEnabled;
+    let quickNotesEnabled = $state();
     let quickNotesPosition;
 
-    let quickNotesList = [];
+    let quickNotesList = $state([]);
 
     onMount(async () => {
         const homepageSettingConfig = await plugin.loadData(
@@ -115,14 +119,14 @@
                         <button
                             class="delete-btn"
                             title="删除该条笔记"
-                            on:click={() => handleDelete(note.id)}
+                            onclick={() => handleDelete(note.id)}
                         >
                             ×
                         </button>
                         <button
                             class="copy-btn"
                             title="复制笔记"
-                            on:click={() => {
+                            onclick={() => {
                                 navigator.clipboard.writeText(note.content);
                                 showMessage("复制成功");
                             }}>C</button

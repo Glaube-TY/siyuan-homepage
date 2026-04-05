@@ -1,26 +1,52 @@
 <script lang="ts">
-    export let plugin: any;
-    export let advancedEnabled: boolean;
-    export let databaseChartID: string = "";
-    export let databaseChartTitle: string = "";
-    export let databaseChartType: string = "line";
-    export let databaseChartLineType: string = "XY";
-    export let databaseChartLineXAxisSource: string = "";
-    export let databaseChartLineXAxisTitle: string = "";
-    export let databaseChartLineYAxisSource: string[] = [];
-    export let databaseChartLineYAxisTitle: string = "";
-    export let databaseChartLineCountColumn: string = "";
-    export let databaseChartLineCountXAxisTitle: string = "";
-    export let databaseChartLineCountYAxisTitle: string = "";
-    export let databaseChartLineSmooth: boolean = false;
-    export let databaseChartLineWidth: number = 2;
-    export let databaseChartLineStyle: string = "solid";
-    export let databaseChartLineMarkPoint: string = "circle";
-    export let databaseChartLineMarkPointSize: number = 8;
-    export let databaseChartLineCountSort: string = "none";
+    import { run } from 'svelte/legacy';
 
-    let databaseChartInfo: any[] = [];
-    let confirmDatabaseChartID: boolean = false;
+    interface Props {
+        plugin: any;
+        advancedEnabled: boolean;
+        databaseChartID?: string;
+        databaseChartTitle?: string;
+        databaseChartType?: string;
+        databaseChartLineType?: string;
+        databaseChartLineXAxisSource?: string;
+        databaseChartLineXAxisTitle?: string;
+        databaseChartLineYAxisSource?: string[];
+        databaseChartLineYAxisTitle?: string;
+        databaseChartLineCountColumn?: string;
+        databaseChartLineCountXAxisTitle?: string;
+        databaseChartLineCountYAxisTitle?: string;
+        databaseChartLineSmooth?: boolean;
+        databaseChartLineWidth?: number;
+        databaseChartLineStyle?: string;
+        databaseChartLineMarkPoint?: string;
+        databaseChartLineMarkPointSize?: number;
+        databaseChartLineCountSort?: string;
+    }
+
+    let {
+        plugin,
+        advancedEnabled,
+        databaseChartID = $bindable(""),
+        databaseChartTitle = $bindable(""),
+        databaseChartType = $bindable("line"),
+        databaseChartLineType = $bindable("XY"),
+        databaseChartLineXAxisSource = $bindable(""),
+        databaseChartLineXAxisTitle = $bindable(""),
+        databaseChartLineYAxisSource = $bindable([]),
+        databaseChartLineYAxisTitle = $bindable(""),
+        databaseChartLineCountColumn = $bindable(""),
+        databaseChartLineCountXAxisTitle = $bindable(""),
+        databaseChartLineCountYAxisTitle = $bindable(""),
+        databaseChartLineSmooth = $bindable(false),
+        databaseChartLineWidth = $bindable(2),
+        databaseChartLineStyle = $bindable("solid"),
+        databaseChartLineMarkPoint = $bindable("circle"),
+        databaseChartLineMarkPointSize = $bindable(8),
+        databaseChartLineCountSort = $bindable("none")
+    }: Props = $props();
+
+    let databaseChartInfo: any[] = $state([]);
+    let confirmDatabaseChartID: boolean = $state(false);
 
     async function getDatabase() {
         if (!databaseChartID) return;
@@ -49,9 +75,11 @@
         }
     }
 
-    $: if (databaseChartID) {
-        getDatabase();
-    }
+    run(() => {
+        if (databaseChartID) {
+            getDatabase();
+        }
+    });
 </script>
 
 {#if advancedEnabled}

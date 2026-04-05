@@ -1,23 +1,38 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import { onMount } from "svelte";
 
-    // 专注设置相关变量
-    export let focusImageType: string = "remote";
-    export let breakImageType: string = "remote";
-    export let focusBgImage: string =
-        "https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464";
-    export let breakBgImage: string =
-        "https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d";
-    export let focusLocalImage: string | null = null;
-    export let breakLocalImage: string | null = null;
+    
 
-    // 预览图片数据
-    export let focusBgImageData: string = "";
-    export let breakBgImageData: string = "";
+    
+    interface Props {
+        // 专注设置相关变量
+        focusImageType?: string;
+        breakImageType?: string;
+        focusBgImage?: string;
+        breakBgImage?: string;
+        focusLocalImage?: string | null;
+        breakLocalImage?: string | null;
+        // 预览图片数据
+        focusBgImageData?: string;
+        breakBgImageData?: string;
+    }
+
+    let {
+        focusImageType = $bindable("remote"),
+        breakImageType = $bindable("remote"),
+        focusBgImage = $bindable("https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464"),
+        breakBgImage = $bindable("https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d"),
+        focusLocalImage = $bindable(null),
+        breakLocalImage = $bindable(null),
+        focusBgImageData = $bindable(""),
+        breakBgImageData = $bindable("")
+    }: Props = $props();
 
     // 文件输入引用
-    let focusBgInput: HTMLInputElement | null = null;
-    let breakBgInput: HTMLInputElement | null = null;
+    let focusBgInput: HTMLInputElement | null = $state(null);
+    let breakBgInput: HTMLInputElement | null = $state(null);
 
     // 初始化图片数据
     async function initializeImages() {
@@ -46,32 +61,7 @@
         initializeImages();
     });
 
-    // 监听图片类型和地址变化
-    $: if (focusImageType === "remote" && focusBgImage) {
-        (async () => {
-            if (
-                !window.navigator.userAgent.includes("Electron") ||
-                typeof window.require !== "function"
-            ) {
-                focusBgImageData = await getImage(focusBgImage);
-            } else {
-                focusBgImageData = focusBgImage;
-            }
-        })();
-    }
 
-    $: if (breakImageType === "remote" && breakBgImage) {
-        (async () => {
-            if (
-                !window.navigator.userAgent.includes("Electron") ||
-                typeof window.require !== "function"
-            ) {
-                breakBgImageData = await getImage(breakBgImage);
-            } else {
-                breakBgImageData = breakBgImage;
-            }
-        })();
-    }
 
     // 处理专注背景上传
     function handleFocusUpload() {
@@ -106,6 +96,35 @@
         // 这里应该是实际的图片获取逻辑
         return url;
     }
+    // 监听图片类型和地址变化
+    run(() => {
+        if (focusImageType === "remote" && focusBgImage) {
+            (async () => {
+                if (
+                    !window.navigator.userAgent.includes("Electron") ||
+                    typeof window.require !== "function"
+                ) {
+                    focusBgImageData = await getImage(focusBgImage);
+                } else {
+                    focusBgImageData = focusBgImage;
+                }
+            })();
+        }
+    });
+    run(() => {
+        if (breakImageType === "remote" && breakBgImage) {
+            (async () => {
+                if (
+                    !window.navigator.userAgent.includes("Electron") ||
+                    typeof window.require !== "function"
+                ) {
+                    breakBgImageData = await getImage(breakBgImage);
+                } else {
+                    breakBgImageData = breakBgImage;
+                }
+            })();
+        }
+    });
 </script>
 
 <div class="content-panel focus">
@@ -114,14 +133,14 @@
         type="file"
         bind:this={focusBgInput}
         accept="image/*"
-        on:change={handleFocusUpload}
+        onchange={handleFocusUpload}
         style="display: none;"
     />
     <input
         type="file"
         bind:this={breakBgInput}
         accept="image/*"
-        on:change={handleBreakUpload}
+        onchange={handleBreakUpload}
         style="display: none;"
     />
     <div class="form-group">
@@ -149,7 +168,7 @@
                             placeholder="请输入专注背景图URL"
                         />
                     {:else}
-                        <button on:click={() => focusBgInput.click()}
+                        <button onclick={() => focusBgInput.click()}
                             >上传图片</button
                         >
                     {/if}
@@ -189,7 +208,7 @@
                             placeholder="请输入休息背景图URL"
                         />
                     {:else}
-                        <button on:click={() => breakBgInput.click()}
+                        <button onclick={() => breakBgInput.click()}
                             >上传图片</button
                         >
                     {/if}

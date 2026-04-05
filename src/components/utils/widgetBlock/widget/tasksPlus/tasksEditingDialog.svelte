@@ -2,9 +2,13 @@
     import { onMount } from "svelte";
     import { sql } from "@/api";
 
-    export let plugin: any;
-    export let blockId: string;
-    export let close: () => void;
+    interface Props {
+        plugin: any;
+        blockId: string;
+        close: () => void;
+    }
+
+    let { plugin, blockId = $bindable(), close }: Props = $props();
 
     let parentBlockId = "";
     let parentBlockType = "";
@@ -13,7 +17,7 @@
 
     let blockMarkdown = "";
 
-    let taskData = {
+    let taskData = $state({
         taskCheck: "",
         taskname: "",
         priority: "",
@@ -23,10 +27,10 @@
         reminder: "",
         location: "",
         tags: [] as string[],
-    };
+    });
 
-    let useDateTime = true;
-    let timePart = "";
+    let useDateTime = $state(true);
+    let timePart = $state("");
 
     function parseTaskMarkdown(markdown: string) {
         if (!markdown) return;
@@ -279,14 +283,14 @@
                     type="time"
                     bind:value={timePart}
                     step="60"
-                    on:input={handleReminderTimeInput}
+                    oninput={handleReminderTimeInput}
                 />
             {/if}
             <label class="time-type-switch">
                 <input
                     type="checkbox"
                     bind:checked={useDateTime}
-                    on:change={handleTimeTypeChange}
+                    onchange={handleTimeTypeChange}
                 />
                 日期
             </label>
@@ -315,11 +319,11 @@
     <div class="task-tags">
         <span> 标签 </span>
         <div class="tag-item-container">
-            {#each taskData.tags as tag, index}
+            {#each taskData.tags as _, index}
                 <div class="tag-item">
-                    <input type="text" bind:value={tag} placeholder="标签" />
+                    <input type="text" bind:value={taskData.tags[index]} placeholder="标签" />
                     <button
-                        on:click={() =>
+                        onclick={() =>
                             (taskData.tags = taskData.tags.filter(
                                 (_, i) => i !== index,
                             ))}
@@ -331,14 +335,14 @@
         </div>
         <button
             class="add-tag-button"
-            on:click={() => (taskData.tags = [...taskData.tags, ""])}
+            onclick={() => (taskData.tags = [...taskData.tags, ""])}
         >
             添加标签
         </button>
     </div>
     <div class="task-confirm">
         <div class="task-confirm">
-            <button on:click={updateBlock}>确认</button>
+            <button onclick={updateBlock}>确认</button>
         </div>
     </div>
 </div>

@@ -1,5 +1,9 @@
 <script lang="ts">
-    export let hotSource: string;
+    interface Props {
+        hotSource: string;
+    }
+
+    let { hotSource = $bindable() }: Props = $props();
 
     // 热搜平台分类选项
     const hotSourceCategories = [

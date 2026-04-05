@@ -1,11 +1,23 @@
 <script lang="ts">
-    // 热力图配置变量
-    export let heatmapTitle: string = "📅创作热力图";
-    export let pastMonthCount: number = 6;
-    export let showLabel: boolean = true;
-    export let selectedColorPreset: "github" | "blue" | "custom" = "github";
-    export let customColor: string = "#1ea769";
-    export let heatmapCountType: string = "block";
+    
+    interface Props {
+        // 热力图配置变量
+        heatmapTitle?: string;
+        pastMonthCount?: number;
+        showLabel?: boolean;
+        selectedColorPreset?: "github" | "blue" | "custom";
+        customColor?: string;
+        heatmapCountType?: string;
+    }
+
+    let {
+        heatmapTitle = $bindable("📅创作热力图"),
+        pastMonthCount = $bindable(6),
+        showLabel = $bindable(true),
+        selectedColorPreset = $bindable("github"),
+        customColor = $bindable("#1ea769"),
+        heatmapCountType = $bindable("block")
+    }: Props = $props();
 </script>
 
 <div class="content-panel heatmap">

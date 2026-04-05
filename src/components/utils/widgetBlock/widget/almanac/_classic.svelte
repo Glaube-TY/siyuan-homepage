@@ -70,7 +70,8 @@
 
 <div class="content-display-classic">
     <table>
-        <tr>
+        <tbody>
+            <tr>
             <td colspan="2">公历日期</td>
             <td colspan="2"
                 >{solarDay.yearCN}年{solarDay.monthCN}月{solarDay.dayCN}日</td
@@ -292,7 +293,8 @@
         <tr>
             <td colspan="2">旬</td>
             <td>{ten.tenStr}</td>
-        </tr>
+            </tr>
+        </tbody>
     </table>
 </div>
 

@@ -1,19 +1,37 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import MultiSelect from "svelte-multiselect";
     import { onMount } from "svelte";
 
-    export let notebooks: any[] = [];
 
-    // 最近文档配置
-    export let docLimit: number = 5;
-    export let ensureOpenDocs: boolean = false;
-    export let selectedNotebookIds: any[] = [];
-    export let docNotebookId: string = "";
-    export let latestDocsTitle: string = "最近文档";
-    export let latestDocsPrefix: string = "";
-    export let showLatestDocDetails: boolean = true;
-    export let showLatestDocFloatDoc: boolean = true;
-    export let latestDocsFloatDocShowTime: number = 0.1;
+    
+    interface Props {
+        notebooks?: any[];
+        // 最近文档配置
+        docLimit?: number;
+        ensureOpenDocs?: boolean;
+        selectedNotebookIds?: any[];
+        docNotebookId?: string;
+        latestDocsTitle?: string;
+        latestDocsPrefix?: string;
+        showLatestDocDetails?: boolean;
+        showLatestDocFloatDoc?: boolean;
+        latestDocsFloatDocShowTime?: number;
+    }
+
+    let {
+        notebooks = [],
+        docLimit = $bindable(5),
+        ensureOpenDocs = $bindable(false),
+        selectedNotebookIds = $bindable([]),
+        docNotebookId = "",
+        latestDocsTitle = $bindable("最近文档"),
+        latestDocsPrefix = $bindable(""),
+        showLatestDocDetails = $bindable(true),
+        showLatestDocFloatDoc = $bindable(true),
+        latestDocsFloatDocShowTime = $bindable(0.1)
+    }: Props = $props();
 
     let limitOptions = [
         { value: 3, label: "3条" },
@@ -52,9 +70,11 @@
     });
 
     // 监听变化，确保状态正确恢复
-    $: if (docNotebookId && notebooks.length > 0) {
-        initializeSelectedNotebooks();
-    }
+    run(() => {
+        if (docNotebookId && notebooks.length > 0) {
+            initializeSelectedNotebooks();
+        }
+    });
 </script>
 
 <div class="latest-docs-settings">

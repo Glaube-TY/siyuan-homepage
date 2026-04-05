@@ -1,15 +1,29 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import MultiSelect from "svelte-multiselect";
     import { onMount } from "svelte";
 
-    export let notebooks: any[] = [];
 
-    // 任务管理配置
-    export let TaskManTitle: string = "📋任务管理";
-    export let showCompletedTasks: boolean = false;
-    export let showTasksDetails: boolean = false;
-    export let selectedTasksNotebookIds: any[] = [];
-    export let docNotebookId: string = "";
+    
+    interface Props {
+        notebooks?: any[];
+        // 任务管理配置
+        TaskManTitle?: string;
+        showCompletedTasks?: boolean;
+        showTasksDetails?: boolean;
+        selectedTasksNotebookIds?: any[];
+        docNotebookId?: string;
+    }
+
+    let {
+        notebooks = [],
+        TaskManTitle = $bindable("📋任务管理"),
+        showCompletedTasks = $bindable(false),
+        showTasksDetails = $bindable(false),
+        selectedTasksNotebookIds = $bindable([]),
+        docNotebookId = ""
+    }: Props = $props();
 
     // 初始化选择状态
     function initializeSelectedNotebooks() {
@@ -38,9 +52,11 @@
     });
 
     // 监听变化，确保状态正确恢复
-    $: if (docNotebookId && notebooks.length > 0) {
-        initializeSelectedNotebooks();
-    }
+    run(() => {
+        if (docNotebookId && notebooks.length > 0) {
+            initializeSelectedNotebooks();
+        }
+    });
 </script>
 
 <div class="content-panel TaskMan">

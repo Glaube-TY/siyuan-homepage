@@ -3,8 +3,12 @@
     import { onMount } from "svelte";
     import { openDocs } from "@/components/tools/openDocs";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsed = JSON.parse(contentTypeJson);
     let sqlTitle = parsed.data?.sqlTitle || "🔍SQL 查询结果";
@@ -16,7 +20,7 @@
             .map((s) => s.trim()) || [];
 
     let data: any[] = [];
-    let filteredData: any[] = [];
+    let filteredData: any[] = $state([]);
     let notebooksList: any[] = [];
 
     let hiddenFields =
@@ -179,7 +183,7 @@
                                     class={key === "文档路径"
                                         ? "clickable-path"
                                         : ""}
-                                    on:click={key === "文档路径"
+                                    onclick={key === "文档路径"
                                         ? () => openDocument(row["内容块ID"])
                                         : null}
                                 >

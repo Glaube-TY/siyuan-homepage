@@ -5,21 +5,25 @@
     import Simple1 from "./_simple1.svelte";
     import Simple2 from "./_simple2.svelte";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin = $bindable(), contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const cityName = parsedContent?.data?.cityName || "";
     const cityCode = parsedContent?.data?.cityCode || "";
     const weatherStyle = parsedContent?.data?.weatherStyle || "default";
 
-    let city: string = "加载中...";
-    let temperature: string = "加载中...";
-    let weather: string = "加载中...";
-    let wind_direction: string = "加载中...";
-    let wind_power: string = "加载中...";
-    let humidity: string = "加载中...";
-    let reportTime: string = "加载中...";
+    let city: string = $state("加载中...");
+    let temperature: string = $state("加载中...");
+    let weather: string = $state("加载中...");
+    let wind_direction: string = $state("加载中...");
+    let wind_power: string = $state("加载中...");
+    let humidity: string = $state("加载中...");
+    let reportTime: string = $state("加载中...");
     let result: WeatherResponse | null = null;
 
     // 定义新的天气数据接口

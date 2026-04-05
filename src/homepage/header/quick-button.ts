@@ -1,7 +1,8 @@
 import { addCustomBlock } from "../../components/utils/widgetBlock/utils/block-creator";
 import { svelteDialog } from "@/libs/dialog";
-import HomepageSetting from "../../components/utils/homepageSetting.svelte";
+import HomepageSetting from "../homepageSetting/homepageSetting.svelte";
 import Mousetrap from "mousetrap";
+import { mount } from "svelte";
 
 type ExtendedKeyboardEvent = KeyboardEvent & {
     keyCode: number;
@@ -157,15 +158,15 @@ function createOpenHomepageSetting(plugin: any) {
         const dialog = svelteDialog({
             title: "主页设置",
             constructor: (containerEl: HTMLElement) => {
-                return new HomepageSetting({
-                    target: containerEl,
-                    props: {
-                        plugin: plugin,
-                        close: () => {
-                            dialog.close();
-                        },
-                    },
-                });
+                return mount(HomepageSetting, {
+                                    target: containerEl,
+                                    props: {
+                                        plugin: plugin,
+                                        close: () => {
+                                            dialog.close();
+                                        },
+                                    },
+                                });
             },
         });
     };

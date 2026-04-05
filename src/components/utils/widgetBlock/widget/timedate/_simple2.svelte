@@ -2,21 +2,25 @@
 	import { onMount } from "svelte";
 	import { getImage } from "@/components/tools/getImage";
 
-	export let contentTypeJson: string = "{}";
+	interface Props {
+		contentTypeJson?: string;
+	}
+
+	let { contentTypeJson = "{}" }: Props = $props();
 	const parsed = JSON.parse(contentTypeJson);
 
 	let simple2RemoteBg =
-		parsed.data?.simple2RemoteBg ||
-		"https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944";
+		$state(parsed.data?.simple2RemoteBg ||
+		"https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944");
 	const simple2LocalBg = parsed.data?.simple2LocalBg || "";
 	const simple2BgSelect = parsed.data?.simple2BgSelect || "remote";
 
 	let date = new Date();
-	let month = date.getMonth() + 1;
-	let week = date.getDay();
-	let day = date.getDate();
-	let hour = date.getHours();
-	let minute = date.getMinutes();
+	let month = $state(date.getMonth() + 1);
+	let week = $state(date.getDay());
+	let day = $state(date.getDate());
+	let hour = $state(date.getHours());
+	let minute = $state(date.getMinutes());
 
 	// 将星期数字转换为中文
 	function getChineseWeek(weekNum: number): string {

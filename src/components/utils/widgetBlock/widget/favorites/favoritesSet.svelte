@@ -1,22 +1,40 @@
 <script lang="ts">
+    import { run } from 'svelte/legacy';
+
     import MultiSelect from "svelte-multiselect";
     import { onMount } from "svelte";
 
-    // 收藏文档相关变量
-    export let favoritiesTitle: string = "💖收藏文档";
-    export let favoritiesSortOrder: string = "created";
-    export let showNoteMeta: boolean = true;
-    export let favoritiesDocPrefix: string = "❤";
-    export let favoritesNotebookId: string = "";
-    export let selectedFavoritesNotebookIds: {
+    
+
+    
+    interface Props {
+        // 收藏文档相关变量
+        favoritiesTitle?: string;
+        favoritiesSortOrder?: string;
+        showNoteMeta?: boolean;
+        favoritiesDocPrefix?: string;
+        favoritesNotebookId?: string;
+        selectedFavoritesNotebookIds?: {
         label: string;
         value: string;
-    }[] = [];
-    export let showFavFloatDoc: boolean = true;
-    export let favFloatDocShowTime: number = 0.1;
+    }[];
+        showFavFloatDoc?: boolean;
+        favFloatDocShowTime?: number;
+        // 笔记本列表
+        notebooks?: any[];
+    }
 
-    // 笔记本列表
-    export let notebooks: any[] = [];
+    let {
+        favoritiesTitle = $bindable("💖收藏文档"),
+        favoritiesSortOrder = $bindable("created"),
+        showNoteMeta = $bindable(true),
+        favoritiesDocPrefix = $bindable("❤"),
+        favoritesNotebookId = $bindable(""),
+        selectedFavoritesNotebookIds = $bindable([]),
+        showFavFloatDoc = $bindable(true),
+        favFloatDocShowTime = $bindable(0.1),
+        notebooks = []
+    }: Props = $props();
 
     // 初始化选择状态
     function initializeSelectedNotebooks() {
@@ -46,19 +64,23 @@
     });
 
     // 监听变化，确保状态正确恢复
-    $: if (favoritesNotebookId && notebooks.length > 0) {
-        initializeSelectedNotebooks();
-    }
+    run(() => {
+        if (favoritesNotebookId && notebooks.length > 0) {
+            initializeSelectedNotebooks();
+        }
+    });
 
     // 监听选择变化，更新字符串格式
-    $: if (selectedFavoritesNotebookIds) {
-        favoritesNotebookId =
-            selectedFavoritesNotebookIds.length > 0
-                ? selectedFavoritesNotebookIds
-                      .map((item) => item.value)
-                      .join(",")
-                : "";
-    }
+    run(() => {
+        if (selectedFavoritesNotebookIds) {
+            favoritesNotebookId =
+                selectedFavoritesNotebookIds.length > 0
+                    ? selectedFavoritesNotebookIds
+                          .map((item) => item.value)
+                          .join(",")
+                    : "";
+        }
+    });
 </script>
 
 <div class="content-panel favorites">

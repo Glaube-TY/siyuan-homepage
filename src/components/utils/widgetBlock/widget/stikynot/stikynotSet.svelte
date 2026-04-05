@@ -1,6 +1,5 @@
-<script>
-    export let advancedEnabled;
-    export let stikynotStyle;
+<script lang="ts">
+    let { advancedEnabled, stikynotStyle = $bindable() } = $props();
 </script>
 
 {#if advancedEnabled}

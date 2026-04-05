@@ -1,11 +1,23 @@
 <script lang="ts">
-    export let childDocsTitle: string = "📄子文档";
-    export let childDocsPrefix: string = "📄";
-    export let showChildDocsDetails: boolean = true;
-    export let childDocsParentId: string = "";
-    export let childDocsSortOrder: string = "updated";
-    export let showChildDocsFloatDoc: boolean = true;
-    export let childDocsFloatDocShowTime: number = 0.1;
+    interface Props {
+        childDocsTitle?: string;
+        childDocsPrefix?: string;
+        showChildDocsDetails?: boolean;
+        childDocsParentId?: string;
+        childDocsSortOrder?: string;
+        showChildDocsFloatDoc?: boolean;
+        childDocsFloatDocShowTime?: number;
+    }
+
+    let {
+        childDocsTitle = $bindable("📄子文档"),
+        childDocsPrefix = $bindable("📄"),
+        showChildDocsDetails = $bindable(true),
+        childDocsParentId = $bindable(""),
+        childDocsSortOrder = $bindable("updated"),
+        showChildDocsFloatDoc = $bindable(true),
+        childDocsFloatDocShowTime = $bindable(0.1)
+    }: Props = $props();
 </script>
 
 <div class="content-display">

@@ -11,21 +11,31 @@
         saveWidgetSize
     } from "./styleUtils";
 
-    export let plugin: any;
-    export let onClose: () => void;
-    export let onDelete: () => void;
-    export let onSetSize: (size: number) => void;
-    export let currentBlockId: string = "";
+    interface Props {
+        plugin: any;
+        onClose: () => void;
+        onDelete: () => void;
+        onSetSize: (size: number) => void;
+        currentBlockId?: string;
+    }
 
-    let backgroundColor: string = "#ffffff";
-    let backgroundOpacity: number = 0.5;
-    let borderColor: string = "#000000";
-    let borderWidth: number = 1;
-    let widgetLayoutNumber = 4;
-    let rowSize = 1;
-    let colSize = 1;
+    let {
+        plugin,
+        onClose,
+        onDelete,
+        onSetSize,
+        currentBlockId = ""
+    }: Props = $props();
 
-    $: sizeOptions = Array.from({ length: widgetLayoutNumber }, (_, i) => i + 1);
+    let backgroundColor: string = $state("#ffffff");
+    let backgroundOpacity: number = $state(0.5);
+    let borderColor: string = $state("#000000");
+    let borderWidth: number = $state(1);
+    let widgetLayoutNumber = $state(4);
+    let rowSize = $state(1);
+    let colSize = $state(1);
+
+    let sizeOptions = $derived(Array.from({ length: widgetLayoutNumber }, (_, i) => i + 1));
 
     function handleStyleChange() {
         updateElementBackground(currentBlockId, backgroundColor, backgroundOpacity);
@@ -84,7 +94,7 @@
             <button
                 type="button"
                 class="apply-size-button"
-                on:click={handleApplySize}
+                onclick={handleApplySize}
             >
                 应用尺寸
             </button>
@@ -103,7 +113,7 @@
                         id="bg-color"
                         type="color"
                         bind:value={backgroundColor}
-                        on:change={handleStyleChange}
+                        onchange={handleStyleChange}
                     />
                 </div>
 
@@ -117,7 +127,7 @@
                         max="1"
                         step="0.01"
                         bind:value={backgroundOpacity}
-                        on:input={handleStyleChange}
+                        oninput={handleStyleChange}
                     />
                     <span>{Math.round(backgroundOpacity * 100)}%</span>
                 </div>
@@ -132,7 +142,7 @@
                         id="border-color"
                         type="color"
                         bind:value={borderColor}
-                        on:change={handleStyleChange}
+                        onchange={handleStyleChange}
                     />
                 </div>
 
@@ -146,7 +156,7 @@
                         max="10"
                         step="1"
                         bind:value={borderWidth}
-                        on:input={handleStyleChange}
+                        oninput={handleStyleChange}
                     />
                     <span>{borderWidth}px</span>
                 </div>
@@ -156,8 +166,8 @@
 
     <!-- 操作按钮：删除和取消在一行 -->
     <div class="action-buttons-row">
-        <button class="delete-button" on:click={onDelete}>🗑 删除组件</button>
-        <button class="cancel-button" on:click={onClose}>❌ 取消</button>
+        <button class="delete-button" onclick={onDelete}>🗑 删除组件</button>
+        <button class="cancel-button" onclick={onClose}>❌ 取消</button>
     </div>
 </div>
 

@@ -1,31 +1,35 @@
 <script lang="ts">
-    import { onMount, onDestroy } from "svelte";
+    import { onMount, onDestroy, mount } from "svelte";
     import { Howl, Howler } from "howler";
     import { svelteDialog } from "@/libs/dialog";
     import musicList from "./musicList.svelte";
 
-    export let plugin: any;
-    export let contentTypeJson: string = "{}";
+    interface Props {
+        plugin: any;
+        contentTypeJson?: string;
+    }
+
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsedContent = JSON.parse(contentTypeJson);
     const musicFolderPath = parsedContent.data?.musicFolderPath || "";
     const savedTrackIndex = parsedContent.data?.currentTrackIndex || 0;
-    let playMode = parsedContent.data?.playMode || "order";
-    let isMuted = parsedContent.data?.isMuted || false;
-    let volume = parsedContent.data?.volume || 0.5;
+    let playMode = $state(parsedContent.data?.playMode || "order");
+    let isMuted = $state(parsedContent.data?.isMuted || false);
+    let volume = $state(parsedContent.data?.volume || 0.5);
     let autoPlay = parsedContent.data?.autoPlay || false;
 
     const themeMode = window.siyuan.config.appearance.mode;
 
-    let musicFiles = [];
-    let currentTrackIndex = savedTrackIndex;
+    let musicFiles = $state([]);
+    let currentTrackIndex = $state(savedTrackIndex);
 
     let sound: Howl | null = null;
-    let isPlaying = false;
-    let currentTime = 0;
-    let duration = 0;
+    let isPlaying = $state(false);
+    let currentTime = $state(0);
+    let duration = $state(0);
 
-    let advancedEnabled = false;
+    let advancedEnabled = $state(false);
 
     onMount(async () => {
         await loadMusicFiles();
@@ -248,21 +252,21 @@
             height: "60vh",
             title: "🎵音乐列表",
             constructor: (containerEl: HTMLElement) => {
-                return new musicList({
-                    target: containerEl,
-                    props: {
-                        plugin: plugin,
-                        musicFiles: musicFiles,
-                        currentTrackIndex: currentTrackIndex,
-                        playTrack: (index: number) => {
-                            playTrack(index);
-                            dialog.close();
-                        },
-                        close: () => {
-                            dialog.close();
-                        },
-                    },
-                });
+                return mount(musicList, {
+                                    target: containerEl,
+                                    props: {
+                                        plugin: plugin,
+                                        musicFiles: musicFiles,
+                                        currentTrackIndex: currentTrackIndex,
+                                        playTrack: (index: number) => {
+                                            playTrack(index);
+                                            dialog.close();
+                                        },
+                                        close: () => {
+                                            dialog.close();
+                                        },
+                                    },
+                                });
             },
         });
     }
@@ -277,13 +281,13 @@
 
             <div
                 class="progress-bar"
-                on:click={seek}
+                onclick={seek}
                 role="slider"
                 aria-valuenow={currentTime}
                 aria-valuemin={0}
                 aria-valuemax={duration}
                 tabindex="0"
-                on:keydown={(e) => {
+                onkeydown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                         seek(e);
                         e.preventDefault();
@@ -306,7 +310,7 @@
             </div>
 
             <div class="controls">
-                <button on:click={prevTrack} title="上一曲">
+                <button onclick={prevTrack} title="上一曲">
                     {#if themeMode === 0}
                         <img
                             src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/backwardLight.svg`}
@@ -321,7 +325,7 @@
                         />
                     {/if}
                 </button>
-                <button on:click={togglePlay}>
+                <button onclick={togglePlay}>
                     {#if isPlaying}
                         {#if themeMode === 0}
                             <img
@@ -350,7 +354,7 @@
                         />
                     {/if}
                 </button>
-                <button on:click={nextTrack} title="下一曲">
+                <button onclick={nextTrack} title="下一曲">
                     {#if themeMode === 0}
                         <img
                             src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/forwardLight.svg`}
@@ -365,7 +369,7 @@
                         />
                     {/if}
                 </button>
-                <button on:click={togglePlayMode} title="切换播放模式">
+                <button onclick={togglePlayMode} title="切换播放模式">
                     {#if playMode === "order"}
                         {#if themeMode === 0}
                             <img
@@ -411,7 +415,7 @@
             </div>
 
             <div class="volume-control">
-                <button on:click={toggleMute} title="切换静音">
+                <button onclick={toggleMute} title="切换静音">
                     {#if isMuted}
                         {#if themeMode === 0}
                             <img
@@ -447,10 +451,10 @@
                     max="1"
                     step="0.01"
                     value={volume}
-                    on:input={setVolume}
+                    oninput={setVolume}
                     disabled={isMuted}
                 />
-                <button class="music-list-btn" on:click={openMusicList}>
+                <button class="music-list-btn" onclick={openMusicList}>
                     {#if themeMode === 0}
                         <img
                             src={`/plugins/siyuan-homepage/asset/musicPlayerIcon/musicListLight.svg`}

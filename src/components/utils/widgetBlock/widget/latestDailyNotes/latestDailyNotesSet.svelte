@@ -1,10 +1,21 @@
 <script lang="ts">
-    export let docJournalLimit: number = 5;
-    export let recentJournalsShowType: string = "list";
-    export let recentJournalsCalendarIcon: string = "📝";
-    export let recentJournalsCalendarIconSize: number = 16;
-    export let showLatestDailyNotesFloatDoc: boolean = true;
-    export let latestDailyNotesFloatDocShowTime: number = 0.1;
+    interface Props {
+        docJournalLimit?: number;
+        recentJournalsShowType?: string;
+        recentJournalsCalendarIcon?: string;
+        recentJournalsCalendarIconSize?: number;
+        showLatestDailyNotesFloatDoc?: boolean;
+        latestDailyNotesFloatDocShowTime?: number;
+    }
+
+    let {
+        docJournalLimit = $bindable(5),
+        recentJournalsShowType = $bindable("list"),
+        recentJournalsCalendarIcon = $bindable("📝"),
+        recentJournalsCalendarIconSize = $bindable(16),
+        showLatestDailyNotesFloatDoc = $bindable(true),
+        latestDailyNotesFloatDocShowTime = $bindable(0.1)
+    }: Props = $props();
 
     // 下拉选项
     const limitOptions = [5, 10, 15, 20, 50, 100];

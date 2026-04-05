@@ -1,20 +1,24 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
-	export let contentTypeJson: string = "{}";
+	interface Props {
+		contentTypeJson?: string;
+	}
 
-	let time = new Date();
+	let { contentTypeJson = "{}" }: Props = $props();
 
-	$: hours = time.getHours();
-	$: minutes = time.getMinutes();
-	$: seconds = time.getSeconds();
-	$: year = time.getFullYear();
-	$: month = time.getMonth() + 1;
-	$: day = time.getDate();
+	let time = $state(new Date());
 
-	let dial2ShowSecond: boolean = true;
-	let dial2ShowMarkers: boolean = true;
-	let dial2ShowDate: boolean = true;
+	let hours = $derived(time.getHours());
+	let minutes = $derived(time.getMinutes());
+	let seconds = $derived(time.getSeconds());
+	let year = $derived(time.getFullYear());
+	let month = $derived(time.getMonth() + 1);
+	let day = $derived(time.getDate());
+
+	let dial2ShowSecond: boolean = $state(true);
+	let dial2ShowMarkers: boolean = $state(true);
+	let dial2ShowDate: boolean = $state(true);
 
 	// 计算从中心出发沿方向的射线与正方形的交点
 	function getSquareIntersection(cos: number, sin: number, halfSize: number = 48) {
