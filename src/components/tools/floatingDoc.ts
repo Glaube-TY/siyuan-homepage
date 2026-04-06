@@ -7,6 +7,14 @@ import {
 } from "@floating-ui/dom";
 import { Protyle } from "siyuan";
 
+// 浮窗预览模式类型
+type FloatingDocMode = "preview" | "wysiwyg";
+
+// 浮窗选项接口
+interface FloatingDocOptions {
+    initialMode?: FloatingDocMode;
+}
+
 // 全局悬浮窗管理器
 class FloatingDocManager {
     private floatingElement: HTMLElement | null = null;
@@ -19,6 +27,8 @@ class FloatingDocManager {
     private protyle: any = null;
     private protyleContainer: HTMLElement | null = null;
     private plugin: any = null;
+    private currentMode: FloatingDocMode = "preview";
+    private modeSelectElement: HTMLSelectElement | null = null;
 
     constructor() {
         // 不再立即创建元素，改为延迟创建
@@ -89,13 +99,26 @@ class FloatingDocManager {
 
         // 创建Protyle编辑器容器
         this.floatingElement.innerHTML = `
-            <div class="popup-header" style="padding: 12px 16px; border-bottom: 1px solid var(--b3-border-color); background: var(--b3-theme-background); border-radius: 12px 12px 0 0; flex-shrink: 0;">
-                <span class="popup-title" style="font-weight: 600; font-size: 14px; color: var(--b3-theme-on-surface); display: block; word-wrap: break-word;">${note.content}</span>
+            <div class="popup-header" style="padding: 12px 16px; border-bottom: 1px solid var(--b3-border-color); background: var(--b3-theme-background); border-radius: 12px 12px 0 0; flex-shrink: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+                <span class="popup-title" style="font-weight: 600; font-size: 14px; color: var(--b3-theme-on-surface); display: block; word-wrap: break-word; flex: 1; min-width: 0;">${note.content}</span>
+                <select class="popup-mode-select" style="font-size: 12px; padding: 4px 8px; border: 1px solid var(--b3-border-color); border-radius: 4px; background: var(--b3-theme-background); color: var(--b3-theme-on-surface); cursor: pointer; flex-shrink: 0;">
+                    <option value="preview" ${this.currentMode === 'preview' ? 'selected' : ''}>预览模式</option>
+                    <option value="wysiwyg" ${this.currentMode === 'wysiwyg' ? 'selected' : ''}>所见即所得</option>
+                </select>
             </div>
             <div class="popup-protyle" style="flex: 1; overflow: hidden; border-radius: 0 0 12px 12px; background: var(--b3-theme-background);">
                 <div class="protyle-content" style="height: 100%; width: 100%;"></div>
             </div>
         `;
+
+        // 绑定模式选择器事件
+        this.modeSelectElement = this.floatingElement.querySelector('.popup-mode-select') as HTMLSelectElement;
+        if (this.modeSelectElement) {
+            this.modeSelectElement.addEventListener('change', (e) => {
+                const newMode = (e.target as HTMLSelectElement).value as FloatingDocMode;
+                this.handleModeChange(newMode);
+            });
+        }
 
         // 添加Protyle样式
         const style = document.createElement('style');
@@ -129,23 +152,48 @@ class FloatingDocManager {
         if (!this.protyleContainer) return;
 
         // 初始化Protyle编辑器
-        if (this.plugin) {
+        await this.initProtyleForCurrentMode(note);
+    }
+
+    private async initProtyleForCurrentMode(note: any): Promise<void> {
+        if (!this.protyleContainer || !this.plugin) return;
+
+        // 销毁旧实例
+        if (this.protyle) {
             try {
-                this.protyle = new Protyle(this.plugin.app, this.protyleContainer, {
-                    blockId: note.id,
-                    mode: 'preview', // 预览模式
-                });
+                this.protyle.destroy();
             } catch (error) {
-                console.error('Protyle初始化失败:', error);
-                // 降级显示简单内容
-                this.protyleContainer.innerHTML = `
-                    <div style="padding: 20px; text-align: center; color: var(--b3-theme-on-surface-light);">
-                        <p>文档内容加载中...</p>
-                        <p style="font-size: 12px; margin-top: 10px;">ID: ${note.id}</p>
-                    </div>
-                `;
+                console.warn('Protyle销毁失败:', error);
             }
+            this.protyle = null;
         }
+
+        // 清空容器
+        this.protyleContainer.innerHTML = '';
+
+        // 使用当前模式初始化Protyle
+        try {
+            this.protyle = new Protyle(this.plugin.app, this.protyleContainer, {
+                blockId: note.id,
+                mode: this.currentMode,
+            });
+        } catch (error) {
+            console.error('Protyle初始化失败:', error);
+            // 降级显示简单内容
+            this.protyleContainer.innerHTML = `
+                <div style="padding: 20px; text-align: center; color: var(--b3-theme-on-surface-light);">
+                    <p>文档内容加载中...</p>
+                    <p style="font-size: 12px; margin-top: 10px;">ID: ${note.id}</p>
+                </div>
+            `;
+        }
+    }
+
+    private async handleModeChange(newMode: FloatingDocMode): Promise<void> {
+        if (newMode === this.currentMode || !this.currentNote) return;
+
+        this.currentMode = newMode;
+        await this.initProtyleForCurrentMode(this.currentNote);
     }
 
     private async updatePosition(referenceElement: HTMLElement, mouseX?: number, mouseY?: number): Promise<void> {
@@ -200,11 +248,37 @@ class FloatingDocManager {
         }
     }
 
-    public async show(note: any, event: MouseEvent, plugin?: any): Promise<void> {
+    private async resolveInitialMode(plugin: any, explicitMode?: FloatingDocMode): Promise<FloatingDocMode> {
+        // 优先级1：如果调用方传入了合法模式，优先使用
+        if (explicitMode === 'preview' || explicitMode === 'wysiwyg') {
+            return explicitMode;
+        }
+
+        // 优先级2：读取主页设置中的全局默认模式
+        if (plugin) {
+            try {
+                const config = await plugin.loadData("homepageSettingConfig.json");
+                const globalMode = config?.defaultDocPreviewMode;
+                if (globalMode === 'preview' || globalMode === 'wysiwyg') {
+                    return globalMode;
+                }
+            } catch (e) {
+                console.warn('[FloatingDoc] 读取全局预览模式失败:', e);
+            }
+        }
+
+        // 优先级3：最终回退到 preview
+        return 'preview';
+    }
+
+    public async show(note: any, event: MouseEvent, plugin?: any, options?: FloatingDocOptions): Promise<void> {
         this.currentNote = note;
         this.referenceElement = event.currentTarget as HTMLElement;
         this.isMouseOnTrigger = true;
         this.plugin = plugin;
+
+        // 解析初始模式：显式传入 > 全局配置 > preview
+        this.currentMode = await this.resolveInitialMode(plugin, options?.initialMode);
 
         // 确保元素已创建
         this.ensureInitialized();
@@ -331,8 +405,8 @@ class FloatingDocManager {
 const floatingDocManager = new FloatingDocManager();
 
 // 导出函数
-export function createFloatingDocPopup(note: any, event: MouseEvent, plugin?: any): void {
-    floatingDocManager.show(note, event, plugin);
+export function createFloatingDocPopup(note: any, event: MouseEvent, plugin?: any, options?: FloatingDocOptions): void {
+    floatingDocManager.show(note, event, plugin, options);
 }
 
 export function handleMouseLeave(): void {

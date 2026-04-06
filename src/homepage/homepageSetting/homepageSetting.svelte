@@ -71,6 +71,8 @@
     let quickNotesAddPosition = $state("bottom");
     // 任务管理Plus设置
     let taskEditorEnabled = $state(true);
+    // 文档预览模式设置
+    let defaultDocPreviewMode = $state<"preview" | "wysiwyg">("preview");
 
     let widgetsSettingsState = $derived<WidgetsSettingsState>({
         widgetLayoutNumber,
@@ -80,6 +82,7 @@
         quickNotesTimestampEnabled,
         quickNotesAddPosition,
         taskEditorEnabled,
+        defaultDocPreviewMode,
     });
 
     let widgetsSettingsActions: WidgetsSettingsActions = {
@@ -90,6 +93,7 @@
         onQuickNotesTimestampEnabledChange: (value) => quickNotesTimestampEnabled = value,
         onQuickNotesAddPositionChange: (value) => quickNotesAddPosition = value,
         onTaskEditorEnabledChange: (value) => taskEditorEnabled = value,
+        onDefaultDocPreviewModeChange: (value) => defaultDocPreviewMode = value,
     };
 
     // vip设置
@@ -166,7 +170,19 @@
             bannerType = savedConfig.bannerType ?? "local";
             bannerLocalData = savedConfig.bannerLocalData || "";
             bannerRemoteUrl = savedConfig.bannerRemoteUrl || "";
-            bannerHeight = savedConfig.bannerHeight || "300";
+
+            // 横幅高度：桌面端优先读取当前设备配置，否则回退到全局
+            const globalBannerHeight = savedConfig.bannerHeight || "300";
+            if (isDesktopDeviceProfileEnabled()) {
+                const deviceId = getLocalDeviceId();
+                if (deviceId && savedConfig.bannerDeviceProfiles?.[deviceId]?.bannerHeight !== undefined) {
+                    bannerHeight = String(savedConfig.bannerDeviceProfiles[deviceId].bannerHeight);
+                } else {
+                    bannerHeight = globalBannerHeight;
+                }
+            } else {
+                bannerHeight = globalBannerHeight;
+            }
 
             // 标题配置
             showIcon = savedConfig.showIcon ?? true;
@@ -200,6 +216,13 @@
                 savedConfig.quickNotesAddPosition || "bottom";
 
             taskEditorEnabled = savedConfig.taskEditorEnabled ?? true;
+
+            // 文档预览模式：归一化并回退到默认值
+            const validPreviewMode = (mode: string | undefined): "preview" | "wysiwyg" => {
+                if (mode === "preview" || mode === "wysiwyg") return mode;
+                return "preview";
+            };
+            defaultDocPreviewMode = validPreviewMode(savedConfig.defaultDocPreviewMode);
 
             footerEnabled = savedConfig.footerEnabled ?? true;
             footerContent = savedConfig.footerContent || "";
@@ -447,7 +470,10 @@
         const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
         const deviceProfiles = existingConfig.deviceProfiles || {};
 
-        // 桌面端：登记当前设备信息（不含 layout，layout 已移到 widgetLayout.json）
+        // 初始化 bannerDeviceProfiles（如果不存在）
+        let bannerDeviceProfiles = existingConfig.bannerDeviceProfiles || {};
+
+        // 桌面端：登记当前设备信息，并保存设备特定的横幅高度
         if (isDesktopDeviceProfileEnabled()) {
             const deviceId = getLocalDeviceId();
             if (deviceId) {
@@ -466,6 +492,12 @@
                         lastSeenAt: new Date().toISOString(),
                     };
                 }
+
+                // 保存当前设备的横幅高度
+                if (!bannerDeviceProfiles[deviceId]) {
+                    bannerDeviceProfiles[deviceId] = {};
+                }
+                bannerDeviceProfiles[deviceId].bannerHeight = Number(tempBannerHeight) || 300;
             }
         }
 
@@ -517,6 +549,9 @@
             quickNotesAddPosition: quickNotesAddPosition,
             taskEditorEnabled: taskEditorEnabled,
 
+            // 文档预览模式
+            defaultDocPreviewMode: defaultDocPreviewMode,
+
             // 页脚配置
             footerEnabled: footerEnabled,
             footerContent: footerContent,
@@ -535,6 +570,9 @@
 
             // 设备 profiles
             deviceProfiles: deviceProfiles,
+
+            // 横幅设备特定配置
+            bannerDeviceProfiles: bannerDeviceProfiles,
         };
 
         await saveHomepageSettingConfig(plugin, config);

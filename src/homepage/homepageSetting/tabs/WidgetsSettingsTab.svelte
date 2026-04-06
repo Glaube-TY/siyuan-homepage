@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { WidgetsSettingsState, WidgetsSettingsActions } from '../types';
+    import type { WidgetsSettingsState, WidgetsSettingsActions, DocPreviewMode } from '../types';
 
     interface Props {
         state: WidgetsSettingsState;
@@ -80,5 +80,22 @@
                 onchange={(e) => actions.onTaskEditorEnabledChange((e.currentTarget as HTMLInputElement).checked)}
             /> 开启任务编辑器</label
         >
+    </div>
+    <div class="form-group doc-preview-setting">
+        <h3>文档预览设置</h3>
+        <label for="doc-preview-mode"
+            >默认预览模式：
+            <select
+                id="doc-preview-mode"
+                value={state.defaultDocPreviewMode}
+                onchange={(e) => actions.onDefaultDocPreviewModeChange((e.currentTarget as HTMLSelectElement).value as DocPreviewMode)}
+            >
+                <option value="preview">预览模式</option>
+                <option value="wysiwyg">所见即所得</option>
+            </select>
+        </label>
+        <p class="setting-hint" style="font-size: 12px; color: var(--b3-theme-on-surface-light); margin-top: 4px;">
+            用于控制支持文档悬浮预览的组件在默认情况下以哪种模式打开文档。
+        </p>
     </div>
 </div>

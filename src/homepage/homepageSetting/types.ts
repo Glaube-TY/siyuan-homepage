@@ -26,6 +26,8 @@ export interface ButtonSettingsActions {
     onMoveDownButton: () => void;
 }
 
+export type DocPreviewMode = "preview" | "wysiwyg";
+
 export interface WidgetsSettingsState {
     widgetLayoutNumber: number;
     widgetGap: number;
@@ -34,6 +36,7 @@ export interface WidgetsSettingsState {
     quickNotesTimestampEnabled: boolean;
     quickNotesAddPosition: string;
     taskEditorEnabled: boolean;
+    defaultDocPreviewMode: DocPreviewMode;
 }
 
 export interface WidgetsSettingsActions {
@@ -44,6 +47,7 @@ export interface WidgetsSettingsActions {
     onQuickNotesTimestampEnabledChange: (value: boolean) => void;
     onQuickNotesAddPositionChange: (value: string) => void;
     onTaskEditorEnabledChange: (value: boolean) => void;
+    onDefaultDocPreviewModeChange: (value: DocPreviewMode) => void;
 }
 
 export interface StylesSettingsState {

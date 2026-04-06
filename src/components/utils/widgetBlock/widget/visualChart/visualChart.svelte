@@ -12,9 +12,10 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const visualChartType =
-        parsedContent.data?.visualChartType || "progressBar";
+    const parsedContent = $derived(JSON.parse(contentTypeJson));
+    const visualChartType = $derived(
+        parsedContent.data?.visualChartType || "progressBar"
+    );
 
     let themeColor: any;
     let textColor: any;

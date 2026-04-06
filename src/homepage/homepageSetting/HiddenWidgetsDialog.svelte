@@ -4,9 +4,11 @@
     import { showMessage } from "siyuan";
     import type { Plugin } from "siyuan";
     import { mountWidgetContent } from "../../components/utils/widgetBlock/widgetMountRegistry";
+    import { WidgetBlock } from "../../components/utils/widgetBlock/WidgetBlock";
     import {
         getHiddenWidgetsForCurrentDevice,
         restoreWidgetForCurrentDevice,
+        restoreLayoutForContainer,
         loadWidgetLayoutSettings,
         type HiddenWidgetItem,
     } from "../../components/utils/widgetBlock/utils/layout-shared";
@@ -99,10 +101,6 @@
             try {
                 const container = document.querySelector(".custom-content");
                 if (container) {
-                    const { restoreLayoutForContainer } = await import(
-                        "../../components/utils/widgetBlock/utils/layout-shared"
-                    );
-                    const { WidgetBlock } = await import("../../components/utils/widgetBlock/WidgetBlock");
                     await restoreLayoutForContainer(plugin, { value: null }, {
                         containerSelector: ".custom-content",
                         layoutFileName: "widgetLayout.json",

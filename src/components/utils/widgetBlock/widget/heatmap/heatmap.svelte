@@ -10,14 +10,14 @@
     }
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsedContent = JSON.parse(contentTypeJson);
+    const parsedContent = $derived(JSON.parse(contentTypeJson));
 
-    const heatmapTitle = parsedContent?.data?.heatmapTitle || "";
-    const pastMonthCount = parsedContent?.data?.pastMonthCount || 6;
-    const showLabel = parsedContent?.data?.showLabel ?? true;
-    const colorPreset = parsedContent?.data?.selectedColorPreset || "github";
-    const customColor = parsedContent?.data?.customColor || "#1ea769";
-    const heatmapCountType = parsedContent?.data?.heatmapCountType || "block";
+    const heatmapTitle = $derived(parsedContent?.data?.heatmapTitle || "");
+    const pastMonthCount = $derived(parsedContent?.data?.pastMonthCount || 6);
+    const showLabel = $derived(parsedContent?.data?.showLabel ?? true);
+    const colorPreset = $derived(parsedContent?.data?.selectedColorPreset || "github");
+    const customColor = $derived(parsedContent?.data?.customColor || "#1ea769");
+    const heatmapCountType = $derived(parsedContent?.data?.heatmapCountType || "block");
 
     onMount(async () => {
         // 根据 pastMonthCount 计算时间范围

@@ -19,18 +19,23 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsed = JSON.parse(contentTypeJson);
-    const limit = parsed.data?.limit || 5;
-    const recentJournalsShowType =
-        parsed.data?.recentJournalsShowType || "list";
-    const recentJournalsCalendarIcon =
-        parsed.data?.recentJournalsCalendarIcon || "📝";
-    const recentJournalsCalendarIconSize =
-        parsed.data?.recentJournalsCalendarIconSize || 16;
-    const showLatestDailyNotesFloatDoc =
-        parsed.data?.showLatestDailyNotesFloatDoc ?? true;
-    const latestDailyNotesFloatDocShowTime =
-        parsed.data?.latestDailyNotesFloatDocShowTime || 0.1;
+    const parsed = $derived(JSON.parse(contentTypeJson));
+    const limit = $derived(parsed.data?.limit || 5);
+    const recentJournalsShowType = $derived(
+        parsed.data?.recentJournalsShowType || "list"
+    );
+    const recentJournalsCalendarIcon = $derived(
+        parsed.data?.recentJournalsCalendarIcon || "📝"
+    );
+    const recentJournalsCalendarIconSize = $derived(
+        parsed.data?.recentJournalsCalendarIconSize || 16
+    );
+    const showLatestDailyNotesFloatDoc = $derived(
+        parsed.data?.showLatestDailyNotesFloatDoc ?? true
+    );
+    const latestDailyNotesFloatDocShowTime = $derived(
+        parsed.data?.latestDailyNotesFloatDocShowTime || 0.1
+    );
 
     // 原始数据
     let dailyNotes: DailyNoteInfo[] = [];

@@ -1,5 +1,7 @@
 import { getImage } from "@/components/tools/getImage";
 import type { DeviceProfilesMap } from "./utils/deviceProfile";
+import { getLocalDeviceId, isDesktopDeviceProfileEnabled } from "./utils/deviceProfile";
+import type { BannerDeviceProfile } from "./homepageSetting/config";
 
 export type TitleIconType = "emoji" | "image";
 export type TitleIconStyle = "square" | "round" | "circle";
@@ -44,6 +46,7 @@ export interface HomepageConfig {
     bannerType?: string;
     buttonsList: HomepageButtonItem[];
     deviceProfiles: DeviceProfilesMap;
+    bannerDeviceProfiles: Record<string, BannerDeviceProfile>;
 }
 
 export interface BannerImageResult {
@@ -66,7 +69,7 @@ const VALID_BANNER_GLOBAL_TYPES: BannerGlobalType[] = ["custom", "bing"];
 const VALID_FALLING_DENSITIES: FallingDensity[] = ["low", "medium", "high"];
 const VALID_FALLING_SPEEDS: FallingSpeed[] = ["low", "medium", "high"];
 
-const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles'> & { deviceProfiles: DeviceProfilesMap } = {
+const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDeviceProfiles'> & { deviceProfiles: DeviceProfilesMap; bannerDeviceProfiles: Record<string, BannerDeviceProfile> } = {
     bannerEnabled: true,
     bannerGlobalType: "custom",
     bannerLocalData: "",
@@ -94,6 +97,7 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles'> & { device
     bannerHeight: 300,
     buttonsList: DEFAULT_BUTTONS.map((item) => ({ ...item })),
     deviceProfiles: {},
+    bannerDeviceProfiles: {},
 };
 
 function normalizeNumber(value: unknown, defaultValue: number, min?: number, max?: number): number {
@@ -148,6 +152,29 @@ function normalizeDeviceProfiles(value: unknown): DeviceProfilesMap {
     return {};
 }
 
+function normalizeBannerDeviceProfiles(value: unknown): Record<string, BannerDeviceProfile> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return {};
+    }
+    const result: Record<string, BannerDeviceProfile> = {};
+    const raw = value as Record<string, unknown>;
+    for (const [deviceId, profile] of Object.entries(raw)) {
+        if (typeof profile !== "object" || profile === null) continue;
+        const rawProfile = profile as Record<string, unknown>;
+        const normalized: BannerDeviceProfile = {};
+        if (rawProfile.bannerHeight !== undefined) {
+            const height = normalizeNumber(rawProfile.bannerHeight, 300, 50, 1000);
+            if (height !== 300) normalized.bannerHeight = height;
+        }
+        if (rawProfile.scrollTop !== undefined) {
+            const scroll = normalizeNumber(rawProfile.scrollTop, 0, 0, 10000);
+            if (scroll !== 0) normalized.scrollTop = scroll;
+        }
+        result[deviceId] = normalized;
+    }
+    return result;
+}
+
 // 注意：getDeviceLayout 已废弃，请使用 loadWidgetLayoutSettings(plugin) 从 widgetLayout.json 读取
 // 保留此函数仅为兼容旧代码，新代码不应再使用
 
@@ -186,7 +213,114 @@ export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
         bannerType: config.bannerType ? normalizeString(config.bannerType, "") : undefined,
         buttonsList: normalizeButtonsList(config.buttonsList),
         deviceProfiles: normalizeDeviceProfiles(config.deviceProfiles),
+        bannerDeviceProfiles: normalizeBannerDeviceProfiles(config.bannerDeviceProfiles),
     };
+}
+
+export interface BannerDisplaySettings {
+    bannerHeight: number;
+    scrollTop: number;
+    source: string;
+    deviceId?: string;
+}
+
+export async function loadBannerDisplaySettings(plugin: any): Promise<BannerDisplaySettings> {
+    const config = (await plugin.loadData("homepageSettingConfig.json")) || {};
+    const globalBannerHeight = normalizeNumber(config.bannerHeight, 300, 50, 1000);
+
+    // 桌面端：尝试读取设备特定的配置
+    if (isDesktopDeviceProfileEnabled()) {
+        const deviceId = getLocalDeviceId();
+        if (deviceId && config.bannerDeviceProfiles?.[deviceId]) {
+            const profile = config.bannerDeviceProfiles[deviceId] as BannerDeviceProfile;
+            const deviceHeight = profile.bannerHeight !== undefined
+                ? normalizeNumber(profile.bannerHeight, globalBannerHeight, 50, 1000)
+                : globalBannerHeight;
+            const deviceScrollTop = profile.scrollTop;
+
+            return {
+                bannerHeight: deviceHeight,
+                scrollTop: deviceScrollTop ?? 0,
+                source: `device profile (${deviceId})`,
+                deviceId,
+            };
+        }
+    }
+
+    // 回退：读取旧的 bannerPosition.json
+    let scrollTop = 0;
+    try {
+        const oldPosition = await plugin.loadData("bannerPosition.json");
+        if (oldPosition && typeof oldPosition.scrollTop === "number") {
+            scrollTop = normalizeNumber(oldPosition.scrollTop, 0, 0, 10000);
+        }
+    } catch {
+        // 忽略读取错误
+    }
+
+    return {
+        bannerHeight: globalBannerHeight,
+        scrollTop,
+        source: "global",
+    };
+}
+
+export interface BannerDisplaySettingsPartial {
+    bannerHeight?: number;
+    scrollTop?: number;
+}
+
+export async function saveBannerDisplaySettings(
+    plugin: any,
+    partialSettings: BannerDisplaySettingsPartial
+): Promise<void> {
+    const config = (await plugin.loadData("homepageSettingConfig.json")) || {};
+
+    // 桌面端：保存到设备特定的 profile
+    if (isDesktopDeviceProfileEnabled()) {
+        const deviceId = getLocalDeviceId();
+        if (deviceId) {
+            if (!config.bannerDeviceProfiles) {
+                config.bannerDeviceProfiles = {};
+            }
+            if (!config.bannerDeviceProfiles[deviceId]) {
+                config.bannerDeviceProfiles[deviceId] = {};
+            }
+
+            if (partialSettings.bannerHeight !== undefined) {
+                config.bannerDeviceProfiles[deviceId].bannerHeight = normalizeNumber(
+                    partialSettings.bannerHeight,
+                    300,
+                    50,
+                    1000
+                );
+            }
+            if (partialSettings.scrollTop !== undefined) {
+                config.bannerDeviceProfiles[deviceId].scrollTop = normalizeNumber(
+                    partialSettings.scrollTop,
+                    0,
+                    0,
+                    10000
+                );
+            }
+
+            await plugin.saveData("homepageSettingConfig.json", config);
+            return;
+        }
+    }
+
+    // 移动端或无设备ID：保存到全局配置
+    if (partialSettings.bannerHeight !== undefined) {
+        config.bannerHeight = normalizeNumber(partialSettings.bannerHeight, 300, 50, 1000);
+    }
+    await plugin.saveData("homepageSettingConfig.json", config);
+
+    // scrollTop 仍保存到旧文件以保持兼容
+    if (partialSettings.scrollTop !== undefined) {
+        await plugin.saveData("bannerPosition.json", {
+            scrollTop: normalizeNumber(partialSettings.scrollTop, 0, 0, 10000),
+        });
+    }
 }
 
 export async function resolveBannerImage(

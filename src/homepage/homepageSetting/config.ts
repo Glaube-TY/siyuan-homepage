@@ -1,6 +1,13 @@
 import type { ButtonItem } from './types';
 import type { DeviceProfilesMap } from '../utils/deviceProfile';
 
+export type DocPreviewMode = "preview" | "wysiwyg";
+
+export interface BannerDeviceProfile {
+    bannerHeight?: number;
+    scrollTop?: number;
+}
+
 export interface HomepageSettingConfig {
     autoOpenHomepage: boolean;
     sidebarEnabled: boolean;
@@ -41,6 +48,8 @@ export interface HomepageSettingConfig {
     FallingDensity: string;
     FallingSpeed: string;
     deviceProfiles?: DeviceProfilesMap;
+    bannerDeviceProfiles?: Record<string, BannerDeviceProfile>;
+    defaultDocPreviewMode?: DocPreviewMode;
 }
 
 export async function loadHomepageSettingConfig(plugin: any): Promise<HomepageSettingConfig | null> {

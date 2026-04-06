@@ -39,6 +39,8 @@
         loadHomepageConfig,
         resolveBannerImage,
         resolveButtonsList,
+        loadBannerDisplaySettings,
+        saveBannerDisplaySettings,
     } from "./configLoader";
     import {
         getCurrentDeviceInfo,
@@ -152,7 +154,17 @@
     }
 
     // 具名函数用于 window load 监听器
-    const onWindowLoad = () => handleLoad(plugin, bannerImage);
+    const onWindowLoad = () => {
+        handleLoad(plugin, bannerImage, {
+            onLoadPosition: async () => {
+                const settings = await loadBannerDisplaySettings(plugin);
+                return { scrollTop: settings.scrollTop };
+            },
+            onSavePosition: async (position) => {
+                await saveBannerDisplaySettings(plugin, { scrollTop: position.scrollTop });
+            },
+        });
+    };
 
     // 启动飘落特效
     function startFallingEffects(): void {
@@ -501,8 +513,14 @@
         FallingDensity = config.FallingDensity;
         FallingSpeed = config.FallingSpeed;
 
-        // 横幅高度配置
-        bannerHeight = config.bannerHeight;
+        // 横幅高度配置 - 优先使用当前桌面设备的配置
+        try {
+            const displaySettings = await loadBannerDisplaySettings(plugin);
+            bannerHeight = displaySettings.bannerHeight;
+        } catch (e) {
+            console.warn("[Homepage] 加载设备横幅配置失败，回退到全局配置:", e);
+            bannerHeight = config.bannerHeight;
+        }
 
         // 按钮列表
         buttonsList = resolveButtonsList(config);
@@ -632,10 +650,12 @@
         <!-- 按钮容器 -->
         <div class="button-wrapper">
             <button
-                onclick={() => (
-                    (bannerImage.style.transform = "translateY(0)"),
-                    plugin.saveData("bannerPosition.json", { scrollTop: 0 })
-                )}
+                onclick={async () => {
+                if (bannerImage) {
+                    bannerImage.style.transform = "translateY(0)";
+                }
+                await saveBannerDisplaySettings(plugin, { scrollTop: 0 });
+            }}
                 class="img-button"
                 title="恢复默认位置"
             >

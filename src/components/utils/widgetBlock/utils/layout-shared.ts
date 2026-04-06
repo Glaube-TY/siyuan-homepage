@@ -291,7 +291,9 @@ export async function restoreLayoutForContainer(
     }
 
     // 第一阶段：构建待恢复的 widget 列表
-    const widgetsToRestore: { element: HTMLElement }[] = [];
+    // 注意：此阶段只创建 widgetBlock 和读取配置，不调用 updateContent
+    // 避免组件 onMount 时宿主 DOM 尚未插入页面
+    const widgetsToRestore: { widgetBlock: any; contentJson: string | null }[] = [];
     for (const item of finalOrder) {
         try {
             const widgetBlock = new options.WidgetBlockClass(
@@ -303,13 +305,10 @@ export async function restoreLayoutForContainer(
             );
 
             const contentData = await plugin.loadData(`widget-${item.id}.json`);
+            const contentJson = contentData ? JSON.stringify(contentData) : null;
 
-            if (contentData) {
-                widgetBlock.loadcontent = JSON.stringify(contentData);
-                widgetBlock.updateContent(widgetBlock.loadcontent);
-            }
-
-            widgetsToRestore.push({ element: widgetBlock.element });
+            // 先保存 widgetBlock 和内容，稍后统一挂载
+            widgetsToRestore.push({ widgetBlock, contentJson });
         } catch (e) {
             console.warn(`[Layout] 构建 widget ${item.id} 失败:`, e);
         }
@@ -325,9 +324,22 @@ export async function restoreLayoutForContainer(
         container.removeChild(container.firstChild);
     }
 
-    // 依次 append 已成功构造的 widget
-    for (const widget of widgetsToRestore) {
-        container.appendChild(widget.element);
+    // 统一挂载 DOM：确保所有 widget 元素先进入文档流
+    for (const { widgetBlock } of widgetsToRestore) {
+        container.appendChild(widgetBlock.element);
+    }
+
+    // 第三阶段：挂载组件内容
+    // 此时所有 widget 的宿主元素已在 DOM 中，组件 onMount 可以正确获取节点
+    for (const { widgetBlock, contentJson } of widgetsToRestore) {
+        if (contentJson) {
+            try {
+                widgetBlock.loadcontent = contentJson;
+                widgetBlock.updateContent(contentJson);
+            } catch (e) {
+                console.warn(`[Layout] 更新 widget ${widgetBlock.id} 内容失败:`, e);
+            }
+        }
     }
 }
 
