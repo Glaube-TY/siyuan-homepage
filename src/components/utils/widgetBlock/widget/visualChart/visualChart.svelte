@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { showMessage, fetchSyncPost } from "siyuan";
+    import { showMessage, fetchSyncPost, openTab } from "siyuan";
     import { sql } from "@/api";
     import { onMount } from "svelte";
     import * as echarts from "echarts";
@@ -473,6 +473,39 @@
         });
     }
 
+    function formatTagSearchQuery(tagName: string): string {
+        let query = tagName;
+        if (!query.startsWith("#")) {
+            query = `#${query}`;
+        }
+        if (!query.endsWith("#")) {
+            query = `${query}#`;
+        }
+        return query;
+    }
+
+    function openTagSearchTab(tagName: string): void {
+        const query = formatTagSearchQuery(tagName);
+
+        // 获取 app
+        const app = plugin?.app || window.siyuan?.ws?.app;
+        if (!app) {
+            showMessage("打开标签搜索失败");
+            return;
+        }
+
+        try {
+            openTab({
+                app: app,
+                search: {
+                    k: query,
+                },
+            });
+        } catch (e) {
+            showMessage("打开标签搜索失败");
+        }
+    }
+
     onMount(async () => {
         const savedConfig = await plugin.loadData(
             `widget-${parsedContent.blockId}.json`,
@@ -616,6 +649,14 @@
                 const myChart = echarts.init(chartDom);
                 const option = getTagCloudOption(tagData);
                 myChart.setOption(option);
+
+                // 防止重复绑定
+                myChart.off("click");
+                myChart.on("click", (params: any) => {
+                    if (params.name) {
+                        openTagSearchTab(params.name);
+                    }
+                });
             }
         }, 0);
     });

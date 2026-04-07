@@ -128,10 +128,12 @@ export function createMouseTrail(
 ): void {
     if (!config.advanced || !config.MouseTrailEnabled) return;
 
-    const containerSelector = config.mouseGlobalEnabled ? "body" : ".homepage-container";
+    // 非全局模式改用 .falling-container 避免滚动条问题
+    const containerSelector = config.mouseGlobalEnabled ? "body" : ".falling-container";
     const container = document.querySelector(containerSelector);
     if (!container) return;
 
+    // 非全局模式时检查鼠标是否在 homepage-container 范围内
     if (!config.mouseGlobalEnabled) {
         const homepageContainer = document.querySelector(".homepage-container") as HTMLElement;
         if (homepageContainer) {
@@ -147,9 +149,9 @@ export function createMouseTrail(
         }
     }
 
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // .falling-container 是 fixed 定位且覆盖整个视口，直接使用 clientX/Y
+    const x = e.clientX;
+    const y = e.clientY;
 
     const trail = document.createElement("div");
     trail.className = "mouse-trail";
@@ -157,6 +159,7 @@ export function createMouseTrail(
         left: ${x}px;
         top: ${y}px;
         opacity: 0.7;
+        position: fixed;
     `;
 
     container.appendChild(trail);

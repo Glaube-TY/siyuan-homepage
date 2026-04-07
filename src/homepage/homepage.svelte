@@ -183,23 +183,46 @@
             if (config.advanced && config.FallEffectsEnabled) {
                 startFallingEffects();
             }
-            // 同步后兜底刷新（防抖）
+            // 先检查主页是否健康，不健康才需要刷新
             debouncedSafeRefresh("visibility-visible");
         }
     }
 
-    // 窗口聚焦处理
-    function handleWindowFocus(): void {
-        debouncedSafeRefresh("window-focus");
+    // 轻量健康检查：判断主页是否需要恢复
+    function shouldRecoverHomepageOnResume(): boolean {
+        // 检查关键容器是否存在
+        const homepageContainer = document.querySelector(".homepage-container");
+        if (!homepageContainer || !homepageContainer.isConnected) {
+            return true;
+        }
+
+        const workspaceHeader = document.querySelector(".workspace-header");
+        if (!workspaceHeader || !workspaceHeader.isConnected) {
+            return true;
+        }
+
+        const customContent = document.querySelector(".custom-content");
+        if (!customContent || !customContent.isConnected) {
+            return true;
+        }
+
+        // 检查组件区是否有内容
+        if (currentBlockForSettingsRef?.value && customContent.children.length === 0) {
+            return true;
+        }
+
+        return false;
     }
 
-    // 防抖安全刷新
+    // 防抖安全刷新：仅在需要恢复时调用
     function debouncedSafeRefresh(reason: string): void {
         if (refreshDebounceTimer) {
             clearTimeout(refreshDebounceTimer);
         }
         refreshDebounceTimer = setTimeout(() => {
-            safeRefreshHomepage(reason);
+            if (shouldRecoverHomepageOnResume()) {
+                safeRefreshHomepage(reason);
+            }
         }, 500);
     }
 
@@ -410,7 +433,6 @@
         document.addEventListener("click", handleClickEffect);
         document.addEventListener("mousemove", handleMouseMoveTrail);
         document.addEventListener("visibilitychange", handleVisibilityChange);
-        window.addEventListener("focus", handleWindowFocus);
 
         // 启动飘落特效
         startFallingEffects();
@@ -452,7 +474,6 @@
             "visibilitychange",
             handleVisibilityChange,
         );
-        window.removeEventListener("focus", handleWindowFocus);
         if (refreshDebounceTimer) {
             clearTimeout(refreshDebounceTimer);
             refreshDebounceTimer = null;

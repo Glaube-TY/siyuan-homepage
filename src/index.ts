@@ -17,6 +17,7 @@ import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/q
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 
+
 const STORAGE_NAME = "menu-config";
 const TAB_TYPE = "homepage_tab";
 const DOCK_TYPE = "homepage_dock";
@@ -49,6 +50,7 @@ export default class PluginHomepage extends Plugin {
     ADVANCED = false;
     private docTreeMenuEventBindThis = this.handleDocTreeMenu.bind(this);
     private contentMenuEventBindThis = this.handleContentMenu.bind(this);
+    private editorTitleIconMenuEventBindThis = this.handleEditorTitleIconMenu.bind(this);
 
     client = new sdk.Client(undefined, 'fetch');
 
@@ -60,6 +62,7 @@ export default class PluginHomepage extends Plugin {
         this.isMobile = frontEnd === "mobile" || frontEnd === "browser-mobile";
 
         this.eventBus.on("open-menu-doctree", this.docTreeMenuEventBindThis);
+        this.eventBus.on("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
         if (config.taskEditorEnabled ?? true) {
             this.eventBus.on("open-menu-content", this.contentMenuEventBindThis);
         }
@@ -72,11 +75,13 @@ export default class PluginHomepage extends Plugin {
         if ((config.sidebarEnabled ?? false) && !this.isMobile) {
             this.registerDock();
         }
+
     }
 
     async onunload() {
         this.eventBus.off("open-menu-doctree", this.docTreeMenuEventBindThis);
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
+        this.eventBus.off("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
 
         // 销毁 Homepage 组件实例
         this.destroyHomepageInstance();
@@ -86,6 +91,8 @@ export default class PluginHomepage extends Plugin {
             this.currentMobileDialog.close();
             this.currentMobileDialog = null;
         }
+
+
     }
 
     async onLayoutReady() {
@@ -416,6 +423,71 @@ export default class PluginHomepage extends Plugin {
 
                 }
             }
+        });
+    }
+
+    private handleEditorTitleIconMenu({ detail }: any) {
+        // 从事件中获取当前文档ID
+        // click-editortitleicon 事件通常包含 data 或 protyle 信息
+        let docId: string | null = null;
+
+        // 尝试从多种可能的位置获取文档ID
+        if (detail?.data?.id) {
+            docId = detail.data.id;
+        } else if (detail?.protyle?.block?.id) {
+            docId = detail.protyle.block.id;
+        } else if (detail?.protyle?.block?.rootID) {
+            docId = detail.protyle.block.rootID;
+        }
+
+        if (!docId) {
+            console.debug('[EditorTitleIconMenu] 无法获取当前文档ID');
+            return;
+        }
+
+        // 创建主菜单项：主页插件
+        detail.menu.addItem({
+            icon: "iconhomepage",
+            label: "主页插件",
+            type: "submenu",
+            submenu: [
+                {
+                    icon: "iconHeart",
+                    label: "收藏文档",
+                    click: async () => {
+                        try {
+                            await this.client.setBlockAttrs({
+                                id: docId,
+                                attrs: {
+                                    "custom-homepage-favorites": "true"
+                                }
+                            });
+                            showMessage("已收藏");
+                        } catch (err) {
+                            console.error("收藏失败", err);
+                            showMessage("收藏失败，请查看控制台日志");
+                        }
+                    }
+                },
+                {
+                    icon: "iconClose",
+                    label: "取消收藏",
+                    click: async () => {
+                        try {
+                            await this.client.setBlockAttrs({
+                                id: docId,
+                                attrs: {
+                                    "custom-homepage-favorites": ""
+                                }
+                            });
+                            showMessage("已取消收藏");
+                        } catch (err) {
+                            console.error("取消收藏失败", err);
+                            showMessage("取消收藏失败，请查看控制台日志");
+                        }
+                    }
+                }
+            ]
         });
     }
 }

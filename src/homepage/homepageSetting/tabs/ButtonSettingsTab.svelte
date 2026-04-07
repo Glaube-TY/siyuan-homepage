@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { ButtonItem, ButtonSettingsActions } from '../types';
+    import { displayShortcut, eventToShortcutString } from '../../header/quick-button';
 
     interface Props {
         buttonsList: ButtonItem[];
@@ -16,6 +17,45 @@
     }: Props = $props();
 
     let currentLabel = $derived(selectedButton?.label ?? "");
+    let isCapturingShortcut = $state(false);
+    let shortcutInputEl: HTMLInputElement | null = $state(null);
+
+    function handleShortcutKeydown(e: KeyboardEvent) {
+        if (!isCapturingShortcut) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const result = eventToShortcutString(e);
+
+        // Escape 取消捕获
+        if (e.key === "Escape") {
+            isCapturingShortcut = false;
+            return;
+        }
+
+        // Backspace/Delete 清空
+        if (result === "__CLEAR__") {
+            actions.onUpdateButtonShortcut("");
+            isCapturingShortcut = false;
+            return;
+        }
+
+        // 有效快捷键
+        if (result) {
+            actions.onUpdateButtonShortcut(result);
+            isCapturingShortcut = false;
+        }
+    }
+
+    function startCapturing() {
+        isCapturingShortcut = true;
+        shortcutInputEl?.focus();
+    }
+
+    function stopCapturing() {
+        isCapturingShortcut = false;
+    }
 </script>
 
 <div class="section-setting buttons-setting">
@@ -82,9 +122,14 @@
                         <input
                             id="button-shortcut"
                             type="text"
-                            placeholder="例如：Ctrl+C"
-                            value={selectedButton.shortcut ?? ""}
-                            oninput={(e) => actions.onUpdateButtonShortcut((e.currentTarget as HTMLInputElement).value)}
+                            readonly
+                            class:capturing={isCapturingShortcut}
+                            placeholder={isCapturingShortcut ? "请按下快捷键..." : "点击后按下组合键"}
+                            value={isCapturingShortcut ? "" : (selectedButton.shortcut ? displayShortcut(selectedButton.shortcut) : "")}
+                            onclick={startCapturing}
+                            onblur={stopCapturing}
+                            onkeydown={handleShortcutKeydown}
+                            bind:this={shortcutInputEl}
                         />
                     </div>
                     <div class="button-actions">

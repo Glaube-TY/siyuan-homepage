@@ -72,9 +72,10 @@ function animateVisibilityCheck(flake: HTMLImageElement): void {
 export function createFallingFlake(config: FallingEffectConfig): void {
     if (!config.advanced || !config.FallEffectsEnabled) return;
 
+    // 非全局模式改用 .falling-container 避免滚动条问题
     const container = config.GlobalFallingEffectsEnabled
         ? document.body
-        : document.querySelector(".homepage-container");
+        : document.querySelector(".falling-container");
     if (!container) return;
 
     const activeFlakes = container.querySelectorAll("img.falling-flake").length;

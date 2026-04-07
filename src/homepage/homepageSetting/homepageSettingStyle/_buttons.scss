@@ -101,6 +101,11 @@
 
             input{
                 background-color: var(--b3-theme-surface);
+
+                &.capturing {
+                    outline: 2px solid var(--b3-theme-primary);
+                    cursor: text;
+                }
             }
         }
     }

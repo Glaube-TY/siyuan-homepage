@@ -141,6 +141,8 @@
                             src={tempTitleImage}
                             alt="图标预览"
                             title="图标预览"
+                            class="title-icon-preview"
+                            style="width: 32px; height: 32px; border-radius: {tempTitleIconStyle === 'square' ? '0%' : tempTitleIconStyle === 'round' ? '20%' : '50%'};"
                         />
                         <select
                             class="iconstyle"
@@ -206,7 +208,7 @@
     <div class="stats-info-setting">
         <div>
             自定义状态语：<a
-                href="https://blog.glaube-ty.top/archives/019d2484-7d4f-7573-89dd-772a2c600e2w"
+                href="https://blog.glaube-ty.top/archives/019d2484-7d4f-7573-89dd-772a2c600e2b"
                 target="_blank"
                 >查看可用变量（展开标题记快捷区）</a
             >
