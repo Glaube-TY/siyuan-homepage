@@ -86,13 +86,6 @@
     {:else}
         <h3>👑会员专属权益👑</h3>
     {/if}
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/B8kGwSDdui3vy3kz55EcJkVHnHD?from=from_copylink"
-            target="_blank">统计卡片</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

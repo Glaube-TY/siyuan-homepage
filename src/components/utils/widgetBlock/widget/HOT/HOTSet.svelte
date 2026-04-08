@@ -89,13 +89,6 @@
             </select>
         </label>
     </div>
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/W7u5wQCEOibCxhkyA7mc5mDWnWh?from=from_copylink"
-            target="_blank">热搜</a
-        >
-    </div>
     <p>注：若某一热搜来源失效请联系我更新~</p>
 </div>
 

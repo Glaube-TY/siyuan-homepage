@@ -70,17 +70,4 @@
             <option value="priority">优先级❗</option>
         </select>
     </div>
-
-    <div class="component-help">
-        <hr />
-        <div>
-            组件说明：<a
-                href="https://ttl8ygt82u.feishu.cn/wiki/CCwfwq75Ziu8m5kQ0HXcnVbfnod?from=from_copylink"
-                target="_blank">任务管理Plus</a
-            >
-        </div>
-    </div>
 </div>
-
-<style lang="scss">
-</style>

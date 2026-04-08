@@ -95,13 +95,6 @@
     {:else}
         <h3>👑会员专属权益👑</h3>
     {/if}
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ai.feishu.cn/wiki/GJIDwjfIhizRNVkXlaHcmncfnf1"
-            target="_blank">赛博木鱼</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

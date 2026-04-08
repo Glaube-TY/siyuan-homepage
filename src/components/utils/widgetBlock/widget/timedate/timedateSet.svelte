@@ -1,36 +1,7 @@
 <script lang="ts">
     import { run } from 'svelte/legacy';
-
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
-
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
     
     interface Props {
         plugin: any;
@@ -667,14 +638,6 @@
             </label>
         </div>
     {/if}
-
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/NlvZweO3LiUA2XkC2escjktKnXg?from=from_copylink"
-            target="_blank">时钟</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

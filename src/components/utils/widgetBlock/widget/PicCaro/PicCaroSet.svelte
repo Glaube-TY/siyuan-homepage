@@ -176,13 +176,6 @@
     {:else}
         <h3>👑会员专属权益👑</h3>
     {/if}
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ai.feishu.cn/wiki/MLaew9FOwiEREHkao1HcZof2nEd"
-            target="_blank">图片轮播</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

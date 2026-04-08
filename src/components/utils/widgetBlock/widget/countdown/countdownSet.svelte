@@ -234,14 +234,6 @@
                 >
             </div>
         {/if}
-
-        <hr />
-        <div>
-            组件说明：<a
-                href="https://ttl8ygt82u.feishu.cn/wiki/KjYew1TbViBCIQkmsbBcBO6vnOd?from=from_copylink"
-                target="_blank">倒数日</a
-            >
-        </div>
     </div>
 </div>
 

@@ -225,14 +225,6 @@
             </div>
         </div>
     </div>
-
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/R1KPw7ZqNi4iVJkjGdhcVYmtnkd?from=from_copylink"
-            target="_blank">番茄钟</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

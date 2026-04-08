@@ -344,8 +344,6 @@
 {:else}
     <h3>👑会员专属权益👑</h3>
 {/if}
-<hr>
-<div>组件说明：<a href="https://ttl8ygt82u.feishu.cn/wiki/TVpYw7TRPiG6hRksrYKc7oBjnmd?from=from_copylink" target="_blank">数据库图表</a></div>
 <p>组件开发中~</p>
 
 <style lang="scss">

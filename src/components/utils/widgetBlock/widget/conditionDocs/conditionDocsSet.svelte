@@ -153,13 +153,6 @@
             </label>
         </div>
     </div>
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ai.feishu.cn/wiki/RhI7wf1HGi997vkjE9dc3ionnPw?from=from_copylink"
-            target="_blank">条件文档</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

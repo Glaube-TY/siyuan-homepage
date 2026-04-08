@@ -25,12 +25,4 @@
             />
         </div>
     {/if}
-
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/XQV7wtEtsihu2IkbYpWcOWSunKf?from=from_copylink"
-            target="_blank">文档编辑器</a
-        >
-    </div>
 </div>

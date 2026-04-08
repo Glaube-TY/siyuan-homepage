@@ -94,13 +94,6 @@
             placeholder="选择笔记本..."
         />
     </div>
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/T18vwmZeqinQW2kxoxccpYVHndf?from=from_copylink"
-            target="_blank">任务管理</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

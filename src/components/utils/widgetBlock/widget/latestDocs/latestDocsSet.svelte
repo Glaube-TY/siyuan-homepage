@@ -162,16 +162,6 @@
             秒
         </label>
     </div>
-
-    <div class="component-help">
-        <hr />
-        <div>
-            组件说明：<a
-                href="https://ttl8ygt82u.feishu.cn/wiki/XQV7wtEtsihu2IkbYpWcOWSunKf?from=from_copylink"
-                target="_blank">最近文档</a
-            >
-        </div>
-    </div>
 </div>
 
 <style lang="scss">

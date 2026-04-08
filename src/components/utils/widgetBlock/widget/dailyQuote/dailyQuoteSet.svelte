@@ -154,14 +154,6 @@
                 {/if}
             </div>
         </div>
-
-        <hr />
-        <div>
-            组件说明：<a
-                href="https://ttl8ygt82u.feishu.cn/wiki/QRVowj3azihjGukBoR5cmBKsnKg?from=from_copylink"
-                target="_blank">每日一言</a
-            >
-        </div>
         <p>注：若某一接口失效请联系我更新~</p>
     </div>
 </div>

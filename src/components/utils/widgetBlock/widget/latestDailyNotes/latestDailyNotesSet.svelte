@@ -85,14 +85,6 @@
             秒
         </label>
     </div>
-
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/JeWrwUDxmiPX5lk0XbZcHI1bn5g?from=from_copylink"
-            target="_blank">最近日记</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

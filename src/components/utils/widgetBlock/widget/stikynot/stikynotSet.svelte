@@ -30,10 +30,3 @@
 {:else}
     <h3>👑会员专属权益👑</h3>
 {/if}
-<hr />
-<div>
-    组件说明：<a
-        href="https://ttl8ygt82u.feishu.cn/wiki/Dmm6wkiPCi8sNzk1ju4cD14JnKy?from=from_copylink"
-        target="_blank">便签</a
-    >
-</div>

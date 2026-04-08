@@ -165,16 +165,6 @@
             </div>
         </div>
     </div>
-    <hr />
-    <div>
-        组件说明：
-        <a
-            href="https://ttl8ygt82u.feishu.cn/wiki/HCICwChqpi9Iglkw6nwcVuP1nsf?from=from_copylink"
-            target="_blank"
-        >
-            收藏文档
-        </a>
-    </div>
 </div>
 
 <style lang="scss">

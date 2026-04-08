@@ -28,11 +28,4 @@
             <option value="CRE">创建时间</option>
         </select>
     </label>
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/XhZ7ww1PDimrZxkbxPqcvZrKnIb?from=from_copylink"
-            target="_blank">快速笔记</a
-        >
-    </div>
 </div>

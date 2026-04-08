@@ -74,14 +74,6 @@
             <p>段落块、标题块、列表块、代码块、公式块、引注块、表格块</p>
         {/if}
     </div>
-
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/W2QjwU3DkiCMaok69yqcfV5knLc?from=from_copylink"
-            target="_blank">热力图</a
-        >
-    </div>
 </div>
 
 <style lang="scss">

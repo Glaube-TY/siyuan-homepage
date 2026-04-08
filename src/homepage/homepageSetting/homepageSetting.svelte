@@ -577,10 +577,10 @@
 
         await saveHomepageSettingConfig(plugin, config);
 
-        if (close) close();
+        // 派发全局事件通知主页配置已保存
+        window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
 
-        // 刷新页面以应用新的配置
-        window.location.reload();
+        if (close) close();
     }
 
     function cancelSave() {

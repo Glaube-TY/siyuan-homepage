@@ -233,14 +233,14 @@
         }
         
         isRefreshingHomepage = true;
-        
+
         try {
-            // 1. 更新配置
-            await updateHomepage();
-            
-            // 2. 读取最新配置并注册设备
+            // 1. 读取最新配置并注册设备
             const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
             await registerCurrentDevice(rawConfig);
+
+            // 2. 更新配置（设备已就绪，可正确读取设备 profile）
+            await updateHomepage();
             
             // 3. 等待 DOM 更新
             await tick();
@@ -266,6 +266,32 @@
     // 会员状态不可用时重新加载配置
     async function handleAdvancedUnavailable() {
         await updateHomepage();
+    }
+
+    // 处理主页设置保存事件 - 本地热应用配置
+    async function handleHomepageSettingsSaved() {
+        // 1. 重新读取并应用最新配置
+        await updateHomepage();
+
+        // 2. 等待 DOM 更新
+        await tick();
+
+        // 3. 重新注册快捷按钮
+        reRegisterAllShortcuts(buttonsList);
+
+        // 4. 重新处理飘落特效
+        cleanupFallingEffects();
+        startFallingEffects();
+
+        // 5. 重新应用鼠标样式
+        updateCursorStyle({
+            advanced: getAdvancedEnabled(),
+            mouseIcon,
+            mouseGlobalEnabled,
+            ClickEffectEnabled,
+            ClickEffectContent,
+            MouseTrailEnabled,
+        });
     }
 
     // 注册当前设备到同步配置（带同机匹配和去重）
@@ -377,6 +403,7 @@
         // 先添加事件监听器，确保不会错过 VIP 状态变化事件
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
+        window.addEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
 
         // 首设备首次冷启动：初始化 widgetLayout.json 最小结构
         const existingLayout = await plugin.loadData("widgetLayout.json");
@@ -388,12 +415,12 @@
             console.info("[Homepage] 已初始化 widgetLayout.json");
         }
 
-        // 加载配置
-        await updateHomepage();
-
-        // 注册当前设备到同步配置
+        // 注册当前设备到同步配置（必须在加载配置之前，确保设备 profile 已就绪）
         const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
         await registerCurrentDevice(rawConfig);
+
+        // 加载配置（此时设备已注册，loadWidgetLayoutSettings 可正确读取设备 profile）
+        await updateHomepage();
 
         await tick();
 
@@ -467,6 +494,7 @@
             "homepage-advanced-unavailable",
             handleAdvancedUnavailable,
         );
+        window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
         document.removeEventListener("click", handleDocumentClick);
         document.removeEventListener("click", handleClickEffect);
         document.removeEventListener("mousemove", handleMouseMoveTrail);

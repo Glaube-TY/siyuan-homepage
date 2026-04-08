@@ -18,16 +18,6 @@
             </label>
         </div>
     </div>
-
-    <div class="component-help">
-        <hr />
-        <div>
-            组件说明：<a
-                href="https://ttl8ygt82u.feishu.cn/wiki/M7FzwiwMQiNdKXkrIrucpOtenxb?from=from_copylink"
-                target="_blank">可视化图表</a
-            >
-        </div>
-    </div>
 </div>
 
 <style lang="scss">

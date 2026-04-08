@@ -23,14 +23,6 @@
             格式编写..."
             bind:value={customTextInputValue}
         ></textarea>
-
-        <hr />
-        <div>
-            组件说明：<a
-                href="https://ttl8ygt82u.feishu.cn/wiki/DkJnwuWzuipxpgkcTKZcEyaMnHf?from=from_copylink"
-                target="_blank">自定义文字</a
-            >
-        </div>
     </div>
 </div>
 

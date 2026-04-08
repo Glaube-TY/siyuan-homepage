@@ -48,17 +48,4 @@
             若两个都填写，则优先用城市编码查询，因为这会更加精确。
         </div>
     {/if}
-
-    <div class="component-help">
-        <hr />
-        <div>
-            组件说明：<a
-                href="https://ttl8ygt82u.feishu.cn/wiki/ER44wITRDi0m8okvcsGcxtZInix?from=from_copylink"
-                target="_blank">今日天气</a
-            >
-        </div>
-    </div>
 </div>
-
-<style lang="scss">
-</style>

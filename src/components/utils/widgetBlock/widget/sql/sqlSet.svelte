@@ -51,12 +51,4 @@
             />
         </label>
     </div>
-
-    <hr />
-    <div>
-        组件说明：<a
-            href="https://ttl8ygt82u.feishu.cn/wiki/QG5nw3GPkiKjk3kIG9lcYpzOn6g?from=from_copylink"
-            target="_blank">SQL查询</a
-        >
-    </div>
 </div>
