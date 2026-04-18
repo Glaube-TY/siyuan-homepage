@@ -15,11 +15,6 @@
         plugin
     }: Props = $props();
 
-    let locationIconPath: string = $state("");
-    let weatherIconPath: string = $state("");
-    let BGImgPath: string = $state("");
-    let displayCity: string = $state("");
-
     let advancedEnabled = $state(false);
 
     // 城市名称裁剪函数
@@ -86,9 +81,9 @@
         轻度雾霾: "霾.svg",
 
         // 极端天气
-        沙尘暴: "沙尘暴 .svg",
-        沙尘: "沙尘暴 .svg",
-        扬沙: "沙尘暴 .svg",
+        沙尘暴: "沙尘暴.svg",
+        沙尘: "沙尘暴.svg",
+        扬沙: "沙尘暴.svg",
         龙卷风: "龙卷风.svg",
         台风: "龙卷风.svg",
         飓风: "龙卷风.svg",
@@ -101,29 +96,18 @@
         default: "多云.svg",
     };
 
+    // 基于 props 直接派生
+    let displayCity = $derived(truncateCityName(city));
+    let weatherIconPath = $derived(
+        `/plugins/siyuan-homepage/asset/Icon/${weatherIconMap[weather] || weatherIconMap["default"]}`
+    );
+
+    // 固定资源路径
+    const locationIconPath = "/plugins/siyuan-homepage/asset/Icon/location1.svg";
+    const BGImgPath = "/plugins/siyuan-homepage/asset/weatherImg/BGImg1.jpg";
+
     onMount(() => {
         advancedEnabled = plugin.ADVANCED;
-
-        // 裁剪城市名称
-        const cityInterval = setInterval(() => {
-            displayCity = truncateCityName(city);
-        }, 500);
-
-        locationIconPath = "/plugins/siyuan-homepage/asset/Icon/location1.svg";
-
-        // 定时更新图标
-        const iconInterval = setInterval(() => {
-            const iconFile =
-                weatherIconMap[weather] || weatherIconMap["default"];
-            weatherIconPath = `/plugins/siyuan-homepage/asset/Icon/${iconFile}`;
-        }, 500);
-
-        BGImgPath = "/plugins/siyuan-homepage/asset/weatherImg/BGImg1.jpg";
-
-        return () => {
-            clearInterval(cityInterval);
-            clearInterval(iconInterval);
-        };
     });
 </script>
 

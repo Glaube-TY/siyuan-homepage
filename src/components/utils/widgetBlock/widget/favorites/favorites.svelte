@@ -16,17 +16,17 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const contentTypeJsonObj = JSON.parse(contentTypeJson);
+    const contentTypeJsonObj = $derived(JSON.parse(contentTypeJson));
 
     let favoritesNotes: any[] = $state([]);
     const favoritiesTitle =
-        contentTypeJsonObj.data?.favoritiesTitle || "💖收藏文档";
-    const showNoteMeta = contentTypeJsonObj.data?.showNoteMeta ?? true;
+        $derived(contentTypeJsonObj.data?.favoritiesTitle || "💖收藏文档");
+    const showNoteMeta = $derived(contentTypeJsonObj.data?.showNoteMeta ?? true);
     const favoritiesDocPrefix =
-        contentTypeJsonObj.data?.favoritiesDocPrefix || "❤";
-    const showFavFloatDoc = contentTypeJsonObj.data?.showFavFloatDoc ?? true;
+        $derived(contentTypeJsonObj.data?.favoritiesDocPrefix || "❤");
+    const showFavFloatDoc = $derived(contentTypeJsonObj.data?.showFavFloatDoc ?? true);
     const favFloatDocShowTime =
-        contentTypeJsonObj.data?.favFloatDocShowTime || 0.1;
+        $derived(contentTypeJsonObj.data?.favFloatDocShowTime || 0.1);
 
     // 时间戳格式化函数
     function formatDate(raw: string): string {
@@ -38,12 +38,31 @@
     
     // 悬浮窗定时器
     let floatDocTimeout: number | null = $state(null);
+    let mouseLeaveTimeout: number | null = $state(null);
 
-    onMount(async () => {
-        favoritesNotes = await getLatestFavoritesNotes(
+    // 清理所有悬浮预览相关的 timeout
+    function clearFloatDocTimeouts() {
+        if (floatDocTimeout) {
+            clearTimeout(floatDocTimeout);
+            floatDocTimeout = null;
+        }
+        if (mouseLeaveTimeout) {
+            clearTimeout(mouseLeaveTimeout);
+            mouseLeaveTimeout = null;
+        }
+    }
+
+    onMount(() => {
+        getLatestFavoritesNotes(
             contentTypeJsonObj.data?.favoritiesSortOrder,
             contentTypeJsonObj.data?.favoritesNotebookId,
-        );
+        ).then((notes) => {
+            favoritesNotes = notes;
+        });
+
+        return () => {
+            clearFloatDocTimeouts();
+        };
     });
 </script>
 
@@ -81,9 +100,14 @@
                                         clearTimeout(floatDocTimeout);
                                         floatDocTimeout = null;
                                     }
+                                    // 清除之前的 mouseleave timeout
+                                    if (mouseLeaveTimeout) {
+                                        clearTimeout(mouseLeaveTimeout);
+                                    }
                                     // 使用配置的延迟时间，确保用户有足够时间查看弹窗
-                                    setTimeout(() => {
+                                    mouseLeaveTimeout = window.setTimeout(() => {
                                         setMouseOnTrigger(false);
+                                        mouseLeaveTimeout = null;
                                     }, 150);
                                 }
                             }}

@@ -18,21 +18,12 @@
     let sortable: Sortable | null = null;
     let layoutObserver: MutationObserver | null = null;
 
-    onMount(() => {
-        advanced = !!plugin.ADVANCED;
+    function setupSortableObserver() {
+        if (layoutObserver) {
+            layoutObserver.disconnect();
+            layoutObserver = null;
+        }
 
-        const handleAdvancedReady = () => {
-            advanced = true;
-        };
-
-        const handleAdvancedUnavailable = () => {
-            advanced = false;
-        };
-
-        window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
-        window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
-
-        // 组件拖拽
         layoutObserver = new MutationObserver(async () => {
             const container = document.querySelector(
                 ".sidebar-widget",
@@ -54,18 +45,43 @@
         });
 
         layoutObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    function cleanupSortableState() {
+        if (sortable) {
+            sortable.destroy();
+            sortable = null;
+        }
+        if (layoutObserver) {
+            layoutObserver.disconnect();
+            layoutObserver = null;
+        }
+    }
+
+    onMount(() => {
+        advanced = !!plugin.ADVANCED;
+
+        const handleAdvancedReady = () => {
+            advanced = true;
+            setupSortableObserver();
+        };
+
+        const handleAdvancedUnavailable = () => {
+            advanced = false;
+            cleanupSortableState();
+        };
+
+        window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
+        window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
+
+        if (advanced) {
+            setupSortableObserver();
+        }
 
         return () => {
             window.removeEventListener("homepage-advanced-ready", handleAdvancedReady);
             window.removeEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
-            if (sortable) {
-                sortable.destroy();
-                sortable = null;
-            }
-            if (layoutObserver) {
-                layoutObserver.disconnect();
-                layoutObserver = null;
-            }
+            cleanupSortableState();
         };
     });
 </script>

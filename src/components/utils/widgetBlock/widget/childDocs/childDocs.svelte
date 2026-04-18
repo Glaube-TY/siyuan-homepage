@@ -15,24 +15,41 @@
     }
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsed = JSON.parse(contentTypeJson);
-    const childDocsTitle = parsed.data?.childDocsTitle || "📄子文档";
-    const childDocsPrefix = parsed.data?.childDocsPrefix || "📄";
-    const showChildDocsDetails = parsed.data?.showChildDocsDetails ?? true;
-    const childDocsParentId = parsed.data?.childDocsParentId || "";
-    const childDocsSortOrder = parsed.data?.childDocsSortOrder || "updated";
-    const showChildDocsFloatDoc = parsed.data?.showChildDocsFloatDoc ?? true;
+    const parsed = $derived(JSON.parse(contentTypeJson));
+    const childDocsTitle = $derived(parsed.data?.childDocsTitle || "📄子文档");
+    const childDocsPrefix = $derived(parsed.data?.childDocsPrefix || "📄");
+    const showChildDocsDetails = $derived(parsed.data?.showChildDocsDetails ?? true);
+    const childDocsParentId = $derived(parsed.data?.childDocsParentId || "");
+    const childDocsSortOrder = $derived(parsed.data?.childDocsSortOrder || "updated");
+    const showChildDocsFloatDoc = $derived(parsed.data?.showChildDocsFloatDoc ?? true);
     const childDocsFloatDocShowTime =
-        parsed.data?.childDocsFloatDocShowTime || 0.1;
+        $derived(parsed.data?.childDocsFloatDocShowTime || 0.1);
 
     let displayedDocs: any[] = $state([]);
 
     // 悬浮窗定时器
     let floatDocTimeout: number | null = $state(null);
+    let mouseLeaveTimeout: number | null = $state(null);
+
+    // 清理所有悬浮预览相关的 timeout
+    function clearFloatDocTimeouts() {
+        if (floatDocTimeout) {
+            clearTimeout(floatDocTimeout);
+            floatDocTimeout = null;
+        }
+        if (mouseLeaveTimeout) {
+            clearTimeout(mouseLeaveTimeout);
+            mouseLeaveTimeout = null;
+        }
+    }
 
     // 模拟加载文档数据
-    onMount(async () => {
-        await getChildDocs();
+    onMount(() => {
+        getChildDocs();
+
+        return () => {
+            clearFloatDocTimeouts();
+        };
     });
 
     async function getChildDocs() {
@@ -80,8 +97,13 @@
                                     clearTimeout(floatDocTimeout);
                                     floatDocTimeout = null;
                                 }
-                                setTimeout(() => {
+                                // 清除之前的 mouseleave timeout
+                                if (mouseLeaveTimeout) {
+                                    clearTimeout(mouseLeaveTimeout);
+                                }
+                                mouseLeaveTimeout = window.setTimeout(() => {
                                     setMouseOnTrigger(false);
+                                    mouseLeaveTimeout = null;
                                 }, 150);
                             }
                         }}

@@ -11,10 +11,12 @@ export function handleLoad(
     plugin: any,
     bannerImage: HTMLImageElement | null,
     options?: HandleLoadOptions
-) {
+): (() => void) | undefined {
     if (bannerImage && bannerImage.parentElement) {
-        initDrag(bannerImage, plugin, options?.onSavePosition, options?.onLoadPosition);
+        const dragInstance = initDrag(bannerImage, plugin, options?.onSavePosition, options?.onLoadPosition);
+        return dragInstance?.destroy;
     }
+    return undefined;
 }
 
 function initDrag(

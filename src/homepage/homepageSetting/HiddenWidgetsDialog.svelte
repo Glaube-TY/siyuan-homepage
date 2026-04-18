@@ -28,21 +28,42 @@
     // 预览组件实例映射
     let previewInstances: Map<string, any> = new Map();
 
+    // 延迟任务 timeout id 记录
+    let mountTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    let restoreTimeoutIds: Set<ReturnType<typeof setTimeout>> = new Set();
+
+    // 组件销毁标记
+    let isDestroyed = false;
+
     onMount(async () => {
         // 加载隐藏组件列表
         hiddenWidgets = await getHiddenWidgetsForCurrentDevice(plugin);
+        if (isDestroyed) return;
 
         // 加载布局设置（只取 widgetGap）
         const settings = await loadWidgetLayoutSettings(plugin);
+        if (isDestroyed) return;
         widgetGap = settings.widgetGap;
 
         isLoading = false;
 
         // 延迟挂载预览
-        setTimeout(mountPreviews, 50);
+        if (!isDestroyed) {
+            mountTimeoutId = setTimeout(mountPreviews, 50);
+        }
     });
 
     onDestroy(() => {
+        isDestroyed = true;
+
+        // 清理延迟任务
+        if (mountTimeoutId) {
+            clearTimeout(mountTimeoutId);
+            mountTimeoutId = null;
+        }
+        restoreTimeoutIds.forEach((id) => clearTimeout(id));
+        restoreTimeoutIds.clear();
+
         // 清理所有预览实例
         previewInstances.forEach((instance) => {
             try {
@@ -92,10 +113,12 @@
             restoredIds = restoredIds; // 触发更新
 
             // 从列表中移除
-            setTimeout(() => {
+            const timeoutId = setTimeout(() => {
                 hiddenWidgets = hiddenWidgets.filter((w) => w.id !== widgetId);
                 restoredIds.delete(widgetId);
+                restoreTimeoutIds.delete(timeoutId);
             }, 300);
+            restoreTimeoutIds.add(timeoutId);
 
             // 尝试刷新主页
             try {

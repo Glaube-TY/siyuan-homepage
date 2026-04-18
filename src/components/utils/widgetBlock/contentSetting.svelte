@@ -776,7 +776,7 @@
                         bind:docLimit
                         bind:ensureOpenDocs
                         bind:selectedNotebookIds
-                        bind:docNotebookId
+                        docNotebookId={docNotebookId}
                         bind:latestDocsTitle
                         bind:latestDocsPrefix
                         bind:showLatestDocDetails
@@ -812,6 +812,7 @@
                         bind:showTasksDetails
                         bind:selectedTasksNotebookIds
                         {notebooks}
+                        docNotebookId={tasksNotebookId}
                     />
                 {:else if selectedContentType === "TaskManPlus"}
                     <TasksPlusSet
@@ -1041,15 +1042,15 @@
                     />
                 {:else if selectedContentType === "musicPlayer"}
                     <MusicPlayerSet
-                        bind:advancedEnabled
+                        {advancedEnabled}
                         bind:musicFolderPath
                         bind:autoPlay
                     />
                 {:else if selectedContentType === "almanac"}
-                    <AlmanacSet bind:advancedEnabled bind:almanacStyle />
+                    <AlmanacSet {advancedEnabled} bind:almanacStyle />
                 {:else if selectedContentType === "PicCaro"}
                     <PicCaroSet
-                        bind:advancedEnabled
+                        {advancedEnabled}
                         bind:PicFolderPath
                         bind:PicAutoPlay
                         bind:PicInterval
@@ -1064,13 +1065,13 @@
                     />
                 {:else if selectedContentType === "CYBMOK"}
                     <CYBMOKSet
-                        bind:advancedEnabled
+                        {advancedEnabled}
                         {plugin}
                         bind:CMKnockSound
                     />
                 {:else if selectedContentType === "countdownTimer"}
                     <CountdownTimerSet
-                        bind:advancedEnabled
+                        {advancedEnabled}
                         bind:countdownTimerStyle
                     />
                 {/if}

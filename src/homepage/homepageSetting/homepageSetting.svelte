@@ -52,7 +52,7 @@
     let tempCustomTitle = $state("思源笔记首页");
 
     let tempStatsInfoText =
-        $state("自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤");
+        $state("自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤");
 
     let buttonsList: ButtonItem[] = $state(createDefaultButtons());
 
@@ -191,7 +191,7 @@
             tempTitleIconImage = savedConfig.TitleIconImage || null;
             tempTitleIconStyle = savedConfig.tempTitleIconStyle || "square";
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
-            tempStatsInfoText = savedConfig.statsInfoText;
+            tempStatsInfoText = savedConfig.statsInfoText || "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤";
 
             // 恢复按钮配置
             if (savedConfig.buttonsList) {

@@ -20,6 +20,7 @@ import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 
 const STORAGE_NAME = "menu-config";
 const TAB_TYPE = "homepage_tab";
+const TAB_ID = "siyuan-homepagehomepage_tab";
 const DOCK_TYPE = "homepage_dock";
 
 const HOMEPAGE_ICON_SVG = `<symbol id="iconhomepage" viewBox="0 0 1024 1024">
@@ -97,14 +98,23 @@ export default class PluginHomepage extends Plugin {
 
     async onLayoutReady() {
         this.homepageTabDiv = document.createElement("div");
-        this.createHomepageInstance();
+        // 不再提前 mount，等 tab init 容器进入 DOM 后再创建实例
 
         const self = this;
         this.customTab = this.addTab({
             type: TAB_TYPE,
             init() {
+                // 轻量保护：确保 custom tab 上下文完整
+                if (!this.element) {
+                    console.debug('[Homepage] Tab init: element 未就绪');
+                    return;
+                }
                 if (self.homepageTabDiv) {
                     this.element.appendChild(self.homepageTabDiv);
+                    // 容器真正进入页面后再创建 Homepage 实例（避免过早 mount）
+                    if (!self.homepageInstance) {
+                        self.createHomepageInstance();
+                    }
                 }
             },
         });
@@ -127,10 +137,11 @@ export default class PluginHomepage extends Plugin {
         void this.verifyLicense();
     }
 
-    // 创建主页实例
+    // 创建主页实例（仅在容器已连接到 DOM 时执行）
     private createHomepageInstance(): void {
-        if (!this.homepageTabDiv) {
-            this.homepageTabDiv = document.createElement("div");
+        if (!this.homepageTabDiv || !this.homepageTabDiv.isConnected) {
+            // 容器未创建或未进入 DOM，暂不 mount
+            return;
         }
         this.homepageInstance = mount(Homepage as any, {
             target: this.homepageTabDiv,
@@ -278,7 +289,7 @@ export default class PluginHomepage extends Plugin {
                 icon: "iconhomepage",
                 title: "首页",
                 data: { text: "思源笔记首页" },
-                id: this.name + TAB_TYPE,
+                id: TAB_ID,
             },
         });
     }
@@ -340,7 +351,8 @@ export default class PluginHomepage extends Plugin {
     }
 
     private handleDocTreeMenu({ detail }: any) {
-        if (detail?.type !== 'doc') return;
+        if (!detail || detail.type !== 'doc') return;
+        if (!detail.elements || !Array.isArray(detail.elements) || detail.elements.length === 0) return;
 
         const element = detail.elements[0];
         if (!element || !element.dataset) return;
@@ -394,6 +406,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     private handleContentMenu({ detail }: any) {
+        if (!detail) return;
         const blockElement = detail.element?.closest?.('[data-node-id]');
         if (!blockElement) {
             console.warn('未找到块元素');
@@ -427,16 +440,21 @@ export default class PluginHomepage extends Plugin {
     }
 
     private handleEditorTitleIconMenu({ detail }: any) {
+        if (!detail) {
+            console.debug('[EditorTitleIconMenu] 事件详情为空');
+            return;
+        }
+
         // 从事件中获取当前文档ID
         // click-editortitleicon 事件通常包含 data 或 protyle 信息
         let docId: string | null = null;
 
         // 尝试从多种可能的位置获取文档ID
-        if (detail?.data?.id) {
+        if (detail.data?.id) {
             docId = detail.data.id;
-        } else if (detail?.protyle?.block?.id) {
+        } else if (detail.protyle?.block?.id) {
             docId = detail.protyle.block.id;
-        } else if (detail?.protyle?.block?.rootID) {
+        } else if (detail.protyle?.block?.rootID) {
             docId = detail.protyle.block.rootID;
         }
 

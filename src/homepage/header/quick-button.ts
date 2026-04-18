@@ -231,20 +231,26 @@ function registerShortcut(shortcut: string, button: ButtonItem): boolean {
     return true;
 }
 
-export function unregisterAllShortcuts(): void {
-    Mousetrap.reset();
+function clearRegisteredShortcuts(): void {
+    // 精确解绑本文件自己注册过的快捷键
+    for (const normalized of normalizedShortcuts.keys()) {
+        Mousetrap.unbind(normalized);
+    }
     registeredShortcuts.clear();
     normalizedShortcuts.clear();
 }
 
+export function unregisterAllShortcuts(): void {
+    clearRegisteredShortcuts();
+}
+
 export function reRegisterAllShortcuts(buttonsList: ButtonItem[]): void {
-    Mousetrap.reset();
-    registeredShortcuts.clear();
-    normalizedShortcuts.clear();
+    clearRegisteredShortcuts();
 
     buttonsList.forEach(item => {
-        if (item.shortcut && item.checked === false) {
-            registerShortcut(item.shortcut, item);
+        // 所有配置了 shortcut 的按钮都参与快捷键注册，不再依赖 checked 状态
+        if (item.shortcut?.trim()) {
+            registerShortcut(item.shortcut.trim(), item);
         }
     });
 }

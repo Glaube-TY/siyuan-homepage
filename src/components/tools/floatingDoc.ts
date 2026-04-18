@@ -29,6 +29,7 @@ class FloatingDocManager {
     private plugin: any = null;
     private currentMode: FloatingDocMode = "preview";
     private modeSelectElement: HTMLSelectElement | null = null;
+    private styleElement: HTMLStyleElement | null = null;
 
     constructor() {
         // 不再立即创建元素，改为延迟创建
@@ -100,7 +101,7 @@ class FloatingDocManager {
         // 创建Protyle编辑器容器
         this.floatingElement.innerHTML = `
             <div class="popup-header" style="padding: 12px 16px; border-bottom: 1px solid var(--b3-border-color); background: var(--b3-theme-background); border-radius: 12px 12px 0 0; flex-shrink: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
-                <span class="popup-title" style="font-weight: 600; font-size: 14px; color: var(--b3-theme-on-surface); display: block; word-wrap: break-word; flex: 1; min-width: 0;">${note.content}</span>
+                <span class="popup-title" style="font-weight: 600; font-size: 14px; color: var(--b3-theme-on-surface); display: block; word-wrap: break-word; flex: 1; min-width: 0;"></span>
                 <select class="popup-mode-select" style="font-size: 12px; padding: 4px 8px; border: 1px solid var(--b3-border-color); border-radius: 4px; background: var(--b3-theme-background); color: var(--b3-theme-on-surface); cursor: pointer; flex-shrink: 0;">
                     <option value="preview" ${this.currentMode === 'preview' ? 'selected' : ''}>预览模式</option>
                     <option value="wysiwyg" ${this.currentMode === 'wysiwyg' ? 'selected' : ''}>所见即所得</option>
@@ -111,6 +112,12 @@ class FloatingDocManager {
             </div>
         `;
 
+        // 安全设置标题文本（避免 innerHTML 注入风险）
+        const titleElement = this.floatingElement.querySelector('.popup-title');
+        if (titleElement) {
+            titleElement.textContent = note.content || '';
+        }
+
         // 绑定模式选择器事件
         this.modeSelectElement = this.floatingElement.querySelector('.popup-mode-select') as HTMLSelectElement;
         if (this.modeSelectElement) {
@@ -120,32 +127,34 @@ class FloatingDocManager {
             });
         }
 
-        // 添加Protyle样式
-        const style = document.createElement('style');
-        style.textContent = `
-            .hover-popup-global .protyle {
-                height: 100% !important;
-                border: none !important;
-                box-shadow: none !important;
-                border-radius: 0 !important;
-            }
-            .hover-popup-global .protyle-content {
-                height: 100% !important;
-                padding: 0 !important;
-            }
-            .hover-popup-global .protyle-wysiwyg {
-                padding: 16px !important;
-                min-height: 100% !important;
-            }
-            .hover-popup-global .protyle-toolbar {
-                position: sticky !important;
-                top: 0 !important;
-                z-index: 100 !important;
-                background: var(--b3-theme-background) !important;
-                border-bottom: 1px solid var(--b3-border-color) !important;
-            }
-        `;
-        document.head.appendChild(style);
+        // 添加Protyle样式（单例复用）
+        if (!this.styleElement) {
+            this.styleElement = document.createElement('style');
+            this.styleElement.textContent = `
+                .hover-popup-global .protyle {
+                    height: 100% !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    border-radius: 0 !important;
+                }
+                .hover-popup-global .protyle-content {
+                    height: 100% !important;
+                    padding: 0 !important;
+                }
+                .hover-popup-global .protyle-wysiwyg {
+                    padding: 16px !important;
+                    min-height: 100% !important;
+                }
+                .hover-popup-global .protyle-toolbar {
+                    position: sticky !important;
+                    top: 0 !important;
+                    z-index: 100 !important;
+                    background: var(--b3-theme-background) !important;
+                    border-bottom: 1px solid var(--b3-border-color) !important;
+                }
+            `;
+            document.head.appendChild(this.styleElement);
+        }
 
         // 获取Protyle容器
         this.protyleContainer = this.floatingElement.querySelector('.protyle-content') as HTMLElement;
@@ -200,7 +209,7 @@ class FloatingDocManager {
         this.ensureInitialized();
         if (!this.floatingElement) return;
 
-        if (mouseX && mouseY) {
+        if (typeof mouseX === 'number' && typeof mouseY === 'number') {
             // 鼠标周围定位
             const { x, y } = await computePosition(
                 { getBoundingClientRect: () => ({ left: mouseX, top: mouseY, right: mouseX, bottom: mouseY, width: 0, height: 0, x: mouseX, y: mouseY }) },
@@ -385,7 +394,13 @@ class FloatingDocManager {
             this.floatingElement.remove();
             this.floatingElement = null;
         }
-        
+
+        // 清理样式节点
+        if (this.styleElement) {
+            this.styleElement.remove();
+            this.styleElement = null;
+        }
+
         if (this.cleanupAutoUpdate) {
             this.cleanupAutoUpdate();
             this.cleanupAutoUpdate = null;

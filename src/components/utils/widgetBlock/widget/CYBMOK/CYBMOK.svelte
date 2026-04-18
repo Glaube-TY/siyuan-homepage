@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
 
     interface Props {
         contentTypeJson?: string;
@@ -18,12 +18,29 @@
     let showMeritText: boolean = $state(false);
     let meritTextY: number = $state(25);
 
+    // 动画定时器引用
+    let floatAnimationInterval: ReturnType<typeof setInterval> | null = null;
+    let knockResetTimeout: ReturnType<typeof setTimeout> | null = null;
+
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;
 
         MOKImgPath = `/plugins/siyuan-homepage/asset/Icon/木鱼.svg`;
 
         knockSoundPath = `/plugins/siyuan-homepage/asset/music/CYBMOK/${CMKnockSound}.mp3`;
+    });
+
+    onDestroy(() => {
+        // 清理漂浮动画 interval
+        if (floatAnimationInterval) {
+            clearInterval(floatAnimationInterval);
+            floatAnimationInterval = null;
+        }
+        // 清理敲击复位 timeout
+        if (knockResetTimeout) {
+            clearTimeout(knockResetTimeout);
+            knockResetTimeout = null;
+        }
     });
 
     async function handleKnock() {
@@ -34,11 +51,17 @@
         showMeritText = true;
         meritTextY = 25;
 
+        // 清理上一次的漂浮动画
+        if (floatAnimationInterval) {
+            clearInterval(floatAnimationInterval);
+        }
+
         // 文字漂浮动画
-        const floatAnimation = setInterval(() => {
+        floatAnimationInterval = setInterval(() => {
             meritTextY -= 1;
             if (meritTextY <= 10) {
-                clearInterval(floatAnimation);
+                clearInterval(floatAnimationInterval);
+                floatAnimationInterval = null;
                 showMeritText = false;
             }
         }, 50);
@@ -46,10 +69,16 @@
         // 记录敲击次数 - 立即执行，不等待
         recordKnock();
 
+        // 清理上一次的敲击复位 timeout
+        if (knockResetTimeout) {
+            clearTimeout(knockResetTimeout);
+        }
+
         // 敲击动画
         isKnocking = true;
-        setTimeout(() => {
+        knockResetTimeout = setTimeout(() => {
             isKnocking = false;
+            knockResetTimeout = null;
         }, 200);
     }
 

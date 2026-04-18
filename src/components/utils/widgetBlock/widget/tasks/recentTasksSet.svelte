@@ -22,7 +22,7 @@
         showCompletedTasks = $bindable(false),
         showTasksDetails = $bindable(false),
         selectedTasksNotebookIds = $bindable([]),
-        docNotebookId = ""
+        docNotebookId = $bindable("")
     }: Props = $props();
 
     // 初始化选择状态
@@ -84,15 +84,19 @@
     </div>
     <div class="form-group TaskMan-notebook-id">
         <label for="TaskMan-notebook-id">任务笔记本：</label>
-        <MultiSelect
-            id="TaskMan-notebook-id"
-            bind:selected={selectedTasksNotebookIds}
-            options={notebooks.map((notebook) => ({
-                label: notebook.name,
-                value: notebook.id,
-            }))}
-            placeholder="选择笔记本..."
-        />
+        {#if notebooks.length > 0}
+            <MultiSelect
+                id="TaskMan-notebook-id"
+                bind:selected={selectedTasksNotebookIds}
+                options={notebooks.map((notebook) => ({
+                    label: notebook.name,
+                    value: notebook.id,
+                }))}
+                placeholder="选择笔记本..."
+            />
+        {:else}
+            <span class="loading-placeholder">笔记本加载中...</span>
+        {/if}
     </div>
 </div>
 

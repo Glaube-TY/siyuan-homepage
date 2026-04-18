@@ -58,9 +58,15 @@ function getDuration(speed: string): number {
 
 function animateVisibilityCheck(flake: HTMLImageElement): void {
     const check = () => {
+        // 元素已断开连接、被隐藏、或已回收，停止检查
+        if (!flake.isConnected || flake.style.display === "none") {
+            return;
+        }
         const rect = flake.getBoundingClientRect();
         if (rect.top > window.innerHeight * 0.85) {
             flake.style.display = "none";
+            // 从 DOM 移除，避免干扰 activeFlakes 统计
+            flake.remove();
             fallingFlakesPool.push(flake);
         } else {
             requestAnimationFrame(check);
@@ -121,23 +127,33 @@ export function createFallingFlake(config: FallingEffectConfig): void {
     flake.style.top = "-10vh";
     flake.style.position = "absolute";
 
+    // 先加入 DOM，再启动检查
+    container.appendChild(flake);
+
     animateVisibilityCheck(flake);
 
-    flake.addEventListener("animationiteration", () => {
-        const rect = flake.getBoundingClientRect();
-        const isInViewport =
-            rect.top >= 0 &&
-            rect.left >= 0 &&
-            rect.bottom <= window.innerHeight &&
-            rect.right <= window.innerWidth;
+    // 避免重复绑定 animationiteration 监听
+    if (!(flake as any).__fallingListenerBound) {
+        (flake as any).__fallingListenerBound = true;
+        flake.addEventListener("animationiteration", () => {
+            // 元素已回池或断开连接，跳过处理
+            if (!flake.isConnected || flake.style.display === "none") {
+                return;
+            }
+            const rect = flake.getBoundingClientRect();
+            const isInViewport =
+                rect.top >= 0 &&
+                rect.left >= 0 &&
+                rect.bottom <= window.innerHeight &&
+                rect.right <= window.innerWidth;
 
-        if (!isInViewport) {
-            flake.style.display = "none";
-            fallingFlakesPool.push(flake);
-        }
-    });
-
-    container.appendChild(flake);
+            if (!isInViewport) {
+                flake.style.display = "none";
+                flake.remove();
+                fallingFlakesPool.push(flake);
+            }
+        });
+    }
 }
 
 export function animateFalling(

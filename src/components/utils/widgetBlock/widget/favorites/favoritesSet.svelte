@@ -135,15 +135,19 @@
     <div class="favorites-setting-bottom">
         <div class="form-group doc-notebook-id">
             <label for="doc-notebook-id"> 文档笔记本： </label>
-            <MultiSelect
-                id="doc-notebook-id"
-                bind:selected={selectedFavoritesNotebookIds}
-                options={notebooks.map((notebook) => ({
-                    label: notebook.name,
-                    value: notebook.id,
-                }))}
-                placeholder="选择笔记本..."
-            />
+            {#if notebooks.length > 0}
+                <MultiSelect
+                    id="doc-notebook-id"
+                    bind:selected={selectedFavoritesNotebookIds}
+                    options={notebooks.map((notebook) => ({
+                        label: notebook.name,
+                        value: notebook.id,
+                    }))}
+                    placeholder="选择笔记本..."
+                />
+            {:else}
+                <span class="loading-placeholder">笔记本加载中...</span>
+            {/if}
             <div class="form-group">
                 <label for="show-fav-float-doc">
                     <input

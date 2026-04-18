@@ -1,7 +1,7 @@
 <script lang="ts">
     import { showMessage, fetchSyncPost, openTab } from "siyuan";
     import { sql } from "@/api";
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import "echarts-wordcloud";
 
@@ -35,6 +35,29 @@
     let tasks = $state([]);
     let selectedTasks: any = $state();
     let addedTaskIds = $state(new Set());
+
+    // timeout id 记录
+    let initChartsTimeout: ReturnType<typeof setTimeout> | null = null;
+    let onMountTimeout: ReturnType<typeof setTimeout> | null = null;
+    let redrawTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    // 组件销毁标记
+    let isDestroyed = false;
+    // tagCloud 图表容器本地引用
+    let tagCloudContainer: HTMLDivElement | null = $state(null);
+    // 外层容器引用（用于 progressBar resize）
+    let contentDisplayRef: HTMLDivElement | null = $state(null);
+    // 主题观察器
+    let themeObserver: MutationObserver | null = null;
+    // 主题调度 timeout id
+    let themeScheduleTimeout: ReturnType<typeof setTimeout> | null = null;
+    // 上次主题签名
+    let lastThemeSignature: string = "";
+    // ResizeObserver
+    let resizeObserver: ResizeObserver | null = null;
+    // resize 调度 raf id
+    let resizeRafId: number | null = null;
+    // 进度条图表实例缓存
+    let progressBarCharts: Map<string, echarts.ECharts> = new Map();
 
     // 进度条配置
     function getProgressOption(bar) {
@@ -293,11 +316,11 @@
 
             if (newBars.length > 0) {
                 progressBars = [...progressBars, ...newBars];
-                setTimeout(() => initCharts(), 50);
+                initChartsTimeout = setTimeout(() => initCharts(), 50);
                 await saveConfig();
             }
         }
-        setTimeout(() => initCharts(), 50);
+        initChartsTimeout = setTimeout(() => initCharts(), 50);
         await saveConfig();
         newTitle = "";
         newProgressNumber = 0;
@@ -306,21 +329,6 @@
         newEndDate = "";
 
         await saveConfig();
-    }
-
-    function initCharts() {
-        progressBars.forEach((bar) => {
-            const chartDom = document.querySelector(
-                `.chart-container-${bar.id}`,
-            ) as HTMLElement;
-            if (!chartDom) return;
-
-            const existingChart = echarts.getInstanceByDom(chartDom);
-            if (existingChart) existingChart.dispose();
-
-            const myChart = echarts.init(chartDom);
-            myChart.setOption(getProgressOption(bar));
-        });
     }
 
     async function removeProgressBar(id: number) {
@@ -617,52 +625,289 @@
 
         tasks = await getTasks();
 
-        setTimeout(async () => {
-            // 获取主题颜色
-            themeColor = getComputedStyle(document.documentElement)
-                .getPropertyValue("--b3-theme-surface")
-                .trim();
-            textColor = getComputedStyle(document.documentElement)
-                .getPropertyValue("--b3-theme-on-surface")
-                .trim();
-            primaryColor = getComputedStyle(document.documentElement)
-                .getPropertyValue("--b3-theme-primary")
-                .trim();
+        onMountTimeout = setTimeout(async () => {
+            if (isDestroyed) return;
 
-            if (visualChartType === "progressBar") {
-                progressBars.forEach((bar) => {
-                    const chartDom = document.querySelector(
-                        `.chart-container-${bar.id}`,
-                    ) as HTMLElement;
-                    if (!chartDom) return;
+            // 初始化图表
+            await initCharts();
 
-                    const myChart = echarts.init(chartDom);
-                    myChart.setOption(getProgressOption(bar));
-                });
-            } else if (visualChartType === "tagCloud") {
-                const tagData = await getTag();
+            // 延后重绘，确保主题样式已稳定
+            redrawTimeoutId = setTimeout(() => {
+                if (!isDestroyed) {
+                    applyChartTheme();
+                }
+            }, 100);
+
+            // 监听主题变化
+            setupThemeObserver();
+        }, 0);
+    });
+
+    async function initCharts() {
+        if (isDestroyed) return;
+
+        // 获取主题颜色
+        themeColor = getComputedStyle(document.documentElement)
+            .getPropertyValue("--b3-theme-surface")
+            .trim();
+        textColor = getComputedStyle(document.documentElement)
+            .getPropertyValue("--b3-theme-on-surface")
+            .trim();
+        primaryColor = getComputedStyle(document.documentElement)
+            .getPropertyValue("--b3-theme-primary")
+            .trim();
+
+        if (visualChartType === "progressBar") {
+            progressBars.forEach((bar) => {
                 const chartDom = document.querySelector(
-                    ".chart-container",
+                    `.chart-container-${bar.id}`,
                 ) as HTMLElement;
                 if (!chartDom) return;
 
-                const myChart = echarts.init(chartDom);
-                const option = getTagCloudOption(tagData);
-                myChart.setOption(option);
+                // 先 dispose 现有图表
+                const existingChart = echarts.getInstanceByDom(chartDom);
+                if (existingChart) existingChart.dispose();
 
-                // 防止重复绑定
-                myChart.off("click");
-                myChart.on("click", (params: any) => {
-                    if (params.name) {
-                        openTagSearchTab(params.name);
-                    }
+                const myChart = echarts.init(chartDom);
+                myChart.setOption(getProgressOption(bar));
+                progressBarCharts.set(bar.id, myChart);
+            });
+        } else if (visualChartType === "tagCloud") {
+            const tagData = await getTag();
+            if (!tagCloudContainer) return;
+
+            const myChart = echarts.init(tagCloudContainer);
+            const option = getTagCloudOption(tagData);
+            myChart.setOption(option);
+
+            // 防止重复绑定
+            myChart.off("click");
+            myChart.on("click", (params: any) => {
+                if (params.name) {
+                    openTagSearchTab(params.name);
+                }
+            });
+        }
+    }
+
+    function applyChartTheme() {
+        // 重新获取主题颜色
+        themeColor = getComputedStyle(document.documentElement)
+            .getPropertyValue("--b3-theme-surface")
+            .trim();
+        textColor = getComputedStyle(document.documentElement)
+            .getPropertyValue("--b3-theme-on-surface")
+            .trim();
+        primaryColor = getComputedStyle(document.documentElement)
+            .getPropertyValue("--b3-theme-primary")
+            .trim();
+
+        if (visualChartType === "progressBar") {
+            progressBars.forEach((bar) => {
+                const myChart = progressBarCharts.get(bar.id);
+                if (myChart) {
+                    myChart.setOption(getProgressOption(bar));
+                    myChart.resize();
+                }
+            });
+        } else if (visualChartType === "tagCloud" && tagCloudContainer) {
+            const myChart = echarts.getInstanceByDom(tagCloudContainer);
+            if (myChart) {
+                getTag().then((tagData) => {
+                    const option = getTagCloudOption(tagData);
+                    myChart.setOption(option);
+                    myChart.resize();
                 });
             }
-        }, 0);
+        }
+    }
+
+    function getThemeSignature(): string {
+        const mode = window.siyuan?.config?.appearance?.mode ?? 0;
+        const surface = getComputedStyle(document.documentElement).getPropertyValue("--b3-theme-surface").trim();
+        const onSurface = getComputedStyle(document.documentElement).getPropertyValue("--b3-theme-on-surface").trim();
+        const primary = getComputedStyle(document.documentElement).getPropertyValue("--b3-theme-primary").trim();
+        return `${mode}|${surface}|${onSurface}|${primary}`;
+    }
+
+    function scheduleThemeUpdate() {
+        if (themeScheduleTimeout) {
+            clearTimeout(themeScheduleTimeout);
+        }
+        themeScheduleTimeout = setTimeout(() => {
+            if (isDestroyed) return;
+            const newSignature = getThemeSignature();
+            if (newSignature !== lastThemeSignature) {
+                lastThemeSignature = newSignature;
+                applyChartTheme();
+            }
+        }, 50);
+    }
+
+    function setupThemeObserver() {
+        // 初始化主题签名
+        lastThemeSignature = getThemeSignature();
+
+        // 观察 document.documentElement 和 document.body 的属性变化
+        themeObserver = new MutationObserver(() => {
+            if (isDestroyed) return;
+            // 调度主题更新（去重 + 延后）
+            scheduleThemeUpdate();
+        });
+
+        // 观察 html 和 body 的 class/style 变化
+        themeObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class", "style", "data-theme"],
+        });
+
+        if (document.body) {
+            themeObserver.observe(document.body, {
+                attributes: true,
+                attributeFilter: ["class", "style", "data-theme"],
+            });
+        }
+
+        // 观察 head 中的主题样式表变化
+        const headObserver = new MutationObserver((mutations) => {
+            if (isDestroyed) return;
+            for (const mutation of mutations) {
+                if (mutation.type === "childList") {
+                    const addedNodes = Array.from(mutation.addedNodes);
+                    const hasThemeStyle = addedNodes.some((node: any) => {
+                        if (node.nodeName === "LINK" || node.nodeName === "STYLE") {
+                            const href = node.getAttribute?.("href") || "";
+                            return href.includes("theme") || href.includes("appearance");
+                        }
+                        return false;
+                    });
+                    if (hasThemeStyle) {
+                        scheduleThemeUpdate();
+                    }
+                }
+            }
+        });
+
+        headObserver.observe(document.head, {
+            childList: true,
+        });
+
+        // 保存引用以便清理
+        (themeObserver as any)._headObserver = headObserver;
+
+        // 设置 ResizeObserver 监听容器尺寸变化
+        setupResizeObserver();
+
+        // 监听页面可见性变化
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    function scheduleChartResize() {
+        if (resizeRafId) {
+            cancelAnimationFrame(resizeRafId);
+        }
+        resizeRafId = requestAnimationFrame(() => {
+            resizeRafId = null;
+            if (isDestroyed) return;
+
+            if (visualChartType === "progressBar") {
+                // 对所有 progressBar 图表进行 resize
+                progressBarCharts.forEach((chart) => {
+                    chart.resize();
+                });
+            } else if (visualChartType === "tagCloud" && tagCloudContainer) {
+                const myChart = echarts.getInstanceByDom(tagCloudContainer);
+                if (myChart && tagCloudContainer.clientWidth > 0 && tagCloudContainer.clientHeight > 0) {
+                    myChart.resize();
+                }
+            }
+        });
+    }
+
+    function setupResizeObserver() {
+        if (typeof ResizeObserver === "undefined") return;
+
+        const target = visualChartType === "tagCloud" ? tagCloudContainer : contentDisplayRef;
+        if (!target) return;
+
+        resizeObserver = new ResizeObserver(() => {
+            if (isDestroyed) return;
+            scheduleChartResize();
+        });
+
+        resizeObserver.observe(target);
+    }
+
+    function handleVisibilityChange() {
+        if (document.visibilityState === "visible" && !isDestroyed) {
+            scheduleChartResize();
+        }
+    }
+
+    onDestroy(() => {
+        isDestroyed = true;
+
+        // 清理所有 timeout
+        if (initChartsTimeout) {
+            clearTimeout(initChartsTimeout);
+            initChartsTimeout = null;
+        }
+        if (onMountTimeout) {
+            clearTimeout(onMountTimeout);
+            onMountTimeout = null;
+        }
+        if (redrawTimeoutId) {
+            clearTimeout(redrawTimeoutId);
+            redrawTimeoutId = null;
+        }
+
+        // 清理主题调度 timeout
+        if (themeScheduleTimeout) {
+            clearTimeout(themeScheduleTimeout);
+            themeScheduleTimeout = null;
+        }
+
+        // 断开主题观察器
+        if (themeObserver) {
+            themeObserver.disconnect();
+            // 断开 head observer
+            if ((themeObserver as any)._headObserver) {
+                (themeObserver as any)._headObserver.disconnect();
+            }
+            themeObserver = null;
+        }
+
+        // 断开 ResizeObserver
+        if (resizeObserver) {
+            resizeObserver.disconnect();
+            resizeObserver = null;
+        }
+
+        // 取消 resize raf
+        if (resizeRafId) {
+            cancelAnimationFrame(resizeRafId);
+            resizeRafId = null;
+        }
+
+        // 移除 visibilitychange 监听
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+
+        // 销毁所有 ECharts 实例
+        if (visualChartType === "progressBar") {
+            progressBarCharts.forEach((chart) => {
+                chart.dispose();
+            });
+            progressBarCharts.clear();
+        } else if (visualChartType === "tagCloud") {
+            if (tagCloudContainer) {
+                const chart = echarts.getInstanceByDom(tagCloudContainer);
+                if (chart) chart.dispose();
+            }
+        }
     });
 </script>
 
-<div class="content-display">
+<div class="content-display" bind:this={contentDisplayRef}>
     {#if visualChartType === "progressBar"}
         <div class="progressBar-container">
             {#each progressBars as bar (bar.id)}
@@ -774,7 +1019,7 @@
             </div>
         </div>
     {:else if visualChartType === "tagCloud"}
-        <div class="chart-container"></div>
+        <div bind:this={tagCloudContainer} class="chart-container"></div>
     {/if}
 </div>
 

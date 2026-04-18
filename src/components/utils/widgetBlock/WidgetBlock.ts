@@ -11,7 +11,7 @@ export class WidgetBlock {
     public readonly id: string;
     public style: string;
     public loadcontent: string;
-    public widgetLayoutNumber: number;
+    public widgetLayoutNumber: number = 4;
 
     private readonly plugin: any;
     private readonly currentBlockForSettingsRef: { value: HTMLElement | null };
@@ -96,7 +96,8 @@ export class WidgetBlock {
                                                             dialogRef.close();
                                                         },
                                                         onSetSize: (size: number) => {
-                                                            setBlockSize(this.currentBlockForSettingsRef.value, size, this.widgetLayoutNumber);
+                                                            const layoutNumber = this.widgetLayoutNumber || 4;
+                                                            setBlockSize(this.currentBlockForSettingsRef.value, size, layoutNumber);
                                                             dialogRef.close();
                                                         },
                                                     },

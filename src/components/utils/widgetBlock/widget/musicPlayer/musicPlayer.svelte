@@ -11,18 +11,30 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const musicFolderPath = parsedContent.data?.musicFolderPath || "";
-    const savedTrackIndex = parsedContent.data?.currentTrackIndex || 0;
-    let playMode = $state(parsedContent.data?.playMode || "order");
-    let isMuted = $state(parsedContent.data?.isMuted || false);
-    let volume = $state(parsedContent.data?.volume || 0.5);
-    let autoPlay = parsedContent.data?.autoPlay || false;
+    // 使用函数获取初始值，避免闭包捕获问题
+    function getInitialConfig() {
+        const parsed = JSON.parse(contentTypeJson);
+        return {
+            musicFolderPath: parsed.data?.musicFolderPath || "",
+            savedTrackIndex: parsed.data?.currentTrackIndex || 0,
+            playMode: parsed.data?.playMode || "order",
+            isMuted: parsed.data?.isMuted || false,
+            volume: parsed.data?.volume || 0.5,
+            autoPlay: parsed.data?.autoPlay || false,
+        };
+    }
+
+    const initialConfig = getInitialConfig();
+    const musicFolderPath = initialConfig.musicFolderPath;
+    let playMode = $state(initialConfig.playMode);
+    let isMuted = $state(initialConfig.isMuted);
+    let volume = $state(initialConfig.volume);
+    let autoPlay = initialConfig.autoPlay;
 
     const themeMode = window.siyuan.config.appearance.mode;
 
     let musicFiles = $state([]);
-    let currentTrackIndex = $state(savedTrackIndex);
+    let currentTrackIndex = $state(initialConfig.savedTrackIndex);
 
     let sound: Howl | null = null;
     let isPlaying = $state(false);
@@ -42,8 +54,9 @@
     onMount(async () => {
         await loadMusicFiles();
 
-        if (musicFiles.length > 0) {
-            loadTrack(currentTrackIndex);
+        // 只有在 autoPlay 为 true 时才自动加载并播放
+        if (musicFiles.length > 0 && autoPlay) {
+            ensureTrackLoaded(currentTrackIndex, true);
         }
 
         advancedEnabled = plugin.ADVANCED;
@@ -55,10 +68,11 @@
     });
 
     async function saveConfig() {
-        await plugin.saveData(`widget-${parsedContent.blockId}.json`, {
-            ...parsedContent,
+        const currentParsed = JSON.parse(contentTypeJson);
+        await plugin.saveData(`widget-${currentParsed.blockId}.json`, {
+            ...currentParsed,
             data: {
-                ...parsedContent.data,
+                ...currentParsed.data,
                 playMode,
                 isMuted,
                 volume,
@@ -67,7 +81,7 @@
         });
     }
 
-    // 清理播放器
+    // 清理播放器（只清理当前组件的实例，不调用全局 unload）
     function cleanup() {
         clearProgressInterval();
         if (sound) {
@@ -75,8 +89,57 @@
             sound.unload();
             sound = null;
         }
-        // 停止所有音频
-        Howler.unload();
+    }
+
+    // 确保指定曲目已加载（需要时才创建 Howl）
+    function ensureTrackLoaded(index: number, shouldAutoplay: boolean = false) {
+        if (!musicFiles[index]) return;
+
+        // 如果当前已经是指定曲目且已有实例，无需重建
+        if (currentTrackIndex === index && sound) {
+            if (shouldAutoplay && !isPlaying) {
+                sound.play();
+            }
+            return;
+        }
+
+        // 切歌时先清理旧实例
+        cleanup();
+        currentTrackIndex = index;
+
+        sound = new Howl({
+            src: [musicFiles[index].path],
+            html5: true,
+            volume: volume,
+            autoplay: shouldAutoplay,
+            onplay() {
+                isPlaying = true;
+            },
+            onpause() {
+                isPlaying = false;
+            },
+            onend() {
+                if (playMode === "repeat") {
+                    sound?.play(); // 单曲循环时直接重播
+                } else {
+                    nextTrack(); // 其他模式切换到下一曲
+                }
+            },
+            onload() {
+                duration = sound?.duration() || 0;
+                clearProgressInterval();
+                progressInterval = setInterval(() => {
+                    if (sound && isPlaying) {
+                        currentTime = sound.seek() as number;
+                    }
+                }, 1000);
+            },
+            onloaderror(error: any) {
+                console.error("加载音频失败:", error);
+                // 如果加载失败，尝试播放下一首
+                nextTrack();
+            },
+        });
     }
 
     // 加载音乐文件
@@ -110,51 +173,7 @@
         }
     }
 
-    // 加载曲目
-    function loadTrack(index: number) {
-        if (!musicFiles[index]) return;
 
-        cleanup();
-
-        if (sound) {
-            sound.stop();
-            sound.unload();
-        }
-
-        sound = new Howl({
-            src: [musicFiles[index].path],
-            html5: true,
-            volume: volume,
-            autoplay: autoPlay,
-            onplay() {
-                isPlaying = true;
-            },
-            onpause() {
-                isPlaying = false;
-            },
-            onend() {
-                if (playMode === "repeat") {
-                    sound?.play(); // 单曲循环时直接重播
-                } else {
-                    nextTrack(); // 其他模式切换到下一曲
-                }
-            },
-            onload() {
-                duration = sound?.duration() || 0;
-                clearProgressInterval();
-                progressInterval = setInterval(() => {
-                    if (sound && isPlaying) {
-                        currentTime = sound.seek() as number;
-                    }
-                }, 1000);
-            },
-            onloaderror(error: any) {
-                console.error("加载音频失败:", error);
-                // 如果加载失败，尝试播放下一首
-                nextTrack();
-            },
-        });
-    }
 
     // 切换播放模式
     function togglePlayMode() {
@@ -171,30 +190,30 @@
 
     // 播放/暂停
     function togglePlay() {
-        if (!sound) return;
         if (isPlaying) {
-            sound.pause();
+            sound?.pause();
         } else {
             autoPlay = true;
-            sound.play();
+            // 如果没有实例，先加载当前曲目再播放
+            if (!sound) {
+                ensureTrackLoaded(currentTrackIndex, true);
+            } else {
+                sound.play();
+            }
         }
     }
 
     // 下一曲
     function nextTrack() {
+        autoPlay = true;
         if (playMode === "shuffle") {
             // 随机播放：随机选择下一首
             const randomIndex = Math.floor(Math.random() * musicFiles.length);
-            currentTrackIndex = randomIndex;
-            loadTrack(randomIndex);
-            autoPlay = true;
-            sound?.play();
+            ensureTrackLoaded(randomIndex, true);
         } else {
             // 默认顺序播放
-            currentTrackIndex = (currentTrackIndex + 1) % musicFiles.length;
-            loadTrack(currentTrackIndex);
-            autoPlay = true;
-            sound?.play();
+            const nextIndex = (currentTrackIndex + 1) % musicFiles.length;
+            ensureTrackLoaded(nextIndex, true);
         }
 
         saveConfig();
@@ -202,20 +221,15 @@
 
     // 上一曲
     function prevTrack() {
+        autoPlay = true;
         if (playMode === "shuffle") {
             // 随机播放：随机选择上一首
             const randomIndex = Math.floor(Math.random() * musicFiles.length);
-            currentTrackIndex = randomIndex;
-            loadTrack(randomIndex);
-            autoPlay = true;
-            sound?.play();
+            ensureTrackLoaded(randomIndex, true);
         } else {
             // 默认顺序播放
-            currentTrackIndex =
-                (currentTrackIndex - 1 + musicFiles.length) % musicFiles.length;
-            loadTrack(currentTrackIndex);
-            autoPlay = true;
-            sound?.play();
+            const prevIndex = (currentTrackIndex - 1 + musicFiles.length) % musicFiles.length;
+            ensureTrackLoaded(prevIndex, true);
         }
 
         saveConfig();
@@ -248,10 +262,8 @@
 
     // 播放指定曲目
     function playTrack(index: number) {
-        currentTrackIndex = index;
-        loadTrack(index);
         autoPlay = true;
-        sound?.play();
+        ensureTrackLoaded(index, true);
         saveConfig();
     }
 
@@ -264,7 +276,6 @@
                 return mount(musicList, {
                                     target: containerEl,
                                     props: {
-                                        plugin: plugin,
                                         musicFiles: musicFiles,
                                         currentTrackIndex: currentTrackIndex,
                                         playTrack: (index: number) => {

@@ -1,7 +1,7 @@
 <script lang="ts">
     import { run } from 'svelte/legacy';
 
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
     import { getImage } from "@/components/tools/getImage";
 
@@ -38,6 +38,9 @@
     let timerFontSize = $state(3);
     let showFocusInfo = $state(false);
     let showSyNotif = $state(true);
+
+    // 组件销毁标记
+    let isDestroyed = false;
 
     let circumference = $state(Math.PI * 2 * 65);
     let baseSize = $derived(timerFontSize * 40);
@@ -107,6 +110,22 @@
         }
     });
 
+    onDestroy(() => {
+        isDestroyed = true;
+
+        // 清理计时器
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+        if (endTimeout) {
+            clearTimeout(endTimeout);
+            endTimeout = null;
+        }
+
+        isRunning = false;
+    });
+
     function showSystemNotification(title: string, body: string) {
         if (!("Notification" in window)) {
             console.warn("此浏览器不支持桌面通知");
@@ -172,6 +191,7 @@
 
             // 设置一个一次性 timeout 来确保结束动作准确触发
             endTimeout = setTimeout(() => {
+                if (isDestroyed) return;
                 clearInterval(timer);
                 isRunning = false;
                 handleTimerEnd(); // 这个一定会在指定时间触发

@@ -18,43 +18,64 @@
     }
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsed = JSON.parse(contentTypeJson);
-    const conditionDocsTitle = parsed.data?.conditionDocsTitle || "📄条件文档";
-    const conditionDocsPrefix = parsed.data?.conditionDocsPrefix || "📄";
+    const parsed = $derived(JSON.parse(contentTypeJson));
+    const conditionDocsTitle = $derived(parsed.data?.conditionDocsTitle || "📄条件文档");
+    const conditionDocsPrefix = $derived(parsed.data?.conditionDocsPrefix || "📄");
     const showConditionDocsDetails =
-        parsed.data?.showConditionDocsDetails ?? true;
+        $derived(parsed.data?.showConditionDocsDetails ?? true);
     const conditionDocsCondition =
-        parsed.data?.conditionDocsCondition || "keyword";
+        $derived(parsed.data?.conditionDocsCondition || "keyword");
     const conditionDocsKeyPosition =
-        parsed.data?.conditionDocsKeyPosition || "anywhere";
-    const conditionDocsKeyWord = parsed.data?.conditionDocsKeyWord || "";
+        $derived(parsed.data?.conditionDocsKeyPosition || "anywhere");
+    const conditionDocsKeyWord = $derived(parsed.data?.conditionDocsKeyWord || "");
     const conditionDocsSortOrder =
-        parsed.data?.conditionDocsSortOrder || "updated";
+        $derived(parsed.data?.conditionDocsSortOrder || "updated");
     const showConditionDocsFloatDoc =
-        parsed.data?.showConditionDocsFloatDoc ?? true;
+        $derived(parsed.data?.showConditionDocsFloatDoc ?? true);
     const conditionDocsFloatDocShowTime =
-        parsed.data?.conditionDocsFloatDocShowTime || 0.1;
-    const conditionDocsTag = parsed.data?.conditionDocsTag || "";
+        $derived(parsed.data?.conditionDocsFloatDocShowTime || 0.1);
+    const conditionDocsTag = $derived(parsed.data?.conditionDocsTag || "");
 
     let displayedDocs: any[] = $state([]);
 
     // 悬浮窗定时器
     let floatDocTimeout: number | null = $state(null);
+    let mouseLeaveTimeout: number | null = $state(null);
+
+    // 清理所有悬浮预览相关的 timeout
+    function clearFloatDocTimeouts() {
+        if (floatDocTimeout) {
+            clearTimeout(floatDocTimeout);
+            floatDocTimeout = null;
+        }
+        if (mouseLeaveTimeout) {
+            clearTimeout(mouseLeaveTimeout);
+            mouseLeaveTimeout = null;
+        }
+    }
 
     // 模拟加载文档数据
-    onMount(async () => {
+    onMount(() => {
         if (conditionDocsCondition === "keyword") {
-            displayedDocs = await getConditionDocsByKeyword(
+            getConditionDocsByKeyword(
                 conditionDocsKeyPosition,
                 conditionDocsKeyWord,
                 conditionDocsSortOrder,
-            );
+            ).then((docs) => {
+                displayedDocs = docs;
+            });
         } else if (conditionDocsCondition === "tag") {
-            displayedDocs = await getConditionDocsByTag(
+            getConditionDocsByTag(
                 conditionDocsTag,
                 conditionDocsSortOrder,
-            );
+            ).then((docs) => {
+                displayedDocs = docs;
+            });
         }
+
+        return () => {
+            clearFloatDocTimeouts();
+        };
     });
 </script>
 
@@ -92,8 +113,13 @@
                                     clearTimeout(floatDocTimeout);
                                     floatDocTimeout = null;
                                 }
-                                setTimeout(() => {
+                                // 清除之前的 mouseleave timeout
+                                if (mouseLeaveTimeout) {
+                                    clearTimeout(mouseLeaveTimeout);
+                                }
+                                mouseLeaveTimeout = window.setTimeout(() => {
                                     setMouseOnTrigger(false);
+                                    mouseLeaveTimeout = null;
                                 }, 150);
                             }
                         }}
@@ -205,14 +231,5 @@
             }
         }
 
-        .content-not-advanced {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
-        }
     }
 </style>

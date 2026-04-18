@@ -81,7 +81,7 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDe
     titleIconType: "emoji",
     customTitle: "思源笔记首页",
     tempTitleIconStyle: "square",
-    statsInfoText: "",
+    statsInfoText: "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤",
     footerEnabled: true,
     footerContent: "",
     mouseIcon: "default",

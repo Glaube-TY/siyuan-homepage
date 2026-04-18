@@ -2,7 +2,6 @@
     import { onMount } from "svelte";
 
     interface Props {
-        plugin: any;
         musicFiles: any;
         currentTrackIndex: number; // 接收当前曲目索引
         playTrack: (index: number) => void; // 接收播放方法
@@ -10,7 +9,6 @@
     }
 
     let {
-        plugin,
         musicFiles,
         currentTrackIndex,
         playTrack,

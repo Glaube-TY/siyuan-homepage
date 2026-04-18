@@ -15,15 +15,15 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsed = JSON.parse(contentTypeJson);
-    const limit = parsed.data?.[0]?.limit || 5;
-    const title = parsed.data?.[0]?.latestDocsTitle || "🕒最近文档";
-    const prefix = parsed.data?.[0]?.latestDocsPrefix || "📄";
-    const showLatestDocDetails = parsed.data?.[0]?.showLatestDocDetails ?? true;
+    const parsed = $derived(JSON.parse(contentTypeJson));
+    const limit = $derived(parsed.data?.[0]?.limit || 5);
+    const title = $derived(parsed.data?.[0]?.latestDocsTitle || "🕒最近文档");
+    const prefix = $derived(parsed.data?.[0]?.latestDocsPrefix || "📄");
+    const showLatestDocDetails = $derived(parsed.data?.[0]?.showLatestDocDetails ?? true);
     const showLatestDocFloatDoc =
-        parsed.data?.[0]?.showLatestDocFloatDoc ?? true;
+        $derived(parsed.data?.[0]?.showLatestDocFloatDoc ?? true);
     const latestDocsFloatDocShowTime =
-        parsed.data?.[0]?.latestDocsFloatDocShowTime || 0.1;
+        $derived(parsed.data?.[0]?.latestDocsFloatDocShowTime || 0.1);
 
     // 文档数据源
     let documentList: latestDocumentInfo[] = [];
@@ -31,14 +31,33 @@
     
     // 悬浮窗定时器
     let floatDocTimeout: number | null = $state(null);
+    let mouseLeaveTimeout: number | null = $state(null);
+
+    // 清理所有悬浮预览相关的 timeout
+    function clearFloatDocTimeouts() {
+        if (floatDocTimeout) {
+            clearTimeout(floatDocTimeout);
+            floatDocTimeout = null;
+        }
+        if (mouseLeaveTimeout) {
+            clearTimeout(mouseLeaveTimeout);
+            mouseLeaveTimeout = null;
+        }
+    }
 
     // 模拟加载文档数据
-    onMount(async () => {
-        documentList = await getLatestDocuments(
+    onMount(() => {
+        getLatestDocuments(
             parsed.data?.[0]?.docNotebookId,
             parsed.data?.[0]?.ensureOpenDocs,
-        );
-        displayedDocs = documentList.slice(0, limit);
+        ).then((docs) => {
+            documentList = docs;
+            displayedDocs = documentList.slice(0, limit);
+        });
+
+        return () => {
+            clearFloatDocTimeouts();
+        };
     });
 
     // 获取时间差并格式化为“X天前”或“今天”
@@ -102,8 +121,14 @@
                                     clearTimeout(floatDocTimeout);
                                     floatDocTimeout = null;
                                 }
-                                setTimeout(() => {
+                                // 清除之前的 mouseleave timeout
+                                if (mouseLeaveTimeout) {
+                                    clearTimeout(mouseLeaveTimeout);
+                                }
+                                // 使用配置的延迟时间，确保用户有足够时间查看弹窗
+                                mouseLeaveTimeout = window.setTimeout(() => {
                                     setMouseOnTrigger(false);
+                                    mouseLeaveTimeout = null;
                                 }, 150);
                             }
                         }}

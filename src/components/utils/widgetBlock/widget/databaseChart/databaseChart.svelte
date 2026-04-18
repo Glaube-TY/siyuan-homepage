@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import { getAttributeView } from "./getDatabase";
 
@@ -47,6 +47,19 @@
 
     let advancedEnabled = $state(false);
     let attributeView: any = null;
+
+    // ECharts 实例引用
+    let chartInstance: echarts.ECharts | null = null;
+    // 图表容器本地引用
+    let chartContainer: HTMLDivElement | null = $state(null);
+    // 延迟初始化 timeout id
+    let initTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    // ResizeObserver
+    let resizeObserver: ResizeObserver | null = null;
+    // resize 调度 raf id
+    let resizeRafId: number | null = null;
+    // 组件销毁标记
+    let isDestroyed = false;
 
     let lineChartXYOption = $derived({
         tooltip: {
@@ -109,20 +122,105 @@
 
         attributeView = await getAttributeView(databaseChartID);
 
-        setTimeout(async () => {
-            const chartDom = document.getElementById("database-chart-content");
-            if (!chartDom) return;
-            const chart = echarts.init(chartDom);
+        if (isDestroyed) return;
+
+        initTimeoutId = setTimeout(async () => {
+            if (isDestroyed) return;
+
+            if (!chartContainer) return;
+            const chart = echarts.init(chartContainer);
+            chartInstance = chart;
+
+            if (isDestroyed) {
+                chart.dispose();
+                chartInstance = null;
+                return;
+            }
+
             if (databaseChartType === "line") {
                 if (databaseChartLineType === "XY") {
                     await setLineChartXYData();
-                    chart.setOption(lineChartXYOption);
+                    if (!isDestroyed && chartInstance) {
+                        chart.setOption(lineChartXYOption);
+                    }
                 } else if (databaseChartLineType === "count") {
                     await setLineChartCountData();
-                    chart.setOption(lineChartCountOptions);
+                    if (!isDestroyed && chartInstance) {
+                        chart.setOption(lineChartCountOptions);
+                    }
                 }
             }
+
+            // 设置 ResizeObserver 监听容器尺寸变化
+            setupResizeObserver();
+
+            // 监听页面可见性变化
+            document.addEventListener("visibilitychange", handleVisibilityChange);
         }, 0);
+    });
+
+    function scheduleChartResize() {
+        if (resizeRafId) {
+            cancelAnimationFrame(resizeRafId);
+        }
+        resizeRafId = requestAnimationFrame(() => {
+            resizeRafId = null;
+            if (isDestroyed || !chartInstance || !chartContainer) return;
+            if (chartContainer.clientWidth > 0 && chartContainer.clientHeight > 0) {
+                chartInstance.resize();
+            }
+        });
+    }
+
+    function setupResizeObserver() {
+        if (!chartContainer || typeof ResizeObserver === "undefined") return;
+
+        resizeObserver = new ResizeObserver(() => {
+            if (isDestroyed) return;
+            scheduleChartResize();
+        });
+
+        resizeObserver.observe(chartContainer);
+    }
+
+    function handleVisibilityChange() {
+        if (document.visibilityState === "visible" && !isDestroyed) {
+            scheduleChartResize();
+        }
+    }
+
+    onDestroy(() => {
+        isDestroyed = true;
+
+        // 清理延迟初始化 timeout
+        if (initTimeoutId) {
+            clearTimeout(initTimeoutId);
+            initTimeoutId = null;
+        }
+
+        // 断开 ResizeObserver
+        if (resizeObserver) {
+            resizeObserver.disconnect();
+            resizeObserver = null;
+        }
+
+        // 取消 resize raf
+        if (resizeRafId) {
+            cancelAnimationFrame(resizeRafId);
+            resizeRafId = null;
+        }
+
+        // 移除 visibilitychange 监听
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+
+        // 销毁 ECharts 实例
+        if (chartInstance) {
+            chartInstance.dispose();
+            chartInstance = null;
+        }
+
+        // 释放容器引用
+        chartContainer = null;
     });
 
     async function setLineChartXYData() {
@@ -358,7 +456,7 @@
 <div class="content-display">
     {#if advancedEnabled}
         <div
-            id="database-chart-content"
+            bind:this={chartContainer}
             style="width: 100%; height: 100%;"
         ></div>
     {:else}

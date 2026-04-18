@@ -9,6 +9,8 @@
 
     let webviewUrl: string = $state("");
     let isElectron: boolean = $state(false);
+    let iframeElement: HTMLIFrameElement | null = $state(null);
+    let loadHandler: (() => void) | null = null;
 
     onMount(() => {
         isElectron =
@@ -29,18 +31,19 @@
         if (!isElectron && webviewUrl !== "about:blank") {
             setupIframeLinkInterceptor();
         }
+
+        return () => {
+            cleanupIframeLinkInterceptor();
+        };
     });
 
     function setupIframeLinkInterceptor() {
-        const iframeElement = document.querySelector("iframe.custom-web");
         if (!iframeElement) return;
 
-        const iframe = iframeElement as HTMLIFrameElement;
-
-        iframe.addEventListener("load", () => {
+        loadHandler = () => {
             try {
                 const doc =
-                    iframe.contentDocument || iframe.contentWindow?.document;
+                    iframeElement.contentDocument || iframeElement.contentWindow?.document;
                 if (!doc) return;
 
                 const links = doc.querySelectorAll("a");
@@ -50,7 +53,16 @@
             } catch (e) {
                 console.warn("无法访问 iframe 内容，可能是跨域", e);
             }
-        });
+        };
+
+        iframeElement.addEventListener("load", loadHandler);
+    }
+
+    function cleanupIframeLinkInterceptor() {
+        if (iframeElement && loadHandler) {
+            iframeElement.removeEventListener("load", loadHandler);
+            loadHandler = null;
+        }
     }
 </script>
 
@@ -68,7 +80,7 @@
                 <a href={webviewUrl} target="_blank">打开链接</a>
             </div>
         </div>
-        <iframe class="custom-web" src={webviewUrl} title="自定义网页内容"
+        <iframe bind:this={iframeElement} class="custom-web" src={webviewUrl} title="自定义网页内容"
         ></iframe>
     {/if}
 </div>

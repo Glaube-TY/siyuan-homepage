@@ -25,7 +25,7 @@
         docLimit = $bindable(5),
         ensureOpenDocs = $bindable(false),
         selectedNotebookIds = $bindable([]),
-        docNotebookId = "",
+        docNotebookId = $bindable(""),
         latestDocsTitle = $bindable("最近文档"),
         latestDocsPrefix = $bindable(""),
         showLatestDocDetails = $bindable(true),
@@ -132,15 +132,19 @@
     <div class="setting-item">
         <label for="doc-notebook-id">
             指定笔记本：
-            <MultiSelect
-                bind:selected={selectedNotebookIds}
-                options={notebooks.map((notebook) => ({
-                    label: notebook.name,
-                    value: notebook.id,
-                }))}
-                placeholder="选择笔记本..."
-            /></label
-        >
+            {#if notebooks.length > 0}
+                <MultiSelect
+                    bind:selected={selectedNotebookIds}
+                    options={notebooks.map((notebook) => ({
+                        label: notebook.name,
+                        value: notebook.id,
+                    }))}
+                    placeholder="选择笔记本..."
+                />
+            {:else}
+                <span class="loading-placeholder">笔记本加载中...</span>
+            {/if}
+        </label>
     </div>
 
     <div class="form-group">

@@ -99,8 +99,8 @@ export function createClickEffect(
     span.textContent = effectsToUse[effectIndex];
     effectIndex = (effectIndex + 1) % effectsToUse.length;
 
-    const x = e.pageX;
-    const y = e.pageY;
+    const x = e.clientX;
+    const y = e.clientY;
     span.style.cssText = `
         z-index: 999999;
         top: ${y - 20}px;
@@ -120,6 +120,14 @@ export function createClickEffect(
     });
 
     setTimeout(() => span.remove(), 1500);
+}
+
+function removeTrail(trail: HTMLElement): void {
+    trail.remove();
+    const index = trailElements.indexOf(trail);
+    if (index > -1) {
+        trailElements.splice(index, 1);
+    }
 }
 
 export function createMouseTrail(
@@ -167,7 +175,7 @@ export function createMouseTrail(
 
     if (trailElements.length > 1000) {
         const old = trailElements.shift();
-        old?.remove();
+        if (old) removeTrail(old);
     }
 
     requestAnimationFrame(() => {
@@ -175,7 +183,7 @@ export function createMouseTrail(
         trail.style.transform = "scale(2)";
     });
 
-    setTimeout(() => trail.remove(), 1000);
+    setTimeout(() => removeTrail(trail), 1000);
 }
 
 export function cleanupMouseEffects(): void {

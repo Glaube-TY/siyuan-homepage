@@ -9,8 +9,8 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const stikynotStyle = parsedContent.data?.stikynotStyle || "default";
+    const parsedContent = $derived(JSON.parse(contentTypeJson));
+    const stikynotStyle = $derived(parsedContent.data?.stikynotStyle || "default");
 
     let editor: any;
     let editorContainer: HTMLDivElement = $state();
@@ -64,6 +64,22 @@
 
             (window as any).stikynot = { getContent };
         }
+
+        return () => {
+            // 清理自动保存 timeout
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+
+            // 移除 window.stikynot（只移除自己挂载的）
+            if ((window as any).stikynot?.getContent === getContent) {
+                delete (window as any).stikynot;
+            }
+
+            // 释放 editor 引用
+            editor = null;
+        };
     });
 
     function setBackground() {
@@ -139,25 +155,25 @@
             <button class="ql-size" value="small">小</button>
             <button class="ql-size" value="large">中</button>
             <button class="ql-size" value="huge">大</button>
-            <button class="ql-bold"></button>
-            <button class="ql-italic"></button>
-            <button class="ql-underline"></button>
-            <button class="ql-strike"></button>
-            <button class="ql-list" value="ordered"></button>
-            <button class="ql-script" value="sub"></button>
-            <button class="ql-script" value="super"></button>
-            <select class="ql-color"></select>
-            <select class="ql-background"></select>
-            <button class="ql-blockquote"></button>
-            <button class="ql-code-block"></button>
-            <button class="ql-indent" value="+1"></button>
-            <button class="ql-indent" value="-1"></button>
-            <button class="ql-direction" value="rtl"></button>
-            <button class="ql-link"></button>
-            <button class="ql-image"></button>
-            <button class="ql-video"></button>
-            <button class="ql-formula"></button>
-            <button class="ql-clean"></button>
+            <button class="ql-bold" title="粗体"></button>
+            <button class="ql-italic" title="斜体"></button>
+            <button class="ql-underline" title="下划线"></button>
+            <button class="ql-strike" title="删除线"></button>
+            <button class="ql-list" value="ordered" title="有序列表"></button>
+            <button class="ql-script" value="sub" title="下标"></button>
+            <button class="ql-script" value="super" title="上标"></button>
+            <select class="ql-color" title="文字颜色"></select>
+            <select class="ql-background" title="背景颜色"></select>
+            <button class="ql-blockquote" title="引用"></button>
+            <button class="ql-code-block" title="代码块"></button>
+            <button class="ql-indent" value="+1" title="增加缩进"></button>
+            <button class="ql-indent" value="-1" title="减少缩进"></button>
+            <button class="ql-direction" value="rtl" title="文字方向"></button>
+            <button class="ql-link" title="链接"></button>
+            <button class="ql-image" title="图片"></button>
+            <button class="ql-video" title="视频"></button>
+            <button class="ql-formula" title="公式"></button>
+            <button class="ql-clean" title="清除格式"></button>
         </span>
     </div>
     {#if !advancedEnabled}

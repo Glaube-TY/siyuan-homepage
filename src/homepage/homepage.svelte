@@ -75,7 +75,7 @@
     let tempTitleIconStyle: string = $state("square");
 
     let statsInfoText =
-        $state("自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{notesCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{DocsCount}} 篇笔记。\n感谢自己的坚持！❤");
+        $state("自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤");
 
     let footerEnabled = $state(true);
     let footerContent = $state("");
@@ -107,10 +107,15 @@
     let widgetGap = $state(0.2);
     let sortable: Sortable | null = null;
     let layoutObserver: MutationObserver | null = null;
-    
+    let destroyBannerDrag: (() => void) | null = null;
+
     // 安全刷新锁，避免并发重入
     let isRefreshingHomepage = false;
     let refreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // 异步请求版本戳，用于丢弃过期结果
+    let updateHomepageVersion = 0;
+    let updateStatsVersion = 0;
 
     // 实时获取高级功能启用状态
     function getAdvancedEnabled(): boolean {
@@ -153,17 +158,26 @@
         };
     }
 
+    // 横幅拖拽配置选项（设备级存储）
+    const bannerDragOptions = {
+        onLoadPosition: async () => {
+            const settings = await loadBannerDisplaySettings(plugin);
+            return { scrollTop: settings.scrollTop };
+        },
+        onSavePosition: async (position) => {
+            await saveBannerDisplaySettings(plugin, { scrollTop: position.scrollTop });
+        },
+    };
+
+    // 初始化横幅拖拽（带清理闭环）
+    function initBannerDrag() {
+        destroyBannerDrag?.();
+        destroyBannerDrag = handleLoad(plugin, bannerImage, bannerDragOptions) ?? null;
+    }
+
     // 具名函数用于 window load 监听器
     const onWindowLoad = () => {
-        handleLoad(plugin, bannerImage, {
-            onLoadPosition: async () => {
-                const settings = await loadBannerDisplaySettings(plugin);
-                return { scrollTop: settings.scrollTop };
-            },
-            onSavePosition: async (position) => {
-                await saveBannerDisplaySettings(plugin, { scrollTop: position.scrollTop });
-            },
-        });
+        initBannerDrag();
     };
 
     // 启动飘落特效
@@ -261,11 +275,34 @@
     // 会员验证成功后重新加载配置
     async function handleAdvancedReady() {
         await updateHomepage();
+
+        // 重应用 advanced 相关副作用
+        cleanupFallingEffects();
+        startFallingEffects();
+        updateCursorStyle({
+            advanced: getAdvancedEnabled(),
+            mouseIcon,
+            mouseGlobalEnabled,
+            ClickEffectEnabled,
+            ClickEffectContent,
+            MouseTrailEnabled,
+        });
     }
 
     // 会员状态不可用时重新加载配置
     async function handleAdvancedUnavailable() {
         await updateHomepage();
+
+        // 清理 advanced 相关副作用
+        cleanupFallingEffects();
+        updateCursorStyle({
+            advanced: getAdvancedEnabled(),
+            mouseIcon,
+            mouseGlobalEnabled,
+            ClickEffectEnabled,
+            ClickEffectContent,
+            MouseTrailEnabled,
+        });
     }
 
     // 处理主页设置保存事件 - 本地热应用配置
@@ -426,7 +463,7 @@
 
         // 页面加载完成后初始化拖拽
         if (document.readyState === "complete") {
-            handleLoad(plugin, bannerImage);
+            initBannerDrag();
         } else {
             window.addEventListener("load", onWindowLoad);
         }
@@ -484,6 +521,10 @@
             layoutObserver.disconnect();
             layoutObserver = null;
         }
+        if (destroyBannerDrag) {
+            destroyBannerDrag();
+            destroyBannerDrag = null;
+        }
         cleanupFallingEffects();
         window.removeEventListener("load", onWindowLoad);
         window.removeEventListener(
@@ -524,10 +565,15 @@
 
     // 更新加载主页配置
     async function updateHomepage() {
+        const currentVersion = ++updateHomepageVersion;
         const config = await loadHomepageConfig(plugin);
+
+        // 丢弃过期请求结果
+        if (currentVersion !== updateHomepageVersion) return;
 
         // 组件设置 - 优先从 widgetLayout.json 读取（与组件顺序存储方式一致）
         const layoutSettings = await loadWidgetLayoutSettings(plugin);
+        if (currentVersion !== updateHomepageVersion) return;
         widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
         widgetGap = layoutSettings.widgetGap;
 
@@ -565,8 +611,10 @@
         // 横幅高度配置 - 优先使用当前桌面设备的配置
         try {
             const displaySettings = await loadBannerDisplaySettings(plugin);
+            if (currentVersion !== updateHomepageVersion) return;
             bannerHeight = displaySettings.bannerHeight;
         } catch (e) {
+            if (currentVersion !== updateHomepageVersion) return;
             console.warn("[Homepage] 加载设备横幅配置失败，回退到全局配置:", e);
             bannerHeight = config.bannerHeight;
         }
@@ -579,6 +627,7 @@
             config,
             getAdvancedEnabled(),
         );
+        if (currentVersion !== updateHomepageVersion) return;
         bannerImgSrc = bannerResult.bannerImgSrc;
     }
 
@@ -586,6 +635,8 @@
     let formattedStatsInfoText = $state("");
 
     async function updateFormattedStatsInfoText() {
+        const currentVersion = ++updateStatsVersion;
+
         if (!statsInfoText) {
             formattedStatsInfoText = "";
             return;
@@ -624,21 +675,26 @@
             loadStatsData("citationCount", plugin),
         ]);
 
-        // 替换所有变量
+        // 兼容旧写法：统一替换为当前支持的变量名
         result = result
-            .replace("{{startDate}}", startDate?.toString() || "")
-            .replace("{{blocksCount}}", blocksCount?.toString() || "")
-            .replace("{{notebooksCount}}", notebooksCount?.toString() || "")
-            .replace("{{docsCount}}", docsCount?.toString() || "")
-            .replace("{{nowDate}}", nowDate?.toString() || "")
-            .replace("{{tasksCount}}", tasksCount?.toString() || "")
-            .replace("{{doneTasksCount}}", doneTasksCount?.toString() || "")
-            .replace("{{undoneTasksCount}}", undoneTasksCount?.toString() || "")
-            .replace("{{dailynotesCount}}", dailynotesCount?.toString() || "")
-            .replace("{{tagsCount}}", tagsCount?.toString() || "")
-            .replace("{{codeBlocksCount}}", codeBlocksCount?.toString() || "")
-            .replace("{{mathBlocksCount}}", mathBlocksCount?.toString() || "")
-            .replace("{{citationCount}}", citationCount?.toString() || "");
+            .replace(/\{\{notesCount\}\}/g, "{{blocksCount}}")
+            .replace(/\{\{DocsCount\}\}/g, "{{docsCount}}");
+
+        // 替换所有变量（使用正则全局替换，确保同一变量多次出现都能替换）
+        result = result
+            .replace(/\{\{startDate\}\}/g, startDate?.toString() || "")
+            .replace(/\{\{blocksCount\}\}/g, blocksCount?.toString() || "")
+            .replace(/\{\{notebooksCount\}\}/g, notebooksCount?.toString() || "")
+            .replace(/\{\{docsCount\}\}/g, docsCount?.toString() || "")
+            .replace(/\{\{nowDate\}\}/g, nowDate?.toString() || "")
+            .replace(/\{\{tasksCount\}\}/g, tasksCount?.toString() || "")
+            .replace(/\{\{doneTasksCount\}\}/g, doneTasksCount?.toString() || "")
+            .replace(/\{\{undoneTasksCount\}\}/g, undoneTasksCount?.toString() || "")
+            .replace(/\{\{dailynotesCount\}\}/g, dailynotesCount?.toString() || "")
+            .replace(/\{\{tagsCount\}\}/g, tagsCount?.toString() || "")
+            .replace(/\{\{codeBlocksCount\}\}/g, codeBlocksCount?.toString() || "")
+            .replace(/\{\{mathBlocksCount\}\}/g, mathBlocksCount?.toString() || "")
+            .replace(/\{\{citationCount\}\}/g, citationCount?.toString() || "");
 
         // 处理 $...$ 表达式（异步）
         const durationRegex = /\$\$(.*?)\$\$/g;
@@ -653,6 +709,9 @@
                 (await parseDurationExpression(expr, plugin)) || "";
             result = result.replace(full, replacement);
         }
+
+        // 丢弃过期请求结果
+        if (currentVersion !== updateStatsVersion) return;
 
         formattedStatsInfoText = result;
     }
