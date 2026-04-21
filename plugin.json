@@ -2,8 +2,8 @@
   "name": "siyuan-homepage",
   "author": "Glaube-TY",
   "url": "https://github.com/Glaube-TY/siyuan-homepage",
-  "version": "3.3.2",
-  "minAppVersion": "3.3.5",
+  "version": "3.3.3",
+  "minAppVersion": "3.6.5",
   "backends": [
     "windows",
     "linux",

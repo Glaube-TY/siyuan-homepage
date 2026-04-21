@@ -4,7 +4,7 @@
     import { onMount } from "svelte";
     import { getLatestTasks, type RecentTasksInfo } from "./recentTasks";
     import { openDocs } from "@/components/tools/openDocs";
-    import { updateBlock } from "@/api";
+    import { updateTaskListItemMarker } from "@/api";
 
     interface Props {
         plugin: any;
@@ -13,7 +13,7 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsed = JSON.parse(contentTypeJson);
+    const parsed = $derived(JSON.parse(contentTypeJson));
 
     // 原始数据
     let recentTasks: RecentTasksInfo[] = $state([]);
@@ -67,20 +67,18 @@
         task: (typeof displayedTasks)[number],
     ) {
         const isChecked = (event.target as HTMLInputElement).checked;
-
-        // 使用正则表达式精确匹配复选框语法
-        const newMarkdown = task.markdown.replace(
-            /^([*-]\s*)\[\s*([xX]?)\s*\]/,
-            (_, prefix) => `${prefix}[${isChecked ? "X" : " "}]`,
-        );
+        const marker = isChecked ? "X" : " ";
 
         try {
-            await updateBlock("markdown", newMarkdown, task.id);
+            await updateTaskListItemMarker(task.id, marker);
 
             // 更新本地数据
-            task.markdown = newMarkdown;
             task.checked = isChecked;
-            task.content = newMarkdown
+            task.markdown = task.markdown.replace(
+                /^([*-]\s*)\[\s*([xX]?)\s*\]/,
+                (_, prefix) => `${prefix}[${marker}]`,
+            );
+            task.content = task.markdown
                 .replace(/-\s*\[\s*[Xx]?\s*\]\s*/, "")
                 .trim();
         } catch (err) {
@@ -137,7 +135,7 @@
     }
 
     function handleOpenTask(task: (typeof displayedTasks)[number]) {
-        openDocs(plugin, task.id);
+        openDocs(plugin, task.id, 1);
     }
     run(() => {
         if (recentTasks.length > 0 && displayedTasks.length === 0) {

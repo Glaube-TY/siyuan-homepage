@@ -4,6 +4,7 @@
         recentJournalsShowType?: string;
         recentJournalsCalendarIcon?: string;
         recentJournalsCalendarIconSize?: number;
+        useBuiltinDocIcon?: boolean;
         showLatestDailyNotesFloatDoc?: boolean;
         latestDailyNotesFloatDocShowTime?: number;
     }
@@ -13,6 +14,7 @@
         recentJournalsShowType = $bindable("list"),
         recentJournalsCalendarIcon = $bindable("📝"),
         recentJournalsCalendarIconSize = $bindable(16),
+        useBuiltinDocIcon = $bindable(false),
         showLatestDailyNotesFloatDoc = $bindable(true),
         latestDailyNotesFloatDocShowTime = $bindable(0.1)
     }: Props = $props();
@@ -42,6 +44,16 @@
                 {/each}
             </select>
         </div>
+        <div class="form-group">
+            <label for="use-builtin-doc-icon">
+                <input
+                    id="use-builtin-doc-icon"
+                    type="checkbox"
+                    bind:checked={useBuiltinDocIcon}
+                />
+                内置图标
+            </label>
+        </div>
     {/if}
     {#if recentJournalsShowType === "calendar"}
         <div class="form-group recent-journals-calendar">
@@ -62,6 +74,16 @@
                     type="number"
                     bind:value={recentJournalsCalendarIconSize}
                 />
+            </label>
+        </div>
+        <div class="form-group">
+            <label for="use-builtin-doc-icon-calendar">
+                <input
+                    id="use-builtin-doc-icon-calendar"
+                    type="checkbox"
+                    bind:checked={useBuiltinDocIcon}
+                />
+                内置图标
             </label>
         </div>
     {/if}

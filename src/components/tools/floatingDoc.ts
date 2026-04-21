@@ -202,6 +202,18 @@ class FloatingDocManager {
         if (newMode === this.currentMode || !this.currentNote) return;
 
         this.currentMode = newMode;
+
+        // 优先尝试使用 switchMode 进行模式切换（思源新版本支持）
+        if (this.protyle && typeof (this.protyle as any).switchMode === 'function') {
+            try {
+                (this.protyle as any).switchMode(newMode);
+                return;
+            } catch (error) {
+                console.warn('switchMode 调用失败，回退到重建实例:', error);
+            }
+        }
+
+        // 回退：销毁旧实例并重建
         await this.initProtyleForCurrentMode(this.currentNote);
     }
 
@@ -300,6 +312,46 @@ class FloatingDocManager {
 
         await this.updateContent(note);
         this.updatePosition(this.referenceElement, event.clientX, event.clientY);
+
+        if (this.floatingElement) {
+            this.floatingElement.style.opacity = '1';
+            this.floatingElement.style.pointerEvents = 'auto';
+            this.floatingElement.style.transform = 'translateY(0)';
+            this.floatingElement.style.visibility = 'visible';
+        }
+    }
+
+    /**
+     * 显式传入 referenceElement 和坐标来显示浮窗
+     * 专用于图表/日历模式，不依赖真实 MouseEvent
+     */
+    public async showWithPosition(
+        note: any,
+        referenceElement: HTMLElement,
+        clientX: number,
+        clientY: number,
+        plugin?: any,
+        options?: FloatingDocOptions
+    ): Promise<void> {
+        this.currentNote = note;
+        this.referenceElement = referenceElement;
+        this.isMouseOnTrigger = true;
+        this.plugin = plugin;
+
+        // 解析初始模式：显式传入 > 全局配置 > preview
+        this.currentMode = await this.resolveInitialMode(plugin, options?.initialMode);
+
+        // 确保元素已创建
+        this.ensureInitialized();
+
+        // 清除之前的隐藏定时器
+        if (this.hideTimeout) {
+            clearTimeout(this.hideTimeout);
+            this.hideTimeout = null;
+        }
+
+        await this.updateContent(note);
+        this.updatePosition(referenceElement, clientX, clientY);
 
         if (this.floatingElement) {
             this.floatingElement.style.opacity = '1';
@@ -422,6 +474,21 @@ const floatingDocManager = new FloatingDocManager();
 // 导出函数
 export function createFloatingDocPopup(note: any, event: MouseEvent, plugin?: any, options?: FloatingDocOptions): void {
     floatingDocManager.show(note, event, plugin, options);
+}
+
+/**
+ * 显式传入 referenceElement 和坐标来创建浮窗
+ * 专用于图表/日历模式
+ */
+export function createFloatingDocPopupWithPosition(
+    note: any,
+    referenceElement: HTMLElement,
+    clientX: number,
+    clientY: number,
+    plugin?: any,
+    options?: FloatingDocOptions
+): void {
+    floatingDocManager.showWithPosition(note, referenceElement, clientX, clientY, plugin, options);
 }
 
 export function handleMouseLeave(): void {

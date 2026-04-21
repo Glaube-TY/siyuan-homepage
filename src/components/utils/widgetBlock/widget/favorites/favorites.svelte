@@ -8,6 +8,7 @@
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
+    import { resolveBuiltinDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -27,6 +28,16 @@
     const showFavFloatDoc = $derived(contentTypeJsonObj.data?.showFavFloatDoc ?? true);
     const favFloatDocShowTime =
         $derived(contentTypeJsonObj.data?.favFloatDocShowTime || 0.1);
+    const useBuiltinDocIcon = $derived(contentTypeJsonObj.data?.useBuiltinDocIcon ?? false);
+
+    // 获取文档图标（优先内置图标，否则回退到前缀）
+    function getDocIcon(note: any): DocIconResult {
+        if (useBuiltinDocIcon) {
+            const builtin = resolveBuiltinDocIcon(note);
+            if (builtin) return builtin;
+        }
+        return { type: "text", value: favoritiesDocPrefix };
+    }
 
     // 时间戳格式化函数
     function formatDate(raw: string): string {
@@ -72,12 +83,13 @@
         {#if favoritesNotes.length}
             <ul class="favorites-list">
                 {#each favoritesNotes as note}
+                    {@const iconResult = getDocIcon(note)}
                     <li class="favorites-item">
                         <div
                             class="favorites-item-content"
                             onkeydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
-                                    openDocs(plugin, note.id);
+                                    openDocs(plugin, note.id, 0);
                                 }
                             }}
                             onmouseenter={(e) => {
@@ -116,14 +128,18 @@
                                 if (showFavFloatDoc && !plugin.isMobile) {
                                     hideImmediately();
                                 }
-                                openDocs(plugin, note.id);
+                                openDocs(plugin, note.id, 0);
                             }}
                             role="button"
                             tabindex="0"
                             aria-label="打开收藏文档：{note.content}"
                         >
-                            {favoritiesDocPrefix}
-                            {note.content}
+                            {#if iconResult.type === "image"}
+                                <img class="doc-icon-image" src={iconResult.value} alt="" />
+                            {:else}
+                                <span class="doc-icon">{iconResult.value}</span>
+                            {/if}
+                            <span class="doc-title">{note.content}</span>
                         </div>
                         {#if showNoteMeta}
                             <div class="note-meta">
@@ -215,6 +231,13 @@
             font-size: 12px;
             margin-top: 4px;
             margin-left: 4px;
+        }
+
+        .doc-icon-image {
+            width: 1.2em;
+            height: 1.2em;
+            vertical-align: middle;
+            margin-right: 0.3em;
         }
     }
 </style>

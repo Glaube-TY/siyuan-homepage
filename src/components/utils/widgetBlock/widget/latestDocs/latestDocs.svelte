@@ -7,6 +7,7 @@
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
+    import { resolveBuiltinDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -24,6 +25,16 @@
         $derived(parsed.data?.[0]?.showLatestDocFloatDoc ?? true);
     const latestDocsFloatDocShowTime =
         $derived(parsed.data?.[0]?.latestDocsFloatDocShowTime || 0.1);
+    const useBuiltinDocIcon = $derived(parsed.data?.[0]?.useBuiltinDocIcon ?? false);
+
+    // 获取文档图标（优先内置图标，否则回退到前缀）
+    function getDocIcon(doc: latestDocumentInfo): DocIconResult {
+        if (useBuiltinDocIcon) {
+            const builtin = resolveBuiltinDocIcon(doc);
+            if (builtin) return builtin;
+        }
+        return { type: "text", value: prefix };
+    }
 
     // 文档数据源
     let documentList: latestDocumentInfo[] = [];
@@ -62,12 +73,20 @@
 
     // 获取时间差并格式化为“X天前”或“今天”
     function getTimeAgo(updated: string): string {
+        // 空值检查
+        if (!updated || updated.length < 14) {
+            return "未知时间";
+        }
         const year = parseInt(updated.substring(0, 4));
         const month = parseInt(updated.substring(4, 6)) - 1;
         const day = parseInt(updated.substring(6, 8));
         const hour = parseInt(updated.substring(8, 10));
         const minute = parseInt(updated.substring(10, 12));
         const second = parseInt(updated.substring(12, 14));
+        // 检查解析是否有效
+        if (isNaN(year) || isNaN(month) || isNaN(day)) {
+            return "未知时间";
+        }
         const docDate = new Date(year, month, day, hour, minute, second);
         const docDateMidnight = new Date(docDate);
         docDateMidnight.setHours(0, 0, 0, 0);
@@ -90,16 +109,17 @@
     <ul class="document-list">
         {#if displayedDocs.length > 0}
             {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
+                {@const iconResult = getDocIcon(doc)}
                 <li class="document-item">
                     <div
                         class="document-item-content"
                         onkeydown={(e) =>
-                            e.key === "Enter" && openDocs(plugin, doc.id)}
+                            e.key === "Enter" && openDocs(plugin, doc.id, 0)}
                         onclick={() => {
                             if (showLatestDocFloatDoc && !plugin.isMobile) {
                                 hideImmediately();
                             }
-                            openDocs(plugin, doc.id);
+                            openDocs(plugin, doc.id, 0);
                         }}
                         onmouseenter={(e) => {
                             if (showLatestDocFloatDoc && !plugin.isMobile) {
@@ -136,8 +156,12 @@
                         tabindex="0"
                         aria-label="打开最近文档：{doc.content}"
                     >
-                        {prefix}
-                        {doc.content}
+                        {#if iconResult.type === "image"}
+                            <img class="doc-icon-image" src={iconResult.value} alt="" />
+                        {:else}
+                            <span class="doc-icon">{iconResult.value}</span>
+                        {/if}
+                        <span class="doc-title">{doc.content || "(无标题)"}</span>
                     </div>
                     {#if showLatestDocDetails}
                         <div class="document-updated-container">
@@ -222,6 +246,13 @@
                 font-size: 12px;
                 margin-left: 0;
                 margin-top: 4px;
+            }
+
+            .doc-icon-image {
+                width: 1.2em;
+                height: 1.2em;
+                vertical-align: middle;
+                margin-right: 0.3em;
             }
         }
     }

@@ -568,14 +568,76 @@ export async function getAttributeViewKeysByAvID(avID: string): Promise<any> {
 export async function getAttributeView(id: string): Promise<AttributeView | null> {
     const res = await request('/api/av/getAttributeView', { id });
     if (!res) return null;
-    
+
     // 处理不同可能的响应结构：res.av / res.data.av / res
     const av = res.av || res.data?.av || res;
     if (!av) return null;
-    
+
     return {
         id: av.id || id,
         name: av.name || '',
         keyValues: av.keyValues || [],
     };
+}
+
+
+// **************************************** Tabs ****************************************
+// endpoint: /api/tab/getAllTabs
+// v3.6.4+ 支持 type 参数，可按类型精确获取 tabs
+// 返回口径: 直接返回 tabs 数组，无需再取 res.data
+
+export interface Tab {
+    id: string;
+    type: string;
+    title?: string;
+    icon?: string;
+    [key: string]: any;
+}
+
+/**
+ * 获取所有 tabs，支持按类型筛选（v3.6.4+）
+ * @param type - 可选，tab 类型（如 "homepage_tab"）
+ * @returns Tab[] 数组
+ */
+export async function getAllTabs(type?: string): Promise<Tab[]> {
+    const data: { type?: string } = {};
+    if (type) {
+        data.type = type;
+    }
+    const res = await request('/api/tab/getAllTabs', data);
+    return res || [];
+}
+
+
+// **************************************** Task List Item Marker ****************************************
+// endpoint: /api/block/updateTaskListItemMarker, /api/block/batchUpdateTaskListItemMarker
+// v3.6.4+ 新增任务状态更新 API，支持单独或批量更新任务列表项的 marker 状态
+// 返回口径: 直接返回操作结果，无需再取 res.data
+
+export type TaskMarker = " " | "X" | "x" | "?" | "!" | "@" | "-" | "";
+
+/**
+ * 更新单个任务列表项的 marker 状态（v3.6.4+）
+ * @param id - 任务块 ID
+ * @param marker - 任务状态标记（如 " " 未完成，"X" 已完成）
+ * @returns 操作结果
+ */
+export async function updateTaskListItemMarker(id: BlockId, marker: TaskMarker): Promise<boolean> {
+    const url = '/api/block/updateTaskListItemMarker';
+    const data = { id, marker };
+    const res = await request(url, data);
+    return res?.code === 0 || false;
+}
+
+/**
+ * 批量更新任务列表项的 marker 状态（v3.6.4+）
+ * @param ids - 任务块 ID 数组
+ * @param marker - 任务状态标记（如 " " 未完成，"X" 已完成）
+ * @returns 操作结果
+ */
+export async function batchUpdateTaskListItemMarker(ids: BlockId[], marker: TaskMarker): Promise<boolean> {
+    const url = '/api/block/batchUpdateTaskListItemMarker';
+    const data = { ids, marker };
+    const res = await request(url, data);
+    return res?.code === 0 || false;
 }

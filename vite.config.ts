@@ -1,5 +1,5 @@
 import { resolve } from "path"
-import { defineConfig, loadEnv } from "vite"
+import { defineConfig } from "vite"
 import { viteStaticCopy } from "vite-plugin-static-copy"
 import livereload from "rollup-plugin-livereload"
 import { svelte, vitePreprocess } from "@sveltejs/vite-plugin-svelte"
@@ -127,7 +127,7 @@ function cleanupDistFiles(options: { patterns: string[], distDir: string }) {
         enforce: 'post',
         writeBundle: {
             sequential: true,
-            order: 'post' as 'post',
+            order: 'post' as const,
             async handler() {
                 const fg = await import('fast-glob');
                 const fs = await import('fs');

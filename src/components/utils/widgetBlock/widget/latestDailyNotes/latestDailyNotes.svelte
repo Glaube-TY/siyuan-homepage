@@ -8,9 +8,11 @@
     import { openDocs } from "@/components/tools/openDocs";
     import {
         createFloatingDocPopup,
+        createFloatingDocPopupWithPosition,
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
+    import { resolveBuiltinDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -36,6 +38,16 @@
     const latestDailyNotesFloatDocShowTime = $derived(
         parsed.data?.latestDailyNotesFloatDocShowTime || 0.1
     );
+    const useBuiltinDocIcon = $derived(parsed.data?.useBuiltinDocIcon ?? false);
+
+    // 获取文档图标（优先内置图标，否则回退到默认图标）
+    function getDocIcon(doc: DailyNoteInfo): DocIconResult {
+        if (useBuiltinDocIcon) {
+            const builtin = resolveBuiltinDocIcon(doc);
+            if (builtin) return builtin;
+        }
+        return { type: "text", value: "📅" };
+    }
 
     // 原始数据
     let dailyNotes: DailyNoteInfo[] = [];
@@ -72,6 +84,8 @@
     let resizeRafId: number | null = null;
     // 组件销毁标记
     let isDestroyed = false;
+    // 标记鼠标是否在图表容器上（用于全局 mouseout 判断）
+    let isMouseOnChartContainer = false;
 
     function getMonthRange(date: Date): string {
         const year = date.getFullYear();
@@ -97,7 +111,7 @@
         dailyNotes: DailyNoteInfo[],
         month: string,
     ) {
-        const noteDates = new Set(dailyNotes.map((note) => note.content));
+        const noteMap = new Map(dailyNotes.map((note) => [note.content, note]));
         const [year, monthStr] = month.split("-");
         const monthNum = parseInt(monthStr, 10);
         const yearNum = parseInt(year, 10);
@@ -108,10 +122,11 @@
         for (let i = 1; i <= daysInMonth; i++) {
             const dayStr = String(i).padStart(2, "0");
             const dateStr = `${year}-${monthStr}-${dayStr}`;
-            const hasJournal = noteDates.has(dateStr);
+            const note = noteMap.get(dateStr);
+            const hasJournal = !!note;
             dates.push({
                 name: dateStr,
-                value: [dateStr, hasJournal ? "0" : ""],
+                value: [dateStr, hasJournal ? note!.id : ""],
             });
         }
 
@@ -181,7 +196,7 @@
                     if (recentJournalsShowType === "calendar" && !plugin.isMobile) {
                         hideImmediately();
                     }
-                    openDocs(plugin, note.id);
+                    openDocs(plugin, note.id, 0);
                 }
             }
         });
@@ -193,25 +208,33 @@
                 const date = params.name;
                 const note = dailyNotes.find((n) => n.content === date);
                 if (note) {
-                    const syntheticEvent = new MouseEvent("mouseover", {
-                        clientX: params.event?.offsetX || 0,
-                        clientY: params.event?.offsetY || 0,
-                        bubbles: true,
-                        cancelable: true,
-                    });
+                    // 从原生事件中获取页面级坐标
+                    const nativeEvent = params.event?.event as MouseEvent | undefined;
+                    const clientX = nativeEvent?.clientX ?? 0;
+                    const clientY = nativeEvent?.clientY ?? 0;
 
                     if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
                         // 清除之前的定时器
                         if (calendarFloatDocTimeout) {
                             clearTimeout(calendarFloatDocTimeout);
                         }
+                        // 清除 mouseleave timeout（防止新 hover 被旧 timeout 隐藏）
+                        if (calendarMouseLeaveTimeout) {
+                            clearTimeout(calendarMouseLeaveTimeout);
+                            calendarMouseLeaveTimeout = null;
+                        }
                         // 设置新的定时器
                         calendarFloatDocTimeout = window.setTimeout(() => {
-                            createFloatingDocPopup(
-                                note,
-                                syntheticEvent,
-                                plugin,
-                            );
+                            // 使用图表容器作为 referenceElement，传入真实页面坐标
+                            if (chartContainer) {
+                                createFloatingDocPopupWithPosition(
+                                    note,
+                                    chartContainer,
+                                    clientX,
+                                    clientY,
+                                    plugin,
+                                );
+                            }
                             calendarFloatDocTimeout = null;
                         }, latestDailyNotesFloatDocShowTime * 1000);
                     }
@@ -219,28 +242,47 @@
             }
         });
 
-        myChart.on("mouseout", (params) => {
-            if (
-                params.componentType === "series" &&
-                params.seriesType === "custom"
-            ) {
-                if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
-                    // 清除悬浮窗显示定时器
-                    if (calendarFloatDocTimeout) {
-                        clearTimeout(calendarFloatDocTimeout);
-                        calendarFloatDocTimeout = null;
+        // 使用 globalout 代替 item-level mouseout，避免 child graphic 切换导致频繁隐藏
+        myChart.on("globalout", () => {
+            if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
+                // 清除悬浮窗显示定时器
+                if (calendarFloatDocTimeout) {
+                    clearTimeout(calendarFloatDocTimeout);
+                    calendarFloatDocTimeout = null;
+                }
+                // 延迟后检查鼠标是否真的离开了图表区域
+                if (calendarMouseLeaveTimeout) {
+                    clearTimeout(calendarMouseLeaveTimeout);
+                }
+                calendarMouseLeaveTimeout = window.setTimeout(() => {
+                    // 只有当鼠标确实不在图表容器上时才隐藏
+                    if (!isMouseOnChartContainer) {
+                        setMouseOnTrigger(false);
                     }
-                    // 清除之前的 mouseleave timeout
+                    calendarMouseLeaveTimeout = null;
+                }, 300);
+            }
+        });
+
+        // 监听图表容器的鼠标进入/离开，用于辅助判断
+        if (chartContainer) {
+            chartContainer.addEventListener("mouseenter", () => {
+                isMouseOnChartContainer = true;
+            });
+            chartContainer.addEventListener("mouseleave", () => {
+                isMouseOnChartContainer = false;
+                // 当真正离开容器时，延迟隐藏 popup
+                if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
                     if (calendarMouseLeaveTimeout) {
                         clearTimeout(calendarMouseLeaveTimeout);
                     }
                     calendarMouseLeaveTimeout = window.setTimeout(() => {
                         setMouseOnTrigger(false);
                         calendarMouseLeaveTimeout = null;
-                    }, 150);
+                    }, 300);
                 }
-            }
-        });
+            });
+        }
 
         // 保存图表实例引用
         chartInstance = myChart;
@@ -384,6 +426,10 @@
                     }
 
                     if (hasJournal) {
+                        const noteId = api.value(1) as string;
+                        const note = dailyNotes.find((n) => n.id === noteId);
+                        const iconResult = note ? getDocIcon(note) : { type: "text", value: recentJournalsCalendarIcon };
+
                         children.push({
                             type: "text",
                             style: {
@@ -394,17 +440,33 @@
                                 font: api.font({ fontSize: 14 }),
                             },
                         });
-                        children.push({
-                            type: "text",
-                            style: {
-                                x: cellPoint[0],
-                                y: cellPoint[1],
-                                text: recentJournalsCalendarIcon,
-                                font: api.font({
-                                    fontSize: recentJournalsCalendarIconSize,
-                                }),
-                            },
-                        });
+
+                        if (iconResult.type === "image") {
+                            // 图片型图标使用 ECharts image 类型
+                            children.push({
+                                type: "image",
+                                style: {
+                                    x: cellPoint[0] - recentJournalsCalendarIconSize / 2,
+                                    y: cellPoint[1] - recentJournalsCalendarIconSize / 2,
+                                    width: recentJournalsCalendarIconSize,
+                                    height: recentJournalsCalendarIconSize,
+                                    image: iconResult.value,
+                                },
+                            });
+                        } else {
+                            // 文本型图标（emoji 或默认图标）
+                            children.push({
+                                type: "text",
+                                style: {
+                                    x: cellPoint[0],
+                                    y: cellPoint[1],
+                                    text: iconResult.value,
+                                    font: api.font({
+                                        fontSize: recentJournalsCalendarIconSize,
+                                    }),
+                                },
+                            });
+                        }
                     }
 
                     return {
@@ -609,55 +671,61 @@
         <ul class="document-list">
             {#if displayedDocs.length > 0}
                 {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
+                    {@const iconResult = getDocIcon(doc)}
                     <li class="document-item">
                         <div
                             class="document-item-content"
-                            onclick={() => {
-                                if (recentJournalsShowType === "calendar" && !plugin.isMobile) {
-                                    hideImmediately();
-                                }
-                                openDocs(plugin, doc.id);
-                            }}
                             onkeydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
-                                    openDocs(plugin, doc.id);
+                                    openDocs(plugin, doc.id, 0);
                                 }
                             }}
+                            onclick={() => {
+                                if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
+                                    hideImmediately();
+                                }
+                                openDocs(plugin, doc.id, 0);
+                            }}
                             onmouseenter={(e) => {
-                            if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
-                                // 清除之前的定时器
-                                if (listFloatDocTimeout) {
-                                    clearTimeout(listFloatDocTimeout);
+                                if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
+                                    // 清除之前的定时器
+                                    if (listFloatDocTimeout) {
+                                        clearTimeout(listFloatDocTimeout);
+                                    }
+                                    // 设置新的定时器
+                                    listFloatDocTimeout = window.setTimeout(() => {
+                                        createFloatingDocPopup(doc, e, plugin);
+                                        listFloatDocTimeout = null;
+                                    }, latestDailyNotesFloatDocShowTime * 1000);
                                 }
-                                // 设置新的定时器
-                                listFloatDocTimeout = window.setTimeout(() => {
-                                    createFloatingDocPopup(doc, e, plugin);
-                                    listFloatDocTimeout = null;
-                                }, latestDailyNotesFloatDocShowTime * 1000);
-                            }
-                        }}
-                        onmouseleave={() => {
-                            if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
-                                // 清除悬浮窗显示定时器
-                                if (listFloatDocTimeout) {
-                                    clearTimeout(listFloatDocTimeout);
-                                    listFloatDocTimeout = null;
+                            }}
+                            onmouseleave={() => {
+                                if (showLatestDailyNotesFloatDoc && !plugin.isMobile) {
+                                    // 清除悬浮窗显示定时器
+                                    if (listFloatDocTimeout) {
+                                        clearTimeout(listFloatDocTimeout);
+                                        listFloatDocTimeout = null;
+                                    }
+                                    // 清除之前的 mouseleave timeout
+                                    if (listMouseLeaveTimeout) {
+                                        clearTimeout(listMouseLeaveTimeout);
+                                    }
+                                    listMouseLeaveTimeout = window.setTimeout(() => {
+                                        setMouseOnTrigger(false);
+                                        listMouseLeaveTimeout = null;
+                                    }, 150);
                                 }
-                                // 清除之前的 mouseleave timeout
-                                if (listMouseLeaveTimeout) {
-                                    clearTimeout(listMouseLeaveTimeout);
-                                }
-                                listMouseLeaveTimeout = window.setTimeout(() => {
-                                    setMouseOnTrigger(false);
-                                    listMouseLeaveTimeout = null;
-                                }, 150);
-                            }
-                        }}
+                            }}
                             role="button"
                             tabindex="0"
                             aria-label="打开最近日记：{doc.content}"
                         >
-                            📅 {doc.content || "(无标题)"}
+                            {#if iconResult.type === "image"}
+                                <img class="doc-icon-image" src={iconResult.value} alt="" />
+                            {:else}
+                                <span class="doc-icon">{iconResult.value}</span>
+                            {/if}
+                            <span class="doc-title">{doc.content || "(无标题)"}</span>
                         </div>
                     </li>
                 {/each}
@@ -792,5 +860,12 @@
         &:hover {
             text-decoration: underline;
         }
+    }
+
+    .doc-icon-image {
+        width: 1.2em;
+        height: 1.2em;
+        vertical-align: middle;
+        margin-right: 0.3em;
     }
 </style>

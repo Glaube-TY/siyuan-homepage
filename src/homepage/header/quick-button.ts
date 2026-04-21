@@ -220,6 +220,10 @@ function registerShortcut(shortcut: string, button: ButtonItem): boolean {
     }
 
     Mousetrap.bind(normalized, (e: ExtendedKeyboardEvent) => {
+        // 防止递归：忽略 synthetic event（代码手动 dispatch 的事件）
+        if (!e.isTrusted) {
+            return true;
+        }
         e.preventDefault();
         triggerShortcut(button);
         return false;
@@ -288,6 +292,12 @@ function getButtonAction(item: ButtonItem): string {
     if (item.label.includes("⚙ 主页设置")) {
         return "settings";
     }
+    if (item.label.includes("🔍 搜索笔记")) {
+        return "search";
+    }
+    if (item.label.includes("📅 今日日记")) {
+        return "diary";
+    }
     return "";
 }
 
@@ -306,6 +316,11 @@ export function handleButtonClick(
         saveLayoutFn(plugin);
     } else if (action === "settings") {
         OpenHomepageSetting();
+    } else if (action === "search" || action === "diary") {
+        // 搜索和日记按钮通过 shortcut 触发，但已有 isTrusted 保护不会递归
+        if (item.shortcut) {
+            triggerShortcut(item);
+        }
     } else if (item.shortcut) {
         triggerShortcut(item);
     }

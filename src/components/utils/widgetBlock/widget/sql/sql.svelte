@@ -10,25 +10,25 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsed = JSON.parse(contentTypeJson);
-    let sqlTitle = parsed.data?.sqlTitle || "🔍SQL 查询结果";
-    const sqlInput = parsed.data?.sqlInput || "";
-    const columnOrder =
+    const parsed = $derived(JSON.parse(contentTypeJson));
+    const sqlTitle = $derived(parsed.data?.sqlTitle || "🔍SQL 查询结果");
+    const sqlInput = $derived(parsed.data?.sqlInput || "");
+    const columnOrder = $derived(
         parsed.data?.columnOrder
             ?.replace(/，/g, ",")
             .split(",")
-            .map((s) => s.trim()) || [];
+            .map((s) => s.trim()) || [],
+    );
 
-    let data: any[] = [];
     let filteredData: any[] = $state([]);
     let notebooksList: any[] = [];
 
-    let hiddenFields =
+    const hiddenFields = $derived(
         parsed.data?.hiddenFields
             ?.replace(/，/g, ",")
             .split(",")
-            .map((s) => s.trim()) || [];
-    let hiddenProperties: Record<string, any> = {};
+            .map((s) => s.trim()) || [],
+    );
 
     const fieldNameMap = {
         id: "内容块ID",
@@ -78,7 +78,7 @@
         const notebookName =
             notebooksList.find((n) => n.id === item.box)?.name || item.box;
 
-        const [visiblePart, hiddenPart] = Object.entries(item).reduce(
+        const [visiblePart] = Object.entries(item).reduce(
             ([vis, hid], [key, value]) => {
                 if (hiddenFields.includes(key)) {
                     hid[key] = value;
@@ -94,8 +94,6 @@
             },
             [{}, {}] as [Record<string, any>, Record<string, any>],
         );
-
-        hiddenProperties = hiddenPart;
 
         return Object.entries(visiblePart).reduce(
             (acc, [key, value]) => {
@@ -117,7 +115,6 @@
 
     async function runSql() {
         const result = await sql(sqlInput);
-        data = result;
         filteredData = result.map(processItem);
     }
 
@@ -140,7 +137,7 @@
     }
 
     function openDocument(id: string) {
-        openDocs(plugin, id);
+        openDocs(plugin, id, 0);
     }
 
     function getSortedColumns(item: Record<string, any>) {

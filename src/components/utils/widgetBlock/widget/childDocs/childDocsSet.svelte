@@ -2,6 +2,7 @@
     interface Props {
         childDocsTitle?: string;
         childDocsPrefix?: string;
+        useBuiltinDocIcon?: boolean;
         showChildDocsDetails?: boolean;
         childDocsParentId?: string;
         childDocsSortOrder?: string;
@@ -12,6 +13,7 @@
     let {
         childDocsTitle = $bindable("📄子文档"),
         childDocsPrefix = $bindable("📄"),
+        useBuiltinDocIcon = $bindable(false),
         showChildDocsDetails = $bindable(true),
         childDocsParentId = $bindable(""),
         childDocsSortOrder = $bindable("updated"),
@@ -42,6 +44,14 @@
                     bind:value={childDocsPrefix}
                     placeholder="输入文档前缀"
                 />
+            </label>
+            <label for="use-builtin-doc-icon">
+                <input
+                    id="use-builtin-doc-icon"
+                    type="checkbox"
+                    bind:checked={useBuiltinDocIcon}
+                />
+                内置图标
             </label>
             <label for="childDocs-sortOrder">
                 排序方式：

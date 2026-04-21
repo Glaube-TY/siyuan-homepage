@@ -15,6 +15,7 @@
         docNotebookId?: string;
         latestDocsTitle?: string;
         latestDocsPrefix?: string;
+        useBuiltinDocIcon?: boolean;
         showLatestDocDetails?: boolean;
         showLatestDocFloatDoc?: boolean;
         latestDocsFloatDocShowTime?: number;
@@ -28,6 +29,7 @@
         docNotebookId = $bindable(""),
         latestDocsTitle = $bindable("最近文档"),
         latestDocsPrefix = $bindable(""),
+        useBuiltinDocIcon = $bindable(false),
         showLatestDocDetails = $bindable(true),
         showLatestDocFloatDoc = $bindable(true),
         latestDocsFloatDocShowTime = $bindable(0.1)
@@ -100,6 +102,12 @@
                     bind:value={latestDocsPrefix}
                     placeholder=""
                 />
+            </label>
+        </div>
+        <div class="setting-item">
+            <label>
+                <input type="checkbox" bind:checked={useBuiltinDocIcon} />
+                内置图标
             </label>
         </div>
     </div>

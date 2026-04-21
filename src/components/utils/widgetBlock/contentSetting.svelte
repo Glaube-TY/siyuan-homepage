@@ -65,6 +65,7 @@
     // 子文档配置
     let childDocsTitle: string = $state("📄子文档");
     let childDocsPrefix: string = $state("📄");
+    let childDocsUseBuiltinDocIcon: boolean = $state(false);
     let showChildDocsDetails: boolean = $state(true);
     let childDocsParentId: string = $state("");
     let childDocsSortOrder: string = $state("updated");
@@ -77,6 +78,7 @@
     let conditionDocsKeyPosition: string = $state("anywhere");
     let conditionDocsKeyWord: string = $state("");
     let conditionDocsSortOrder: string = $state("updated");
+    let conditionDocsUseBuiltinDocIcon: boolean = $state(false);
     let showConditionDocsFloatDoc: boolean = $state(true);
     let conditionDocsFloatDocShowTime: number = $state(0.1);
     let conditionDocsTag: string = $state("");
@@ -88,6 +90,7 @@
     let docNotebookId: string = $state("");
     let latestDocsTitle: string = $state("🕒最近文档");
     let latestDocsPrefix: string = $state("📄");
+    let latestDocsUseBuiltinDocIcon: boolean = $state(false);
     let showLatestDocDetails: boolean = $state(true);
     let showLatestDocFloatDoc: boolean = $state(true);
     let latestDocsFloatDocShowTime: number = $state(0.1);
@@ -97,6 +100,7 @@
     let recentJournalsShowType: string = $state("list");
     let recentJournalsCalendarIcon: string = $state("📝");
     let recentJournalsCalendarIconSize: number = $state(16);
+    let latestDailyNotesUseBuiltinDocIcon: boolean = $state(false);
     let showLatestDailyNotesFloatDoc: boolean = $state(true);
     let latestDailyNotesFloatDocShowTime: number = $state(0.1);
 
@@ -105,6 +109,7 @@
     let favoritiesSortOrder: string = $state("created");
     let showNoteMeta: boolean = $state(true);
     let favoritiesDocPrefix: string = $state("❤");
+    let favoritesUseBuiltinDocIcon: boolean = $state(false);
     let favoritesNotebookId: string = $state(""); // 指定收藏文档所在笔记本 ID
     let selectedFavoritesNotebookIds: { label: string; value: string }[] = $state([]);
     let showFavFloatDoc: boolean = $state(true);
@@ -366,6 +371,8 @@
                     parsedData.data?.[0]?.showLatestDocFloatDoc ?? true;
                 latestDocsFloatDocShowTime =
                     parsedData.data?.[0]?.latestDocsFloatDocShowTime || 0.1;
+                latestDocsUseBuiltinDocIcon =
+                    parsedData.data?.[0]?.useBuiltinDocIcon ?? false;
             } else if (parsedData.type === "favorites") {
                 favoritiesTitle =
                     parsedData.data?.favoritiesTitle || "💖收藏文档";
@@ -391,6 +398,8 @@
                 showFavFloatDoc = parsedData.data?.showFavFloatDoc ?? true;
                 favFloatDocShowTime =
                     parsedData.data?.favFloatDocShowTime || 0.1;
+                favoritesUseBuiltinDocIcon =
+                    parsedData.data?.useBuiltinDocIcon ?? false;
             } else if (parsedData.type === "heatmap") {
                 heatmapTitle = parsedData.data?.heatmapTitle || "";
                 pastMonthCount = parsedData.data?.pastMonthCount || 6;
@@ -411,6 +420,8 @@
                     parsedData.data?.showLatestDailyNotesFloatDoc ?? true;
                 latestDailyNotesFloatDocShowTime =
                     parsedData.data?.latestDailyNotesFloatDocShowTime || 0.1;
+                latestDailyNotesUseBuiltinDocIcon =
+                    parsedData.data?.useBuiltinDocIcon ?? false;
             } else if (parsedData.type === "countdown") {
                 eventList = parsedData.data?.eventList || [
                     { name: "", date: "", anniversary: false },
@@ -647,6 +658,8 @@
                 childDocsFloatDocShowTime =
                     parsedData.data?.childDocsFloatDocShowTime ||
                     childDocsFloatDocShowTime;
+                childDocsUseBuiltinDocIcon =
+                    parsedData.data?.useBuiltinDocIcon ?? false;
             } else if (parsedData.type === "constellation") {
                 selectedConstellation =
                     parsedData.data?.selectedConstellation ||
@@ -715,6 +728,8 @@
                     conditionDocsFloatDocShowTime;
                 conditionDocsTag =
                     parsedData.data?.conditionDocsTag || conditionDocsTag;
+                conditionDocsUseBuiltinDocIcon =
+                    parsedData.data?.useBuiltinDocIcon ?? false;
             }
         }
 
@@ -779,6 +794,7 @@
                         docNotebookId={docNotebookId}
                         bind:latestDocsTitle
                         bind:latestDocsPrefix
+                        bind:useBuiltinDocIcon={latestDocsUseBuiltinDocIcon}
                         bind:showLatestDocDetails
                         bind:showLatestDocFloatDoc
                         bind:latestDocsFloatDocShowTime
@@ -790,6 +806,7 @@
                         bind:favoritiesSortOrder
                         bind:showNoteMeta
                         bind:favoritiesDocPrefix
+                        bind:useBuiltinDocIcon={favoritesUseBuiltinDocIcon}
                         bind:favoritesNotebookId
                         bind:selectedFavoritesNotebookIds
                         bind:showFavFloatDoc
@@ -802,6 +819,7 @@
                         bind:recentJournalsShowType
                         bind:recentJournalsCalendarIcon
                         bind:recentJournalsCalendarIconSize
+                        bind:useBuiltinDocIcon={latestDailyNotesUseBuiltinDocIcon}
                         bind:showLatestDailyNotesFloatDoc
                         bind:latestDailyNotesFloatDocShowTime
                     />
@@ -830,6 +848,7 @@
                     <ChildDocsSet
                         bind:childDocsTitle
                         bind:childDocsPrefix
+                        bind:useBuiltinDocIcon={childDocsUseBuiltinDocIcon}
                         bind:showChildDocsDetails
                         bind:childDocsParentId
                         bind:childDocsSortOrder
@@ -843,6 +862,7 @@
                         bind:conditionDocsKeyPosition
                         bind:conditionDocsKeyWord
                         bind:conditionDocsSortOrder
+                        bind:useBuiltinDocIcon={conditionDocsUseBuiltinDocIcon}
                         bind:showConditionDocsFloatDoc
                         bind:conditionDocsFloatDocShowTime
                         bind:conditionDocsTag
@@ -1131,6 +1151,7 @@
                                 ensureOpenDocs,
                                 latestDocsTitle,
                                 latestDocsPrefix,
+                                useBuiltinDocIcon: latestDocsUseBuiltinDocIcon,
                                 showLatestDocDetails,
                                 showLatestDocFloatDoc,
                                 latestDocsFloatDocShowTime,
@@ -1151,6 +1172,7 @@
                             favoritiesSortOrder,
                             showNoteMeta,
                             favoritiesDocPrefix,
+                            useBuiltinDocIcon: favoritesUseBuiltinDocIcon,
                             favoritesNotebookId,
                             showFavFloatDoc,
                             favFloatDocShowTime,
@@ -1181,6 +1203,7 @@
                             recentJournalsShowType,
                             recentJournalsCalendarIcon,
                             recentJournalsCalendarIconSize,
+                            useBuiltinDocIcon: latestDailyNotesUseBuiltinDocIcon,
                             showLatestDailyNotesFloatDoc,
                             latestDailyNotesFloatDocShowTime,
                         },
@@ -1458,6 +1481,7 @@
                         data: {
                             childDocsTitle,
                             childDocsPrefix,
+                            useBuiltinDocIcon: childDocsUseBuiltinDocIcon,
                             showChildDocsDetails,
                             childDocsParentId,
                             childDocsSortOrder,
@@ -1547,6 +1571,7 @@
                             conditionDocsKeyPosition,
                             conditionDocsKeyWord,
                             conditionDocsSortOrder,
+                            useBuiltinDocIcon: conditionDocsUseBuiltinDocIcon,
                             showConditionDocsFloatDoc,
                             conditionDocsFloatDocShowTime,
                             conditionDocsTag,

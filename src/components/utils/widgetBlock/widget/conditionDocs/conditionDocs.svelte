@@ -11,6 +11,7 @@
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
+    import { resolveBuiltinDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -35,8 +36,18 @@
     const conditionDocsFloatDocShowTime =
         $derived(parsed.data?.conditionDocsFloatDocShowTime || 0.1);
     const conditionDocsTag = $derived(parsed.data?.conditionDocsTag || "");
+    const useBuiltinDocIcon = $derived(parsed.data?.useBuiltinDocIcon ?? false);
 
     let displayedDocs: any[] = $state([]);
+
+    // 获取文档图标（优先内置图标，否则回退到前缀）
+    function getDocIcon(doc: any): DocIconResult {
+        if (useBuiltinDocIcon) {
+            const builtin = resolveBuiltinDocIcon(doc);
+            if (builtin) return builtin;
+        }
+        return { type: "text", value: conditionDocsPrefix };
+    }
 
     // 悬浮窗定时器
     let floatDocTimeout: number | null = $state(null);
@@ -84,12 +95,13 @@
     <ul class="document-list">
         {#if displayedDocs.length > 0}
             {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
+                {@const iconResult = getDocIcon(doc)}
                 <li class="document-item">
                     <div
                         class="document-item-content"
                         onkeydown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
-                                openDocs(plugin, doc.id);
+                                openDocs(plugin, doc.id, 0);
                             }
                         }}
                         onmouseenter={(e) => {
@@ -128,14 +140,18 @@
                             if (showConditionDocsFloatDoc && !plugin.isMobile) {
                                 hideImmediately();
                             }
-                            openDocs(plugin, doc.id);
+                            openDocs(plugin, doc.id, 0);
                         }}
                         role="button"
                         tabindex="0"
                         aria-label="打开最近文档：{doc.content}"
                     >
-                        {conditionDocsPrefix}
-                        {doc.content}
+                        {#if iconResult.type === "image"}
+                            <img class="doc-icon-image" src={iconResult.value} alt="" />
+                        {:else}
+                            <span class="doc-icon">{iconResult.value}</span>
+                        {/if}
+                        <span class="doc-title">{doc.content}</span>
                     </div>
                     {#if showConditionDocsDetails}
                         {#if conditionDocsSortOrder === "updated"}
@@ -228,6 +244,13 @@
                 font-size: 12px;
                 margin-left: 0;
                 margin-top: 4px;
+            }
+
+            .doc-icon-image {
+                width: 1.2em;
+                height: 1.2em;
+                vertical-align: middle;
+                margin-right: 0.3em;
             }
         }
 

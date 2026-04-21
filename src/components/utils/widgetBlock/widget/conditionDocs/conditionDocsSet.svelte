@@ -2,6 +2,7 @@
     interface Props {
         conditionDocsTitle?: string;
         conditionDocsPrefix?: string;
+        useBuiltinDocIcon?: boolean;
         showConditionDocsDetails?: boolean;
         conditionDocsCondition?: string;
         conditionDocsKeyPosition?: string;
@@ -15,6 +16,7 @@
     let {
         conditionDocsTitle = $bindable("📄子文档"),
         conditionDocsPrefix = $bindable("📄"),
+        useBuiltinDocIcon = $bindable(false),
         showConditionDocsDetails = $bindable(true),
         conditionDocsCondition = $bindable("keyword"),
         conditionDocsKeyPosition = $bindable("anywhere"),
@@ -48,6 +50,14 @@
                     bind:value={conditionDocsPrefix}
                     placeholder="输入文档前缀"
                 />
+            </label>
+            <label for="use-builtin-doc-icon">
+                <input
+                    id="use-builtin-doc-icon"
+                    type="checkbox"
+                    bind:checked={useBuiltinDocIcon}
+                />
+                内置图标
             </label>
             <label for="conditionDocs-sortOrder">
                 排序方式：

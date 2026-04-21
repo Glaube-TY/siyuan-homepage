@@ -10,6 +10,7 @@ export interface DailyNoteInfo {
     content: string;  // 文档标题
     created: string;  // 创建时间（原始格式）
     updated: string;  // 最后更新时间（原始格式）
+    icon?: string;    // 文档图标
 }
 
 /**

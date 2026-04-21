@@ -2,7 +2,7 @@
     import { onMount, onDestroy } from "svelte";
     import { openDocs } from "@/components/tools/openDocs";
     import { gettasksList, formatTasksList } from "./tasksPlus";
-    import { updateBlock } from "@/api";
+    import { updateTaskListItemMarker, updateBlock } from "@/api";
 
     interface Props {
         plugin: any;
@@ -110,18 +110,16 @@
 
     async function handleCheck(event: Event, task: any) {
         const isChecked = (event.target as HTMLInputElement).checked;
-        const checkChar = isChecked ? "X" : " ";
+        const marker = isChecked ? "X" : " ";
 
         try {
-            const newMarkdown = task.initmarkdown.replace(
+            await updateTaskListItemMarker(task.id, marker);
+
+            task.taskCheck = marker;
+            task.initmarkdown = task.initmarkdown.replace(
                 /\[([xX ]?)\]/,
-                `[${checkChar}]`,
+                `[${marker}]`,
             );
-
-            await updateBlock("markdown", newMarkdown, task.id);
-
-            task.taskCheck = checkChar;
-            task.initmarkdown = newMarkdown;
         } catch (err) {
             console.error("更新任务状态失败:", err);
             task.taskCheck = isChecked ? " " : "X";
@@ -345,7 +343,7 @@
                         <button
                             type="button"
                             class="task-name"
-                            onclick={() => openDocs(plugin, task.id)}
+                            onclick={() => openDocs(plugin, task.id, 1)}
                         >
                             {task.taskname || "未命名任务"}
                         </button>
