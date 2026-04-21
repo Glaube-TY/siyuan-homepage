@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
-    import { getAttributeView } from "./getDatabase";
+    import { getAttributeView } from "@/api";
 
     interface Props {
         plugin: any;

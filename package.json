@@ -36,7 +36,6 @@
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.4",
-    "@siyuan-community/siyuan-sdk": "^0.3.13",
     "@types/marked": "^5.0.2",
     "crypto-js": "^4.2.0",
     "dompurify": "^3.2.6",

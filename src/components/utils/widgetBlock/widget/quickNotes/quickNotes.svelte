@@ -3,6 +3,7 @@
     import { showMessage } from "siyuan";
     import DOMPurify from "dompurify";
     import { MD2HTML } from "@/components/tools/MD2HTML";
+    import { getChildBlocks, sql, deleteBlock } from "@/api";
 
     interface Props {
         plugin: any;
@@ -10,10 +11,10 @@
     }
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsed = JSON.parse(contentTypeJson);
+    const parsed = $derived(JSON.parse(contentTypeJson));
 
-    const quickNotesTitle = parsed.data?.quickNotesTitle || "📝快速笔记";
-    const quickNotesSort = parsed.data?.quickNotesSort || "DOC_ASC";
+    const quickNotesTitle = $derived(parsed.data?.quickNotesTitle || "📝快速笔记");
+    const quickNotesSort = $derived(parsed.data?.quickNotesSort || "DOC_ASC");
 
     let quickNotesEnabled = $state();
     let quickNotesPosition;
@@ -31,11 +32,14 @@
     });
 
     async function getQuickNotes() {
-        const quickNotes = await plugin.client.getChildBlocks({
-            id: quickNotesPosition,
-        });
+        const quickNotes = await getChildBlocks(quickNotesPosition);
 
-        quickNotesList = quickNotes.data
+        if (!quickNotes || !Array.isArray(quickNotes)) {
+            quickNotesList = [];
+            return;
+        }
+
+        quickNotesList = quickNotes
             .filter((note) => note.markdown && note.markdown.trim() !== "")
             .map((note) => {
                 const rawHtml = MD2HTML(note.markdown);
@@ -51,11 +55,11 @@
             const blockIds = quickNotesList
                 .map((note) => `'${note.id}'`)
                 .join(",");
-            const sql = `SELECT id, updated FROM blocks WHERE id IN (${blockIds})`;
-            const result = await plugin.client.sql({ stmt: sql });
+            const sqlStmt = `SELECT id, updated FROM blocks WHERE id IN (${blockIds})`;
+            const result = await sql(sqlStmt);
 
             const updatedMap = {};
-            result.data.forEach((row) => {
+            result.forEach((row) => {
                 updatedMap[row.id] = row.updated;
             });
 
@@ -69,11 +73,11 @@
             const blockIds = quickNotesList
                 .map((note) => `'${note.id}'`)
                 .join(",");
-            const sql = `SELECT id, created FROM blocks WHERE id IN (${blockIds})`;
-            const result = await plugin.client.sql({ stmt: sql });
+            const sqlStmt = `SELECT id, created FROM blocks WHERE id IN (${blockIds})`;
+            const result = await sql(sqlStmt);
 
             const createdMap = {};
-            result.data.forEach((row) => {
+            result.forEach((row) => {
                 createdMap[row.id] = row.created;
             });
 
@@ -90,7 +94,7 @@
 
     async function handleDelete(noteId: string) {
         try {
-            await plugin.client.deleteBlock({ id: noteId });
+            await deleteBlock(noteId);
             await getQuickNotes();
         } catch (e) {
             console.error("删除失败:", e);

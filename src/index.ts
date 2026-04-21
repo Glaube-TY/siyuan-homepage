@@ -11,8 +11,7 @@ import { svelteDialog } from "@/libs/dialog";
 import * as advanced from "@/components/tools/advanced";
 import { loadWidgetLayoutSettings } from "@/components/utils/widgetBlock/utils/layout-shared";
 import { destroyFloatingDoc } from "@/components/tools/floatingDoc";
-
-import * as sdk from "@siyuan-community/siyuan-sdk";
+import { setBlockAttrs } from "@/api";
 import Homepage from "./homepage/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
@@ -63,8 +62,6 @@ export default class PluginHomepage extends Plugin {
 
     // 整页 reload 去重保护：避免同一轮变化重复触发
     private homepageReloadTriggered = false;
-
-    client = new sdk.Client(undefined, 'fetch');
 
     // 更新已应用签名（homepage 初始化完成后调用）
     public updateAppliedSignatures(configSig: string, layoutSig: string): void {
@@ -418,7 +415,6 @@ export default class PluginHomepage extends Plugin {
                                     quickNotesPosition,
                                     quickNotesTimestampEnabled,
                                     quickNotesAddPosition,
-                                    plugin: this,
                                     close: () => {
                                         dialog.close();
                                     },
@@ -578,11 +574,8 @@ export default class PluginHomepage extends Plugin {
                     label: "收藏文档",
                     click: async () => {
                         try {
-                            await this.client.setBlockAttrs({
-                                id: nodeId,
-                                attrs: {
-                                    "custom-homepage-favorites": "true"
-                                }
+                            await setBlockAttrs(nodeId, {
+                                "custom-homepage-favorites": "true"
                             });
                             showMessage("已收藏");
                         } catch (err) {
@@ -596,11 +589,8 @@ export default class PluginHomepage extends Plugin {
                     label: "取消收藏",
                     click: async () => {
                         try {
-                            await this.client.setBlockAttrs({
-                                id: nodeId,
-                                attrs: {
-                                    "custom-homepage-favorites": ""
-                                }
+                            await setBlockAttrs(nodeId, {
+                                "custom-homepage-favorites": ""
                             });
                             showMessage("已取消收藏");
                         } catch (err) {
@@ -633,7 +623,6 @@ export default class PluginHomepage extends Plugin {
                                 target: containerEl,
                                 props: {
                                     blockId: blockId,
-                                    plugin: this,
                                     close: () => {
                                         dialog.close();
                                     },
@@ -682,11 +671,8 @@ export default class PluginHomepage extends Plugin {
                     label: "收藏文档",
                     click: async () => {
                         try {
-                            await this.client.setBlockAttrs({
-                                id: docId,
-                                attrs: {
-                                    "custom-homepage-favorites": "true"
-                                }
+                            await setBlockAttrs(docId, {
+                                "custom-homepage-favorites": "true"
                             });
                             showMessage("已收藏");
                         } catch (err) {
@@ -700,11 +686,8 @@ export default class PluginHomepage extends Plugin {
                     label: "取消收藏",
                     click: async () => {
                         try {
-                            await this.client.setBlockAttrs({
-                                id: docId,
-                                attrs: {
-                                    "custom-homepage-favorites": ""
-                                }
+                            await setBlockAttrs(docId, {
+                                "custom-homepage-favorites": ""
                             });
                             showMessage("已取消收藏");
                         } catch (err) {

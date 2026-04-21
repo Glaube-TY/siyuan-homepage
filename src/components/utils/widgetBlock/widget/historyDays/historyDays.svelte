@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
+    import { forwardProxy } from "@/api";
 
     interface Props {
         plugin: any;
@@ -28,26 +29,24 @@
 
     async function getHistoryDaysList() {
         try {
-            const repo = await plugin.client.forwardProxy({
-                url: "https://v2.xxapi.cn/api/history",
-                method: "GET",
-                headers: [
+            const repo = await forwardProxy(
+                "https://v2.xxapi.cn/api/history",
+                "GET",
+                {},
+                [
                     {
                         "User-Agent":
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                     },
                 ],
-                contentType: "application/json",
-                payloadEncoding: "text",
-                responseEncoding: "text",
-                timeout: 7000,
-                payload: undefined,
-            });
+                7000,
+                "application/json"
+            );
 
             const responseBody =
-                typeof repo.data.body === "string"
-                    ? JSON.parse(repo.data.body)
-                    : repo.data.body;
+                typeof repo.body === "string"
+                    ? JSON.parse(repo.body)
+                    : repo.body;
 
             if (responseBody.code === 200) {
                 historyDaysList = responseBody.data;
@@ -61,26 +60,24 @@
 
     async function getHistoryDaysImage() {
         try {
-            const repo = await plugin.client.forwardProxy({
-                url: "https://v2.xxapi.cn/api/historypic?return-302",
-                method: "GET",
-                headers: [
+            const repo = await forwardProxy(
+                "https://v2.xxapi.cn/api/historypic?return-302",
+                "GET",
+                {},
+                [
                     {
                         "User-Agent":
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                     },
                 ],
-                contentType: "application/json",
-                payloadEncoding: "text",
-                responseEncoding: "text",
-                timeout: 7000,
-                payload: undefined,
-            });
+                7000,
+                "application/json"
+            );
 
             const responseBody =
-                typeof repo.data.body === "string"
-                    ? JSON.parse(repo.data.body)
-                    : repo.data.body;
+                typeof repo.body === "string"
+                    ? JSON.parse(repo.body)
+                    : repo.body;
 
             if (responseBody.code === 200) {
                 if (plugin.isMobile) {

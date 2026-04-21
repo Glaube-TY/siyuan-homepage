@@ -1,6 +1,6 @@
 <script lang="ts">
-    import { showMessage, fetchSyncPost, openTab } from "siyuan";
-    import { sql } from "@/api";
+    import { showMessage, openTab } from "siyuan";
+    import { sql, getTag } from "@/api";
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import "echarts-wordcloud";
@@ -415,11 +415,10 @@
         return tasks;
     }
 
-    async function getTag() {
-        const repo = await fetchSyncPost("/api/tag/getTag", { sort: 1, ignoreMaxListHint: true, app: "homepageVisualChart" });
-        const tagsList = repo.data;
-        const tagData = tagsList.map((tag: { name: string; count: number }) => ({
-            name: tag.name,
+    async function getTagData() {
+        const tagsList = await getTag(1, true, "homepageVisualChart");
+        const tagData = tagsList.map((tag: { label: string; count: number }) => ({
+            name: tag.label,
             count: tag.count,
         }));
         return tagData;
@@ -673,7 +672,7 @@
                 progressBarCharts.set(bar.id, myChart);
             });
         } else if (visualChartType === "tagCloud") {
-            const tagData = await getTag();
+            const tagData = await getTagData();
             if (!tagCloudContainer) return;
 
             const myChart = echarts.init(tagCloudContainer);
@@ -713,7 +712,7 @@
         } else if (visualChartType === "tagCloud" && tagCloudContainer) {
             const myChart = echarts.getInstanceByDom(tagCloudContainer);
             if (myChart) {
-                getTag().then((tagData) => {
+                getTagData().then((tagData) => {
                     const option = getTagCloudOption(tagData);
                     myChart.setOption(option);
                     myChart.resize();

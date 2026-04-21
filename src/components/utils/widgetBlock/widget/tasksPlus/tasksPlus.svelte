@@ -2,6 +2,7 @@
     import { onMount, onDestroy } from "svelte";
     import { openDocs } from "@/components/tools/openDocs";
     import { gettasksList, formatTasksList } from "./tasksPlus";
+    import { updateBlock } from "@/api";
 
     interface Props {
         plugin: any;
@@ -10,12 +11,12 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsed = JSON.parse(contentTypeJson);
-    let TaskManPlusTitle = parsed.data?.TaskManPlusTitle || "📋任务管理Plus";
-    let internalFilter = parsed.data?.internalFilter || "all";
-    let isCustomFilter = parsed.data?.isCustomFilter || false;
-    let customFilter = parsed.data?.customFilter || "";
-    let tasksSort = parsed.data?.tasksSort || "startdate";
+    const parsed = $derived(JSON.parse(contentTypeJson));
+    let TaskManPlusTitle = $derived(parsed.data?.TaskManPlusTitle || "📋任务管理Plus");
+    let internalFilter = $derived(parsed.data?.internalFilter || "all");
+    let isCustomFilter = $derived(parsed.data?.isCustomFilter || false);
+    let customFilter = $derived(parsed.data?.customFilter || "");
+    let tasksSort = $derived(parsed.data?.tasksSort || "startdate");
     let tasksList: any[] = [];
     let tasksListFormat: any = $state();
     let reminderCheckInterval: number | null = null;
@@ -117,11 +118,7 @@
                 `[${checkChar}]`,
             );
 
-            await plugin.client.updateBlock({
-                data: newMarkdown,
-                dataType: "markdown",
-                id: task.id,
-            });
+            await updateBlock("markdown", newMarkdown, task.id);
 
             task.taskCheck = checkChar;
             task.initmarkdown = newMarkdown;
@@ -269,11 +266,7 @@
         const newMarkdown = updateFirstLineOnly(task.initmarkdown, firstLine);
 
         try {
-            await plugin.client.updateBlock({
-                id: task.id,
-                data: newMarkdown,
-                dataType: "markdown",
-            });
+            await updateBlock("markdown", newMarkdown, task.id);
 
             task.taskCheck = "- [ ]";
             task.parsed.deadline = formattedNewDate;

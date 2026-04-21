@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { getStatisticalData } from "../../../../tools/statisticalAPI";
+    import { sql } from "@/api";
 
     interface Props {
         plugin: any;
@@ -28,10 +29,8 @@
         advancedEnabled = plugin.ADVANCED;
 
         if (statisticalCardContent === "customSQLCount") {
-            const res = await plugin.client.sql({
-                stmt: customSQLCount,
-            });
-            statisticalCount = res.data.length;
+            const res = await sql(customSQLCount);
+            statisticalCount = res.length;
         } else {
             statisticalCount = await getStatisticalData(
                 statisticalCardContent,

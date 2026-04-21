@@ -1,9 +1,9 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
     import { onMount } from "svelte";
+    import { getChildBlocks, insertBlock, appendBlock } from "@/api";
 
     interface Props {
-        plugin: any;
         quickNotesPosition: string;
         quickNotesTimestampEnabled: boolean;
         quickNotesAddPosition: string;
@@ -11,7 +11,6 @@
     }
 
     let {
-        plugin,
         quickNotesPosition,
         quickNotesTimestampEnabled,
         quickNotesAddPosition,
@@ -39,22 +38,12 @@
 
         try {
             if (quickNotesAddPosition == "top") {
-                const docChildren = await plugin.client.getChildBlocks({
-                    id: quickNotesPosition,
-                });
-                const firstChildID = docChildren.data[0].id;
+                const docChildren = await getChildBlocks(quickNotesPosition);
+                const firstChildID = docChildren[0].id;
 
-                await plugin.client.insertBlock({
-                    nextID: firstChildID,
-                    data: contentToAdd,
-                    dataType: "markdown",
-                });
+                await insertBlock("markdown", contentToAdd, firstChildID);
             } else {
-                await plugin.client.appendBlock({
-                    data: contentToAdd,
-                    dataType: "markdown",
-                    parentID: quickNotesPosition,
-                });
+                await appendBlock("markdown", contentToAdd, quickNotesPosition);
             }
         } catch (e) {
             console.error("Error adding quick note:", e);

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { sql } from "@/api";
+    import { sql, lsNotebooks } from "@/api";
     import { onMount } from "svelte";
     import { openDocs } from "@/components/tools/openDocs";
 
@@ -122,8 +122,8 @@
     }
 
     async function getNotebooks() {
-        const result = await plugin.client.lsNotebooks();
-        notebooksList = result.data?.notebooks || [];
+        const result = await lsNotebooks();
+        notebooksList = result.notebooks || [];
     }
 
     function formatTimestamp(ts: string): string {

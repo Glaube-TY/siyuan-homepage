@@ -1,14 +1,13 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { sql } from "@/api";
+    import { sql, getBlockKramdown, updateBlock as updateBlockAPI } from "@/api";
 
     interface Props {
-        plugin: any;
         blockId: string;
         close: () => void;
     }
 
-    let { plugin, blockId = $bindable(), close }: Props = $props();
+    let { blockId = $bindable(), close }: Props = $props();
 
     let parentBlockId = "";
     let parentBlockType = "";
@@ -85,8 +84,8 @@
     }
 
     async function getBlockMarkdown() {
-        const blockInfo = await plugin.client.getBlockKramdown({ id: blockId });
-        return blockInfo.data.kramdown.replace(/\s*\{:.*?\}\s*$/gm, "");
+        const blockInfo = await getBlockKramdown(blockId);
+        return blockInfo.kramdown.replace(/\s*\{:.*?\}\s*$/gm, "");
     }
 
     function formatDateString(dateStr: string) {
@@ -197,11 +196,7 @@
             updatedMarkdown = taskLines.join("\n");
         }
 
-        await plugin.client.updateBlock({
-            id: blockId,
-            data: updatedMarkdown,
-            dataType: "markdown",
-        });
+        await updateBlockAPI("markdown", updatedMarkdown, blockId);
 
         close();
     }

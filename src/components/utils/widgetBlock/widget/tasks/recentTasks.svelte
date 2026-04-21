@@ -4,6 +4,7 @@
     import { onMount } from "svelte";
     import { getLatestTasks, type RecentTasksInfo } from "./recentTasks";
     import { openDocs } from "@/components/tools/openDocs";
+    import { updateBlock } from "@/api";
 
     interface Props {
         plugin: any;
@@ -74,11 +75,7 @@
         );
 
         try {
-            await plugin.client.updateBlock({
-                data: newMarkdown,
-                dataType: "markdown",
-                id: task.id,
-            });
+            await updateBlock("markdown", newMarkdown, task.id);
 
             // 更新本地数据
             task.markdown = newMarkdown;

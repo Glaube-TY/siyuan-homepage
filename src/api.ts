@@ -4,6 +4,12 @@
  * 
  * See API Document in [API.md](https://github.com/siyuan-note/siyuan/blob/master/API.md)
  * API 文档见 [API_zh_CN.md](https://github.com/siyuan-note/siyuan/blob/master/API_zh_CN.md)
+ * 
+ * 【约定】
+ * - 本文件是仓库中唯一允许直接调用 kernel API (/api/...) 的入口
+ * - 后续新增思源 API 调用，优先在本文件补充 wrapper，组件层不要再直接 fetchSyncPost("/api/...")
+ * - 所有 wrapper 统一返回口径，组件层不再处理 res.data / res.code 等原始响应结构
+ * - 参考 router.go: https://github.com/siyuan-note/siyuan/blob/master/kernel/api/router.go
  */
 
 import { fetchPost, fetchSyncPost, IWebSocketData } from "siyuan";
@@ -460,6 +466,39 @@ export async function forwardProxy(
     return request(url1, data);
 }
 
+// endpoint: /api/network/forwardProxy (图片专用封装)
+// 返回口径: 直接返回 data:image/...;base64,... 字符串
+export async function getImageAsBase64(url: string, timeout: number = 10000): Promise<string | null> {
+    try {
+        const res = await forwardProxy(
+            url,
+            'GET',
+            {},
+            [
+                {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                },
+            ],
+            timeout,
+            'application/octet-stream'
+        );
+        
+        if (!res || !res.body) {
+            return null;
+        }
+        
+        // headers 是 { [key: string]: string } 对象，直接查找 content-type
+        const contentType = res.headers?.['content-type'] 
+            || res.headers?.['Content-Type'] 
+            || 'image/png';
+        
+        return `data:${contentType};base64,${res.body}`;
+    } catch (error) {
+        console.error('获取图片失败:', error);
+        return null;
+    }
+}
+
 
 // **************************************** System ****************************************
 
@@ -475,4 +514,68 @@ export async function version(): Promise<string> {
 
 export async function currentTime(): Promise<number> {
     return request('/api/system/currentTime', {});
+}
+
+
+// **************************************** Tag ****************************************
+// endpoint: /api/tag/getTag
+// 返回口径: 直接返回 Tag[] 数组，无需再取 res.data
+
+export interface Tag {
+    label: string;
+    count: number;
+}
+
+export async function getTag(sort: number = 1, ignoreMaxListHint: boolean = true, app?: string): Promise<Tag[]> {
+    const data: { sort: number; ignoreMaxListHint: boolean; app?: string } = {
+        sort,
+        ignoreMaxListHint,
+    };
+    if (app) {
+        data.app = app;
+    }
+    const res = await request('/api/tag/getTag', data);
+    return res || [];
+}
+
+
+// **************************************** Attribute View (Database) ****************************************
+// endpoint: /api/av/getAttributeViewKeysByAvID, /api/av/getAttributeView
+// 返回口径: 
+//   - getAttributeViewKeysByAvID: 直接返回原始数据（各调用方需求不一，暂不统一）
+//   - getAttributeView: 返回 { id, name, keyValues }，内部处理 res.av / res.data.av 嵌套差异
+
+export interface AttributeViewKeyValue {
+    key: {
+        id: string;
+        name: string;
+        type: string;
+    };
+    values: any[];
+}
+
+export interface AttributeView {
+    id: string;
+    name: string;
+    keyValues: AttributeViewKeyValue[];
+}
+
+export async function getAttributeViewKeysByAvID(avID: string): Promise<any> {
+    const res = await request('/api/av/getAttributeViewKeysByAvID', { avID });
+    return res || {};
+}
+
+export async function getAttributeView(id: string): Promise<AttributeView | null> {
+    const res = await request('/api/av/getAttributeView', { id });
+    if (!res) return null;
+    
+    // 处理不同可能的响应结构：res.av / res.data.av / res
+    const av = res.av || res.data?.av || res;
+    if (!av) return null;
+    
+    return {
+        id: av.id || id,
+        name: av.name || '',
+        keyValues: av.keyValues || [],
+    };
 }

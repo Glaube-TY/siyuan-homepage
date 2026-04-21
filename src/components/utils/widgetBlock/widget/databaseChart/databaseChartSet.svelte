@@ -1,8 +1,8 @@
 <script lang="ts">
     import { run } from 'svelte/legacy';
+    import { getAttributeView } from "@/api";
 
     interface Props {
-        plugin: any;
         advancedEnabled: boolean;
         databaseChartID?: string;
         databaseChartTitle?: string;
@@ -24,7 +24,6 @@
     }
 
     let {
-        plugin,
         advancedEnabled,
         databaseChartID = $bindable(""),
         databaseChartTitle = $bindable(""),
@@ -51,21 +50,9 @@
     async function getDatabase() {
         if (!databaseChartID) return;
         try {
-            const response = await fetch(
-                "/api/av/getAttributeView",
-                {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Token ${plugin?.app?.api?.token}`,
-                    },
-                    body: JSON.stringify({
-                        id: databaseChartID,
-                    }),
-                }
-            );
-            const data = await response.json();
-            if (data.code === 0) {
-                databaseChartInfo = data.data.keyValues || [];
+            const av = await getAttributeView(databaseChartID);
+            if (av) {
+                databaseChartInfo = av.keyValues || [];
                 confirmDatabaseChartID = true;
             } else {
                 confirmDatabaseChartID = false;
@@ -130,12 +117,12 @@
                                         }
                                     >
                                         {#each databaseChartInfo as column}
-                                            {#if column.type === "block" || column.type === "text" || column.type === "number" || column.type === "date" || column.type === "select" || column.type === "url" || column.type === "email" || column.type === "phone"}
+                                            {#if column.key.type === "block" || column.key.type === "text" || column.key.type === "number" || column.key.type === "date" || column.key.type === "select" || column.key.type === "url" || column.key.type === "email" || column.key.type === "phone"}
                                                 <option
-                                                    value={column.id}
+                                                    value={column.key.id}
                                                 >
-                                                    {column.name}
-                                                    ({column.type})
+                                                    {column.key.name}
+                                                    ({column.key.type})
                                                 </option>
                                             {/if}
                                         {/each}
@@ -165,12 +152,12 @@
                                             class="collapsed-multiselect"
                                         >
                                             {#each databaseChartInfo as column}
-                                                {#if column.type === "number"}
+                                                {#if column.key.type === "number"}
                                                     <option
-                                                        value={column.id}
+                                                        value={column.key.id}
                                                     >
-                                                        {column.name}
-                                                        ({column.type})
+                                                        {column.key.name}
+                                                        ({column.key.type})
                                                     </option>
                                                 {/if}
                                             {/each}
@@ -197,12 +184,12 @@
                                     }
                                 >
                                     {#each databaseChartInfo as column}
-                                        {#if column.type === "block" || column.type === "text" || column.type === "number" || column.type === "date" || column.type === "select" || column.type === "url" || column.type === "email" || column.type === "phone"}
+                                        {#if column.key.type === "block" || column.key.type === "text" || column.key.type === "number" || column.key.type === "date" || column.key.type === "select" || column.key.type === "url" || column.key.type === "email" || column.key.type === "phone"}
                                             <option
-                                                value={column.id}
+                                                value={column.key.id}
                                             >
-                                                {column.name}
-                                                ({column.type})
+                                                {column.key.name}
+                                                ({column.key.type})
                                             </option>
                                         {/if}
                                     {/each}

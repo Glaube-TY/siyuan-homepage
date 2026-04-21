@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { forwardProxy } from "@/api";
 
     interface Props {
         plugin: any;
@@ -8,8 +9,8 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const NewsType = parsedContent.data?.NewsType || "daily-news-bulletin";
+    const parsedContent = $derived(JSON.parse(contentTypeJson));
+    const NewsType = $derived(parsedContent.data?.NewsType || "daily-news-bulletin");
 
     let newsList: any = $state();
 
@@ -24,25 +25,23 @@
 
     async function getZhihuDailyNews() {
         try {
-            const repo = await plugin.client.forwardProxy({
-                url: "https://v.api.aa1.cn/api/zhihu-news/index.php?aa1=xiarou",
-                method: "GET",
-                headers: [
+            const repo = await forwardProxy(
+                "https://v.api.aa1.cn/api/zhihu-news/index.php?aa1=xiarou",
+                "GET",
+                {},
+                [
                     {
                         "User-Agent":
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                     },
                 ],
-                contentType: "application/json",
-                payloadEncoding: "text",
-                responseEncoding: "text",
-                timeout: 7000,
-                payload: undefined,
-            });
+                7000,
+                "application/json"
+            );
             const responseBody =
-                typeof repo.data.body === "string"
-                    ? JSON.parse(repo.data.body)
-                    : repo.data.body;
+                typeof repo.body === "string"
+                    ? JSON.parse(repo.body)
+                    : repo.body;
             newsList = responseBody.news;
         } catch (error) {
             console.error("获取知乎日报失败:", error);
