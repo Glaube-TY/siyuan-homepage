@@ -18,7 +18,16 @@
     let sortable: Sortable | null = null;
     let layoutObserver: MutationObserver | null = null;
 
+    // 本地容器引用：避免全局 selector 在实例重叠时命中错容器
+    let sidebarWidgetContainer: HTMLElement | null = null;
+
     function setupSortableObserver() {
+        // 先销毁旧的 sortable 实例，避免重复初始化
+        if (sortable) {
+            sortable.destroy();
+            sortable = null;
+        }
+
         if (layoutObserver) {
             layoutObserver.disconnect();
             layoutObserver = null;
@@ -30,17 +39,18 @@
             ) as HTMLElement;
             if (container) {
                 layoutObserver?.disconnect();
+                sidebarWidgetContainer = container;
 
                 sortable = new Sortable(container, {
                     animation: 150,
                     ghostClass: "sortable-ghost",
                     handle: ".drag-handle",
                     onEnd: () => {
-                        saveLayout(plugin);
+                        saveLayout(plugin, sidebarWidgetContainer);
                     },
                 });
 
-                await restoreLayout(plugin, { value: container });
+                await restoreLayout(plugin, { value: container }, sidebarWidgetContainer);
             }
         });
 
@@ -82,6 +92,23 @@
             window.removeEventListener("homepage-advanced-ready", handleAdvancedReady);
             window.removeEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
             cleanupSortableState();
+
+            // 显式销毁所有 widget 实例，触发各自的 onDestroy
+            const container = sidebarWidgetContainer || document.querySelector(".sidebar-widget");
+            if (container) {
+                const widgetBlocks = container.querySelectorAll(".widget-block");
+                widgetBlocks.forEach((block) => {
+                    const instance = (block as any).__widgetBlockInstance;
+                    if (instance && typeof instance.destroy === "function") {
+                        try {
+                            instance.destroy();
+                        } catch {
+                            // 忽略销毁错误
+                        }
+                    }
+                });
+            }
+            sidebarWidgetContainer = null;
         };
     });
 </script>
@@ -93,7 +120,7 @@
             <button
                 class="add-widget-btn"
                 onclick={() =>
-                    addCustomBlock(plugin, currentBlockForSettingsRef)}
+                    addCustomBlock(plugin, currentBlockForSettingsRef, sidebarWidgetContainer)}
                 >➕添加组件</button
             >
         </div>

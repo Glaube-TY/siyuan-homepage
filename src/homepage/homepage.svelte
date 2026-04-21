@@ -109,13 +109,19 @@
     let layoutObserver: MutationObserver | null = null;
     let destroyBannerDrag: (() => void) | null = null;
 
-    // 安全刷新锁，避免并发重入
-    let isRefreshingHomepage = false;
-    let refreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    // 本地容器引用：避免全局 selector 在实例重叠时命中错容器
+    let customContentContainer: HTMLElement | null = null;
 
     // 异步请求版本戳，用于丢弃过期结果
     let updateHomepageVersion = 0;
     let updateStatsVersion = 0;
+
+    // 前台同步检测定时器
+    let foregroundSyncWatchTimer: ReturnType<typeof setInterval> | null = null;
+    const FOREGROUND_SYNC_WATCH_INTERVAL = 30000; // 30 秒检测一次
+
+    // 首次初始化标记：用于确保只在启动期写盘动作完成后记录一次签名基线
+    let initialSignaturesRecorded = false;
 
     // 实时获取高级功能启用状态
     function getAdvancedEnabled(): boolean {
@@ -191,84 +197,139 @@
     }
 
     // 页面可见性变化处理
+    // 注意：plugin 侧（src/index.ts）是签名检测主入口，homepage.svelte 侧只是补充检测
     function handleVisibilityChange(): void {
         if (document.visibilityState === "visible") {
             const config = getFallingConfig();
             if (config.advanced && config.FallEffectsEnabled) {
                 startFallingEffects();
             }
-            // 先检查主页是否健康，不健康才需要刷新
-            debouncedSafeRefresh("visibility-visible");
+            // 启动前台同步检测（补充检测）
+            startForegroundSyncWatch();
+            // 立即检查一次签名变化
+            checkAndReloadIfSignatureChanged("visibility-visible");
+        } else {
+            // 页面不可见时停止前台检测
+            stopForegroundSyncWatch();
         }
     }
 
-    // 轻量健康检查：判断主页是否需要恢复
-    function shouldRecoverHomepageOnResume(): boolean {
-        // 检查关键容器是否存在
-        const homepageContainer = document.querySelector(".homepage-container");
-        if (!homepageContainer || !homepageContainer.isConnected) {
-            return true;
+    // 计算配置签名（归一化后）：排除设备管理态字段，避免误判
+    function computeConfigSignature(config: any): string {
+        try {
+            const normalized = normalizeConfigForSignature(config);
+            return JSON.stringify(normalized);
+        } catch {
+            return "";
         }
-
-        const workspaceHeader = document.querySelector(".workspace-header");
-        if (!workspaceHeader || !workspaceHeader.isConnected) {
-            return true;
-        }
-
-        const customContent = document.querySelector(".custom-content");
-        if (!customContent || !customContent.isConnected) {
-            return true;
-        }
-
-        // 检查组件区是否有内容
-        if (currentBlockForSettingsRef?.value && customContent.children.length === 0) {
-            return true;
-        }
-
-        return false;
     }
 
-    // 防抖安全刷新：仅在需要恢复时调用
-    function debouncedSafeRefresh(reason: string): void {
-        if (refreshDebounceTimer) {
-            clearTimeout(refreshDebounceTimer);
+    // 归一化配置用于签名：排除不应触发 reload 的设备管理态字段
+    // 与 src/index.ts 中的逻辑保持一致
+    function normalizeConfigForSignature(config: any): any {
+        if (!config || typeof config !== 'object') {
+            return config;
         }
-        refreshDebounceTimer = setTimeout(() => {
-            if (shouldRecoverHomepageOnResume()) {
-                safeRefreshHomepage(reason);
+
+        // 获取当前设备 ID 用于提取当前设备的 banner 配置
+        const deviceId = getLocalDeviceIdForSignature();
+
+        // 构建归一化后的配置对象
+        const normalized: any = {};
+
+        for (const key of Object.keys(config)) {
+            // 完全排除 deviceProfiles
+            if (key === 'deviceProfiles') {
+                continue;
             }
-        }, 500);
+
+            // bannerDeviceProfiles 只保留当前设备的 bannerHeight，排除 scrollTop
+            if (key === 'bannerDeviceProfiles') {
+                if (deviceId && config[key]?.[deviceId]?.bannerHeight !== undefined) {
+                    normalized[key] = {
+                        [deviceId]: {
+                            bannerHeight: config[key][deviceId].bannerHeight
+                        }
+                    };
+                }
+                continue;
+            }
+
+            // 其他字段原样保留
+            normalized[key] = config[key];
+        }
+
+        return normalized;
     }
 
-    // 安全刷新主页（统一容错）
-    async function safeRefreshHomepage(reason: string): Promise<void> {
-        if (isRefreshingHomepage) {
+    // 获取本地设备 ID（用于签名归一化）
+    function getLocalDeviceIdForSignature(): string | null {
+        try {
+            // 优先从 localStorage 读取
+            const storedId = localStorage.getItem('syhomepage-device-id');
+            if (storedId) {
+                return storedId;
+            }
+        } catch {
+            // localStorage 不可用，忽略
+        }
+        return null;
+    }
+
+    // 计算布局签名
+    function computeLayoutSignature(layout: any): string {
+        try {
+            return JSON.stringify(layout);
+        } catch {
+            return "";
+        }
+    }
+
+    // 检查签名变化，如有变化则触发整页 reload
+    async function checkAndReloadIfSignatureChanged(reason: string): Promise<void> {
+        try {
+            const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+            const layoutSettings = await loadWidgetLayoutSettings(plugin);
+
+            const currentConfigSig = computeConfigSignature(rawConfig);
+            const currentLayoutSig = computeLayoutSignature(layoutSettings);
+
+            const appliedSigs = plugin.getAppliedSignatures();
+
+            // 如果已应用签名为空（首次加载），只更新不 reload
+            if (!appliedSigs.config && !appliedSigs.layout) {
+                plugin.updateAppliedSignatures(currentConfigSig, currentLayoutSig);
+                return;
+            }
+
+            // 检查签名是否变化
+            if (currentConfigSig !== appliedSigs.config || currentLayoutSig !== appliedSigs.layout) {
+                console.debug(`[Homepage] 签名变化 detected: ${reason}`);
+                plugin.triggerHomepageFullReload(`signature-changed: ${reason}`);
+            }
+        } catch (e) {
+            console.warn('[Homepage] 签名检查失败:', e);
+        }
+    }
+
+    // 启动前台轻量同步检测（补充检测）
+    // 注意：plugin 侧（src/index.ts）是签名检测主入口，homepage.svelte 侧只是补充检测
+    function startForegroundSyncWatch(): void {
+        if (foregroundSyncWatchTimer) {
             return;
         }
-        
-        isRefreshingHomepage = true;
-
-        try {
-            // 1. 读取最新配置并注册设备
-            const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-            await registerCurrentDevice(rawConfig);
-
-            // 2. 更新配置（设备已就绪，可正确读取设备 profile）
-            await updateHomepage();
-            
-            // 3. 等待 DOM 更新
-            await tick();
-            
-            // 4. 若容器存在，恢复布局
-            const container = document.querySelector(".custom-content") as HTMLElement;
-            if (container && currentBlockForSettingsRef) {
-                await restoreLayout(plugin, currentBlockForSettingsRef);
+        foregroundSyncWatchTimer = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                checkAndReloadIfSignatureChanged("foreground-sync-watch");
             }
-        } catch (error) {
-            console.error(`[Homepage] 安全刷新失败: ${reason}`, error);
-            // 不抛出错误，保留当前页面状态
-        } finally {
-            isRefreshingHomepage = false;
+        }, FOREGROUND_SYNC_WATCH_INTERVAL);
+    }
+
+    // 停止前台同步检测
+    function stopForegroundSyncWatch(): void {
+        if (foregroundSyncWatchTimer) {
+            clearInterval(foregroundSyncWatchTimer);
+            foregroundSyncWatchTimer = null;
         }
     }
 
@@ -329,6 +390,14 @@
             ClickEffectContent,
             MouseTrailEnabled,
         });
+
+        // 6. 同步更新已应用签名，避免后续检测误判成本地刚保存的配置为外部同步变化
+        const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+        const layoutSettings = await loadWidgetLayoutSettings(plugin);
+        plugin.updateAppliedSignatures(
+            computeConfigSignature(rawConfig),
+            computeLayoutSignature(layoutSettings)
+        );
     }
 
     // 注册当前设备到同步配置（带同机匹配和去重）
@@ -459,6 +528,12 @@
         // 加载配置（此时设备已注册，loadWidgetLayoutSettings 可正确读取设备 profile）
         await updateHomepage();
 
+        // 注意：此时不立即记录已应用签名，因为后续 restoreLayout 可能还会写盘
+        // 签名基线将在 restoreLayout 完成后统一记录
+
+        // 启动前台同步检测
+        startForegroundSyncWatch();
+
         await tick();
 
         // 页面加载完成后初始化拖拽
@@ -475,17 +550,30 @@
             ) as HTMLElement;
             if (container) {
                 layoutObserver?.disconnect();
+                customContentContainer = container;
 
                 sortable = new Sortable(container, {
                     animation: 150,
                     ghostClass: "sortable-ghost",
                     handle: ".drag-handle",
                     onEnd: () => {
-                        saveLayout(plugin);
+                        saveLayout(plugin, customContentContainer);
                     },
                 });
 
-                await restoreLayout(plugin, { value: container });
+                await restoreLayout(plugin, { value: container }, customContentContainer);
+
+                // restoreLayout 完成后，启动期写盘动作已结束，此时记录签名基线
+                if (!initialSignaturesRecorded) {
+                    initialSignaturesRecorded = true;
+                    // 重新读取最新文件内容，确保签名基线与实际落盘数据一致
+                    const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+                    const latestLayout = await loadWidgetLayoutSettings(plugin);
+                    plugin.updateAppliedSignatures(
+                        computeConfigSignature(latestConfig),
+                        computeLayoutSignature(latestLayout)
+                    );
+                }
             }
         });
 
@@ -543,12 +631,26 @@
             "visibilitychange",
             handleVisibilityChange,
         );
-        if (refreshDebounceTimer) {
-            clearTimeout(refreshDebounceTimer);
-            refreshDebounceTimer = null;
-        }
+        stopForegroundSyncWatch();
         unregisterAllShortcuts();
         cleanupMouseEffects();
+
+        // 显式销毁所有 widget 实例，触发各自的 onDestroy
+        const container = customContentContainer || document.querySelector(".custom-content");
+        if (container) {
+            const widgetBlocks = container.querySelectorAll(".widget-block");
+            widgetBlocks.forEach((block) => {
+                const instance = (block as any).__widgetBlockInstance;
+                if (instance && typeof instance.destroy === "function") {
+                    try {
+                        instance.destroy();
+                    } catch {
+                        // 忽略销毁错误
+                    }
+                }
+            });
+        }
+        customContentContainer = null;
     });
 
     // 光标样式监听
@@ -912,7 +1014,7 @@
                         <div class="plugin-author">作者: Glaube-TY</div>
                         <div class="plugin-support">
                             <a
-                                href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-S7k1dPUtuomNB3x1hg8coMnunZf"
+                                href="https://blog.glaube-ty.top/da-shang"
                                 class="support-link">赞助支持 💸</a
                             >
                         </div>
@@ -929,7 +1031,7 @@
                 <div class="plugin-author">作者: Glaube-TY</div>
                 <div class="plugin-support">
                     <a
-                        href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg#share-S7k1dPUtuomNB3x1hg8coMnunZf"
+                        href="https://blog.glaube-ty.top/da-shang"
                         class="support-link">赞助支持 💸</a
                     >
                 </div>

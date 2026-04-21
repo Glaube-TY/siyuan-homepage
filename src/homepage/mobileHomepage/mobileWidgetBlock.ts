@@ -43,7 +43,16 @@ export class WidgetBlock {
 
         this.element.setAttribute("style", this.style);
 
+        // 在 DOM 上挂载实例引用，便于外部统一销毁
+        (this.element as any).__widgetBlockInstance = this;
+
         this.setupEventListeners();
+    }
+
+    // 公开销毁方法：统一清理 widget 实例
+    public destroy(): void {
+        this.cleanupMountedWidget();
+        (this.element as any).__widgetBlockInstance = null;
     }
 
     private cleanupMountedWidget(): void {

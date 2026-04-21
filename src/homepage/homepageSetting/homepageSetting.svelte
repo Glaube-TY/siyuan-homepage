@@ -735,6 +735,7 @@
                 {/if}
 
                 {#if settingsActiveTab === "devices"}
+                    {@const otherDevices = Object.entries(deviceProfiles).filter(([id]) => id !== currentDeviceInfo?.deviceId)}
                     <div class="devices-section">
                         <h3>设备配置管理</h3>
                         
@@ -750,26 +751,19 @@
                                 </button>
                             </div>
                             {#if currentDeviceInfo}
+                                {@const currentProfile = currentDeviceInfo?.deviceId ? deviceProfiles[currentDeviceInfo.deviceId] : null}
                                 <div class="device-info-card current">
                                     <div class="device-info-row">
                                         <span class="label">设备名称:</span>
                                         <span class="value">{currentDeviceInfo.deviceName}</span>
                                     </div>
                                     <div class="device-info-row">
-                                        <span class="label">设备 ID:</span>
-                                        <span class="value device-id">{currentDeviceInfo.deviceId}</span>
+                                        <span class="label">平台/架构:</span>
+                                        <span class="value">{currentDeviceInfo.platform} / {currentDeviceInfo.arch}</span>
                                     </div>
                                     <div class="device-info-row">
-                                        <span class="label">平台:</span>
-                                        <span class="value">{currentDeviceInfo.platform}</span>
-                                    </div>
-                                    <div class="device-info-row">
-                                        <span class="label">架构:</span>
-                                        <span class="value">{currentDeviceInfo.arch}</span>
-                                    </div>
-                                    <div class="device-info-row">
-                                        <span class="label">主机名:</span>
-                                        <span class="value">{currentDeviceInfo.hostname}</span>
+                                        <span class="label">最后活跃:</span>
+                                        <span class="value">{currentProfile?.lastSeenAt ? new Date(currentProfile.lastSeenAt).toLocaleString() : '未知'}</span>
                                     </div>
                                 </div>
                             {:else}
@@ -778,59 +772,39 @@
                         </div>
 
                         <div class="all-devices">
-                            <h4>已登记设备 ({Object.keys(deviceProfiles).length})</h4>
-                            {#if Object.keys(deviceProfiles).length > 0}
-                                {@const sortedDevices = [...Object.entries(deviceProfiles)].sort((a, b) => {
-                                    const [idA] = a;
-                                    const [idB] = b;
-                                    if (idA === currentDeviceInfo?.deviceId) return -1;
-                                    if (idB === currentDeviceInfo?.deviceId) return 1;
+                            <h4>已登记设备 ({otherDevices.length})</h4>
+                            {#if otherDevices.length > 0}
+                                {@const sortedDevices = otherDevices.sort((a, b) => {
                                     const timeA = a[1].lastSeenAt ? new Date(a[1].lastSeenAt).getTime() : 0;
                                     const timeB = b[1].lastSeenAt ? new Date(b[1].lastSeenAt).getTime() : 0;
                                     return timeB - timeA;
                                 })}
                                 <div class="device-list">
                                     {#each sortedDevices as [id, profile]}
-                                        <div class="device-info-card" class:current-device-card={id === currentDeviceInfo?.deviceId}>
+                                        <div class="device-info-card">
                                             <div class="device-info-row">
                                                 <span class="label">设备名称:</span>
                                                 <span class="value">{profile.deviceName || '未知'}</span>
                                             </div>
                                             <div class="device-info-row">
-                                                <span class="label">设备 ID:</span>
-                                                <span class="value device-id">{id}</span>
-                                            </div>
-                                            <div class="device-info-row">
-                                                <span class="label">平台:</span>
-                                                <span class="value">{profile.platform || '未知'}</span>
-                                            </div>
-                                            <div class="device-info-row">
-                                                <span class="label">架构:</span>
-                                                <span class="value">{profile.arch || '未知'}</span>
-                                            </div>
-                                            <div class="device-info-row">
-                                                <span class="label">主机名:</span>
-                                                <span class="value">{profile.hostname || '未知'}</span>
+                                                <span class="label">平台/架构:</span>
+                                                <span class="value">{profile.platform || '未知'} / {profile.arch || '未知'}</span>
                                             </div>
                                             <div class="device-info-row">
                                                 <span class="label">最后活跃:</span>
                                                 <span class="value">{profile.lastSeenAt ? new Date(profile.lastSeenAt).toLocaleString() : '未知'}</span>
                                             </div>
-                                            {#if id === currentDeviceInfo?.deviceId}
-                                                <div class="current-badge">当前设备</div>
-                                            {:else}
-                                                <button
-                                                    class="remove-device-btn"
-                                                    onclick={() => removeDeviceProfile(id)}
-                                                >
-                                                    移除配置
-                                                </button>
-                                            {/if}
+                                            <button
+                                                class="remove-device-btn"
+                                                onclick={() => removeDeviceProfile(id)}
+                                            >
+                                                移除配置
+                                            </button>
                                         </div>
                                     {/each}
                                 </div>
                             {:else}
-                                <p class="no-devices">暂无已登记的设备配置</p>
+                                <p class="no-devices">暂无其他已登记设备</p>
                             {/if}
                         </div>
                     </div>

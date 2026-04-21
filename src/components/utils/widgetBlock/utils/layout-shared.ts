@@ -4,12 +4,14 @@ import { getLocalDeviceId, isDesktopDeviceProfileEnabled } from "@/homepage/util
 export interface SaveLayoutOptions {
     containerSelector: string;
     layoutFileName: string;
+    containerEl?: HTMLElement | null;
 }
 
 export interface RestoreLayoutOptions {
     containerSelector: string;
     layoutFileName: string;
     WidgetBlockClass: any;
+    containerEl?: HTMLElement | null;
 }
 
 export interface LayoutItem {
@@ -116,7 +118,7 @@ export async function saveLayoutForContainer(
     plugin: Plugin,
     options: SaveLayoutOptions
 ): Promise<void> {
-    const container = document.querySelector(options.containerSelector);
+    const container = options.containerEl || document.querySelector(options.containerSelector);
     if (!container) return;
 
     const currentOrder: LayoutItem[] = Array.from(container.children).map((el: Element, index) => {
@@ -232,7 +234,7 @@ export async function restoreLayoutForContainer(
     currentBlockForSettingsRef: { value: HTMLElement | null },
     options: RestoreLayoutOptions
 ): Promise<void> {
-    const container = document.querySelector(options.containerSelector);
+    const container = options.containerEl || document.querySelector(options.containerSelector);
     if (!container) return;
 
     let layout = await plugin.loadData(options.layoutFileName) as WidgetLayoutData | null;
@@ -318,6 +320,19 @@ export async function restoreLayoutForContainer(
     if (widgetsToRestore.length === 0) {
         return;
     }
+
+    // 清空容器前，先显式销毁已有 widget 实例，触发各自的 onDestroy
+    const existingBlocks = container.querySelectorAll('.widget-block');
+    existingBlocks.forEach((block) => {
+        const instance = (block as any).__widgetBlockInstance;
+        if (instance && typeof instance.destroy === 'function') {
+            try {
+                instance.destroy();
+            } catch {
+                // 忽略销毁错误
+            }
+        }
+    });
 
     // 清空容器，避免重复调用时重复追加组件
     while (container.firstChild) {

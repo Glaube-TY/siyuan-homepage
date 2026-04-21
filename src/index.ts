@@ -9,6 +9,8 @@ import {
 
 import { svelteDialog } from "@/libs/dialog";
 import * as advanced from "@/components/tools/advanced";
+import { loadWidgetLayoutSettings } from "@/components/utils/widgetBlock/utils/layout-shared";
+import { destroyFloatingDoc } from "@/components/tools/floatingDoc";
 
 import * as sdk from "@siyuan-community/siyuan-sdk";
 import Homepage from "./homepage/homepage.svelte";
@@ -48,12 +50,153 @@ export default class PluginHomepage extends Plugin {
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
     private homepageInstance: Record<string, any> | null = null;
     private homepageTabDiv: HTMLDivElement | null = null;
+    private sidebarDockInstance: Record<string, any> | null = null;
+    private homepageTabObserver: MutationObserver | null = null;
     ADVANCED = false;
     private docTreeMenuEventBindThis = this.handleDocTreeMenu.bind(this);
     private contentMenuEventBindThis = this.handleContentMenu.bind(this);
     private editorTitleIconMenuEventBindThis = this.handleEditorTitleIconMenu.bind(this);
 
+    // 已应用签名状态：用于检测外部同步变化
+    private lastAppliedConfigSignature = "";
+    private lastAppliedLayoutSignature = "";
+
+    // 整页 reload 去重保护：避免同一轮变化重复触发
+    private homepageReloadTriggered = false;
+
     client = new sdk.Client(undefined, 'fetch');
+
+    // 更新已应用签名（homepage 初始化完成后调用）
+    public updateAppliedSignatures(configSig: string, layoutSig: string): void {
+        this.lastAppliedConfigSignature = configSig;
+        this.lastAppliedLayoutSignature = layoutSig;
+        console.debug('[Homepage] 已应用签名已更新');
+    }
+
+    // 获取当前已应用签名
+    public getAppliedSignatures(): { config: string; layout: string } {
+        return {
+            config: this.lastAppliedConfigSignature,
+            layout: this.lastAppliedLayoutSignature,
+        };
+    }
+
+    // 统一整页 reload 入口：签名变化时调用
+    public triggerHomepageFullReload(reason: string): void {
+        if (this.homepageReloadTriggered) {
+            console.debug(`[Homepage] 整页 reload 已触发过，跳过: ${reason}`);
+            return;
+        }
+        this.homepageReloadTriggered = true;
+        console.debug(`[Homepage] 触发整页 reload: ${reason}`);
+        window.location.reload();
+    }
+
+    // 计算配置签名（归一化后）：排除设备管理态字段，避免误判
+    private computeConfigSignature(config: any): string {
+        try {
+            const normalized = this.normalizeConfigForSignature(config);
+            return JSON.stringify(normalized);
+        } catch {
+            return "";
+        }
+    }
+
+    // 归一化配置用于签名：排除不应触发 reload 的设备管理态字段
+    private normalizeConfigForSignature(config: any): any {
+        if (!config || typeof config !== 'object') {
+            return config;
+        }
+
+        // 获取当前设备 ID 用于提取当前设备的 banner 配置
+        const deviceId = this.getLocalDeviceIdForSignature();
+
+        // 构建归一化后的配置对象
+        const normalized: any = {};
+
+        for (const key of Object.keys(config)) {
+            // 完全排除 deviceProfiles
+            if (key === 'deviceProfiles') {
+                continue;
+            }
+
+            // bannerDeviceProfiles 只保留当前设备的 bannerHeight，排除 scrollTop
+            if (key === 'bannerDeviceProfiles') {
+                if (deviceId && config[key]?.[deviceId]?.bannerHeight !== undefined) {
+                    normalized[key] = {
+                        [deviceId]: {
+                            bannerHeight: config[key][deviceId].bannerHeight
+                        }
+                    };
+                }
+                continue;
+            }
+
+            // 其他字段原样保留
+            normalized[key] = config[key];
+        }
+
+        return normalized;
+    }
+
+    // 获取本地设备 ID（用于签名归一化）
+    private getLocalDeviceIdForSignature(): string | null {
+        try {
+            // 优先从 localStorage 读取
+            const storedId = localStorage.getItem('syhomepage-device-id');
+            if (storedId) {
+                return storedId;
+            }
+        } catch {
+            // localStorage 不可用，忽略
+        }
+        return null;
+    }
+
+    // 计算布局签名
+    private computeLayoutSignature(layout: any): string {
+        try {
+            return JSON.stringify(layout);
+        } catch {
+            return "";
+        }
+    }
+
+    // plugin 侧签名检查：在 homepage 组件 mount 之前就能检测到签名变化并整页 reload
+    // 返回 true 表示已触发 reload，调用方应终止后续流程
+    public async checkHomepageSignatureAndReload(reason: string): Promise<boolean> {
+        // 如果已触发过 reload，不再重复检查
+        if (this.homepageReloadTriggered) {
+            return true;
+        }
+
+        // 如果没有已应用签名（首次加载），跳过检查
+        const appliedSigs = this.getAppliedSignatures();
+        if (!appliedSigs.config && !appliedSigs.layout) {
+            return false;
+        }
+
+        try {
+            // 读取最新配置
+            const rawConfig = (await this.loadData("homepageSettingConfig.json")) || {};
+            // 使用 shared 的 loadWidgetLayoutSettings，确保与 homepage.svelte 口径一致
+            const layoutSettings = await loadWidgetLayoutSettings(this);
+
+            const currentConfigSig = this.computeConfigSignature(rawConfig);
+            const currentLayoutSig = this.computeLayoutSignature(layoutSettings);
+
+            // 检查签名是否变化
+            if (currentConfigSig !== appliedSigs.config || currentLayoutSig !== appliedSigs.layout) {
+                console.debug(`[Homepage] plugin 侧检测到签名变化: ${reason}`);
+                this.triggerHomepageFullReload(`plugin-signature-changed: ${reason}`);
+                return true;
+            }
+        } catch (e) {
+            console.warn('[Homepage] plugin 侧签名检查失败:', e);
+        }
+
+        return false;
+    }
 
     async onload() {
         const config = await this.getPluginConfig();
@@ -93,22 +236,59 @@ export default class PluginHomepage extends Plugin {
             this.currentMobileDialog = null;
         }
 
+        // 销毁全局悬浮预览单例（清理 DOM、样式、Protyle 等资源）
+        try {
+            destroyFloatingDoc();
+        } catch {
+            // 忽略销毁过程中的错误
+        }
 
+        // 销毁 dock Sidebar 实例
+        if (this.sidebarDockInstance) {
+            try {
+                unmount(this.sidebarDockInstance);
+            } catch {
+                // 忽略卸载过程中的错误
+            }
+            this.sidebarDockInstance = null;
+        }
+
+        // 断开主页 tab 连接状态观察器
+        if (this.homepageTabObserver) {
+            this.homepageTabObserver.disconnect();
+            this.homepageTabObserver = null;
+        }
     }
 
     async onLayoutReady() {
         this.homepageTabDiv = document.createElement("div");
         // 不再提前 mount，等 tab init 容器进入 DOM 后再创建实例
 
+        // 建立轻量观察：当 homepageTabDiv 脱离 DOM 时自动销毁 Homepage 实例
+        this.homepageTabObserver = new MutationObserver(() => {
+            if (this.homepageInstance && this.homepageTabDiv && !this.homepageTabDiv.isConnected) {
+                this.destroyHomepageInstance();
+            }
+        });
+        this.homepageTabObserver.observe(document.body, { childList: true, subtree: true });
+
         const self = this;
         this.customTab = this.addTab({
             type: TAB_TYPE,
-            init() {
+            async init() {
                 // 轻量保护：确保 custom tab 上下文完整
                 if (!this.element) {
                     console.debug('[Homepage] Tab init: element 未就绪');
                     return;
                 }
+
+                // plugin 侧先检查签名变化，即使 homepage 组件还没 mount 也能触发 reload
+                const shouldReload = await self.checkHomepageSignatureAndReload('customTab.init');
+                if (shouldReload) {
+                    // 已触发 reload，不再继续挂载
+                    return;
+                }
+
                 if (self.homepageTabDiv) {
                     this.element.appendChild(self.homepageTabDiv);
                     // 容器真正进入页面后再创建 Homepage 实例（避免过早 mount）
@@ -282,7 +462,14 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    private openHomepage() {
+    private async openHomepage() {
+        // plugin 侧先检查签名变化，即使 homepage 组件还没 mount 也能触发 reload
+        const shouldReload = await this.checkHomepageSignatureAndReload('openHomepage');
+        if (shouldReload) {
+            // 已触发 reload，不再继续打开 tab
+            return;
+        }
+
         openTab({
             app: this.app,
             custom: {
@@ -317,6 +504,10 @@ export default class PluginHomepage extends Plugin {
                     },
                 });
             },
+            // dialog 任何关闭路径（包括自身关闭按钮）都会触发，确保引用正确置空
+            callback: () => {
+                this.currentMobileDialog = null;
+            },
         });
     }
 
@@ -338,8 +529,25 @@ export default class PluginHomepage extends Plugin {
             },
             type: DOCK_TYPE,
             init: (dock) => {
+                // 如果已有旧实例，先清理避免重复挂载
+                if (this.sidebarDockInstance) {
+                    try {
+                        unmount(this.sidebarDockInstance);
+                    } catch {
+                        // 忽略卸载错误
+                    }
+                    this.sidebarDockInstance = null;
+                }
+
+                // 清理 dock.element 内可能残留的旧 sidebar 容器
+                const existingContainer = dock.element.querySelector('[data-sidebar-container]');
+                if (existingContainer) {
+                    existingContainer.remove();
+                }
+
                 const sidebarContainer = document.createElement("div");
-                mount(Sidebar as any, {
+                sidebarContainer.setAttribute('data-sidebar-container', 'true');
+                this.sidebarDockInstance = mount(Sidebar as any, {
                     target: sidebarContainer,
                     props: {
                         plugin: this,

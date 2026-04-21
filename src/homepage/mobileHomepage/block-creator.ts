@@ -5,12 +5,14 @@ import { saveLayout } from "./mobileHomepage_layout";
 export function addCustomBlock(
     plugin: any,
     currentBlockForSettingsRef: { value: HTMLElement | null },
+    containerEl?: HTMLElement | null,
 ) {
     addCustomBlockToContainer(plugin, currentBlockForSettingsRef, {
         containerSelector: ".mobile-homepage-widget",
         WidgetBlockClass: WidgetBlock,
         afterAppend: () => {
-            saveLayout(plugin);
+            saveLayout(plugin, containerEl);
         },
+        containerEl,
     });
 }

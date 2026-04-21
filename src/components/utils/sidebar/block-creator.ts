@@ -5,12 +5,14 @@ import { saveLayout } from "./widget_layout";
 export function addCustomBlock(
     plugin: any,
     currentBlockForSettingsRef: { value: HTMLElement | null },
+    containerEl?: HTMLElement | null,
 ) {
     addCustomBlockToContainer(plugin, currentBlockForSettingsRef, {
         containerSelector: ".sidebar-widget",
         WidgetBlockClass: WidgetBlock,
         afterAppend: () => {
-            saveLayout(plugin);
+            saveLayout(plugin, containerEl);
         },
+        containerEl,
     });
 }

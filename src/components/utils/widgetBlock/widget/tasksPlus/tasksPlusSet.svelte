@@ -55,7 +55,7 @@
             ></textarea>
             <p>
                 使用前请先了解<a
-                    href="https://ttl8ygt82u.feishu.cn/wiki/CCwfwq75Ziu8m5kQ0HXcnVbfnod?from=from_copylink"
+                    href="https://blog.glaube-ty.top/archives/019d2a3a-61a5-75d7-b349-73a2a6d482bb"
                     target="_blank">筛选语法</a
                 >，并根据需求进行调整。
             </p>

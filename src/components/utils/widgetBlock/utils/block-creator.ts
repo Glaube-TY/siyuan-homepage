@@ -5,12 +5,14 @@ import { saveLayout } from './layout-handler';
 export function addCustomBlock(
     plugin: any,
     currentBlockForSettingsRef: { value: HTMLElement | null },
+    containerEl?: HTMLElement | null,
 ) {
     addCustomBlockToContainer(plugin, currentBlockForSettingsRef, {
         containerSelector: ".custom-content",
         WidgetBlockClass: WidgetBlock,
         afterAppend: () => {
-            saveLayout(plugin);
+            saveLayout(plugin, containerEl);
         },
+        containerEl,
     });
 }

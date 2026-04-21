@@ -21,13 +21,7 @@
                 <p>
                     <a
                         href="https://blog.glaube-ty.top/zhu-ye-cha-jian"
-                        class="link">我的博客</a
-                    >
-                </p>
-                <p>
-                    <a
-                        href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink"
-                        class="link">飞书文档(备用)</a
+                        class="link">插件教程</a
                     >
                 </p>
             </div>

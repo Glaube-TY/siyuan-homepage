@@ -35,24 +35,6 @@
                 onmouseup="this.style.transform='translateY(-2px)'">
                     📖 详细使用教程
             </a>
-            <a href="https://ttl8ygt82u.feishu.cn/wiki/Skg2woe9DidYNNkQSiEcWRLrnRg?from=from_copylink" 
-                style="display: inline-flex; 
-                        align-items: center; 
-                        padding: 10px 20px; 
-                        background: #2d8cf0; 
-                        color: white; 
-                        border-radius: 6px; 
-                        text-decoration: none;
-                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                        transform: translateY(0);
-                        box-shadow: 0 4px 6px rgba(45,140,240,0.1);
-                        border: 1px solid rgba(45,140,240,0.2);"
-                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(45,140,240,0.2)'"
-                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(45,140,240,0.1)'"
-                onmousedown="this.style.transform='translateY(1px)'"
-                onmouseup="this.style.transform='translateY(-2px)'">
-                    📖 详细使用教程（备用）
-            </a>
         </div>
     </div>
     <div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 8px;">

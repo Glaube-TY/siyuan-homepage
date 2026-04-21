@@ -47,7 +47,7 @@
             <h2>👑 VIP 激活</h2>
             <h3>
                 <a
-                    href="https://ttl8ygt82u.feishu.cn/wiki/GEHMwHxE0icZZ8kq124cCAP6njh?from=from_copylink"
+                    href="https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab"
                     target="_blank">👑查看会员权益👑</a
                 >
             </h3>
