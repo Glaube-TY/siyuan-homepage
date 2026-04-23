@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
     interface Props {
         advancedEnabled?: boolean;
@@ -60,201 +62,128 @@
     };
 </script>
 
-<div class="content-display">
-    <div class="content-panel dailyQuote">
-        <div class="form-group dailyQuoteMode">
-            <label>
-                每日一言模式：<select bind:value={dailyQuoteMode}>
-                    <option value="custom">自定义文字</option>
-                    <option value="remote">远程接口👑</option>
+<SettingSection>
+    <SettingRow title="每日一言模式">
+        <select bind:value={dailyQuoteMode} class="control-sm">
+            <option value="custom">自定义文字</option>
+            <option value="remote">远程接口👑</option>
+        </select>
+    </SettingRow>
+
+    <SettingRow title="字体大小">
+        <input type="number" bind:value={dailyQuoteFontSize} class="control-xs" />
+    </SettingRow>
+</SettingSection>
+
+{#if dailyQuoteMode === "remote"}
+    {#if advancedEnabled}
+        <SettingSection>
+            <SettingRow title="接口来源">
+                <select bind:value={dailyQuoteSource} class="control-md">
+                    <option value="classic">今日语录</option>
+                    <option value="celebrity">名人名言</option>
+                    <option value="emotion">情感语录</option>
+                    <option value="gaoxiao">搞笑语录</option>
+                    <option value="pyq">朋友圈语录</option>
+                    <option value="straybirdsZH">飞鸟集（中文版）</option>
+                    <option value="straybirdsEN">飞鸟集（英文版）</option>
+                    <option value="lovegarden">爱情公寓语录</option>
                 </select>
-            </label>
-            <label for="">
-                字体大小：<input
-                    type="number"
-                    bind:value={dailyQuoteFontSize}
-                />
-            </label>
+            </SettingRow>
+        </SettingSection>
+    {:else}
+        <h3>👑会员专属权益👑</h3>
+    {/if}
+{:else}
+    <SettingSection>
+        <SettingRow title="自定义内容" description="每句话一行">
+            <textarea bind:value={customDailyQuoteContent}></textarea>
+        </SettingRow>
+    </SettingSection>
+{/if}
+
+<SettingSection title="背景设置">
+    <SettingRow title="图片来源">
+        <select
+            bind:value={dailyQuoteBgSelect}
+            onchange={() => {
+                if (dailyQuoteBgSelect === "remote") {
+                    dailyQuoteLocalBg = "";
+                } else {
+                    dailyQuoteRemoteBg = "";
+                }
+            }}
+            class="control-sm"
+        >
+            <option value="remote">远程图片</option>
+            <option value="local">本地图片</option>
+        </select>
+    </SettingRow>
+
+    {#if dailyQuoteBgSelect === "remote"}
+        <SettingRow title="图片URL">
+            <input
+                type="text"
+                bind:value={dailyQuoteRemoteBg}
+                onchange={getDailyQuoteBgImage}
+                placeholder="输入远程图片URL"
+                class="control-full"
+            />
+        </SettingRow>
+    {:else}
+        <SettingRow title="上传图片">
+            <button onclick={() => dailyQuoteBgInput?.click()} class="file-action-btn">📁</button>
+            <input
+                type="file"
+                bind:this={dailyQuoteBgInput}
+                accept="image/*"
+                onchange={handleDailyQuoteUpload}
+                style="display: none;"
+            />
+        </SettingRow>
+    {/if}
+
+    <!-- 全宽预览块 -->
+    {#if dailyQuoteBgSelect === "remote" && dailyQuoteBgImageData}
+        <div class="preview-block">
+            <img src={dailyQuoteBgImageData} alt="每日一言背景预览" />
         </div>
-
-        {#if dailyQuoteMode === "remote"}
-            {#if advancedEnabled}
-                <label for="">
-                    接口来源：<select bind:value={dailyQuoteSource}>
-                        <option value="classic">今日语录</option>
-                        <option value="celebrity">名人名言</option>
-                        <option value="emotion">情感语录</option>
-                        <option value="gaoxiao">搞笑语录</option>
-                        <option value="pyq">朋友圈语录</option>
-                        <option value="straybirdsZH">飞鸟集（中文版）</option>
-                        <option value="straybirdsEN">飞鸟集（英文版）</option>
-                        <option value="lovegarden">爱情公寓语录</option>
-                    </select>
-                </label>
-            {:else}
-                <h3>👑会员专属权益👑</h3>
-            {/if}
-        {:else}
-            <label for="">
-                自定义内容：（每句话一行）
-                <textarea
-                    name=""
-                    id=""
-                    cols="30"
-                    rows="10"
-                    bind:value={customDailyQuoteContent}
-                ></textarea>
-            </label>
-        {/if}
-
-        <div class="form-group dailyQuoteBackgroundImg">
-            <div class="type-select-and-input">
-                <label>
-                    背景设置：
-                    <select
-                        bind:value={dailyQuoteBgSelect}
-                        onchange={() => {
-                            if (dailyQuoteBgSelect === "remote") {
-                                dailyQuoteLocalBg = "";
-                            } else {
-                                dailyQuoteRemoteBg = "";
-                            }
-                        }}
-                    >
-                        <option value="remote">远程图片</option>
-                        <option value="local">本地图片</option>
-                    </select>
-                </label>
-                {#if dailyQuoteBgSelect === "remote"}
-                    <input
-                        type="text"
-                        bind:value={dailyQuoteRemoteBg}
-                        onchange={getDailyQuoteBgImage}
-                        placeholder="输入远程图片URL"
-                    />
-                {:else}
-                    <button onclick={() => dailyQuoteBgInput?.click()}>
-                        上传图片
-                    </button>
-
-                    <input
-                        type="file"
-                        bind:this={dailyQuoteBgInput}
-                        accept="image/*"
-                        onchange={handleDailyQuoteUpload}
-                        style="display: none;"
-                    />
-                {/if}
-            </div>
-            <div class="image-preview">
-                {#if dailyQuoteBgSelect === "remote" && dailyQuoteBgImageData}
-                    <img src={dailyQuoteBgImageData} alt="每日一言背景预览" />
-                {:else if dailyQuoteBgSelect === "local" && dailyQuoteLocalBg}
-                    <img src={dailyQuoteLocalBg} alt="每日一言背景预览" />
-                {/if}
-            </div>
+    {:else if dailyQuoteBgSelect === "local" && dailyQuoteLocalBg}
+        <div class="preview-block">
+            <img src={dailyQuoteLocalBg} alt="每日一言背景预览" />
         </div>
-        <p>注：若某一接口失效请联系我更新~</p>
-    </div>
-</div>
+    {/if}
+</SettingSection>
+
+<p>注：若某一接口失效请联系我更新~</p>
 
 <style lang="scss">
-    .dailyQuote {
+    textarea {
+        width: 100%;
+        min-height: 100px;
+        padding: 0.5rem;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 4px;
+        background: var(--b3-theme-background);
+        font-family: inherit;
+        resize: vertical;
+    }
+
+    .preview-block {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        border: 1px solid var(--b3-border-color);
         display: flex;
-        flex-direction: column;
-        gap: 1rem;
+        justify-content: center;
+        align-items: center;
 
-        textarea {
-            height: 100px;
-        }
-
-        .dailyQuoteBackgroundImg {
-            display: flex;
-            align-items: flex-start;
-            gap: 1rem;
-            flex-wrap: wrap;
-            border-top: 1px solid var(--b3-border-color);
-            padding: 1rem 0;
-
-            .type-select-and-input {
-                flex: 1 1 auto;
-                max-width: 200px;
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-
-                label {
-                    font-size: 14px;
-                    font-weight: 500;
-                }
-
-                select,
-                input[type="text"] {
-                    padding: 0.4rem;
-                    box-sizing: border-box;
-                    font-size: 14px;
-                    border-radius: 6px;
-                    width: 100%;
-                    transition: all 0.2s ease;
-
-                    &:focus {
-                        outline: none;
-                        border-color: var(--b3-theme-primary);
-                        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-                    }
-
-                    &:hover {
-                        border-color: var(--b3-theme-primary-light);
-                    }
-                }
-
-                button {
-                    padding: 0.4rem 0.6rem;
-                    font-size: 14px;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                    width: 100%;
-                    align-self: flex-start;
-
-                    &:hover {
-                        background-color: var(--b3-theme-primary-light);
-                        border-color: var(--b3-theme-primary);
-                    }
-
-                    &:focus {
-                        outline: none;
-                        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-                    }
-                }
-            }
-
-            .image-preview {
-                flex: 0 0 auto;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: auto; // 固定宽度为 200px
-                background-color: rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                overflow: hidden;
-                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-                border: 1px solid #ccc;
-                transition: box-shadow 0.3s ease;
-                padding: 0.5rem;
-
-                img {
-                    width: 150px; // 宽度填满容器（200px）
-                    height: auto; // 高度自适应，保持图片比例
-                    max-height: 100px;
-                    object-fit: contain;
-                    border-radius: 6px;
-                }
-
-                &:hover {
-                    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-                }
-            }
+        img {
+            max-width: 100%;
+            max-height: 150px;
+            border-radius: 6px;
+            object-fit: contain;
         }
     }
 </style>

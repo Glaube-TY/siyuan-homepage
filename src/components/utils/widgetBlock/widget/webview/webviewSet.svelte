@@ -1,4 +1,7 @@
 <script lang="ts">
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
+
     interface Props {
         customWebUrl?: string;
     }
@@ -6,14 +9,13 @@
     let { customWebUrl = $bindable("") }: Props = $props();
 </script>
 
-<div class="content-panel custom-web">
-    <div class="form-group">
-        <label for="custom-web-url">网页地址：</label>
+<SettingSection>
+    <SettingRow title="网页地址" description="输入要显示的网页地址">
         <input
-            id="custom-web-url"
             type="text"
             bind:value={customWebUrl}
-            placeholder="输入要显示的网页地址：https://example.com"
+            placeholder="https://example.com"
+            class="control-full"
         />
-    </div>
-</div>
+    </SettingRow>
+</SettingSection>

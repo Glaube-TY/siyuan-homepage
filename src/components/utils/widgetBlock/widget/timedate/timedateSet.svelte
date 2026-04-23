@@ -2,7 +2,9 @@
     import { run } from 'svelte/legacy';
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
-    
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
+
     interface Props {
         plugin: any;
         // 时间样式
@@ -107,6 +109,13 @@
     let afternoonBgInput: HTMLInputElement = $state();
     let nightBgInput: HTMLInputElement = $state();
 
+    let morningBgImageData: string = $state("");
+    let afternoonBgImageData: string = $state("");
+    let nightBgImageData: string = $state("");
+
+    let simple2BgImageData: string = $state("");
+    let simple2BgInput: HTMLInputElement = $state();
+
     // 初始化图片数据
     async function initializeImages() {
         if (
@@ -139,7 +148,6 @@
     function handleMorningUpload() {
         const file = morningBgInput?.files?.[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = () => {
             if (reader.result && typeof reader.result === "string") {
@@ -153,7 +161,6 @@
     function handleAfternoonUpload() {
         const file = afternoonBgInput?.files?.[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = () => {
             if (reader.result && typeof reader.result === "string") {
@@ -167,7 +174,6 @@
     function handleNightUpload() {
         const file = nightBgInput?.files?.[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = () => {
             if (reader.result && typeof reader.result === "string") {
@@ -177,20 +183,17 @@
         reader.readAsDataURL(file);
     }
 
-    let simple2BgImageData: string = $state("");
-    let getSimple2BgImage: () => Promise<void> = $state();
     // 获取简单时钟2背景图片
-    getSimple2BgImage = async () => {
+    async function getSimple2BgImage() {
         if (simple2BgSelect === "remote") {
             simple2BgImageData = await getImage(simple2RemoteBg);
         } else {
             simple2BgImageData = simple2LocalBg;
         }
-    };
-    let handleSimple2Upload: () => void = $state();
-    let simple2BgInput: HTMLInputElement = $state();
-    // 处理图片上传
-    handleSimple2Upload = () => {
+    }
+
+    // 处理简单时钟2图片上传
+    function handleSimple2Upload() {
         const file = simple2BgInput?.files?.[0];
         if (file) {
             const reader = new FileReader();
@@ -199,18 +202,11 @@
             };
             reader.readAsDataURL(file);
         }
-    };
-
-    let morningBgImageData: string = $state("");
-    let afternoonBgImageData: string = $state("");
-    let nightBgImageData: string = $state("");
+    }
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;
-
         await initializeImages();
-
-        // 初始化背景图片
         if (!simple2BgImageData && simple2BgSelect === "remote") {
             await getSimple2BgImage();
         }
@@ -220,10 +216,7 @@
     run(() => {
         if (morningImageType === "remote" && morningBgUrl) {
             (async () => {
-                if (
-                    !window.navigator.userAgent.includes("Electron") ||
-                    typeof window.require !== "function"
-                ) {
+                if (!window.navigator.userAgent.includes("Electron") || typeof window.require !== "function") {
                     morningBgImageData = await getImage(morningBgUrl);
                 } else {
                     morningBgImageData = morningBgUrl;
@@ -231,14 +224,10 @@
             })();
         }
     });
-
     run(() => {
         if (afternoonImageType === "remote" && afternoonBgUrl) {
             (async () => {
-                if (
-                    !window.navigator.userAgent.includes("Electron") ||
-                    typeof window.require !== "function"
-                ) {
+                if (!window.navigator.userAgent.includes("Electron") || typeof window.require !== "function") {
                     afternoonBgImageData = await getImage(afternoonBgUrl);
                 } else {
                     afternoonBgImageData = afternoonBgUrl;
@@ -246,14 +235,10 @@
             })();
         }
     });
-
     run(() => {
         if (nightImageType === "remote" && nightBgUrl) {
             (async () => {
-                if (
-                    !window.navigator.userAgent.includes("Electron") ||
-                    typeof window.require !== "function"
-                ) {
+                if (!window.navigator.userAgent.includes("Electron") || typeof window.require !== "function") {
                     nightBgImageData = await getImage(nightBgUrl);
                 } else {
                     nightBgImageData = nightBgUrl;
@@ -263,569 +248,289 @@
     });
 </script>
 
-<div class="content-panel timedate">
-    <div class="time-type-select">
-        <label for="timeType"
-            >时间模式：
-            <select id="timeType" bind:value={timeType}>
-                <option value="classic">经典</option>
-                <option value="simple1">简约1</option>
-                <option value="simple2">简约2</option>
-                <option value="dial1">表盘1</option>
-                <option value="dial2">表盘2</option>
-                <option value="dial3">表盘3👑</option>
-                <option value="dial4">表盘4👑</option>
-                <option value="dial5">表盘5👑</option>
-                <option value="dial6">表盘6👑</option>
-                <option value="dial7">中国风表盘1👑</option>
-                <option value="dial8">水墨表盘1👑</option>
-                <option value="dial9">卡通熊表盘👑</option>
+<SettingSection>
+    <SettingRow title="时间模式">
+        <select bind:value={timeType} class="control-md">
+            <option value="classic">经典</option>
+            <option value="simple1">简约1</option>
+            <option value="simple2">简约2</option>
+            <option value="dial1">表盘1</option>
+            <option value="dial2">表盘2</option>
+            <option value="dial3">表盘3👑</option>
+            <option value="dial4">表盘4👑</option>
+            <option value="dial5">表盘5👑</option>
+            <option value="dial6">表盘6👑</option>
+            <option value="dial7">中国风表盘1👑</option>
+            <option value="dial8">水墨表盘1👑</option>
+            <option value="dial9">卡通熊表盘👑</option>
+        </select>
+    </SettingRow>
+</SettingSection>
+
+{#if timeType === "classic"}
+    <SettingSection title="显示选项">
+        <SettingRow title="显示秒数">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showSeconds} />
+        </SettingRow>
+        <SettingRow title="显示日期">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showDate} />
+        </SettingRow>
+        <SettingRow title="显示星期">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showWeek} />
+        </SettingRow>
+        <SettingRow title="显示农历">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showLunar} />
+        </SettingRow>
+        <SettingRow title="显示生肖">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showZodiac} />
+        </SettingRow>
+        <SettingRow title="显示节气">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showSolarTerm} />
+        </SettingRow>
+    </SettingSection>
+
+    {#if showDate}
+        <SettingSection>
+            <SettingRow title="日期格式">
+                <select bind:value={dateFormat} class="control-md">
+                    <option value="YYYY年MM月DD日">YYYY年MM月DD日</option>
+                    <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                    <option value="YYYY/MM/DD">YYYY/MM/DD</option>
+                    <option value="YYYY.MM.DD">YYYY.MM.DD</option>
+                </select>
+            </SettingRow>
+        </SettingSection>
+    {/if}
+
+    <SettingSection>
+        <SettingRow title="字体大小">
+            <input type="number" min="1" max="10" bind:value={timedateFontSize} class="control-xs" />
+        </SettingRow>
+    </SettingSection>
+
+    <!-- 隐藏的文件输入 -->
+    <input type="file" bind:this={morningBgInput} accept="image/*" onchange={handleMorningUpload} style="display: none;" />
+    <input type="file" bind:this={afternoonBgInput} accept="image/*" onchange={handleAfternoonUpload} style="display: none;" />
+    <input type="file" bind:this={nightBgInput} accept="image/*" onchange={handleNightUpload} style="display: none;" />
+
+    <SettingSection title="早晨背景（6点 ~ 12点）">
+        <SettingRow title="图片来源">
+            <select bind:value={morningImageType} class="control-sm">
+                <option value="remote">远程图片</option>
+                <option value="local">本地图片</option>
             </select>
-        </label>
-    </div>
-
-    {#if timeType === "classic"}
-        <div>
-            <div
-                class="form-group"
-                style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;"
-            >
-                <label
-                    ><input type="checkbox" bind:checked={showSeconds} /> 显示秒数</label
-                >
-                <label
-                    ><input type="checkbox" bind:checked={showDate} /> 显示日期</label
-                >
-                <label
-                    ><input type="checkbox" bind:checked={showWeek} /> 显示星期</label
-                >
-                <label
-                    ><input type="checkbox" bind:checked={showLunar} /> 显示农历</label
-                >
-                <label
-                    ><input type="checkbox" bind:checked={showZodiac} /> 显示生肖</label
-                >
-                <label
-                    ><input type="checkbox" bind:checked={showSolarTerm} /> 显示节气</label
-                >
-            </div>
-
-            <div class="form-group">
-                {#if showDate}
-                    <label for="dateFormat">日期格式：</label>
-                    <select id="dateFormat" bind:value={dateFormat}>
-                        <option value="YYYY年MM月DD日">YYYY年MM月DD日</option>
-                        <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                        <option value="YYYY/MM/DD">YYYY/MM/DD</option>
-                        <option value="YYYY.MM.DD">YYYY.MM.DD</option>
-                    </select>
-                {/if}
-                <label for="timedate-fontSize">
-                    字体大小：
-                    <input
-                        type="number"
-                        min="1"
-                        max="10"
-                        bind:value={timedateFontSize}
-                        placeholder="例如：3"
-                    />
-                </label>
-            </div>
-
-            <!-- 隐藏的文件输入 -->
-            <input
-                type="file"
-                bind:this={morningBgInput}
-                accept="image/*"
-                onchange={handleMorningUpload}
-                style="display: none;"
-            />
-            <input
-                type="file"
-                bind:this={afternoonBgInput}
-                accept="image/*"
-                onchange={handleAfternoonUpload}
-                style="display: none;"
-            />
-            <input
-                type="file"
-                bind:this={nightBgInput}
-                accept="image/*"
-                onchange={handleNightUpload}
-                style="display: none;"
-            />
-
-            <div class="form-group">
-                <h5>背景图片设置</h5>
-
-                <!-- 早晨 -->
-                <div class="background-option">
-                    <div class="background-row">
-                        <!-- 左侧配置 -->
-                        <div class="type-select-and-input">
-                            <label for="morning-bg-select"
-                                >早晨：（6点 ~ 12点）</label
-                            >
-                            <div class="type-select">
-                                <select
-                                    id="morning-bg-select"
-                                    bind:value={morningImageType}
-                                >
-                                    <option value="remote">远程图片</option>
-                                    <option value="local">本地图片</option>
-                                </select>
-                            </div>
-
-                            {#if morningImageType === "remote"}
-                                <input
-                                    type="text"
-                                    bind:value={morningBgUrl}
-                                    placeholder="请输入早晨背景图URL"
-                                />
-                            {:else}
-                                <button onclick={() => morningBgInput?.click()}
-                                    >上传图片</button
-                                >
-                            {/if}
-                        </div>
-
-                        <!-- 右侧预览 -->
-                        <div class="image-preview">
-                            {#if morningImageType === "remote" && morningBgUrl}
-                                <img src={morningBgImageData} alt="早晨预览" />
-                            {:else if morningImageType === "local" && morningBgImage}
-                                <img src={morningBgImage} alt="早晨预览" />
-                            {/if}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 中午 -->
-                <div class="background-option">
-                    <div class="background-row">
-                        <!-- 左侧配置 -->
-                        <div class="type-select-and-input">
-                            <label for="afternoon-bg-select"
-                                >中午：（12点 ~ 18点）</label
-                            >
-                            <div class="type-select">
-                                <select
-                                    id="afternoon-bg-select"
-                                    bind:value={afternoonImageType}
-                                >
-                                    <option value="remote">远程图片</option>
-                                    <option value="local">本地图片</option>
-                                </select>
-                            </div>
-
-                            {#if afternoonImageType === "remote"}
-                                <input
-                                    type="text"
-                                    bind:value={afternoonBgUrl}
-                                    placeholder="请输入中午背景图URL"
-                                />
-                            {:else}
-                                <button
-                                    onclick={() => afternoonBgInput?.click()}
-                                    >上传图片</button
-                                >
-                            {/if}
-                        </div>
-
-                        <!-- 右侧预览 -->
-                        <div class="image-preview">
-                            {#if afternoonImageType === "remote" && afternoonBgUrl}
-                                <img
-                                    src={afternoonBgImageData}
-                                    alt="中午预览"
-                                />
-                            {:else if afternoonImageType === "local" && afternoonBgImage}
-                                <img src={afternoonBgImage} alt="中午预览" />
-                            {/if}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 晚上 -->
-                <div class="background-option">
-                    <div class="background-row">
-                        <!-- 左侧配置 -->
-                        <div class="type-select-and-input">
-                            <label for="night-bg-select"
-                                >晚上：（18点 ~ 6点）</label
-                            >
-                            <div class="type-select">
-                                <select
-                                    id="night-bg-select"
-                                    bind:value={nightImageType}
-                                >
-                                    <option value="remote">远程图片</option>
-                                    <option value="local">本地图片</option>
-                                </select>
-                            </div>
-
-                            {#if nightImageType === "remote"}
-                                <input
-                                    type="text"
-                                    bind:value={nightBgUrl}
-                                    placeholder="请输入晚上背景图URL"
-                                />
-                            {:else}
-                                <button onclick={() => nightBgInput?.click()}
-                                    >上传图片</button
-                                >
-                            {/if}
-                        </div>
-
-                        <!-- 右侧预览 -->
-                        <div class="image-preview">
-                            {#if nightImageType === "remote" && nightBgUrl}
-                                <img src={nightBgImageData} alt="晚上预览" />
-                            {:else if nightImageType === "local" && nightBgImage}
-                                <img src={nightBgImage} alt="晚上预览" />
-                            {/if}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    {:else if timeType === "simple1"}
-        <div class="form-group">
-            <label for=""
-                >时钟大小：
-                <input type="number" bind:value={simple1Size} />
-            </label>
-            <label for=""
-                >字体粗细：
-                <input type="number" bind:value={simple1FontWeight} />
-            </label>
-        </div>
-        <div class="form-group">
-            <label for="">
-                <input type="checkbox" bind:checked={simple1ShowSecond} />
-                显示秒
-            </label>
-            <label for="">
-                <input type="checkbox" bind:checked={simple1ShowDate} />
-                显示日期
-            </label>
-        </div>
-    {:else if timeType === "simple2"}
-        <div class="form-group simple2BackgroundImg">
-            <div class="type-select-and-input">
-                <label>
-                    背景设置：
-                    <select
-                        bind:value={simple2BgSelect}
-                        onchange={() => {
-                            if (simple2BgSelect === "remote") {
-                                simple2LocalBg = "";
-                            } else {
-                                simple2RemoteBg = "";
-                            }
-                        }}
-                    >
-                        <option value="remote">远程图片</option>
-                        <option value="local">本地图片</option>
-                    </select>
-                </label>
-                {#if simple2BgSelect === "remote"}
-                    <input
-                        type="text"
-                        bind:value={simple2RemoteBg}
-                        onchange={getSimple2BgImage}
-                        placeholder="输入远程图片URL"
-                    />
-                {:else}
-                    <button onclick={() => simple2BgInput?.click()}>
-                        上传图片
-                    </button>
-
-                    <input
-                        type="file"
-                        bind:this={simple2BgInput}
-                        accept="image/*"
-                        onchange={handleSimple2Upload}
-                        style="display: none;"
-                    />
+        </SettingRow>
+        {#if morningImageType === "remote"}
+            <SettingRow title="图片URL">
+                <input type="text" bind:value={morningBgUrl} placeholder="请输入早晨背景图URL" class="control-full" />
+            </SettingRow>
+        {:else}
+            <SettingRow title="上传图片">
+                <button onclick={() => morningBgInput?.click()} class="file-action-btn">📁</button>
+            </SettingRow>
+        {/if}
+        {#if (morningImageType === "remote" && morningBgUrl) || (morningImageType === "local" && morningBgImage)}
+            <div class="preview-block">
+                {#if morningImageType === "remote" && morningBgUrl}
+                    <img src={morningBgImageData} alt="早晨预览" />
+                {:else if morningImageType === "local" && morningBgImage}
+                    <img src={morningBgImage} alt="早晨预览" />
                 {/if}
             </div>
-            <div class="image-preview">
+        {/if}
+    </SettingSection>
+
+    <SettingSection title="中午背景（12点 ~ 18点）">
+        <SettingRow title="图片来源">
+            <select bind:value={afternoonImageType} class="control-sm">
+                <option value="remote">远程图片</option>
+                <option value="local">本地图片</option>
+            </select>
+        </SettingRow>
+        {#if afternoonImageType === "remote"}
+            <SettingRow title="图片URL">
+                <input type="text" bind:value={afternoonBgUrl} placeholder="请输入中午背景图URL" class="control-full" />
+            </SettingRow>
+        {:else}
+            <SettingRow title="上传图片">
+                <button onclick={() => afternoonBgInput?.click()} class="file-action-btn">📁</button>
+            </SettingRow>
+        {/if}
+        {#if (afternoonImageType === "remote" && afternoonBgUrl) || (afternoonImageType === "local" && afternoonBgImage)}
+            <div class="preview-block">
+                {#if afternoonImageType === "remote" && afternoonBgUrl}
+                    <img src={afternoonBgImageData} alt="中午预览" />
+                {:else if afternoonImageType === "local" && afternoonBgImage}
+                    <img src={afternoonBgImage} alt="中午预览" />
+                {/if}
+            </div>
+        {/if}
+    </SettingSection>
+
+    <SettingSection title="晚上背景（18点 ~ 6点）">
+        <SettingRow title="图片来源">
+            <select bind:value={nightImageType} class="control-sm">
+                <option value="remote">远程图片</option>
+                <option value="local">本地图片</option>
+            </select>
+        </SettingRow>
+        {#if nightImageType === "remote"}
+            <SettingRow title="图片URL">
+                <input type="text" bind:value={nightBgUrl} placeholder="请输入晚上背景图URL" class="control-full" />
+            </SettingRow>
+        {:else}
+            <SettingRow title="上传图片">
+                <button onclick={() => nightBgInput?.click()} class="file-action-btn">📁</button>
+            </SettingRow>
+        {/if}
+        {#if (nightImageType === "remote" && nightBgUrl) || (nightImageType === "local" && nightBgImage)}
+            <div class="preview-block">
+                {#if nightImageType === "remote" && nightBgUrl}
+                    <img src={nightBgImageData} alt="晚上预览" />
+                {:else if nightImageType === "local" && nightBgImage}
+                    <img src={nightBgImage} alt="晚上预览" />
+                {/if}
+            </div>
+        {/if}
+    </SettingSection>
+
+{:else if timeType === "simple1"}
+    <SettingSection>
+        <SettingRow title="时钟大小">
+            <input type="number" bind:value={simple1Size} class="control-xs" />
+        </SettingRow>
+        <SettingRow title="字体粗细">
+            <input type="number" bind:value={simple1FontWeight} class="control-xs" />
+        </SettingRow>
+        <SettingRow title="显示秒">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={simple1ShowSecond} />
+        </SettingRow>
+        <SettingRow title="显示日期">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={simple1ShowDate} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "simple2"}
+    <SettingSection title="背景设置">
+        <SettingRow title="图片来源">
+            <select bind:value={simple2BgSelect} onchange={() => { if (simple2BgSelect === "remote") { simple2LocalBg = ""; } else { simple2RemoteBg = ""; } }} class="control-sm">
+                <option value="remote">远程图片</option>
+                <option value="local">本地图片</option>
+            </select>
+        </SettingRow>
+        {#if simple2BgSelect === "remote"}
+            <SettingRow title="图片URL">
+                <input type="text" bind:value={simple2RemoteBg} onchange={getSimple2BgImage} placeholder="输入远程图片URL" class="control-full" />
+            </SettingRow>
+        {:else}
+            <SettingRow title="上传图片">
+                <button onclick={() => simple2BgInput?.click()} class="file-action-btn">📁</button>
+                <input type="file" bind:this={simple2BgInput} accept="image/*" onchange={handleSimple2Upload} style="display: none;" />
+            </SettingRow>
+        {/if}
+        {#if (simple2BgSelect === "remote" && simple2BgImageData) || (simple2BgSelect === "local" && simple2LocalBg)}
+            <div class="preview-block">
                 {#if simple2BgSelect === "remote" && simple2BgImageData}
                     <img src={simple2BgImageData} alt="简单时钟2背景预览" />
                 {:else if simple2BgSelect === "local" && simple2LocalBg}
                     <img src={simple2LocalBg} alt="简单时钟2背景预览" />
                 {/if}
             </div>
-        </div>
-    {:else if timeType === "dial1"}
-        <div class="form-group form-group-dial1">
-            <label for="">
-                <input type="checkbox" bind:checked={dial1ShowSecond} />
-                显示秒针
-            </label>
-            <label for="">
-                <input type="checkbox" bind:checked={dial1ShowMarkers} />
-                显示刻度数字
-            </label>
-            <label for="">
-                <input type="checkbox" bind:checked={dial1ShowDate} />
-                显示日期
-            </label>
-        </div>
-    {:else if timeType === "dial2"}
-        <div class="form-group form-group-dial2">
-            <label for="">
-                <input type="checkbox" bind:checked={dial2ShowSecond} />
-                显示秒针
-            </label>
-            <label for="">
-                <input type="checkbox" bind:checked={dial2ShowMarkers} />
-                显示刻度数字
-            </label>
-            <label for="">
-                <input type="checkbox" bind:checked={dial2ShowDate} />
-                显示日期
-            </label>
-        </div>
-    {:else if timeType === "dial3" && advancedEnabled}
-        <div class="form-group form-group-dial3">
-            <label for="">
-                <input type="checkbox" bind:checked={dial3ShowSecond} />
-                显示秒针
-            </label>
-        </div>
-    {:else if timeType === "dial4" && advancedEnabled}
-        <div class="form-group form-group-dial4">
-            <label for="">
-                <input type="checkbox" bind:checked={dial4ShowSecond} />
-                显示秒针
-            </label>
-        </div>
-    {:else if timeType === "dial5" && advancedEnabled}
-        <div class="form-group form-group-dial5">
-            <label for="">
-                <input type="checkbox" bind:checked={dial5ShowSecond} />
-                显示秒针
-            </label>
-        </div>
-    {:else if timeType === "dial6" && advancedEnabled}
-        <div class="form-group form-group-dial6">
-            <label for="">
-                <input type="checkbox" bind:checked={dial6ShowSecond} />
-                显示秒针
-            </label>
-        </div>
-    {:else if timeType === "dial7" && advancedEnabled}
-        <div class="form-group form-group-dial7">
-            <label for="">
-                <input type="checkbox" bind:checked={dial7ShowSecond} />
-                显示秒针
-            </label>
-        </div>
-    {:else if timeType === "dial8" && advancedEnabled}
-        <div class="form-group form-group-dial8">
-            <label for="">
-                <input type="checkbox" bind:checked={dial8ShowSecond} />
-                显示秒针
-            </label>
-        </div>
-    {:else if timeType === "dial9" && advancedEnabled}
-        <div class="form-group form-group-dial9">
-            <label for="">
-                <input type="checkbox" bind:checked={dial9ShowSecond} />
-                显示秒针
-            </label>
-        </div>
-    {/if}
-</div>
+        {/if}
+    </SettingSection>
+
+{:else if timeType === "dial1"}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial1ShowSecond} />
+        </SettingRow>
+        <SettingRow title="显示刻度数字">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial1ShowMarkers} />
+        </SettingRow>
+        <SettingRow title="显示日期">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial1ShowDate} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "dial2"}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial2ShowSecond} />
+        </SettingRow>
+        <SettingRow title="显示刻度数字">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial2ShowMarkers} />
+        </SettingRow>
+        <SettingRow title="显示日期">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial2ShowDate} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "dial3" && advancedEnabled}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial3ShowSecond} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "dial4" && advancedEnabled}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial4ShowSecond} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "dial5" && advancedEnabled}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial5ShowSecond} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "dial6" && advancedEnabled}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial6ShowSecond} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "dial7" && advancedEnabled}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial7ShowSecond} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "dial8" && advancedEnabled}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial8ShowSecond} />
+        </SettingRow>
+    </SettingSection>
+
+{:else if timeType === "dial9" && advancedEnabled}
+    <SettingSection>
+        <SettingRow title="显示秒针">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial9ShowSecond} />
+        </SettingRow>
+    </SettingSection>
+{/if}
 
 <style lang="scss">
-    .timedate {
-        .background-option {
-            margin-bottom: 1rem;
-
-            .background-row {
-                display: flex;
-                align-items: flex-start;
-                gap: 1rem;
-                flex-wrap: wrap;
-            }
-
-            .type-select-and-input {
-                flex: 1 1 auto;
-                max-width: 200px;
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-
-                label {
-                    font-size: 14px;
-                    font-weight: 500;
-                }
-
-                select,
-                input[type="text"] {
-                    padding: 0.4rem;
-                    box-sizing: border-box;
-                    font-size: 14px;
-                    border-radius: 6px;
-                    border: 1px solid var(--b3-theme-primary-lighter);
-                    width: 100%;
-                    background-color: var(--b3-theme-background);
-                    transition: all 0.2s ease;
-
-                    &:focus {
-                        outline: none;
-                        border-color: var(--b3-theme-primary);
-                        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-                    }
-
-                    &:hover {
-                        border-color: var(--b3-theme-primary-light);
-                    }
-                }
-
-                button {
-                    padding: 0.4rem 0.6rem;
-                    font-size: 14px;
-                    background-color: var(--b3-theme-surface);
-                    color: var(--b3-theme-on-surface);
-                    border: 1px solid var(--b3-border-color);
-                    border-radius: 6px;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                    width: 100%;
-                    align-self: flex-start;
-
-                    &:hover {
-                        background-color: var(--b3-theme-primary-light);
-                        color: var(--b3-theme-primary);
-                        border-color: var(--b3-theme-primary);
-                    }
-
-                    &:focus {
-                        outline: none;
-                        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-                    }
-                }
-            }
-
-            .image-preview {
-                flex: 0 0 auto;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: auto; // 固定宽度为 200px
-                background-color: rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                overflow: hidden;
-                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-                border: 1px solid #ccc;
-                transition: box-shadow 0.3s ease;
-                padding: 0.5rem;
-
-                img {
-                    width: 150px; // 宽度填满容器（200px）
-                    height: auto; // 高度自适应，保持图片比例
-                    max-height: 100px;
-                    object-fit: contain;
-                    border-radius: 6px;
-                }
-
-                &:hover {
-                    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-                }
-            }
-        }
-    }
-
-    .simple2BackgroundImg {
+    .preview-block {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        border: 1px solid var(--b3-border-color);
         display: flex;
-        align-items: flex-start;
-        gap: 1rem;
-        flex-wrap: wrap;
-        border-top: 1px solid var(--b3-border-color);
-        padding: 1rem 0;
+        justify-content: center;
+        align-items: center;
 
-        .type-select-and-input {
-            flex: 1 1 auto;
-            max-width: 200px;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-
-            label {
-                font-size: 14px;
-                font-weight: 500;
-            }
-
-            select,
-            input[type="text"] {
-                padding: 0.4rem;
-                box-sizing: border-box;
-                font-size: 14px;
-                border-radius: 6px;
-                width: 100%;
-                transition: all 0.2s ease;
-
-                &:focus {
-                    outline: none;
-                    border-color: var(--b3-theme-primary);
-                    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-                }
-
-                &:hover {
-                    border-color: var(--b3-theme-primary-light);
-                }
-            }
-
-            button {
-                padding: 0.4rem 0.6rem;
-                font-size: 14px;
-                border-radius: 6px;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                width: 100%;
-                align-self: flex-start;
-
-                &:hover {
-                    background-color: var(--b3-theme-primary-light);
-                    border-color: var(--b3-theme-primary);
-                }
-
-                &:focus {
-                    outline: none;
-                    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-                }
-            }
-        }
-
-        .image-preview {
-            flex: 0 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: auto; // 固定宽度为 200px
-            background-color: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-            border: 1px solid #ccc;
-            transition: box-shadow 0.3s ease;
-            padding: 0.5rem;
-
-            img {
-                width: 150px; // 宽度填满容器（200px）
-                height: auto; // 高度自适应，保持图片比例
-                max-height: 100px;
-                object-fit: contain;
-                border-radius: 6px;
-            }
-
-            &:hover {
-                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-            }
+        img {
+            max-width: 100%;
+            max-height: 120px;
+            border-radius: 6px;
+            object-fit: contain;
         }
     }
 </style>

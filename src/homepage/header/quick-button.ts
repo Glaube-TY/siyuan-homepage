@@ -263,6 +263,8 @@ function createOpenHomepageSetting(plugin: any) {
     return function OpenHomepageSetting() {
         const dialog = svelteDialog({
             title: "主页设置",
+            width: "auto",
+            height: "auto",
             constructor: (containerEl: HTMLElement) => {
                 return mount(HomepageSetting, {
                                     target: containerEl,

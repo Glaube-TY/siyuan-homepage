@@ -8,7 +8,7 @@
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
-    import { resolveBuiltinDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import { resolveBuiltinDocIcon, normalizeSiyuanDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -35,7 +35,7 @@
             const builtin = resolveBuiltinDocIcon(doc);
             if (builtin) return builtin;
         }
-        return { type: "text", value: childDocsPrefix };
+        return { type: "text", value: normalizeSiyuanDocIcon(childDocsPrefix) || "📄" };
     }
 
     // 悬浮窗定时器

@@ -5,6 +5,7 @@
 
     import "./homepageSettingStyle/homepageSetting.scss"
     import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
+    import { subTabs } from "./tabDefs"
     import { loadHomepageSettingConfig, saveHomepageSettingConfig } from "./config"
     import type { HomepageSettingConfig } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
@@ -22,6 +23,8 @@
     import StylesSettingsTab from "./tabs/StylesSettingsTab.svelte"
     import MainTabNav from "./layout/MainTabNav.svelte"
     import SubTabNav from "./layout/SubTabNav.svelte";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
     let { plugin, close }: HomepageSettingProps = $props();
 
@@ -31,7 +34,7 @@
     let tempAutoOpenHomepage = $state(true);
     let sidebarEnabled = $state(false);
     let autoOpenMobileHomepage = $state(false);
-    let settingsActiveTab = $state<HomepageSettingSubTab>("banner");
+    let settingsActiveTab = $state<HomepageSettingSubTab>("behavior");
     // 横幅区域相关配置变量
     let bannerEnabled = true;
     let bannerGlobalType = $state("custom");
@@ -644,171 +647,269 @@
             },
         });
     }
+
+    // 弹窗容器引用
+    let settingsContainerEl: HTMLElement | null = $state(null);
+    let userResizedWidth: number | null = null;
+    let lastTabKey = "";
+
+    // 根据当前页签获取推荐宽度（静态配置，避免 scrollWidth 累积问题）
+    function calculatePreferredWidth(): number {
+        // 主页设置：根据二级页签获取推荐宽度
+        if (activeTab === "homepage") {
+            const currentSubTab = subTabs.find(tab => tab.key === settingsActiveTab);
+            if (currentSubTab?.preferredWidth) {
+                return currentSubTab.preferredWidth;
+            }
+            return 980; // 默认推荐宽度
+        }
+
+        // 会员服务：中等宽度
+        if (activeTab === "vip") {
+            return 1080;
+        }
+
+        // 关于插件：偏窄
+        if (activeTab === "about") {
+            return 900;
+        }
+
+        return 980; // 默认
+    }
+
+    // 更新弹窗宽度
+    function updateContainerWidth() {
+        if (!settingsContainerEl) return;
+
+        const preferredWidth = calculatePreferredWidth();
+        settingsContainerEl.style.setProperty('--settings-preferred-width', `${preferredWidth}px`);
+
+        // 如果用户手动调整过宽度，且新页签需要更宽，则扩展到更宽
+        // 如果新页签可以更窄，保持用户手动设置的宽度（不压缩）
+        if (userResizedWidth && userResizedWidth < preferredWidth) {
+            // 用户宽度不足以容纳新内容，扩展到建议宽度
+            settingsContainerEl.style.setProperty('--settings-user-width', `${preferredWidth}px`);
+            userResizedWidth = preferredWidth;
+        }
+    }
+
+    // 监听页签切换，自动调整宽度
+    $effect(() => {
+        // 依赖 activeTab 和 settingsActiveTab
+        const tabKey = `${activeTab}-${settingsActiveTab}`;
+        if (tabKey === lastTabKey) return;
+        lastTabKey = tabKey;
+
+        // 使用 requestAnimationFrame 确保 DOM 已更新
+        requestAnimationFrame(() => {
+            updateContainerWidth();
+        });
+    });
+
+    // 初始化时计算一次宽度
+    $effect(() => {
+        if (settingsContainerEl) {
+            updateContainerWidth();
+        }
+    });
+
+    // 监听用户手动 resize
+    function handleResize() {
+        if (!settingsContainerEl) return;
+
+        const computedWidth = parseInt(getComputedStyle(settingsContainerEl).width);
+        const preferredWidth = calculatePreferredWidth();
+
+        // 如果宽度与建议值差异较大，认为是用户手动调整
+        if (Math.abs(computedWidth - preferredWidth) > 50) {
+            userResizedWidth = computedWidth;
+            settingsContainerEl.style.setProperty('--settings-user-width', `${computedWidth}px`);
+        }
+    }
 </script>
 
-<div class="settings-container">
-    <MainTabNav
-        activeTab={activeTab}
-        onTabChange={handleMainTabChange}
-    />
+<div
+    class="settings-container"
+    bind:this={settingsContainerEl}
+    onresize={handleResize}
+>
+    <!-- 左侧：一级页签 -->
+    <div class="main-nav-column">
+        <MainTabNav
+            activeTab={activeTab}
+            onTabChange={handleMainTabChange}
+        />
+    </div>
 
-    <!-- 动态内容容器 -->
-    <div class="tab-content">
-        {#if activeTab === "homepage"}
-            <HomepageGlobalSection
-                tempAutoOpenHomepage={tempAutoOpenHomepage}
-                sidebarEnabled={sidebarEnabled}
-                autoOpenMobileHomepage={autoOpenMobileHomepage}
-                onTempAutoOpenHomepageChange={(value) => tempAutoOpenHomepage = value}
-                onSidebarEnabledChange={(value) => sidebarEnabled = value}
-                onAutoOpenMobileHomepageChange={(value) => autoOpenMobileHomepage = value}
+    <!-- 中间：二级页签（仅主页设置时显示） -->
+    {#if activeTab === "homepage"}
+        <div class="sub-nav-column">
+            <SubTabNav
+                settingsActiveTab={settingsActiveTab}
+                advancedEnabled={advancedEnabled}
+                onTabChange={(tab) => settingsActiveTab = tab}
             />
+        </div>
+    {/if}
 
-            <div class="homepage-content-settings">
-                <SubTabNav
-                    settingsActiveTab={settingsActiveTab}
-                    advancedEnabled={advancedEnabled}
-                    onTabChange={(tab) => settingsActiveTab = tab}
-                />
+    <!-- 右侧：内容区 -->
+    <div class="content-column">
+        {#if activeTab === "homepage"}
+            <div class="content-scroll-area">
+                <div class="homepage-content-settings">
+                    {#if settingsActiveTab === "behavior"}
+                        <HomepageGlobalSection
+                            tempAutoOpenHomepage={tempAutoOpenHomepage}
+                            sidebarEnabled={sidebarEnabled}
+                            autoOpenMobileHomepage={autoOpenMobileHomepage}
+                            onTempAutoOpenHomepageChange={(value) => tempAutoOpenHomepage = value}
+                            onSidebarEnabledChange={(value) => sidebarEnabled = value}
+                            onAutoOpenMobileHomepageChange={(value) => autoOpenMobileHomepage = value}
+                        />
+                    {/if}
 
-                {#if settingsActiveTab === "banner"}
-                    <BannerSettingsTab
-                        tempBannerEnabled={tempBannerEnabled}
-                        bannerGlobalType={bannerGlobalType}
-                        bingApiType={bingApiType}
-                        tempBannerType={tempBannerType}
-                        bannerLocalData={bannerLocalData}
-                        bannerRemoteUrl={bannerRemoteUrl}
-                        tempBannerHeight={tempBannerHeight}
-                        advancedEnabled={advancedEnabled}
-                        onTempBannerEnabledChange={(value) => tempBannerEnabled = value}
-                        onBannerGlobalTypeChange={(value) => bannerGlobalType = value}
-                        onBingApiTypeChange={(value) => bingApiType = value}
-                        onTempBannerTypeChange={(value) => tempBannerType = value}
-                        onBannerLocalDataChange={(value) => bannerLocalData = value}
-                        onBannerRemoteUrlChange={(value) => bannerRemoteUrl = value}
-                        onTempBannerHeightChange={(value) => tempBannerHeight = value}
-                        handleImageSelect={handleImageSelect}
-                    />
-                {/if}
+                    {#if settingsActiveTab === "banner"}
+                        <BannerSettingsTab
+                            tempBannerEnabled={tempBannerEnabled}
+                            bannerGlobalType={bannerGlobalType}
+                            bingApiType={bingApiType}
+                            tempBannerType={tempBannerType}
+                            bannerLocalData={bannerLocalData}
+                            bannerRemoteUrl={bannerRemoteUrl}
+                            tempBannerHeight={tempBannerHeight}
+                            advancedEnabled={advancedEnabled}
+                            onTempBannerEnabledChange={(value) => tempBannerEnabled = value}
+                            onBannerGlobalTypeChange={(value) => bannerGlobalType = value}
+                            onBingApiTypeChange={(value) => bingApiType = value}
+                            onTempBannerTypeChange={(value) => tempBannerType = value}
+                            onBannerLocalDataChange={(value) => bannerLocalData = value}
+                            onBannerRemoteUrlChange={(value) => bannerRemoteUrl = value}
+                            onTempBannerHeightChange={(value) => tempBannerHeight = value}
+                            handleImageSelect={handleImageSelect}
+                        />
+                    {/if}
 
-                {#if settingsActiveTab === "title"}
-                    <TitleSettingsTab
-                        tempShowTitleIcon={showIcon}
-                        tempTitleIconType={titleIconType}
-                        tempTitleEmoji={tempTitleIconEmoji}
-                        tempTitleImage={tempTitleIconImage}
-                        tempTitleIconStyle={tempTitleIconStyle}
-                        tempCustomTitleText={tempCustomTitle}
-                        tempStatsText={tempStatsInfoText}
-                        onTempShowTitleIconChange={(value) => showIcon = value}
-                        onTempTitleIconTypeChange={(value) => titleIconType = value}
-                        onTempTitleEmojiChange={(value) => tempTitleIconEmoji = value}
-                        onTempTitleImageChange={(value) => tempTitleIconImage = value}
-                        onTempTitleIconStyleChange={(value) => tempTitleIconStyle = value}
-                        onTempCustomTitleTextChange={(value) => tempCustomTitle = value}
-                        onTempStatsTextChange={(value) => tempStatsInfoText = value}
-                    />
-                {/if}
+                    {#if settingsActiveTab === "title"}
+                        <TitleSettingsTab
+                            tempShowTitleIcon={showIcon}
+                            tempTitleIconType={titleIconType}
+                            tempTitleEmoji={tempTitleIconEmoji}
+                            tempTitleImage={tempTitleIconImage}
+                            tempTitleIconStyle={tempTitleIconStyle}
+                            tempCustomTitleText={tempCustomTitle}
+                            tempStatsText={tempStatsInfoText}
+                            onTempShowTitleIconChange={(value) => showIcon = value}
+                            onTempTitleIconTypeChange={(value) => titleIconType = value}
+                            onTempTitleEmojiChange={(value) => tempTitleIconEmoji = value}
+                            onTempTitleImageChange={(value) => tempTitleIconImage = value}
+                            onTempTitleIconStyleChange={(value) => tempTitleIconStyle = value}
+                            onTempCustomTitleTextChange={(value) => tempCustomTitle = value}
+                            onTempStatsTextChange={(value) => tempStatsInfoText = value}
+                        />
+                    {/if}
 
-                {#if settingsActiveTab === "button"}
-                    <ButtonSettingsTab
-                        buttonsList={buttonsList}
-                        selectedButton={selectedButton}
-                        selectedButtonIndex={selectedButtonIndex}
-                        actions={buttonSettingsActions}
-                    />
-                {/if}
+                    {#if settingsActiveTab === "button"}
+                        <ButtonSettingsTab
+                            buttonsList={buttonsList}
+                            selectedButton={selectedButton}
+                            selectedButtonIndex={selectedButtonIndex}
+                            actions={buttonSettingsActions}
+                        />
+                    {/if}
 
-                {#if settingsActiveTab === "widgets"}
-                    <WidgetsSettingsTab
-                        state={widgetsSettingsState}
-                        actions={widgetsSettingsActions}
-                    />
-                {/if}
+                    {#if settingsActiveTab === "widgets"}
+                        <WidgetsSettingsTab
+                            state={widgetsSettingsState}
+                            actions={widgetsSettingsActions}
+                        />
+                    {/if}
 
-                {#if settingsActiveTab === "styles"}
-                    <StylesSettingsTab
-                        state={stylesSettingsState}
-                        actions={stylesSettingsActions}
-                    />
-                {/if}
+                    {#if settingsActiveTab === "styles"}
+                        <StylesSettingsTab
+                            state={stylesSettingsState}
+                            actions={stylesSettingsActions}
+                        />
+                    {/if}
 
-                {#if settingsActiveTab === "devices"}
-                    {@const otherDevices = Object.entries(deviceProfiles).filter(([id]) => id !== currentDeviceInfo?.deviceId)}
-                    <div class="devices-section">
-                        <h3>设备配置管理</h3>
-                        
-                        <div class="current-device">
-                            <div class="current-device-header">
-                                <h4>当前设备</h4>
-                                <button
-                                    class="manage-hidden-btn"
-                                    onclick={openHiddenWidgetsDialog}
-                                    title="查看并恢复当前设备已隐藏的组件"
+                    {#if settingsActiveTab === "devices"}
+                        {@const otherDevices = Object.entries(deviceProfiles).filter(([id]) => id !== currentDeviceInfo?.deviceId)}
+                        <div class="devices-section">
+                            <SettingSection title="当前设备">
+                                <SettingRow
+                                    title="管理隐藏组件"
+                                    description="查看并恢复当前设备已隐藏的组件"
                                 >
-                                    管理隐藏组件
-                                </button>
-                            </div>
-                            {#if currentDeviceInfo}
-                                {@const currentProfile = currentDeviceInfo?.deviceId ? deviceProfiles[currentDeviceInfo.deviceId] : null}
-                                <div class="device-info-card current">
-                                    <div class="device-info-row">
-                                        <span class="label">设备名称:</span>
-                                        <span class="value">{currentDeviceInfo.deviceName}</span>
-                                    </div>
-                                    <div class="device-info-row">
-                                        <span class="label">平台/架构:</span>
-                                        <span class="value">{currentDeviceInfo.platform} / {currentDeviceInfo.arch}</span>
-                                    </div>
-                                    <div class="device-info-row">
-                                        <span class="label">最后活跃:</span>
-                                        <span class="value">{currentProfile?.lastSeenAt ? new Date(currentProfile.lastSeenAt).toLocaleString() : '未知'}</span>
-                                    </div>
-                                </div>
-                            {:else}
-                                <p class="no-device">无法获取当前设备信息</p>
-                            {/if}
-                        </div>
+                                    <button
+                                        class="device-action-btn"
+                                        onclick={openHiddenWidgetsDialog}
+                                    >
+                                        管理
+                                    </button>
+                                </SettingRow>
 
-                        <div class="all-devices">
-                            <h4>已登记设备 ({otherDevices.length})</h4>
-                            {#if otherDevices.length > 0}
-                                {@const sortedDevices = otherDevices.sort((a, b) => {
-                                    const timeA = a[1].lastSeenAt ? new Date(a[1].lastSeenAt).getTime() : 0;
-                                    const timeB = b[1].lastSeenAt ? new Date(b[1].lastSeenAt).getTime() : 0;
-                                    return timeB - timeA;
-                                })}
-                                <div class="device-list">
-                                    {#each sortedDevices as [id, profile]}
-                                        <div class="device-info-card">
-                                            <div class="device-info-row">
-                                                <span class="label">设备名称:</span>
-                                                <span class="value">{profile.deviceName || '未知'}</span>
-                                            </div>
-                                            <div class="device-info-row">
-                                                <span class="label">平台/架构:</span>
-                                                <span class="value">{profile.platform || '未知'} / {profile.arch || '未知'}</span>
-                                            </div>
-                                            <div class="device-info-row">
-                                                <span class="label">最后活跃:</span>
-                                                <span class="value">{profile.lastSeenAt ? new Date(profile.lastSeenAt).toLocaleString() : '未知'}</span>
-                                            </div>
-                                            <button
-                                                class="remove-device-btn"
-                                                onclick={() => removeDeviceProfile(id)}
-                                            >
-                                                移除配置
-                                            </button>
+                                {#if currentDeviceInfo}
+                                    {@const currentProfile = currentDeviceInfo?.deviceId ? deviceProfiles[currentDeviceInfo.deviceId] : null}
+                                    <div class="device-info-panel current">
+                                        <div class="device-info-item">
+                                            <span class="device-info-label">设备名称</span>
+                                            <span class="device-info-value">{currentDeviceInfo.deviceName}</span>
                                         </div>
-                                    {/each}
-                                </div>
-                            {:else}
-                                <p class="no-devices">暂无其他已登记设备</p>
-                            {/if}
+                                        <div class="device-info-item">
+                                            <span class="device-info-label">平台/架构</span>
+                                            <span class="device-info-value">{currentDeviceInfo.platform} / {currentDeviceInfo.arch}</span>
+                                        </div>
+                                        <div class="device-info-item">
+                                            <span class="device-info-label">最后活跃</span>
+                                            <span class="device-info-value">{currentProfile?.lastSeenAt ? new Date(currentProfile.lastSeenAt).toLocaleString() : '未知'}</span>
+                                        </div>
+                                    </div>
+                                {:else}
+                                    <p class="no-device">无法获取当前设备信息</p>
+                                {/if}
+                            </SettingSection>
+
+                            <SettingSection title={`已登记设备 (${otherDevices.length})`}>
+                                {#if otherDevices.length > 0}
+                                    {@const sortedDevices = otherDevices.sort((a, b) => {
+                                        const timeA = a[1].lastSeenAt ? new Date(a[1].lastSeenAt).getTime() : 0;
+                                        const timeB = b[1].lastSeenAt ? new Date(b[1].lastSeenAt).getTime() : 0;
+                                        return timeB - timeA;
+                                    })}
+                                    <div class="device-list">
+                                        {#each sortedDevices as [id, profile]}
+                                            <div class="device-card">
+                                                <div class="device-card-info">
+                                                    <div class="device-info-item">
+                                                        <span class="device-info-label">设备名称</span>
+                                                        <span class="device-info-value">{profile.deviceName || '未知'}</span>
+                                                    </div>
+                                                    <div class="device-info-item">
+                                                        <span class="device-info-label">平台/架构</span>
+                                                        <span class="device-info-value">{profile.platform || '未知'} / {profile.arch || '未知'}</span>
+                                                    </div>
+                                                    <div class="device-info-item">
+                                                        <span class="device-info-label">最后活跃</span>
+                                                        <span class="device-info-value">{profile.lastSeenAt ? new Date(profile.lastSeenAt).toLocaleString() : '未知'}</span>
+                                                    </div>
+                                                </div>
+                                                <div class="device-card-actions">
+                                                    <button
+                                                        class="device-remove-btn"
+                                                        onclick={() => removeDeviceProfile(id)}
+                                                    >
+                                                        移除配置
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        {/each}
+                                    </div>
+                                {:else}
+                                    <p class="no-devices">暂无其他已登记设备</p>
+                                {/if}
+                            </SettingSection>
                         </div>
-                    </div>
-                {/if}
+                    {/if}
+                </div>
             </div>
             <!-- 操作按钮 -->
             <div class="action-buttons">
@@ -818,19 +919,23 @@
                 <button class="btn" onclick={cancelSave}>❌ 取消</button>
             </div>
         {:else if activeTab === "vip"}
-            <VipSection
-                USER_NAME={USER_NAME}
-                USER_ID={USER_ID}
-                USER_CODE={USER_CODE}
-                activated={activated}
-                activationResult={activationResult}
-                ActivationCode={ActivationCode}
-                onDeactivate={handleVipDeactivate}
-                onActivate={handleVipActivate}
-                onActivationCodeChange={handleActivationCodeChange}
-            />
+            <div class="content-scroll-area full-content">
+                <VipSection
+                    USER_NAME={USER_NAME}
+                    USER_ID={USER_ID}
+                    USER_CODE={USER_CODE}
+                    activated={activated}
+                    activationResult={activationResult}
+                    ActivationCode={ActivationCode}
+                    onDeactivate={handleVipDeactivate}
+                    onActivate={handleVipActivate}
+                    onActivationCodeChange={handleActivationCodeChange}
+                />
+            </div>
         {:else if activeTab === "about"}
-            <AboutSection />
+            <div class="content-scroll-area full-content">
+                <AboutSection />
+            </div>
         {/if}
     </div>
 </div>

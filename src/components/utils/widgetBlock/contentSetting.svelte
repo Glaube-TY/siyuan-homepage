@@ -739,6 +739,266 @@
 
 <style lang="scss">
     @use "./contentSettingStyle/contentSetting.scss" as *;
+
+    // 全局共享布局类 - 供子组件设置页使用
+    :global(.setting-panel) {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    :global(.form-row) {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+
+        & > * {
+            flex-shrink: 0;
+        }
+    }
+
+    :global(.form-row-compact) {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+
+        & > * {
+            flex-shrink: 0;
+        }
+    }
+
+    :global(.form-inline-group) {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: nowrap;
+    }
+
+    :global(.form-grid-2) {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+
+        @media (max-width: 480px) {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    :global(.form-grid-auto) {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+
+    :global(.form-field) {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        min-width: 80px;
+    }
+
+    :global(.form-field label) {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--b3-theme-on-surface);
+        white-space: nowrap;
+        line-height: 1.5;
+    }
+
+    :global(.form-field input),
+    :global(.form-field select) {
+        width: 100%;
+        height: 32px;
+        box-sizing: border-box;
+    }
+
+    :global(.field-xs) {
+        width: 60px !important;
+        min-width: 60px;
+        flex: 0 0 auto !important;
+    }
+
+    :global(.field-sm) {
+        width: 100px !important;
+        min-width: 100px;
+        flex: 0 0 auto !important;
+    }
+
+    :global(.field-md) {
+        width: 160px !important;
+        min-width: 160px;
+        flex: 0 0 auto !important;
+    }
+
+    :global(.field-lg) {
+        width: 240px !important;
+        min-width: 240px;
+        flex: 0 0 auto !important;
+    }
+
+    :global(.field-grow) {
+        flex: 1 1 auto !important;
+        min-width: 120px;
+    }
+
+    :global(.field-full) {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+
+    :global(.form-field-full) {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        width: 100%;
+    }
+
+    :global(.form-field-full label) {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--b3-theme-on-surface);
+        line-height: 1.5;
+    }
+
+    :global(.form-field-full input),
+    :global(.form-field-full select) {
+        width: 100%;
+        height: 32px;
+        box-sizing: border-box;
+    }
+
+    :global(.form-field-full .multi-select-container) {
+        width: 100%;
+    }
+
+    :global(.form-checkbox-row) {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0;
+        min-height: 32px;
+        margin-top: 1.25rem;
+    }
+
+    :global(.form-checkbox-row input[type="checkbox"]) {
+        width: auto;
+        margin: 0;
+    }
+
+    :global(.form-checkbox-row label) {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--b3-theme-on-surface);
+        cursor: pointer;
+        user-select: none;
+        line-height: 1.5;
+    }
+
+    :global(.form-checkbox-group) {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.5rem 0;
+    }
+
+    :global(.form-checkbox-group-inline) {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    :global(.form-checkbox-group-inline .form-checkbox-row) {
+        margin-top: 0;
+    }
+
+    :global(.input-xs) {
+        width: 50px !important;
+        min-width: 50px;
+    }
+
+    :global(.input-sm) {
+        width: 80px !important;
+        min-width: 80px;
+    }
+
+    :global(.input-small) {
+        width: 60px !important;
+        min-width: 60px;
+    }
+
+    :global(.input-medium) {
+        width: 100px !important;
+        min-width: 100px;
+    }
+
+    :global(.input-large) {
+        width: 200px !important;
+        min-width: 200px;
+    }
+
+    :global(.input-emoji) {
+        width: 50px !important;
+        min-width: 50px;
+        text-align: center;
+        font-size: 16px;
+    }
+
+    :global(.input-prefix) {
+        width: 80px !important;
+        min-width: 80px;
+    }
+
+    :global(.emoji-select-btn) {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 60px;
+        height: 32px;
+        padding: 0 0.75rem;
+        font-size: 16px;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        background: var(--b3-theme-surface);
+        cursor: pointer;
+        transition: all 0.2s ease;
+
+        &:hover {
+            background: var(--b3-theme-hover);
+            border-color: var(--b3-theme-primary);
+        }
+    }
+
+    :global(.emoji-select-btn--compact) {
+        min-width: 48px;
+        width: 48px;
+        height: 28px;
+        padding: 0;
+        font-size: 14px;
+    }
+
+    :global(.form-divider) {
+        height: 1px;
+        background: var(--b3-border-color);
+        margin: 0.75rem 0;
+    }
+
+    :global(.form-section-title) {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--b3-theme-on-surface);
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--b3-border-color);
+        margin-bottom: 0.5rem;
+    }
+
+    :global(.form-help-text) {
+        font-size: 12px;
+        color: var(--b3-theme-on-surface-light);
+        margin-top: 0.25rem;
+    }
 </style>
 
 <div class="settings-container">

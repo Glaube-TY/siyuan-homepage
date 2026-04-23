@@ -1,4 +1,9 @@
 <script lang="ts">
+    import { openSiyuanEmojiPicker } from "@/homepage/homepageSetting/emojiPicker";
+    import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
+
     interface Props {
         docJournalLimit?: number;
         recentJournalsShowType?: string;
@@ -19,106 +24,81 @@
         latestDailyNotesFloatDocShowTime = $bindable(0.1)
     }: Props = $props();
 
+    let iconButtonRef: HTMLButtonElement | null = $state(null);
+
+    function handleIconSelect() {
+        if (iconButtonRef) {
+            openSiyuanEmojiPicker(iconButtonRef, (emoji) => {
+                recentJournalsCalendarIcon = emoji;
+            });
+        }
+    }
+
     // 下拉选项
     const limitOptions = [5, 10, 15, 20, 50, 100];
 </script>
 
-<div class="content-panel recent-journals">
-    <div>
-        <label for="recentJournalsShowType">选择显示模式：</label>
-        <select
-            id="recentJournalsShowType"
-            class="form-control"
-            bind:value={recentJournalsShowType}
-        >
+<SettingSection>
+    <SettingRow title="选择显示模式">
+        <select bind:value={recentJournalsShowType} class="control-sm">
             <option value="list">列表模式</option>
             <option value="calendar">日历模式</option>
         </select>
-    </div>
+    </SettingRow>
+
     {#if recentJournalsShowType === "list"}
-        <div class="form-group">
-            <label for="journal-limit">显示日记数：</label>
-            <select id="journal-limit" bind:value={docJournalLimit}>
+        <SettingRow title="显示日记数">
+            <select bind:value={docJournalLimit} class="control-sm">
                 {#each limitOptions as option}
                     <option value={option}>{option}</option>
                 {/each}
             </select>
-        </div>
-        <div class="form-group">
-            <label for="use-builtin-doc-icon">
-                <input
-                    id="use-builtin-doc-icon"
-                    type="checkbox"
-                    bind:checked={useBuiltinDocIcon}
-                />
-                内置图标
-            </label>
-        </div>
-    {/if}
-    {#if recentJournalsShowType === "calendar"}
-        <div class="form-group recent-journals-calendar">
-            <label for="recentJournalsCalendarIcon">
-                日记图标：
-                <input
-                    id="recentJournalsCalendarIcon"
-                    type="text"
-                    bind:value={recentJournalsCalendarIcon}
-                />
-            </label>
-            <label for="recentJournalsCalendarIconSize">
-                图标大小：
-                <input
-                    id="recentJournalsCalendarIconSize"
-                    min="10"
-                    max="50"
-                    type="number"
-                    bind:value={recentJournalsCalendarIconSize}
-                />
-            </label>
-        </div>
-        <div class="form-group">
-            <label for="use-builtin-doc-icon-calendar">
-                <input
-                    id="use-builtin-doc-icon-calendar"
-                    type="checkbox"
-                    bind:checked={useBuiltinDocIcon}
-                />
-                内置图标
-            </label>
-        </div>
+        </SettingRow>
+
+        <SettingRow title="内置图标" description="优先使用文档自带图标">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={useBuiltinDocIcon} />
+        </SettingRow>
     {/if}
 
-    <div class="form-group">
-        <label for="show-latest-daily-notes-float-doc">
-            <input
-                id="show-latest-daily-notes-float-doc"
-                type="checkbox"
-                bind:checked={showLatestDailyNotesFloatDoc}
-            />
-            显示预览弹窗
-        </label>
-        <label for="latest-daily-notes-float-doc-show-time">
-            悬停时间：
+    {#if recentJournalsShowType === "calendar"}
+        <SettingRow title="日记图标" description="日历中显示日记的图标">
+            <button
+                type="button"
+                class="emoji-btn"
+                bind:this={iconButtonRef}
+                onclick={handleIconSelect}
+                title="点击选择表情"
+            >
+                {normalizeSiyuanDocIcon(recentJournalsCalendarIcon) || "📝"}
+            </button>
+        </SettingRow>
+
+        <SettingRow title="图标大小" description="日历中日记图标的大小（像素）">
             <input
                 type="number"
-                title="悬停多长时间显示预览弹窗"
-                bind:value={latestDailyNotesFloatDocShowTime}
+                bind:value={recentJournalsCalendarIconSize}
+                min="10"
+                max="50"
+                class="control-xs"
             />
-            秒
-        </label>
-    </div>
-</div>
+        </SettingRow>
 
-<style lang="scss">
-    .recent-journals-calendar {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-top: 10px;
+        <SettingRow title="内置图标" description="优先使用文档自带图标">
+            <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={useBuiltinDocIcon} />
+        </SettingRow>
+    {/if}
 
-        #recentJournalsCalendarIcon,
-        #recentJournalsCalendarIconSize {
-            width: 50px;
-        }
-    }
-</style>
+    <SettingRow title="显示预览弹窗" description="悬停时显示文档预览">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showLatestDailyNotesFloatDoc} />
+    </SettingRow>
+
+    <SettingRow title="悬停时间" description="悬停多久后显示预览（秒）">
+        <input
+            type="number"
+            bind:value={latestDailyNotesFloatDocShowTime}
+            step="0.1"
+            min="0"
+            class="control-xs"
+        />
+    </SettingRow>
+</SettingSection>

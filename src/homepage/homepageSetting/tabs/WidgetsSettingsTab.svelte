@@ -1,5 +1,7 @@
 <script lang="ts">
     import type { WidgetsSettingsState, WidgetsSettingsActions, DocPreviewMode } from '../types';
+    import SettingSection from '@/libs/components/SettingSection.svelte';
+    import SettingRow from '@/libs/components/SettingRow.svelte';
 
     interface Props {
         state: WidgetsSettingsState;
@@ -9,93 +11,87 @@
     let { state, actions }: Props = $props();
 </script>
 
-<div class="section-setting widgets-setting">
-    <div class="form-group widget-layout-setting">
-        <h3>组件布局设置</h3>
-        <label for=""
-            >每行组件数量：<input
-                type="number"
-                value={state.widgetLayoutNumber}
-                oninput={(e) => actions.onWidgetLayoutNumberChange(Number((e.currentTarget as HTMLInputElement).value))}
-            /></label
-        >
-        <label for="widget-gap"
-            >组件间距：<input
-                type="number"
-                value={state.widgetGap}
-                oninput={(e) => actions.onWidgetGapChange(Number((e.currentTarget as HTMLInputElement).value))}
-            /></label
-        >
-    </div>
-    <div class="form-group quick-notes-setting">
-        <h3>快速笔记设置</h3>
-        <label for="quick-notes-open"
-            ><input
-                id="quick-notes-open"
-                type="checkbox"
-                checked={state.quickNotesEnabled}
-                onchange={(e) => actions.onQuickNotesEnabledChange((e.currentTarget as HTMLInputElement).checked)}
-            />开启快速笔记</label
-        >
+<SettingSection title="组件布局">
+    <SettingRow title="每行组件数量" description="设置主页每行显示的组件个数">
+        <input
+            type="number"
+            class="control-sm"
+            value={state.widgetLayoutNumber}
+            oninput={(e) => actions.onWidgetLayoutNumberChange(Number((e.currentTarget as HTMLInputElement).value))}
+        />
+    </SettingRow>
+    <SettingRow title="组件间距" description="设置组件之间的间距（单位：rem）">
+        <input
+            type="number"
+            class="control-sm"
+            step="0.1"
+            value={state.widgetGap}
+            oninput={(e) => actions.onWidgetGapChange(Number((e.currentTarget as HTMLInputElement).value))}
+        />
+    </SettingRow>
+</SettingSection>
 
-        {#if state.quickNotesEnabled}
-            <label for=""
-                >快速笔记位置：
-                <input
-                    type="text"
-                    placeholder="输入用于存放快速笔记的文档 ID"
-                    value={state.quickNotesPosition}
-                    oninput={(e) => actions.onQuickNotesPositionChange((e.currentTarget as HTMLInputElement).value)}
-                />
-            </label>
-            <label for="quick-notes-position"
-                >添加位置：<select
-                    name="quick-notes-position"
-                    id="quick-notes-position"
-                    value={state.quickNotesAddPosition}
-                    onchange={(e) => actions.onQuickNotesAddPositionChange((e.currentTarget as HTMLSelectElement).value)}
-                >
-                    <option value="bottom">文档最后</option>
-                    <option value="top">文档最前</option>
-                </select></label
-            >
-            <label for="quick-notes-timestamp"
-                ><input
-                    id="quick-notes-timestamp"
-                    type="checkbox"
-                    checked={state.quickNotesTimestampEnabled}
-                    onchange={(e) => actions.onQuickNotesTimestampEnabledChange((e.currentTarget as HTMLInputElement).checked)}
-                />
-                启用时间戳
-            </label>
-        {/if}
-    </div>
-    <div class="form-group task-plus-setting">
-        <h3>任务管理Plus设置</h3>
-        <label for="task-editor-enabled"
-            ><input
-                id="task-editor-enabled"
-                type="checkbox"
-                checked={state.taskEditorEnabled}
-                onchange={(e) => actions.onTaskEditorEnabledChange((e.currentTarget as HTMLInputElement).checked)}
-            /> 开启任务编辑器</label
-        >
-    </div>
-    <div class="form-group doc-preview-setting">
-        <h3>文档预览设置</h3>
-        <label for="doc-preview-mode"
-            >默认预览模式：
+<SettingSection title="快速笔记">
+    <SettingRow title="开启快速笔记">
+        <input
+            type="checkbox"
+            class="b3-switch fn__flex-center"
+            checked={state.quickNotesEnabled}
+            onchange={(e) => actions.onQuickNotesEnabledChange((e.currentTarget as HTMLInputElement).checked)}
+        />
+    </SettingRow>
+
+    {#if state.quickNotesEnabled}
+        <SettingRow title="笔记存放位置" description="输入用于存放快速笔记的文档 ID">
+            <input
+                type="text"
+                class="control-full"
+                placeholder="输入文档 ID"
+                value={state.quickNotesPosition}
+                oninput={(e) => actions.onQuickNotesPositionChange((e.currentTarget as HTMLInputElement).value)}
+            />
+        </SettingRow>
+        <SettingRow title="添加位置" description="新笔记添加到文档的顶部还是底部">
             <select
-                id="doc-preview-mode"
-                value={state.defaultDocPreviewMode}
-                onchange={(e) => actions.onDefaultDocPreviewModeChange((e.currentTarget as HTMLSelectElement).value as DocPreviewMode)}
+                class="control-md"
+                value={state.quickNotesAddPosition}
+                onchange={(e) => actions.onQuickNotesAddPositionChange((e.currentTarget as HTMLSelectElement).value)}
             >
-                <option value="preview">预览模式</option>
-                <option value="wysiwyg">所见即所得</option>
+                <option value="bottom">文档最后</option>
+                <option value="top">文档最前</option>
             </select>
-        </label>
-        <p class="setting-hint" style="font-size: 12px; color: var(--b3-theme-on-surface-light); margin-top: 4px;">
-            用于控制支持文档悬浮预览的组件在默认情况下以哪种模式打开文档。
-        </p>
-    </div>
-</div>
+        </SettingRow>
+        <SettingRow title="启用时间戳" description="在笔记内容前添加创建时间">
+            <input
+                type="checkbox"
+                class="b3-switch fn__flex-center"
+                checked={state.quickNotesTimestampEnabled}
+                onchange={(e) => actions.onQuickNotesTimestampEnabledChange((e.currentTarget as HTMLInputElement).checked)}
+            />
+        </SettingRow>
+    {/if}
+</SettingSection>
+
+<SettingSection title="任务管理 Plus">
+    <SettingRow title="开启任务编辑器" description="启用任务管理 Plus 功能">
+        <input
+            type="checkbox"
+            class="b3-switch fn__flex-center"
+            checked={state.taskEditorEnabled}
+            onchange={(e) => actions.onTaskEditorEnabledChange((e.currentTarget as HTMLInputElement).checked)}
+        />
+    </SettingRow>
+</SettingSection>
+
+<SettingSection title="文档预览">
+    <SettingRow title="默认预览模式" description="控制支持文档悬浮预览的组件默认打开模式">
+        <select
+            class="control-md"
+            value={state.defaultDocPreviewMode}
+            onchange={(e) => actions.onDefaultDocPreviewModeChange((e.currentTarget as HTMLSelectElement).value as DocPreviewMode)}
+        >
+            <option value="preview">预览模式</option>
+            <option value="wysiwyg">所见即所得</option>
+        </select>
+    </SettingRow>
+</SettingSection>

@@ -1,4 +1,7 @@
 <script lang="ts">
+    import SettingSection from '@/libs/components/SettingSection.svelte';
+    import SettingRow from '@/libs/components/SettingRow.svelte';
+
     interface Props {
         tempAutoOpenHomepage: boolean;
         sidebarEnabled: boolean;
@@ -18,27 +21,40 @@
     }: Props = $props();
 </script>
 
-<div class="homepage-global-settings">
-    <label for="auto-open-homepage"
-        >自动打开主页：<input
+<SettingSection title="主页行为">
+    <SettingRow
+        title="自动打开主页"
+        description="启动思源后自动进入主页"
+    >
+        <input
             type="checkbox"
-            id="auto-open-homepage"
+            class="b3-switch fn__flex-center"
             checked={tempAutoOpenHomepage}
             onchange={(e) => onTempAutoOpenHomepageChange((e.currentTarget as HTMLInputElement).checked)}
-        /></label
+        />
+    </SettingRow>
+
+    <SettingRow
+        title="开启侧边栏👑"
+        description="在桌面端启用主页侧边栏"
     >
-    <label for=""
-        >开启侧边栏👑：<input
+        <input
             type="checkbox"
+            class="b3-switch fn__flex-center"
             checked={sidebarEnabled}
             onchange={(e) => onSidebarEnabledChange((e.currentTarget as HTMLInputElement).checked)}
-        /></label
+        />
+    </SettingRow>
+
+    <SettingRow
+        title="自动打开移动端主页👑"
+        description="移动端启动后自动进入主页"
     >
-    <label for=""
-        >自动打开移动端主页👑：<input
+        <input
             type="checkbox"
+            class="b3-switch fn__flex-center"
             checked={autoOpenMobileHomepage}
             onchange={(e) => onAutoOpenMobileHomepageChange((e.currentTarget as HTMLInputElement).checked)}
-        /></label
-    >
-</div>
+        />
+    </SettingRow>
+</SettingSection>

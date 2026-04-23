@@ -23,6 +23,7 @@
         unregisterAllShortcuts,
     } from "./header/quick-button";
     import { MD2HTML } from "@/components/tools/MD2HTML";
+    import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
     import {
         updateCursorStyle,
         createClickEffect,
@@ -907,7 +908,7 @@
             {#if $showIcon}
                 <div class="icon-title">
                     {#if titleIconType === "emoji"}
-                        {@html tempTitleIconEmoji || "🏠"}
+                        {@html normalizeSiyuanDocIcon(tempTitleIconEmoji) || "🏠"}
                     {:else if titleIconType === "image" && tempTitleIconImage}
                         <img
                             src={tempTitleIconImage}

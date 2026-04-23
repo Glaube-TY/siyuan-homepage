@@ -1,6 +1,8 @@
 <script lang="ts">
     import { run } from 'svelte/legacy';
     import { getAttributeView } from "@/api";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
     interface Props {
         advancedEnabled: boolean;
@@ -70,285 +72,215 @@
 </script>
 
 {#if advancedEnabled}
-    <div class="content-panel databaseChart">
-        <div class="form-group">
-            <label for="">数据库ID：</label>
+    <SettingSection title="基础配置">
+        <SettingRow title="数据库ID">
             <input
                 type="text"
                 placeholder="请输入数据库ID"
                 bind:value={databaseChartID}
+                class="control-full"
             />
-        </div>
-        {#if confirmDatabaseChartID}
-            <div class="form-group">
-                <label for="">图表类型：</label>
-                <select bind:value={databaseChartType}>
+        </SettingRow>
+    </SettingSection>
+
+    {#if confirmDatabaseChartID}
+        <SettingSection title="图表配置">
+            <SettingRow title="图表类型">
+                <select bind:value={databaseChartType} class="control-sm">
                     <option value="line">折线图</option>
                     <option value="bar">柱状图</option>
                     <option value="pie">饼图</option>
                     <option value="point">散点图</option>
                 </select>
-            </div>
-            <div class="form-group">
-                <label for="">图表标题：</label>
+            </SettingRow>
+            <SettingRow title="图表标题">
                 <input
                     type="text"
                     placeholder="请输入图表标题"
                     bind:value={databaseChartTitle}
+                    class="control-full"
                 />
-            </div>
-            {#if databaseChartType === "line"}
-                <div class="database-chart-line-config">
-                    <div class="form-group">
-                        <label for="">数据类型：</label>
-                        <select bind:value={databaseChartLineType}>
-                            <option value="XY">XY轴</option>
-                            <option value="count">数量</option>
-                        </select>
-                    </div>
-                    {#if databaseChartLineType === "XY"}
-                        <div class="database-chart-line-XY">
-                            <div class="database-chart-x-axis">
-                                <label for="">
-                                    X轴来源：
-                                    <select
-                                        bind:value={
-                                            databaseChartLineXAxisSource
-                                        }
-                                    >
-                                        {#each databaseChartInfo as column}
-                                            {#if column.key.type === "block" || column.key.type === "text" || column.key.type === "number" || column.key.type === "date" || column.key.type === "select" || column.key.type === "url" || column.key.type === "email" || column.key.type === "phone"}
-                                                <option
-                                                    value={column.key.id}
-                                                >
-                                                    {column.key.name}
-                                                    ({column.key.type})
-                                                </option>
-                                            {/if}
-                                        {/each}
-                                    </select>
-                                </label>
-                                <label for="">X轴标题：</label>
-                                <input
-                                    type="text"
-                                    placeholder="请输入X轴标题"
-                                    bind:value={
-                                        databaseChartLineXAxisTitle
-                                    }
-                                />
-                            </div>
-                            <div class="database-chart-y-axis">
-                                <label for="">
-                                    Y轴来源（多选）：
-                                    <div
-                                        class="multi-select-wrapper"
-                                    >
-                                        <select
-                                            multiple
-                                            bind:value={
-                                                databaseChartLineYAxisSource
-                                            }
-                                            size="2.5"
-                                            class="collapsed-multiselect"
-                                        >
-                                            {#each databaseChartInfo as column}
-                                                {#if column.key.type === "number"}
-                                                    <option
-                                                        value={column.key.id}
-                                                    >
-                                                        {column.key.name}
-                                                        ({column.key.type})
-                                                    </option>
-                                                {/if}
-                                            {/each}
-                                        </select>
-                                    </div>
-                                </label>
-                                <label for="">Y轴标题：</label>
-                                <input
-                                    type="text"
-                                    placeholder="请输入Y轴标题"
-                                    bind:value={
-                                        databaseChartLineYAxisTitle
-                                    }
-                                />
-                            </div>
+            </SettingRow>
+        </SettingSection>
+
+        {#if databaseChartType === "line"}
+            <SettingSection title="折线图配置">
+                <SettingRow title="数据类型">
+                    <select bind:value={databaseChartLineType} class="control-sm">
+                        <option value="XY">XY轴</option>
+                        <option value="count">数量</option>
+                    </select>
+                </SettingRow>
+            </SettingSection>
+
+            {#if databaseChartLineType === "XY"}
+                <SettingSection title="XY轴数据映射">
+                    <div class="data-mapping-block">
+                        <div class="mapping-row">
+                            <span class="mapping-label">X轴来源</span>
+                            <select bind:value={databaseChartLineXAxisSource}>
+                                {#each databaseChartInfo as column}
+                                    {#if column.key.type === "block" || column.key.type === "text" || column.key.type === "number" || column.key.type === "date" || column.key.type === "select" || column.key.type === "url" || column.key.type === "email" || column.key.type === "phone"}
+                                        <option value={column.key.id}>
+                                            {column.key.name} ({column.key.type})
+                                        </option>
+                                    {/if}
+                                {/each}
+                            </select>
                         </div>
-                    {:else if databaseChartLineType === "count"}
-                        <div class="database-chart-count">
-                            <label for=""
-                                >统计列：
+                        <div class="mapping-row">
+                            <span class="mapping-label">X轴标题</span>
+                            <input
+                                type="text"
+                                placeholder="请输入X轴标题"
+                                bind:value={databaseChartLineXAxisTitle}
+                            />
+                        </div>
+                        <div class="mapping-row">
+                            <span class="mapping-label">Y轴来源（多选）</span>
+                            <div class="multi-select-wrapper">
                                 <select
-                                    bind:value={
-                                        databaseChartLineCountColumn
-                                    }
+                                    multiple
+                                    bind:value={databaseChartLineYAxisSource}
+                                    size="3"
+                                    class="mapping-multiselect"
                                 >
                                     {#each databaseChartInfo as column}
-                                        {#if column.key.type === "block" || column.key.type === "text" || column.key.type === "number" || column.key.type === "date" || column.key.type === "select" || column.key.type === "url" || column.key.type === "email" || column.key.type === "phone"}
-                                            <option
-                                                value={column.key.id}
-                                            >
-                                                {column.key.name}
-                                                ({column.key.type})
+                                        {#if column.key.type === "number"}
+                                            <option value={column.key.id}>
+                                                {column.key.name} ({column.key.type})
                                             </option>
                                         {/if}
                                     {/each}
                                 </select>
-                            </label>
-                            <div
-                                class="database-chart-count-axis"
-                            >
-                                <label for="">X轴标题： </label>
-                                <input
-                                    type="text"
-                                    bind:value={
-                                        databaseChartLineCountXAxisTitle
-                                    }
-                                />
-                                <label for="">Y轴标题： </label>
-                                <input
-                                    type="text"
-                                    bind:value={
-                                        databaseChartLineCountYAxisTitle
-                                    }
-                                />
                             </div>
                         </div>
-                    {/if}
-                    <div class="line-chart-style">
-                        <div class="line-chart-style-item">
-                            <label for=""
-                                >平滑曲线：<input
-                                    type="checkbox"
-                                    bind:checked={
-                                        databaseChartLineSmooth
-                                    }
-                                /></label
-                            >
-                            <label for=""
-                                >线条宽度：
-                                <input
-                                    type="number"
-                                    bind:value={
-                                        databaseChartLineWidth
-                                    }
-                                />
-                            </label>
-                            <label for=""
-                                >线条样式：
-                                <select
-                                    bind:value={
-                                        databaseChartLineStyle
-                                    }
-                                >
-                                    <option value="solid"
-                                        >实线</option
-                                    >
-                                    <option value="dashed"
-                                        >虚线</option
-                                    >
-                                    <option value="dotted"
-                                        >点线</option
-                                    >
-                                </select>
-                            </label>
+                        <div class="mapping-row">
+                            <span class="mapping-label">Y轴标题</span>
+                            <input
+                                type="text"
+                                placeholder="请输入Y轴标题"
+                                bind:value={databaseChartLineYAxisTitle}
+                            />
                         </div>
-
-                        <div class="line-chart-style-item">
-                            <label for=""
-                                >标记点：
-                                <select
-                                    bind:value={
-                                        databaseChartLineMarkPoint
-                                    }
-                                >
-                                    <option value="circle"
-                                        >圆点</option
-                                    >
-                                    <option value="rect"
-                                        >矩形</option
-                                    >
-                                    <option value="roundRect"
-                                        >圆角矩形</option
-                                    >
-                                    <option value="triangle"
-                                        >三角形</option
-                                    >
-                                    <option value="diamond"
-                                        >菱形</option
-                                    >
-                                    <option value="pin"
-                                        >大头针</option
-                                    >
-                                    <option value="arrow"
-                                        >箭头</option
-                                    >
-                                    <option value="none"
-                                        >无</option
-                                    >
-                                </select>
-                            </label>
-                            <label for=""
-                                >标记点大小：
-                                <input
-                                    type="number"
-                                    bind:value={
-                                        databaseChartLineMarkPointSize
-                                    }
-                                />
-                            </label>
-                        </div>
-                        <label for=""
-                            >排序方式：
-                            <select
-                                bind:value={
-                                    databaseChartLineCountSort
-                                }
-                            >
-                                <option value="none">无</option>
-                                <option value="asc">升序</option
-                                >
-                                <option value="desc"
-                                    >降序</option
-                                >
-                            </select>
-                        </label>
                     </div>
-                </div>
-            {:else if databaseChartType === "bar"}
-                <div>
-                    开发中……
-                </div>
-            {:else if databaseChartType === "pie"}
-                <div>
-                    开发中……
-                </div>
-            {:else if databaseChartType === "point"}
-                <div>开发中……</div>
+                </SettingSection>
+            {:else if databaseChartLineType === "count"}
+                <SettingSection title="数量统计配置">
+                    <div class="data-mapping-block">
+                        <div class="mapping-row">
+                            <span class="mapping-label">统计列</span>
+                            <select bind:value={databaseChartLineCountColumn}>
+                                {#each databaseChartInfo as column}
+                                    {#if column.key.type === "block" || column.key.type === "text" || column.key.type === "number" || column.key.type === "date" || column.key.type === "select" || column.key.type === "url" || column.key.type === "email" || column.key.type === "phone"}
+                                        <option value={column.key.id}>
+                                            {column.key.name} ({column.key.type})
+                                        </option>
+                                    {/if}
+                                {/each}
+                            </select>
+                        </div>
+                        <div class="mapping-row">
+                            <span class="mapping-label">X轴标题</span>
+                            <input
+                                type="text"
+                                bind:value={databaseChartLineCountXAxisTitle}
+                            />
+                        </div>
+                        <div class="mapping-row">
+                            <span class="mapping-label">Y轴标题</span>
+                            <input
+                                type="text"
+                                bind:value={databaseChartLineCountYAxisTitle}
+                            />
+                        </div>
+                    </div>
+                </SettingSection>
             {/if}
+
+            <SettingSection title="样式配置">
+                <SettingRow title="平滑曲线">
+                    <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={databaseChartLineSmooth} />
+                </SettingRow>
+                <SettingRow title="线条宽度">
+                    <input type="number" bind:value={databaseChartLineWidth} class="control-xs" />
+                </SettingRow>
+                <SettingRow title="线条样式">
+                    <select bind:value={databaseChartLineStyle} class="control-sm">
+                        <option value="solid">实线</option>
+                        <option value="dashed">虚线</option>
+                        <option value="dotted">点线</option>
+                    </select>
+                </SettingRow>
+                <SettingRow title="标记点">
+                    <select bind:value={databaseChartLineMarkPoint} class="control-sm">
+                        <option value="circle">圆点</option>
+                        <option value="rect">矩形</option>
+                        <option value="roundRect">圆角矩形</option>
+                        <option value="triangle">三角形</option>
+                        <option value="diamond">菱形</option>
+                        <option value="pin">大头针</option>
+                        <option value="arrow">箭头</option>
+                        <option value="none">无</option>
+                    </select>
+                </SettingRow>
+                <SettingRow title="标记点大小">
+                    <input type="number" bind:value={databaseChartLineMarkPointSize} class="control-xs" />
+                </SettingRow>
+                <SettingRow title="排序方式">
+                    <select bind:value={databaseChartLineCountSort} class="control-sm">
+                        <option value="none">无</option>
+                        <option value="asc">升序</option>
+                        <option value="desc">降序</option>
+                    </select>
+                </SettingRow>
+            </SettingSection>
+        {:else if databaseChartType === "bar"}
+            <SettingSection>
+                <div class="dev-notice">开发中……</div>
+            </SettingSection>
+        {:else if databaseChartType === "pie"}
+            <SettingSection>
+                <div class="dev-notice">开发中……</div>
+            </SettingSection>
+        {:else if databaseChartType === "point"}
+            <SettingSection>
+                <div class="dev-notice">开发中……</div>
+            </SettingSection>
         {/if}
-    </div>
+    {/if}
 {:else}
     <h3>👑会员专属权益👑</h3>
 {/if}
 <p>组件开发中~</p>
 
 <style lang="scss">
-    .content-panel.databaseChart {
-        .form-group {
-            margin-bottom: 15px;
+    .data-mapping-block {
+        padding: 1rem;
+        background-color: var(--b3-theme-surface);
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        
+        .mapping-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
             
-            label {
-                display: inline-block;
-                margin-bottom: 5px;
+            &:last-child {
+                margin-bottom: 0;
+            }
+            
+            .mapping-label {
+                min-width: 120px;
                 font-weight: 500;
+                color: var(--b3-theme-on-surface);
             }
             
             input[type="text"],
-            input[type="number"],
             select {
-                width: 100%;
-                padding: 8px 12px;
+                flex: 1;
+                padding: 6px 10px;
                 border: 1px solid var(--b3-border-color);
                 border-radius: 4px;
                 background-color: var(--b3-theme-background);
@@ -361,100 +293,18 @@
             }
             
             select[multiple] {
-                height: auto;
                 min-height: 80px;
             }
-            
-            .multi-select-wrapper {
-                position: relative;
-                
-                select.collapsed-multiselect {
-                    height: 38px;
-                    overflow: hidden;
-                    
-                    &:focus {
-                        height: auto;
-                        min-height: 80px;
-                        overflow: visible;
-                    }
-                }
-            }
         }
         
-        .database-chart-line-config,
-        .database-chart-line-XY,
-        .database-chart-count {
-            margin-top: 15px;
-            padding: 15px;
-            border: 1px solid var(--b3-border-color);
-            border-radius: 6px;
-            background-color: var(--b3-theme-surface);
-            
-            .database-chart-x-axis,
-            .database-chart-y-axis {
-                margin-bottom: 15px;
-                
-                &:last-child {
-                    margin-bottom: 0;
-                }
-            }
-        }
-        
-        .line-chart-style {
-            margin-top: 15px;
-            padding: 15px;
-            border: 1px solid var(--b3-border-color);
-            border-radius: 6px;
-            background-color: var(--b3-theme-surface);
-            
-            .line-chart-style-item {
-                display: flex;
-                gap: 15px;
-                margin-bottom: 10px;
-                
-                &:last-child {
-                    margin-bottom: 0;
-                }
-                
-                label {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    
-                    input[type="checkbox"] {
-                        margin: 0;
-                    }
-                    
-                    input[type="number"] {
-                        width: 80px;
-                    }
-                    
-                    select {
-                        width: auto;
-                        min-width: 100px;
-                    }
-                }
-            }
-            
-            > label {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                
-                select {
-                    width: auto;
-                    min-width: 120px;
-                }
-            }
+        .multi-select-wrapper {
+            flex: 1;
         }
     }
     
-    @media (max-width: 768px) {
-        .content-panel.databaseChart {
-            .line-chart-style-item {
-                flex-direction: column;
-                gap: 10px;
-            }
-        }
+    .dev-notice {
+        padding: 1rem;
+        text-align: center;
+        color: var(--b3-theme-on-surface-light);
     }
 </style>

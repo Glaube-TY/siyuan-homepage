@@ -1,56 +1,13 @@
+// 设备管理样式 - 与新主页设置框架统一风格
+
 .devices-section {
-    padding: 1rem;
-
-    h3 {
-        color: var(--b3-theme-primary);
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid var(--b3-border-color);
-    }
-
-    h4 {
-        color: var(--b3-theme-text);
-        margin: 1rem 0 0.5rem;
-        font-size: 0.95rem;
-    }
-
-    .current-device {
-        margin-bottom: 1.5rem;
-
-        .current-device-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-
-            h4 {
-                margin: 0;
-            }
-        }
-
-        .manage-hidden-btn {
-            background: var(--b3-theme-primary);
-            color: white;
-            border: none;
-            padding: 0.4rem 0.8rem;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            cursor: pointer;
-            transition: opacity 0.2s;
-
-            &:hover {
-                opacity: 0.8;
-            }
-        }
-    }
-
-    .device-info-card {
+    // 当前设备信息面板
+    .device-info-panel {
         background: var(--b3-theme-surface);
         border: 1px solid var(--b3-border-color);
         border-radius: 8px;
         padding: 1rem;
-        margin-bottom: 0.75rem;
-        position: relative;
+        margin-top: 0.5rem;
 
         &.current {
             border-color: var(--b3-theme-primary);
@@ -58,74 +15,104 @@
         }
     }
 
-    .device-info-row {
+    // 设备信息项（label + value 的紧凑布局）
+    .device-info-item {
         display: flex;
         align-items: center;
-        margin-bottom: 0.4rem;
+        padding: 0.35rem 0;
         font-size: 0.9rem;
 
-        .label {
-            color: var(--b3-theme-on-surface);
-            min-width: 80px;
-            font-weight: 500;
-        }
-
-        .value {
-            color: var(--b3-theme-text);
-            word-break: break-all;
-        }
-
-        .device-id {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 0.75rem;
-            background: var(--b3-theme-background);
-            padding: 2px 8px;
-            border-radius: 4px;
-            border: 1px solid var(--b3-border-color);
-            color: var(--b3-theme-on-surface);
-            word-break: break-all;
+        &:not(:last-child) {
+            border-bottom: 1px solid var(--b3-border-color);
         }
     }
 
-    .current-badge {
-        display: inline-block;
-        background: var(--b3-theme-primary);
-        color: white;
-        font-size: 0.75rem;
-        padding: 2px 8px;
-        border-radius: 4px;
-        margin-top: 0.5rem;
+    .device-info-label {
+        color: var(--b3-theme-on-surface);
+        min-width: 70px;
+        font-weight: 500;
+        font-size: 0.85rem;
     }
 
-    .remove-device-btn {
-        background: var(--b3-theme-error);
-        color: white;
-        border: none;
-        padding: 0.4rem 0.8rem;
-        border-radius: 4px;
-        font-size: 0.8rem;
+    .device-info-value {
+        color: var(--b3-theme-text);
+        flex: 1;
+        word-break: break-all;
+        margin-left: 0.75rem;
+    }
+
+    // 操作按钮 - 统一设置页风格
+    .device-action-btn {
+        background: var(--b3-theme-background);
+        color: var(--b3-theme-on-background);
+        border: 1px solid var(--b3-border-color);
+        padding: 0.4rem 0.9rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
         cursor: pointer;
-        margin-top: 0.5rem;
-        transition: opacity 0.2s;
+        transition: all 0.2s ease;
 
         &:hover {
-            opacity: 0.8;
+            background: var(--b3-theme-surface-lighter);
+            border-color: var(--b3-theme-primary);
         }
     }
 
+    // 设备列表
+    .device-list {
+        max-height: 400px;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+
+    // 设备卡片（已登记设备）
+    .device-card {
+        background: var(--b3-theme-surface);
+        border: 1px solid var(--b3-border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    .device-card-info {
+        margin-bottom: 0.75rem;
+    }
+
+    .device-card-actions {
+        display: flex;
+        justify-content: flex-end;
+        padding-top: 0.5rem;
+        border-top: 1px solid var(--b3-border-color);
+    }
+
+    // 移除配置按钮 - danger-soft 风格
+    .device-remove-btn {
+        background: transparent;
+        color: var(--b3-theme-error);
+        border: 1px solid var(--b3-theme-error);
+        padding: 0.35rem 0.8rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+
+        &:hover {
+            background: var(--b3-theme-error);
+            color: white;
+        }
+    }
+
+    // 无设备提示
     .no-device,
     .no-devices {
         color: var(--b3-theme-on-surface);
         font-style: italic;
-        padding: 0.5rem;
-    }
-
-    .device-list {
-        max-height: 400px;
-        overflow-y: auto;
-    }
-
-    .current-device-card {
-        border-left: 3px solid var(--b3-theme-primary);
+        padding: 1rem;
+        text-align: center;
+        font-size: 0.9rem;
     }
 }

@@ -1,4 +1,7 @@
 <script lang="ts">
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
+
     interface Props {
         sqlTitle: string;
         sqlInput: string;
@@ -14,41 +17,55 @@
     }: Props = $props();
 </script>
 
-<div class="content-panel sql">
-    <div class="form-group">
-        <label for="sql-title">
-            组件标题：
-            <input id="sql-title" type="text" bind:value={sqlTitle} />
-        </label>
-    </div>
-    <div class="form-group">
-        <label for="sql-input">SQL 语句：</label>
+<SettingSection>
+    <SettingRow title="组件标题">
+        <input
+            type="text"
+            bind:value={sqlTitle}
+            placeholder="输入组件标题"
+            class="control-full"
+        />
+    </SettingRow>
+</SettingSection>
+
+<SettingSection>
+    <SettingRow title="SQL 语句" description="输入查询 SQL 语句">
         <textarea
-            id="sql-input"
             bind:value={sqlInput}
             placeholder="请输入 SQL 语句"
         ></textarea>
-    </div>
-    <div class="form-group">
-        <label for="column-order">
-            列排序（逗号分隔）：
-            <input
-                id="column-order"
-                type="text"
-                placeholder="例如：id,alias"
-                bind:value={columnOrder}
-            />
-        </label>
-    </div>
-    <div class="form-group">
-        <label for="hidden-fields">
-            隐藏字段（逗号分隔）：
-            <input
-                id="hidden-fields"
-                type="text"
-                placeholder="例如：alias,path"
-                bind:value={hiddenFields}
-            />
-        </label>
-    </div>
-</div>
+    </SettingRow>
+</SettingSection>
+
+<SettingSection>
+    <SettingRow title="列排序" description="用逗号分隔列名，例如：id,alias">
+        <input
+            type="text"
+            placeholder="例如：id,alias"
+            bind:value={columnOrder}
+            class="control-full"
+        />
+    </SettingRow>
+
+    <SettingRow title="隐藏字段" description="用逗号分隔字段名，例如：alias,path">
+        <input
+            type="text"
+            placeholder="例如：alias,path"
+            bind:value={hiddenFields}
+            class="control-full"
+        />
+    </SettingRow>
+</SettingSection>
+
+<style lang="scss">
+    textarea {
+        width: 100%;
+        min-height: 120px;
+        padding: 0.5rem;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 4px;
+        background: var(--b3-theme-background);
+        font-family: inherit;
+        resize: vertical;
+    }
+</style>

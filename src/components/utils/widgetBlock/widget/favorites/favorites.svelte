@@ -8,7 +8,7 @@
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
-    import { resolveBuiltinDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import { resolveBuiltinDocIcon, normalizeSiyuanDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -36,7 +36,7 @@
             const builtin = resolveBuiltinDocIcon(note);
             if (builtin) return builtin;
         }
-        return { type: "text", value: favoritiesDocPrefix };
+        return { type: "text", value: normalizeSiyuanDocIcon(favoritiesDocPrefix) || "❤" };
     }
 
     // 时间戳格式化函数

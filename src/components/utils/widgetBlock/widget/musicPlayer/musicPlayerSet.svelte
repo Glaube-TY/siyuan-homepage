@@ -1,5 +1,7 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
     interface Props {
         advancedEnabled: boolean;
@@ -34,55 +36,24 @@
 
 <div class="music-player-settings">
     {#if advancedEnabled}
-        <div class="content-panel musicPlayer">
-            <label class="folder-select-label">
-                <span>音乐路径：</span>
-                <input
-                    type="text"
-                    bind:value={musicFolderPath}
-                    placeholder="请选择音乐文件夹"
-                />
-                <button title="选择音乐文件夹" onclick={selectMusicFolder}
-                    >📁</button
-                >
-            </label>
-            <label>
-                <input type="checkbox" bind:checked={autoPlay} />
-                自动播放
-            </label>
-        </div>
+        <SettingSection title="音乐设置">
+            <SettingRow title="音乐路径">
+                <div class="file-path-group">
+                    <input
+                        type="text"
+                        bind:value={musicFolderPath}
+                        placeholder="请选择音乐文件夹"
+                        class="control-full"
+                        readonly
+                    />
+                    <button title="选择音乐文件夹" onclick={selectMusicFolder} class="file-action-btn">📁</button>
+                </div>
+            </SettingRow>
+            <SettingRow title="自动播放">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={autoPlay} />
+            </SettingRow>
+        </SettingSection>
     {:else}
         <h3>👑会员专属权益👑</h3>
     {/if}
 </div>
-
-<style lang="scss">
-    .musicPlayer {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-
-        .folder-select-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            width: 100%;
-
-            span {
-                white-space: nowrap; // 禁止文字换行
-                flex-shrink: 0; // 禁止压缩
-            }
-
-            input[type="text"] {
-                flex: 1 1 auto; // 允许压缩和扩展
-                min-width: 120px; // 设置最小宽度防止过度压缩
-            }
-
-            button {
-                white-space: nowrap;
-                padding: 6px 12px;
-                flex-shrink: 0; // 禁止按钮压缩
-            }
-        }
-    }
-</style>

@@ -1,5 +1,7 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
     interface Props {
         advancedEnabled: boolean;
@@ -56,155 +58,80 @@
 
 <div class="pic-caro-settings">
     {#if advancedEnabled}
-        <div class="content-panel picCaro">
-            <label class="folder-select-label">
-                <span>图片路径：</span>
-                <input
-                    type="text"
-                    bind:value={PicFolderPath}
-                    placeholder="请选择图片文件夹"
-                />
-                <button title="选择图片文件夹" onclick={selectPicFolder}
-                    >📁</button
-                >
-            </label>
-        </div>
-        <div class="content-panel picCaro">
-            <div
-                style="display: flex; gap: 1rem; align-items: center; padding-top: 1rem;"
-            >
-                <label for="autoPlay"
-                    ><input
-                        type="checkbox"
-                        id="autoPlay"
-                        bind:checked={PicAutoPlay}
-                    />自动播放</label
-                >
-                {#if PicAutoPlay}
-                    <label for="interval"
-                        >间隔：<input
-                            type="number"
-                            id="interval"
-                            style="width: 50px;"
-                            bind:value={PicInterval}
-                        />秒</label
-                    >
+        <SettingSection title="图片路径">
+            <SettingRow title="文件夹路径">
+                <div class="file-path-group">
+                    <input
+                        type="text"
+                        bind:value={PicFolderPath}
+                        placeholder="请选择图片文件夹"
+                        class="control-full"
+                        readonly
+                    />
+                    <button title="选择图片文件夹" onclick={selectPicFolder} class="file-action-btn">📁</button>
+                </div>
+            </SettingRow>
+        </SettingSection>
+
+        <SettingSection title="播放设置">
+            <SettingRow title="自动播放">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={PicAutoPlay} />
+            </SettingRow>
+            {#if PicAutoPlay}
+                <SettingRow title="切换间隔">
+                    <input type="number" bind:value={PicInterval} class="control-sm" />
+                    <span>秒</span>
+                </SettingRow>
+            {/if}
+            <SettingRow title="显示切换按钮">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={PicNavigation} />
+            </SettingRow>
+            <SettingRow title="随机播放">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={PicRandomSwitch} />
+            </SettingRow>
+        </SettingSection>
+
+        <SettingSection title="分页设置">
+            <SettingRow title="显示分页进度">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={PicPagination} />
+            </SettingRow>
+            {#if PicPagination}
+                <SettingRow title="分页样式">
+                    <select bind:value={PicPaginationType} class="control-sm">
+                        <option value="bullets">圆点</option>
+                        <option value="fraction">分式</option>
+                        <option value="progressbar">进度条</option>
+                    </select>
+                </SettingRow>
+                {#if PicPaginationType === "bullets"}
+                    <SettingRow title="动态圆点">
+                        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={PicPaginationDyBu} />
+                    </SettingRow>
+                {:else if PicPaginationType === "progressbar"}
+                    <SettingRow title="进度条反方向">
+                        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={PicPaginationPrOp} />
+                    </SettingRow>
                 {/if}
-                <label for="navigation"
-                    ><input
-                        type="checkbox"
-                        id="navigation"
-                        bind:checked={PicNavigation}
-                    />显示切换按钮</label
-                >
-                <label for="randomSwitch"
-                    ><input
-                        type="checkbox"
-                        id="randomSwitch"
-                        bind:checked={PicRandomSwitch}
-                    />随机</label
-                >
-            </div>
-        </div>
-        <div class="content-panel picCaro">
-            <div
-                style="display: flex; gap: 1rem; align-items: center; padding-top: 1rem;"
-            >
-                <label for="pagination"
-                    ><input
-                        type="checkbox"
-                        id="pagination"
-                        bind:checked={PicPagination}
-                    />显示分页进度</label
-                >
-                {#if PicPagination}
-                    <label for="paginationType"
-                        >样式：<select
-                            id="paginationType"
-                            bind:value={PicPaginationType}
-                        >
-                            <option value="bullets">圆点</option>
-                            <option value="fraction">分式</option>
-                            <option value="progressbar">进度条</option>
-                        </select></label
-                    >
-                    {#if PicPaginationType === "bullets"}
-                        <label for="dynamicBullets"
-                            ><input
-                                type="checkbox"
-                                id="dynamicBullets"
-                                bind:checked={PicPaginationDyBu}
-                            />动态圆点</label
-                        >
-                    {:else if PicPaginationType === "progressbar"}
-                        <label for="paginationProgressOpposite"
-                            ><input
-                                type="checkbox"
-                                id="paginationProgressOpposite"
-                                bind:checked={PicPaginationPrOp}
-                            />进度条反方向</label
-                        >
-                    {/if}
-                {/if}
-            </div>
-        </div>
-        <div class="content-panel picCaro">
-            <div
-                style="display: flex; gap: 1rem; align-items: center; padding-top: 1rem;"
-            >
-                <label for="effect"
-                    >切换效果：<select id="effect" bind:value={PicEffect}>
-                        <option value="slide">滑动</option>
-                        <option value="fade">淡入</option>
-                        <option value="cube">立方体</option>
-                        <option value="coverflow">封面流</option>
-                        <option value="flip">翻转</option>
-                    </select></label
-                >
-                {#if PicEffect === "slide"}
-                    <label for="slidesPerView"
-                        >每页显示的图片数量：<input
-                            type="number"
-                            id="slidesPerView"
-                            style="width: 50px;"
-                            bind:value={PicSlidesPerView}
-                        /></label
-                    >
-                {/if}
-            </div>
-        </div>
+            {/if}
+        </SettingSection>
+
+        <SettingSection title="切换效果">
+            <SettingRow title="效果类型">
+                <select bind:value={PicEffect} class="control-sm">
+                    <option value="slide">滑动</option>
+                    <option value="fade">淡入</option>
+                    <option value="cube">立方体</option>
+                    <option value="coverflow">封面流</option>
+                    <option value="flip">翻转</option>
+                </select>
+            </SettingRow>
+            {#if PicEffect === "slide"}
+                <SettingRow title="每页显示数量">
+                    <input type="number" bind:value={PicSlidesPerView} class="control-sm" />
+                </SettingRow>
+            {/if}
+        </SettingSection>
     {:else}
         <h3>👑会员专属权益👑</h3>
     {/if}
 </div>
-
-<style lang="scss">
-    .picCaro {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-
-        .folder-select-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            width: 100%;
-
-            span {
-                white-space: nowrap; // 禁止文字换行
-                flex-shrink: 0; // 禁止压缩
-            }
-
-            input[type="text"] {
-                flex: 1 1 auto; // 允许压缩和扩展
-                min-width: 120px; // 设置最小宽度防止过度压缩
-            }
-
-            button {
-                white-space: nowrap;
-                padding: 6px 12px;
-                flex-shrink: 0; // 禁止按钮压缩
-            }
-        }
-    }
-</style>

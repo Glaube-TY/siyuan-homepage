@@ -1,4 +1,7 @@
 <script lang="ts">
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
+
     interface Props {
         advancedEnabled?: boolean;
         selectedConstellation?: string;
@@ -23,20 +26,17 @@
     ];
 </script>
 
-<div class="content-display">
-    {#if advancedEnabled}
-        <div class="content-panel constellation">
-            <label for="constellation"
-                >选择星座：
-                <select id="constellation" bind:value={selectedConstellation}>
-                    {#each constellations as constellation}
-                        <option value={constellation.value}>{constellation.label}</option>
-                    {/each}
-                </select>
-            </label>
-        </div>
-    {:else}
-        <h3>👑会员专属权益👑</h3>
-    {/if}
+{#if advancedEnabled}
+    <SettingSection>
+        <SettingRow title="选择星座">
+            <select bind:value={selectedConstellation} class="control-sm">
+                {#each constellations as constellation}
+                    <option value={constellation.value}>{constellation.label}</option>
+                {/each}
+            </select>
+        </SettingRow>
+    </SettingSection>
     <p>注：若某一接口失效请联系我更新~</p>
-</div>
+{:else}
+    <h3>👑会员专属权益👑</h3>
+{/if}

@@ -1,4 +1,7 @@
 <script lang="ts">
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
+
     interface Props {
         hotSource: string;
     }
@@ -74,23 +77,17 @@
     ];
 </script>
 
-<div class="hot-set">
-    <div class="form-group">
-        <label for="hot-source">
-            热搜平台：
-            <select id="hot-source" bind:value={hotSource}>
-                {#each hotSourceCategories as category}
-                    <optgroup label={category.category}>
-                        {#each category.sources as source}
-                            <option value={source.value}>{source.label}</option>
-                        {/each}
-                    </optgroup>
-                {/each}
-            </select>
-        </label>
-    </div>
-    <p>注：若某一热搜来源失效请联系我更新~</p>
-</div>
-
-<style lang="scss">
-</style>
+<SettingSection>
+    <SettingRow title="热搜平台">
+        <select bind:value={hotSource} class="control-md">
+            {#each hotSourceCategories as category}
+                <optgroup label={category.category}>
+                    {#each category.sources as source}
+                        <option value={source.value}>{source.label}</option>
+                    {/each}
+                </optgroup>
+            {/each}
+        </select>
+    </SettingRow>
+</SettingSection>
+<p>注：若某一热搜来源失效请联系我更新~</p>

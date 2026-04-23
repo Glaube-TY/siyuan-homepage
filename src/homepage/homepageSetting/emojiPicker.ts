@@ -1,36 +1,29 @@
-export interface EmojiPickerPosition {
-    top: string;
-    left: string;
+import { openEmoji } from "siyuan";
+
+/**
+ * 打开思源内置 emoji 搜索弹窗
+ * @param triggerElement 触发元素，用于计算弹窗位置
+ * @param onSelect 选中 emoji 后的回调函数
+ */
+export function openSiyuanEmojiPicker(
+    triggerElement: HTMLElement,
+    onSelect: (emoji: string) => void
+): void {
+    const rect = triggerElement.getBoundingClientRect();
+
+    openEmoji({
+        position: {
+            x: rect.left,
+            y: rect.bottom,
+            w: rect.width,
+            h: rect.height,
+        },
+        selectedCB: (emoji: string) => {
+            onSelect(emoji);
+        },
+    });
 }
 
-export function calculateEmojiPickerPosition(
-    button: HTMLElement,
-    containerSelector: string = ".settings-container"
-): EmojiPickerPosition | null {
-    const container = document.querySelector(containerSelector) as HTMLElement;
-    if (!container) return null;
-
-    const rect = button.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-
-    return {
-        top: `${rect.top - containerRect.top + button.offsetHeight}px`,
-        left: `${rect.left - containerRect.left}px`,
-    };
-}
-
-export function bindEmojiPickerEvents(
-    element: HTMLElement,
-    onEmojiSelect: (emoji: string) => void
-): () => void {
-    const handler = (event: any) => {
-        const detail = event.detail;
-        onEmojiSelect(detail.unicode);
-    };
-
-    element.addEventListener("emoji-click", handler);
-
-    return () => {
-        element.removeEventListener("emoji-click", handler);
-    };
-}
+// 兼容旧接口的别名
+export const calculateEmojiPickerPosition = () => null;
+export const bindEmojiPickerEvents = () => () => {};

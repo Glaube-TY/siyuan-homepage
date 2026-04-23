@@ -1,4 +1,7 @@
 <script lang="ts">
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
+
     interface Props {
         isRandomDoc?: boolean;
         customBlockID?: string;
@@ -7,22 +10,18 @@
     let { isRandomDoc = $bindable(false), customBlockID = $bindable("") }: Props = $props();
 </script>
 
-<div class="content-panel custom-protyle">
-    <div class="form-group">
-        <label for="">
-            <input type="checkbox" bind:checked={isRandomDoc} />
-            随机漫游文档
-        </label>
-    </div>
+<SettingSection>
+    <SettingRow title="随机漫游文档">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={isRandomDoc} />
+    </SettingRow>
     {#if !isRandomDoc}
-        <div class="form-group">
-            <label for="protyle-block-id">输入想要显示的文档块 ID：</label>
+        <SettingRow title="文档块 ID">
             <input
-                id="protyle-block-id"
                 type="text"
                 bind:value={customBlockID}
                 placeholder="例如：20250310094404-1yla4zz"
+                class="control-full"
             />
-        </div>
+        </SettingRow>
     {/if}
-</div>
+</SettingSection>

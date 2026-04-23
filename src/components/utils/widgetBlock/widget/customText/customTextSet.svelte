@@ -1,5 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
     interface Props {
         customTextInputValue?: string;
@@ -15,16 +17,14 @@
     });
 </script>
 
-<div class="content-display">
-    <div class="content-panel custom-text">
-        <h4>自定义文字内容</h4>
+<SettingSection>
+    <SettingRow title="自定义文字内容" description="支持 Markdown 格式">
         <textarea
-            placeholder="在这里输入你想要显示的自定义文字内容，以 Markdown
-            格式编写..."
+            placeholder="在这里输入你想要显示的自定义文字内容..."
             bind:value={customTextInputValue}
         ></textarea>
-    </div>
-</div>
+    </SettingRow>
+</SettingSection>
 
 <style lang="scss">
     textarea {
@@ -36,7 +36,6 @@
         border-radius: 6px;
         background-color: var(--b3-theme-background);
         font-size: 0.95rem;
-        transition: all 0.2s ease-in-out;
         resize: vertical;
         font-family: inherit;
         box-sizing: border-box;

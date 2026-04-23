@@ -3,10 +3,11 @@
 
     import MultiSelect from "svelte-multiselect";
     import { onMount } from "svelte";
+    import { openSiyuanEmojiPicker } from "@/homepage/homepageSetting/emojiPicker";
+    import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
-    
-
-    
     interface Props {
         // 收藏文档相关变量
         favoritiesTitle?: string;
@@ -37,6 +38,16 @@
         favFloatDocShowTime = $bindable(0.1),
         notebooks = []
     }: Props = $props();
+
+    let prefixButtonRef: HTMLButtonElement | null = $state(null);
+
+    function handlePrefixSelect() {
+        if (prefixButtonRef) {
+            openSiyuanEmojiPicker(prefixButtonRef, (emoji) => {
+                favoritiesDocPrefix = emoji;
+            });
+        }
+    }
 
     // 初始化选择状态
     function initializeSelectedNotebooks() {
@@ -85,114 +96,69 @@
     });
 </script>
 
-<div class="content-panel favorites">
-    <!-- 收藏文档设置区域 -->
-    <div class="favorites-setting-top">
-        <div>
-            <div class="form-group">
-                <label for="favorities-title">
-                    组件标题：
-                    <input
-                        id="favorities-title"
-                        type="text"
-                        bind:value={favoritiesTitle}
-                        placeholder="输入组件标题"
-                    />
-                </label>
-            </div>
-            <div class="form-group">
-                <label for="favorities-doc-prefix">
-                    文档前缀：
-                    <input
-                        id="favorities-doc-prefix"
-                        type="text"
-                        bind:value={favoritiesDocPrefix}
-                    />
-                </label>
-            </div>
-            <div class="form-group">
-                <label for="use-builtin-doc-icon">
-                    <input
-                        id="use-builtin-doc-icon"
-                        type="checkbox"
-                        bind:checked={useBuiltinDocIcon}
-                    />
-                    内置图标
-                </label>
-            </div>
-        </div>
-        <div>
-            <div class="form-group">
-                <label for="favorities-sort-order"> 排序方式： </label>
-                <select
-                    id="favorities-sort-order"
-                    bind:value={favoritiesSortOrder}
-                >
-                    <option value="created">创建时间</option>
-                    <option value="updated">更新时间</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="favorities-show-note-meta">
-                    <input
-                        id="favorities-show-note-meta"
-                        type="checkbox"
-                        bind:checked={showNoteMeta}
-                    />
-                    显示文档信息
-                </label>
-            </div>
-        </div>
-    </div>
-    <div class="favorites-setting-bottom">
-        <div class="form-group doc-notebook-id">
-            <label for="doc-notebook-id"> 文档笔记本： </label>
-            {#if notebooks.length > 0}
-                <MultiSelect
-                    id="doc-notebook-id"
-                    bind:selected={selectedFavoritesNotebookIds}
-                    options={notebooks.map((notebook) => ({
-                        label: notebook.name,
-                        value: notebook.id,
-                    }))}
-                    placeholder="选择笔记本..."
-                />
-            {:else}
-                <span class="loading-placeholder">笔记本加载中...</span>
-            {/if}
-            <div class="form-group">
-                <label for="show-fav-float-doc">
-                    <input
-                        id="show-fav-float-doc"
-                        type="checkbox"
-                        bind:checked={showFavFloatDoc}
-                    />
-                    显示预览弹窗
-                </label>
-                <label for="fav-float-doc-show-time">
-                    悬停时间：
-                    <input
-                        type="number"
-                        title="悬停多长时间显示预览弹窗"
-                        bind:value={favFloatDocShowTime}
-                    />
-                    秒
-                </label>
-            </div>
-        </div>
-    </div>
-</div>
+<SettingSection>
+    <SettingRow title="组件标题">
+        <input
+            type="text"
+            bind:value={favoritiesTitle}
+            placeholder="输入组件标题"
+            class="control-full"
+        />
+    </SettingRow>
 
-<style lang="scss">
-    .favorites-setting-top {
-        display: flex;
-        flex-direction: row;
-        justify-content: flex-start;
-        align-items: center;
-        gap: 10px;
+    <SettingRow title="文档前缀" description="设置文档列表前的图标">
+        <button
+            type="button"
+            class="emoji-btn"
+            bind:this={prefixButtonRef}
+            onclick={handlePrefixSelect}
+            title="点击选择表情"
+        >
+            {normalizeSiyuanDocIcon(favoritiesDocPrefix) || "❤"}
+        </button>
+    </SettingRow>
 
-        input {
-            max-width: 150px;
-        }
-    }
-</style>
+    <SettingRow title="内置图标" description="优先使用文档自带图标">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={useBuiltinDocIcon} />
+    </SettingRow>
+
+    <SettingRow title="排序方式">
+        <select bind:value={favoritiesSortOrder} class="control-sm">
+            <option value="created">创建时间</option>
+            <option value="updated">更新时间</option>
+        </select>
+    </SettingRow>
+
+    <SettingRow title="显示文档信息" description="显示更新时间等元信息">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showNoteMeta} />
+    </SettingRow>
+
+    <SettingRow title="文档笔记本">
+        {#if notebooks.length > 0}
+            <MultiSelect
+                bind:selected={selectedFavoritesNotebookIds}
+                options={notebooks.map((notebook) => ({
+                    label: notebook.name,
+                    value: notebook.id,
+                }))}
+                placeholder="选择笔记本..."
+            />
+        {:else}
+            <span>笔记本加载中...</span>
+        {/if}
+    </SettingRow>
+
+    <SettingRow title="显示预览弹窗" description="悬停时显示文档预览">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showFavFloatDoc} />
+    </SettingRow>
+
+    <SettingRow title="悬停时间" description="悬停多久后显示预览（秒）">
+        <input
+            type="number"
+            bind:value={favFloatDocShowTime}
+            step="0.1"
+            min="0"
+            class="control-xs"
+        />
+    </SettingRow>
+</SettingSection>

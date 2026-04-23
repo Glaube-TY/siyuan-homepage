@@ -3,9 +3,9 @@
 
     import MultiSelect from "svelte-multiselect";
     import { onMount } from "svelte";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
-
-    
     interface Props {
         notebooks?: any[];
         // 任务管理配置
@@ -59,34 +59,27 @@
     });
 </script>
 
-<div class="content-panel TaskMan">
-    <!-- 任务管理设置区域 -->
-    <div class="form-group">
-        <label for="TaskMan-title">
-            组件标题：
-            <input
-                id="TaskMan-title"
-                type="text"
-                bind:value={TaskManTitle}
-                placeholder="输入组件标题"
-            />
-        </label>
-    </div>
-    <div class="form-group TaskMan-checkbox">
-        <label>
-            <input type="checkbox" bind:checked={showCompletedTasks} />
-            显示已完成的任务
-        </label>
-        <label>
-            <input type="checkbox" bind:checked={showTasksDetails} />
-            显示任务详情
-        </label>
-    </div>
-    <div class="form-group TaskMan-notebook-id">
-        <label for="TaskMan-notebook-id">任务笔记本：</label>
+<SettingSection>
+    <SettingRow title="组件标题">
+        <input
+            type="text"
+            bind:value={TaskManTitle}
+            placeholder="输入组件标题"
+            class="control-full"
+        />
+    </SettingRow>
+
+    <SettingRow title="显示已完成的任务" description="在列表中显示已完成的任务">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showCompletedTasks} />
+    </SettingRow>
+
+    <SettingRow title="显示任务详情" description="显示任务的详细信息">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showTasksDetails} />
+    </SettingRow>
+
+    <SettingRow title="任务笔记本">
         {#if notebooks.length > 0}
             <MultiSelect
-                id="TaskMan-notebook-id"
                 bind:selected={selectedTasksNotebookIds}
                 options={notebooks.map((notebook) => ({
                     label: notebook.name,
@@ -95,27 +88,7 @@
                 placeholder="选择笔记本..."
             />
         {:else}
-            <span class="loading-placeholder">笔记本加载中...</span>
+            <span>笔记本加载中...</span>
         {/if}
-    </div>
-</div>
-
-<style lang="scss">
-    .TaskMan-checkbox {
-        display: flex;
-        gap: 1rem;
-        align-items: center;
-    }
-
-    .TaskMan-notebook-id {
-        display: flex;
-        flex-direction: column;
-
-        label {
-            font-size: 14px;
-            margin-right: 0.5rem;
-            white-space: nowrap;
-            width: auto;
-        }
-    }
-</style>
+    </SettingRow>
+</SettingSection>

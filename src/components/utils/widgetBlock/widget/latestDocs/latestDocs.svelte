@@ -7,7 +7,7 @@
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
-    import { resolveBuiltinDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import { resolveBuiltinDocIcon, normalizeSiyuanDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -33,7 +33,7 @@
             const builtin = resolveBuiltinDocIcon(doc);
             if (builtin) return builtin;
         }
-        return { type: "text", value: prefix };
+        return { type: "text", value: normalizeSiyuanDocIcon(prefix) || "📄" };
     }
 
     // 文档数据源

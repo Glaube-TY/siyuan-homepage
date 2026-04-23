@@ -1,3 +1,224 @@
+// 按钮设置页 - 说明区域
+.button-settings-intro {
+    padding: 0.5rem 0;
+
+    .intro-text {
+        margin: 0;
+        color: var(--b3-theme-on-surface);
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+}
+
+// 按钮编辑器整体布局 - 使用 CSS Grid 实现真正的弹性两栏
+.buttons-editor {
+    display: grid;
+    grid-template-columns: minmax(200px, 280px) minmax(400px, 1fr);
+    gap: 1rem;
+    min-height: 350px;
+
+    // 响应式：中等宽度下左栏固定，右栏自适应
+    @media (max-width: 900px) {
+        grid-template-columns: 220px 1fr;
+    }
+
+    // 响应式：窄宽度下改为纵向布局
+    @media (max-width: 700px) {
+        grid-template-columns: 1fr;
+    }
+
+    // 左栏：按钮列表
+    .buttons-list-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        min-width: 0; // 防止 grid item 溢出
+
+        .buttons-list {
+            flex: 1;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--b3-theme-border-color);
+            border-radius: 6px;
+            background-color: var(--b3-theme-surface);
+            padding: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+
+            .button-list-item {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0.5rem 0.75rem;
+                border-radius: 4px;
+                background-color: transparent;
+                border: 1px solid transparent;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                text-align: left;
+                min-height: 36px;
+
+                &:hover {
+                    background-color: var(--b3-theme-surface-lighter);
+                }
+
+                &.active {
+                    background-color: var(--b3-theme-primary-lightest);
+                    border-color: var(--b3-theme-primary);
+                }
+
+                .button-name {
+                    font-size: 0.9rem;
+                    color: var(--b3-theme-on-background);
+                    flex: 1;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    margin-right: 0.5rem;
+                }
+
+                input[type="checkbox"] {
+                    flex-shrink: 0;
+                    margin: 0;
+                }
+            }
+        }
+
+        .add-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            padding: 0.6rem 1rem;
+            border-radius: 4px;
+            border: 1px dashed var(--b3-theme-border-color);
+            background-color: var(--b3-theme-surface);
+            color: var(--b3-theme-on-surface);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+
+            &:hover {
+                border-color: var(--b3-theme-primary);
+                color: var(--b3-theme-primary);
+                background-color: var(--b3-theme-primary-lightest);
+            }
+
+            .add-icon {
+                font-size: 1.1rem;
+                font-weight: 500;
+            }
+        }
+    }
+
+    // 右栏：按钮详情
+    .button-detail-panel {
+        flex: 1;
+        min-width: 0;
+        border: 1px solid var(--b3-theme-border-color);
+        border-radius: 6px;
+        background-color: var(--b3-theme-surface);
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+
+        .detail-header {
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--b3-theme-border-color);
+
+            .detail-title {
+                margin: 0;
+                font-size: 1rem;
+                font-weight: 500;
+                color: var(--b3-theme-on-background);
+            }
+        }
+
+        .core-button-notice {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            p {
+                margin: 0;
+                color: var(--b3-theme-on-surface);
+                font-size: 0.9rem;
+            }
+        }
+
+        .detail-content {
+            flex: 1;
+
+            .shortcut-input {
+                cursor: pointer;
+
+                &.capturing {
+                    outline: 2px solid var(--b3-theme-primary);
+                    border-color: var(--b3-theme-primary);
+                }
+            }
+        }
+
+        .detail-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--b3-theme-border-color);
+
+            .action-btn {
+                display: flex;
+                align-items: center;
+                gap: 0.3rem;
+                padding: 0.5rem 0.75rem;
+                border-radius: 4px;
+                border: 1px solid var(--b3-theme-border-color);
+                background-color: var(--b3-theme-background);
+                color: var(--b3-theme-on-surface);
+                font-size: 0.85rem;
+                cursor: pointer;
+                transition: all 0.2s ease;
+
+                &:hover:not(:disabled) {
+                    background-color: var(--b3-theme-surface-lighter);
+                }
+
+                &:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+
+                &.delete {
+                    margin-left: auto;
+                    color: var(--b3-theme-error);
+                    border-color: var(--b3-theme-error-light);
+
+                    &:hover:not(:disabled) {
+                        background-color: var(--b3-theme-error-lightest);
+                    }
+                }
+            }
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            p {
+                margin: 0;
+                color: var(--b3-theme-on-surface);
+                font-size: 0.9rem;
+            }
+        }
+    }
+}
+
+// 兼容旧样式（防止其他页面引用出错）
 .buttons-setting {
     display: flex;
     flex-direction: column;

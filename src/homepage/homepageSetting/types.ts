@@ -1,5 +1,5 @@
 export type HomepageSettingMainTab = "homepage" | "vip" | "about";
-export type HomepageSettingSubTab = "banner" | "title" | "button" | "widgets" | "styles" | "devices";
+export type HomepageSettingSubTab = "behavior" | "banner" | "title" | "button" | "widgets" | "styles" | "devices";
 
 export interface HomepageSettingProps {
     plugin: any;

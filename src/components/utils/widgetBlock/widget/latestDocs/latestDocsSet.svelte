@@ -3,9 +3,11 @@
 
     import MultiSelect from "svelte-multiselect";
     import { onMount } from "svelte";
+    import { openSiyuanEmojiPicker } from "@/homepage/homepageSetting/emojiPicker";
+    import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
-
-    
     interface Props {
         notebooks?: any[];
         // 最近文档配置
@@ -34,6 +36,16 @@
         showLatestDocFloatDoc = $bindable(true),
         latestDocsFloatDocShowTime = $bindable(0.1)
     }: Props = $props();
+
+    let prefixButtonRef: HTMLButtonElement | null = $state(null);
+
+    function handlePrefixSelect() {
+        if (prefixButtonRef) {
+            openSiyuanEmojiPicker(prefixButtonRef, (emoji) => {
+                latestDocsPrefix = emoji;
+            });
+        }
+    }
 
     let limitOptions = [
         { value: 3, label: "3条" },
@@ -79,121 +91,74 @@
     });
 </script>
 
-<div class="latest-docs-settings">
-    <div class="group1">
-        <div class="setting-item">
-            <label for="latest-docs-title"
-                >组件标题：
-                <input
-                    id="latest-docs-title"
-                    type="text"
-                    bind:value={latestDocsTitle}
-                    placeholder="最近文档"
-                />
-            </label>
-        </div>
+<SettingSection>
+    <SettingRow title="组件标题">
+        <input
+            type="text"
+            bind:value={latestDocsTitle}
+            placeholder="最近文档"
+            class="control-full"
+        />
+    </SettingRow>
 
-        <div class="setting-item">
-            <label for="latest-docs-prefix"
-                >文档前缀：
-                <input
-                    id="latest-docs-prefix"
-                    type="text"
-                    bind:value={latestDocsPrefix}
-                    placeholder=""
-                />
-            </label>
-        </div>
-        <div class="setting-item">
-            <label>
-                <input type="checkbox" bind:checked={useBuiltinDocIcon} />
-                内置图标
-            </label>
-        </div>
-    </div>
+    <SettingRow title="文档前缀" description="设置文档列表前的图标">
+        <button
+            type="button"
+            class="emoji-btn"
+            bind:this={prefixButtonRef}
+            onclick={handlePrefixSelect}
+            title="点击选择表情"
+        >
+            {normalizeSiyuanDocIcon(latestDocsPrefix) || "📄"}
+        </button>
+    </SettingRow>
 
-    <div class="group2">
-        <div class="setting-item">
-            <label for="doc-limit">显示条目数：</label>
-            <select bind:value={docLimit}>
-                {#each limitOptions as option}
-                    <option value={option.value}>{option.label}</option>
-                {/each}
-            </select>
-        </div>
+    <SettingRow title="内置图标" description="优先使用文档自带图标">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={useBuiltinDocIcon} />
+    </SettingRow>
 
-        <div class="setting-item">
-            <label>
-                <input type="checkbox" bind:checked={ensureOpenDocs} />
-                包含打开的文档
-            </label>
-        </div>
+    <SettingRow title="显示条目数">
+        <select bind:value={docLimit} class="control-sm">
+            {#each limitOptions as option}
+                <option value={option.value}>{option.label}</option>
+            {/each}
+        </select>
+    </SettingRow>
 
-        <div class="setting-item">
-            <label>
-                <input type="checkbox" bind:checked={showLatestDocDetails} />
-                显示文档信息
-            </label>
-        </div>
-    </div>
+    <SettingRow title="包含打开的文档" description="将当前打开的文档纳入列表">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={ensureOpenDocs} />
+    </SettingRow>
 
-    <div class="setting-item">
-        <label for="doc-notebook-id">
-            指定笔记本：
-            {#if notebooks.length > 0}
-                <MultiSelect
-                    bind:selected={selectedNotebookIds}
-                    options={notebooks.map((notebook) => ({
-                        label: notebook.name,
-                        value: notebook.id,
-                    }))}
-                    placeholder="选择笔记本..."
-                />
-            {:else}
-                <span class="loading-placeholder">笔记本加载中...</span>
-            {/if}
-        </label>
-    </div>
+    <SettingRow title="显示文档信息" description="显示更新时间等元信息">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showLatestDocDetails} />
+    </SettingRow>
 
-    <div class="form-group">
-        <label for="show-latest-docs-float-doc">
-            <input
-                id="show-latest-docs-float-doc"
-                type="checkbox"
-                bind:checked={showLatestDocFloatDoc}
+    <SettingRow title="指定笔记本">
+        {#if notebooks.length > 0}
+            <MultiSelect
+                bind:selected={selectedNotebookIds}
+                options={notebooks.map((notebook) => ({
+                    label: notebook.name,
+                    value: notebook.id,
+                }))}
+                placeholder="选择笔记本..."
             />
-            显示预览弹窗
-        </label>
-        <label for="latest-docs-float-doc-show-time">
-            悬停时间：
-            <input
-                type="number"
-                title="悬停多长时间显示预览弹窗"
-                bind:value={latestDocsFloatDocShowTime}
-            />
-            秒
-        </label>
-    </div>
-</div>
+        {:else}
+            <span>笔记本加载中...</span>
+        {/if}
+    </SettingRow>
 
-<style lang="scss">
-    .group1 {
-        display: flex;
-        gap: 10px;
-        align-items: center;
+    <SettingRow title="显示预览弹窗" description="悬停时显示文档预览">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showLatestDocFloatDoc} />
+    </SettingRow>
 
-        #latest-docs-title {
-            width: 200px;
-        }
-
-        #latest-docs-prefix {
-            width: 50px;
-        }
-    }
-
-    .group2 {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-    }
-</style>
+    <SettingRow title="悬停时间" description="悬停多久后显示预览（秒）">
+        <input
+            type="number"
+            bind:value={latestDocsFloatDocShowTime}
+            step="0.1"
+            min="0"
+            class="control-xs"
+        />
+    </SettingRow>
+</SettingSection>

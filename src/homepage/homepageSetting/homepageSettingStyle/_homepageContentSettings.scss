@@ -1,5 +1,4 @@
 .homepage-content-settings {
-    padding-top: 1rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -23,12 +22,6 @@
     &:hover {
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
-}
-
-.action-buttons {
-    display: flex;
-    gap: 1rem;
-    margin-top: 1rem;
 }
 
 .btn {

@@ -1,4 +1,9 @@
 <script lang="ts">
+    import { openSiyuanEmojiPicker } from "@/homepage/homepageSetting/emojiPicker";
+    import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
+
     interface Props {
         conditionDocsTitle?: string;
         conditionDocsPrefix?: string;
@@ -26,157 +31,108 @@
         conditionDocsFloatDocShowTime = $bindable(0.1),
         conditionDocsTag = $bindable("")
     }: Props = $props();
-</script>
 
-<div class="content-display">
-    <div class="content-panel conditionDocs">
-        <div class="form-group conditionDocs-title">
-            <label for="conditionDocs-title">
-                组件标题：
-                <input
-                    id="conditionDocs-title"
-                    type="text"
-                    bind:value={conditionDocsTitle}
-                    placeholder="输入组件标题"
-                />
-            </label>
-        </div>
-        <div class="form-group conditionDocs-prefix">
-            <label for="conditionDocs-prefix">
-                文档前缀：
-                <input
-                    id="conditionDocs-prefix"
-                    type="text"
-                    bind:value={conditionDocsPrefix}
-                    placeholder="输入文档前缀"
-                />
-            </label>
-            <label for="use-builtin-doc-icon">
-                <input
-                    id="use-builtin-doc-icon"
-                    type="checkbox"
-                    bind:checked={useBuiltinDocIcon}
-                />
-                内置图标
-            </label>
-            <label for="conditionDocs-sortOrder">
-                排序方式：
-                <select
-                    id="conditionDocs-sortOrder"
-                    bind:value={conditionDocsSortOrder}
-                >
-                    <option value="updated">更新时间</option>
-                    <option value="created">创建时间</option>
-                </select>
-            </label>
-            <label for="conditionDocs-showconditionDocsDetails">
-                显示详情：
-                <input
-                    id="conditionDocs-showconditionDocsDetails"
-                    type="checkbox"
-                    bind:checked={showConditionDocsDetails}
-                />
-            </label>
-        </div>
-        <hr />
-        <div
-            class="form-group conditionDocs-condition"
-            style="display: flex; flex-direction: column;"
-        >
-            <label for="conditionDocs-condition">
-                筛选条件：
-                <select
-                    id="conditionDocs-condition"
-                    bind:value={conditionDocsCondition}
-                    placeholder="选择筛选条件"
-                >
-                    <option value="keyword">关键词</option>
-                    <option value="tag">标签</option>
-                    <!-- <option value="parentId">时间段</option> -->
-                </select>
-            </label>
+    let prefixButtonRef: HTMLButtonElement | null = $state(null);
 
-            {#if conditionDocsCondition === "keyword"}
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <label for="conditionDocs-key-position">
-                        关键词位置：
-                        <select
-                            id="conditionDocs-key-position"
-                            bind:value={conditionDocsKeyPosition}
-                        >
-                            <option value="anywhere">任意位置</option>
-                            <option value="DocTitle">文档标题</option>
-                            <option value="body">正文</option>
-                            <option value="bodyTitle">正文标题</option>
-                            <option value="paragraph">段落</option>
-                            <option value="list">列表</option>
-                            <option value="table">表格</option>
-                            <option value="code">代码</option>
-                            <option value="quote">引述</option>
-                            <option value="formula">公式</option>
-                        </select>
-                    </label>
-                    <label for="conditionDocs-key">
-                        关键词：
-                        <input
-                            id="conditionDocs-key"
-                            type="text"
-                            bind:value={conditionDocsKeyWord}
-                            placeholder="输入关键词"
-                            style="width: 50%;"
-                        />
-                    </label>
-                </div>
-            {:else if conditionDocsCondition === "tag"}
-                <label for="conditionDocs-tag">
-                    标签：
-                    <input
-                        id="conditionDocs-tag"
-                        type="text"
-                        bind:value={conditionDocsTag}
-                        placeholder="输入标签"
-                        style="width: 50%;"
-                    />
-                </label>
-                <!-- {:else if conditionDocsCondition === "parentId"}
-                    <label for="conditionDocs-parentId"> 时间段： </label> -->
-            {/if}
-        </div>
-        <hr />
-        <div class="form-group">
-            <label for="show-conditionDocs-float-doc">
-                <input
-                    id="show-conditionDocs-float-doc"
-                    type="checkbox"
-                    bind:checked={showConditionDocsFloatDoc}
-                />
-                显示预览弹窗
-            </label>
-            <label for="conditionDocs-float-doc-show-time">
-                悬停时间：
-                <input
-                    type="number"
-                    title="悬停多长时间显示预览弹窗"
-                    bind:value={conditionDocsFloatDocShowTime}
-                />
-                秒
-            </label>
-        </div>
-    </div>
-</div>
-
-<style lang="scss">
-    .conditionDocs {
-        .conditionDocs-prefix {
-            display: flex;
-            flex-direction: row;
-            justify-content: flex-start;
-            align-items: center;
-            gap: 10px;
-
-            input {
-                max-width: 50px;
-            }
+    function handlePrefixSelect() {
+        if (prefixButtonRef) {
+            openSiyuanEmojiPicker(prefixButtonRef, (emoji) => {
+                conditionDocsPrefix = emoji;
+            });
         }
     }
-</style>
+</script>
+
+<SettingSection>
+    <SettingRow title="组件标题">
+        <input
+            type="text"
+            bind:value={conditionDocsTitle}
+            placeholder="输入组件标题"
+            class="control-full"
+        />
+    </SettingRow>
+
+    <SettingRow title="文档前缀" description="设置文档列表前的图标">
+        <button
+            type="button"
+            class="emoji-btn"
+            bind:this={prefixButtonRef}
+            onclick={handlePrefixSelect}
+            title="点击选择表情"
+        >
+            {normalizeSiyuanDocIcon(conditionDocsPrefix) || "📄"}
+        </button>
+    </SettingRow>
+
+    <SettingRow title="内置图标" description="优先使用文档自带图标">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={useBuiltinDocIcon} />
+    </SettingRow>
+
+    <SettingRow title="排序方式">
+        <select bind:value={conditionDocsSortOrder} class="control-sm">
+            <option value="updated">更新时间</option>
+            <option value="created">创建时间</option>
+        </select>
+    </SettingRow>
+
+    <SettingRow title="显示详情" description="显示更新时间等元信息">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showConditionDocsDetails} />
+    </SettingRow>
+
+    <SettingRow title="筛选条件">
+        <select bind:value={conditionDocsCondition} class="control-sm">
+            <option value="keyword">关键词</option>
+            <option value="tag">标签</option>
+        </select>
+    </SettingRow>
+
+    {#if conditionDocsCondition === "keyword"}
+        <SettingRow title="关键词位置">
+            <select bind:value={conditionDocsKeyPosition} class="control-md">
+                <option value="anywhere">任意位置</option>
+                <option value="DocTitle">文档标题</option>
+                <option value="body">正文</option>
+                <option value="bodyTitle">正文标题</option>
+                <option value="paragraph">段落</option>
+                <option value="list">列表</option>
+                <option value="table">表格</option>
+                <option value="code">代码</option>
+                <option value="quote">引述</option>
+                <option value="formula">公式</option>
+            </select>
+        </SettingRow>
+
+        <SettingRow title="关键词" description="用于筛选文档的关键词">
+            <input
+                type="text"
+                bind:value={conditionDocsKeyWord}
+                placeholder="输入关键词"
+                class="control-full"
+            />
+        </SettingRow>
+    {:else if conditionDocsCondition === "tag"}
+        <SettingRow title="标签" description="用于筛选文档的标签">
+            <input
+                type="text"
+                bind:value={conditionDocsTag}
+                placeholder="输入标签"
+                class="control-full"
+            />
+        </SettingRow>
+    {/if}
+
+    <SettingRow title="显示预览弹窗" description="悬停时显示文档预览">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showConditionDocsFloatDoc} />
+    </SettingRow>
+
+    <SettingRow title="悬停时间" description="悬停多久后显示预览（秒）">
+        <input
+            type="number"
+            bind:value={conditionDocsFloatDocShowTime}
+            step="0.1"
+            min="0"
+            class="control-xs"
+        />
+    </SettingRow>
+</SettingSection>

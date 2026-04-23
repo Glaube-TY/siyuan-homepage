@@ -1,44 +1,77 @@
-.tab-nav {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-}
+// 左侧一级页签列样式
+.main-nav-column {
+    width: 120px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--b3-border-color);
+    padding: 1rem 0;
+    overflow-y: auto;
 
-.tab-nav button {
-    padding: 0.5rem 1rem;
-    background: var(--b3-theme-surface);
-    color: var(--b3-theme-on-surface);
-    border: none;
-    border-radius: 6px;
-    font-weight: 500;
-    transition: all 0.2s ease-in-out;
-}
+    .tab-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding: 0 0.5rem;
 
-.tab-nav button.active {
-    background: var(--b3-theme-primary);
-    color: var(--b3-theme-on-primary);
-}
+        button {
+            padding: 0.6rem 0.75rem;
+            background: transparent;
+            color: var(--b3-theme-on-surface);
+            border: none;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            text-align: left;
+            transition: all 0.2s ease-in-out;
+            white-space: nowrap;
 
-.sub-tab-nav {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
+            &:hover {
+                background: var(--b3-theme-hover);
+            }
 
-    button {
-        padding: 0.4rem 0.8rem;
-        background-color: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
-        border: none;
-        border-radius: 6px;
-        transition: all 0.2s ease-in-out;
-
-        &:hover {
-            background-color: var(--b3-theme-hover);
+            &.active {
+                background: var(--b3-theme-primary);
+                color: var(--b3-theme-on-primary);
+            }
         }
+    }
+}
 
-        &.active {
-            background: var(--b3-theme-primary);
-            color: var(--b3-theme-on-primary);
+// 中间二级页签列样式
+.sub-nav-column {
+    width: 140px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--b3-border-color);
+    padding: 1rem 0;
+    overflow-y: auto;
+    background: var(--b3-theme-surface-light);
+
+    .sub-tab-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding: 0 0.5rem;
+
+        button {
+            padding: 0.5rem 0.75rem;
+            background: transparent;
+            color: var(--b3-theme-on-surface);
+            border: none;
+            border-radius: 6px;
+            font-weight: 400;
+            font-size: 0.85rem;
+            text-align: left;
+            transition: all 0.2s ease-in-out;
+            white-space: nowrap;
+
+            &:hover {
+                background: var(--b3-theme-hover);
+            }
+
+            &.active {
+                background: var(--b3-theme-primary);
+                color: var(--b3-theme-on-primary);
+                font-weight: 500;
+            }
         }
     }
 }

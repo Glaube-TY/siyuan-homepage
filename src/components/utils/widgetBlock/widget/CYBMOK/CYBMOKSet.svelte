@@ -1,5 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
     interface Props {
         plugin: any;
@@ -61,21 +63,19 @@
     }
 </script>
 
-<div class="content-panel">
-    {#if advancedEnabled}
-        <div class="content-panel">
-            <label>
-                敲击音效
-                <select bind:value={CMKnockSound}>
-                    <option value="普通">普通</option>
-                    <option value="空洞">空洞</option>
-                    <option value="空灵">空灵</option>
-                </select>
-            </label>
-        </div>
+{#if advancedEnabled}
+    <SettingSection title="音效设置">
+        <SettingRow title="敲击音效">
+            <select bind:value={CMKnockSound} class="control-sm">
+                <option value="普通">普通</option>
+                <option value="空洞">空洞</option>
+                <option value="空灵">空灵</option>
+            </select>
+        </SettingRow>
+    </SettingSection>
 
-        {#if totalMerit > 0}
-            <!-- 功德统计总结 -->
+    {#if totalMerit > 0}
+        <SettingSection title="功德统计">
             <div class="merit-summary">
                 <div class="summary-item">
                     <span class="summary-label">你已积攒的总功德数为：</span>
@@ -84,18 +84,17 @@
                 <div class="summary-item">
                     <span class="summary-label">在</span>
                     <span class="summary-date">{maxMeritDate.date}</span>
-                    <span class="summary-label">这一天积攒的功德最多，为：</span
-                    >
+                    <span class="summary-label">这一天积攒的功德最多，为：</span>
                     <span class="summary-value">{maxMeritDate.count}</span>
                 </div>
             </div>
-        {:else}
-            <h3>暂无功德记录，拿起棒槌开敲吧！</h3>
-        {/if}
+        </SettingSection>
     {:else}
-        <h3>👑会员专属权益👑</h3>
+        <h3>暂无功德记录，拿起棒槌开敲吧！</h3>
     {/if}
-</div>
+{:else}
+    <h3>👑会员专属权益👑</h3>
+{/if}
 
 <style lang="scss">
     .merit-summary {
