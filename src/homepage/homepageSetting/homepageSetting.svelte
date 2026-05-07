@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, mount } from "svelte";
+    import { onMount, mount, onDestroy } from "svelte";
     import * as advanced from "../../components/tools/advanced";
     import { showMessage } from "siyuan";
 
@@ -650,7 +650,9 @@
 
     // 弹窗容器引用
     let settingsContainerEl: HTMLElement | null = $state(null);
-    let userResizedWidth: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let isApplyingAutoWidth = false; // 抑制标记：避免 JS 自动设置宽度时被误判为用户手动 resize
+    let currentWidth = 820; // 当前实际宽度
     let lastTabKey = "";
 
     // 根据当前页签获取推荐宽度（静态配置，避免 scrollWidth 累积问题）
@@ -661,35 +663,43 @@
             if (currentSubTab?.preferredWidth) {
                 return currentSubTab.preferredWidth;
             }
-            return 980; // 默认推荐宽度
+            return 820; // 默认推荐宽度
         }
 
         // 会员服务：中等宽度
         if (activeTab === "vip") {
-            return 1080;
+            return 1000;
         }
 
         // 关于插件：偏窄
         if (activeTab === "about") {
-            return 900;
+            return 860;
         }
 
-        return 980; // 默认
+        return 820; // 默认
     }
 
-    // 更新弹窗宽度
-    function updateContainerWidth() {
+    // 应用宽度（带抑制标记，避免被 ResizeObserver 误判）
+    function applyWidth(width: number) {
+        if (!settingsContainerEl) return;
+        isApplyingAutoWidth = true;
+        settingsContainerEl.style.setProperty('--settings-width', `${width}px`);
+        currentWidth = width;
+        // 短暂延迟后清除抑制标记
+        setTimeout(() => {
+            isApplyingAutoWidth = false;
+        }, 50);
+    }
+
+    // 页签切换时调整宽度：只扩宽不缩回
+    function handleTabChangeWidth() {
         if (!settingsContainerEl) return;
 
         const preferredWidth = calculatePreferredWidth();
-        settingsContainerEl.style.setProperty('--settings-preferred-width', `${preferredWidth}px`);
 
-        // 如果用户手动调整过宽度，且新页签需要更宽，则扩展到更宽
-        // 如果新页签可以更窄，保持用户手动设置的宽度（不压缩）
-        if (userResizedWidth && userResizedWidth < preferredWidth) {
-            // 用户宽度不足以容纳新内容，扩展到建议宽度
-            settingsContainerEl.style.setProperty('--settings-user-width', `${preferredWidth}px`);
-            userResizedWidth = preferredWidth;
+        // 只扩宽不缩回：当前宽度小于推荐宽度时才调整
+        if (currentWidth < preferredWidth) {
+            applyWidth(preferredWidth);
         }
     }
 
@@ -702,36 +712,47 @@
 
         // 使用 requestAnimationFrame 确保 DOM 已更新
         requestAnimationFrame(() => {
-            updateContainerWidth();
+            handleTabChangeWidth();
         });
     });
 
-    // 初始化时计算一次宽度
+    // 初始化 ResizeObserver 监听实际宽度变化
     $effect(() => {
-        if (settingsContainerEl) {
-            updateContainerWidth();
-        }
-    });
-
-    // 监听用户手动 resize
-    function handleResize() {
         if (!settingsContainerEl) return;
 
-        const computedWidth = parseInt(getComputedStyle(settingsContainerEl).width);
-        const preferredWidth = calculatePreferredWidth();
+        // 初始化当前宽度
+        const rect = settingsContainerEl.getBoundingClientRect();
+        currentWidth = rect.width;
 
-        // 如果宽度与建议值差异较大，认为是用户手动调整
-        if (Math.abs(computedWidth - preferredWidth) > 50) {
-            userResizedWidth = computedWidth;
-            settingsContainerEl.style.setProperty('--settings-user-width', `${computedWidth}px`);
-        }
-    }
+        // 创建 ResizeObserver 监听尺寸变化
+        resizeObserver = new ResizeObserver((entries) => {
+            if (isApplyingAutoWidth) return; // 抑制期间不处理
+
+            for (const entry of entries) {
+                const newWidth = entry.contentRect.width;
+                // 只处理宽度变化，且变化大于 2px（过滤微小抖动）
+                if (Math.abs(newWidth - currentWidth) > 2) {
+                    currentWidth = newWidth;
+                }
+            }
+        });
+
+        resizeObserver.observe(settingsContainerEl);
+
+        return () => {
+            resizeObserver?.disconnect();
+        };
+    });
+
+    // 组件销毁时清理
+    onDestroy(() => {
+        resizeObserver?.disconnect();
+    });
 </script>
 
 <div
     class="settings-container"
     bind:this={settingsContainerEl}
-    onresize={handleResize}
 >
     <!-- 左侧：一级页签 -->
     <div class="main-nav-column">

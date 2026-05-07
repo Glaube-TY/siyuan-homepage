@@ -10,20 +10,17 @@
     }
 }
 
-// 按钮编辑器整体布局 - 使用 CSS Grid 实现真正的弹性两栏
+// 按钮编辑器整体布局 - 使用 CSS Grid + Container Query 实现真正的弹性两栏
 .buttons-editor {
+    container-type: inline-size;
+    container-name: buttons-editor;
     display: grid;
-    grid-template-columns: minmax(200px, 280px) minmax(400px, 1fr);
+    grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
     gap: 1rem;
     min-height: 350px;
 
-    // 响应式：中等宽度下左栏固定，右栏自适应
-    @media (max-width: 900px) {
-        grid-template-columns: 220px 1fr;
-    }
-
-    // 响应式：窄宽度下改为纵向布局
-    @media (max-width: 700px) {
+    // 使用 container query 根据容器宽度响应，而不是 viewport
+    @container buttons-editor (max-width: 600px) {
         grid-template-columns: 1fr;
     }
 
@@ -151,6 +148,17 @@
 
         .detail-content {
             flex: 1;
+            min-width: 0;
+
+            // 确保 SettingRow 内的输入框有稳定宽度
+            .setting-row__control {
+                min-width: 0;
+
+                input[type="text"],
+                input[type="number"] {
+                    min-width: 0;
+                }
+            }
 
             .shortcut-input {
                 cursor: pointer;
@@ -164,6 +172,7 @@
 
         .detail-actions {
             display: flex;
+            flex-wrap: wrap;
             gap: 0.5rem;
             margin-top: 1rem;
             padding-top: 1rem;

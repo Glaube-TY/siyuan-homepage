@@ -12,10 +12,9 @@
 
 .settings-container {
     display: flex;
-    // 使用 CSS 变量控制宽度，允许内容自适应
-    // --settings-preferred-width: 由 JS 根据内容计算
-    // --settings-user-width: 用户手动调整的宽度
-    width: var(--settings-user-width, clamp(500px, var(--settings-preferred-width, 500px), 1400px));
+    // 使用统一 CSS 变量控制宽度
+    // --settings-width: 当前实际宽度（由 JS 控制，默认 820px）
+    width: var(--settings-width, 820px);
     height: clamp(620px, 72vh, 760px);
     // 允许用户手动调整大小
     resize: both;
@@ -23,7 +22,7 @@
     // 最小/最大尺寸边界
     min-width: 460px;
     min-height: 580px;
-    max-width: 1600px;
+    max-width: min(calc(100vw - 48px), 1600px);
     max-height: 900px;
     padding: 0;
     background: var(--b3-theme-background);
@@ -47,10 +46,16 @@
         overflow-y: auto;
         padding: 1.5rem;
         padding-bottom: 80px; // 为底部按钮留出空间
+        min-width: 0;
 
         &.full-content {
             padding-bottom: 1.5rem; // VIP和关于页不需要额外留白
         }
+    }
+
+    // 主页内容设置容器
+    .homepage-content-settings {
+        min-width: 0;
     }
 
     // 底部操作按钮

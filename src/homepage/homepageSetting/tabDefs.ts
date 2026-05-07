@@ -19,11 +19,11 @@ export const mainTabs: MainTabItem[] = [
 ];
 
 export const subTabs: SubTabItem[] = [
-    { key: "behavior", label: "主页行为", preferredWidth: 980 },
-    { key: "banner", label: "横幅设置", preferredWidth: 1080 },
-    { key: "title", label: "标题设置", preferredWidth: 1050 },
-    { key: "button", label: "按钮设置", preferredWidth: 1280 },
-    { key: "widgets", label: "组件设置", preferredWidth: 1100 },
-    { key: "devices", label: "设备管理", preferredWidth: 1150 },
-    { key: "styles", label: "高级样式👑", requiresAdvanced: true, preferredWidth: 1120 },
+    { key: "behavior", label: "主页行为", preferredWidth: 820 },
+    { key: "banner", label: "横幅设置", preferredWidth: 960 },
+    { key: "title", label: "标题设置", preferredWidth: 880 },
+    { key: "button", label: "按钮设置", preferredWidth: 1180 },
+    { key: "widgets", label: "组件设置", preferredWidth: 980 },
+    { key: "devices", label: "设备管理", preferredWidth: 1000 },
+    { key: "styles", label: "高级样式👑", requiresAdvanced: true, preferredWidth: 1000 },
 ];
