@@ -554,17 +554,88 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    private handleDocTreeMenu({ detail }: any) {
-        if (!detail || detail.type !== 'doc') return;
-        if (!detail.elements || !Array.isArray(detail.elements) || detail.elements.length === 0) return;
+    // 校验并规范化 docId
+    private sanitizeDocId(value: unknown): string | null {
+        if (typeof value !== "string") return null;
+        const trimmed = value.trim();
+        return trimmed || null;
+    }
 
-        const element = detail.elements[0];
-        if (!element || !element.dataset) return;
+    // 从单个 DOM 元素尝试提取 data-node-id
+    private extractNodeIdFromElement(el: unknown): string | null {
+        if (!el || typeof el !== "object") return null;
 
-        const nodeId = element.dataset.nodeId;
+        const elem = el as HTMLElement;
 
-        // 创建主菜单项：主页插件
-        detail.menu.addItem({
+        // 先读 dataset.nodeId
+        const datasetId = this.sanitizeDocId((elem as any).dataset?.nodeId);
+        if (datasetId) return datasetId;
+
+        // 再读 getAttribute("data-node-id")
+        const attrId = this.sanitizeDocId(elem.getAttribute?.("data-node-id"));
+        if (attrId) return attrId;
+
+        // 再 closest("[data-node-id]")
+        const closestEl = elem.closest?.("[data-node-id]");
+        if (closestEl) {
+            const closestId = this.sanitizeDocId((closestEl as any).dataset?.nodeId);
+            if (closestId) return closestId;
+            const closestAttrId = this.sanitizeDocId(closestEl.getAttribute?.("data-node-id"));
+            if (closestAttrId) return closestAttrId;
+        }
+
+        return null;
+    }
+
+    // 从文档树菜单事件中解析 docId
+    private resolveDocTreeMenuDocId(detail: any): string | null {
+        // 1. 从 detail.elements 取
+        if (Array.isArray(detail.elements)) {
+            for (const element of detail.elements) {
+                const id = this.extractNodeIdFromElement(element);
+                if (id) return id;
+            }
+        }
+
+        // 2. 从 detail.element / detail.target / detail.currentTarget 取
+        const candidates = [detail.element, detail.target, detail.currentTarget];
+        for (const candidate of candidates) {
+            const id = this.extractNodeIdFromElement(candidate);
+            if (id) return id;
+        }
+
+        // 3. 从明显字段兜底
+        const fieldCandidates = [
+            detail.data?.id,
+            detail.id,
+            detail.nodeId,
+            detail.blockId,
+        ];
+        for (const field of fieldCandidates) {
+            const id = this.sanitizeDocId(field);
+            if (id) return id;
+        }
+
+        // 4. DOM 兜底：借鉴 QYL-theme 思路，从当前聚焦文档树项读取
+        const focusedDocItem = document.querySelector('.b3-list-item--focus[data-type="navigation-file"]');
+        if (focusedDocItem) {
+            const id = this.extractNodeIdFromElement(focusedDocItem);
+            if (id) return id;
+        }
+
+        // 再尝试通用聚焦项
+        const focusedAny = document.querySelector('.b3-list-item--focus[data-node-id]');
+        if (focusedAny) {
+            const id = this.extractNodeIdFromElement(focusedAny);
+            if (id) return id;
+        }
+
+        return null;
+    }
+
+    // 添加收藏菜单到指定菜单
+    private addFavoriteDocumentSubmenu(menu: any, docId: string): void {
+        menu.addItem({
             icon: "iconhomepage",
             label: "主页插件",
             type: "submenu",
@@ -574,7 +645,7 @@ export default class PluginHomepage extends Plugin {
                     label: "收藏文档",
                     click: async () => {
                         try {
-                            await setBlockAttrs(nodeId, {
+                            await setBlockAttrs(docId, {
                                 "custom-homepage-favorites": "true"
                             });
                             showMessage("已收藏");
@@ -589,7 +660,7 @@ export default class PluginHomepage extends Plugin {
                     label: "取消收藏",
                     click: async () => {
                         try {
-                            await setBlockAttrs(nodeId, {
+                            await setBlockAttrs(docId, {
                                 "custom-homepage-favorites": ""
                             });
                             showMessage("已取消收藏");
@@ -601,6 +672,26 @@ export default class PluginHomepage extends Plugin {
                 }
             ]
         });
+    }
+
+    private handleDocTreeMenu({ detail }: any) {
+        if (!detail || !detail.menu) return;
+
+        const docId = this.resolveDocTreeMenuDocId(detail);
+        if (!docId) {
+            if (import.meta.env.DEV) {
+                console.debug("[Homepage][DocTreeMenu]", {
+                    type: detail?.type ?? "(undefined)",
+                    hasMenu: !!detail?.menu,
+                    hasElements: Array.isArray(detail?.elements),
+                    resolvedDocId: null,
+                    focusedNavigationFile: !!document.querySelector('.b3-list-item--focus[data-type="navigation-file"]')
+                });
+            }
+            return;
+        }
+
+        this.addFavoriteDocumentSubmenu(detail.menu, docId);
     }
 
     private handleContentMenu({ detail }: any) {
@@ -660,43 +751,6 @@ export default class PluginHomepage extends Plugin {
             return;
         }
 
-        // 创建主菜单项：主页插件
-        detail.menu.addItem({
-            icon: "iconhomepage",
-            label: "主页插件",
-            type: "submenu",
-            submenu: [
-                {
-                    icon: "iconHeart",
-                    label: "收藏文档",
-                    click: async () => {
-                        try {
-                            await setBlockAttrs(docId, {
-                                "custom-homepage-favorites": "true"
-                            });
-                            showMessage("已收藏");
-                        } catch (err) {
-                            console.error("收藏失败", err);
-                            showMessage("收藏失败，请查看控制台日志");
-                        }
-                    }
-                },
-                {
-                    icon: "iconClose",
-                    label: "取消收藏",
-                    click: async () => {
-                        try {
-                            await setBlockAttrs(docId, {
-                                "custom-homepage-favorites": ""
-                            });
-                            showMessage("已取消收藏");
-                        } catch (err) {
-                            console.error("取消收藏失败", err);
-                            showMessage("取消收藏失败，请查看控制台日志");
-                        }
-                    }
-                }
-            ]
-        });
+        this.addFavoriteDocumentSubmenu(detail.menu, docId);
     }
 }

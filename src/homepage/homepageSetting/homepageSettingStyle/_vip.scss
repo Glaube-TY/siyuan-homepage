@@ -1,18 +1,22 @@
 .vip-section {
     padding: 1.5rem;
     border-radius: 12px;
-    max-height: 60vh;
-    overflow-y: auto;
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
+    box-sizing: border-box;
+    min-width: 0;
 
     // 用户信息区域
     .vip-info {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 1rem;
         margin-bottom: 2rem;
         padding: 1.5rem;
         background: var(--b3-theme-surface);
         border-radius: 8px;
+        min-width: 0;
 
         label {
             display: flex;
@@ -20,6 +24,8 @@
             gap: 0.8rem;
             font-size: 0.95rem;
             color: var(--b3-theme-text);
+            word-break: break-word;
+            overflow-wrap: anywhere;
 
             &::before {
                 content: "✦";
@@ -63,7 +69,11 @@
     .vip-activate {
         display: flex;
         flex-direction: column;
-        width: 500px;
+        width: 100%;
+        max-width: 760px;
+        margin: 0 auto;
+        box-sizing: border-box;
+        min-width: 0;
         border: 1px solid #ffb74d;
         gap: 1rem;
         padding: 1.5rem;
@@ -78,6 +88,8 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            flex-wrap: wrap;
+            min-width: 0;
 
             .user-code {
                 flex: 1;
@@ -87,6 +99,9 @@
                 color: black;
                 background-color: whitesmoke;
                 cursor: text;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
 
             .copy-button {
@@ -120,6 +135,9 @@
                 display: flex;
                 flex-direction: column;
                 gap: 1rem;
+                width: 100%;
+                box-sizing: border-box;
+                min-width: 0;
             }
 
             .address-item {
@@ -159,11 +177,11 @@
                     max-width: 100%;
                     border-radius: 12px;
                     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                    transition: box-shadow 0.3s ease;
+                    transition: box-shadow 0.3s ease, transform 0.3s ease;
 
                     &:hover {
                         box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
-                        transform: scale(1.5);
+                        transform: translateY(-2px);
                     }
                 }
             }
@@ -185,6 +203,7 @@
             gap: 1rem;
             align-items: center;
             justify-content: center;
+            flex-wrap: wrap;
         }
 
         .plan-item {
@@ -196,6 +215,8 @@
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
             text-align: center;
             transition: transform 0.2s ease;
+            flex: 1 1 140px;
+            min-width: 0;
 
             &:hover {
                 transform: translateY(-4px);
@@ -223,6 +244,9 @@
             border-radius: 8px;
             padding: 1rem;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            width: 100%;
+            box-sizing: border-box;
+            min-width: 0;
         }
 
         .question-item {
@@ -261,6 +285,9 @@
                 display: flex;
                 flex-direction: column;
                 gap: 1rem;
+                width: 100%;
+                box-sizing: border-box;
+                min-width: 0;
             }
 
             .reminder-item {
@@ -278,6 +305,17 @@
 
                 p {
                     margin: 0;
+                    line-height: 1.6;
+                    overflow-wrap: anywhere;
+
+                    a {
+                        color: var(--b3-theme-primary);
+                        text-decoration: none;
+
+                        &:hover {
+                            text-decoration: underline;
+                        }
+                    }
                 }
             }
         }
@@ -328,5 +366,24 @@
                 }
             }
         }
+    }
+}
+
+@media (max-width: 720px) {
+    .vip-section {
+        padding: 1rem;
+    }
+
+    .vip-activate {
+        padding: 1rem;
+    }
+
+    .code-box {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .copy-button {
+        width: 100%;
     }
 }

@@ -135,6 +135,14 @@
                             <p>虚拟产品购买后不支持退款！</p>
                         </div>
                         <div class="reminder-item">
+                            <span class="icon">🎓</span>
+                            <p>
+                                如果你是学生的话，可以使用学校教育邮箱发送邮件至
+                                <a href="mailto:glaube_ty@qq.com">glaube_ty@qq.com</a>
+                                ，赠送一年会员哦，记得附上标识码~
+                            </p>
+                        </div>
+                        <div class="reminder-item">
                             <span class="icon">🎁</span>
                             <p>若在插件 2.0 版本前打赏过，可将打赏订单号及标识码发送至下方邮箱或联系频道管理员，赠送一年 VIP。</p>
                         </div>
@@ -154,7 +162,7 @@
                             <span class="icon">💬</span>
                             <div class="question-content">
                                 <strong>腾讯频道：(订阅问题请私信管理员)</strong>
-                                <a href="https://pd.qq.com/s/2ks4079x0">思源笔记主页插件</a>
+                                <a href="https://pd.qq.com/s/2ks4079x0">SY 插件交流频道</a>
                             </div>
                         </div>
                     </div>

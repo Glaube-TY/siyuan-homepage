@@ -1,6 +1,5 @@
 <script lang="ts">
-    import { openSiyuanEmojiPicker } from "@/homepage/homepageSetting/emojiPicker";
-    import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
+    import DocIconPickerRow from "../../shared/DocIconPickerRow.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
 
@@ -31,16 +30,6 @@
         conditionDocsFloatDocShowTime = $bindable(0.1),
         conditionDocsTag = $bindable("")
     }: Props = $props();
-
-    let prefixButtonRef: HTMLButtonElement | null = $state(null);
-
-    function handlePrefixSelect() {
-        if (prefixButtonRef) {
-            openSiyuanEmojiPicker(prefixButtonRef, (emoji) => {
-                conditionDocsPrefix = emoji;
-            });
-        }
-    }
 </script>
 
 <SettingSection>
@@ -53,17 +42,13 @@
         />
     </SettingRow>
 
-    <SettingRow title="文档前缀" description="设置文档列表前的图标">
-        <button
-            type="button"
-            class="emoji-btn"
-            bind:this={prefixButtonRef}
-            onclick={handlePrefixSelect}
-            title="点击选择表情"
-        >
-            {normalizeSiyuanDocIcon(conditionDocsPrefix) || "📄"}
-        </button>
-    </SettingRow>
+    <DocIconPickerRow
+        title="文档前缀"
+        description="设置文档列表前的图标"
+        bind:value={conditionDocsPrefix}
+        fallback="📄"
+        buttonTitle="点击选择表情"
+    />
 
     <SettingRow title="内置图标" description="优先使用文档自带图标">
         <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={useBuiltinDocIcon} />

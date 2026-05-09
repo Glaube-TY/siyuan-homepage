@@ -163,7 +163,6 @@
     let dailyQuoteRemoteBg =
         $state("https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648");
     let dailyQuoteLocalBg = $state("");
-    let dailyQuoteBgInput: HTMLInputElement | null = $state(null);
 
     // 新闻资讯相关变量
     let NewsType: string = $state("daily-news-bulletin");
@@ -1155,7 +1154,6 @@
                         bind:dailyQuoteBgSelect
                         bind:dailyQuoteRemoteBg
                         bind:dailyQuoteLocalBg
-                        bind:dailyQuoteBgInput
                     />
                 {:else if selectedContentType === "News"}
                     <NewsSet {advancedEnabled} bind:NewsType />

@@ -1,6 +1,5 @@
 <script lang="ts">
-    import { openSiyuanEmojiPicker } from "@/homepage/homepageSetting/emojiPicker";
-    import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
+    import DocIconPickerRow from "../../shared/DocIconPickerRow.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
 
@@ -23,16 +22,6 @@
         showLatestDailyNotesFloatDoc = $bindable(true),
         latestDailyNotesFloatDocShowTime = $bindable(0.1)
     }: Props = $props();
-
-    let iconButtonRef: HTMLButtonElement | null = $state(null);
-
-    function handleIconSelect() {
-        if (iconButtonRef) {
-            openSiyuanEmojiPicker(iconButtonRef, (emoji) => {
-                recentJournalsCalendarIcon = emoji;
-            });
-        }
-    }
 
     // 下拉选项
     const limitOptions = [5, 10, 15, 20, 50, 100];
@@ -61,17 +50,13 @@
     {/if}
 
     {#if recentJournalsShowType === "calendar"}
-        <SettingRow title="日记图标" description="日历中显示日记的图标">
-            <button
-                type="button"
-                class="emoji-btn"
-                bind:this={iconButtonRef}
-                onclick={handleIconSelect}
-                title="点击选择表情"
-            >
-                {normalizeSiyuanDocIcon(recentJournalsCalendarIcon) || "📝"}
-            </button>
-        </SettingRow>
+        <DocIconPickerRow
+            title="日记图标"
+            description="日历中显示日记的图标"
+            bind:value={recentJournalsCalendarIcon}
+            fallback="📝"
+            buttonTitle="点击选择表情"
+        />
 
         <SettingRow title="图标大小" description="日历中日记图标的大小（像素）">
             <input

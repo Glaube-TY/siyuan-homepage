@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, tick } from "svelte";
     import Sortable from "sortablejs";
     import { saveLayout, restoreLayout } from "./mobileHomepage_layout";
     import { addCustomBlock } from "./block-creator";
@@ -18,45 +18,40 @@
 
     let advanced: boolean = $state(false);
     let sortable: Sortable | null = null;
-    let layoutObserver: MutationObserver | null = null;
+    let mobileHomepageInitialized = false;
 
-    // 本地容器引用：避免全局 selector 在实例重叠时命中错容器
-    let mobileHomepageWidgetContainer: HTMLElement | null = null;
+    let mobileHomepageWidgetContainer: HTMLElement | null = $state(null);
 
-    function setupSortableObserver() {
-        // 先销毁旧的 sortable 实例，避免重复初始化
+    async function initMobileHomepageLayout(): Promise<void> {
+        await tick();
+
+        const container = mobileHomepageWidgetContainer;
+        if (!container) {
+            console.warn("mobileHomepageWidgetContainer not available");
+            return;
+        }
+
+        if (mobileHomepageInitialized) {
+            return;
+        }
+
+        mobileHomepageInitialized = true;
+
         if (sortable) {
             sortable.destroy();
             sortable = null;
         }
 
-        if (layoutObserver) {
-            layoutObserver.disconnect();
-            layoutObserver = null;
-        }
-
-        layoutObserver = new MutationObserver(async () => {
-            const container = document.querySelector(
-                ".mobile-homepage-widget",
-            ) as HTMLElement;
-            if (container) {
-                layoutObserver?.disconnect();
-                mobileHomepageWidgetContainer = container;
-
-                sortable = new Sortable(container, {
-                    animation: 150,
-                    ghostClass: "sortable-ghost",
-                    handle: ".drag-handle",
-                    onEnd: () => {
-                        saveLayout(plugin, mobileHomepageWidgetContainer);
-                    },
-                });
-
-                await restoreLayout(plugin, { value: container }, mobileHomepageWidgetContainer);
-            }
+        sortable = new Sortable(container, {
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            handle: ".drag-handle",
+            onEnd: () => {
+                saveLayout(plugin, mobileHomepageWidgetContainer);
+            },
         });
 
-        layoutObserver.observe(document.body, { childList: true, subtree: true });
+        await restoreLayout(plugin, { value: container }, mobileHomepageWidgetContainer);
     }
 
     function cleanupSortableState() {
@@ -64,18 +59,17 @@
             sortable.destroy();
             sortable = null;
         }
-        if (layoutObserver) {
-            layoutObserver.disconnect();
-            layoutObserver = null;
-        }
+        mobileHomepageInitialized = false;
     }
 
     onMount(() => {
         advanced = !!plugin.ADVANCED;
 
-        const handleAdvancedReady = () => {
+        const handleAdvancedReady = async () => {
             advanced = true;
-            setupSortableObserver();
+            mobileHomepageInitialized = false;
+            await tick();
+            await initMobileHomepageLayout();
         };
 
         const handleAdvancedUnavailable = () => {
@@ -87,7 +81,7 @@
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
 
         if (advanced) {
-            setupSortableObserver();
+            initMobileHomepageLayout();
         }
 
         return () => {
@@ -95,7 +89,6 @@
             window.removeEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
             cleanupSortableState();
 
-            // 显式销毁所有 widget 实例，触发各自的 onDestroy
             const container = mobileHomepageWidgetContainer || document.querySelector(".mobile-homepage-widget");
             if (container) {
                 const widgetBlocks = container.querySelectorAll(".widget-block");
@@ -117,7 +110,7 @@
 
 <div class="mobile-homepage">
     {#if advanced}
-        <div class="mobile-homepage-widget"></div>
+        <div class="mobile-homepage-widget" bind:this={mobileHomepageWidgetContainer}></div>
         <div class="mobile-homepage-setting">
             <button
                 class="mobile-homepage-add-widget-btn"
@@ -133,7 +126,7 @@
     {:else}
         <div class="mobile-homepage-not-advanced">
             <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
         </div>
     {/if}
 </div>

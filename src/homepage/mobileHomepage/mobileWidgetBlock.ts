@@ -111,6 +111,8 @@ export class WidgetBlock {
 
                 const dialogRef = svelteDialog({
                     title: "组件内容",
+                    width: "100%",
+                    height: "72vh",
                     constructor: (containerEl: HTMLElement) => {
                         return mount(WidgetBlockContent, {
                                                     target: containerEl,

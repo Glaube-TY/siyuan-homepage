@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { showMessage } from "siyuan";
+    import DirectoryPathSetting from "../../shared/DirectoryPathSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
 
@@ -32,46 +32,17 @@
         PicSlidesPerView = $bindable("1"),
         PicRandomSwitch = $bindable(false)
     }: Props = $props();
-
-    // 选择图片文件夹
-    async function selectPicFolder() {
-        try {
-            if (
-                !window.navigator.userAgent.includes("Electron") ||
-                typeof window.require !== "function"
-            )
-                return showMessage("此功能仅在桌面版可用");
-            const { filePaths } = await window
-                .require("@electron/remote")
-                .dialog.showOpenDialog({
-                    properties: ["openDirectory", "createDirectory"],
-                });
-
-            if (filePaths && filePaths.length > 0) {
-                PicFolderPath = filePaths[0];
-            }
-        } catch (error) {
-            console.error("选择文件夹时发生错误：", error);
-        }
-    }
 </script>
 
 <div class="pic-caro-settings">
     {#if advancedEnabled}
-        <SettingSection title="图片路径">
-            <SettingRow title="文件夹路径">
-                <div class="file-path-group">
-                    <input
-                        type="text"
-                        bind:value={PicFolderPath}
-                        placeholder="请选择图片文件夹"
-                        class="control-full"
-                        readonly
-                    />
-                    <button title="选择图片文件夹" onclick={selectPicFolder} class="file-action-btn">📁</button>
-                </div>
-            </SettingRow>
-        </SettingSection>
+        <DirectoryPathSetting
+            sectionTitle="图片路径"
+            rowTitle="文件夹路径"
+            bind:path={PicFolderPath}
+            placeholder="请选择图片文件夹"
+            buttonTitle="选择图片文件夹"
+        />
 
         <SettingSection title="播放设置">
             <SettingRow title="自动播放">

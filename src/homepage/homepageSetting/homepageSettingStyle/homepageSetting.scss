@@ -12,18 +12,17 @@
 
 .settings-container {
     display: flex;
-    // 使用统一 CSS 变量控制宽度
-    // --settings-width: 当前实际宽度（由 JS 控制，默认 820px）
-    width: var(--settings-width, 820px);
-    height: clamp(620px, 72vh, 760px);
+    // 统一宽度策略：按最宽页面（按钮设置页）适配
+    width: min(1180px, calc(100vw - 48px));
+    height: min(760px, calc(100vh - 48px));
     // 允许用户手动调整大小
     resize: both;
     overflow: hidden;
     // 最小/最大尺寸边界
-    min-width: 460px;
+    min-width: min(760px, calc(100vw - 48px));
     min-height: 580px;
-    max-width: min(calc(100vw - 48px), 1600px);
-    max-height: 900px;
+    max-width: calc(100vw - 48px);
+    max-height: calc(100vh - 48px);
     padding: 0;
     background: var(--b3-theme-background);
     border-radius: 12px;

@@ -133,3 +133,14 @@ export function resolveBuiltinDocIcon(doc: any): DocIconResult | null {
 
     return null;
 }
+
+/**
+ * 解析配置型文档前缀图标，带 fallback 兜底
+ * 用于设置页保存的自定义前缀值（可能是 emoji、Unicode 编码串或思源内部自定义图片路径）
+ * @param raw 配置型图标原始值
+ * @param fallback 兜底图标（默认 "📄"）
+ * @returns 解析结果
+ */
+export function resolveConfiguredDocIcon(raw?: string, fallback = "📄"): DocIconResult {
+    return parseDocIcon(raw) || parseDocIcon(fallback) || { type: "text", value: fallback };
+}

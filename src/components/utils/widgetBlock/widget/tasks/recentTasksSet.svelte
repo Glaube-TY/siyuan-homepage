@@ -1,8 +1,5 @@
 <script lang="ts">
-    import { run } from 'svelte/legacy';
-
-    import MultiSelect from "svelte-multiselect";
-    import { onMount } from "svelte";
+    import NotebookMultiSelectRow from "../../shared/NotebookMultiSelectRow.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
 
@@ -24,39 +21,6 @@
         selectedTasksNotebookIds = $bindable([]),
         docNotebookId = $bindable("")
     }: Props = $props();
-
-    // 初始化选择状态
-    function initializeSelectedNotebooks() {
-        if (
-            docNotebookId &&
-            notebooks.length > 0 &&
-            selectedTasksNotebookIds.length === 0
-        ) {
-            selectedTasksNotebookIds = docNotebookId
-                .split(",")
-                .filter((id) => id.trim())
-                .map((id) => {
-                    const notebook = notebooks.find(
-                        (notebook) => notebook.id === id,
-                    );
-                    return {
-                        label: notebook ? notebook.name : id,
-                        value: id,
-                    };
-                });
-        }
-    }
-
-    onMount(() => {
-        initializeSelectedNotebooks();
-    });
-
-    // 监听变化，确保状态正确恢复
-    run(() => {
-        if (docNotebookId && notebooks.length > 0) {
-            initializeSelectedNotebooks();
-        }
-    });
 </script>
 
 <SettingSection>
@@ -77,18 +41,11 @@
         <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showTasksDetails} />
     </SettingRow>
 
-    <SettingRow title="任务笔记本">
-        {#if notebooks.length > 0}
-            <MultiSelect
-                bind:selected={selectedTasksNotebookIds}
-                options={notebooks.map((notebook) => ({
-                    label: notebook.name,
-                    value: notebook.id,
-                }))}
-                placeholder="选择笔记本..."
-            />
-        {:else}
-            <span>笔记本加载中...</span>
-        {/if}
-    </SettingRow>
+    <NotebookMultiSelectRow
+        title="任务笔记本"
+        notebooks={notebooks}
+        bind:selected={selectedTasksNotebookIds}
+        initialNotebookIds={docNotebookId}
+        placeholder="选择笔记本..."
+    />
 </SettingSection>

@@ -21,11 +21,16 @@ export async function setBlockSize(
     blockElement.style.gridColumn = `span ${clampedColSize}`;
     blockElement.style.gridRow = `span ${clampedRowSize}`;
 
-    // 设置宽高比
-    if (clampedRowSize === clampedColSize) {
-        blockElement.style.aspectRatio = "1 / 1";
+    // 主页 custom-content 内禁用 aspect-ratio，由 grid-auto-rows 控制高度
+    if (blockElement.closest(".custom-content")) {
+        blockElement.style.aspectRatio = "";
     } else {
-        blockElement.style.aspectRatio = `${clampedColSize} / ${clampedRowSize}`;
+        // 设置宽高比（侧边栏/移动端仍依赖旧行为）
+        if (clampedRowSize === clampedColSize) {
+            blockElement.style.aspectRatio = "1 / 1";
+        } else {
+            blockElement.style.aspectRatio = `${clampedColSize} / ${clampedRowSize}`;
+        }
     }
 
     const inner = blockElement.querySelector(".widget-inner");

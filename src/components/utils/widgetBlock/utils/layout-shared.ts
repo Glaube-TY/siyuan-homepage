@@ -43,6 +43,15 @@ function normalizeLayoutItem(item: unknown): LayoutItem | null {
     };
 }
 
+function sanitizeLayoutStyle(style: string | null, containerEl: Element | null): string | null {
+    if (!style) return style;
+    // 主页 custom-content 内去掉 aspect-ratio
+    if (containerEl && containerEl.classList.contains("custom-content")) {
+        return style.replace(/aspect-ratio\s*:\s*[^;]+;?\s*/gi, "");
+    }
+    return style;
+}
+
 function normalizeLayoutItems(items: unknown): LayoutItem[] {
     if (!Array.isArray(items)) return [];
     return items.map(normalizeLayoutItem).filter((item): item is LayoutItem => item !== null);
@@ -125,7 +134,7 @@ export async function saveLayoutForContainer(
         const widgetBlockElement = el as HTMLElement;
         return {
             id: widgetBlockElement.id,
-            style: widgetBlockElement.getAttribute("style"),
+            style: sanitizeLayoutStyle(widgetBlockElement.getAttribute("style"), container),
             index: index,
         };
     });

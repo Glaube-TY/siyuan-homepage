@@ -11,7 +11,7 @@
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
-    import { resolveBuiltinDocIcon, normalizeSiyuanDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -46,7 +46,7 @@
             const builtin = resolveBuiltinDocIcon(doc);
             if (builtin) return builtin;
         }
-        return { type: "text", value: normalizeSiyuanDocIcon(conditionDocsPrefix) || "📄" };
+        return resolveConfiguredDocIcon(conditionDocsPrefix, "📄");
     }
 
     // 悬浮窗定时器

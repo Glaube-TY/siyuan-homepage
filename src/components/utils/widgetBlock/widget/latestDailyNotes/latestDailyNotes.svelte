@@ -12,7 +12,7 @@
         setMouseOnTrigger,
         hideImmediately,
     } from "@/components/tools/floatingDoc";
-    import { resolveBuiltinDocIcon, normalizeSiyuanDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
 
     interface Props {
         plugin: any;
@@ -46,7 +46,7 @@
             const builtin = resolveBuiltinDocIcon(doc);
             if (builtin) return builtin;
         }
-        return { type: "text", value: "📅" };
+        return resolveConfiguredDocIcon(recentJournalsCalendarIcon, "📝");
     }
 
     // 原始数据
@@ -428,7 +428,7 @@
                     if (hasJournal) {
                         const noteId = api.value(1) as string;
                         const note = dailyNotes.find((n) => n.id === noteId);
-                        const iconResult = note ? getDocIcon(note) : { type: "text", value: normalizeSiyuanDocIcon(recentJournalsCalendarIcon) || "📝" };
+                        const iconResult = note ? getDocIcon(note) : resolveConfiguredDocIcon(recentJournalsCalendarIcon, "📝");
 
                         children.push({
                             type: "text",

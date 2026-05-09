@@ -9,6 +9,8 @@
         saveWidgetSize
     } from "./styleUtils";
     import { loadWidgetLayoutSettings } from "./utils/layout-shared";
+    import SettingSection from "@/libs/components/SettingSection.svelte";
+    import SettingRow from "@/libs/components/SettingRow.svelte";
 
     interface Props {
         plugin: any;
@@ -72,98 +74,65 @@
 </script>
 
 <div class="settings-group">
-    <div class="setting-item">
-        <div class="size-options-row">
-            <div class="size-option-group">
-                <label for="rowSize">行尺寸：</label>
-                <select id="rowSize" bind:value={rowSize}>
+    <SettingSection title="尺寸设置">
+        <SettingRow title="组件尺寸" description="设置组件在主页网格中占用的行数和列数">
+            <div class="size-control-group">
+                <select class="control-sm" bind:value={rowSize}>
                     {#each sizeOptions as size}
                         <option value={size}>{size}</option>
                     {/each}
                 </select>
-                <label for="colSize">列尺寸：</label>
-                <select id="colSize" bind:value={colSize}>
+                <span class="size-label">行</span>
+                <span class="size-separator">×</span>
+                <select class="control-sm" bind:value={colSize}>
                     {#each sizeOptions as size}
                         <option value={size}>{size}</option>
                     {/each}
                 </select>
+                <span class="size-label">列</span>
+                <button type="button" class="apply-size-button" onclick={handleApplySize}>
+                    应用尺寸
+                </button>
             </div>
+        </SettingRow>
+    </SettingSection>
 
-            <button
-                type="button"
-                class="apply-size-button"
-                onclick={handleApplySize}
-            >
-                应用尺寸
-            </button>
-        </div>
-    </div>
-
-    <div class="setting-item">
-        <div class="style-controls-row">
-
-            <!-- 第一行：背景颜色 + 背景透明度 -->
-            <div class="style-subgroup" style="margin-bottom: 0.5rem; ">
-                <!-- 颜色选择器 -->
-                <div class="color-picker-group">
-                    <label for="bg-color">背景颜色:</label>
-                    <input
-                        id="bg-color"
-                        type="color"
-                        bind:value={backgroundColor}
-                        onchange={handleStyleChange}
-                    />
-                </div>
-
-                <!-- 透明度滑块 -->
-                <div class="opacity-slider-group">
-                    <label for="bg-opacity">背景透明度:</label>
-                    <input
-                        id="bg-opacity"
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        bind:value={backgroundOpacity}
-                        oninput={handleStyleChange}
-                    />
-                    <span>{Math.round(backgroundOpacity * 100)}%</span>
-                </div>
+    <SettingSection title="外观设置">
+        <SettingRow title="背景颜色">
+            <input type="color" bind:value={backgroundColor} oninput={handleStyleChange} />
+        </SettingRow>
+        <SettingRow title="背景透明度">
+            <div class="range-control">
+                <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    bind:value={backgroundOpacity}
+                    oninput={handleStyleChange}
+                />
+                <span class="range-value">{Math.round(backgroundOpacity * 100)}%</span>
             </div>
-
-            <!-- 第二行：边框颜色 + 边框粗细 -->
-            <div class="style-subgroup">
-                <!-- 边框颜色选择器 -->
-                <div class="border-color-picker-group">
-                    <label for="border-color">边框颜色:</label>
-                    <input
-                        id="border-color"
-                        type="color"
-                        bind:value={borderColor}
-                        onchange={handleStyleChange}
-                    />
-                </div>
-
-                <!-- 边框粗细滑块 -->
-                <div class="border-width-slider-group">
-                    <label for="border-width">边框粗细:</label>
-                    <input
-                        id="border-width"
-                        type="range"
-                        min="0"
-                        max="10"
-                        step="1"
-                        bind:value={borderWidth}
-                        oninput={handleStyleChange}
-                    />
-                    <span>{borderWidth}px</span>
-                </div>
+        </SettingRow>
+        <SettingRow title="边框颜色">
+            <input type="color" bind:value={borderColor} oninput={handleStyleChange} />
+        </SettingRow>
+        <SettingRow title="边框粗细">
+            <div class="range-control">
+                <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    step="1"
+                    bind:value={borderWidth}
+                    oninput={handleStyleChange}
+                />
+                <span class="range-value">{borderWidth}px</span>
             </div>
-        </div>
-    </div>
+        </SettingRow>
+    </SettingSection>
 
-    <!-- 操作按钮：当前设备隐藏、全局删除、取消 -->
-    <div class="action-buttons-row">
+    <div class="danger-actions">
         <button class="hide-button" onclick={onHideForCurrentDevice}>
             👁 当前设备隐藏
         </button>
@@ -176,156 +145,120 @@
 
 <style lang="scss">
     .settings-group {
-        display: inline-flex;
+        display: flex;
         flex-direction: column;
         gap: 1rem;
         padding: 1rem;
-        border-bottom: 1px solid var(--b3-border-color);
+        min-width: 0;
+        box-sizing: border-box;
     }
 
-    .style-controls-row,
-    .size-options-row {
+    .size-control-group {
         display: flex;
-        gap: 0.5rem;
-        flex-direction: column;
         align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
-    .color-picker-group label,
-    .opacity-slider-group label,
-    .border-color-picker-group label,
-    .border-width-slider-group label {
+    .size-label {
         font-size: 13px;
-        margin-bottom: 4px;
-        font-weight: 500;
+        color: var(--b3-theme-on-surface);
     }
 
-    input[type="color"] {
-        width: 32px;
-        height: 32px;
-        border-radius: 6px;
-        padding: 3px;
-        border: 2px solid var(--b3-border-color);
+    .size-separator {
+        font-size: 14px;
+        color: var(--b3-theme-on-surface-light);
     }
 
-    input[type="range"] {
-        accent-color: var(--b3-theme-primary);
-        height: 4px;
+    .range-control {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+        max-width: 260px;
+
+        input[type="range"] {
+            flex: 1;
+            min-width: 120px;
+            accent-color: var(--b3-theme-primary);
+            height: 4px;
+        }
     }
 
-    .opacity-slider-group span,
-    .border-width-slider-group span {
+    .range-value {
         min-width: 40px;
         background: var(--b3-theme-background);
         padding: 2px 8px;
         border-radius: 4px;
-        margin-left: 12px;
+        font-size: 12px;
+        color: var(--b3-theme-on-surface);
     }
 
-    .action-buttons-row {
+    .danger-actions {
         display: flex;
         justify-content: space-between;
-        margin-top: 1rem;
+        gap: 0.5rem;
+        padding-top: 0.5rem;
     }
 
     .hide-button {
-        background: linear-gradient(45deg, #f59e0b 0%, #d97706 100%);
-        box-shadow: 0 2px 4px rgba(217, 119, 6, 0.2);
+        background: #f59e0b;
         color: white;
         border: none;
-        padding: 0.4rem 0.8rem;
+        padding: 0.5rem 1rem;
         border-radius: 6px;
         cursor: pointer;
-        font-size: 12px;
+        font-size: 13px;
+        transition: background 0.2s ease;
+
+        &:hover {
+            background: #d97706;
+        }
     }
 
     .delete-button {
-        background: linear-gradient(45deg, #ef4444 0%, #dc2626 100%);
-        box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+        background: #ef4444;
         color: white;
         border: none;
-        padding: 0.4rem 0.8rem;
+        padding: 0.5rem 1rem;
         border-radius: 6px;
         cursor: pointer;
-        font-size: 12px;
+        font-size: 13px;
+        transition: background 0.2s ease;
+
+        &:hover {
+            background: #dc2626;
+        }
     }
 
     .cancel-button {
-        background: linear-gradient(45deg, #f1f5f9 0%, #e2e8f0 100%);
+        background: #f1f5f9;
         color: #475569;
         border: none;
-        padding: 0.4rem 0.8rem;
+        padding: 0.5rem 1rem;
         border-radius: 6px;
         cursor: pointer;
-    }
-
-    .style-controls-row > .style-subgroup {
-        display: flex;
-        gap: 1rem;
-        border: #000000 1px dashed;
-        width: 100%;
-        box-sizing: border-box;
-        padding-left: 1rem;
-        align-items: center;
-    }
-
-    select {
-        width: max-content;
-        padding: 0.5rem 2.5rem 0.5rem 1rem;
-        font-size: 14px;
-        border: 1px solid var(--b3-theme-primary-lighter);
-        border-radius: 8px;
-        background-color: var(--b3-theme-surface);
-        appearance: none;
-        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2390a3bf' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-        background-repeat: no-repeat;
-        background-position: right 0.75rem center;
-        background-size: 16px;
-        transition: all 0.2s ease;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-        color: var(--b3-theme-text);
+        font-size: 13px;
+        transition: background 0.2s ease;
 
         &:hover {
-            border-color: var(--b3-theme-primary);
-            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1);
-        }
-
-        &:focus {
-            outline: none;
-            border-color: var(--b3-theme-primary);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-        }
-
-        &:disabled {
-            background-color: var(--b3-theme-surface);
-            cursor: not-allowed;
-        }
-
-        option {
-            padding: 0.5rem;
-            background: var(--b3-theme-surface);
-
-            &:checked {
-                background: var(--b3-theme-primary-light);
-                color: white;
-            }
-
-            &:hover {
-                background: var(--b3-theme-primary-light);
-            }
+            background: #e2e8f0;
         }
     }
 
     .apply-size-button {
-        background-color: var(--b3-theme-primary);
+        background: var(--b3-theme-primary);
         color: white;
         border: none;
         padding: 0.4rem 0.8rem;
         border-radius: 6px;
         cursor: pointer;
+        font-size: 13px;
+        transition: background 0.2s ease;
 
         &:hover {
-            transform: translateY(-1px);
+            opacity: 0.9;
         }
     }
 </style>

@@ -107,15 +107,36 @@
     let widgetLayoutNumber = $state(4);
     let widgetGap = $state(0.2);
     let sortable: Sortable | null = null;
-    let layoutObserver: MutationObserver | null = null;
     let destroyBannerDrag: (() => void) | null = null;
 
     // 本地容器引用：避免全局 selector 在实例重叠时命中错容器
     let customContentContainer: HTMLElement | null = null;
 
+    // 初始化状态标记：确保只初始化一次
+    let customContentInitialized = false;
+
+    // CSS 变量更新：统一基础格子高度
+    function updateCustomGridMetrics() {
+        if (!customContentContainer) return;
+        const container = customContentContainer;
+        const clientWidth = container.clientWidth;
+        if (clientWidth <= 0) return;
+
+        const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+        const gapPx = widgetGap * rootFontSize;
+        const cellSize = (clientWidth - gapPx * (widgetLayoutNumber - 1)) / widgetLayoutNumber;
+
+        if (cellSize > 0) {
+            container.style.setProperty("--widget-cell-size", `${cellSize}px`);
+        }
+    }
+
     // 异步请求版本戳，用于丢弃过期结果
     let updateHomepageVersion = 0;
     let updateStatsVersion = 0;
+
+    // ResizeObserver for custom-content container
+    let customContentResizeObserver: ResizeObserver | null = null;
 
     // 前台同步检测定时器
     let foregroundSyncWatchTimer: ReturnType<typeof setInterval> | null = null;
@@ -506,6 +527,58 @@
         }
     }
 
+    // 初始化主页组件区布局（Sortable、ResizeObserver、restoreLayout）
+    async function initCustomContentLayout(): Promise<void> {
+        await tick();
+        const container = customContentContainer;
+        if (!container) {
+            console.warn("[Homepage] customContentContainer 不存在，跳过布局初始化");
+            return;
+        }
+        if (customContentInitialized) {
+            return;
+        }
+        customContentInitialized = true;
+
+        // 清理旧对象
+        customContentResizeObserver?.disconnect();
+        sortable?.destroy();
+
+        // 初始化 ResizeObserver
+        customContentResizeObserver = new ResizeObserver(() => {
+            updateCustomGridMetrics();
+        });
+        customContentResizeObserver.observe(container);
+
+        // 初始化 Sortable
+        sortable = new Sortable(container, {
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            handle: ".drag-handle",
+            onEnd: () => {
+                saveLayout(plugin, customContentContainer);
+            },
+        });
+
+        // 恢复布局
+        await restoreLayout(plugin, { value: container }, customContentContainer);
+
+        await tick();
+        updateCustomGridMetrics();
+
+        // restoreLayout 完成后，启动期写盘动作已结束，此时记录签名基线
+        if (!initialSignaturesRecorded) {
+            initialSignaturesRecorded = true;
+            // 重新读取最新文件内容，确保签名基线与实际落盘数据一致
+            const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+            const latestLayout = await loadWidgetLayoutSettings(plugin);
+            plugin.updateAppliedSignatures(
+                computeConfigSignature(latestConfig),
+                computeLayoutSignature(latestLayout)
+            );
+        }
+    }
+
     onMount(async () => {
         // 先添加事件监听器，确保不会错过 VIP 状态变化事件
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
@@ -544,41 +617,8 @@
             window.addEventListener("load", onWindowLoad);
         }
 
-        // 初始化区块拖拽排序
-        layoutObserver = new MutationObserver(async () => {
-            const container = document.querySelector(
-                ".custom-content",
-            ) as HTMLElement;
-            if (container) {
-                layoutObserver?.disconnect();
-                customContentContainer = container;
-
-                sortable = new Sortable(container, {
-                    animation: 150,
-                    ghostClass: "sortable-ghost",
-                    handle: ".drag-handle",
-                    onEnd: () => {
-                        saveLayout(plugin, customContentContainer);
-                    },
-                });
-
-                await restoreLayout(plugin, { value: container }, customContentContainer);
-
-                // restoreLayout 完成后，启动期写盘动作已结束，此时记录签名基线
-                if (!initialSignaturesRecorded) {
-                    initialSignaturesRecorded = true;
-                    // 重新读取最新文件内容，确保签名基线与实际落盘数据一致
-                    const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-                    const latestLayout = await loadWidgetLayoutSettings(plugin);
-                    plugin.updateAppliedSignatures(
-                        computeConfigSignature(latestConfig),
-                        computeLayoutSignature(latestLayout)
-                    );
-                }
-            }
-        });
-
-        layoutObserver.observe(document.body, { childList: true, subtree: true });
+        // 初始化主页组件区布局
+        await initCustomContentLayout();
 
         // 配置加载完成后初始化特效和事件监听
         reRegisterAllShortcuts(buttonsList);
@@ -605,10 +645,6 @@
         if (sortable) {
             sortable.destroy();
             sortable = null;
-        }
-        if (layoutObserver) {
-            layoutObserver.disconnect();
-            layoutObserver = null;
         }
         if (destroyBannerDrag) {
             destroyBannerDrag();
@@ -652,6 +688,19 @@
             });
         }
         customContentContainer = null;
+        if (customContentResizeObserver) {
+            customContentResizeObserver.disconnect();
+            customContentResizeObserver = null;
+        }
+    });
+
+    // 监听 widgetLayoutNumber / widgetGap 变化，更新格子尺寸
+    $effect(() => {
+        widgetLayoutNumber;
+        widgetGap;
+        tick().then(() => {
+            updateCustomGridMetrics();
+        });
     });
 
     // 光标样式监听
@@ -998,6 +1047,7 @@
 
     <!-- 自定义组件区域 -->
     <div
+        bind:this={customContentContainer}
         class="section custom-content"
         role="region"
         aria-label="自定义组件区域"

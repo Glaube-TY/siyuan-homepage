@@ -106,12 +106,23 @@ export function loadElementStyles(elementId: string): StyleSettings | null {
         }
     }
 
-    const aspectRatio = computedStyle.aspectRatio;
-    if (aspectRatio) {
-        const [widthRatio, heightRatio] = aspectRatio.split("/").map((s) => s.trim());
-        if (widthRatio && heightRatio) {
-            result.colSize = parseInt(widthRatio);
-            result.rowSize = parseInt(heightRatio);
+    // 优先从 gridColumnEnd / gridRowEnd 读取 span 数值（主页 custom-content 已禁用 aspect-ratio）
+    const gridColumnEnd = computedStyle.gridColumnEnd;
+    const gridRowEnd = computedStyle.gridRowEnd;
+    const colSpanMatch = gridColumnEnd && gridColumnEnd.toString().match(/span\s+(\d+)/);
+    const rowSpanMatch = gridRowEnd && gridRowEnd.toString().match(/span\s+(\d+)/);
+    if (colSpanMatch && rowSpanMatch) {
+        result.colSize = parseInt(colSpanMatch[1]);
+        result.rowSize = parseInt(rowSpanMatch[1]);
+    } else {
+        // 回退到 aspectRatio
+        const aspectRatio = computedStyle.aspectRatio;
+        if (aspectRatio) {
+            const [widthRatio, heightRatio] = aspectRatio.split("/").map((s) => s.trim());
+            if (widthRatio && heightRatio) {
+                result.colSize = parseInt(widthRatio);
+                result.rowSize = parseInt(heightRatio);
+            }
         }
     }
 

@@ -1,11 +1,10 @@
 <script lang="ts">
-    import { onMount, mount, onDestroy } from "svelte";
+    import { onMount, mount } from "svelte";
     import * as advanced from "../../components/tools/advanced";
     import { showMessage } from "siyuan";
 
     import "./homepageSettingStyle/homepageSetting.scss"
     import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
-    import { subTabs } from "./tabDefs"
     import { loadHomepageSettingConfig, saveHomepageSettingConfig } from "./config"
     import type { HomepageSettingConfig } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
@@ -648,112 +647,9 @@
         });
     }
 
-    // 弹窗容器引用
-    let settingsContainerEl: HTMLElement | null = $state(null);
-    let resizeObserver: ResizeObserver | null = null;
-    let isApplyingAutoWidth = false; // 抑制标记：避免 JS 自动设置宽度时被误判为用户手动 resize
-    let currentWidth = 820; // 当前实际宽度
-    let lastTabKey = "";
-
-    // 根据当前页签获取推荐宽度（静态配置，避免 scrollWidth 累积问题）
-    function calculatePreferredWidth(): number {
-        // 主页设置：根据二级页签获取推荐宽度
-        if (activeTab === "homepage") {
-            const currentSubTab = subTabs.find(tab => tab.key === settingsActiveTab);
-            if (currentSubTab?.preferredWidth) {
-                return currentSubTab.preferredWidth;
-            }
-            return 820; // 默认推荐宽度
-        }
-
-        // 会员服务：中等宽度
-        if (activeTab === "vip") {
-            return 1000;
-        }
-
-        // 关于插件：偏窄
-        if (activeTab === "about") {
-            return 860;
-        }
-
-        return 820; // 默认
-    }
-
-    // 应用宽度（带抑制标记，避免被 ResizeObserver 误判）
-    function applyWidth(width: number) {
-        if (!settingsContainerEl) return;
-        isApplyingAutoWidth = true;
-        settingsContainerEl.style.setProperty('--settings-width', `${width}px`);
-        currentWidth = width;
-        // 短暂延迟后清除抑制标记
-        setTimeout(() => {
-            isApplyingAutoWidth = false;
-        }, 50);
-    }
-
-    // 页签切换时调整宽度：只扩宽不缩回
-    function handleTabChangeWidth() {
-        if (!settingsContainerEl) return;
-
-        const preferredWidth = calculatePreferredWidth();
-
-        // 只扩宽不缩回：当前宽度小于推荐宽度时才调整
-        if (currentWidth < preferredWidth) {
-            applyWidth(preferredWidth);
-        }
-    }
-
-    // 监听页签切换，自动调整宽度
-    $effect(() => {
-        // 依赖 activeTab 和 settingsActiveTab
-        const tabKey = `${activeTab}-${settingsActiveTab}`;
-        if (tabKey === lastTabKey) return;
-        lastTabKey = tabKey;
-
-        // 使用 requestAnimationFrame 确保 DOM 已更新
-        requestAnimationFrame(() => {
-            handleTabChangeWidth();
-        });
-    });
-
-    // 初始化 ResizeObserver 监听实际宽度变化
-    $effect(() => {
-        if (!settingsContainerEl) return;
-
-        // 初始化当前宽度
-        const rect = settingsContainerEl.getBoundingClientRect();
-        currentWidth = rect.width;
-
-        // 创建 ResizeObserver 监听尺寸变化
-        resizeObserver = new ResizeObserver((entries) => {
-            if (isApplyingAutoWidth) return; // 抑制期间不处理
-
-            for (const entry of entries) {
-                const newWidth = entry.contentRect.width;
-                // 只处理宽度变化，且变化大于 2px（过滤微小抖动）
-                if (Math.abs(newWidth - currentWidth) > 2) {
-                    currentWidth = newWidth;
-                }
-            }
-        });
-
-        resizeObserver.observe(settingsContainerEl);
-
-        return () => {
-            resizeObserver?.disconnect();
-        };
-    });
-
-    // 组件销毁时清理
-    onDestroy(() => {
-        resizeObserver?.disconnect();
-    });
 </script>
 
-<div
-    class="settings-container"
-    bind:this={settingsContainerEl}
->
+<div class="settings-container">
     <!-- 左侧：一级页签 -->
     <div class="main-nav-column">
         <MainTabNav

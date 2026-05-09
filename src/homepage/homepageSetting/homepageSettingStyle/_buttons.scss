@@ -15,12 +15,12 @@
     container-type: inline-size;
     container-name: buttons-editor;
     display: grid;
-    grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
     gap: 1rem;
     min-height: 350px;
 
     // 使用 container query 根据容器宽度响应，而不是 viewport
-    @container buttons-editor (max-width: 600px) {
+    @container buttons-editor (max-width: 720px) {
         grid-template-columns: 1fr;
     }
 
@@ -152,12 +152,18 @@
 
             // 确保 SettingRow 内的输入框有稳定宽度
             .setting-row__control {
+                flex: 0 1 min(360px, 55%);
                 min-width: 0;
 
                 input[type="text"],
                 input[type="number"] {
                     min-width: 0;
                 }
+            }
+
+            // control-full 输入框跟随详情区宽度
+            .control-full {
+                min-width: 0;
             }
 
             .shortcut-input {
