@@ -17,6 +17,23 @@ export function isDesktopDeviceProfileEnabled(): boolean {
     return !((window as any).siyuan?.isMobile === true);
 }
 
+function createSafeDeviceId(): string {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+        return globalThis.crypto.randomUUID();
+    }
+
+    if (typeof globalThis.crypto?.getRandomValues === "function") {
+        const bytes = new Uint8Array(16);
+        globalThis.crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+    }
+
+    return `syhomepage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function getLocalDeviceId(): string | null {
     if (!isDesktopDeviceProfileEnabled()) {
         return null;
@@ -26,15 +43,25 @@ export function getLocalDeviceId(): string | null {
         return cachedDeviceId;
     }
 
-    const storedId = localStorage.getItem(STORAGE_KEY);
+    let storedId: string | null = null;
+    try {
+        storedId = localStorage.getItem(STORAGE_KEY);
+    } catch {
+        // localStorage 读取失败，继续生成新 ID
+    }
+
     if (storedId) {
         cachedDeviceId = storedId;
         return storedId;
     }
 
-    const newId = crypto.randomUUID();
-    localStorage.setItem(STORAGE_KEY, newId);
+    const newId = createSafeDeviceId();
     cachedDeviceId = newId;
+    try {
+        localStorage.setItem(STORAGE_KEY, newId);
+    } catch {
+        // localStorage 写入失败，只使用内存缓存
+    }
     return newId;
 }
 

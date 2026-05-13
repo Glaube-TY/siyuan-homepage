@@ -202,7 +202,8 @@
             }
 
             if (savedConfig.selectedButton) {
-                selectedButton = savedConfig.selectedButton;
+                const found = buttonsList.find((item) => item.id === savedConfig.selectedButton.id);
+                selectedButton = found ?? null;
             }
 
             // 组件设置 - 从 widgetLayout.json 读取（与组件顺序存储方式一致）
@@ -538,6 +539,7 @@
                 checked: item.checked,
                 shortcut: item.shortcut || "",
                 order: item.order,
+                action: item.action || "",
             })),
             selectedButton: selectedButton,
 

@@ -3,6 +3,7 @@ import { svelteDialog } from "@/libs/dialog";
 import HomepageSetting from "../homepageSetting/homepageSetting.svelte";
 import Mousetrap from "mousetrap";
 import { mount } from "svelte";
+import { openEmptyDocCleanerDialog } from "../features/emptyDocCleaner/openEmptyDocCleanerDialog";
 
 type ExtendedKeyboardEvent = KeyboardEvent & {
     keyCode: number;
@@ -300,6 +301,9 @@ function getButtonAction(item: ButtonItem): string {
     if (item.label.includes("📅 今日日记")) {
         return "diary";
     }
+    if (item.label.includes("🧹 清理空文档")) {
+        return "cleanEmptyDocs";
+    }
     return "";
 }
 
@@ -318,6 +322,8 @@ export function handleButtonClick(
         saveLayoutFn(plugin);
     } else if (action === "settings") {
         OpenHomepageSetting();
+    } else if (action === "cleanEmptyDocs") {
+        openEmptyDocCleanerDialog(plugin);
     } else if (action === "search" || action === "diary") {
         // 搜索和日记按钮通过 shortcut 触发，但已有 isTrusted 保护不会递归
         if (item.shortcut) {

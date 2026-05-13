@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { ButtonItem, ButtonSettingsActions } from '../types';
     import { displayShortcut, eventToShortcutString } from '../../header/quick-button';
+    import { isCoreButton, getButtonActionMeta } from '../buttonSettings';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
 
@@ -21,6 +22,9 @@
     let currentLabel = $derived(selectedButton?.label ?? "");
     let isCapturingShortcut = $state(false);
     let shortcutInputEl: HTMLInputElement | null = $state(null);
+
+    let selectedButtonMeta = $derived(selectedButton ? getButtonActionMeta(selectedButton) : null);
+    let selectedIsCore = $derived(selectedButton ? isCoreButton(selectedButton) : false);
 
     function handleShortcutKeydown(e: KeyboardEvent) {
         if (!isCapturingShortcut) return;
@@ -58,10 +62,6 @@
     function stopCapturing() {
         isCapturingShortcut = false;
     }
-
-    function isCoreButton(label: string): boolean {
-        return label === "➕ 添加组件" || label === "⚙ 主页设置";
-    }
 </script>
 
 <!-- 上层：说明区域 -->
@@ -70,6 +70,99 @@
         <p class="intro-text">请选择左侧按钮以查看或编辑详情，勾选表示该按钮启用，核心按钮不可删除</p>
     </div>
 </SettingSection>
+
+<style>
+    .builtin-info-card {
+        padding: 1rem;
+        background: var(--b3-theme-surface);
+        border: 1px solid var(--b3-border-color);
+        border-radius: 8px;
+        margin-top: 0.5rem;
+    }
+
+    .builtin-info-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .builtin-info-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--b3-theme-on-surface);
+    }
+
+    .builtin-info-badge {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 12px;
+        background: var(--b3-theme-primary-light);
+        color: var(--b3-theme-primary);
+        font-weight: 500;
+    }
+
+    .builtin-lock-tip {
+        font-size: 13px;
+        color: var(--b3-theme-on-surface-light);
+        margin: 0 0 0.75rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--b3-theme-surface);
+        border-left: 3px solid var(--b3-theme-primary);
+        border-radius: 0 4px 4px 0;
+    }
+
+    .builtin-info-desc {
+        font-size: 13px;
+        color: var(--b3-theme-on-surface);
+        line-height: 1.6;
+        margin: 0 0 0.75rem;
+    }
+
+    .builtin-info-section {
+        margin-top: 0.75rem;
+    }
+
+    .builtin-info-section-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--b3-theme-on-surface);
+        margin: 0 0 0.5rem;
+    }
+
+    .builtin-info-list {
+        list-style: disc;
+        padding-left: 1.25rem;
+        margin: 0;
+    }
+
+    .builtin-info-list li {
+        font-size: 13px;
+        color: var(--b3-theme-on-surface-light);
+        line-height: 1.6;
+        margin-bottom: 0.25rem;
+    }
+
+    .builtin-info-source {
+        font-size: 13px;
+        color: var(--b3-theme-on-surface-light);
+        line-height: 1.6;
+        margin: 0;
+        padding: 0.5rem 0.75rem;
+        background: var(--b3-theme-surface);
+        border-radius: 4px;
+        border: 1px dashed var(--b3-border-color);
+    }
+
+    .builtin-info-source a {
+        color: var(--b3-theme-primary);
+        text-decoration: none;
+    }
+
+    .builtin-info-source a:hover {
+        text-decoration: underline;
+    }
+</style>
 
 <!-- 下层：按钮管理器 -->
 <SettingSection title="快捷按钮管理">
@@ -118,9 +211,44 @@
                     <h4 class="detail-title">正在编辑：{selectedButton.label}</h4>
                 </div>
 
-                {#if isCoreButton(selectedButton.label)}
-                    <div class="core-button-notice">
-                        <p>插件核心按钮不支持自定义</p>
+                {#if selectedIsCore}
+                    <div class="builtin-info-card">
+                        <div class="builtin-info-header">
+                            <span class="builtin-info-title">{selectedButtonMeta?.title ?? selectedButton.label}</span>
+                            <span class="builtin-info-badge">{selectedButtonMeta?.badge ?? "内置功能"}</span>
+                        </div>
+                        <p class="builtin-lock-tip">该按钮可在左侧控制是否在主页显示，但不支持修改标签、快捷键或删除。</p>
+                        <p class="builtin-info-desc">{selectedButtonMeta?.description ?? "这是插件内置功能按钮，可控制是否在主页显示，但不支持自定义。"}</p>
+                        {#if selectedButtonMeta?.sourceText}
+                            <div class="builtin-info-section">
+                                <p class="builtin-info-source">
+                                    {selectedButtonMeta.sourceText}
+                                    {#if selectedButtonMeta.sourceName && selectedButtonMeta.sourceUrl}
+                                        <a href={selectedButtonMeta.sourceUrl} target="_blank" rel="noopener noreferrer">{selectedButtonMeta.sourceName}</a>
+                                    {/if}
+                                </p>
+                            </div>
+                        {/if}
+                        {#if selectedButtonMeta?.usage}
+                            <div class="builtin-info-section">
+                                <h5 class="builtin-info-section-title">使用说明</h5>
+                                <ul class="builtin-info-list">
+                                    {#each selectedButtonMeta.usage as item}
+                                        <li>{item}</li>
+                                    {/each}
+                                </ul>
+                            </div>
+                        {/if}
+                        {#if selectedButtonMeta?.safety}
+                            <div class="builtin-info-section">
+                                <h5 class="builtin-info-section-title">安全策略</h5>
+                                <ul class="builtin-info-list">
+                                    {#each selectedButtonMeta.safety as item}
+                                        <li>{item}</li>
+                                    {/each}
+                                </ul>
+                            </div>
+                        {/if}
                     </div>
                 {:else}
                     <!-- 自定义按钮设置项 -->

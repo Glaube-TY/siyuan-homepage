@@ -2,20 +2,14 @@ import { getImage } from "@/components/tools/getImage";
 import type { DeviceProfilesMap } from "./utils/deviceProfile";
 import { getLocalDeviceId, isDesktopDeviceProfileEnabled } from "./utils/deviceProfile";
 import type { BannerDeviceProfile } from "./homepageSetting/config";
+import { createDefaultButtons, normalizeButtonsList as normalizeButtonsListFromRegistry, type HomepageButtonItem } from "./buttonRegistry";
+export type { HomepageButtonItem } from "./buttonRegistry";
 
 export type TitleIconType = "emoji" | "image";
 export type TitleIconStyle = "square" | "round" | "circle";
 export type BannerGlobalType = "custom" | "bing";
 export type FallingDensity = "low" | "medium" | "high";
 export type FallingSpeed = "low" | "medium" | "high";
-
-export interface HomepageButtonItem {
-    id: number;
-    label: string;
-    checked: boolean;
-    shortcut: string;
-    order: number;
-}
 
 export interface HomepageConfig {
     bannerEnabled: boolean;
@@ -54,14 +48,7 @@ export interface BannerImageResult {
     remoteBannerImageData: string;
 }
 
-const DEFAULT_BUTTONS: HomepageButtonItem[] = [
-    { id: 1728000000000, label: "🔍 搜索笔记", checked: true, shortcut: "Ctrl+P", order: 0 },
-    { id: 1728000001000, label: "📅 今日日记", checked: true, shortcut: "Alt+5", order: 1 },
-    { id: 1728000002000, label: "➕ 添加组件", checked: true, shortcut: "", order: 2 },
-    { id: 1728000003000, label: "⚙ 主页设置", checked: true, shortcut: "", order: 3 },
-];
-
-export const defaultButtonsList = DEFAULT_BUTTONS.map((item) => ({ ...item }));
+export const defaultButtonsList = createDefaultButtons();
 
 const VALID_TITLE_ICON_TYPES: TitleIconType[] = ["emoji", "image"];
 const VALID_TITLE_ICON_STYLES: TitleIconStyle[] = ["square", "round", "circle"];
@@ -95,7 +82,7 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDe
     FallingDensity: "medium",
     FallingSpeed: "medium",
     bannerHeight: 300,
-    buttonsList: DEFAULT_BUTTONS.map((item) => ({ ...item })),
+    buttonsList: createDefaultButtons(),
     deviceProfiles: {},
     bannerDeviceProfiles: {},
 };
@@ -124,25 +111,8 @@ function normalizeEnum<T extends string>(value: unknown, validValues: T[], defau
     return defaultValue;
 }
 
-function normalizeBoolean(value: unknown, defaultValue: boolean): boolean {
-    return typeof value === "boolean" ? value : defaultValue;
-}
-
 function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
-    if (!Array.isArray(rawList) || rawList.length === 0) {
-        return DEFAULT_BUTTONS.map((item) => ({ ...item }));
-    }
-
-    return rawList.map((item, index): HomepageButtonItem => {
-        const raw = item as Record<string, unknown>;
-        return {
-            id: normalizeNumber(raw?.id, Date.now() + index),
-            label: normalizeString(raw?.label, ""),
-            checked: normalizeBoolean(raw?.checked, true),
-            shortcut: normalizeString(raw?.shortcut, ""),
-            order: normalizeNumber(raw?.order, index),
-        };
-    });
+    return normalizeButtonsListFromRegistry(rawList);
 }
 
 function normalizeDeviceProfiles(value: unknown): DeviceProfilesMap {
@@ -376,7 +346,7 @@ export async function resolveBannerImage(
 
 export function resolveButtonsList(config: HomepageConfig): HomepageButtonItem[] {
     if (!config.buttonsList || config.buttonsList.length === 0) {
-        return DEFAULT_BUTTONS.map((item) => ({ ...item }));
+        return createDefaultButtons();
     }
     return config.buttonsList.map((item) => ({ ...item }));
 }
