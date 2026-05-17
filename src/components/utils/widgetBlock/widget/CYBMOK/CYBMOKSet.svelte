@@ -2,68 +2,77 @@
     import { onMount } from "svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import { loadCYBMOKStats, getCYBMOKStoreStatus } from "./cybmokData";
 
     interface Props {
-        plugin: any;
         advancedEnabled?: boolean;
         CMKnockSound?: string;
+        CYBMOKDatabaseId?: string;
     }
 
-    let { plugin, advancedEnabled = false, CMKnockSound = $bindable("普通") }: Props = $props();
+    let {
+        advancedEnabled = false,
+        CMKnockSound = $bindable("普通"),
+        CYBMOKDatabaseId = $bindable(""),
+    }: Props = $props();
 
-    let CYBMOKData: any = {};
     let totalMerit: number = $state(0);
-    let maxMeritDate: any = $state({});
+    let maxMeritDate: any = $state({ date: "暂无", count: 0 });
+    let dbStatusMessage = $state("");
+    let isLoadingStats = $state(false);
 
     onMount(async () => {
-        CYBMOKData = await plugin.loadData("CYBMOKData.json");
-
-        totalMerit = Number(getTotalMerit());
-
-        maxMeritDate = getMaxMeritDate();
+        await refreshStats();
     });
 
-    // 计算总功德数
-    function getTotalMerit() {
-        if (!CYBMOKData || typeof CYBMOKData !== "object") return 0;
-        return Object.values(CYBMOKData).reduce(
-            (total: number, count: any) => total + (Number(count) || 0),
-            0,
-        );
-    }
-
-    // 获取最多功德的日期
-    function getMaxMeritDate() {
-        if (
-            !CYBMOKData ||
-            typeof CYBMOKData !== "object" ||
-            Object.keys(CYBMOKData).length === 0
-        ) {
-            return { date: "暂无", count: 0 };
+    async function refreshStats() {
+        if (!CYBMOKDatabaseId?.trim()) {
+            totalMerit = 0;
+            maxMeritDate = { date: "暂无", count: 0 };
+            dbStatusMessage = "木鱼功德数据将保存到思源数据库。旧本地数据会在填写数据库 ID 后自动迁移。";
+            return;
         }
 
-        let maxDate = "";
-        let maxCount = 0;
-
-        for (const [date, count] of Object.entries(CYBMOKData)) {
-            const numCount = Number(count) || 0;
-            if (numCount > maxCount) {
-                maxCount = numCount;
-                maxDate = date;
+        isLoadingStats = true;
+        try {
+            const status = await getCYBMOKStoreStatus(CYBMOKDatabaseId);
+            if (!status.ok) {
+                dbStatusMessage = status.message;
+                totalMerit = 0;
+                maxMeritDate = { date: "暂无", count: 0 };
+                return;
             }
+            const stats = await loadCYBMOKStats(CYBMOKDatabaseId);
+            totalMerit = stats.totalMerit;
+            maxMeritDate = stats.maxMeritDate;
+            dbStatusMessage = "";
+        } catch {
+            dbStatusMessage = "无法读取木鱼数据库，请检查数据库 ID";
+        } finally {
+            isLoadingStats = false;
         }
-
-        // 格式化日期显示
-        const formattedDate =
-            maxDate.length === 8
-                ? `${maxDate.slice(0, 4)}年${maxDate.slice(4, 6)}月${maxDate.slice(6, 8)}日`
-                : maxDate;
-
-        return { date: formattedDate, count: maxCount };
     }
 </script>
 
 {#if advancedEnabled}
+    <SettingSection title="数据库设置">
+        <SettingRow
+            title="数据库 ID"
+            description="填写用于保存功德数据的数据库 ID。同一主页空间内的木鱼组件会自动共用已有数据库 ID。"
+        >
+            <input
+                type="text"
+                bind:value={CYBMOKDatabaseId}
+                class="control-full"
+                placeholder="输入木鱼功德数据库 ID"
+                onchange={() => refreshStats()}
+            />
+        </SettingRow>
+        {#if dbStatusMessage}
+            <div class="db-hint">{dbStatusMessage}</div>
+        {/if}
+    </SettingSection>
+
     <SettingSection title="音效设置">
         <SettingRow title="敲击音效">
             <select bind:value={CMKnockSound} class="control-sm">
@@ -74,7 +83,9 @@
         </SettingRow>
     </SettingSection>
 
-    {#if totalMerit > 0}
+    {#if isLoadingStats}
+        <h3>加载功德统计...</h3>
+    {:else if totalMerit > 0}
         <SettingSection title="功德统计">
             <div class="merit-summary">
                 <div class="summary-item">
@@ -89,7 +100,7 @@
                 </div>
             </div>
         </SettingSection>
-    {:else}
+    {:else if CYBMOKDatabaseId?.trim()}
         <h3>暂无功德记录，拿起棒槌开敲吧！</h3>
     {/if}
 {:else}
@@ -97,6 +108,13 @@
 {/if}
 
 <style lang="scss">
+    .db-hint {
+        margin-top: 0.5rem;
+        font-size: 0.82rem;
+        color: var(--b3-theme-on-surface-light);
+        line-height: 1.5;
+    }
+
     .merit-summary {
         margin-top: 1rem;
         padding: 1rem;

@@ -1,27 +1,41 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
+    import {
+        loadCountdownEvents,
+        migrateLegacyCountdownEventsIfNeeded,
+        type CountdownEventRecord,
+    } from "./countdownData";
+    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
 
     interface Props {
+        plugin: any;
         contentTypeJson?: string;
     }
 
-    let { contentTypeJson = "{}" }: Props = $props();
-    const parsed = JSON.parse(contentTypeJson);
+    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    const parsed = $derived(JSON.parse(contentTypeJson));
 
-    let countdownEvents = parsed.data?.eventList || [];
-    let countdownStyle = parsed.data?.countdownStyle || "list";
+    let countdownEvents = $state<CountdownEventRecord[]>([]);
+    let countdownStyle = $derived(parsed.data?.countdownStyle || "list1");
+    let effectiveDatabaseId = $state("");
+    let databaseStatusMessage = $state("");
+    let isLoadingEvents = $state(true);
 
-    let countdownCard1LocalBg = parsed.data?.countdownCard1LocalBg || "";
-    let countdownCard1RemoteBg =
-        $state(parsed.data?.countdownCard1RemoteBg ||
-        "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664");
-    let countdownCard1BgSelect =
-        parsed.data?.countdownCard1BgSelect || "remote";
+    const defaultCard1RemoteBg =
+        "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
+    let countdownCard1LocalBg = $derived(parsed.data?.countdownCard1LocalBg || "");
+    let countdownCard1RemoteBg = $state("");
+    let rawCountdownCard1RemoteBg = $derived(
+        parsed.data?.countdownCard1RemoteBg || defaultCard1RemoteBg,
+    );
+    let countdownCard1BgSelect = $derived(
+        parsed.data?.countdownCard1BgSelect || "remote",
+    );
 
-    let countdownCard2BgColor = parsed.data?.countdownCard2BgColor || "#000000";
+    let countdownCard2BgColor = $derived(parsed.data?.countdownCard2BgColor || "#000000");
 
-    let countdownList2BgColor = parsed.data?.countdownList2BgColor || "#000000";
+    let countdownList2BgColor = $derived(parsed.data?.countdownList2BgColor || "#000000");
 
     // 当前事件索引
     let currentEventIndex = $state(0);
@@ -39,7 +53,7 @@
         card2: {
             fontSize: { maxSize: 35, minSize: 20, decrement: 6 },
             dimensions: { width: 100, height: 30, rx: 0, ry: 0 },
-            colors: { bg: countdownCard2BgColor, text: "black" },
+            colors: { bg: "#000000", text: "black" },
         },
         // 可以继续添加更多卡片配置...
         // card3: { ... },
@@ -125,8 +139,49 @@
     }
 
     onMount(async () => {
+        countdownCard1RemoteBg = rawCountdownCard1RemoteBg;
         if (countdownCard1BgSelect === "remote") {
             countdownCard1RemoteBg = await getImage(countdownCard1RemoteBg);
+        }
+
+        try {
+            const resolved = plugin
+                ? await resolveDatabaseIdFromExistingWidgets(
+                      plugin,
+                      "countdown",
+                      parsed.blockId,
+                      parsed,
+                  )
+                : { databaseId: "", source: "none" };
+            effectiveDatabaseId =
+                resolved.databaseId || parsed.data?.countdownDatabaseId || "";
+
+            if (!effectiveDatabaseId?.trim()) {
+                databaseStatusMessage = "请先在组件设置中填写倒数日数据库 ID";
+                return;
+            }
+
+            const legacyEvents = Array.isArray(parsed.data?.eventList)
+                ? parsed.data.eventList
+                : [];
+            await migrateLegacyCountdownEventsIfNeeded(
+                effectiveDatabaseId,
+                legacyEvents,
+            );
+
+            const result = await loadCountdownEvents(effectiveDatabaseId);
+            if (!result.status.ok) {
+                databaseStatusMessage = result.status.message;
+                return;
+            }
+
+            countdownEvents = result.events;
+            currentEventIndex = 0;
+        } catch (error) {
+            console.warn("[countdown] 读取倒数日数据库失败", error);
+            databaseStatusMessage = "倒数日数据库读取失败，请检查数据库 ID";
+        } finally {
+            isLoadingEvents = false;
         }
     });
 
@@ -150,11 +205,15 @@
 </script>
 
 <div class="content-display">
-    {#if countdownStyle === "list1"}
+    {#if isLoadingEvents}
+        <div class="countdown-state">加载倒数日...</div>
+    {:else if databaseStatusMessage}
+        <div class="countdown-state">{databaseStatusMessage}</div>
+    {:else if countdownStyle === "list1"}
         <div class="content-display-list1">
             <h3 class="widget-title">📅 倒数日</h3>
             <ul class="countdown-list">
-                {#each countdownEvents as event (event.name)}
+                {#each countdownEvents as event (event.id || event.name)}
                     <li class="countdown-item">
                         <div class="countdown-name">{event.name}</div>
                         <div class="countdown-date">
@@ -176,7 +235,7 @@
     {:else if countdownStyle === "list2"}
         <div class="content-display-list2">
             <ul class="countdown-list">
-                {#each countdownEvents as event (event.name)}
+                {#each countdownEvents as event (event.id || event.name)}
                     <li class="countdown-item">
                         <div class="countdown-name">
                             {#if getDaysLeft(event.date, event.anniversary).status === "expired"}
@@ -426,6 +485,18 @@
         display: flex;
         flex-direction: column;
         height: 100%;
+
+        .countdown-state {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            color: var(--b3-theme-secondary);
+            font-size: 14px;
+            line-height: 1.5;
+            text-align: center;
+        }
 
         .content-display-list1 {
             width: 100%;

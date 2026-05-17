@@ -579,11 +579,36 @@
         }
     }
 
+    async function refreshCustomContentLayoutFromTemplate() {
+        const container = customContentContainer || document.querySelector(".custom-content");
+        if (!container) return;
+
+        try {
+            const layoutSettings = await loadWidgetLayoutSettings(plugin);
+            widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
+            widgetGap = layoutSettings.widgetGap;
+
+            await tick();
+
+            await restoreLayout(plugin, { value: container as HTMLElement }, container as HTMLElement);
+            await tick();
+
+            updateCustomGridMetrics();
+        } catch (e) {
+            console.warn("[Homepage] 模板应用后刷新组件区失败:", e);
+        }
+    }
+
+    async function handleTemplateLayoutChanged() {
+        await refreshCustomContentLayoutFromTemplate();
+    }
+
     onMount(async () => {
         // 先添加事件监听器，确保不会错过 VIP 状态变化事件
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.addEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
 
         // 首设备首次冷启动：初始化 widgetLayout.json 最小结构
         const existingLayout = await plugin.loadData("widgetLayout.json");
@@ -661,6 +686,7 @@
             handleAdvancedUnavailable,
         );
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.removeEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
         document.removeEventListener("click", handleDocumentClick);
         document.removeEventListener("click", handleClickEffect);
         document.removeEventListener("mousemove", handleMouseMoveTrail);

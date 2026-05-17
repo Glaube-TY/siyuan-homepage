@@ -4,6 +4,7 @@ import HomepageSetting from "../homepageSetting/homepageSetting.svelte";
 import Mousetrap from "mousetrap";
 import { mount } from "svelte";
 import { openEmptyDocCleanerDialog } from "../features/emptyDocCleaner/openEmptyDocCleanerDialog";
+import { openTemplateCenterDialog } from "../features/templateCenter/openTemplateCenterDialog";
 
 type ExtendedKeyboardEvent = KeyboardEvent & {
     keyCode: number;
@@ -324,6 +325,8 @@ export function handleButtonClick(
         OpenHomepageSetting();
     } else if (action === "cleanEmptyDocs") {
         openEmptyDocCleanerDialog(plugin);
+    } else if (action === "templateCenter") {
+        openTemplateCenterDialog(plugin);
     } else if (action === "search" || action === "diary") {
         // 搜索和日记按钮通过 shortcut 触发，但已有 isTrusted 保护不会递归
         if (item.shortcut) {

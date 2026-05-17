@@ -1,5 +1,8 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
+    import { showMessage } from "siyuan";
+    import { recordCYBMOKKnock, migrateLegacyCYBMOKIfNeeded } from "./cybmokData";
+    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
 
     interface Props {
         contentTypeJson?: string;
@@ -10,6 +13,7 @@
 
     let parsedContent = $derived(JSON.parse(contentTypeJson));
     let CMKnockSound = $derived(parsedContent.data?.CMKnockSound || "普通");
+    let CYBMOKDatabaseId = $derived(parsedContent.data?.CYBMOKDatabaseId || parsedContent.data?.cybmokDatabaseId || "");
 
     let advancedEnabled: boolean = $state(false);
     let MOKImgPath: string = $state("");
@@ -17,8 +21,9 @@
     let knockSoundPath: string = "";
     let showMeritText: boolean = $state(false);
     let meritTextY: number = $state(25);
+    let hasDatabaseId = $state(false);
+    let effectiveDatabaseId = $state("");
 
-    // 动画定时器引用
     let floatAnimationInterval: ReturnType<typeof setInterval> | null = null;
     let knockResetTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -28,6 +33,23 @@
         MOKImgPath = `/plugins/siyuan-homepage/asset/Icon/木鱼.svg`;
 
         knockSoundPath = `/plugins/siyuan-homepage/asset/music/CYBMOK/${CMKnockSound}.mp3`;
+
+        const result = await resolveDatabaseIdFromExistingWidgets(
+            plugin,
+            "CYBMOK",
+            parsedContent.blockId,
+            parsedContent,
+        );
+        effectiveDatabaseId = result.databaseId || CYBMOKDatabaseId;
+
+        if (effectiveDatabaseId) {
+            hasDatabaseId = true;
+            try {
+                await migrateLegacyCYBMOKIfNeeded(effectiveDatabaseId, plugin);
+            } catch (e) {
+                console.warn("[CYBMOK] 旧数据迁移失败，不影响使用", e);
+            }
+        }
     });
 
     onDestroy(() => {
@@ -96,35 +118,20 @@
     }
 
     async function recordKnock() {
+        if (!effectiveDatabaseId) {
+            showMessage("请先在组件设置中填写木鱼数据库 ID", 3000);
+            return;
+        }
+
         try {
             const today = new Date()
                 .toISOString()
                 .slice(0, 10)
-                .replace(/-/g, ""); // 获取YYYYMMDD格式日期
-
-            // 初始化数据对象
-            let knockData = {};
-
-            // 尝试读取现有数据
-            try {
-                const existingData = await plugin.loadData("CYBMOKData.json");
-
-                if (existingData) {
-                    knockData = existingData;
-                } else {
-                }
-            } catch (e) {
-                knockData = {};
-            }
-
-            // 更新敲击次数
-            const currentCount = knockData[today] || 0;
-            knockData[today] = currentCount + 1;
-
-            // 保存数据
-            await plugin.saveData("CYBMOKData.json", JSON.stringify(knockData));
+                .replace(/-/g, "");
+            await recordCYBMOKKnock(effectiveDatabaseId, today);
         } catch (error) {
             console.error("记录敲击次数失败:", error);
+            showMessage("木鱼数据库写入失败，请检查数据库 ID 或数据库字段", 4000);
         }
     }
 </script>

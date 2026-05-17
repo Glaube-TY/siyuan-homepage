@@ -7,7 +7,7 @@ export interface HomepageButtonItem {
     action?: string;
 }
 
-export const CORE_ACTIONS = ["search", "diary", "addWidget", "cleanEmptyDocs", "settings"] as const;
+export const CORE_ACTIONS = ["search", "diary", "addWidget", "cleanEmptyDocs", "templateCenter", "settings"] as const;
 export type CoreAction = typeof CORE_ACTIONS[number];
 
 const LABEL_TO_ACTION: Record<string, CoreAction> = {
@@ -17,15 +17,16 @@ const LABEL_TO_ACTION: Record<string, CoreAction> = {
     "⚙ 主页设置": "settings",
 };
 
-const PROTECTED_ACTIONS: CoreAction[] = ["addWidget", "settings", "cleanEmptyDocs"];
+const PROTECTED_ACTIONS: CoreAction[] = ["addWidget", "settings", "cleanEmptyDocs", "templateCenter"];
 
 export function createDefaultButtons(): HomepageButtonItem[] {
     return [
         { id: 1728000000000, label: "🔍 搜索笔记", checked: true, shortcut: "Ctrl+P", order: 0, action: "search" },
         { id: 1728000001000, label: "📅 今日日记", checked: true, shortcut: "Alt+5", order: 1, action: "diary" },
         { id: 1728000002000, label: "➕ 添加组件", checked: true, shortcut: "", order: 2, action: "addWidget" },
-        { id: 1728000002500, label: "🧹 清理空文档", checked: true, shortcut: "", order: 3, action: "cleanEmptyDocs" },
-        { id: 1728000003000, label: "⚙ 主页设置", checked: true, shortcut: "", order: 4, action: "settings" },
+        { id: 1728000002400, label: "🎨 布局模板", checked: true, shortcut: "", order: 3, action: "templateCenter" },
+        { id: 1728000002500, label: "🧹 清理空文档", checked: true, shortcut: "", order: 4, action: "cleanEmptyDocs" },
+        { id: 1728000003000, label: "⚙ 主页设置", checked: true, shortcut: "", order: 5, action: "settings" },
     ];
 }
 
@@ -82,6 +83,27 @@ export function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
             order: maxOrder + 1,
             action: "cleanEmptyDocs",
         });
+    }
+
+    // 老用户：如果不存在 action === "templateCenter"，追加内置按钮（checked: false）
+    const hasTemplateCenter = normalized.some((item) => item.action === "templateCenter");
+    if (!hasTemplateCenter) {
+        const maxOrder = normalized.length > 0 ? Math.max(...normalized.map((b) => b.order)) : -1;
+        normalized.push({
+            id: 1728000002400,
+            label: "🎨 布局模板",
+            checked: false,
+            shortcut: "",
+            order: maxOrder + 1,
+            action: "templateCenter",
+        });
+    }
+
+    // 统一 templateCenter 内置按钮 label，老用户旧 label 强制刷新
+    for (const item of normalized) {
+        if (item.action === "templateCenter") {
+            item.label = "🎨 布局模板";
+        }
     }
 
     return normalized;
@@ -144,6 +166,23 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
             "默认只扫描叶子空文档，避免误删包含子文档的父文档。",
             "删除前会再次校验文档是否仍为空。",
             "删除前需要二次确认。",
+        ],
+    },
+    templateCenter: {
+        action: "templateCenter",
+        title: "🎨 布局模板",
+        badge: "会员功能",
+        description: "打开布局模板中心，保存和应用你自己的主页布局方案。",
+        usage: [
+            "点击后打开布局模板弹窗。",
+            "会员用户可以把当前主页布局保存为模板。",
+            "以后可以一键恢复自己的布局方案。",
+        ],
+        safety: [
+            "布局模板只作用于当前设备主主页。",
+            "只保存组件分布、尺寸和样式，不保存组件内容。",
+            "不会修改侧边栏和移动端主页布局。",
+            "应用前会自动备份。",
         ],
     },
 };

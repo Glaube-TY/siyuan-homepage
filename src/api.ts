@@ -637,6 +637,70 @@ export async function getAttributeView(id: string): Promise<AttributeView | null
     };
 }
 
+export async function appendAttributeViewDetachedBlocksWithValues(
+    avID: string,
+    blocksValues: any[][]
+): Promise<any> {
+    return request('/api/av/appendAttributeViewDetachedBlocksWithValues', {
+        avID,
+        blocksValues,
+    });
+}
+
+export async function addAttributeViewKey(
+    avID: string,
+    keyID: string,
+    keyName: string,
+    keyType: string = "text",
+    keyIcon: string = "",
+    previousKeyID: string = ""
+): Promise<any> {
+    return request('/api/av/addAttributeViewKey', {
+        avID,
+        keyID,
+        keyName,
+        keyType,
+        keyIcon,
+        previousKeyID,
+    });
+}
+
+export async function removeAttributeViewKey(
+    avID: string,
+    keyID: string,
+    removeRelationDest: boolean = false
+): Promise<any> {
+    return request('/api/av/removeAttributeViewKey', {
+        avID,
+        keyID,
+        removeRelationDest,
+    });
+}
+
+export async function setAttributeViewBlockAttr(
+    avID: string,
+    keyID: string,
+    itemID: string,
+    value: any
+): Promise<any> {
+    return request('/api/av/setAttributeViewBlockAttr', {
+        avID,
+        keyID,
+        itemID,
+        value,
+    });
+}
+
+export async function getAttributeViewItemIDsByBoundIDs(
+    avID: string,
+    blockIDs: string[]
+): Promise<any> {
+    return request('/api/av/getAttributeViewItemIDsByBoundIDs', {
+        avID,
+        blockIDs,
+    });
+}
+
 
 // **************************************** Tabs ****************************************
 // endpoint: /api/tab/getAllTabs

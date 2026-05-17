@@ -4,6 +4,8 @@
     import { onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
     import { getImage } from "@/components/tools/getImage";
+    import { loadFocusStatistics, saveFocusStatistics as saveFocusStatisticsToDB, migrateLegacyFocusStatisticsIfNeeded } from "./focusData";
+    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
 
     interface Props {
         plugin: any;
@@ -25,7 +27,7 @@
     let focusBgImage =
         $state("https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464");
     let breakBgImage =
-        $state("https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d"); // 默认休息图
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d");
     let focusLocalImage = $state("");
     let breakLocalImage = $state("");
     let focusImageType = $state("remote");
@@ -39,8 +41,9 @@
     let showFocusInfo = $state(false);
     let showSyNotif = $state(true);
 
-    // 组件销毁标记
     let isDestroyed = false;
+    let focusDatabaseId = $state("");
+    let hasDatabaseId = $state(false);
 
     let circumference = $state(Math.PI * 2 * 65);
     let baseSize = $derived(timerFontSize * 40);
@@ -65,6 +68,7 @@
             breakBgImage = data.breakBgImage || breakBgImage;
             focusLocalImage = data.focusLocalImage || focusLocalImage;
             breakLocalImage = data.breakLocalImage || breakLocalImage;
+            focusDatabaseId = data.focusDatabaseId || "";
 
             const savedConfig = await plugin.loadData(
                 `widget-${contentTypeJsonObj.blockId}.json`,
@@ -79,13 +83,25 @@
             showFocusInfo = savedConfig.data?.showFocusInfo || showFocusInfo;
             showSyNotif = savedConfig.data?.showSyNotif ?? true;
         }
-        const focusStatistics = await plugin.loadData(
-            `widget-focus-statistics.json`,
+
+        const resolved = await resolveDatabaseIdFromExistingWidgets(
+            plugin,
+            "focus",
+            contentTypeJsonObj?.blockId,
+            contentTypeJsonObj,
         );
-        if (focusStatistics) {
-            totalFocusTime = focusStatistics.totalFocusTime || totalFocusTime;
-            totalFocusTimes =
-                focusStatistics.totalFocusTimes || totalFocusTimes;
+        focusDatabaseId = resolved.databaseId || focusDatabaseId;
+
+        if (focusDatabaseId) {
+            hasDatabaseId = true;
+            try {
+                await migrateLegacyFocusStatisticsIfNeeded(focusDatabaseId, plugin);
+            } catch (e) {
+                console.warn("[focus] 旧数据迁移失败，不影响使用", e);
+            }
+            const stats = await loadFocusStatistics(focusDatabaseId);
+            totalFocusTime = stats.totalFocusTime;
+            totalFocusTimes = stats.totalFocusTimes;
         }
 
         resetTimer("focus");
@@ -247,11 +263,16 @@
     }
 
     async function saveFocusStatistics() {
-        const focusStatistics = {
-            totalFocusTime,
-            totalFocusTimes,
-        };
-        await plugin.saveData(`widget-focus-statistics.json`, focusStatistics);
+        if (!focusDatabaseId) {
+            showMessage("请先在组件设置中填写番茄钟统计数据库 ID，统计数据才会保存", 4000);
+            return;
+        }
+        try {
+            await saveFocusStatisticsToDB(focusDatabaseId, totalFocusTime, totalFocusTimes);
+        } catch (error) {
+            console.error("保存专注统计失败:", error);
+            showMessage("番茄钟统计保存失败，请检查数据库 ID 或数据库字段", 4000);
+        }
     }
 
     async function saveConfig() {

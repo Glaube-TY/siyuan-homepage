@@ -174,6 +174,7 @@
             "PicCaro": "图片轮播",
             "CYBMOK": "赛博木鱼",
             "countdownTimer": "倒计时器",
+            "fixedAssets": "固定资产",
             "conditionDocs": "条件文档",
         };
         return typeMap[widget.contentData.type] || widget.contentData.type;

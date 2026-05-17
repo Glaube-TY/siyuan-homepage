@@ -1,6 +1,6 @@
 import { lsNotebooks, sql, getTag } from "@/api";
 
-export async function getStatisticalData(statisticalType: string, plugin: any) {
+export async function getStatisticalData(statisticalType: string, _plugin: any) {
     let statisticalCount = 0;
 
     if (statisticalType === "notebooksCount") {

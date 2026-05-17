@@ -7,7 +7,7 @@
  * @Description  : Kits about dialogs
  */
 import { Dialog } from "siyuan";
-import { mount, unmount } from "svelte";
+import { unmount } from "svelte";
 
 export const inputDialog = (args: {
     title: string, placeholder?: string, defaultText?: string,
