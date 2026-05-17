@@ -2,6 +2,7 @@
     import { showMessage } from "siyuan";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
 
     interface Props {
         sectionTitle?: string;
@@ -23,10 +24,7 @@
 
     async function selectDirectory() {
         try {
-            if (
-                !window.navigator.userAgent.includes("Electron") ||
-                typeof window.require !== "function"
-            ) {
+            if (!canUseElectronLocalFileSystem()) {
                 return showMessage(desktopOnlyMessage);
             }
             const { filePaths } = await window

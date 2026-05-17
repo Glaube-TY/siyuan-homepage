@@ -2,6 +2,7 @@
     import { onMount, onDestroy, mount } from "svelte";
     import { Howl, Howler } from "howler";
     import { svelteDialog } from "@/libs/dialog";
+    import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
     import musicList from "./musicList.svelte";
 
     interface Props {
@@ -43,6 +44,9 @@
     let progressInterval: ReturnType<typeof setInterval> | null = null;
 
     let advancedEnabled = $state(false);
+    let runtimeUnsupported = $state(false);
+    let unavailableTitle = $state("🖥️ 仅桌面端支持");
+    let runtimeMessage = $state("");
 
     function clearProgressInterval() {
         if (progressInterval) {
@@ -52,14 +56,21 @@
     }
 
     onMount(async () => {
-        await loadMusicFiles();
-
-        // 只有在 autoPlay 为 true 时才自动加载并播放
-        if (musicFiles.length > 0 && autoPlay) {
-            ensureTrackLoaded(currentTrackIndex, true);
-        }
-
         advancedEnabled = plugin.ADVANCED;
+
+        if (advancedEnabled) {
+            if (!canUseElectronLocalFileSystem()) {
+                runtimeUnsupported = true;
+                unavailableTitle = "🖥️ 仅桌面端支持";
+                runtimeMessage = "音乐播放器需要访问本地音乐文件夹，该功能仅支持思源桌面端使用。网页端、Docker 和移动端无法直接读取本地文件夹。";
+                return;
+            }
+            await loadMusicFiles();
+
+            if (musicFiles.length > 0 && autoPlay) {
+                ensureTrackLoaded(currentTrackIndex, true);
+            }
+        }
     });
 
     // 组件卸载时清理播放器
@@ -144,6 +155,20 @@
 
     // 加载音乐文件
     async function loadMusicFiles() {
+        if (!canUseElectronLocalFileSystem()) {
+            runtimeUnsupported = true;
+            unavailableTitle = "🖥️ 仅桌面端支持";
+            runtimeMessage = "音乐播放器需要访问本地音乐文件夹，该功能仅支持思源桌面端使用。网页端、Docker 和移动端无法直接读取本地文件夹。";
+            return;
+        }
+
+        if (!musicFolderPath) {
+            runtimeUnsupported = true;
+            unavailableTitle = "🎵 未配置音乐文件夹";
+            runtimeMessage = "请先在组件设置中选择音乐文件夹。";
+            return;
+        }
+
         try {
             const fs = window.require("fs");
             const pathLib = window.require("path");
@@ -294,10 +319,16 @@
 
 <div class="content-display">
     {#if advancedEnabled}
-        <div class="player">
-            <div class="track-info">
-                <h3>{musicFiles[currentTrackIndex]?.name || "无音乐"}</h3>
+        {#if runtimeUnsupported}
+            <div class="runtime-unsupported">
+                <h2>{unavailableTitle}</h2>
+                <h3>{runtimeMessage}</h3>
             </div>
+        {:else}
+            <div class="player">
+                <div class="track-info">
+                    <h3>{musicFiles[currentTrackIndex]?.name || "无音乐"}</h3>
+                </div>
 
             <div
                 class="progress-bar"
@@ -491,10 +522,11 @@
                 </button>
             </div>
         </div>
+        {/if}
     {:else}
         <div class="content-not-advanced">
             <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
         </div>
     {/if}
 </div>
@@ -631,5 +663,17 @@
         align-items: center;
         justify-content: center;
         gap: 1rem;
+    }
+
+    .runtime-unsupported {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        text-align: center;
+        color: var(--b3-theme-on-surface-light);
     }
 </style>

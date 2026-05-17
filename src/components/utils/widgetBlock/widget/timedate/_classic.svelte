@@ -55,17 +55,13 @@
     const updateTime = () => {
         currentTime = new Date();
         updateTimeOfDay();
-        currentDateStr = formatDateString(currentTime);
     };
 
-    let year = "";
-    let month = "";
-    let day = "";
     // 日期格式化函数
     const formatDateString = (date: Date): string => {
-        year = date.getFullYear().toString();
-        month = String(date.getMonth() + 1).padStart(2, "0");
-        day = String(date.getDate()).padStart(2, "0");
+        const year = date.getFullYear().toString();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
 
         switch (dateFormat) {
             case "YYYY年MM月DD日":
@@ -90,11 +86,10 @@
     const updateDateAndLunar = () => {
         try {
             // 使用当前时间创建公历日期
-            const solarDay: SolarDay = SolarDay.fromYmd(
-                Number(year),
-                Number(month),
-                Number(day),
-            );
+            const y = currentTime.getFullYear();
+            const m = currentTime.getMonth() + 1;
+            const d = currentTime.getDate();
+            const solarDay: SolarDay = SolarDay.fromYmd(y, m, d);
             const lunarDay: LunarDay = solarDay.getLunarDay(); // 获取农历日期
 
             lunarDayStr = lunarDay.toString().replace("农历", ""); // 转换为中文格式
@@ -137,7 +132,7 @@
     };
 
     // 当前日期字符串（根据格式变化）
-    let currentDateStr = $state(formatDateString(currentTime));
+    let currentDateStr = $derived(formatDateString(currentTime));
 
     // 获取今天零点的时间戳
     const getMidnightTimestamp = (): number => {
@@ -225,21 +220,16 @@
     });
 
     async function loadImageForTimeOfDay() {
-        if (
-            !window.navigator.userAgent.includes("Electron") ||
-            typeof window.require !== "function"
-        ) {
-            if (morningImageType === "remote") {
-                morningBgUrl = await getImage(morningBgUrl);
-            }
+        if (morningImageType === "remote") {
+            morningBgUrl = await getImage(morningBgUrl);
+        }
 
-            if (afternoonImageType === "remote") {
-                afternoonBgUrl = await getImage(afternoonBgUrl);
-            }
+        if (afternoonImageType === "remote") {
+            afternoonBgUrl = await getImage(afternoonBgUrl);
+        }
 
-            if (nightImageType === "remote") {
-                nightBgUrl = await getImage(nightBgUrl);
-            }
+        if (nightImageType === "remote") {
+            nightBgUrl = await getImage(nightBgUrl);
         }
     }
 </script>
@@ -370,12 +360,12 @@
             margin: 0.3rem 0;
         }
 
-        .content-display .time,
-        .content-display .date,
-        .content-display .day-status,
-        .content-display .lunar,
-        .content-display .zodiac,
-        .content-display .solar-term-line span {
+        .time,
+        .date,
+        .day-status,
+        .lunar,
+        .zodiac,
+        .solar-term-line span {
             transition: color 0.5s ease-in-out;
         }
 

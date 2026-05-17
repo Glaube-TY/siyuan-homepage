@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { register } from "swiper/element/bundle";
+    import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
 
     interface Props {
         plugin: any;
@@ -23,12 +24,21 @@
     let PicRandomSwitch = $derived(parsedContent.data.PicRandomSwitch ?? false);
 
     let advancedEnabled = $state(false);
+    let runtimeUnsupported = $state(false);
+    let runtimeMessage = $state("");
     let images: Array<{ name: string; path: string }> = $state([]);
     let loading = $state(true);
     let error = $state("");
 
     // 读取文件夹中的图片
     async function loadImages() {
+        if (!canUseElectronLocalFileSystem()) {
+            runtimeUnsupported = true;
+            runtimeMessage = "图片轮播需要访问本地图片文件夹，该功能仅支持思源桌面端使用。网页端、Docker 和移动端无法直接读取本地文件夹。";
+            loading = false;
+            return;
+        }
+
         try {
             if (!PicFolderPath) {
                 error = "请配置图片文件夹路径";
@@ -96,6 +106,12 @@
         advancedEnabled = plugin.ADVANCED;
 
         if (advancedEnabled) {
+            if (!canUseElectronLocalFileSystem()) {
+                runtimeUnsupported = true;
+                runtimeMessage = "图片轮播需要访问本地图片文件夹，该功能仅支持思源桌面端使用。网页端、Docker 和移动端无法直接读取本地文件夹。";
+                loading = false;
+                return;
+            }
             register();
             await loadImages();
         }
@@ -104,7 +120,12 @@
 
 <div class="content-display">
     {#if advancedEnabled}
-        {#if loading}
+        {#if runtimeUnsupported}
+            <div class="runtime-unsupported">
+                <h2>🖥️ 仅桌面端支持</h2>
+                <h3>{runtimeMessage}</h3>
+            </div>
+        {:else if loading}
             <div class="loading-container">
                 <div class="loading-spinner"></div>
                 <p>正在加载图片...</p>
@@ -180,6 +201,18 @@
         gap: 1rem;
         text-align: center;
         color: #666;
+    }
+
+    .runtime-unsupported {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        text-align: center;
+        color: var(--b3-theme-on-surface-light);
     }
 
     .loading-container,

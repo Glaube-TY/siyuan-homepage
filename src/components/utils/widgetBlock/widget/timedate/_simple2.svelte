@@ -7,13 +7,12 @@
 	}
 
 	let { contentTypeJson = "{}" }: Props = $props();
-	const parsed = JSON.parse(contentTypeJson);
+	const parsed = $derived(JSON.parse(contentTypeJson));
 
 	let simple2RemoteBg =
-		$state(parsed.data?.simple2RemoteBg ||
-		"https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944");
-	const simple2LocalBg = parsed.data?.simple2LocalBg || "";
-	const simple2BgSelect = parsed.data?.simple2BgSelect || "remote";
+		$state("https://haowallpaper.com/link/common/file/previewFileImg/17882739641666944");
+	const simple2LocalBg = $derived(parsed.data?.simple2LocalBg || "");
+	const simple2BgSelect = $derived(parsed.data?.simple2BgSelect || "remote");
 
 	let date = new Date();
 	let month = $state(date.getMonth() + 1);
@@ -29,16 +28,11 @@
 	}
 
 	onMount(() => {
-		// 处理背景图片加载
-		if (simple2BgSelect === "remote") {
-			if (
-				!window.navigator.userAgent.includes("Electron") ||
-				typeof window.require !== "function"
-			) {
-				getImage(simple2RemoteBg).then((url) => {
-					simple2RemoteBg = url;
-				});
-			}
+		simple2RemoteBg = parsed.data?.simple2RemoteBg || simple2RemoteBg;
+		if (simple2BgSelect === "remote" && simple2RemoteBg) {
+			getImage(simple2RemoteBg).then((url) => {
+				simple2RemoteBg = url;
+			});
 		}
 
 		const interval = setInterval(() => {

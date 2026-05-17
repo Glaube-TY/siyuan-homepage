@@ -30,14 +30,7 @@
     async function refreshPreview() {
         try {
             if (source === "remote" && remoteUrl) {
-                if (
-                    !window.navigator.userAgent.includes("Electron") ||
-                    typeof window.require !== "function"
-                ) {
-                    previewData = await getImage(remoteUrl);
-                } else {
-                    previewData = remoteUrl;
-                }
+                previewData = await getImage(remoteUrl);
             } else if (source === "local" && localDataUrl) {
                 previewData = localDataUrl;
             } else {

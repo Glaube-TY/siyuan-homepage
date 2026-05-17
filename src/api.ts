@@ -452,15 +452,22 @@ export async function pushErrMsg(msg: string, timeout: number = 7000) {
 // **************************************** Network ****************************************
 export async function forwardProxy(
     url: string, method: string = 'GET', payload: any = {},
-    headers: any[] = [], timeout: number = 7000, contentType: string = "text/html"
+    headers: any[] = [], timeout: number = 7000, contentType: string = "text/html",
+    payloadEncoding?: string, responseEncoding?: string
 ): Promise<IResForwardProxy> {
-    let data = {
+    let data: any = {
         url: url,
         method: method,
         timeout: timeout,
         contentType: contentType,
         headers: headers,
         payload: payload
+    };
+    if (payloadEncoding) {
+        data.payloadEncoding = payloadEncoding;
+    }
+    if (responseEncoding) {
+        data.responseEncoding = responseEncoding;
     }
     let url1 = '/api/network/forwardProxy';
     return request(url1, data);
@@ -470,31 +477,81 @@ export async function forwardProxy(
 // 返回口径: 直接返回 data:image/...;base64,... 字符串
 export async function getImageAsBase64(url: string, timeout: number = 10000): Promise<string | null> {
     try {
+        let referer = "";
+        try {
+            const parsed = new URL(url);
+            referer = parsed.origin + "/";
+        } catch (_) {
+            // URL 解析失败，不中断流程
+        }
+
+        const headersObj: { [key: string]: string } = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        };
+        if (referer) {
+            headersObj['Referer'] = referer;
+        }
+
         const res = await forwardProxy(
             url,
             'GET',
             {},
-            [
-                {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                },
-            ],
+            [headersObj],
             timeout,
-            'application/octet-stream'
+            'application/octet-stream',
+            'text',
+            'base64'
         );
-        
+
         if (!res || !res.body) {
+            console.warn('getImageAsBase64: 响应为空或 body 为空', url);
             return null;
         }
-        
-        // headers 是 { [key: string]: string } 对象，直接查找 content-type
-        const contentType = res.headers?.['content-type'] 
-            || res.headers?.['Content-Type'] 
-            || 'image/png';
-        
-        return `data:${contentType};base64,${res.body}`;
+
+        if (typeof res.status === 'number' && (res.status < 200 || res.status >= 300)) {
+            console.warn('getImageAsBase64: 非 2xx 状态码', res.status, url);
+            return null;
+        }
+
+        // 已经是 data URL，直接返回
+        if (res.body.startsWith('data:image/')) {
+            return res.body;
+        }
+
+        // 检查编码，如果不是 base64 则拒绝
+        if (res.bodyEncoding && res.bodyEncoding !== 'base64' && res.bodyEncoding !== 'base64-std') {
+            console.warn('getImageAsBase64: 非 base64 编码', res.bodyEncoding, url);
+            return null;
+        }
+
+        // 提取 content-type
+        let contentType = 'image/png';
+        if (res.contentType) {
+            contentType = res.contentType.split(';')[0].trim();
+        } else if (res.headers) {
+            const ct = res.headers['content-type'] || res.headers['Content-Type'] || '';
+            if (ct) {
+                contentType = ct.split(';')[0].trim();
+            }
+        }
+
+        // 如果不是 image/* 类型，fallback 到 image/png
+        if (!contentType.startsWith('image/')) {
+            if (contentType === 'application/octet-stream') {
+                contentType = 'image/png';
+            } else {
+                console.warn('getImageAsBase64: 非图片 content-type', contentType, url);
+                return null;
+            }
+        }
+
+        // 清理空白字符
+        const cleanBody = res.body.replace(/\s/g, '');
+
+        return `data:${contentType};base64,${cleanBody}`;
     } catch (error) {
-        console.error('获取图片失败:', error);
+        console.warn('getImageAsBase64: 异常', error);
         return null;
     }
 }

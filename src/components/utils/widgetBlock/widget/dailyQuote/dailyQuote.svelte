@@ -8,17 +8,16 @@
     }
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsed = JSON.parse(contentTypeJson);
+    const parsed = $derived(JSON.parse(contentTypeJson));
 
-    const dailyQuoteMode = parsed.data?.dailyQuoteMode || "custom";
-    const dailyQuoteSource = parsed.data?.dailyQuoteSource || "classic";
-    const customDailyQuoteContent = parsed.data?.customDailyQuoteContent || "";
-    const dailyQuoteFontSize = parsed.data?.dailyQuoteFontSize || 1;
+    const dailyQuoteMode = $derived(parsed.data?.dailyQuoteMode || "custom");
+    const dailyQuoteSource = $derived(parsed.data?.dailyQuoteSource || "classic");
+    const customDailyQuoteContent = $derived(parsed.data?.customDailyQuoteContent || "");
+    const dailyQuoteFontSize = $derived(parsed.data?.dailyQuoteFontSize || 1);
     let dailyQuoteRemoteBg =
-        $state(parsed.data?.dailyQuoteRemoteBg ||
-        "https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648");
-    const dailyQuoteLocalBg = parsed.data?.dailyQuoteLocalBg || "";
-    const dailyQuoteBgSelect = parsed.data?.dailyQuoteBgSelect || "remote";
+        $state("https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648");
+    const dailyQuoteLocalBg = $derived(parsed.data?.dailyQuoteLocalBg || "");
+    const dailyQuoteBgSelect = $derived(parsed.data?.dailyQuoteBgSelect || "remote");
 
     let dailyQuote = $state("");
 
@@ -26,12 +25,10 @@
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;
+        dailyQuoteRemoteBg = parsed.data?.dailyQuoteRemoteBg || dailyQuoteRemoteBg;
         await getDailyQuote();
 
-        if (
-            !window.navigator.userAgent.includes("Electron") ||
-            typeof window.require !== "function"
-        ) {
+        if (dailyQuoteBgSelect === "remote" && dailyQuoteRemoteBg) {
             dailyQuoteRemoteBg = await getImage(dailyQuoteRemoteBg);
         }
     });

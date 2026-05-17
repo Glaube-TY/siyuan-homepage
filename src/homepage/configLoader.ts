@@ -304,15 +304,11 @@ export async function resolveBannerImage(
         return { bannerImgSrc, remoteBannerImageData };
     }
 
-    const isElectron =
-        window.navigator.userAgent.includes("Electron") ||
-        typeof (window as any).require === "function";
-
     if (config.bannerGlobalType === "custom") {
         if (config.bannerType === "local") {
             bannerImgSrc = config.bannerLocalData;
         } else if (config.bannerType === "remote") {
-            if (!isElectron && config.bannerRemoteUrl) {
+            if (config.bannerRemoteUrl) {
                 remoteBannerImageData = await getImage(config.bannerRemoteUrl);
             }
             bannerImgSrc = remoteBannerImageData || config.bannerRemoteUrl;
@@ -331,9 +327,7 @@ export async function resolveBannerImage(
             };
             const bingImageUrl = bingUrlMap[config.bingApiType];
             if (bingImageUrl) {
-                if (!isElectron) {
-                    remoteBannerImageData = await getImage(bingImageUrl);
-                }
+                remoteBannerImageData = await getImage(bingImageUrl);
                 bannerImgSrc = remoteBannerImageData || bingImageUrl;
             }
         } else {

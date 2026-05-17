@@ -53,6 +53,7 @@ interface IResBootProgress {
 
 interface IResForwardProxy {
     body: string;
+    bodyEncoding?: string;
     contentType: string;
     elapsed: number;
     headers: { [key: string]: string };
