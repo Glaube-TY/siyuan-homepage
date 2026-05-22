@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { showMessage } from "siyuan";
     import { getImage } from "@/components/tools/getImage";
     import {
         loadCountdownEvents,
@@ -8,13 +9,22 @@
     } from "./countdownData";
     import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
 
+    function parseContentTypeJson(raw: string): any {
+        try {
+            return JSON.parse(raw || "{}");
+        } catch (err) {
+            console.warn("[countdown] 解析 contentTypeJson 失败", err);
+            return {};
+        }
+    }
+
     interface Props {
         plugin: any;
         contentTypeJson?: string;
     }
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsed = $derived(JSON.parse(contentTypeJson));
+    const parsed = $derived(parseContentTypeJson(contentTypeJson));
 
     let countdownEvents = $state<CountdownEventRecord[]>([]);
     let countdownStyle = $derived(parsed.data?.countdownStyle || "list1");
@@ -138,11 +148,11 @@
         }
     }
 
-    onMount(async () => {
-        countdownCard1RemoteBg = rawCountdownCard1RemoteBg;
-        if (countdownCard1BgSelect === "remote") {
-            countdownCard1RemoteBg = await getImage(countdownCard1RemoteBg);
-        }
+    let isFirstMount = true;
+
+    async function loadCountdownData() {
+        isLoadingEvents = true;
+        databaseStatusMessage = "";
 
         try {
             const resolved = plugin
@@ -164,14 +174,19 @@
             const legacyEvents = Array.isArray(parsed.data?.eventList)
                 ? parsed.data.eventList
                 : [];
-            await migrateLegacyCountdownEventsIfNeeded(
-                effectiveDatabaseId,
-                legacyEvents,
-            );
+            try {
+                await migrateLegacyCountdownEventsIfNeeded(
+                    effectiveDatabaseId,
+                    legacyEvents,
+                );
+            } catch (migrateError) {
+                console.warn("[countdown] 迁移旧倒数日事件失败", migrateError);
+            }
 
             const result = await loadCountdownEvents(effectiveDatabaseId);
             if (!result.status.ok) {
                 databaseStatusMessage = result.status.message;
+                showMessage("倒数日事件加载失败，请检查数据库配置", 4000);
                 return;
             }
 
@@ -180,8 +195,25 @@
         } catch (error) {
             console.warn("[countdown] 读取倒数日数据库失败", error);
             databaseStatusMessage = "倒数日数据库读取失败，请检查数据库 ID";
+            showMessage("倒数日事件加载失败，请检查数据库配置", 4000);
         } finally {
             isLoadingEvents = false;
+        }
+    }
+
+    onMount(async () => {
+        countdownCard1RemoteBg = rawCountdownCard1RemoteBg;
+        if (countdownCard1BgSelect === "remote") {
+            countdownCard1RemoteBg = await getImage(countdownCard1RemoteBg);
+        }
+        await loadCountdownData();
+        isFirstMount = false;
+    });
+
+    $effect(() => {
+        void contentTypeJson;
+        if (!isFirstMount) {
+            void loadCountdownData();
         }
     });
 

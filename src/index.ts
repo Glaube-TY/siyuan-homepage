@@ -15,6 +15,7 @@ import { setBlockAttrs } from "@/api";
 import Homepage from "./homepage/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
+import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 
@@ -22,6 +23,8 @@ import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 const STORAGE_NAME = "menu-config";
 const TAB_TYPE = "homepage_tab";
 const TAB_ID = "siyuan-homepagehomepage_tab";
+const ENHANCED_DIARY_WORKSPACE_TAB_TYPE = "enhanced_diary_workspace_tab";
+const ENHANCED_DIARY_WORKSPACE_TAB_ID = "siyuan-homepageenhanced_diary_workspace_tab";
 const DOCK_TYPE = "homepage_dock";
 
 const HOMEPAGE_ICON_SVG = `<symbol id="iconhomepage" viewBox="0 0 1024 1024">
@@ -45,10 +48,13 @@ interface PluginConfig {
 
 export default class PluginHomepage extends Plugin {
     customTab!: () => Model;
+    enhancedDiaryWorkspaceTab!: () => Model;
     isMobile = false;
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
     private homepageInstance: Record<string, any> | null = null;
     private homepageTabDiv: HTMLDivElement | null = null;
+    private enhancedDiaryWorkspaceInstance: Record<string, any> | null = null;
+    private enhancedDiaryWorkspaceTabDiv: HTMLDivElement | null = null;
     private sidebarDockInstance: Record<string, any> | null = null;
     private homepageTabObserver: MutationObserver | null = null;
     ADVANCED = false;
@@ -226,6 +232,7 @@ export default class PluginHomepage extends Plugin {
 
         // 销毁 Homepage 组件实例
         this.destroyHomepageInstance();
+        this.destroyEnhancedDiaryWorkspaceInstance();
 
         // 关闭移动端对话框
         if (this.currentMobileDialog) {
@@ -259,12 +266,19 @@ export default class PluginHomepage extends Plugin {
 
     async onLayoutReady() {
         this.homepageTabDiv = document.createElement("div");
+        this.enhancedDiaryWorkspaceTabDiv = document.createElement("div");
         // 不再提前 mount，等 tab init 容器进入 DOM 后再创建实例
 
         // 建立轻量观察：当 homepageTabDiv 脱离 DOM 时自动销毁 Homepage 实例
         this.homepageTabObserver = new MutationObserver(() => {
             if (this.homepageInstance && this.homepageTabDiv && !this.homepageTabDiv.isConnected) {
                 this.destroyHomepageInstance();
+            }
+            if (
+                this.enhancedDiaryWorkspaceInstance &&
+                (!this.enhancedDiaryWorkspaceTabDiv || !this.enhancedDiaryWorkspaceTabDiv.isConnected)
+            ) {
+                this.destroyEnhancedDiaryWorkspaceInstance();
             }
         });
         this.homepageTabObserver.observe(document.body, { childList: true, subtree: true });
@@ -291,6 +305,23 @@ export default class PluginHomepage extends Plugin {
                     // 容器真正进入页面后再创建 Homepage 实例（避免过早 mount）
                     if (!self.homepageInstance) {
                         self.createHomepageInstance();
+                    }
+                }
+            },
+        });
+
+        this.enhancedDiaryWorkspaceTab = this.addTab({
+            type: ENHANCED_DIARY_WORKSPACE_TAB_TYPE,
+            async init() {
+                if (!this.element) {
+                    console.debug('[Homepage] EnhancedDiary workspace tab init: element 未就绪');
+                    return;
+                }
+
+                if (self.enhancedDiaryWorkspaceTabDiv) {
+                    this.element.appendChild(self.enhancedDiaryWorkspaceTabDiv);
+                    if (!self.enhancedDiaryWorkspaceInstance) {
+                        self.createEnhancedDiaryWorkspaceInstance();
                     }
                 }
             },
@@ -342,6 +373,34 @@ export default class PluginHomepage extends Plugin {
         // 清空容器内容
         if (this.homepageTabDiv) {
             this.homepageTabDiv.innerHTML = "";
+        }
+    }
+
+    private createEnhancedDiaryWorkspaceInstance(): void {
+        if (!this.enhancedDiaryWorkspaceTabDiv || !this.enhancedDiaryWorkspaceTabDiv.isConnected) {
+            return;
+        }
+
+        this.enhancedDiaryWorkspaceInstance = mount(EnhancedDiaryWorkspacePage as any, {
+            target: this.enhancedDiaryWorkspaceTabDiv,
+            props: {
+                plugin: this,
+            },
+        } as any);
+    }
+
+    private destroyEnhancedDiaryWorkspaceInstance(): void {
+        if (this.enhancedDiaryWorkspaceInstance) {
+            try {
+                unmount(this.enhancedDiaryWorkspaceInstance);
+            } catch (e) {
+                console.warn("[Plugin] 销毁强化日记工作台实例失败:", e);
+            }
+            this.enhancedDiaryWorkspaceInstance = null;
+        }
+
+        if (this.enhancedDiaryWorkspaceTabDiv) {
+            this.enhancedDiaryWorkspaceTabDiv.innerHTML = "";
         }
     }
 
@@ -473,6 +532,18 @@ export default class PluginHomepage extends Plugin {
                 title: "首页",
                 data: { text: "思源笔记首页" },
                 id: TAB_ID,
+            },
+        });
+    }
+
+    public openEnhancedDiaryWorkspace(): void {
+        openTab({
+            app: this.app,
+            custom: {
+                icon: "iconTask",
+                title: "强化日记工作台",
+                data: { text: "强化日记工作台" },
+                id: ENHANCED_DIARY_WORKSPACE_TAB_ID,
             },
         });
     }

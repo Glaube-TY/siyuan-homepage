@@ -34,10 +34,21 @@
     import CountdownTimerSet from "./widget/countdownTimer/countdownTimerSet.svelte";
     import ConditionDocsSet from "./widget/conditionDocs/conditionDocsSet.svelte";
     import FixedAssetsSet from "./widget/fixedAssets/fixedAssetsSet.svelte";
+    import EnhancedDiarySet from "./widget/enhancedDiary/enhancedDiarySet.svelte";
+    import {
+        DEFAULT_ENHANCED_DIARY_CONFIG,
+        type EnhancedDiaryConfig,
+    } from "./widget/enhancedDiary/enhancedDiaryTypes";
+    import {
+        normalizeEnhancedDiaryConfig,
+        saveEnhancedDiaryConfig,
+    } from "./widget/enhancedDiary/enhancedDiaryConfig";
     import {
         loadCountdownEvents,
         migrateLegacyCountdownEventsIfNeeded,
         saveCountdownEvents,
+        collectCountdownLegacyEventsFromWidgets,
+        mergeCountdownEvents,
         type CountdownEventRecord,
     } from "./widget/countdown/countdownData";
     import {
@@ -207,6 +218,11 @@
     // 自定义显示块ID
     let isRandomDoc: boolean = $state(false);
     let customBlockID: string = $state("");
+
+    let enhancedDiaryDraftConfig = $state<EnhancedDiaryConfig>({
+        ...DEFAULT_ENHANCED_DIARY_CONFIG,
+        templates: { ...DEFAULT_ENHANCED_DIARY_CONFIG.templates },
+    });
 
     // 时钟组件相关变量
     let timeType: string = $state("classic");
@@ -1427,6 +1443,7 @@
                     <option value="PicCaro">图片轮播👑</option>
                     <option value="CYBMOK">赛博木鱼👑</option>
                     <option value="countdownTimer">倒计时👑</option>
+                    <option value="enhancedDiary">强化日记</option>
                     <option value="fixedAssets">固定资产👑</option>
                 </select>
             </div>
@@ -1549,6 +1566,8 @@
                         bind:fixedAssetsShowYearly
                         bind:fixedAssetsItemCostPeriod
                     />
+                {:else if selectedContentType === "enhancedDiary"}
+                    <EnhancedDiarySet {plugin} bind:draftConfig={enhancedDiaryDraftConfig} />
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -1691,9 +1710,16 @@
                     }
                     if (countdownDatabaseId?.trim()) {
                         try {
+                            const collectedLegacyEvents = await collectCountdownLegacyEventsFromWidgets(
+                                plugin,
+                                currentBlockId,
+                                null,
+                                eventList,
+                            );
+                            const mergedEvents = mergeCountdownEvents(collectedLegacyEvents, eventList);
                             eventList = await saveCountdownEvents(
                                 countdownDatabaseId,
-                                eventList,
+                                mergedEvents,
                             );
                         } catch (error) {
                             showMessage(
@@ -2077,6 +2103,22 @@
                             conditionDocsTag,
                         },
                     };
+                } else if (selectedContentType === "enhancedDiary") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "enhancedDiary",
+                        blockId: currentBlockId,
+                        data: {},
+                    };
+                    try {
+                        const normalized = normalizeEnhancedDiaryConfig(enhancedDiaryDraftConfig);
+                        await saveEnhancedDiaryConfig(plugin, normalized);
+                        enhancedDiaryDraftConfig = normalized;
+                    } catch (err) {
+                        console.warn("[contentSetting] 保存强化日记设置失败", err);
+                        showMessage("强化日记设置保存失败，请稍后重试", 4000);
+                        return;
+                    }
                 }
 
                 await syncCurrentDatabaseWidgetConfig(contentTypeJson);

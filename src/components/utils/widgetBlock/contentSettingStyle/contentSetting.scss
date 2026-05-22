@@ -131,11 +131,6 @@
         box-sizing: border-box;
         // 禁止任何子元素撑破容器导致横向滚动
         word-break: break-word;
-
-        > * {
-            max-width: 100%;
-            box-sizing: border-box;
-        }
     }
 
     // 覆盖 SettingRow 在窄容器下的布局

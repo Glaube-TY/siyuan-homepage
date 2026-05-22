@@ -1,0 +1,804 @@
+<script lang="ts">
+    import type { EnhancedDiaryWorkspaceRecord } from "../enhancedDiaryWorkspaceRecordService";
+    import {
+        ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
+    } from "../../enhancedDiaryWorkspaceSections";
+    import WorkspaceEmptyState from "./WorkspaceEmptyState.svelte";
+    import type { WorkspaceRecordViewMode, WorkspaceRecordCategoryFilter } from "../enhancedDiaryWorkspaceNavigation";
+    import { formatLocalDate } from "../enhancedDiaryWorkspaceDate";
+
+    interface Props {
+        records: EnhancedDiaryWorkspaceRecord[];
+        historyRecords?: EnhancedDiaryWorkspaceRecord[];
+        onCreate: () => void;
+        onOpenDoc: (docId?: string) => void;
+        onEdit: (record: EnhancedDiaryWorkspaceRecord) => void;
+        onDelete: (record: EnhancedDiaryWorkspaceRecord) => void;
+        onConvertToTask: (record: EnhancedDiaryWorkspaceRecord) => void;
+        onRequestHistory?: () => void | Promise<void>;
+        historyLoading?: boolean;
+        initialViewMode?: WorkspaceRecordViewMode;
+        initialDateFilter?: string;
+        initialCategoryFilter?: WorkspaceRecordCategoryFilter;
+        initialSelectedRecordId?: string;
+        filterVersion?: number;
+        selectVersion?: number;
+    }
+
+    let {
+        records,
+        historyRecords = [],
+        onCreate,
+        onOpenDoc,
+        onEdit,
+        onDelete,
+        onConvertToTask,
+        onRequestHistory,
+        historyLoading = false,
+        initialViewMode = "today",
+        initialDateFilter = "",
+        initialCategoryFilter = "all",
+        initialSelectedRecordId = "",
+        filterVersion = 0,
+        selectVersion = 0,
+    }: Props = $props();
+
+    type RecordCategoryFilter = "all" | string;
+
+    let viewMode: "today" | "history" = $state("today");
+    let searchText: string = $state("");
+    let rangeFilter: string = $state("30");
+    let activeCategory: RecordCategoryFilter = $state("all");
+    let selectedRecordId: string | null = $state(null);
+    let dateFilter: string = $state("");
+    let lastFilterVersion: number = $state(0);
+
+    $effect(() => {
+        if (filterVersion > lastFilterVersion) {
+            viewMode = initialViewMode;
+            activeCategory = initialCategoryFilter;
+            dateFilter = initialDateFilter;
+            searchText = "";
+            selectedRecordId = null;
+            if (initialViewMode === "history") {
+                void onRequestHistory?.();
+            }
+            if (initialViewMode === "history" && initialDateFilter) {
+                rangeFilter = "90";
+            } else if (initialViewMode === "history") {
+                rangeFilter = "30";
+            } else {
+                dateFilter = "";
+                rangeFilter = "30";
+            }
+            lastFilterVersion = filterVersion;
+        }
+    });
+
+    const todayStr: string = $derived(formatLocalDate(new Date()));
+    const isHistoryMode = $derived((viewMode as string) === "history");
+
+    const sourceRecords: EnhancedDiaryWorkspaceRecord[] = $derived(
+        isHistoryMode ? historyRecords : records
+    );
+
+    const categories = $derived.by((): Array<[string, string]> => {
+        const map = new Map<string, string>(Object.entries(ENHANCED_DIARY_RECORD_CATEGORY_TITLES));
+        for (const record of sourceRecords) {
+            if (!record.categoryKey || map.has(record.categoryKey)) continue;
+            map.set(record.categoryKey, record.categoryTitle || record.categoryKey);
+        }
+        return Array.from(map.entries());
+    });
+
+    const filteredRecords = $derived.by(() => {
+        let result = sourceRecords;
+
+        if (activeCategory !== "all") {
+            result = result.filter((r) => r.categoryKey === activeCategory);
+        }
+
+        if (searchText.trim()) {
+            const kw = searchText.trim().toLowerCase();
+            result = result.filter(
+                (r) =>
+                    r.headingTitle.toLowerCase().includes(kw) ||
+                    r.content.toLowerCase().includes(kw) ||
+                    (r.date || "").toLowerCase().includes(kw) ||
+                    r.categoryTitle.toLowerCase().includes(kw) ||
+                    (r.docTitle || "").toLowerCase().includes(kw)
+            );
+        }
+
+        if (isHistoryMode && dateFilter) {
+            result = result.filter((r) => (r.date || "") === dateFilter);
+        } else if (isHistoryMode) {
+            const rangeDays = Number(rangeFilter) || 30;
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - (rangeDays - 1));
+            const cutoffStr = formatLocalDate(cutoff);
+            result = result.filter((r) => (r.date || "") >= cutoffStr);
+        }
+
+        return result;
+    });
+
+    const selectedRecord = $derived(
+        selectedRecordId
+            ? filteredRecords.find((r) => (r.id || `${r.docId}-${r.headingTitle}`) === selectedRecordId) || null
+            : null
+    );
+
+    const isRecordFromToday = $derived(
+        selectedRecord ? (selectedRecord.date || "") === todayStr : false
+    );
+
+    function getRecordDisplayKey(record: EnhancedDiaryWorkspaceRecord): string {
+        return record.id || `${record.docId}-${record.headingTitle}`;
+    }
+
+    function selectRecord(record: EnhancedDiaryWorkspaceRecord) {
+        selectedRecordId = getRecordDisplayKey(record);
+    }
+
+    function categoryCount(key: string): number {
+        return sourceRecords.filter((r) => r.categoryKey === key).length;
+    }
+
+    function switchToTodayMode(): void {
+        viewMode = "today";
+        dateFilter = "";
+        selectedRecordId = null;
+    }
+
+    function switchToHistoryMode(): void {
+        viewMode = "history";
+        dateFilter = "";
+        selectedRecordId = null;
+        void onRequestHistory?.();
+    }
+
+    $effect(() => {
+        if (filteredRecords.length === 0) {
+            selectedRecordId = null;
+            return;
+        }
+        const found = selectedRecordId
+            ? filteredRecords.find((r) => getRecordDisplayKey(r) === selectedRecordId)
+            : null;
+        if (!found) {
+            selectedRecordId = getRecordDisplayKey(filteredRecords[0]);
+        }
+    });
+
+    let lastRecordSelectVersion = $state(0);
+    $effect(() => {
+        if (selectVersion <= lastRecordSelectVersion) return;
+        lastRecordSelectVersion = selectVersion;
+        if (initialSelectedRecordId) {
+            const found = filteredRecords.find((r) => getRecordDisplayKey(r) === initialSelectedRecordId);
+            if (found) {
+                selectedRecordId = initialSelectedRecordId;
+            }
+        }
+    });
+</script>
+
+<section class="record-panel">
+    <div class="panel-toolbar">
+        <h2>记录中心</h2>
+        <div>
+            {#if !isHistoryMode}
+                <button type="button" class="btn-primary" onclick={onCreate}>新增记录</button>
+            {/if}
+        </div>
+    </div>
+
+    <div class="mode-bar">
+        <div class="mode-tabs">
+            <button
+                type="button"
+                class:active={viewMode === "today"}
+                onclick={switchToTodayMode}
+            >今日记录</button>
+            <button
+                type="button"
+                class:active={viewMode === "history"}
+                onclick={switchToHistoryMode}
+            >历史记录</button>
+        </div>
+        <div class="search-area">
+            <input
+                type="text"
+                class="search-input"
+                placeholder="搜索记录内容、标题、日期..."
+                bind:value={searchText}
+            />
+            {#if isHistoryMode && dateFilter}
+                <span class="date-filter-badge">
+                    当前日期：{dateFilter}
+                    <button
+                        type="button"
+                        class="clear-date-btn"
+                        onclick={() => { dateFilter = ""; selectedRecordId = null; }}
+                        aria-label="清除日期"
+                    >✕</button>
+                </span>
+            {:else if isHistoryMode}
+                <select class="range-select" bind:value={rangeFilter}>
+                    <option value="7">最近 7 天</option>
+                    <option value="30">最近 30 天</option>
+                    <option value="90">最近 90 天</option>
+                </select>
+            {/if}
+        </div>
+    </div>
+
+    <div class="category-tabs">
+        <button
+            type="button"
+            class:active={activeCategory === "all"}
+            onclick={() => (activeCategory = "all")}
+        >
+            全部
+            <span>{sourceRecords.length}</span>
+        </button>
+        {#each categories as [key, label]}
+            <button
+                type="button"
+                class:active={activeCategory === key}
+                onclick={() => (activeCategory = key)}
+            >
+                {label}
+                <span>{categoryCount(key)}</span>
+            </button>
+        {/each}
+    </div>
+
+    {#if isHistoryMode && historyLoading}
+        <WorkspaceEmptyState title="历史记录加载中" description="正在扫描最近 90 天快速记录。" />
+    {:else if filteredRecords.length === 0}
+        <WorkspaceEmptyState title="暂无匹配记录" description="请调整筛选条件或切换模式。" />
+    {:else}
+        <div class="record-layout">
+            <div class="record-list-col">
+                <div class="list-label">记录列表 · {filteredRecords.length} 条</div>
+                <div class="record-list-scroll">
+                    {#each filteredRecords as record (getRecordDisplayKey(record))}
+                        <button
+                            type="button"
+                            class="record-list-item"
+                            class:selected={getRecordDisplayKey(record) === selectedRecordId}
+                            class:history-item={isHistoryMode}
+                            onclick={() => selectRecord(record)}
+                        >
+                            <div class="list-item-head">
+                                <strong class="list-item-title">{record.headingTitle}</strong>
+                                <span class="category-tag">{record.categoryTitle}</span>
+                            </div>
+                            {#if isHistoryMode && record.date}
+                                <div class="list-item-date">{record.date}</div>
+                            {/if}
+                            <p class="list-item-excerpt">{record.content.slice(0, 80)}</p>
+                        </button>
+                    {/each}
+                </div>
+            </div>
+
+            <div class="record-detail-col">
+                {#if selectedRecord}
+                    <div class="detail-panel">
+                        <div class="detail-head">
+                            <h3 class="detail-title">{selectedRecord.headingTitle}</h3>
+                            <span class="category-tag">{selectedRecord.categoryTitle}</span>
+                        </div>
+
+                        <div class="detail-meta">
+                            {#if selectedRecord.date}
+                                <div class="meta-item">
+                                    <span class="meta-label">日期</span>
+                                    <span class="meta-value">{selectedRecord.date}</span>
+                                </div>
+                            {/if}
+                            {#if selectedRecord.docTitle}
+                                <div class="meta-item">
+                                    <span class="meta-label">来源日记</span>
+                                    <span class="meta-value">{selectedRecord.docTitle}</span>
+                                </div>
+                            {/if}
+                            {#if selectedRecord.timeText}
+                                <div class="meta-item">
+                                    <span class="meta-label">时间</span>
+                                    <span class="meta-value">{selectedRecord.timeText}</span>
+                                </div>
+                            {/if}
+                        </div>
+
+                        <div class="detail-content">
+                            <div class="section-label">记录内容</div>
+                            <pre class="content-text">{selectedRecord.content}</pre>
+                        </div>
+
+                        <div class="detail-actions">
+                            <button
+                                type="button"
+                                class="btn-secondary"
+                                onclick={() => onOpenDoc(selectedRecord.docId)}
+                            >打开原始日记</button>
+                            <button
+                                type="button"
+                                class="btn-secondary"
+                                onclick={() => onConvertToTask(selectedRecord)}
+                            >转为任务</button>
+
+                            {#if !isHistoryMode || isRecordFromToday}
+                                <button
+                                    type="button"
+                                    class="btn-secondary"
+                                    onclick={() => onEdit(selectedRecord)}
+                                    disabled={(selectedRecord.contentBlockIds?.length || 0) !== 1}
+                                    title={(selectedRecord.contentBlockIds?.length || 0) === 1 ? "编辑记录" : "多块记录请在日记中手动编辑"}
+                                >编辑</button>
+                                <button
+                                    type="button"
+                                    class="btn-danger"
+                                    onclick={() => onDelete(selectedRecord)}
+                                    disabled={!selectedRecord.headingBlockId}
+                                    title={selectedRecord.headingBlockId ? "删除记录" : "未能定位记录块，暂不支持删除"}
+                                >删除</button>
+                            {:else}
+                                <button
+                                    type="button"
+                                    class="btn-secondary"
+                                    disabled
+                                    title="历史记录请先打开日记编辑"
+                                >编辑</button>
+                                <button
+                                    type="button"
+                                    class="btn-secondary"
+                                    disabled
+                                    title="历史记录请先打开日记编辑"
+                                >删除</button>
+                                <span class="hint-text">历史记录请先打开日记编辑</span>
+                            {/if}
+                        </div>
+                    </div>
+                {:else}
+                    <WorkspaceEmptyState title="请选择一条记录" description="从左侧列表选择记录以查看详情。" />
+                {/if}
+            </div>
+        </div>
+    {/if}
+</section>
+
+<style>
+    .record-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .panel-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .panel-toolbar > div {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    h2 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--b3-theme-on-surface);
+    }
+
+    .mode-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .mode-tabs {
+        display: flex;
+        gap: 0;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 7px;
+        overflow: hidden;
+    }
+
+    .mode-tabs button {
+        border: none;
+        background: var(--b3-theme-background);
+        color: var(--b3-theme-on-surface);
+        padding: 6px 14px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 0.12s;
+    }
+
+    .mode-tabs button:hover {
+        background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-background));
+    }
+
+    .mode-tabs button.active {
+        background: var(--b3-theme-primary);
+        color: #fff;
+    }
+
+    .search-area {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex: 1;
+        max-width: 420px;
+    }
+
+    .search-input {
+        flex: 1;
+        min-width: 140px;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 7px;
+        background: var(--b3-theme-background);
+        color: var(--b3-theme-on-background);
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+
+    .search-input::placeholder {
+        color: var(--b3-theme-on-background);
+        opacity: 0.4;
+    }
+
+    .range-select {
+        border: 1px solid var(--b3-border-color);
+        border-radius: 7px;
+        background: var(--b3-theme-background);
+        color: var(--b3-theme-on-background);
+        padding: 6px 8px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .date-filter-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        border-radius: 7px;
+        background: color-mix(in srgb, var(--b3-theme-primary) 10%, var(--b3-theme-background));
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 25%, transparent);
+        font-size: 12px;
+        color: var(--b3-theme-on-surface);
+        white-space: nowrap;
+    }
+
+    .clear-date-btn {
+        border: none;
+        background: transparent;
+        color: var(--b3-theme-on-surface);
+        font-size: 12px;
+        cursor: pointer;
+        padding: 0 2px;
+        line-height: 1;
+        opacity: 0.6;
+        transition: opacity 0.12s;
+    }
+
+    .clear-date-btn:hover {
+        opacity: 1;
+    }
+
+    .category-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px 12px;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 10px;
+        background: var(--b3-theme-surface);
+    }
+
+    .category-tabs button {
+        border: 1px solid var(--b3-border-color);
+        border-radius: 7px;
+        background: var(--b3-theme-background);
+        color: var(--b3-theme-on-surface);
+        padding: 5px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.12s;
+    }
+
+    .category-tabs button:hover {
+        border-color: var(--b3-theme-primary);
+        color: var(--b3-theme-primary);
+    }
+
+    .category-tabs button.active {
+        border-color: var(--b3-theme-primary);
+        background: var(--b3-theme-primary);
+        color: #fff;
+    }
+
+    .category-tabs button span {
+        margin-left: 5px;
+        opacity: 0.7;
+        font-size: 11px;
+    }
+
+    .btn-primary {
+        border: 1px solid var(--b3-theme-primary);
+        border-radius: 7px;
+        background: var(--b3-theme-primary);
+        color: #fff;
+        padding: 7px 14px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    .btn-primary:hover {
+        opacity: 0.88;
+    }
+
+    /* layout */
+    .record-layout {
+        display: grid;
+        grid-template-columns: minmax(320px, 420px) 1fr;
+        gap: 16px;
+        align-items: start;
+        min-height: 400px;
+    }
+
+    .record-list-col {
+        border: 1px solid var(--b3-border-color);
+        border-radius: 10px;
+        background: var(--b3-theme-surface);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100vh - 380px);
+    }
+
+    .list-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.45;
+        padding: 10px 14px 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid var(--b3-border-color);
+    }
+
+    .record-list-scroll {
+        overflow-y: auto;
+        flex: 1;
+        padding: 4px 8px 8px;
+    }
+
+    .record-list-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 100%;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        padding: 10px 12px;
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.12s;
+        border-left: 3px solid transparent;
+    }
+
+    .record-list-item:hover {
+        background: color-mix(in srgb, var(--b3-theme-primary) 6%, transparent);
+    }
+
+    .record-list-item.selected {
+        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+        border-left-color: var(--b3-theme-primary);
+    }
+
+    .list-item-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .list-item-title {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--b3-theme-on-surface);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+    }
+
+    .list-item-date {
+        font-size: 10px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.4;
+    }
+
+    .list-item-excerpt {
+        margin: 0;
+        font-size: 11px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.55;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .category-tag {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+        color: var(--b3-theme-primary);
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 30%, transparent);
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+
+    /* detail */
+    .record-detail-col {
+        border: 1px solid var(--b3-border-color);
+        border-radius: 10px;
+        background: var(--b3-theme-surface);
+        min-height: 200px;
+    }
+
+    .detail-panel {
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .detail-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    .detail-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--b3-theme-on-surface);
+        word-break: break-all;
+    }
+
+    .detail-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .meta-item {
+        border: 1px solid var(--b3-border-color);
+        border-radius: 7px;
+        background: var(--b3-theme-background);
+        padding: 6px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .meta-label {
+        font-size: 10px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.5;
+    }
+
+    .meta-value {
+        font-size: 12px;
+        color: var(--b3-theme-on-surface);
+    }
+
+    .detail-content {
+        border-top: 1px solid var(--b3-border-color);
+        padding-top: 12px;
+    }
+
+    .section-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.5;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .content-text {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--b3-theme-on-surface);
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-family: inherit;
+    }
+
+    .detail-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding-top: 8px;
+        border-top: 1px solid var(--b3-border-color);
+    }
+
+    .btn-secondary {
+        border: 1px solid var(--b3-border-color);
+        border-radius: 7px;
+        background: var(--b3-theme-background);
+        color: var(--b3-theme-on-background);
+        padding: 6px 11px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+        border-color: var(--b3-theme-primary);
+        color: var(--b3-theme-primary);
+    }
+
+    .btn-danger {
+        border: 1px solid var(--b3-theme-error, #d32f2f);
+        border-radius: 7px;
+        background: transparent;
+        color: var(--b3-theme-error, #d32f2f);
+        padding: 6px 11px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+        background: rgba(211, 47, 47, 0.08);
+    }
+
+    button:disabled {
+        cursor: not-allowed;
+        opacity: 0.35;
+    }
+
+    .hint-text {
+        font-size: 11px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.45;
+    }
+
+    @media (max-width: 900px) {
+        .mode-bar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .search-area {
+            max-width: none;
+        }
+
+        .record-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .record-list-col {
+            max-height: 300px;
+        }
+    }
+</style>

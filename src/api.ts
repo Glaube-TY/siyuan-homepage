@@ -21,6 +21,20 @@ export async function request(url: string, data: any) {
     return res;
 }
 
+export async function debugAttributeViewRequest(url: string, payload: any, label: string): Promise<IWebSocketData> {
+    console.groupCollapsed(`[AV debug] ${label}`);
+    console.log("url", url);
+    console.log("payload", JSON.parse(JSON.stringify(payload)));
+    const response = await requestRaw(url, payload);
+    console.log("response", response);
+    console.groupEnd();
+    return response;
+}
+
+export async function requestRaw(url: string, data: any): Promise<IWebSocketData> {
+    return await fetchSyncPost(url, data);
+}
+
 
 // **************************************** Noteboook ****************************************
 
@@ -84,6 +98,10 @@ export async function createDocWithMd(notebook: NotebookId, path: string, markdo
     };
     let url = '/api/filetree/createDocWithMd';
     return request(url, data);
+}
+
+export async function createDailyNote(notebook: string, app: string): Promise<any> {
+    return request("/api/filetree/createDailyNote", { notebook, app });
 }
 
 
@@ -699,6 +717,84 @@ export async function getAttributeViewItemIDsByBoundIDs(
         avID,
         blockIDs,
     });
+}
+
+// **************************************** Attribute View (Database) - Checked Wrappers ****************************************
+// 与上面 appendAttributeViewDetachedBlocksWithValues / setAttributeViewBlockAttr / addAttributeViewKey 对应
+// 区别：使用 requestRaw 保留完整 IWebSocketData 响应，code !== 0 时直接抛错
+
+export async function appendAttributeViewDetachedBlocksWithValuesChecked(
+    avID: string,
+    blocksValues: any[][]
+): Promise<void> {
+    const response = await requestRaw('/api/av/appendAttributeViewDetachedBlocksWithValues', {
+        avID,
+        blocksValues,
+    });
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'appendAttributeViewDetachedBlocksWithValues 失败');
+    }
+}
+
+export async function setAttributeViewBlockAttrChecked(
+    avID: string,
+    keyID: string,
+    itemID: string,
+    value: any
+): Promise<void> {
+    const response = await requestRaw('/api/av/setAttributeViewBlockAttr', {
+        avID,
+        keyID,
+        itemID,
+        value,
+    });
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'setAttributeViewBlockAttr 失败');
+    }
+}
+
+export async function setAttributeViewBlockAttrWithCellChecked(params: {
+    avID: string;
+    keyID: string;
+    rowID: string;
+    cellID?: string;
+    value: any;
+}): Promise<void> {
+    const payload: any = {
+        avID: params.avID,
+        keyID: params.keyID,
+        rowID: params.rowID,
+        itemID: params.rowID,
+        value: params.value,
+    };
+    if (params.cellID) {
+        payload.cellID = params.cellID;
+    }
+    const response = await requestRaw('/api/av/setAttributeViewBlockAttr', payload);
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'setAttributeViewBlockAttrWithCell 失败');
+    }
+}
+
+export async function addAttributeViewKeyChecked(
+    avID: string,
+    keyID: string,
+    keyName: string,
+    keyType: string = "text",
+    keyIcon: string = "",
+    previousKeyID: string = ""
+): Promise<void> {
+    const response = await requestRaw('/api/av/addAttributeViewKey', {
+        avID,
+        keyID,
+        keyName,
+        keyType,
+        keyIcon,
+        previousKeyID,
+    });
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'addAttributeViewKey 失败');
+    }
 }
 
 

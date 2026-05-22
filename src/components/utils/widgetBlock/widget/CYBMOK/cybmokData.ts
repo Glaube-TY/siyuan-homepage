@@ -1,11 +1,11 @@
 import {
-    addAttributeViewKey,
-    appendAttributeViewDetachedBlocksWithValues,
+    addAttributeViewKeyChecked,
+    appendAttributeViewDetachedBlocksWithValuesChecked,
     getAttributeView,
     getAttributeViewKeysByAvID,
     readDir,
     removeFile,
-    setAttributeViewBlockAttr,
+    setAttributeViewBlockAttrWithCellChecked,
     type AttributeView,
     type AttributeViewKeyValue,
 } from "@/api";
@@ -83,8 +83,15 @@ function findKey(
     }
 
     const aliases = CYBMOK_FIELD_ALIASES[field].map(normalizeFieldName);
-    const aliasMatch = keyValues.find((item) => aliases.includes(normalizeFieldName(item.key.name)));
-    if (aliasMatch) return aliasMatch;
+    const nonBlockMatch = keyValues.find(
+        (item) => item.key.type !== "block" && aliases.includes(normalizeFieldName(item.key.name))
+    );
+    if (nonBlockMatch) return nonBlockMatch;
+
+    if (field === "date") {
+        const primaryKey = keyValues.find((item) => item.key.type === "block");
+        if (primaryKey) return primaryKey;
+    }
 
     return null;
 }
@@ -174,7 +181,7 @@ async function ensureCYBMOKFields(avID: string, av: AttributeView): Promise<Attr
     for (const field of fieldsToCreate) {
         const definition = CYBMOK_FIELD_DEFINITIONS[field];
         const keyID = createSiyuanLikeId();
-        await addAttributeViewKey(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
+        await addAttributeViewKeyChecked(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
         previousKeyID = keyID;
     }
 
@@ -240,16 +247,81 @@ function readRowField(row: CYBMOKRow, key: AttributeViewKeyValue): string {
     return extractTextFromValue(row.values.get(key.key.id));
 }
 
-function createBlockValue(keyID: string, content: string): any {
+function readCYBMOKRowDate(row: CYBMOKRow, store: CYBMOKStore): string {
+    const dateValue = readRowField(row, store.keys.date);
+    if (dateValue) return dateValue;
+    return readRowField(row, store.keys.title);
+}
+
+function dedupeValueEntries(entries: any[]): any[] {
+    const seen = new Set<string>();
+    const result: any[] = [];
+    for (const entry of entries) {
+        const keyID = entry?.keyID;
+        if (!keyID) continue;
+        if (seen.has(keyID)) continue;
+        seen.add(keyID);
+        result.push(entry);
+    }
+    return result;
+}
+
+function createCYBMOKValueEntries(store: CYBMOKStore, dateStr: string, count: number, now: string): any[] {
+    return dedupeValueEntries([
+        createBlockValue(store.keys.title.key.id, dateStr),
+        createTextValue(store.keys.date.key.id, dateStr),
+        createNumberValue(store.keys.count.key.id, String(count)),
+        createTextValue(store.keys.createdAt.key.id, now),
+        createTextValue(store.keys.updatedAt.key.id, now),
+    ]);
+}
+
+// ========== append value constructors (带 keyID，用于 appendAttributeViewDetachedBlocksWithValues) ==========
+
+function createAppendBlockValue(keyID: string, content: string): any {
     return { keyID, block: { content } };
 }
 
-function createTextValue(keyID: string, content: string): any {
+function createAppendTextValue(keyID: string, content: string): any {
     return { keyID, text: { content } };
 }
 
+function createAppendNumberValue(keyID: string, content: string): any {
+    return { keyID, number: { content: Number(content) || 0, isNotEmpty: true } };
+}
+
+// ========== set value constructors (不带 keyID，用于 setAttributeViewBlockAttr) ==========
+
+function createSetTextValue(content: string): any {
+    return { text: { content } };
+}
+
+function createSetNumberValue(content: string): any {
+    return { number: { content: Number(content) || 0, isNotEmpty: true } };
+}
+
+// ========== 兼容旧函数名（仅用于 createCYBMOKValueEntries） ==========
+
+function createBlockValue(keyID: string, content: string): any {
+    return createAppendBlockValue(keyID, content);
+}
+
+function createTextValue(keyID: string, content: string): any {
+    return createAppendTextValue(keyID, content);
+}
+
 function createNumberValue(keyID: string, content: string): any {
-    return { keyID, number: { content: Number(content) || 0 } };
+    return createAppendNumberValue(keyID, content);
+}
+
+// ========== row/cell 辅助函数 ==========
+
+function getCellID(row: CYBMOKRow, keyID: string): string | undefined {
+    return row.values.get(keyID)?.id;
+}
+
+function getRowID(row: CYBMOKRow): string {
+    return row.itemID;
 }
 
 export async function getCYBMOKStoreStatus(databaseId: string | undefined): Promise<CYBMOKStoreStatus> {
@@ -268,7 +340,7 @@ export async function getCYBMOKStoreStatus(databaseId: string | undefined): Prom
 
 function parseCYBMOKRows(store: CYBMOKStore): Array<{ itemID: string; date: string; count: number }> {
     return groupRows(store.av).map((row) => {
-        const date = readRowField(row, store.keys.date);
+        const date = readCYBMOKRowDate(row, store);
         const count = Math.max(0, Number(readRowField(row, store.keys.count)) || 0);
         return { itemID: row.itemID, date, count };
     });
@@ -277,7 +349,7 @@ function parseCYBMOKRows(store: CYBMOKStore): Array<{ itemID: string; date: stri
 function findRowByDate(store: CYBMOKStore, date: string): CYBMOKRow | null {
     if (!store.status.ok) return null;
     return groupRows(store.av).find((row) => {
-        const rowDate = readRowField(row, store.keys.date);
+        const rowDate = readCYBMOKRowDate(row, store);
         return rowDate === date;
     }) || null;
 }
@@ -334,33 +406,129 @@ export async function recordCYBMOKKnock(databaseId: string | undefined, dateStr:
     const now = new Date().toISOString();
     const existingRow = findRowByDate(store, dateStr);
 
-    if (existingRow && existingRow.itemID) {
-        const currentCount = Math.max(0, Number(readRowField(existingRow, store.keys.count)) || 0);
+    const titleKeyID = store.keys.title.key.id;
+    const dateKeyID = store.keys.date.key.id;
+    const sameKeyID = titleKeyID === dateKeyID;
 
-        try {
-            await setAttributeViewBlockAttr(
-                store.avID, store.keys.count.key.id, existingRow.itemID,
-                createNumberValue(store.keys.count.key.id, String(currentCount + 1))
-            );
-            await setAttributeViewBlockAttr(
-                store.avID, store.keys.updatedAt.key.id, existingRow.itemID,
-                createTextValue(store.keys.updatedAt.key.id, now)
-            );
-            return;
-        } catch (e) {
-            console.warn("[cybmokData] 更新已有行失败，fallback append 新行", e);
-        }
+    if (sameKeyID) {
+        console.warn("[cybmokData] title/date 使用同一数据库列，已自动去重写入", {
+            databaseId: store.avID,
+            dateStr,
+        });
     }
 
-    await appendAttributeViewDetachedBlocksWithValues(store.avID, [
-        [
-            createBlockValue(store.keys.title.key.id, dateStr),
-            createTextValue(store.keys.date.key.id, dateStr),
-            createNumberValue(store.keys.count.key.id, "1"),
-            createTextValue(store.keys.createdAt.key.id, now),
-            createTextValue(store.keys.updatedAt.key.id, now),
-        ],
-    ]);
+    if (existingRow && existingRow.itemID) {
+        const currentCount = Math.max(0, Number(readRowField(existingRow, store.keys.count)) || 0);
+        const expectedCount = currentCount + 1;
+        const rowID = getRowID(existingRow);
+        const countCellID = getCellID(existingRow, store.keys.count.key.id);
+        const updatedAtCellID = getCellID(existingRow, store.keys.updatedAt.key.id);
+
+        try {
+            await setAttributeViewBlockAttrWithCellChecked({
+                avID: store.avID,
+                keyID: store.keys.count.key.id,
+                rowID,
+                cellID: countCellID,
+                value: createSetNumberValue(String(expectedCount)),
+            });
+            await setAttributeViewBlockAttrWithCellChecked({
+                avID: store.avID,
+                keyID: store.keys.updatedAt.key.id,
+                rowID,
+                cellID: updatedAtCellID,
+                value: createSetTextValue(now),
+            });
+        } catch (e) {
+            console.warn("[cybmokData] 更新已有行失败，fallback append 新行", {
+                databaseId: store.avID,
+                dateStr,
+                existingRow: existingRow.itemID,
+            }, e);
+            const valueEntries = createCYBMOKValueEntries(store, dateStr, expectedCount, now);
+            await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [valueEntries]);
+        }
+
+        const refreshedStore = await loadCYBMOKStore(databaseId);
+        if (!refreshedStore || !refreshedStore.status.ok) {
+            throw new Error("木鱼数据库写入后重新加载失败");
+        }
+        const refreshedRow = findRowByDate(refreshedStore, dateStr);
+        if (!refreshedRow) {
+            console.warn("[cybmokData] 木鱼数据库写入后校验失败：读不到当天行", {
+                databaseId: store.avID,
+                dateStr,
+                expected: expectedCount,
+            });
+            throw new Error("木鱼数据库写入后校验失败");
+        }
+        const refreshedCount = Math.max(0, Number(readRowField(refreshedRow, refreshedStore.keys.count)) || 0);
+        if (refreshedCount < expectedCount) {
+            console.warn("[cybmokData] 木鱼数据库写入后校验失败：count 不达标", {
+                avID: store.avID,
+                rowID: refreshedRow.itemID,
+                cellID: getCellID(refreshedRow, refreshedStore.keys.count.key.id),
+                keyID: refreshedStore.keys.count.key.id,
+                expected: expectedCount,
+                actual: refreshedCount,
+            });
+            throw new Error("木鱼数据库写入后校验失败");
+        }
+        return;
+    }
+
+    const valueEntries = createCYBMOKValueEntries(store, dateStr, 1, now);
+    await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [valueEntries]);
+
+    const refreshedStore = await loadCYBMOKStore(databaseId);
+    if (!refreshedStore || !refreshedStore.status.ok) {
+        throw new Error("木鱼数据库写入后重新加载失败");
+    }
+    const refreshedRow = findRowByDate(refreshedStore, dateStr);
+    if (!refreshedRow) {
+        console.warn("[cybmokData] 木鱼数据库写入后校验失败：读不到当天行", {
+            databaseId: store.avID,
+            dateStr,
+            expected: 1,
+        });
+        throw new Error("木鱼数据库写入后校验失败");
+    }
+
+    const refreshedRowID = getRowID(refreshedRow);
+    const refreshedCountCellID = getCellID(refreshedRow, refreshedStore.keys.count.key.id);
+    await setAttributeViewBlockAttrWithCellChecked({
+        avID: refreshedStore.avID,
+        keyID: refreshedStore.keys.count.key.id,
+        rowID: refreshedRowID,
+        cellID: refreshedCountCellID,
+        value: createSetNumberValue("1"),
+    });
+
+    const finalStore = await loadCYBMOKStore(databaseId);
+    if (!finalStore || !finalStore.status.ok) {
+        throw new Error("木鱼数据库写入后重新加载失败");
+    }
+    const finalRow = findRowByDate(finalStore, dateStr);
+    if (!finalRow) {
+        console.warn("[cybmokData] 木鱼数据库写入后校验失败：读不到当天行", {
+            databaseId: store.avID,
+            dateStr,
+            expected: 1,
+        });
+        throw new Error("木鱼数据库写入后校验失败");
+    }
+    const finalCount = Math.max(0, Number(readRowField(finalRow, finalStore.keys.count)) || 0);
+    if (finalCount < 1) {
+        console.warn("[cybmokData] 木鱼数据库写入后校验失败：count 不达标", {
+            avID: store.avID,
+            rowID: finalRow.itemID,
+            cellID: getCellID(finalRow, finalStore.keys.count.key.id),
+            keyID: finalStore.keys.count.key.id,
+            expected: 1,
+            actual: finalCount,
+        });
+        throw new Error("木鱼数据库写入后校验失败");
+    }
 }
 
 export async function migrateLegacyCYBMOKIfNeeded(databaseId: string | undefined, plugin: any): Promise<void> {
@@ -434,39 +602,33 @@ export async function migrateLegacyCYBMOKIfNeeded(databaseId: string | undefined
             const existingCount = Math.max(0, Number(readRowField(existingRow, store.keys.count)) || 0);
             if (existingCount >= numCount) continue;
 
-            const diff = numCount - existingCount;
             const finalCount = numCount;
+            const rowID = getRowID(existingRow);
+            const countCellID = getCellID(existingRow, store.keys.count.key.id);
+            const updatedAtCellID = getCellID(existingRow, store.keys.updatedAt.key.id);
 
             try {
-                await setAttributeViewBlockAttr(
-                    store.avID, store.keys.count.key.id, existingRow.itemID,
-                    createNumberValue(store.keys.count.key.id, String(finalCount))
-                );
-                await setAttributeViewBlockAttr(
-                    store.avID, store.keys.updatedAt.key.id, existingRow.itemID,
-                    createTextValue(store.keys.updatedAt.key.id, now)
-                );
+                await setAttributeViewBlockAttrWithCellChecked({
+                    avID: store.avID,
+                    keyID: store.keys.count.key.id,
+                    rowID,
+                    cellID: countCellID,
+                    value: createSetNumberValue(String(finalCount)),
+                });
+                await setAttributeViewBlockAttrWithCellChecked({
+                    avID: store.avID,
+                    keyID: store.keys.updatedAt.key.id,
+                    rowID,
+                    cellID: updatedAtCellID,
+                    value: createSetTextValue(now),
+                });
             } catch {
-                await appendAttributeViewDetachedBlocksWithValues(store.avID, [
-                    [
-                        createBlockValue(store.keys.title.key.id, date),
-                        createTextValue(store.keys.date.key.id, date),
-                        createNumberValue(store.keys.count.key.id, String(diff)),
-                        createTextValue(store.keys.createdAt.key.id, now),
-                        createTextValue(store.keys.updatedAt.key.id, now),
-                    ],
-                ]);
+                const valueEntries = createCYBMOKValueEntries(store, date, numCount, now);
+                await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [valueEntries]);
             }
         } else {
-            await appendAttributeViewDetachedBlocksWithValues(store.avID, [
-                [
-                    createBlockValue(store.keys.title.key.id, date),
-                    createTextValue(store.keys.date.key.id, date),
-                    createNumberValue(store.keys.count.key.id, String(numCount)),
-                    createTextValue(store.keys.createdAt.key.id, now),
-                    createTextValue(store.keys.updatedAt.key.id, now),
-                ],
-            ]);
+            const valueEntries = createCYBMOKValueEntries(store, date, numCount, now);
+            await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [valueEntries]);
         }
     }
 

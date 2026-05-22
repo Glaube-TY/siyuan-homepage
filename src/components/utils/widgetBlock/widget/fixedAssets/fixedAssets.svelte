@@ -361,55 +361,57 @@
             <div class="asset-subtitle">共 {assets.length} 件物品</div>
         </div>
 
-        <div class="summary-panel">
-            {#each summaryCards as card, index}
-                <div class="summary-item" class:subtle={card.subtle} class:full={summaryCards.length % 2 === 1 && index === summaryCards.length - 1}>
-                    <span>{card.label}</span>
-                    <strong>{card.value}</strong>
-                </div>
-            {/each}
-        </div>
-
-        {#if sortedAssets.length === 0}
-            <div class="empty-state">
-                <p>还没有资产记录</p>
-                <button onclick={openCreateEditor}>添加第一件资产</button>
-            </div>
-        {:else}
-            <div class="asset-list">
-                <button class="asset-create-card" onclick={openCreateEditor}>
-                    <span>添加资产</span>
-                </button>
-                {#each sortedAssets as asset (asset.id)}
-                    {@const iconResult = getIconResult(asset.icon)}
-                    <article class="asset-card">
-                        <button class="asset-main" onclick={() => openEditEditor(asset)} title="编辑资产">
-                            <span class="asset-icon">
-                                {#if iconResult.type === "image"}
-                                    <img class="asset-icon__image" src={iconResult.value} alt="" />
-                                {:else}
-                                    <span class="asset-icon__text">{iconResult.value}</span>
-                                {/if}
-                            </span>
-                            <span class="asset-info">
-                                <span class="asset-name">{asset.name}</span>
-                                <span class="asset-meta">
-                                    {asset.category} · {formatCurrency(getAssetTotalCost(asset))} · {formatCost(getAssetPeriodCost(asset, itemCostPeriod), FIXED_ASSET_COST_PERIODS[itemCostPeriod].suffix)}
-                                </span>
-                                {#if asset.note?.trim()}
-                                    <span class="asset-note" title={asset.note}>{asset.note}</span>
-                                {/if}
-                            </span>
-                            <span class="asset-days">
-                                <strong>{getOwnedDays(asset)}</strong>
-                                <span>天</span>
-                            </span>
-                        </button>
-                        <button class="asset-delete" onclick={() => handleDeleteAsset(asset)} title="删除资产">删除</button>
-                    </article>
+        <div class="asset-scroll-area">
+            <div class="summary-panel">
+                {#each summaryCards as card, index}
+                    <div class="summary-item" class:subtle={card.subtle} class:full={summaryCards.length % 2 === 1 && index === summaryCards.length - 1}>
+                        <span>{card.label}</span>
+                        <strong>{card.value}</strong>
+                    </div>
                 {/each}
             </div>
-        {/if}
+
+            {#if sortedAssets.length === 0}
+                <div class="empty-state">
+                    <p>还没有资产记录</p>
+                    <button onclick={openCreateEditor}>添加第一件资产</button>
+                </div>
+            {:else}
+                <div class="asset-list">
+                    <button class="asset-create-card" onclick={openCreateEditor}>
+                        <span>添加资产</span>
+                    </button>
+                    {#each sortedAssets as asset (asset.id)}
+                        {@const iconResult = getIconResult(asset.icon)}
+                        <article class="asset-card">
+                            <button class="asset-main" onclick={() => openEditEditor(asset)} title="编辑资产">
+                                <span class="asset-icon">
+                                    {#if iconResult.type === "image"}
+                                        <img class="asset-icon__image" src={iconResult.value} alt="" />
+                                    {:else}
+                                        <span class="asset-icon__text">{iconResult.value}</span>
+                                    {/if}
+                                </span>
+                                <span class="asset-info">
+                                    <span class="asset-name">{asset.name}</span>
+                                    <span class="asset-meta">
+                                        {asset.category} · {formatCurrency(getAssetTotalCost(asset))} · {formatCost(getAssetPeriodCost(asset, itemCostPeriod), FIXED_ASSET_COST_PERIODS[itemCostPeriod].suffix)}
+                                    </span>
+                                    {#if asset.note?.trim()}
+                                        <span class="asset-note" title={asset.note}>{asset.note}</span>
+                                    {/if}
+                                </span>
+                                <span class="asset-days">
+                                    <strong>{getOwnedDays(asset)}</strong>
+                                    <span>天</span>
+                                </span>
+                            </button>
+                            <button class="asset-delete" onclick={() => handleDeleteAsset(asset)} title="删除资产">删除</button>
+                        </article>
+                    {/each}
+                </div>
+            {/if}
+        </div>
 
         {#if editorOpen}
             {@const formIconResult = getIconResult(form.icon)}
@@ -524,12 +526,14 @@
         position: relative;
         width: 100%;
         height: 100%;
+        min-height: 0;
         box-sizing: border-box;
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
         padding: 0.75rem;
         overflow: hidden;
+        overscroll-behavior: contain;
         color: var(--b3-theme-on-background);
         background: transparent;
     }
@@ -628,6 +632,19 @@
         gap: 0.4rem;
     }
 
+    .asset-scroll-area {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
+        padding-right: 0.15rem;
+        padding-bottom: 0.15rem;
+    }
+
     .summary-item {
         min-width: 0;
         padding: 0.5rem;
@@ -660,13 +677,12 @@
     }
 
     .asset-list {
-        flex: 1;
+        flex: 0 0 auto;
         min-height: 0;
         display: flex;
         flex-direction: column;
         gap: 0.45rem;
-        overflow: auto;
-        padding-right: 0.15rem;
+        overflow: visible;
     }
 
     .asset-create-card {

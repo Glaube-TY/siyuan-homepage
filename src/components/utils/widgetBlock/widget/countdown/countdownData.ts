@@ -1,12 +1,13 @@
 import {
-    addAttributeViewKey,
-    appendAttributeViewDetachedBlocksWithValues,
+    addAttributeViewKeyChecked,
+    appendAttributeViewDetachedBlocksWithValuesChecked,
     getAttributeView,
     getAttributeViewKeysByAvID,
-    setAttributeViewBlockAttr,
+    setAttributeViewBlockAttrWithCellChecked,
     type AttributeView,
     type AttributeViewKeyValue,
 } from "@/api";
+import { collectKnownWidgetIds } from "../sharedDatabaseId";
 
 export interface CountdownEventRecord {
     id: string;
@@ -201,7 +202,7 @@ async function ensureCountdownFields(avID: string, av: AttributeView): Promise<A
     for (const field of fieldsToCreate) {
         const definition = COUNTDOWN_FIELD_DEFINITIONS[field];
         const keyID = createSiyuanLikeId();
-        await addAttributeViewKey(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
+        await addAttributeViewKeyChecked(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
         previousKeyID = keyID;
     }
 
@@ -276,13 +277,36 @@ function createTextValue(keyID: string, content: string): any {
 }
 
 function createNumberValue(keyID: string, content: string): any {
-    return { keyID, number: { content: Number(content) || 0 } };
+    return { keyID, number: { content: Number(content) || 0, isNotEmpty: true } };
 }
 
 function createValueForKey(key: AttributeViewKeyValue, content: string): any {
     if (key.key.type === "block") return createBlockValue(key.key.id, content);
     if (key.key.type === "number") return createNumberValue(key.key.id, content);
     return createTextValue(key.key.id, content);
+}
+
+// ========== row/cell 辅助函数 ==========
+
+function getCountdownCellID(row: CountdownRow, keyID: string): string | undefined {
+    return row.values.get(keyID)?.id;
+}
+
+function getCountdownRowID(row: CountdownRow): string {
+    return row.itemID;
+}
+
+// ========== set value constructors (不带 keyID，用于 setAttributeViewBlockAttrWithCellChecked) ==========
+
+function createSetValueByKey(key: AttributeViewKeyValue, content: string): any {
+    const type = key.key.type;
+    if (type === "number") {
+        return { number: { content: Number(content) || 0, isNotEmpty: true } };
+    }
+    if (type === "block") {
+        return { block: { content } };
+    }
+    return { text: { content } };
 }
 
 function isTruthy(value: string): boolean {
@@ -351,7 +375,13 @@ async function setRowValue(
     key: AttributeViewKeyValue,
     content: string
 ): Promise<void> {
-    await setAttributeViewBlockAttr(store.avID, key.key.id, row.itemID, createValueForKey(key, content));
+    await setAttributeViewBlockAttrWithCellChecked({
+        avID: store.avID,
+        keyID: key.key.id,
+        rowID: getCountdownRowID(row),
+        cellID: getCountdownCellID(row, key.key.id),
+        value: createSetValueByKey(key, content),
+    });
 }
 
 function eventToValueEntries(store: CountdownStore, event: CountdownEventRecord): any[] {
@@ -427,7 +457,7 @@ export async function saveCountdownEvents(
             await setRowValue(store, row, store.keys.updatedAt, event.updatedAt);
             await setRowValue(store, row, store.keys.archived, "false");
         } else {
-            await appendAttributeViewDetachedBlocksWithValues(store.avID, [eventToValueEntries(store, event)]);
+            await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [eventToValueEntries(store, event)]);
         }
     }
 
@@ -439,7 +469,120 @@ export async function saveCountdownEvents(
         }
     }
 
+    const refreshedStore = await loadCountdownStore(databaseId);
+    if (!refreshedStore || !refreshedStore.status.ok) {
+        throw new Error("倒数日数据库写入后重新加载失败");
+    }
+
+    const refreshedEvents = extractEvents(refreshedStore);
+    const refreshedMap = new Map<string, CountdownEventRecord>();
+    for (const ev of refreshedEvents) {
+        refreshedMap.set(ev.id, ev);
+    }
+
+    for (const expected of normalizedEvents) {
+        const actual = refreshedMap.get(expected.id);
+        if (!actual) {
+            console.warn("[countdownData] 倒数日数据库写入后校验失败：找不到事件", {
+                eventId: expected.id,
+                name: expected.name,
+            });
+            throw new Error("倒数日数据库写入后校验失败");
+        }
+
+        const expectedOrder = expected.order;
+        const actualOrder = actual.order;
+        if (actualOrder !== expectedOrder) {
+            const row = findRowByEventId(refreshedStore, expected.id);
+            console.warn("[countdownData] 倒数日数据库写入后校验失败：order 不匹配", {
+                eventId: expected.id,
+                name: expected.name,
+                expectedOrder,
+                actualOrder,
+                orderKeyID: refreshedStore.keys.order.key.id,
+                orderCellID: row ? getCountdownCellID(row, refreshedStore.keys.order.key.id) : undefined,
+            });
+            throw new Error("倒数日数据库写入后校验失败");
+        }
+    }
+
     return normalizedEvents;
+}
+
+export function mergeCountdownEvents(...lists: Array<CountdownEventInput[] | undefined | null>): CountdownEventInput[] {
+    const inputArrays = lists.filter((list): list is CountdownEventInput[] => Array.isArray(list));
+    const allEvents = inputArrays.flat().filter(
+        (event): event is CountdownEventInput =>
+            event != null && typeof event.name === "string" && event.name.trim().length > 0 &&
+            typeof event.date === "string" && event.date.trim().length > 0
+    );
+
+    const map = new Map<string, CountdownEventInput>();
+
+    for (const event of allEvents) {
+        const key = event.id?.trim()
+            || `${event.name.trim()}|${event.date.trim()}|${Boolean(event.anniversary)}`;
+
+        const existing = map.get(key);
+        if (existing) {
+            map.set(key, {
+                ...existing,
+                ...event,
+                name: existing.name.trim() ? existing.name : event.name,
+                date: existing.date.trim() ? existing.date : event.date,
+            });
+        } else {
+            map.set(key, { ...event });
+        }
+    }
+
+    return Array.from(map.values());
+}
+
+export async function collectCountdownLegacyEventsFromWidgets(
+    plugin: any,
+    currentBlockId?: string,
+    currentConfig?: unknown,
+    currentEventList?: CountdownEventInput[]
+): Promise<CountdownEventInput[]> {
+    const widgetIds = await collectKnownWidgetIds(plugin);
+    const allLists: CountdownEventInput[][] = [];
+
+    for (const widgetId of widgetIds) {
+        if (widgetId === currentBlockId) continue;
+        try {
+            const raw = await plugin.loadData(`widget-${widgetId}.json`);
+            const config = typeof raw === "string" ? JSON.parse(raw) : raw;
+            if (config?.type === "countdown" && Array.isArray(config.data?.eventList)) {
+                const legacyEvents = config.data.eventList.filter(
+                    (e: any) => e?.name?.trim() && e?.date?.trim()
+                );
+                if (legacyEvents.length > 0) {
+                    allLists.push(legacyEvents as CountdownEventInput[]);
+                }
+            }
+        } catch (error) {
+            console.warn(`[countdownData] 读取 widget-${widgetId}.json 失败`, error);
+        }
+    }
+
+    if (currentConfig && typeof currentConfig === "object") {
+        const config = currentConfig as any;
+        if (Array.isArray(config.data?.eventList)) {
+            const legacyEvents = config.data.eventList.filter(
+                (e: any) => e?.name?.trim() && e?.date?.trim()
+            );
+            if (legacyEvents.length > 0) {
+                allLists.push(legacyEvents as CountdownEventInput[]);
+            }
+        }
+    }
+
+    if (currentEventList && currentEventList.length > 0) {
+        allLists.push(currentEventList);
+    }
+
+    return mergeCountdownEvents(...allLists);
 }
 
 export async function migrateLegacyCountdownEventsIfNeeded(
@@ -449,12 +592,13 @@ export async function migrateLegacyCountdownEventsIfNeeded(
     if (!databaseId?.trim()) return [];
 
     const existing = await loadCountdownEvents(databaseId);
-    if (!existing.status.ok || existing.events.length > 0) {
-        return existing.events;
-    }
+    if (!existing.status.ok) return existing.events;
 
     const legacy = (legacyEvents || []).filter((event) => event.name?.trim() && event.date?.trim());
-    if (legacy.length === 0) return [];
+    if (legacy.length === 0) return existing.events;
 
-    return saveCountdownEvents(databaseId, legacy);
+    const merged = mergeCountdownEvents(existing.events, legacy);
+    if (merged.length === existing.events.length) return existing.events;
+
+    return saveCountdownEvents(databaseId, merged);
 }

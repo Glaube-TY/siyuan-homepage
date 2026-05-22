@@ -31,6 +31,7 @@ import CYBMOK from "./widget/CYBMOK/CYBMOK.svelte";
 import countdownTimer from "./widget/countdownTimer/countdownTimer.svelte";
 import conditionDocs from "./widget/conditionDocs/conditionDocs.svelte";
 import fixedAssets from "./widget/fixedAssets/fixedAssets.svelte";
+import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
 
 const widgetRegistry: Record<string, any> = {
     "latest-docs": latestDocs,
@@ -65,6 +66,7 @@ const widgetRegistry: Record<string, any> = {
     "countdownTimer": countdownTimer,
     "conditionDocs": conditionDocs,
     "fixedAssets": fixedAssets,
+    "enhancedDiary": enhancedDiary,
 };
 
 const widgetNeedsPlugin: Set<string> = new Set([
@@ -97,6 +99,7 @@ const widgetNeedsPlugin: Set<string> = new Set([
     "countdownTimer",
     "conditionDocs",
     "fixedAssets",
+    "enhancedDiary",
 ]);
 
 export function mountWidgetContent(

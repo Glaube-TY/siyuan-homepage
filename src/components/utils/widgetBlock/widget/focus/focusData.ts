@@ -1,11 +1,11 @@
 import {
-    addAttributeViewKey,
-    appendAttributeViewDetachedBlocksWithValues,
+    addAttributeViewKeyChecked,
+    appendAttributeViewDetachedBlocksWithValuesChecked,
     getAttributeView,
     getAttributeViewKeysByAvID,
     readDir,
     removeFile,
-    setAttributeViewBlockAttr,
+    setAttributeViewBlockAttrWithCellChecked,
     type AttributeView,
     type AttributeViewKeyValue,
 } from "@/api";
@@ -174,7 +174,7 @@ async function ensureFocusFields(avID: string, av: AttributeView): Promise<Attri
     for (const field of fieldsToCreate) {
         const definition = FOCUS_FIELD_DEFINITIONS[field];
         const keyID = createSiyuanLikeId();
-        await addAttributeViewKey(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
+        await addAttributeViewKeyChecked(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
         previousKeyID = keyID;
     }
 
@@ -240,16 +240,38 @@ function readRowField(row: FocusRow, key: AttributeViewKeyValue): string {
     return extractTextFromValue(row.values.get(key.key.id));
 }
 
-function createBlockValue(keyID: string, content: string): any {
+// ========== append value constructors (带 keyID，用于 appendAttributeViewDetachedBlocksWithValues) ==========
+
+function createAppendBlockValue(keyID: string, content: string): any {
     return { keyID, block: { content } };
 }
 
-function createTextValue(keyID: string, content: string): any {
+function createAppendTextValue(keyID: string, content: string): any {
     return { keyID, text: { content } };
 }
 
-function createNumberValue(keyID: string, content: string): any {
-    return { keyID, number: { content: Number(content) || 0 } };
+function createAppendNumberValue(keyID: string, content: string): any {
+    return { keyID, number: { content: Number(content) || 0, isNotEmpty: true } };
+}
+
+// ========== set value constructors (不带 keyID，用于 setAttributeViewBlockAttr) ==========
+
+function createSetTextValue(content: string): any {
+    return { text: { content } };
+}
+
+function createSetNumberValue(content: string): any {
+    return { number: { content: Number(content) || 0, isNotEmpty: true } };
+}
+
+// ========== row/cell 辅助函数 ==========
+
+function getCellID(row: FocusRow, keyID: string): string | undefined {
+    return row.values.get(keyID)?.id;
+}
+
+function getRowID(row: FocusRow): string {
+    return row.itemID;
 }
 
 export async function getFocusStoreStatus(databaseId: string | undefined): Promise<FocusStoreStatus> {
@@ -322,34 +344,122 @@ export async function saveFocusStatistics(
     const row = findSingletonRow(store);
 
     if (row && row.itemID) {
+        const rowID = getRowID(row);
+        const timeCellID = getCellID(row, store.keys.totalFocusTime.key.id);
+        const timesCellID = getCellID(row, store.keys.totalFocusTimes.key.id);
+        const updatedAtCellID = getCellID(row, store.keys.updatedAt.key.id);
+
         try {
-            await setAttributeViewBlockAttr(
-                store.avID, store.keys.totalFocusTime.key.id, row.itemID,
-                createNumberValue(store.keys.totalFocusTime.key.id, String(totalFocusTime))
-            );
-            await setAttributeViewBlockAttr(
-                store.avID, store.keys.totalFocusTimes.key.id, row.itemID,
-                createNumberValue(store.keys.totalFocusTimes.key.id, String(totalFocusTimes))
-            );
-            await setAttributeViewBlockAttr(
-                store.avID, store.keys.updatedAt.key.id, row.itemID,
-                createTextValue(store.keys.updatedAt.key.id, now)
-            );
-            return;
+            await setAttributeViewBlockAttrWithCellChecked({
+                avID: store.avID,
+                keyID: store.keys.totalFocusTime.key.id,
+                rowID,
+                cellID: timeCellID,
+                value: createSetNumberValue(String(totalFocusTime)),
+            });
+            await setAttributeViewBlockAttrWithCellChecked({
+                avID: store.avID,
+                keyID: store.keys.totalFocusTimes.key.id,
+                rowID,
+                cellID: timesCellID,
+                value: createSetNumberValue(String(totalFocusTimes)),
+            });
+            await setAttributeViewBlockAttrWithCellChecked({
+                avID: store.avID,
+                keyID: store.keys.updatedAt.key.id,
+                rowID,
+                cellID: updatedAtCellID,
+                value: createSetTextValue(now),
+            });
         } catch (e) {
-            console.warn("[focusData] 更新已有统计行失败，fallback append 新行", e);
+            console.warn("[focusData] 更新已有统计行失败，fallback append 新行", {
+                databaseId: store.avID,
+                totalFocusTimeKeyID: store.keys.totalFocusTime.key.id,
+                totalFocusTimeKeyName: store.keys.totalFocusTime.key.name,
+                totalFocusTimeKeyType: store.keys.totalFocusTime.key.type,
+                totalFocusTimesKeyID: store.keys.totalFocusTimes.key.id,
+                totalFocusTimesKeyName: store.keys.totalFocusTimes.key.name,
+                totalFocusTimesKeyType: store.keys.totalFocusTimes.key.type,
+                expectedTotalFocusTime: totalFocusTime,
+                expectedTotalFocusTimes: totalFocusTimes,
+            }, e);
+            const appendPayload = [
+                [
+                    createAppendBlockValue(store.keys.title.key.id, "番茄钟统计"),
+                    createAppendTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
+                    createAppendNumberValue(store.keys.totalFocusTime.key.id, String(totalFocusTime)),
+                    createAppendNumberValue(store.keys.totalFocusTimes.key.id, String(totalFocusTimes)),
+                    createAppendTextValue(store.keys.updatedAt.key.id, now),
+                ],
+            ];
+            await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, appendPayload);
         }
+    } else {
+        const appendPayload = [
+            [
+                createAppendBlockValue(store.keys.title.key.id, "番茄钟统计"),
+                createAppendTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
+                createAppendNumberValue(store.keys.totalFocusTime.key.id, String(totalFocusTime)),
+                createAppendNumberValue(store.keys.totalFocusTimes.key.id, String(totalFocusTimes)),
+                createAppendTextValue(store.keys.updatedAt.key.id, now),
+            ],
+        ];
+        await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, appendPayload);
     }
 
-    await appendAttributeViewDetachedBlocksWithValues(store.avID, [
-        [
-            createBlockValue(store.keys.title.key.id, "番茄钟统计"),
-            createTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
-            createNumberValue(store.keys.totalFocusTime.key.id, String(totalFocusTime)),
-            createNumberValue(store.keys.totalFocusTimes.key.id, String(totalFocusTimes)),
-            createTextValue(store.keys.updatedAt.key.id, now),
-        ],
-    ]);
+    const refreshedStore = await loadFocusStore(databaseId);
+    if (!refreshedStore || !refreshedStore.status.ok) {
+        throw new Error("番茄钟统计数据库写入后重新加载失败");
+    }
+
+    const refreshedRow = findSingletonRow(refreshedStore);
+    if (!refreshedRow) {
+        console.warn("[focusData] 番茄钟统计写入后校验失败：读不到 singleton 行", {
+            databaseId: store.avID,
+            expectedTotalFocusTime: totalFocusTime,
+            expectedTotalFocusTimes: totalFocusTimes,
+        });
+        throw new Error("番茄钟统计写入后校验失败");
+    }
+
+    const refreshedRowID = getRowID(refreshedRow);
+    const refreshedTimeCellID = getCellID(refreshedRow, refreshedStore.keys.totalFocusTime.key.id);
+    const refreshedTimesCellID = getCellID(refreshedRow, refreshedStore.keys.totalFocusTimes.key.id);
+    await setAttributeViewBlockAttrWithCellChecked({
+        avID: refreshedStore.avID,
+        keyID: refreshedStore.keys.totalFocusTime.key.id,
+        rowID: refreshedRowID,
+        cellID: refreshedTimeCellID,
+        value: createSetNumberValue(String(totalFocusTime)),
+    });
+    await setAttributeViewBlockAttrWithCellChecked({
+        avID: refreshedStore.avID,
+        keyID: refreshedStore.keys.totalFocusTimes.key.id,
+        rowID: refreshedRowID,
+        cellID: refreshedTimesCellID,
+        value: createSetNumberValue(String(totalFocusTimes)),
+    });
+
+    const finalStore = await loadFocusStore(databaseId);
+    if (!finalStore || !finalStore.status.ok) {
+        throw new Error("番茄钟统计数据库写入后重新加载失败");
+    }
+
+    const refreshedStats = await loadFocusStatistics(databaseId);
+    if (refreshedStats.totalFocusTime < totalFocusTime || refreshedStats.totalFocusTimes < totalFocusTimes) {
+        const finalRow = findSingletonRow(finalStore);
+        console.warn("[focusData] 番茄钟统计写入后校验失败", {
+            avID: store.avID,
+            rowID: finalRow?.itemID,
+            totalFocusTimeCellID: getCellID(finalRow!, finalStore.keys.totalFocusTime.key.id),
+            totalFocusTimesCellID: getCellID(finalRow!, finalStore.keys.totalFocusTimes.key.id),
+            expectedTotalFocusTime: totalFocusTime,
+            actualTotalFocusTime: refreshedStats.totalFocusTime,
+            expectedTotalFocusTimes: totalFocusTimes,
+            actualTotalFocusTimes: refreshedStats.totalFocusTimes,
+        });
+        throw new Error("番茄钟统计写入后校验失败");
+    }
 }
 
 export async function migrateLegacyFocusStatisticsIfNeeded(databaseId: string | undefined, plugin: any): Promise<void> {
@@ -414,39 +524,53 @@ export async function migrateLegacyFocusStatisticsIfNeeded(databaseId: string | 
             const finalTotalFocusTime = Math.max(existingTotalFocusTime, legacyTotalFocusTime);
             const finalTotalFocusTimes = Math.max(existingTotalFocusTimes, legacyTotalFocusTimes);
 
+            const rowID = getRowID(row);
+            const timeCellID = getCellID(row, store.keys.totalFocusTime.key.id);
+            const timesCellID = getCellID(row, store.keys.totalFocusTimes.key.id);
+            const updatedAtCellID = getCellID(row, store.keys.updatedAt.key.id);
+
             try {
-                await setAttributeViewBlockAttr(
-                    store.avID, store.keys.totalFocusTime.key.id, row.itemID,
-                    createNumberValue(store.keys.totalFocusTime.key.id, String(finalTotalFocusTime))
-                );
-                await setAttributeViewBlockAttr(
-                    store.avID, store.keys.totalFocusTimes.key.id, row.itemID,
-                    createNumberValue(store.keys.totalFocusTimes.key.id, String(finalTotalFocusTimes))
-                );
-                await setAttributeViewBlockAttr(
-                    store.avID, store.keys.updatedAt.key.id, row.itemID,
-                    createTextValue(store.keys.updatedAt.key.id, now)
-                );
+                await setAttributeViewBlockAttrWithCellChecked({
+                    avID: store.avID,
+                    keyID: store.keys.totalFocusTime.key.id,
+                    rowID,
+                    cellID: timeCellID,
+                    value: createSetNumberValue(String(finalTotalFocusTime)),
+                });
+                await setAttributeViewBlockAttrWithCellChecked({
+                    avID: store.avID,
+                    keyID: store.keys.totalFocusTimes.key.id,
+                    rowID,
+                    cellID: timesCellID,
+                    value: createSetNumberValue(String(finalTotalFocusTimes)),
+                });
+                await setAttributeViewBlockAttrWithCellChecked({
+                    avID: store.avID,
+                    keyID: store.keys.updatedAt.key.id,
+                    rowID,
+                    cellID: updatedAtCellID,
+                    value: createSetTextValue(now),
+                });
             } catch {
-                await appendAttributeViewDetachedBlocksWithValues(store.avID, [
+                await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [
                     [
-                        createBlockValue(store.keys.title.key.id, "番茄钟统计"),
-                        createTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
-                        createNumberValue(store.keys.totalFocusTime.key.id, String(finalTotalFocusTime)),
-                        createNumberValue(store.keys.totalFocusTimes.key.id, String(finalTotalFocusTimes)),
-                        createTextValue(store.keys.updatedAt.key.id, now),
+                        createAppendBlockValue(store.keys.title.key.id, "番茄钟统计"),
+                        createAppendTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
+                        createAppendNumberValue(store.keys.totalFocusTime.key.id, String(finalTotalFocusTime)),
+                        createAppendNumberValue(store.keys.totalFocusTimes.key.id, String(finalTotalFocusTimes)),
+                        createAppendTextValue(store.keys.updatedAt.key.id, now),
                     ],
                 ]);
             }
         }
     } else {
-        await appendAttributeViewDetachedBlocksWithValues(store.avID, [
+        await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [
             [
-                createBlockValue(store.keys.title.key.id, "番茄钟统计"),
-                createTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
-                createNumberValue(store.keys.totalFocusTime.key.id, String(legacyTotalFocusTime)),
-                createNumberValue(store.keys.totalFocusTimes.key.id, String(legacyTotalFocusTimes)),
-                createTextValue(store.keys.updatedAt.key.id, now),
+                createAppendBlockValue(store.keys.title.key.id, "番茄钟统计"),
+                createAppendTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
+                createAppendNumberValue(store.keys.totalFocusTime.key.id, String(legacyTotalFocusTime)),
+                createAppendNumberValue(store.keys.totalFocusTimes.key.id, String(legacyTotalFocusTimes)),
+                createAppendTextValue(store.keys.updatedAt.key.id, now),
             ],
         ]);
     }
