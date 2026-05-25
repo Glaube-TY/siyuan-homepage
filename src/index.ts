@@ -55,6 +55,7 @@ export default class PluginHomepage extends Plugin {
     private homepageTabDiv: HTMLDivElement | null = null;
     private enhancedDiaryWorkspaceInstance: Record<string, any> | null = null;
     private enhancedDiaryWorkspaceTabDiv: HTMLDivElement | null = null;
+    private enhancedDiaryWorkspaceInitialTab = "overview";
     private sidebarDockInstance: Record<string, any> | null = null;
     private homepageTabObserver: MutationObserver | null = null;
     ADVANCED = false;
@@ -318,6 +319,11 @@ export default class PluginHomepage extends Plugin {
                     return;
                 }
 
+                if (self.isMobileFrontend()) {
+                    showMessage("移动端工作台还在开发中", 3000);
+                    return;
+                }
+
                 if (self.enhancedDiaryWorkspaceTabDiv) {
                     this.element.appendChild(self.enhancedDiaryWorkspaceTabDiv);
                     if (!self.enhancedDiaryWorkspaceInstance) {
@@ -385,6 +391,7 @@ export default class PluginHomepage extends Plugin {
             target: this.enhancedDiaryWorkspaceTabDiv,
             props: {
                 plugin: this,
+                initialTab: this.enhancedDiaryWorkspaceInitialTab,
             },
         } as any);
     }
@@ -517,6 +524,11 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
+    private isMobileFrontend(): boolean {
+        const frontEnd = getFrontend();
+        return this.isMobile || frontEnd === "mobile" || frontEnd === "browser-mobile" || frontEnd.includes("mobile");
+    }
+
     private async openHomepage() {
         // plugin 侧先检查签名变化，即使 homepage 组件还没 mount 也能触发 reload
         const shouldReload = await this.checkHomepageSignatureAndReload('openHomepage');
@@ -536,7 +548,18 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    public openEnhancedDiaryWorkspace(): void {
+    public openEnhancedDiaryWorkspace(initialTab = "overview"): void {
+        if (this.isMobileFrontend()) {
+            showMessage("移动端工作台还在开发中", 3000);
+            return;
+        }
+
+        if (!this.ADVANCED) {
+            showMessage("强化日记工作台为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+            return;
+        }
+
+        this.enhancedDiaryWorkspaceInitialTab = initialTab;
         openTab({
             app: this.app,
             custom: {
@@ -546,6 +569,12 @@ export default class PluginHomepage extends Plugin {
                 id: ENHANCED_DIARY_WORKSPACE_TAB_ID,
             },
         });
+
+        window.setTimeout(() => {
+            window.dispatchEvent(new CustomEvent("siyuan-homepage:enhanced-diary-workspace-tab", {
+                detail: { tab: initialTab },
+            }));
+        }, 0);
     }
 
     private openMobileHomepage() {

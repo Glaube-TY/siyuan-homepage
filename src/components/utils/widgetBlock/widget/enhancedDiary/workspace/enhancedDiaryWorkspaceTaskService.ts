@@ -390,6 +390,15 @@ export async function migrateWorkspaceTaskToToday(
     config: EnhancedDiaryConfig,
     task: EnhancedDiaryWorkspaceTask
 ): Promise<WorkspaceTaskActionResult> {
+    if (task.isTodayTask || task.sourceKind === "migrated") {
+        return { 
+            ok: false, 
+            changed: false, 
+            reason: "already_today", 
+            message: "该任务已经在今日日记中，无需迁移。" 
+        };
+    }
+
     const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
     if (!todayDoc.ok || !todayDoc.docId) {
         return {
@@ -409,7 +418,7 @@ export async function migrateWorkspaceTaskToToday(
             ok: false,
             changed: false,
             reason: anchor.reason || "missing_anchor",
-            message: "当前日记缺少「迁移任务」区块，请补充模板或恢复标题。",
+            message: "当前日记缺少「任务管理 > 迁移任务」区块，请补充模板或恢复标题。",
         };
     }
 

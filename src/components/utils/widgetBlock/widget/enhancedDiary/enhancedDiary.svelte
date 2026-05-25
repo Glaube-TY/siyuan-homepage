@@ -31,13 +31,15 @@
         getOrCreateTodayDiaryDocument,
     } from "./enhancedDiaryActions";
     import {
-        ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
-        type EnhancedDiaryRecordCategoryKey,
-    } from "./enhancedDiaryWorkspaceSections";
+        openTaskEditorSvelteDialog,
+        openQuickRecordSvelteDialog,
+    } from "./workspace/enhancedDiaryWorkspaceDialogs";
+    import type { GenerateTasksPlusTaskInput } from "../tasksPlus/tasksPlusParser";
     import {
         buildEnhancedDiaryWorkspaceSummary,
         type EnhancedDiaryWorkspaceSummary,
     } from "./enhancedDiaryWorkspaceSummary";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     function cloneDate(date: Date): Date {
         return new Date(date.getTime());
@@ -71,6 +73,7 @@
     let actionBusy = $state(false);
     let todayWorkspaceSummary = $state<EnhancedDiaryWorkspaceSummary | null>(null);
     let todayDiaryExists = $state(false);
+    let advancedEnabled = $state(false);
 
     const PERIOD_LABELS: Record<EnhancedDiaryPeriod, string> = {
         day: "今日记录",
@@ -127,17 +130,6 @@
             { label: "取消跳过", action: "restore_skip" },
         ],
     };
-
-    const QUICK_RECORD_CATEGORY_OPTIONS: {
-        key: EnhancedDiaryRecordCategoryKey;
-        label: string;
-    }[] = [
-        { key: "uncategorized", label: ENHANCED_DIARY_RECORD_CATEGORY_TITLES.uncategorized },
-        { key: "idea", label: ENHANCED_DIARY_RECORD_CATEGORY_TITLES.idea },
-        { key: "problem", label: ENHANCED_DIARY_RECORD_CATEGORY_TITLES.problem },
-        { key: "decision", label: ENHANCED_DIARY_RECORD_CATEGORY_TITLES.decision },
-        { key: "log", label: ENHANCED_DIARY_RECORD_CATEGORY_TITLES.log },
-    ];
 
     function parseLocalDate(dateStr: string): Date {
         const [y, m, d] = dateStr.split("-").map(Number);
@@ -436,170 +428,94 @@
         return null;
     }
 
-    function getDialogInputValue(dialog: Dialog, selector: string): string {
-        const el = dialog.element.querySelector(selector) as
-            | HTMLInputElement
-            | HTMLTextAreaElement
-            | HTMLSelectElement
-            | null;
-        return el?.value?.trim() || "";
-    }
-
-    function parseTagInput(value: string): string[] {
-        return value
-            .split(/[，,\s]+/)
-            .map((tag) => tag.trim())
-            .filter(Boolean);
-    }
-
-    function renderCategoryOptions(): string {
-        return QUICK_RECORD_CATEGORY_OPTIONS.map(
-            (item) => `<option value="${item.key}">${item.label}</option>`,
-        ).join("");
-    }
-
     function openNewTaskDialog(): void {
+        if (!advancedEnabled) {
+            showMessage("强化日记为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+            return;
+        }
         if (actionBusy) return;
-
-        const today = formatDiaryDate(new Date());
-        const dialog = new Dialog({
-            title: "新建任务",
-            content: `<div class="enhanced-diary-action-dialog">
-                    <label>任务名称
-                        <input class="b3-text-field" data-field="taskname" type="text" placeholder="输入任务名称" />
-                    </label>
-                    <div class="enhanced-diary-action-row">
-                        <label>开始日期
-                            <input class="b3-text-field" data-field="startDate" type="date" value="${today}" />
-                        </label>
-                        <label>截止日期
-                            <input class="b3-text-field" data-field="deadline" type="date" />
-                        </label>
-                    </div>
-                    <div class="enhanced-diary-action-row">
-                        <label>优先级
-                            <select class="b3-select" data-field="priority">
-                                <option value="">无</option>
-                                <option value="❗">低</option>
-                                <option value="❗❗">中</option>
-                                <option value="❗❗❗">高</option>
-                                <option value="❗❗❗❗">紧急</option>
-                            </select>
-                        </label>
-                        <label>标签
-                            <input class="b3-text-field" data-field="tags" type="text" placeholder="多个标签用逗号或空格分隔" />
-                        </label>
-                    </div>
-                    <div class="enhanced-diary-action-footer">
-                        <button class="b3-button b3-button--outline" data-action="cancel">取消</button>
-                        <button class="b3-button" data-action="submit">添加</button>
-                    </div>
-                </div>`,
-            width: "520px",
-        } as any);
-
-        dialog.element.querySelector('[data-action="cancel"]')?.addEventListener("click", () => {
-            dialog.destroy();
-        });
-
-        dialog.element.querySelector('[data-action="submit"]')?.addEventListener("click", async () => {
-            const taskname = getDialogInputValue(dialog, '[data-field="taskname"]');
-            if (!taskname) {
-                showMessage("请输入任务名称", 3000);
-                return;
-            }
-
-            actionBusy = true;
-            try {
-                const docId = await getTodayDocIdForAction();
-                if (!docId) return;
-
-                const result = await addNewTaskToDiary({
-                    docId,
-                    task: {
-                        taskname,
-                        priority: getDialogInputValue(dialog, '[data-field="priority"]'),
-                        startDate: getDialogInputValue(dialog, '[data-field="startDate"]'),
-                        deadline: getDialogInputValue(dialog, '[data-field="deadline"]'),
-                        tags: parseTagInput(getDialogInputValue(dialog, '[data-field="tags"]')),
-                    },
-                });
-
-                if (result.ok) {
-                    showMessage("已写入今日日记的「新建任务」区块", 3000);
-                    dialog.destroy();
-                    await loadAndBuildCards();
-                } else {
-                    showMessage(result.message || "新增任务失败", 4000);
-                }
-            } finally {
-                actionBusy = false;
-            }
+        openTaskEditorSvelteDialog({
+            mode: "create",
+            onSubmit: async (input) => {
+                return await submitNewTask(input);
+            },
         });
     }
 
     function openQuickRecordDialog(): void {
+        if (!advancedEnabled) {
+            showMessage("强化日记为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+            return;
+        }
         if (actionBusy) return;
-
-        const dialog = new Dialog({
-            title: "快速记录",
-            content: `<div class="enhanced-diary-action-dialog">
-                    <label>分类
-                        <select class="b3-select" data-field="category">
-                            ${renderCategoryOptions()}
-                        </select>
-                    </label>
-                    <label>记录内容
-                        <textarea class="b3-text-field enhanced-diary-record-textarea" data-field="content" placeholder="写下这条记录"></textarea>
-                    </label>
-                    <div class="enhanced-diary-action-footer">
-                        <button class="b3-button b3-button--outline" data-action="cancel">取消</button>
-                        <button class="b3-button" data-action="submit">添加</button>
-                    </div>
-                </div>`,
-            width: "520px",
-        } as any);
-
-        dialog.element.querySelector('[data-action="cancel"]')?.addEventListener("click", () => {
-            dialog.destroy();
-        });
-
-        dialog.element.querySelector('[data-action="submit"]')?.addEventListener("click", async () => {
-            const content = getDialogInputValue(dialog, '[data-field="content"]');
-            if (!content) {
-                showMessage("请输入记录内容", 3000);
-                return;
-            }
-
-            actionBusy = true;
-            try {
-                const docId = await getTodayDocIdForAction();
-                if (!docId) return;
-
-                const categoryKey = getDialogInputValue(
-                    dialog,
-                    '[data-field="category"]',
-                ) as EnhancedDiaryRecordCategoryKey;
-                const result = await addQuickRecordToDiary({
-                    docId,
-                    categoryKey,
-                    content,
-                });
-
-                if (result.ok) {
-                    showMessage("已写入今日日记的「快速记录」区块", 3000);
-                    dialog.destroy();
-                    await loadAndBuildCards();
-                } else {
-                    showMessage(result.message || "新增记录失败", 4000);
-                }
-            } finally {
-                actionBusy = false;
-            }
+        openQuickRecordSvelteDialog({
+            mode: "create",
+            suggestedCategories: config?.recordCategorySuggestions || ["未分类", "想法", "问题", "决策", "日志"],
+            onSubmit: async (categoryTitle, content) => {
+                return await submitNewRecord(categoryTitle, content);
+            },
         });
     }
 
+    async function submitNewTask(input: GenerateTasksPlusTaskInput): Promise<boolean> {
+        if (!config || actionBusy) return false;
+        actionBusy = true;
+        try {
+            const docId = await getTodayDocIdForAction();
+            if (!docId) {
+                showMessage("未能获取今日日记 docId，任务未写入", 4000);
+                return false;
+            }
+
+            const result = await addNewTaskToDiary({
+                docId,
+                task: input,
+            });
+
+            if (result.ok) {
+                showMessage("已写入今日日记的「新建任务」区块", 3000);
+                await loadAndBuildCards();
+                return true;
+            } else {
+                showMessage(result.message || "新增任务失败", 4000);
+                return false;
+            }
+        } finally {
+            actionBusy = false;
+        }
+    }
+
+    async function submitNewRecord(categoryTitle: string, content: string): Promise<boolean> {
+        if (!config || actionBusy) return false;
+        actionBusy = true;
+        try {
+            const docId = await getTodayDocIdForAction();
+            if (!docId) return false;
+
+            const result = await addQuickRecordToDiary({
+                docId,
+                categoryTitle,
+                content,
+            });
+
+            if (result.ok) {
+                showMessage("已写入今日日记的「快速记录」区块", 3000);
+                await loadAndBuildCards();
+                return true;
+            } else {
+                showMessage(result.message || "新增记录失败", 4000);
+                return false;
+            }
+        } finally {
+            actionBusy = false;
+        }
+    }
+
     async function openTodayDiary(): Promise<void> {
+        if (!advancedEnabled) {
+            showMessage("强化日记为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+            return;
+        }
         if (!config || actionBusy) return;
         actionBusy = true;
         try {
@@ -623,6 +539,10 @@
     }
 
     function openWorkspace(): void {
+        if (!advancedEnabled) {
+            showMessage("强化日记工作台为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+            return;
+        }
         if (typeof plugin?.openEnhancedDiaryWorkspace === "function") {
             plugin.openEnhancedDiaryWorkspace();
         } else {
@@ -797,7 +717,28 @@
     }
 
     onMount(() => {
-        loadAndBuildCards();
+        advancedEnabled = Boolean(plugin?.ADVANCED);
+        if (advancedEnabled) {
+            loadAndBuildCards();
+        }
+
+        const onReady = () => {
+            advancedEnabled = true;
+            loadAndBuildCards();
+        };
+        const onUnavailable = () => {
+            advancedEnabled = false;
+            cards = [];
+            todayWorkspaceSummary = null;
+            todayDiaryExists = false;
+            removeBodyMenu();
+        };
+        window.addEventListener("homepage-advanced-ready", onReady);
+        window.addEventListener("homepage-advanced-unavailable", onUnavailable);
+        return () => {
+            window.removeEventListener("homepage-advanced-ready", onReady);
+            window.removeEventListener("homepage-advanced-unavailable", onUnavailable);
+        };
     });
 
     onDestroy(() => {
@@ -805,6 +746,7 @@
     });
 </script>
 
+{#if advancedEnabled}
 <div class="enhanced-diary-container">
     <div class="enhanced-diary-header">
         <span class="enhanced-diary-title">强化日记</span>
@@ -889,6 +831,24 @@
         {/each}
     </div>
 </div>
+{:else}
+<div class="enhanced-diary-container enhanced-diary-locked">
+    <AdvancedFeatureLock
+        title="强化日记工作台"
+        subtitle="把日记、任务、记录、复盘和计划承接整合成一个专业工作台。"
+        icon="diary"
+        features={[
+            "任务、记录、复盘集中管理",
+            "今日作战台与风险提醒",
+            "计划承接与复盘内容编辑",
+            "快速记录和自定义分类"
+        ]}
+        highlights={["Dashboard", "复盘工作流", "计划承接"]}
+        tutorialUrl="https://blog.glaube-ty.top/archives/019e5f59-4a9c-727b-bd6a-a32c4d604a48"
+        compact
+    />
+</div>
+{/if}
 
 <style>
     .enhanced-diary-container {
@@ -1221,5 +1181,31 @@
         .cards-grid {
             grid-template-columns: 1fr;
         }
+    }
+
+    .enhanced-diary-locked {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        text-align: center;
+        min-height: 120px;
+    }
+
+    .locked-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--b3-theme-on-background);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .locked-desc {
+        font-size: 13px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.65;
+        margin: 0;
     }
 </style>

@@ -7,6 +7,7 @@ import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widg
 import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobileHomepage_layout";
 import { mountWidgetContent } from "../../components/utils/widgetBlock/widgetMountRegistry";
 import { mount, unmount } from "svelte";
+import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -35,11 +36,7 @@ export class WidgetBlock {
         this.element.className = "widget-block";
         this.element.id = this.id;
 
-        this.element.innerHTML = `
-            <button class="block-style-button" title="样式设置">🎨</button>
-            <button class="drag-handle" title="拖拽组件">🧲</button>
-            <button class="block-content-button" title="内容设置">⚙️</button>
-        `;
+        this.element.innerHTML = this.renderControls(false);
 
         this.element.setAttribute("style", this.style);
 
@@ -47,6 +44,15 @@ export class WidgetBlock {
         (this.element as any).__widgetBlockInstance = this;
 
         this.setupEventListeners();
+    }
+
+    private renderControls(includeRefresh = false): string {
+        return `
+            <button class="block-style-button" title="样式设置">${renderSiyuanIcon("style", 14)}</button>
+            <button class="drag-handle" title="拖拽组件">${renderSiyuanIcon("drag", 14)}</button>
+            <button class="block-content-button" title="内容设置">${renderSiyuanIcon("settings", 14)}</button>
+            ${includeRefresh ? `<button class="block-update-button" title="刷新组件">${renderSiyuanIcon("refresh", 14)}</button>` : ""}
+        `;
     }
 
     // 公开销毁方法：统一清理 widget 实例
@@ -163,12 +169,7 @@ export class WidgetBlock {
 
         this.cleanupMountedWidget();
 
-        this.element.innerHTML = `
-        <button class="block-style-button" title="样式设置">🎨</button>
-        <button class="drag-handle" title="拖拽组件">🧲</button>
-        <button class="block-content-button" title="内容设置">⚙️</button>
-        <button class="block-update-button" title="刷新组件">🔄</button>
-        `;
+        this.element.innerHTML = this.renderControls(true);
 
         this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson);
 

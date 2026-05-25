@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import Quill from "quill";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -178,8 +179,18 @@
     </div>
     {#if !advancedEnabled}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="便签"
+                subtitle="快速记录灵感和备忘，支持富文本编辑。"
+                icon="edit"
+                features={[
+                    "快速记录灵感和备忘",
+                    "支持富文本编辑",
+                    "适合日常笔记和待办"
+                ]}
+                highlights={["快速记录", "富文本", "备忘录"]}
+                compact
+            />
         </div>
     {:else if plugin.isMobile}
         <div>移动端无法使用该功能</div>

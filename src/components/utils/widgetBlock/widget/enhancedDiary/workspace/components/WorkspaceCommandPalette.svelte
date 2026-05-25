@@ -1,4 +1,6 @@
 <script lang="ts">
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
+
     export interface WorkspaceCommand {
         id: string;
         title: string;
@@ -79,7 +81,9 @@
                     placeholder="搜索命令、页面、快捷操作..."
                     bind:value={query}
                 />
-                <button type="button" aria-label="关闭命令面板" onclick={onClose}>×</button>
+                <button type="button" aria-label="关闭命令面板" onclick={onClose}>
+                    <WorkspaceIcon name="close" size={14} />
+                </button>
             </header>
 
             <div class="command-list">

@@ -2,7 +2,6 @@ import { parseTaskLine } from "../tasksPlus/tasksPlusParser";
 import { validateDayWorkspaceStructure } from "./enhancedDiaryMarkdownSections";
 import {
     getDayWorkspaceSections,
-    getRecordCategorySections,
 } from "./enhancedDiaryWorkspaceSections";
 
 export interface EnhancedDiaryWorkspaceSummary {
@@ -61,12 +60,10 @@ export function buildEnhancedDiaryWorkspaceSummary(
 ): EnhancedDiaryWorkspaceSummary {
     const validation = validateDayWorkspaceStructure(markdown);
     const sections = getDayWorkspaceSections(markdown);
-    const categories = getRecordCategorySections(markdown);
 
-    const quickRecordCount = Object.values(categories).reduce(
-        (sum, category) => sum + (category.found ? countRecordEntries(category.markdown) : 0),
-        0
-    );
+    const quickRecordCount = sections.quickRecords.found
+        ? countRecordEntries(sections.quickRecords.markdown)
+        : 0;
 
     return {
         templateValid: validation.valid,

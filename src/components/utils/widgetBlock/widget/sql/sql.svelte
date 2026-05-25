@@ -11,7 +11,7 @@
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     const parsed = $derived(JSON.parse(contentTypeJson));
-    const sqlTitle = $derived(parsed.data?.sqlTitle || "🔍SQL 查询结果");
+    const sqlTitle = $derived(parsed.data?.sqlTitle || "SQL 查询结果");
     const sqlInput = $derived(parsed.data?.sqlInput || "");
     const columnOrder = $derived(
         parsed.data?.columnOrder

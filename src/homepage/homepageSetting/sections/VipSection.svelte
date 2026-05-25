@@ -48,7 +48,8 @@
             <h3>
                 <a
                     href="https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab"
-                    target="_blank">👑查看会员权益👑</a
+                    target="_blank"
+                    class="vip-benefits-link">👑查看会员权益👑</a
                 >
             </h3>
             {#if USER_NAME || USER_ID}
@@ -81,29 +82,32 @@
                     <div class="plan-card">
                         <div class="plan-item monthly">
                             <div class="plan-price">
-                                <span class="old-price" style="text-decoration: line-through; color: #999; font-size: 14px; margin-right: 5px;">8 元</span>
                                 <span class="new-price" style="color: var(--b3-theme-primary); font-weight: bold; font-size: 18px;">5 元</span>
                             </div>
                             <div class="plan-duration">/ 月</div>
                         </div>
                         <div class="plan-item monthly">
                             <div class="plan-price">
-                                <span class="old-price" style="text-decoration: line-through; color: #999; font-size: 14px; margin-right: 5px;">20 元</span>
                                 <span class="new-price" style="color: var(--b3-theme-primary); font-weight: bold; font-size: 18px;">12 元</span>
                             </div>
                             <div class="plan-duration">/ 季</div>
                         </div>
                         <div class="plan-item yearly">
                             <div class="plan-price">
-                                <span class="old-price" style="text-decoration: line-through; color: #999; font-size: 14px; margin-right: 5px;">69 元</span>
                                 <span class="new-price" style="color: var(--b3-theme-primary); font-weight: bold; font-size: 18px;">35 元</span>
                             </div>
                             <div class="plan-duration">/ 年</div>
                         </div>
+                        <div class="plan-item permanent">
+                            <div class="plan-badge">🔥 限时优惠</div>
+                            <div class="plan-price">
+                                <span class="old-price" style="text-decoration: line-through; color: #999; font-size: 14px; margin-right: 5px;">128 元</span>
+                                <span class="new-price" style="color: #ef4444; font-weight: bold; font-size: 20px;">99 元</span>
+                            </div>
+                            <div class="plan-duration">永久会员</div>
+                            <div class="plan-urgency">⏰ 随时恢复原价</div>
+                        </div>
                     </div>
-                    <p>以后大概率会保持目前的降价价格，若最近有原价购买过会员的用户且还在会员期内，可以在爱发电私信我，根据用户情况赠送增加相应的天数。</p>
-                    <p>感谢大家的支持~</p>
-                    <p>调整时间：2026年3月15日</p>
                 </div>
                 <div class="purchase-address">
                     <h4>🛍️ 购买地址</h4>

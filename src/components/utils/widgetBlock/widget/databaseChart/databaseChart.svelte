@@ -2,6 +2,7 @@
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import { getAttributeView } from "@/api";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -461,8 +462,18 @@
         ></div>
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="数据图表"
+                subtitle="把数据库字段转成可视化图表，让数据更直观。"
+                icon="chart"
+                features={[
+                    "把数据库字段转成图表",
+                    "支持趋势、统计和对比",
+                    "适合项目追踪和数据看板"
+                ]}
+                highlights={["自动统计", "专业视图", "数据看板"]}
+                compact
+            />
         </div>
     {/if}
 </div>

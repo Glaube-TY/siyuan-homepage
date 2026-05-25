@@ -1,6 +1,7 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
     import { onMount } from "svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -8,9 +9,18 @@
     }
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsedContent = JSON.parse(contentTypeJson);
-    const selectedConstellation =
-        parsedContent.data?.selectedConstellation || "摩羯";
+    function parseContentTypeJson(raw: string): any {
+        try {
+            return JSON.parse(raw || "{}");
+        } catch {
+            return {};
+        }
+    }
+
+    const parsedContent = $derived(parseContentTypeJson(contentTypeJson));
+    const selectedConstellation = $derived(
+        parsedContent.data?.selectedConstellation || "摩羯"
+    );
 
     let constellationData: any = $state(null);
     let advancedEnabled = $state(false);
@@ -156,8 +166,18 @@
         {/if}
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="星座运势"
+                subtitle="每日星座运势更新，了解今日运势走向。"
+                icon="star"
+                features={[
+                    "每日星座运势更新",
+                    "多维度运势解析",
+                    "适合星座文化爱好者"
+                ]}
+                highlights={["星座运势", "多维度解析", "每日更新"]}
+                compact
+            />
         </div>
     {/if}
 </div>

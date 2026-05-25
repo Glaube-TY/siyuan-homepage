@@ -5,62 +5,34 @@
         record: EnhancedDiaryWorkspaceRecord;
         onConfirm: () => void | Promise<void>;
         onClose: () => void;
+        message?: string;
     }
 
-    let { record, onConfirm, onClose }: Props = $props();
+    let { record, onConfirm, onClose, message = "将删除这条四级标题记录及其正文块。定位不可靠时系统会拒绝删除。" }: Props = $props();
 </script>
 
-<div class="modal-backdrop" role="presentation" onclick={onClose}>
-    <section
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        tabindex="-1"
-        onclick={(event) => event.stopPropagation()}
-        onkeydown={(event) => event.stopPropagation()}
-    >
-        <h2>删除记录</h2>
-        <p>将删除这条四级标题记录及其正文块。定位不可靠时系统会拒绝删除。</p>
-        <div class="record-preview">
-            <strong>{record.headingTitle}</strong>
-            <span>{record.categoryTitle}</span>
-            <p>{record.content}</p>
-        </div>
-        <footer>
-            <button type="button" onclick={onClose}>取消</button>
-            <button type="button" class="danger" onclick={onConfirm}>确认删除</button>
-        </footer>
-    </section>
+<div class="delete-record-content">
+    <p>{message}</p>
+    <div class="record-preview">
+        <strong>{record.headingTitle}</strong>
+        <span>{record.categoryTitle}</span>
+        <p>{record.content}</p>
+    </div>
+    <footer>
+        <button type="button" onclick={onClose}>取消</button>
+        <button type="button" class="danger" onclick={onConfirm}>确认删除</button>
+    </footer>
 </div>
 
 <style>
-    .modal-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 100000;
+    .delete-record-content {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 18px 20px 0;
+        max-height: min(72vh, 620px);
+        overflow: hidden;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.32);
-        padding: 20px;
-        backdrop-filter: blur(2px);
-    }
-
-    .modal {
-        width: min(520px, 100%);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 14px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
-        padding: 22px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
-    }
-
-    h2 {
-        margin: 0 0 10px;
-        font-size: 15px;
-        font-weight: 600;
-        letter-spacing: 0;
+        flex-direction: column;
     }
 
     p {
@@ -77,6 +49,8 @@
         background: var(--b3-theme-surface);
         padding: 12px;
         margin-bottom: 18px;
+        max-height: min(48vh, 420px);
+        overflow: auto;
     }
 
     .record-preview strong,
@@ -107,6 +81,12 @@
         display: flex;
         justify-content: flex-end;
         gap: 8px;
+        margin: 16px -20px 0;
+        padding: 14px 20px 16px;
+        border-top: 1px solid var(--b3-border-color);
+        background: var(--b3-theme-surface);
+        position: sticky;
+        bottom: 0;
     }
 
     button {

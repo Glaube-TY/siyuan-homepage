@@ -2,6 +2,7 @@
     import ImageSourceSetting from "../../shared/ImageSourceSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled?: boolean;
@@ -56,7 +57,17 @@
             </SettingRow>
         </SettingSection>
     {:else}
-        <h3>👑会员专属权益👑</h3>
+        <AdvancedFeatureLock
+            title="每日一言"
+            subtitle="远程接口获取每日名言警句，支持多种语录来源。"
+            icon="format"
+            features={[
+                "多种语录接口来源",
+                "名人名言和情感语录",
+                "适合激励和灵感启发"
+            ]}
+            highlights={["远程接口", "多种语录", "灵感启发"]}
+        />
     {/if}
 {:else}
     <SettingSection>

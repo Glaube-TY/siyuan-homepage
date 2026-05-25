@@ -2,15 +2,18 @@
     import type { StylesSettingsState, StylesSettingsActions } from '../types';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
+    import AdvancedFeatureLock from '@/components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte';
 
     interface Props {
         state: StylesSettingsState;
         actions: StylesSettingsActions;
+        advancedEnabled?: boolean;
     }
 
-    let { state, actions }: Props = $props();
+    let { state, actions, advancedEnabled = false }: Props = $props();
 </script>
 
+{#if advancedEnabled}
 <SettingSection title="页脚">
     <SettingRow title="显示页脚" description="在主页底部显示自定义页脚内容">
         <input
@@ -166,3 +169,17 @@
         </select>
     </SettingRow>
 </SettingSection>
+{:else}
+<AdvancedFeatureLock
+    title="高级样式"
+    subtitle="自定义主页页脚、鼠标样式、点击特效和飘落动画，让主页更有个人风格。"
+    icon="style"
+    features={[
+        "自定义页脚内容和主页展示",
+        "鼠标指针、轨迹和点击特效",
+        "飘落动画与全局装饰效果",
+        "打造更个性化的思源主页"
+    ]}
+    highlights={["个性化主页", "鼠标特效", "飘落动画"]}
+/>
+{/if}

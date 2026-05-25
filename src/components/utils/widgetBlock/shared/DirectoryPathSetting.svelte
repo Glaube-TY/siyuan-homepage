@@ -3,6 +3,7 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     interface Props {
         sectionTitle?: string;
@@ -52,7 +53,9 @@
                 class="control-full"
                 readonly
             />
-            <button title={buttonTitle} onclick={selectDirectory} class="file-action-btn">📁</button>
+            <button title={buttonTitle} onclick={selectDirectory} class="file-action-btn">
+                <SiyuanIcon name="folder" size={14} />
+            </button>
         </div>
     </SettingRow>
 </SettingSection>

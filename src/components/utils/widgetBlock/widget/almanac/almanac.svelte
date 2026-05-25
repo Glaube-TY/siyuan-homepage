@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     import Classic from "./_classic.svelte";
     import Tradition1 from "./_tradition1.svelte";
@@ -11,8 +12,16 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const almanacStyle = parsedContent.data.almanacStyle || "classic";
+    function parseContentTypeJson(raw: string): any {
+        try {
+            return JSON.parse(raw || "{}");
+        } catch {
+            return {};
+        }
+    }
+
+    const parsedContent = $derived(parseContentTypeJson(contentTypeJson));
+    const almanacStyle = $derived(parsedContent.data?.almanacStyle || "classic");
 
     let advancedEnabled = $state(false);
 
@@ -34,8 +43,18 @@
         {/if}
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="黄历"
+                subtitle="每日黄历宜忌展示，传统日历风格。"
+                icon="calendar"
+                features={[
+                    "每日黄历宜忌展示",
+                    "传统与现代风格结合",
+                    "适合传统文化爱好者"
+                ]}
+                highlights={["黄历宜忌", "传统风格", "每日更新"]}
+                compact
+            />
         </div>
     {/if}
 </div>

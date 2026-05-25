@@ -11,6 +11,7 @@ import {
     getPeriodContext,
     getPreviousPeriodContext,
     formatDiaryDate,
+    isReviewReminderWindowActive,
 } from "../enhancedDiaryUtils";
 import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { parseLocalDate } from "./enhancedDiaryWorkspaceDate";
@@ -107,6 +108,11 @@ export async function resolveWorkspaceReviewCard(
     let cursorBaseDate = new Date(baseDate.getTime());
     for (let i = 0; i < backtrackLimits[period]; i++) {
         const previousCtx = getPreviousPeriodContext(period, cursorBaseDate, config);
+
+        if (!isReviewReminderWindowActive(period, baseDate, previousCtx.targetDate, config)) {
+            break;
+        }
+
         const previousCard = await buildReviewCardForContext(config, period, previousCtx, baseDate);
 
         if (unhandledStatuses.includes(previousCard.status)) {

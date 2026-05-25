@@ -3,6 +3,10 @@ import {
     ENHANCED_DIARY_CONFIG_FILE,
     ENHANCED_DIARY_PERIODS,
     type EnhancedDiaryConfig,
+    type EnhancedDiaryReviewReminderWindow,
+    type EnhancedDiaryReviewReminderWindows,
+    type EnhancedDiaryWorkspaceCalendarSettings,
+    type EnhancedDiaryWorkspaceSettings,
     type EnhancedDiaryTemplateMap,
 } from "./enhancedDiaryTypes";
 
@@ -17,8 +21,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizeWeekReviewDay(raw: unknown): number {
-    if (typeof raw === "number" && VALID_WEEKDAYS.has(raw)) {
-        return raw;
+    const value = typeof raw === "string" ? Number(raw) : raw;
+    if (typeof value === "number" && VALID_WEEKDAYS.has(value)) {
+        return value;
     }
     return 0;
 }
@@ -77,10 +82,88 @@ function normalizeTemplates(raw: unknown): EnhancedDiaryTemplateMap {
 }
 
 function normalizeTaskMigrationReminderDays(raw: unknown): number {
-    if (typeof raw === "number" && raw >= 1 && raw <= 3650) {
-        return Math.floor(raw);
+    const value = typeof raw === "string" ? Number(raw) : raw;
+    if (typeof value === "number" && Number.isFinite(value) && value >= 1 && value <= 3650) {
+        return Math.floor(value);
     }
     return 30;
+}
+
+function normalizeBoolean(raw: unknown, fallback: boolean): boolean {
+    return typeof raw === "boolean" ? raw : fallback;
+}
+
+function normalizeWorkspaceCalendarSettings(raw: unknown): EnhancedDiaryWorkspaceCalendarSettings {
+    const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.calendar;
+    if (!isRecord(raw)) {
+        return { ...defaults };
+    }
+
+    return {
+        showLunar: normalizeBoolean(raw.showLunar, defaults.showLunar),
+        showSolarTerm: normalizeBoolean(raw.showSolarTerm, defaults.showSolarTerm),
+        showFestival: normalizeBoolean(raw.showFestival, defaults.showFestival),
+        showLegalHoliday: normalizeBoolean(raw.showLegalHoliday, defaults.showLegalHoliday),
+        showBriefCounts: normalizeBoolean(raw.showBriefCounts, defaults.showBriefCounts),
+    };
+}
+
+function normalizeWorkspaceSettings(raw: unknown): EnhancedDiaryWorkspaceSettings {
+    const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings;
+    if (!isRecord(raw)) {
+        return {
+            calendar: { ...defaults.calendar },
+        };
+    }
+
+    return {
+        calendar: normalizeWorkspaceCalendarSettings(raw.calendar),
+    };
+}
+
+function normalizeRecordCategorySuggestions(raw: unknown): string[] {
+    const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.recordCategorySuggestions;
+    if (!Array.isArray(raw)) {
+        return [...defaults];
+    }
+
+    const result = Array.from(
+        new Set(
+            (raw as unknown[])
+                .map((item) => {
+                    if (typeof item !== "string") return "";
+                    return item.trim().replace(/\n/g, "");
+                })
+                .filter((item) => item.length > 0 && item.length <= 30),
+        ),
+    );
+
+    return result;
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    const n = Math.floor(value);
+    if (n < min || n > max) return fallback;
+    return n;
+}
+
+function normalizeReviewReminderWindow(raw: unknown, fallback: EnhancedDiaryReviewReminderWindow): EnhancedDiaryReviewReminderWindow {
+    if (!isRecord(raw)) return { ...fallback };
+    return {
+        beforeDays: clampInt((raw as Record<string, unknown>).beforeDays, 0, 30, fallback.beforeDays),
+        afterDays: clampInt((raw as Record<string, unknown>).afterDays, 0, 30, fallback.afterDays),
+    };
+}
+
+function normalizeReviewReminderWindows(raw: unknown): EnhancedDiaryReviewReminderWindows {
+    const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.reviewReminderWindows;
+    if (!isRecord(raw)) return { ...defaults };
+    return {
+        week: normalizeReviewReminderWindow((raw as Record<string, unknown>).week, defaults.week),
+        month: normalizeReviewReminderWindow((raw as Record<string, unknown>).month, defaults.month),
+        year: normalizeReviewReminderWindow((raw as Record<string, unknown>).year, defaults.year),
+    };
 }
 
 export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfig {
@@ -92,6 +175,11 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
             templates: { ...DEFAULT_ENHANCED_DIARY_CONFIG.templates },
             dailyNotebookId: DEFAULT_ENHANCED_DIARY_CONFIG.dailyNotebookId,
             taskMigrationReminderDays: DEFAULT_ENHANCED_DIARY_CONFIG.taskMigrationReminderDays,
+            workspaceSettings: {
+                calendar: { ...DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.calendar },
+            },
+            recordCategorySuggestions: [...DEFAULT_ENHANCED_DIARY_CONFIG.recordCategorySuggestions],
+            reviewReminderWindows: { ...DEFAULT_ENHANCED_DIARY_CONFIG.reviewReminderWindows },
         };
     }
 
@@ -116,6 +204,15 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
         dailyNotebookId,
         taskMigrationReminderDays: normalizeTaskMigrationReminderDays(
             (input as Record<string, unknown>).taskMigrationReminderDays
+        ),
+        workspaceSettings: normalizeWorkspaceSettings(
+            (input as Record<string, unknown>).workspaceSettings
+        ),
+        recordCategorySuggestions: normalizeRecordCategorySuggestions(
+            (input as Record<string, unknown>).recordCategorySuggestions
+        ),
+        reviewReminderWindows: normalizeReviewReminderWindows(
+            (input as Record<string, unknown>).reviewReminderWindows
         ),
     };
 }

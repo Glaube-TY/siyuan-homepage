@@ -35,14 +35,11 @@
     import ConditionDocsSet from "./widget/conditionDocs/conditionDocsSet.svelte";
     import FixedAssetsSet from "./widget/fixedAssets/fixedAssetsSet.svelte";
     import EnhancedDiarySet from "./widget/enhancedDiary/enhancedDiarySet.svelte";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
         DEFAULT_ENHANCED_DIARY_CONFIG,
         type EnhancedDiaryConfig,
     } from "./widget/enhancedDiary/enhancedDiaryTypes";
-    import {
-        normalizeEnhancedDiaryConfig,
-        saveEnhancedDiaryConfig,
-    } from "./widget/enhancedDiary/enhancedDiaryConfig";
     import {
         loadCountdownEvents,
         migrateLegacyCountdownEventsIfNeeded,
@@ -159,7 +156,7 @@
     let tasksSort: string = $state("startdate");
 
     // 快速笔记相关变量
-    let quickNotesTitle: string = $state("📝快速笔记");
+    let quickNotesTitle: string = $state("快速笔记");
     let quickNotesSort: string = $state("DOC_ASC");
 
     // 便签相关变量
@@ -205,7 +202,7 @@
 
     // 热力图相关
     let timeRangeType: "past" | "custom" = "past";
-    let heatmapTitle: string = $state("📅创作热力图");
+    let heatmapTitle: string = $state("创作热力图");
     let pastMonthCount: number = $state(6);
     let showLabel: boolean = $state(true);
     let selectedColorPreset: "github" | "blue" | "custom" = $state("github");
@@ -292,7 +289,7 @@
     let focusDatabaseId: string = $state("");
 
     // SQL 查询
-    let sqlTitle: string = $state("🔍SQL 查询结果");
+    let sqlTitle: string = $state("SQL 查询结果");
     let sqlInput: string = $state("");
     let columnOrder: string = $state("");
     let hiddenFields: string = $state("");
@@ -1233,6 +1230,9 @@
                     <option value="childDocs">子文档</option>
                     <option value="conditionDocs">条件文档</option>
                     <option value="stikynot">便签👑</option>
+                    {#if advancedEnabled || selectedContentType === "enhancedDiary"}
+                        <option value="enhancedDiary" disabled={!advancedEnabled}>强化日记会员专属</option>
+                    {/if}
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1318,6 +1318,8 @@
                         bind:conditionDocsFloatDocShowTime
                         bind:conditionDocsTag
                     />
+                {:else if selectedContentType === "enhancedDiary"}
+                    <EnhancedDiarySet {plugin} bind:draftConfig={enhancedDiaryDraftConfig} />
                 {/if}
             </div>
         {:else if activeTab === "info"}
@@ -1374,6 +1376,7 @@
             <div class="dynamic-content-area">
                 {#if selectedContentType === "heatmap"}
                     <HeatmapSet
+                        {advancedEnabled}
                         bind:heatmapTitle
                         bind:pastMonthCount
                         bind:showLabel
@@ -1443,7 +1446,6 @@
                     <option value="PicCaro">图片轮播👑</option>
                     <option value="CYBMOK">赛博木鱼👑</option>
                     <option value="countdownTimer">倒计时👑</option>
-                    <option value="enhancedDiary">强化日记</option>
                     <option value="fixedAssets">固定资产👑</option>
                 </select>
             </div>
@@ -1566,8 +1568,6 @@
                         bind:fixedAssetsShowYearly
                         bind:fixedAssetsItemCostPeriod
                     />
-                {:else if selectedContentType === "enhancedDiary"}
-                    <EnhancedDiarySet {plugin} bind:draftConfig={enhancedDiaryDraftConfig} />
                 {/if}
             </div>
         {:else if activeTab === "custom"}
@@ -2110,23 +2110,18 @@
                         blockId: currentBlockId,
                         data: {},
                     };
-                    try {
-                        const normalized = normalizeEnhancedDiaryConfig(enhancedDiaryDraftConfig);
-                        await saveEnhancedDiaryConfig(plugin, normalized);
-                        enhancedDiaryDraftConfig = normalized;
-                    } catch (err) {
-                        console.warn("[contentSetting] 保存强化日记设置失败", err);
-                        showMessage("强化日记设置保存失败，请稍后重试", 4000);
-                        return;
-                    }
                 }
 
                 await syncCurrentDatabaseWidgetConfig(contentTypeJson);
                 onConfirm(JSON.stringify(contentTypeJson));
             }}
         >
-            ✔ 确定
+            <SiyuanIcon name="confirm" size={14} />
+            <span>确定</span>
         </button>
-        <button class="cancel-button" onclick={onClose}>❌ 取消</button>
+        <button class="cancel-button" onclick={onClose}>
+            <SiyuanIcon name="cancel" size={14} />
+            <span>取消</span>
+        </button>
     </div>
 </div>

@@ -2,6 +2,7 @@
     import { run } from 'svelte/legacy';
 
     import { onMount, onDestroy } from "svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -114,17 +115,34 @@
                 class="control-button pause-button"
                 onclick={togglePause}
                 disabled={!isRunning}
+                aria-label={isPaused ? "Resume countdown" : "Pause countdown"}
+                title={isPaused ? "Resume countdown" : "Pause countdown"}
             >
                 <i class="fas {isPaused ? 'fa-play' : 'fa-pause'}"></i>
             </button>
-            <button class="control-button stop-button" onclick={stopCountdown}>
+            <button
+                class="control-button stop-button"
+                onclick={stopCountdown}
+                aria-label="Stop countdown"
+                title="Stop countdown"
+            >
                 <i class="fas fa-stop"></i>
             </button>
         </div>
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="倒计时"
+                subtitle="重要日期倒计时组件，多种样式可选。"
+                icon="time"
+                features={[
+                    "重要日期倒计时",
+                    "多种样式展示",
+                    "适合考试、DDL、纪念日"
+                ]}
+                highlights={["倒计时", "多样式", "纪念日"]}
+                compact
+            />
         </div>
     {/if}
 </div>

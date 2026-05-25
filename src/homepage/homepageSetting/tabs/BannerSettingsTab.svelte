@@ -1,6 +1,7 @@
 <script lang="ts">
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
+    import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
 
     let fileInputEl: HTMLInputElement | null = $state(null);
 
@@ -97,7 +98,9 @@
                     <button
                         onclick={() => fileInputEl?.click()}
                         class="file-action-btn"
-                    >📁</button>
+                    >
+                        <SiyuanIcon name="folder" size={14} />
+                    </button>
                     <input
                         type="file"
                         accept="image/*"

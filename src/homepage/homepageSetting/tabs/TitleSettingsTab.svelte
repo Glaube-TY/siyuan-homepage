@@ -3,6 +3,7 @@
     import { normalizeSiyuanDocIcon } from '@/components/tools/docIcon';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
+    import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
 
     let iconInputEl: HTMLInputElement | null = $state(null);
     let emojiButtonRef: HTMLButtonElement | null = $state(null);
@@ -103,7 +104,9 @@
                 <button
                     onclick={() => iconInputEl?.click()}
                     class="file-action-btn"
-                >📁</button>
+                >
+                    <SiyuanIcon name="folder" size={14} />
+                </button>
                 <input
                     type="file"
                     accept="image/*"

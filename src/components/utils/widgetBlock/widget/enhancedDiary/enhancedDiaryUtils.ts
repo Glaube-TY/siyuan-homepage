@@ -245,6 +245,33 @@ export function isPeriodDue(
     return baseDateStr >= targetDateStr;
 }
 
+export function isReviewReminderWindowActive(
+    period: EnhancedDiaryPeriod,
+    baseDate: Date,
+    targetDate: Date,
+    config: EnhancedDiaryConfig
+): boolean {
+    if (period === "day") {
+        return true;
+    }
+
+    const window = config.reviewReminderWindows?.[period as "week" | "month" | "year"];
+    if (!window) {
+        return true;
+    }
+
+    const baseStr = formatDiaryDate(baseDate);
+    const beforeDate = new Date(targetDate.getTime());
+    beforeDate.setDate(beforeDate.getDate() - window.beforeDays);
+    const afterDate = new Date(targetDate.getTime());
+    afterDate.setDate(afterDate.getDate() + window.afterDays);
+
+    const beforeStr = formatDiaryDate(beforeDate);
+    const afterStr = formatDiaryDate(afterDate);
+
+    return baseStr >= beforeStr && baseStr <= afterStr;
+}
+
 export function scanDiaryContentForPeriod(
     content: string,
     period: EnhancedDiaryPeriod
@@ -300,6 +327,13 @@ export function getEnhancedDiaryStatus(
     args: EnhancedDiaryStatusArgs
 ): EnhancedDiaryStatus {
     const { docExists, content, period, baseDate, targetDate, config } = args;
+
+    if (period !== "day") {
+        const effectiveTarget = targetDate || getPeriodTargetDate(period, baseDate, config);
+        if (!isReviewReminderWindowActive(period, baseDate, effectiveTarget, config)) {
+            return "not_due";
+        }
+    }
 
     if (!docExists) {
         return "not_created";

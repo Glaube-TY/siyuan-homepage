@@ -11,7 +11,7 @@
         onClose: () => void;
     }
 
-    let { task = null, initialInput = {}, mode, onSubmit, onClose }: Props = $props();
+    let { task = null, initialInput = {}, mode: _mode, onSubmit, onClose }: Props = $props();
 
     let taskname = $state("");
     let priority = $state("");
@@ -55,127 +55,61 @@
     });
 </script>
 
-<div class="modal-backdrop" role="presentation" onclick={onClose}>
-    <section
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        tabindex="-1"
-        onclick={(event) => event.stopPropagation()}
-        onkeydown={(event) => event.stopPropagation()}
-    >
-        <header>
-            <h2>{mode === "create" ? "新建任务" : "编辑任务"}</h2>
-            <button type="button" onclick={onClose} aria-label="关闭">×</button>
-        </header>
-
-        <div class="form">
-            <label>任务名称
-                <input bind:value={taskname} type="text" placeholder="输入任务名称" />
+<div class="task-editor-form">
+    <div class="form">
+        <label>任务名称
+            <input bind:value={taskname} type="text" placeholder="输入任务名称" />
+        </label>
+        <div class="row">
+            <label>开始日期
+                <input bind:value={startDate} type="date" />
             </label>
-            <div class="row">
-                <label>开始日期
-                    <input bind:value={startDate} type="date" />
-                </label>
-                <label>截止日期
-                    <input bind:value={deadline} type="date" />
-                </label>
-            </div>
-            <div class="row">
-                <label>优先级
-                    <select bind:value={priority}>
-                        <option value="">无</option>
-                        <option value="❗">低</option>
-                        <option value="❗❗">中</option>
-                        <option value="❗❗❗">高</option>
-                        <option value="❗❗❗❗">紧急</option>
-                    </select>
-                </label>
-                <label>标签
-                    <input bind:value={tagsText} type="text" placeholder="多个标签用空格或逗号分隔" />
-                </label>
-            </div>
-            <div class="row">
-                <label>重复
-                    <input bind:value={recurrence} type="text" placeholder="例如：每天、每周" />
-                </label>
-                <label>提醒
-                    <input bind:value={reminder} type="text" placeholder="YYYY-MM-DD HH:mm 或 HH:mm" />
-                </label>
-            </div>
-            <label>地点
-                <input bind:value={location} type="text" />
+            <label>截止日期
+                <input bind:value={deadline} type="date" />
             </label>
         </div>
+        <div class="row">
+            <label>优先级
+                <select bind:value={priority}>
+                    <option value="">无</option>
+                    <option value="❗">低</option>
+                    <option value="❗❗">中</option>
+                    <option value="❗❗❗">高</option>
+                    <option value="❗❗❗❗">紧急</option>
+                </select>
+            </label>
+            <label>标签
+                <input bind:value={tagsText} type="text" placeholder="多个标签用空格或逗号分隔" />
+            </label>
+        </div>
+        <div class="row">
+            <label>重复
+                <input bind:value={recurrence} type="text" placeholder="例如：每天、每周" />
+            </label>
+            <label>提醒
+                <input bind:value={reminder} type="text" placeholder="YYYY-MM-DD HH:mm 或 HH:mm" />
+            </label>
+        </div>
+        <label>地点
+            <input bind:value={location} type="text" />
+        </label>
+    </div>
 
-        <footer>
-            <button type="button" onclick={onClose}>取消</button>
-            <button type="button" class="primary" onclick={submit}>确认</button>
-        </footer>
-    </section>
+    <footer>
+        <button type="button" onclick={onClose}>取消</button>
+        <button type="button" class="primary" onclick={submit}>确认</button>
+    </footer>
 </div>
 
 <style>
-    .modal-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 100000;
+    .task-editor-form {
         display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.32);
-        padding: 20px;
-        backdrop-filter: blur(2px);
-    }
-
-    .modal {
-        width: min(620px, 100%);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 14px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
-        overflow: hidden;
-    }
-
-    header,
-    footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        padding: 16px 18px;
-        border-bottom: 1px solid var(--b3-border-color);
-    }
-
-    footer {
-        border-top: 1px solid var(--b3-border-color);
-        border-bottom: none;
-        justify-content: flex-end;
-        background: var(--b3-theme-surface);
-    }
-
-    h2 {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 600;
-        letter-spacing: 0;
-    }
-
-    header button {
-        border: none;
-        background: transparent;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.5;
-        font-size: 18px;
-        padding: 2px 6px;
-        cursor: pointer;
-        border-radius: 4px;
-    }
-
-    header button:hover {
-        opacity: 1;
-        background: var(--b3-theme-surface);
+        flex-direction: column;
+        min-height: 0;
+        width: 100%;
+        box-sizing: border-box;
+        flex: 1;
+        min-width: 0;
     }
 
     .form {
@@ -183,6 +117,8 @@
         flex-direction: column;
         gap: 14px;
         padding: 18px;
+        width: 100%;
+        box-sizing: border-box;
     }
 
     .row {
@@ -199,6 +135,7 @@
         font-weight: 500;
         color: var(--b3-theme-on-surface);
         opacity: 0.8;
+        min-width: 0;
     }
 
     input,
@@ -210,12 +147,26 @@
         padding: 8px 10px;
         font-size: 13px;
         transition: border-color 0.12s;
+        width: 100%;
+        box-sizing: border-box;
     }
 
     input:focus,
     select:focus {
         outline: none;
         border-color: var(--b3-theme-primary);
+    }
+
+    footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 16px 18px;
+        border-top: 1px solid var(--b3-border-color);
+        background: var(--b3-theme-surface);
+        width: 100%;
+        box-sizing: border-box;
     }
 
     footer button {

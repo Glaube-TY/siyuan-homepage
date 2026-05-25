@@ -23,7 +23,7 @@
 
     async function addQuickNote() {
         if (quickNotesContent === "") {
-            showMessage("❌请输入内容");
+            showMessage("请输入内容");
             return;
         }
 

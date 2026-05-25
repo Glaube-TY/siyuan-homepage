@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import { getImage } from "@/components/tools/getImage";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
         loadCountdownEvents,
         migrateLegacyCountdownEventsIfNeeded,
@@ -243,13 +244,13 @@
         <div class="countdown-state">{databaseStatusMessage}</div>
     {:else if countdownStyle === "list1"}
         <div class="content-display-list1">
-            <h3 class="widget-title">📅 倒数日</h3>
+            <h3 class="widget-title"><SiyuanIcon name="calendar" size={16} />倒数日</h3>
             <ul class="countdown-list">
                 {#each countdownEvents as event (event.id || event.name)}
                     <li class="countdown-item">
                         <div class="countdown-name">{event.name}</div>
                         <div class="countdown-date">
-                            📅 {formatDate(event.date)}
+                            <SiyuanIcon name="calendar" size={12} />{formatDate(event.date)}
                             {#if event.anniversary}
                                 <span class="anniversary-badge">周年</span>
                             {/if}
@@ -305,7 +306,7 @@
         >
             <button
                 class="countdown-button countdown-button-left"
-                onclick={previousEvent}>◀︎</button
+                onclick={previousEvent}><SiyuanIcon name="previous" size={18} /></button
             >
             {#if countdownEvents.length > 0}
                 <svg viewBox="0 0 100 100">
@@ -406,14 +407,14 @@
             {/if}
             <button
                 class="countdown-button countdown-button-right"
-                onclick={nextEvent}>▶︎</button
+                onclick={nextEvent}><SiyuanIcon name="next" size={18} /></button
             >
         </div>
     {:else if countdownStyle === "card2"}
         <div class="content-display-card2">
             <button
                 class="countdown-button countdown-button-left"
-                onclick={previousEvent}>◀︎</button
+                onclick={previousEvent}><SiyuanIcon name="previous" size={18} /></button
             >
             {#if countdownEvents.length > 0}
                 <svg viewBox="0 0 100 100">
@@ -506,7 +507,7 @@
             {/if}
             <button
                 class="countdown-button countdown-button-right"
-                onclick={nextEvent}>▶︎</button
+                onclick={nextEvent}><SiyuanIcon name="next" size={18} /></button
             >
         </div>
     {/if}
@@ -545,8 +546,10 @@
                 padding-bottom: 0.3rem;
                 border-bottom: 1px solid var(--b3-border-color);
                 text-align: center;
-                display: inline-block;
+                display: inline-flex;
                 line-height: 1.2;
+                align-items: center;
+                gap: 6px;
             }
 
             .countdown-list {
@@ -584,6 +587,9 @@
                     font-size: 12px;
                     color: var(--b3-theme-secondary);
                     margin-left: 1rem;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
                 }
 
                 .countdown-days {

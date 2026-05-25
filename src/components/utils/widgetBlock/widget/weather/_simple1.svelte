@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         city: string;
@@ -152,8 +153,18 @@
         </svg>
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="天气"
+                subtitle="主页查看天气状态，辅助安排日常计划。"
+                icon="cloud"
+                features={[
+                    "主页查看天气状态",
+                    "支持简洁卡片展示",
+                    "辅助安排日常计划"
+                ]}
+                highlights={["实时天气", "简洁卡片", "日常计划"]}
+                compact
+            />
         </div>
     {/if}
 </div>

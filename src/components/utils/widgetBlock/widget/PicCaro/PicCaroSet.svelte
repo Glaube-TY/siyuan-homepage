@@ -2,6 +2,7 @@
     import DirectoryPathSetting from "../../shared/DirectoryPathSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled: boolean;
@@ -103,6 +104,16 @@
             {/if}
         </SettingSection>
     {:else}
-        <h3>👑会员专属权益👑</h3>
+        <AdvancedFeatureLock
+            title="图片轮播"
+            subtitle="精美图片自动轮播，让主页更有视觉冲击力。"
+            icon="image"
+            features={[
+                "自动轮播展示图片",
+                "支持多种切换动画效果",
+                "适合摄影作品和壁纸展示"
+            ]}
+            highlights={["自动轮播", "动画效果", "视觉展示"]}
+        />
     {/if}
 </div>

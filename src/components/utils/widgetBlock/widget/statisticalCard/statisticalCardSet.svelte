@@ -1,6 +1,7 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     let {
         advancedEnabled,
@@ -79,7 +80,17 @@
         </SettingSection>
     {/if}
 {:else}
-    <h3>👑会员专属权益👑</h3>
+    <AdvancedFeatureLock
+        title="统计卡片"
+        subtitle="数据统计可视化，直观展示关键指标。"
+        icon="barChart"
+        features={[
+            "数据统计可视化",
+            "自定义统计维度",
+            "适合数据追踪和展示"
+        ]}
+        highlights={["数据可视化", "自定义维度", "关键指标"]}
+    />
 {/if}
 
 <style lang="scss">

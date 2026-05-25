@@ -19,6 +19,7 @@
     import { openSiyuanEmojiPicker } from "@/homepage/homepageSetting/emojiPicker";
     import { resolveConfiguredDocIcon } from "@/components/tools/docIcon";
     import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -340,9 +341,19 @@
 
 <div class="fixed-assets-widget">
     {#if !advancedEnabled}
-        <div class="vip-state">
-            <div class="vip-title">会员专属功能</div>
-            <p>开通会员后可记录固定资产，并自动计算每天、每小时和每月的使用成本。</p>
+        <div class="content-not-advanced">
+            <AdvancedFeatureLock
+                title="固定资产"
+                subtitle="资产记录与动态成本计算，量化你的消费价值。"
+                icon="database"
+                features={[
+                    "固定资产记录和管理",
+                    "动态成本计算（日/周/月/年）",
+                    "适合资产追踪和财务分析"
+                ]}
+                highlights={["资产记录", "成本计算", "财务分析"]}
+                compact
+            />
         </div>
     {:else if isLoading}
         <div class="state-text">加载固定资产...</div>
@@ -538,8 +549,17 @@
         background: transparent;
     }
 
+    .content-not-advanced {
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+        padding: 8px;
+    }
+
     .state-text,
-    .vip-state,
     .setup-state,
     .empty-state {
         flex: 1;
@@ -553,14 +573,12 @@
         color: var(--b3-theme-on-surface-light);
     }
 
-    .vip-title,
     .setup-title {
         font-size: 1rem;
         font-weight: 700;
         color: var(--b3-theme-primary);
     }
 
-    .vip-state p,
     .setup-state p,
     .empty-state p {
         margin: 0;

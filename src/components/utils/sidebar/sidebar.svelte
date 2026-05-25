@@ -3,6 +3,8 @@
     import Sortable from "sortablejs";
     import { saveLayout, restoreLayout } from "./widget_layout";
     import { addCustomBlock } from "./block-creator";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import AdvancedFeatureLock from "../widgetBlock/widget/common/AdvancedFeatureLock.svelte";
     import "./siderBar.scss";
 
     interface Props {
@@ -114,13 +116,26 @@
                 class="add-widget-btn"
                 onclick={() =>
                     addCustomBlock(plugin, currentBlockForSettingsRef, sidebarWidgetContainer)}
-                >➕添加组件</button
+                >
+                    <SiyuanIcon name="create" size={14} />
+                    <span>添加组件</span>
+                </button
             >
         </div>
     {:else}
         <div class="sidebar-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="侧边栏组件库"
+                subtitle="自定义侧边栏布局，自由拖拽排序和添加组件。"
+                icon="layout"
+                features={[
+                    "自定义侧边栏布局",
+                    "自由拖拽排序",
+                    "灵活添加各类组件"
+                ]}
+                highlights={["拖拽布局", "组件库", "自定义排序"]}
+                compact
+            />
         </div>
     {/if}
 </div>

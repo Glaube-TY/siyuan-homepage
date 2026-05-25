@@ -1,8 +1,10 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
+        advancedEnabled?: boolean;
         // 热力图配置变量
         heatmapTitle?: string;
         pastMonthCount?: number;
@@ -13,7 +15,8 @@
     }
 
     let {
-        heatmapTitle = $bindable("📅创作热力图"),
+        advancedEnabled = false,
+        heatmapTitle = $bindable("创作热力图"),
         pastMonthCount = $bindable(6),
         showLabel = $bindable(true),
         selectedColorPreset = $bindable("github"),
@@ -61,10 +64,23 @@
         </select>
     </SettingRow>
     {#if heatmapCountType === "words"}
+        {#if advancedEnabled}
         <div class="help-block">
-            <p>👑订阅会员专属</p>
             <p>字数统计的块类型为：段落块、标题块、列表块、代码块、公式块、引注块、表格块</p>
         </div>
+        {:else}
+        <AdvancedFeatureLock
+            title="字数热力图"
+            subtitle="按字数统计创作热力图，直观展示写作强度。"
+            icon="edit"
+            features={[
+                "按字数统计创作热力图",
+                "支持多种颜色预设",
+                "适合写作爱好者追踪创作量"
+            ]}
+            highlights={["字数统计", "创作追踪", "可视化"]}
+        />
+        {/if}
     {/if}
 </SettingSection>
 

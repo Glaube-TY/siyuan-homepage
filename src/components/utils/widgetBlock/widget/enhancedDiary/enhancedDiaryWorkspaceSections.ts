@@ -1,4 +1,4 @@
-import type { EnhancedDiaryHeadingNode, EnhancedDiarySectionLookupResult } from "./enhancedDiaryMarkdownSections";
+import type { EnhancedDiaryHeadingNode, EnhancedDiaryHeadingLevel, EnhancedDiarySectionLookupResult } from "./enhancedDiaryMarkdownSections";
 import {
     findRootHeading,
     findDirectChildHeading,
@@ -15,6 +15,16 @@ export const ENHANCED_DIARY_DAY_WORKSPACE_SECTION_TITLES = {
     taskLog: "任务动态",
     dailyReview: "今日复盘",
 } as const;
+
+export const ENHANCED_DIARY_DAY_WORKSPACE_SECTION_PATHS: Record<EnhancedDiaryDayWorkspaceSectionKey, string[]> = {
+    overview: ["今日概览"],
+    newTasks: ["任务管理", "新建任务"],
+    migratedTasks: ["任务管理", "迁移任务"],
+    quickRecords: ["快速记录"],
+    projectProgress: ["项目推进"],
+    taskLog: ["任务管理", "任务动态"],
+    dailyReview: ["今日复盘"],
+};
 
 export type EnhancedDiaryDayWorkspaceSectionKey = keyof typeof ENHANCED_DIARY_DAY_WORKSPACE_SECTION_TITLES;
 
@@ -82,20 +92,40 @@ export function getDayWorkspaceSection(
     markdown: string,
     sectionKey: EnhancedDiaryDayWorkspaceSectionKey
 ): EnhancedDiaryWorkspaceSectionResult {
-    const sectionTitle = ENHANCED_DIARY_DAY_WORKSPACE_SECTION_TITLES[sectionKey];
+    const path = ENHANCED_DIARY_DAY_WORKSPACE_SECTION_PATHS[sectionKey];
     const dayRootLookup = findRootHeading(markdown, "day");
+    const fullPath = ["今日日记", ...path];
 
     if (!dayRootLookup.found || !dayRootLookup.node) {
         return {
             found: false,
             markdown: "",
             missingTitle: dayRootLookup.missingTitle,
-            path: ["今日日记", sectionTitle],
+            path: fullPath,
         };
     }
 
-    const childLookup = findDirectChildHeading(dayRootLookup.node, sectionTitle, 2);
-    return toWorkspaceSectionResult(markdown, childLookup, ["今日日记", sectionTitle]);
+    let currentNode = dayRootLookup.node;
+    for (let i = 0; i < path.length; i++) {
+        const expectedLevel = (i + 2) as EnhancedDiaryHeadingLevel;
+        const childLookup = findDirectChildHeading(currentNode, path[i], expectedLevel);
+        if (!childLookup.found || !childLookup.node) {
+            return {
+                found: false,
+                markdown: "",
+                missingTitle: childLookup.missingTitle,
+                path: fullPath,
+            };
+        }
+        currentNode = childLookup.node;
+    }
+
+    return {
+        found: true,
+        node: currentNode,
+        markdown: getSectionMarkdown(markdown, currentNode),
+        path: fullPath,
+    };
 }
 
 export function getDayWorkspaceSections(markdown: string): EnhancedDiaryDayWorkspaceMap {
@@ -231,3 +261,32 @@ export function assertSectionReady(
         message: `当前日记缺少「${pathStr}」区块，请补充模板或恢复标题。`,
     };
 }
+
+const CATEGORY_ENTRIES = Object.entries(
+    ENHANCED_DIARY_RECORD_CATEGORY_TITLES
+) as Array<[EnhancedDiaryRecordCategoryKey, string]>;
+
+export function normalizeRecordCategoryTitle(title: string): string {
+    const trimmed = title.trim().replace(/\n/g, " ").replace(/\r/g, "");
+    if (!trimmed) return "未分类";
+    return trimmed.slice(0, 30);
+}
+
+export function resolveRecordCategoryTitle(
+    title: string
+): { key: string; title: string } {
+    const normalized = normalizeHeadingTitle(title);
+    const known = CATEGORY_ENTRIES.find(([, categoryTitle]) => categoryTitle === normalized);
+    if (known) {
+        return { key: known[0], title: known[1] };
+    }
+    return { key: `custom:${normalized}`, title: normalized };
+}
+
+export const ENHANCED_DIARY_RECORD_SUGGESTED_CATEGORIES = [
+    ENHANCED_DIARY_RECORD_CATEGORY_TITLES.uncategorized,
+    ENHANCED_DIARY_RECORD_CATEGORY_TITLES.idea,
+    ENHANCED_DIARY_RECORD_CATEGORY_TITLES.problem,
+    ENHANCED_DIARY_RECORD_CATEGORY_TITLES.decision,
+    ENHANCED_DIARY_RECORD_CATEGORY_TITLES.log,
+];

@@ -3,6 +3,7 @@
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
     import type { EnhancedDiaryWorkspaceReviewCard } from "../enhancedDiaryWorkspaceViewModel";
     import type { WorkspaceTaskStatusFilter } from "../enhancedDiaryWorkspaceNavigation";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         hasActionItems: boolean;
@@ -45,7 +46,7 @@
         <div class="action-list">
             {#if hasNoDiaryReminder}
                 <div class="action-item level-danger">
-                    <span class="action-icon">📅</span>
+                    <span class="action-icon"><WorkspaceIcon name="calendar" size={18} /></span>
                     <div class="action-content">
                         <strong>今日无日记</strong>
                         <span>今天还没有创建日记，建议先打开或创建今日日记。</span>
@@ -56,7 +57,7 @@
 
             {#if hasTemplateMissing}
                 <div class="action-item level-warning">
-                    <span class="action-icon">🔧</span>
+                    <span class="action-icon"><WorkspaceIcon name="template" size={18} /></span>
                     <div class="action-content">
                         <strong>模板缺失</strong>
                         <span>今日日记模板结构不完整，可能影响写入操作。</span>
@@ -67,7 +68,7 @@
 
             {#each overdueTasks as task}
                 <div class="action-item level-danger">
-                    <span class="action-icon">⚠️</span>
+                    <span class="action-icon"><WorkspaceIcon name="warning" size={18} /></span>
                     <div class="action-content">
                         <strong>{task.taskname}</strong>
                         <span>逾期任务{task.deadline ? `，截止 ${task.deadline}` : ""}，建议尽快处理。</span>
@@ -78,7 +79,7 @@
 
             {#each migrateTasks as task}
                 <div class="action-item level-warning">
-                    <span class="action-icon">📦</span>
+                    <span class="action-icon"><WorkspaceIcon name="migrate" size={18} /></span>
                     <div class="action-content">
                         <strong>{task.taskname}</strong>
                         <span>建议迁移到今日{task.sourceDate ? `（来自 ${task.sourceDate}）` : ""}。</span>
@@ -89,7 +90,7 @@
 
             {#each pendingReviewCards as card}
                 <div class="action-item level-info">
-                    <span class="action-icon">🔄</span>
+                    <span class="action-icon"><WorkspaceIcon name="review" size={18} /></span>
                     <div class="action-content">
                         <strong>{card.title}</strong>
                         <span>{card.statusLabel}，{card.dateOrRange} 需要处理。</span>

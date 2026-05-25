@@ -1,6 +1,7 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     let { advancedEnabled, stikynotStyle = $bindable() } = $props();
 </script>
@@ -24,5 +25,15 @@
         </SettingRow>
     </SettingSection>
 {:else}
-    <h3>👑会员专属权益👑</h3>
+    <AdvancedFeatureLock
+        title="便签"
+        subtitle="快速记录灵感和备忘，支持富文本编辑。"
+        icon="edit"
+        features={[
+            "快速记录灵感和备忘",
+            "支持富文本编辑",
+            "适合日常笔记和待办"
+        ]}
+        highlights={["快速记录", "富文本", "备忘录"]}
+    />
 {/if}

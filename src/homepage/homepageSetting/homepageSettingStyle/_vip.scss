@@ -84,6 +84,35 @@
             color: #ffb74d;
         }
 
+        h3 {
+            margin: 0.5rem 0;
+            text-align: center;
+
+            .vip-benefits-link {
+                display: inline-block;
+                padding: 0.8rem 1.5rem;
+                background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+                color: #fff;
+                text-decoration: none;
+                font-weight: bold;
+                font-size: 1.1rem;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(255, 170, 0, 0.3);
+                transition: all 0.3s ease;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+
+                &:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 16px rgba(255, 170, 0, 0.4);
+                    background: linear-gradient(135deg, #ffed4e 0%, #ffc107 100%);
+                }
+
+                &:active {
+                    transform: translateY(0);
+                }
+            }
+        }
+
         .code-box {
             display: flex;
             align-items: center;
@@ -239,6 +268,52 @@
             }
         }
 
+        .plan-item.permanent {
+            position: relative;
+            background: linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%);
+            border: 2px solid #ef4444;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15);
+            flex-direction: column;
+            gap: 0.5rem;
+            padding: 1.2rem 1rem;
+
+            &:hover {
+                transform: translateY(-6px);
+                box-shadow: 0 6px 16px rgba(239, 68, 68, 0.25);
+            }
+
+            .plan-badge {
+                position: absolute;
+                top: -10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+                color: white;
+                font-size: 0.75rem;
+                font-weight: bold;
+                padding: 0.2rem 0.6rem;
+                border-radius: 12px;
+                white-space: nowrap;
+            }
+
+            .plan-price {
+                color: #ef4444;
+            }
+
+            .plan-duration {
+                color: #ef4444;
+                font-weight: 600;
+                font-size: 1rem;
+            }
+
+            .plan-urgency {
+                color: #f97316;
+                font-size: 0.85rem;
+                font-weight: bold;
+                animation: pulse 2s ease-in-out infinite;
+            }
+        }
+
         .question-card {
             background: var(--b3-theme-surface);
             border-radius: 8px;
@@ -385,5 +460,14 @@
 
     .copy-button {
         width: 100%;
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
     }
 }

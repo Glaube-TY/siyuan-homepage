@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
     import { forwardProxy } from "@/api";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -10,8 +11,16 @@
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const historyDaysType = parsedContent.data?.historyDaysType || "list";
+    function parseContentTypeJson(raw: string): any {
+        try {
+            return JSON.parse(raw || "{}");
+        } catch {
+            return {};
+        }
+    }
+
+    const parsedContent = $derived(parseContentTypeJson(contentTypeJson));
+    const historyDaysType = $derived(parsedContent.data?.historyDaysType || "list");
 
     let historyDaysList: any[] = $state([]);
     let historyDaysImage: string = $state("");
@@ -113,8 +122,18 @@
         </div>
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="历史上的今天"
+                subtitle="查看历史事件，丰富主页内容。"
+                icon="history"
+                features={[
+                    "查看历史事件",
+                    "丰富主页内容",
+                    "适合知识型主页"
+                ]}
+                highlights={["历史事件", "知识型", "每日更新"]}
+                compact
+            />
         </div>
     {/if}
 </div>

@@ -1,7 +1,8 @@
 import { appendBlock, getChildBlocks, insertBlock } from "@/api";
 import {
-    ENHANCED_DIARY_DAY_WORKSPACE_SECTION_TITLES,
+    ENHANCED_DIARY_DAY_WORKSPACE_SECTION_PATHS,
     ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
+    normalizeRecordCategoryTitle,
     type EnhancedDiaryDayWorkspaceSectionKey,
     type EnhancedDiaryRecordCategoryKey,
 } from "./enhancedDiaryWorkspaceSections";
@@ -152,7 +153,8 @@ export async function findDayWorkspaceHeadingBlock(
 ): Promise<EnhancedDiaryHeadingBlockLookup> {
     const headings = await getDocumentHeadingBlocks(docId);
     const dayTitle = ENHANCED_DIARY_ROOT_HEADINGS.day;
-    const sectionTitle = ENHANCED_DIARY_DAY_WORKSPACE_SECTION_TITLES[sectionKey];
+    const path = ENHANCED_DIARY_DAY_WORKSPACE_SECTION_PATHS[sectionKey];
+    const fullPath = [dayTitle, ...path];
     const root = findRootHeadingBlock(headings, dayTitle);
 
     if (!root) {
@@ -160,25 +162,30 @@ export async function findDayWorkspaceHeadingBlock(
             found: false,
             headings,
             missingTitle: `# ${dayTitle}`,
-            path: [dayTitle, sectionTitle],
+            path: fullPath,
         };
     }
 
-    const section = findChildHeadingBlock(headings, root, sectionTitle, 2);
-    if (!section) {
-        return {
-            found: false,
-            headings,
-            missingTitle: `## ${sectionTitle}`,
-            path: [dayTitle, sectionTitle],
-        };
+    let currentParent: EnhancedDiaryHeadingBlock = root;
+    for (let i = 0; i < path.length; i++) {
+        const expectedLevel = (i + 2) as EnhancedDiaryHeadingLevel;
+        const child = findChildHeadingBlock(headings, currentParent, path[i], expectedLevel);
+        if (!child) {
+            return {
+                found: false,
+                headings,
+                missingTitle: `${"#".repeat(expectedLevel)} ${path[i]}`,
+                path: fullPath,
+            };
+        }
+        currentParent = child;
     }
 
     return {
         found: true,
-        heading: section,
+        heading: currentParent,
         headings,
-        path: [dayTitle, sectionTitle],
+        path: fullPath,
     };
 }
 
@@ -269,6 +276,54 @@ export async function appendMarkdownToRecordCategory(params: {
 }): Promise<EnhancedDiaryInsertResult> {
     const lookup = await findRecordCategoryHeadingBlock(params.docId, params.categoryKey);
     return insertMarkdownAtHeadingEnd(params.docId, lookup, params.markdown);
+}
+
+export async function appendMarkdownToRecordCategoryByTitle(params: {
+    docId: string;
+    categoryTitle: string;
+    markdown: string;
+}): Promise<EnhancedDiaryInsertResult> {
+    const normalizedTitle = normalizeRecordCategoryTitle(params.categoryTitle);
+    const quickRecords = await findDayWorkspaceHeadingBlock(params.docId, "quickRecords");
+
+    if (!quickRecords.found || !quickRecords.heading) {
+        return {
+            ok: false,
+            reason: "missing_quick_records_heading",
+            path: [...quickRecords.path, normalizedTitle],
+        };
+    }
+
+    const category = findChildHeadingBlock(
+        quickRecords.headings,
+        quickRecords.heading,
+        normalizedTitle,
+        3
+    );
+
+    if (!category) {
+        const nextBoundary = findNextBoundaryHeading(quickRecords.headings, quickRecords.heading);
+        const categoryMarkdown = `### ${normalizedTitle}\n\n${params.markdown}`;
+
+        try {
+            if (nextBoundary) {
+                await insertBlock("markdown", categoryMarkdown, nextBoundary.id);
+            } else {
+                await appendBlock("markdown", categoryMarkdown, params.docId);
+            }
+            return { ok: true, path: [...quickRecords.path, normalizedTitle] };
+        } catch (err) {
+            console.warn("[enhancedDiaryBlockLocator] insert category failed", err);
+            return { ok: false, reason: "insert_failed", path: [...quickRecords.path, normalizedTitle] };
+        }
+    }
+
+    return insertMarkdownAtHeadingEnd(params.docId, {
+        found: true,
+        heading: category,
+        headings: quickRecords.headings,
+        path: [...quickRecords.path, normalizedTitle],
+    }, params.markdown);
 }
 
 export async function getDayWorkspaceSectionEndAnchor(params: {

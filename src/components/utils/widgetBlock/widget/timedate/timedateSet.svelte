@@ -2,6 +2,7 @@
     import ImageSourceSetting from "../../shared/ImageSourceSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -101,7 +102,7 @@
         dial9ShowSecond = $bindable(true)
     }: Props = $props();
 
-    let advancedEnabled = $state(Boolean(plugin?.ADVANCED));
+    let advancedEnabled = $derived(Boolean(plugin?.ADVANCED));
 </script>
 
 <SettingSection>
@@ -247,52 +248,150 @@
         </SettingRow>
     </SettingSection>
 
-{:else if timeType === "dial3" && advancedEnabled}
+{:else if timeType === "dial3"}
+    {#if advancedEnabled}
     <SettingSection>
         <SettingRow title="显示秒针">
             <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial3ShowSecond} />
         </SettingRow>
     </SettingSection>
+    {:else}
+    <AdvancedFeatureLock
+        title="时钟"
+        subtitle="多种风格时钟展示，适合主页装饰。"
+        icon="clock"
+        features={[
+            "多种风格时钟展示",
+            "模拟表盘设计",
+            "适合主页装饰和时间感知"
+        ]}
+        highlights={["模拟时钟", "多样式", "主页装饰"]}
+    />
+    {/if}
 
-{:else if timeType === "dial4" && advancedEnabled}
+{:else if timeType === "dial4"}
+    {#if advancedEnabled}
     <SettingSection>
         <SettingRow title="显示秒针">
             <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial4ShowSecond} />
         </SettingRow>
     </SettingSection>
+    {:else}
+    <AdvancedFeatureLock
+        title="时钟"
+        subtitle="多种风格时钟展示，适合主页装饰。"
+        icon="clock"
+        features={[
+            "多种风格时钟展示",
+            "模拟表盘设计",
+            "适合主页装饰和时间感知"
+        ]}
+        highlights={["模拟时钟", "多样式", "主页装饰"]}
+    />
+    {/if}
 
-{:else if timeType === "dial5" && advancedEnabled}
+{:else if timeType === "dial5"}
+    {#if advancedEnabled}
     <SettingSection>
         <SettingRow title="显示秒针">
             <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial5ShowSecond} />
         </SettingRow>
     </SettingSection>
+    {:else}
+    <AdvancedFeatureLock
+        title="时钟"
+        subtitle="多种风格时钟展示，适合主页装饰。"
+        icon="clock"
+        features={[
+            "多种风格时钟展示",
+            "模拟表盘设计",
+            "适合主页装饰和时间感知"
+        ]}
+        highlights={["模拟时钟", "多样式", "主页装饰"]}
+    />
+    {/if}
 
-{:else if timeType === "dial6" && advancedEnabled}
+{:else if timeType === "dial6"}
+    {#if advancedEnabled}
     <SettingSection>
         <SettingRow title="显示秒针">
             <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial6ShowSecond} />
         </SettingRow>
     </SettingSection>
+    {:else}
+    <AdvancedFeatureLock
+        title="时钟"
+        subtitle="多种风格时钟展示，适合主页装饰。"
+        icon="clock"
+        features={[
+            "多种风格时钟展示",
+            "模拟表盘设计",
+            "适合主页装饰和时间感知"
+        ]}
+        highlights={["模拟时钟", "多样式", "主页装饰"]}
+    />
+    {/if}
 
-{:else if timeType === "dial7" && advancedEnabled}
+{:else if timeType === "dial7"}
+    {#if advancedEnabled}
     <SettingSection>
         <SettingRow title="显示秒针">
             <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial7ShowSecond} />
         </SettingRow>
     </SettingSection>
+    {:else}
+    <AdvancedFeatureLock
+        title="时钟"
+        subtitle="多种风格时钟展示，适合主页装饰。"
+        icon="clock"
+        features={[
+            "多种风格时钟展示",
+            "模拟表盘设计",
+            "适合主页装饰和时间感知"
+        ]}
+        highlights={["模拟时钟", "多样式", "主页装饰"]}
+    />
+    {/if}
 
-{:else if timeType === "dial8" && advancedEnabled}
+{:else if timeType === "dial8"}
+    {#if advancedEnabled}
     <SettingSection>
         <SettingRow title="显示秒针">
             <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial8ShowSecond} />
         </SettingRow>
     </SettingSection>
+    {:else}
+    <AdvancedFeatureLock
+        title="时钟"
+        subtitle="多种风格时钟展示，适合主页装饰。"
+        icon="clock"
+        features={[
+            "多种风格时钟展示",
+            "模拟表盘设计",
+            "适合主页装饰和时间感知"
+        ]}
+        highlights={["模拟时钟", "多样式", "主页装饰"]}
+    />
+    {/if}
 
-{:else if timeType === "dial9" && advancedEnabled}
+{:else if timeType === "dial9"}
+    {#if advancedEnabled}
     <SettingSection>
         <SettingRow title="显示秒针">
             <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dial9ShowSecond} />
         </SettingRow>
     </SettingSection>
+    {:else}
+    <AdvancedFeatureLock
+        title="时钟"
+        subtitle="多种风格时钟展示，适合主页装饰。"
+        icon="clock"
+        features={[
+            "多种风格时钟展示",
+            "模拟表盘设计",
+            "适合主页装饰和时间感知"
+        ]}
+        highlights={["模拟时钟", "多样式", "主页装饰"]}
+    />
+    {/if}
 {/if}

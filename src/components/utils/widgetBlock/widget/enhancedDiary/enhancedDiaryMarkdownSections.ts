@@ -30,22 +30,13 @@ export const ENHANCED_DIARY_ROOT_HEADINGS: Record<EnhancedDiaryPeriod, string> =
     year: "年度总结",
 };
 
-export const ENHANCED_DIARY_DAY_SECTION_HEADINGS: string[] = [
-    "今日概览",
-    "新建任务",
-    "迁移任务",
-    "快速记录",
-    "项目推进",
-    "任务动态",
-    "今日复盘",
-];
-
-export const ENHANCED_DIARY_RECORD_CATEGORY_HEADINGS: string[] = [
-    "未分类",
-    "想法",
-    "问题",
-    "决策",
-    "日志",
+export const ENHANCED_DIARY_DAY_REQUIRED_PATHS: Array<{ path: string[]; label: string }> = [
+    { path: ["任务管理"], label: "## 任务管理" },
+    { path: ["任务管理", "新建任务"], label: "### 新建任务" },
+    { path: ["任务管理", "迁移任务"], label: "### 迁移任务" },
+    { path: ["任务管理", "任务动态"], label: "### 任务动态" },
+    { path: ["快速记录"], label: "## 快速记录" },
+    { path: ["今日复盘"], label: "## 今日复盘" },
 ];
 
 export function getLines(markdown: string): string[] {
@@ -192,40 +183,36 @@ export function validateDayWorkspaceStructure(markdown: string): EnhancedDiaryWo
     const missing: string[] = [];
     const roots = parseMarkdownHeadingTree(markdown);
 
-    let rootFound = false;
     let rootNode: EnhancedDiaryHeadingNode | null = null;
 
     for (const node of roots) {
         if (node.level === 1 && headingTitleStartsWith(node, ENHANCED_DIARY_ROOT_HEADINGS.day)) {
-            rootFound = true;
             rootNode = node;
             break;
         }
     }
 
-    if (!rootFound) {
+    if (!rootNode) {
         missing.push(`# ${ENHANCED_DIARY_ROOT_HEADINGS.day}`);
+        return { valid: false, missing };
     }
 
-    if (rootNode) {
-        for (const sectionTitle of ENHANCED_DIARY_DAY_SECTION_HEADINGS) {
-            const childResult = findDirectChildHeading(rootNode, sectionTitle, 2);
-            if (!childResult.found) {
-                missing.push(`## ${sectionTitle}`);
+    for (const { path, label } of ENHANCED_DIARY_DAY_REQUIRED_PATHS) {
+        let currentNode = rootNode;
+        let found = true;
+
+        for (let i = 0; i < path.length; i++) {
+            const expectedLevel = (i + 2) as EnhancedDiaryHeadingLevel;
+            const childResult = findDirectChildHeading(currentNode, path[i], expectedLevel);
+            if (!childResult.found || !childResult.node) {
+                found = false;
+                break;
             }
+            currentNode = childResult.node;
         }
 
-        const recordNode = rootNode.children.find(
-            (c) => c.level === 2 && headingTitleStartsWith(c, "快速记录")
-        );
-
-        if (recordNode) {
-            for (const catTitle of ENHANCED_DIARY_RECORD_CATEGORY_HEADINGS) {
-                const catResult = findDirectChildHeading(recordNode, catTitle, 3);
-                if (!catResult.found) {
-                    missing.push(`## 快速记录 / ### ${catTitle}`);
-                }
-            }
+        if (!found) {
+            missing.push(label);
         }
     }
 

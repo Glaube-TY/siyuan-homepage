@@ -290,19 +290,19 @@ function getButtonAction(item: ButtonItem): string {
     if (item.action) {
         return item.action;
     }
-    if (item.label.includes("➕ 添加组件")) {
+    if (item.label.includes("添加组件")) {
         return "addWidget";
     }
-    if (item.label.includes("⚙ 主页设置")) {
+    if (item.label.includes("主页设置")) {
         return "settings";
     }
-    if (item.label.includes("🔍 搜索笔记")) {
+    if (item.label.includes("搜索笔记")) {
         return "search";
     }
-    if (item.label.includes("📅 今日日记")) {
+    if (item.label.includes("今日日记")) {
         return "diary";
     }
-    if (item.label.includes("🧹 清理空文档")) {
+    if (item.label.includes("清理空文档")) {
         return "cleanEmptyDocs";
     }
     return "";

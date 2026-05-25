@@ -3,6 +3,7 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import { loadCYBMOKStats, getCYBMOKStoreStatus } from "./cybmokData";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled?: boolean;
@@ -29,7 +30,8 @@
         if (!CYBMOKDatabaseId?.trim()) {
             totalMerit = 0;
             maxMeritDate = { date: "暂无", count: 0 };
-            dbStatusMessage = "木鱼功德数据将保存到思源数据库。旧本地数据会在填写数据库 ID 后自动迁移。";
+            dbStatusMessage =
+                "木鱼功德数据将保存到思源数据库。旧本地数据会在填写数据库 ID 后自动迁移。";
             return;
         }
 
@@ -95,7 +97,8 @@
                 <div class="summary-item">
                     <span class="summary-label">在</span>
                     <span class="summary-date">{maxMeritDate.date}</span>
-                    <span class="summary-label">这一天积攒的功德最多，为：</span>
+                    <span class="summary-label">这一天积攒的功德最多，为：</span
+                    >
                     <span class="summary-value">{maxMeritDate.count}</span>
                 </div>
             </div>
@@ -104,7 +107,14 @@
         <h3>暂无功德记录，拿起棒槌开敲吧！</h3>
     {/if}
 {:else}
-    <h3>👑会员专属权益👑</h3>
+    <AdvancedFeatureLock
+        title="赛博木鱼"
+        subtitle="当代年轻人解压神器。"
+        icon="check"
+        features={["功德是自己积攒的", "幸福是自己争取的"]}
+        highlights={["木鱼", "敲击"]}
+        compact
+    />
 {/if}
 
 <style lang="scss">

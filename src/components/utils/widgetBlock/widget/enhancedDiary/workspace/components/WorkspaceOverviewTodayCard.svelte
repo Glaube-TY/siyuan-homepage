@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { EnhancedDiaryWorkspaceState } from "../enhancedDiaryWorkspaceData";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         state: EnhancedDiaryWorkspaceState;
@@ -42,7 +43,8 @@
         </div>
         {#if !state.templateValid}
             <div class="warning-box">
-                ⚠️ 模板结构缺失：{state.missingSections.slice(0, 4).join("、")}{state.missingSections.length > 4 ? " 等" : ""}，写入操作会被保护性拦截。
+                <WorkspaceIcon name="warning" size={14} />
+                <span>模板结构缺失：{state.missingSections.slice(0, 4).join("、")}{state.missingSections.length > 4 ? " 等" : ""}，写入操作会被保护性拦截。</span>
             </div>
         {/if}
     {:else}
@@ -136,6 +138,9 @@
     }
 
     .warning-box {
+        display: flex;
+        align-items: flex-start;
+        gap: 7px;
         margin-top: 12px;
         padding: 10px 12px;
         border-radius: 8px;

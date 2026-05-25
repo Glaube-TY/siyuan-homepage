@@ -2,6 +2,7 @@
     import DirectoryPathSetting from "../../shared/DirectoryPathSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled: boolean;
@@ -28,6 +29,16 @@
             </SettingRow>
         </SettingSection>
     {:else}
-        <h3>👑会员专属权益👑</h3>
+        <AdvancedFeatureLock
+            title="音乐播放器"
+            subtitle="本地音乐播放，支持多种音频格式和播放模式。"
+            icon="music"
+            features={[
+                "本地音乐文件夹读取",
+                "支持 MP3/WAV/FLAC 等格式",
+                "顺序/循环/随机播放模式"
+            ]}
+            highlights={["本地音乐", "多种格式", "播放模式"]}
+        />
     {/if}
 </div>

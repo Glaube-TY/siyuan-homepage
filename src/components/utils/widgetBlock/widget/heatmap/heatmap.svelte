@@ -2,7 +2,7 @@
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import { sql } from "@/api";
-    import { showMessage } from "siyuan";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -42,6 +42,8 @@
     // 缓存当前图表数据，用于重绘
     let currentChartData: [string, number][] = [];
     let currentCounts: Record<string, number> = {};
+    // 会员锁定状态
+    let isLocked = $state(false);
 
     onMount(async () => {
         // 根据 heatmapCountType 获取相应数据
@@ -67,7 +69,7 @@
 
             const advancedEnabled = plugin.ADVANCED;
             if (!advancedEnabled && heatmapCountType === "words") {
-                showMessage("❌字数统计热力图仅订阅会员可用！");
+                isLocked = true;
                 return;
             }
 
@@ -546,9 +548,26 @@
 </script>
 
 <div class="content-display">
+    {#if isLocked}
+        <div class="content-not-advanced">
+            <AdvancedFeatureLock
+                title="字数热力图"
+                subtitle="按字数统计创作热力图，直观展示写作强度。"
+                icon="edit"
+                features={[
+                    "按字数统计创作热力图",
+                    "支持多种颜色预设",
+                    "适合写作爱好者追踪创作量"
+                ]}
+                highlights={["字数统计", "创作追踪", "可视化"]}
+                compact
+            />
+        </div>
+    {:else}
     <div class="heatmap-content-container">
         <div bind:this={chartContainer} style="width: 100%; height: 100%;"></div>
     </div>
+    {/if}
 </div>
 
 <style lang="scss">
@@ -561,6 +580,16 @@
         box-sizing: border-box;
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    }
+
+    .content-not-advanced {
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+        padding: 8px;
     }
 
     .heatmap-content-container {

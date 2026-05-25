@@ -1,5 +1,7 @@
 <script lang="ts">
     import type { EnhancedDiaryCalendarDay } from "../enhancedDiaryWorkspaceCalendar";
+    import type { EnhancedDiaryWorkspaceCalendarSettings } from "../../enhancedDiaryTypes";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         days: EnhancedDiaryCalendarDay[];
@@ -12,9 +14,10 @@
         onPrev: () => void | Promise<void>;
         onNext: () => void | Promise<void>;
         onToday?: () => void | Promise<void>;
+        displaySettings?: EnhancedDiaryWorkspaceCalendarSettings;
     }
 
-    let { days, year, month, loading = false, selectedDate, onSelectDate, onOpenDoc, onPrev, onNext, onToday }: Props = $props();
+    let { days, year, month, loading = false, selectedDate, onSelectDate, onOpenDoc, onPrev, onNext, onToday, displaySettings }: Props = $props();
     const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
     let viewMode: "month" | "list" | "heatmap" = $state("month");
 
@@ -51,15 +54,47 @@
         if (score <= 6) return 3;
         return 4;
     }
+
+    const calendarSettings = $derived(displaySettings || {
+        showLunar: true,
+        showSolarTerm: true,
+        showFestival: true,
+        showLegalHoliday: true,
+        showBriefCounts: true,
+    });
+
+    function primaryFestival(day: EnhancedDiaryCalendarDay): string {
+        if (calendarSettings.showLegalHoliday && day.metadata.legalHolidayName) {
+            return day.metadata.legalHolidayName;
+        }
+        if (!calendarSettings.showFestival) return "";
+        return day.metadata.lunarFestivalName || day.metadata.solarFestivalName || "";
+    }
+
+    function summaryText(day: EnhancedDiaryCalendarDay): string {
+        const items: string[] = [];
+        const taskCount = day.newTaskCount + day.migratedTaskCount;
+        if (day.hasDiary) items.push("日记");
+        if (taskCount > 0) items.push(`任务 ${taskCount}`);
+        if (day.quickRecordCount > 0) items.push(`记录 ${day.quickRecordCount}`);
+        if (day.completedReviewCount + day.pendingReviewCount > 0) {
+            items.push(`复盘 ${day.completedReviewCount}/${day.completedReviewCount + day.pendingReviewCount}`);
+        }
+        return items.join(" · ");
+    }
 </script>
 
 <section class="calendar-panel">
     <div class="panel-toolbar">
         <h2>日历视图</h2>
         <div class="month-nav">
-            <button type="button" onclick={onPrev} aria-label="上个月">‹</button>
+            <button type="button" onclick={onPrev} aria-label="上个月">
+                <WorkspaceIcon name="previous" size={14} />
+            </button>
             <strong class="month-label">{year} 年 {month + 1} 月</strong>
-            <button type="button" onclick={onNext} aria-label="下个月">›</button>
+            <button type="button" onclick={onNext} aria-label="下个月">
+                <WorkspaceIcon name="next" size={14} />
+            </button>
             {#if onToday}
                 <button type="button" class="today-btn" onclick={onToday} aria-label="回到今天">今天</button>
             {/if}
@@ -109,21 +144,40 @@
                         onclick={() => onSelectDate(day)}
                         onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectDate(day); } }}
                     >
-                        <span class="date">{Number(day.date.slice(8, 10))}</span>
-                        <div class="badges">
-                            {#if day.hasDiary}
-                                <span class="dot diary-dot" title="有日记"></span>
-                            {/if}
-                            {#if day.newTaskCount + day.migratedTaskCount > 0}
-                                <span class="dot task-dot" title="任务 {day.newTaskCount + day.migratedTaskCount}"></span>
-                            {/if}
-                            {#if day.quickRecordCount > 0}
-                                <span class="dot record-dot" title="记录 {day.quickRecordCount}"></span>
-                            {/if}
-                            {#if day.completedReviewCount > 0}
-                                <span class="dot review-dot" title="复盘 {day.completedReviewCount}"></span>
+                        <div class="day-head">
+                            <span class="date">{Number(day.date.slice(8, 10))}</span>
+                            {#if calendarSettings.showLunar && day.metadata.lunarDayName}
+                                <span class="lunar-text">{day.metadata.lunarDayName}</span>
                             {/if}
                         </div>
+                        {#if primaryFestival(day)}
+                            <span class="calendar-meta festival-meta">{primaryFestival(day)}</span>
+                        {:else if calendarSettings.showSolarTerm && day.metadata.solarTermName}
+                            <span class="calendar-meta term-meta">{day.metadata.solarTermName}</span>
+                        {/if}
+                        {#if calendarSettings.showBriefCounts && summaryText(day)}
+                            <div class="brief-counts" title={summaryText(day)}>
+                                {#if day.hasDiary}<span>日记</span>{/if}
+                                {#if day.newTaskCount + day.migratedTaskCount > 0}<span>任务 {day.newTaskCount + day.migratedTaskCount}</span>{/if}
+                                {#if day.quickRecordCount > 0}<span>记录 {day.quickRecordCount}</span>{/if}
+                                {#if day.completedReviewCount + day.pendingReviewCount > 0}<span>复盘</span>{/if}
+                            </div>
+                        {:else}
+                            <div class="badges">
+                                {#if day.hasDiary}
+                                    <span class="dot diary-dot" title="有日记"></span>
+                                {/if}
+                                {#if day.newTaskCount + day.migratedTaskCount > 0}
+                                    <span class="dot task-dot" title="任务 {day.newTaskCount + day.migratedTaskCount}"></span>
+                                {/if}
+                                {#if day.quickRecordCount > 0}
+                                    <span class="dot record-dot" title="记录 {day.quickRecordCount}"></span>
+                                {/if}
+                                {#if day.completedReviewCount > 0}
+                                    <span class="dot review-dot" title="复盘 {day.completedReviewCount}"></span>
+                                {/if}
+                            </div>
+                        {/if}
                         {#if day.hasDiary && onOpenDoc}
                             <button
                                 type="button"
@@ -131,7 +185,7 @@
                                 onclick={(e) => { e.stopPropagation(); onOpenDoc(day.docId); }}
                                 title="打开日记"
                             >
-                                ↗
+                                <WorkspaceIcon name="open" size={13} />
                             </button>
                         {/if}
                     </div>
@@ -152,6 +206,9 @@
                     >
                         <span class="list-date">{day.date}</span>
                         <span class="list-summary">
+                            {#if calendarSettings.showLunar && day.metadata.lunarDayName}<small>农历 {day.metadata.lunarDayName}</small>{/if}
+                            {#if primaryFestival(day)}<small>{primaryFestival(day)}</small>{/if}
+                            {#if calendarSettings.showSolarTerm && day.metadata.solarTermName}<small>{day.metadata.solarTermName}</small>{/if}
                             {#if day.hasDiary}<small>日记</small>{/if}
                             {#if day.newTaskCount + day.migratedTaskCount > 0}<small>任务 {day.newTaskCount + day.migratedTaskCount}</small>{/if}
                             {#if day.quickRecordCount > 0}<small>记录 {day.quickRecordCount}</small>{/if}
@@ -166,7 +223,10 @@
                                 title="打开日记"
                                 onclick={(e) => { e.stopPropagation(); onOpenDoc(day.docId); }}
                                 onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onOpenDoc(day.docId); } }}
-                            >打开</span>
+                            >
+                                <WorkspaceIcon name="open" size={12} />
+                                <span>打开</span>
+                            </span>
                         {/if}
                     </button>
                 {/each}
@@ -306,7 +366,7 @@
     .calendar-grid {
         display: grid;
         grid-template-columns: repeat(7, minmax(0, 1fr));
-        gap: 6px;
+        gap: 5px;
     }
 
     .weekdays {
@@ -328,9 +388,9 @@
         min-height: 88px;
         display: flex;
         flex-direction: column;
-        align-items: center;
+        align-items: stretch;
         justify-content: flex-start;
-        gap: 6px;
+        gap: 5px;
         padding: 8px 6px;
         border: 1px solid var(--b3-border-color);
         border-radius: 8px;
@@ -382,6 +442,68 @@
         font-size: 15px;
         color: var(--b3-theme-on-background);
         line-height: 1;
+    }
+
+    .day-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .lunar-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.55;
+        font-size: 10px;
+    }
+
+    .calendar-meta {
+        width: fit-content;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        border-radius: 999px;
+        padding: 1px 6px;
+        font-size: 10px;
+        line-height: 1.5;
+    }
+
+    .festival-meta {
+        border: 1px solid rgba(211, 47, 47, 0.24);
+        background: rgba(211, 47, 47, 0.08);
+        color: var(--b3-theme-error, #d32f2f);
+    }
+
+    .term-meta {
+        border: 1px solid rgba(34, 134, 58, 0.24);
+        background: rgba(34, 134, 58, 0.08);
+        color: #22863a;
+    }
+
+    .brief-counts {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        gap: 3px;
+        min-height: 24px;
+        overflow: hidden;
+    }
+
+    .brief-counts span {
+        border-radius: 999px;
+        padding: 1px 5px;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
+        background: color-mix(in srgb, var(--b3-theme-primary) 7%, transparent);
+        color: var(--b3-theme-on-surface);
+        font-size: 9px;
+        line-height: 1.45;
+        white-space: nowrap;
     }
 
     .badges {
@@ -474,6 +596,9 @@
     }
 
     .list-open {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         border: 1px solid var(--b3-border-color);
         border-radius: 6px;
         background: var(--b3-theme-surface);

@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { EnhancedDiaryWorkspaceDayDetail } from "../enhancedDiaryWorkspaceDayDetail";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         detail: EnhancedDiaryWorkspaceDayDetail | null;
@@ -18,7 +19,9 @@
     <div class="detail-header">
         <span class="detail-title">日期详情</span>
         {#if onClose}
-            <button type="button" class="close-btn" onclick={onClose} aria-label="关闭详情">✕</button>
+            <button type="button" class="close-btn" onclick={onClose} aria-label="关闭详情">
+                <WorkspaceIcon name="close" size={13} />
+            </button>
         {/if}
     </div>
 
@@ -29,7 +32,7 @@
         </div>
     {:else if !detail}
         <div class="empty-state">
-            <span class="empty-icon">📅</span>
+            <WorkspaceIcon name="calendar" size={30} className="empty-icon" />
             <p>请选择一个日期查看详情</p>
         </div>
     {:else}
@@ -66,7 +69,10 @@
 
             {#if detail.hasDiary && !detail.templateValid}
                 <div class="warning-box">
-                    <div class="warning-title">⚠️ 这天日记模板结构不完整</div>
+                    <div class="warning-title">
+                        <WorkspaceIcon name="warning" size={14} />
+                        <span>这天日记模板结构不完整</span>
+                    </div>
                     <ul class="missing-list">
                         {#each detail.missingSections.slice(0, 5) as item}
                             <li>{item}</li>
@@ -183,10 +189,6 @@
         opacity: 0.6;
     }
 
-    .empty-icon {
-        font-size: 32px;
-    }
-
     .detail-content {
         display: flex;
         flex-direction: column;
@@ -276,6 +278,9 @@
     }
 
     .warning-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         font-size: 13px;
         font-weight: 600;
         color: #e6900a;

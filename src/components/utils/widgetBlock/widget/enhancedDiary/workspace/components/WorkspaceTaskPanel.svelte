@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
-    import type { WorkspaceTaskStatusFilter } from "../enhancedDiaryWorkspaceNavigation";
-    import { addDays, formatLocalDate } from "../enhancedDiaryWorkspaceDate";
+    import type { WorkspaceTaskStatusFilter, WorkspaceTaskRiskFilter } from "../enhancedDiaryWorkspaceNavigation";
+    import { addDays, daysBetweenLocalDates, formatLocalDate } from "../enhancedDiaryWorkspaceDate";
     import WorkspaceEmptyState from "./WorkspaceEmptyState.svelte";
 
     interface Props {
@@ -22,6 +22,7 @@
         initialSelectedTaskBlockId?: string;
         filterVersion?: number;
         selectVersion?: number;
+        initialRiskFilter?: WorkspaceTaskRiskFilter;
     }
 
     let {
@@ -42,6 +43,7 @@
         initialSelectedTaskBlockId = "",
         filterVersion = 0,
         selectVersion = 0,
+        initialRiskFilter = "all",
     }: Props = $props();
 
     let searchText = $state("");
@@ -51,7 +53,8 @@
     let viewMode: "list" | "kanban" | "time" = $state("list");
     let selectedTaskIds: string[] = $state([]);
     let priorityFilter: "all" | "none" | "❗" | "❗❗" | "❗❗❗" | "❗❗❗❗" = $state("all");
-    let sortKey: "default" | "deadlineAsc" | "startAsc" | "priorityDesc" | "sourceDateDesc" | "nameAsc" = $state("default");
+    let riskFilter: WorkspaceTaskRiskFilter = $state("all");
+    let sortKey: "default" | "deadlineAsc" | "startAsc" | "priorityDesc" | "sourceDateDesc" | "riskDesc" | "nameAsc" = $state("default");
     let lastFilterVersion = $state(0);
 
     interface TaskGroup {
@@ -103,6 +106,66 @@
 
     function getTaskPlanDate(task: EnhancedDiaryWorkspaceTask): string {
         return task.deadline || task.startDate || "";
+    }
+
+    function getTaskBaseDate(task: EnhancedDiaryWorkspaceTask): string {
+        return task.sourceDate || task.startDate || task.deadline || "";
+    }
+
+    function getTaskStagnantDays(task: EnhancedDiaryWorkspaceTask): number {
+        if (task.completed) return 0;
+        const baseDate = getTaskBaseDate(task);
+        if (!baseDate) return 0;
+        return Math.max(0, daysBetweenLocalDates(baseDate, formatLocalDate(new Date())));
+    }
+
+    function getTaskDeadlineDistance(task: EnhancedDiaryWorkspaceTask): number | null {
+        if (task.completed || !task.deadline) return null;
+        return daysBetweenLocalDates(formatLocalDate(new Date()), task.deadline);
+    }
+
+    function getTaskRiskScore(task: EnhancedDiaryWorkspaceTask): number {
+        if (task.completed) return 0;
+        let score = 0;
+        const stagnantDays = getTaskStagnantDays(task);
+        const deadlineDistance = getTaskDeadlineDistance(task);
+
+        if (task.isOverdue) score += 90;
+        if (task.shouldMigrate) score += 35;
+        if (stagnantDays >= 14) score += 40;
+        else if (stagnantDays >= 7) score += 22;
+        if (deadlineDistance != null && deadlineDistance >= 0 && deadlineDistance <= 1) score += 28;
+        score += getPriorityWeight(task.priority) * 5;
+        if (task.tags.length > 0) score += 6;
+
+        return score;
+    }
+
+    function isTaskDeadlineRisk(task: EnhancedDiaryWorkspaceTask): boolean {
+        const deadlineDistance = getTaskDeadlineDistance(task);
+        return task.isOverdue || (deadlineDistance != null && deadlineDistance >= 0 && deadlineDistance <= 1);
+    }
+
+    function getTaskRiskLabel(task: EnhancedDiaryWorkspaceTask): string {
+        const stagnantDays = getTaskStagnantDays(task);
+        const deadlineDistance = getTaskDeadlineDistance(task);
+        if (task.completed) return "已完成";
+        if (task.isOverdue) return `逾期 ${Math.abs(deadlineDistance || 0)} 天`;
+        if (deadlineDistance === 0) return "今日截止";
+        if (deadlineDistance === 1) return "明日截止";
+        if (stagnantDays >= 14) return `停滞 ${stagnantDays} 天`;
+        if (task.shouldMigrate) return "建议迁移";
+        if (stagnantDays >= 7) return `停滞 ${stagnantDays} 天`;
+        if (task.tags.length > 0) return "项目任务";
+        return "正常推进";
+    }
+
+    function getTaskRiskTone(task: EnhancedDiaryWorkspaceTask): "danger" | "warning" | "project" | "normal" {
+        const stagnantDays = getTaskStagnantDays(task);
+        if (task.isOverdue || stagnantDays >= 14) return "danger";
+        if (task.shouldMigrate || isTaskDeadlineRisk(task) || stagnantDays >= 7) return "warning";
+        if (task.tags.length > 0) return "project";
+        return "normal";
     }
 
     function isTaskTomorrow(task: EnhancedDiaryWorkspaceTask, tomorrow: string): boolean {
@@ -162,6 +225,18 @@
             });
         }
 
+        if (riskFilter !== "all") {
+            result = result.filter((task) => {
+                switch (riskFilter) {
+                    case "risk": return getTaskRiskScore(task) >= 30;
+                    case "stale": return getTaskStagnantDays(task) >= 7;
+                    case "deadline": return isTaskDeadlineRisk(task);
+                    case "project": return task.tags.length > 0;
+                    default: return true;
+                }
+            });
+        }
+
         if (sortKey !== "default") {
             result = [...result].sort((a, b) => {
                 switch (sortKey) {
@@ -169,6 +244,7 @@
                     case "startAsc": return compareDateText(a.startDate, b.startDate);
                     case "priorityDesc": return getPriorityWeight(b.priority) - getPriorityWeight(a.priority);
                     case "sourceDateDesc": return compareDateText(b.sourceDate, a.sourceDate);
+                    case "riskDesc": return getTaskRiskScore(b) - getTaskRiskScore(a);
                     case "nameAsc": return normalizeText(a.taskname).localeCompare(normalizeText(b.taskname));
                     default: return 0;
                 }
@@ -183,6 +259,9 @@
     const newCount = $derived(tasks.filter((t) => t.sourceKind === "new").length);
     const migratedCount = $derived(tasks.filter((t) => t.sourceKind === "migrated").length);
     const migrateCount = $derived(tasks.filter((t) => t.shouldMigrate).length);
+    const riskCount = $derived(tasks.filter((t) => getTaskRiskScore(t) >= 30).length);
+    const staleCount = $derived(tasks.filter((t) => getTaskStagnantDays(t) >= 7).length);
+    const projectTaskCount = $derived(tasks.filter((t) => !t.completed && t.tags.length > 0).length);
 
     let selectedTaskBlockId: string | null = $state(null);
 
@@ -240,6 +319,7 @@
         tagFilter = "";
         dateFilter = "";
         priorityFilter = "all";
+        riskFilter = "all";
         sortKey = "default";
     }
 
@@ -251,11 +331,16 @@
         dateFilter = initialDateFilter || "";
         searchText = "";
         priorityFilter = "all";
+        riskFilter = initialRiskFilter;
         selectedTaskBlockId = null;
-        switch (initialStatusFilter) {
-            case "overdue": sortKey = "deadlineAsc"; break;
-            case "migrate": sortKey = "sourceDateDesc"; break;
-            default: sortKey = "default"; break;
+        if (initialRiskFilter !== "all") {
+            sortKey = "riskDesc";
+        } else {
+            switch (initialStatusFilter) {
+                case "overdue": sortKey = "deadlineAsc"; break;
+                case "migrate": sortKey = "sourceDateDesc"; break;
+                default: sortKey = "default"; break;
+            }
         }
     });
 
@@ -323,6 +408,38 @@
         if (task.sourceKind === "migrated") return "今日迁移";
         return task.sourceDate || task.hpath || "普通任务";
     }
+
+    function canMigrateTask(task: EnhancedDiaryWorkspaceTask): boolean {
+        return !task.isTodayTask && task.sourceKind !== "migrated";
+    }
+
+    function getMigrationTooltip(task: EnhancedDiaryWorkspaceTask): string {
+        if (task.isTodayTask) return "已经是今日日记任务，无需迁移";
+        if (task.sourceKind === "migrated") return "该任务已迁移到今天";
+        return "迁移到今天";
+    }
+
+    function selectTask(task: EnhancedDiaryWorkspaceTask): void {
+        selectedTaskBlockId = task.blockId;
+    }
+
+    function handleTaskListItemKeydown(event: KeyboardEvent, task: EnhancedDiaryWorkspaceTask): void {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        selectTask(task);
+    }
+
+    function applyStatusQuickFilter(filter: WorkspaceTaskStatusFilter): void {
+        statusFilter = filter;
+        riskFilter = "all";
+        selectedTaskBlockId = null;
+    }
+
+    function applyRiskQuickFilter(filter: WorkspaceTaskRiskFilter): void {
+        riskFilter = filter;
+        statusFilter = "all";
+        selectedTaskBlockId = null;
+    }
 </script>
 
 <section class="task-panel">
@@ -356,12 +473,20 @@
             <option value="❗❗❗">❗❗❗</option>
             <option value="❗❗❗❗">❗❗❗❗</option>
         </select>
+        <select class="filter-select" bind:value={riskFilter}>
+            <option value="all">全部风险</option>
+            <option value="risk">高风险任务</option>
+            <option value="stale">停滞任务</option>
+            <option value="deadline">截止风险</option>
+            <option value="project">项目任务</option>
+        </select>
         <select class="filter-select" bind:value={sortKey}>
             <option value="default">默认分组</option>
             <option value="deadlineAsc">截止日期最近</option>
             <option value="startAsc">开始日期最近</option>
             <option value="priorityDesc">优先级最高</option>
             <option value="sourceDateDesc">来源日期最新</option>
+            <option value="riskDesc">风险最高</option>
             <option value="nameAsc">名称 A-Z</option>
         </select>
         <button type="button" class="clear-btn" onclick={clearFilters}>清空</button>
@@ -400,11 +525,14 @@
     {/if}
 
     <div class="stats-summary">
-        <span class="stat-chip">今日任务 {todayCount}</span>
-        <span class="stat-chip danger">逾期 {overdueCount}</span>
-        <span class="stat-chip">今日新建 {newCount}</span>
-        <span class="stat-chip">今日迁移 {migratedCount}</span>
-        <span class="stat-chip warning">建议迁移 {migrateCount}</span>
+        <button type="button" class="stat-chip-btn" class:active={statusFilter === "today"} onclick={() => applyStatusQuickFilter("today")}>今日任务 {todayCount}</button>
+        <button type="button" class="stat-chip-btn danger" class:active={statusFilter === "overdue"} onclick={() => applyStatusQuickFilter("overdue")}>逾期 {overdueCount}</button>
+        <button type="button" class="stat-chip-btn" class:active={statusFilter === "new"} onclick={() => applyStatusQuickFilter("new")}>今日新建 {newCount}</button>
+        <button type="button" class="stat-chip-btn" class:active={statusFilter === "migrated"} onclick={() => applyStatusQuickFilter("migrated")}>今日迁移 {migratedCount}</button>
+        <button type="button" class="stat-chip-btn warning" class:active={statusFilter === "migrate"} onclick={() => applyStatusQuickFilter("migrate")}>建议迁移 {migrateCount}</button>
+        <button type="button" class="stat-chip-btn" class:danger={riskFilter === "risk"} class:active={riskFilter === "risk"} onclick={() => applyRiskQuickFilter("risk")}>高风险 {riskCount}</button>
+        <button type="button" class="stat-chip-btn" class:warning={riskFilter === "stale"} class:active={riskFilter === "stale"} onclick={() => applyRiskQuickFilter("stale")}>停滞 {staleCount}</button>
+        <button type="button" class="stat-chip-btn" class:active={riskFilter === "project"} onclick={() => applyRiskQuickFilter("project")}>项目任务 {projectTaskCount}</button>
     </div>
 
     <div class="result-info">
@@ -460,6 +588,11 @@
                                         <div class="task-card-content">
                                             <strong>{task.taskname}</strong>
                                             <span>{renderTaskMeta(task)}</span>
+                                            <div class="task-risk-row">
+                                                <small class="risk-chip tone-{getTaskRiskTone(task)}">
+                                                    {getTaskRiskLabel(task)}
+                                                </small>
+                                            </div>
                                             {#if task.tags.length > 0}
                                                 <div class="task-card-tags">
                                                     {#each task.tags.slice(0, 4) as tag}
@@ -474,7 +607,8 @@
                                         <button
                                             type="button"
                                             onclick={() => onMigrate(task)}
-                                            disabled={task.sourceKind === "migrated"}
+                                            disabled={!canMigrateTask(task)}
+                                            title={getMigrationTooltip(task)}
                                         >迁移</button>
                                         <button type="button" onclick={() => onPostpone(task, "tomorrow")}>明天</button>
                                         <button type="button" onclick={() => onPostpone(task, "nextWeek")}>下周</button>
@@ -493,18 +627,21 @@
                 <div class="list-label">任务列表 · {filteredTasks.length} 条</div>
                 <div class="task-list-scroll">
                     {#each filteredTasks as task (task.blockId)}
-                        <button
-                            type="button"
+                        <div
                             class="task-list-item"
                             class:selected={selectedTaskBlockId === task.blockId}
                             class:completed={task.completed}
-                            onclick={() => (selectedTaskBlockId = task.blockId)}
+                            role="button"
+                            tabindex="0"
+                            onclick={() => selectTask(task)}
+                            onkeydown={(event) => handleTaskListItemKeydown(event, task)}
                         >
                             <div class="list-item-row">
                                 <span class="list-item-check">
                                     <input
                                         type="checkbox"
                                         checked={task.completed}
+                                        onclick={(event) => event.stopPropagation()}
                                         onchange={() => onToggle(task)}
                                     />
                                 </span>
@@ -515,6 +652,7 @@
                                     {#if task.sourceKind === "new"}<span class="mini-badge mini-new">新建</span>{/if}
                                     {#if task.sourceKind === "migrated"}<span class="mini-badge mini-migrated">迁移</span>{/if}
                                     {#if task.shouldMigrate}<span class="mini-badge mini-mig">建议迁移</span>{/if}
+                                    {#if getTaskRiskTone(task) !== "normal"}<span class="mini-badge mini-risk-{getTaskRiskTone(task)}">{getTaskRiskLabel(task)}</span>{/if}
                                     {#if task.completed}<span class="mini-badge mini-done">已完成</span>{/if}
                                 </span>
                             </div>
@@ -531,6 +669,7 @@
                                 {#if task.priority}<span>{task.priority}</span>{/if}
                                 {#if task.startDate}<span>{task.startDate}</span>{/if}
                                 {#if task.deadline}<span>~{task.deadline}</span>{/if}
+                                {#if getTaskStagnantDays(task) > 0}<span>停滞 {getTaskStagnantDays(task)} 天</span>{/if}
                                 <span>{sourceLabel(task)}</span>
                             </div>
                             {#if task.tags.length > 0}
@@ -540,7 +679,7 @@
                                     {/each}
                                 </div>
                             {/if}
-                        </button>
+                        </div>
                     {/each}
                 </div>
             </div>
@@ -559,6 +698,7 @@
                                 {#if selectedTask.isOverdue}<span class="badge badge-danger">逾期</span>{/if}
                                 {#if selectedTask.isTodayTask}<span class="badge badge-today">今日</span>{/if}
                                 {#if selectedTask.shouldMigrate}<span class="badge badge-warn">建议迁移</span>{/if}
+                                <span class="badge badge-risk-{getTaskRiskTone(selectedTask)}">{getTaskRiskLabel(selectedTask)}</span>
                             </div>
                         </div>
 
@@ -599,6 +739,18 @@
                                 <span class="meta-label">来源类型</span>
                                 <span class="meta-value">{sourceLabel(selectedTask)}</span>
                             </div>
+                            <div class="meta-item">
+                                <span class="meta-label">停滞天数</span>
+                                <span class="meta-value">{getTaskStagnantDays(selectedTask)} 天</span>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">风险判断</span>
+                                <span class="meta-value">{getTaskRiskLabel(selectedTask)}</span>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">项目关联</span>
+                                <span class="meta-value">{selectedTask.tags.length > 0 ? "已关联" : "-"}</span>
+                            </div>
                         </div>
 
                         {#if selectedTask.tags.length > 0}
@@ -637,7 +789,8 @@
                                 type="button"
                                 class="btn-action {selectedTask.shouldMigrate ? 'btn-migrate' : ''}"
                                 onclick={() => onMigrate(selectedTask)}
-                                disabled={selectedTask.sourceKind === "migrated"}
+                                disabled={!canMigrateTask(selectedTask)}
+                                title={getMigrationTooltip(selectedTask)}
                             >迁移到今天</button>
                             <button
                                 type="button"
@@ -764,7 +917,7 @@
         gap: 6px;
     }
 
-    .stat-chip {
+    .stat-chip-btn {
         font-size: 11px;
         padding: 2px 8px;
         border-radius: 999px;
@@ -772,18 +925,53 @@
         border: 1px solid var(--b3-border-color);
         color: var(--b3-theme-on-surface);
         opacity: 0.75;
+        cursor: pointer;
+        transition: border-color 0.12s, background 0.12s, opacity 0.12s;
     }
 
-    .stat-chip.danger {
+    .stat-chip-btn:hover {
+        opacity: 1;
+        border-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+    }
+
+    .stat-chip-btn.danger {
         background: rgba(211, 47, 47, 0.06);
         border-color: rgba(211, 47, 47, 0.25);
         color: var(--b3-theme-error, #d32f2f);
     }
 
-    .stat-chip.warning {
+    .stat-chip-btn.danger:hover {
+        background: rgba(211, 47, 47, 0.12);
+        border-color: rgba(211, 47, 47, 0.45);
+    }
+
+    .stat-chip-btn.warning {
         background: rgba(230, 168, 23, 0.06);
         border-color: rgba(230, 168, 23, 0.25);
         color: #b87300;
+    }
+
+    .stat-chip-btn.warning:hover {
+        background: rgba(230, 168, 23, 0.12);
+        border-color: rgba(230, 168, 23, 0.45);
+    }
+
+    .stat-chip-btn.active {
+        opacity: 1;
+        border-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
+        font-weight: 600;
+    }
+
+    .stat-chip-btn.danger.active {
+        background: rgba(211, 47, 47, 0.18);
+        border-color: rgba(211, 47, 47, 0.55);
+    }
+
+    .stat-chip-btn.warning.active {
+        background: rgba(230, 168, 23, 0.18);
+        border-color: rgba(230, 168, 23, 0.55);
     }
 
     .view-mode-tabs {

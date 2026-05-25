@@ -1,4 +1,6 @@
 <script lang="ts">
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
+
     interface Props {
         onCreateTask: () => void;
         onCreateRecord: () => void;
@@ -51,7 +53,7 @@
         aria-label={expanded ? "关闭快捷创建" : "打开快捷创建"}
         onclick={() => (expanded = !expanded)}
     >
-        {expanded ? "×" : "+"}
+        <WorkspaceIcon name={expanded ? "close" : "create"} size={22} />
     </button>
 </div>
 
@@ -132,20 +134,17 @@
         border-radius: 999px;
         background: var(--b3-theme-primary);
         color: #fff;
-        font-size: 28px;
-        line-height: 1;
         cursor: pointer;
         box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
         transition: transform 0.14s, filter 0.14s;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .fab-button:hover {
         filter: brightness(1.06);
         transform: translateY(-1px);
-    }
-
-    .fab-button.expanded {
-        font-size: 26px;
     }
 
     @media (max-width: 760px) {

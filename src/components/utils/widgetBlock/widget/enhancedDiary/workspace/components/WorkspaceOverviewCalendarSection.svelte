@@ -3,6 +3,7 @@
     import WorkspaceCalendarDayDetail from "./WorkspaceCalendarDayDetail.svelte";
     import type { EnhancedDiaryCalendarDay } from "../enhancedDiaryWorkspaceCalendar";
     import type { EnhancedDiaryWorkspaceDayDetail } from "../enhancedDiaryWorkspaceDayDetail";
+    import type { EnhancedDiaryWorkspaceCalendarSettings } from "../../enhancedDiaryTypes";
 
     interface Props {
         calendarDays: EnhancedDiaryCalendarDay[];
@@ -19,6 +20,7 @@
         onOpenReview?: (date: string) => void;
         onCalendarToday?: () => void | Promise<void>;
         onOpenTasks: (date: string) => void;
+        displaySettings?: EnhancedDiaryWorkspaceCalendarSettings;
     }
 
     let {
@@ -36,6 +38,7 @@
         onOpenReview,
         onCalendarToday,
         onOpenTasks,
+        displaySettings,
     }: Props = $props();
 </script>
 
@@ -53,6 +56,7 @@
                 onPrev={onPrevMonth}
                 onNext={onNextMonth}
                 onToday={onCalendarToday}
+                {displaySettings}
             />
         </div>
         <div class="calendar-detail-col">

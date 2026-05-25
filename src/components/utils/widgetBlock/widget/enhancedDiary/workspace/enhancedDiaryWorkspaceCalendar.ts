@@ -1,10 +1,20 @@
+import { SolarDay } from "tyme4ts";
 import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { formatDiaryDate, scanDiaryContentForPeriod } from "../enhancedDiaryUtils";
 import { buildEnhancedDiaryWorkspaceSummary } from "../enhancedDiaryWorkspaceSummary";
 
+export interface EnhancedDiaryCalendarMetadata {
+    lunarDayName: string;
+    solarTermName?: string;
+    solarFestivalName?: string;
+    lunarFestivalName?: string;
+    legalHolidayName?: string;
+}
+
 export interface EnhancedDiaryCalendarDay {
     date: string;
     inCurrentMonth: boolean;
+    metadata: EnhancedDiaryCalendarMetadata;
     hasDiary: boolean;
     docId?: string;
     newTaskCount: number;
@@ -19,6 +29,34 @@ function startOfCalendarGrid(year: number, month: number): Date {
     const start = new Date(first);
     start.setDate(first.getDate() - first.getDay());
     return start;
+}
+
+function buildCalendarMetadata(date: Date): EnhancedDiaryCalendarMetadata {
+    try {
+        const solarDay = SolarDay.fromYmd(
+            date.getFullYear(),
+            date.getMonth() + 1,
+            date.getDate()
+        );
+        const lunarDay = solarDay.getLunarDay();
+        const termDay = solarDay.getTermDay();
+        const solarFestival = solarDay.getFestival();
+        const lunarFestival = lunarDay.getFestival();
+        const legalHoliday = solarDay.getLegalHoliday();
+
+        return {
+            lunarDayName: lunarDay.getName(),
+            solarTermName: termDay.getDayIndex() === 0 ? termDay.getSolarTerm().getName() : undefined,
+            solarFestivalName: solarFestival?.getName(),
+            lunarFestivalName: lunarFestival?.getName(),
+            legalHolidayName: legalHoliday?.getName(),
+        };
+    } catch (err) {
+        console.warn("[enhancedDiaryWorkspaceCalendar] calendar metadata failed", err);
+        return {
+            lunarDayName: "",
+        };
+    }
 }
 
 export async function buildWorkspaceCalendarMonth(
@@ -60,6 +98,7 @@ export async function buildWorkspaceCalendarMonth(
             return {
                 date: formatDiaryDate(date),
                 inCurrentMonth: date.getMonth() === month,
+                metadata: buildCalendarMetadata(date),
                 hasDiary: !!doc,
                 docId: doc?.id,
                 newTaskCount,

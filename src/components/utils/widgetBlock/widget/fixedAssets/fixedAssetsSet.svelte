@@ -1,6 +1,7 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     let {
         advancedEnabled,
@@ -113,6 +114,15 @@
         </SettingRow>
     </SettingSection>
 {:else}
-    <h3>会员专属功能</h3>
-    <p>开通会员后可使用固定资产记录和动态成本计算。</p>
+    <AdvancedFeatureLock
+        title="固定资产"
+        subtitle="资产记录与动态成本计算，量化你的消费价值。"
+        icon="database"
+        features={[
+            "固定资产记录和管理",
+            "动态成本计算（日/周/月/年）",
+            "适合资产追踪和财务分析"
+        ]}
+        highlights={["资产记录", "成本计算", "财务分析"]}
+    />
 {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled: boolean;
@@ -21,5 +22,15 @@
     </SettingSection>
     <p>注：若接口失效请联系我更新~</p>
 {:else}
-    <h3>👑会员专属权益👑</h3>
+    <AdvancedFeatureLock
+        title="历史上的今天"
+        subtitle="每日历史事件回顾，了解历史大事记。"
+        icon="history"
+        features={[
+            "每日历史事件回顾",
+            "历史大事记展示",
+            "适合历史爱好者和知识拓展"
+        ]}
+        highlights={["历史事件", "每日更新", "知识拓展"]}
+    />
 {/if}

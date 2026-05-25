@@ -1,11 +1,9 @@
 <script lang="ts">
     import type { EnhancedDiaryWorkspaceRecord } from "../enhancedDiaryWorkspaceRecordService";
-    import {
-        ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
-    } from "../../enhancedDiaryWorkspaceSections";
     import WorkspaceEmptyState from "./WorkspaceEmptyState.svelte";
     import type { WorkspaceRecordViewMode, WorkspaceRecordCategoryFilter } from "../enhancedDiaryWorkspaceNavigation";
-    import { formatLocalDate } from "../enhancedDiaryWorkspaceDate";
+    import { addDays, formatLocalDate } from "../enhancedDiaryWorkspaceDate";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         records: EnhancedDiaryWorkspaceRecord[];
@@ -83,12 +81,14 @@
     );
 
     const categories = $derived.by((): Array<[string, string]> => {
-        const map = new Map<string, string>(Object.entries(ENHANCED_DIARY_RECORD_CATEGORY_TITLES));
+        const map = new Map<string, string>();
         for (const record of sourceRecords) {
-            if (!record.categoryKey || map.has(record.categoryKey)) continue;
-            map.set(record.categoryKey, record.categoryTitle || record.categoryKey);
+            const key = record.categoryKey || record.categoryTitle || "unknown";
+            if (!map.has(key)) {
+                map.set(key, record.categoryTitle || key);
+            }
         }
-        return Array.from(map.entries());
+        return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
     });
 
     const filteredRecords = $derived.by(() => {
@@ -121,6 +121,51 @@
         }
 
         return result;
+    });
+
+    const recordInsights = $derived.by(() => {
+        const categoryMap = new Map<string, { label: string; count: number }>();
+        const today = new Date();
+        const recentDays = Array.from({ length: 7 }, (_, index) => formatLocalDate(addDays(today, index - 6)));
+        const dateCountMap = new Map(recentDays.map((date) => [date, 0]));
+        let projectRelatedCount = 0;
+
+        for (const record of filteredRecords) {
+            const key = record.categoryKey || "unknown";
+            const current = categoryMap.get(key) || {
+                label: record.categoryTitle || key,
+                count: 0,
+            };
+            current.count += 1;
+            categoryMap.set(key, current);
+
+            const recordDate = record.date || todayStr;
+            if (dateCountMap.has(recordDate)) {
+                dateCountMap.set(recordDate, (dateCountMap.get(recordDate) || 0) + 1);
+            }
+
+            if (
+                record.categoryTitle.includes("项目") ||
+                record.headingTitle.includes("项目") ||
+                /#[^#\s]+#/.test(record.content)
+            ) {
+                projectRelatedCount += 1;
+            }
+        }
+
+        const categoryCounts = Array.from(categoryMap.values()).sort((a, b) => b.count - a.count);
+        const dailyCounts = recentDays.map((date) => ({
+            date,
+            count: dateCountMap.get(date) || 0,
+        }));
+        return {
+            total: filteredRecords.length,
+            categoryCounts,
+            dailyCounts,
+            activeDays: dailyCounts.filter((item) => item.count > 0).length,
+            projectRelatedCount,
+            topCategory: categoryCounts[0],
+        };
     });
 
     const selectedRecord = $derived(
@@ -222,7 +267,9 @@
                         class="clear-date-btn"
                         onclick={() => { dateFilter = ""; selectedRecordId = null; }}
                         aria-label="清除日期"
-                    >✕</button>
+                    >
+                        <WorkspaceIcon name="close" size={11} />
+                    </button>
                 </span>
             {:else if isHistoryMode}
                 <select class="range-select" bind:value={rangeFilter}>
@@ -255,6 +302,44 @@
         {/each}
     </div>
 
+    <div class="record-insights">
+        <div class="insight-card">
+            <span class="insight-label">当前记录</span>
+            <strong>{recordInsights.total}</strong>
+        </div>
+        <div class="insight-card">
+            <span class="insight-label">主要类型</span>
+            <strong>{recordInsights.topCategory?.label || "-"}</strong>
+            {#if recordInsights.topCategory}
+                <small>{recordInsights.topCategory.count} 条</small>
+            {/if}
+        </div>
+        <div class="insight-card">
+            <span class="insight-label">近 7 天活跃</span>
+            <strong>{recordInsights.activeDays}</strong>
+            <small>天有记录</small>
+        </div>
+        <div class="insight-card">
+            <span class="insight-label">项目相关</span>
+            <strong>{recordInsights.projectRelatedCount}</strong>
+        </div>
+        <div class="insight-card insight-wide">
+            <div class="trend-head">
+                <span class="insight-label">近 7 天趋势</span>
+                <small>{isHistoryMode ? "历史范围" : "今日视图"}</small>
+            </div>
+            <div class="trend-bars">
+                {#each recordInsights.dailyCounts as item}
+                    <span
+                        class:active={item.count > 0}
+                        style={`height:${Math.max(4, Math.min(28, item.count * 6))}px`}
+                        title={`${item.date}：${item.count} 条`}
+                    ></span>
+                {/each}
+            </div>
+        </div>
+    </div>
+
     {#if isHistoryMode && historyLoading}
         <WorkspaceEmptyState title="历史记录加载中" description="正在扫描最近 90 天快速记录。" />
     {:else if filteredRecords.length === 0}
@@ -273,13 +358,15 @@
                             onclick={() => selectRecord(record)}
                         >
                             <div class="list-item-head">
-                                <strong class="list-item-title">{record.headingTitle}</strong>
+                                <p class="list-item-excerpt">{record.content.split('\n').find(line => line.trim()) || record.headingTitle}</p>
                                 <span class="category-tag">{record.categoryTitle}</span>
                             </div>
-                            {#if isHistoryMode && record.date}
-                                <div class="list-item-date">{record.date}</div>
-                            {/if}
-                            <p class="list-item-excerpt">{record.content.slice(0, 80)}</p>
+                            <div class="list-item-meta">
+                                {record.timeText} · {record.categoryTitle}
+                                {#if isHistoryMode && record.date}
+                                    <span class="list-item-date">{record.date}</span>
+                                {/if}
+                            </div>
                         </button>
                     {/each}
                 </div>
@@ -289,8 +376,11 @@
                 {#if selectedRecord}
                     <div class="detail-panel">
                         <div class="detail-head">
-                            <h3 class="detail-title">{selectedRecord.headingTitle}</h3>
-                            <span class="category-tag">{selectedRecord.categoryTitle}</span>
+                            <h3 class="detail-title">{selectedRecord.content.split('\n').find(line => line.trim()) || selectedRecord.headingTitle || "记录详情"}</h3>
+                        </div>
+
+                        <div class="detail-content">
+                            <pre class="content-text">{selectedRecord.content}</pre>
                         </div>
 
                         <div class="detail-meta">
@@ -312,11 +402,10 @@
                                     <span class="meta-value">{selectedRecord.timeText}</span>
                                 </div>
                             {/if}
-                        </div>
-
-                        <div class="detail-content">
-                            <div class="section-label">记录内容</div>
-                            <pre class="content-text">{selectedRecord.content}</pre>
+                            <div class="meta-item">
+                                <span class="meta-label">分类</span>
+                                <span class="meta-value">{selectedRecord.categoryTitle}</span>
+                            </div>
                         </div>
 
                         <div class="detail-actions">
@@ -534,6 +623,84 @@
         font-size: 11px;
     }
 
+    .record-insights {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(220px, 1.4fr);
+        gap: 10px;
+    }
+
+    .insight-card {
+        min-width: 0;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 10px;
+        background: var(--b3-theme-surface);
+        padding: 11px 12px;
+    }
+
+    .insight-label {
+        display: block;
+        font-size: 11px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.55;
+        margin-bottom: 5px;
+    }
+
+    .insight-card strong {
+        display: block;
+        font-size: 19px;
+        line-height: 1.15;
+        color: var(--b3-theme-on-surface);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .insight-card small {
+        display: block;
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.55;
+    }
+
+    .insight-wide {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .trend-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .trend-head .insight-label {
+        margin-bottom: 0;
+    }
+
+    .trend-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 5px;
+        height: 32px;
+    }
+
+    .trend-bars span {
+        flex: 1;
+        min-width: 8px;
+        border-radius: 999px 999px 2px 2px;
+        background: color-mix(in srgb, var(--b3-theme-on-surface) 14%, transparent);
+        transition: all 0.12s;
+    }
+
+    .trend-bars span.active {
+        background: var(--b3-theme-primary);
+    }
+
     .btn-primary {
         border: 1px solid var(--b3-theme-primary);
         border-radius: 7px;
@@ -615,30 +782,31 @@
         gap: 8px;
     }
 
-    .list-item-title {
+    .list-item-excerpt {
+        margin: 0;
         font-size: 13px;
-        font-weight: 500;
         color: var(--b3-theme-on-surface);
+        opacity: 0.9;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        flex: 1;
         min-width: 0;
+    }
+
+    .list-item-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.5;
     }
 
     .list-item-date {
         font-size: 10px;
         color: var(--b3-theme-on-surface);
         opacity: 0.4;
-    }
-
-    .list-item-excerpt {
-        margin: 0;
-        font-size: 11px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.55;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
     }
 
     .category-tag {
@@ -714,16 +882,6 @@
         padding-top: 12px;
     }
 
-    .section-label {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.5;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
     .content-text {
         margin: 0;
         font-size: 13px;
@@ -732,6 +890,10 @@
         white-space: pre-wrap;
         word-break: break-all;
         font-family: inherit;
+        background: var(--b3-theme-background);
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid var(--b3-border-color);
     }
 
     .detail-actions {
@@ -791,6 +953,14 @@
 
         .search-area {
             max-width: none;
+        }
+
+        .record-insights {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .insight-wide {
+            grid-column: 1 / -1;
         }
 
         .record-layout {

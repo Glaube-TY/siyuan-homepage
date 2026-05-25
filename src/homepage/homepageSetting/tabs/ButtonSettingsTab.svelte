@@ -4,6 +4,7 @@
     import { isCoreButton, getButtonActionMeta } from '../buttonSettings';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
+    import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
 
     interface Props {
         buttonsList: ButtonItem[];
@@ -314,7 +315,7 @@
                             class="action-btn delete"
                             onclick={actions.onDeleteCustomButton}
                         >
-                            <span>🗑</span>
+                            <SiyuanIcon name="delete" size={14} />
                             <span>删除此按钮</span>
                         </button>
                     </div>

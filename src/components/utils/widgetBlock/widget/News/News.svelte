@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { forwardProxy } from "@/api";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -95,8 +96,18 @@
         </div>
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="新闻资讯"
+                subtitle="每日热点新闻聚合，随时了解最新资讯。"
+                icon="globe"
+                features={[
+                    "每日热点新闻聚合",
+                    "多类型新闻分类浏览",
+                    "适合关注时事动态"
+                ]}
+                highlights={["热点新闻", "分类浏览", "实时更新"]}
+                compact
+            />
         </div>
     {/if}
 </div>

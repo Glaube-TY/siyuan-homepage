@@ -3,6 +3,7 @@
     import { saveLayout } from "@/components/utils/widgetBlock/utils/layout-handler";
     import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
     import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobileHomepage_layout";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     interface Props {
         // 弹窗接收的 props
@@ -538,8 +539,14 @@
 
     <!-- 操作按钮：删除和取消在一行 -->
     <div class="action-buttons-row">
-        <button class="delete-button" onclick={onDelete}>🗑 删除组件</button>
-        <button class="cancel-button" onclick={onClose}>❌ 取消</button>
+        <button class="delete-button" onclick={onDelete}>
+            <SiyuanIcon name="delete" size={14} />
+            <span>删除组件</span>
+        </button>
+        <button class="cancel-button" onclick={onClose}>
+            <SiyuanIcon name="cancel" size={14} />
+            <span>取消</span>
+        </button>
     </div>
 </div>
 
@@ -624,6 +631,10 @@
         }
 
         .delete-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
             background: linear-gradient(45deg, #ef4444 0%, #dc2626 100%);
             box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
             color: white;
@@ -634,6 +645,10 @@
         }
 
         .cancel-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
             background: linear-gradient(45deg, #f1f5f9 0%, #e2e8f0 100%);
             color: #475569;
             border: none;

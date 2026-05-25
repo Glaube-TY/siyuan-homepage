@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import { getStatisticalData } from "../../../../tools/statisticalAPI";
     import { sql } from "@/api";
 
@@ -60,8 +61,18 @@
         </div>
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="统计卡片"
+                subtitle="数据统计可视化，直观展示关键指标。"
+                icon="barChart"
+                features={[
+                    "数据统计可视化",
+                    "自定义统计维度",
+                    "适合数据追踪和展示"
+                ]}
+                highlights={["数据可视化", "自定义维度", "关键指标"]}
+                compact
+            />
         </div>
     {/if}
 </div>

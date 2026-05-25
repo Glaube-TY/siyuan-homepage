@@ -3,6 +3,8 @@
     import Sortable from "sortablejs";
     import { saveLayout, restoreLayout } from "./mobileHomepage_layout";
     import { addCustomBlock } from "./block-creator";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import AdvancedFeatureLock from "../../components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte";
     import "./mobileHomepage.scss";
 
     export const app = undefined;
@@ -116,17 +118,30 @@
                 class="mobile-homepage-add-widget-btn"
                 onclick={() =>
                     addCustomBlock(plugin, currentBlockForSettingsRef, mobileHomepageWidgetContainer)}
-                >➕添加组件</button
+                >
+                    <SiyuanIcon name="create" size={14} />
+                    <span>添加组件</span>
+                </button
             >
             <button class="mobile-homepage-close-btn" onclick={() => close()}
-                >返回</button
+                ><SiyuanIcon name="previous" size={14} /><span>返回</span></button
             >
         </div>
         <div class="mobile-homepage-fit"></div>
     {:else}
         <div class="mobile-homepage-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="移动端主页"
+                subtitle="移动端自定义主页布局，拖拽排序和组件管理。"
+                icon="mobile"
+                features={[
+                    "移动端自定义主页布局",
+                    "拖拽排序和组件管理",
+                    "适合移动端个性化展示"
+                ]}
+                highlights={["移动端", "拖拽布局", "组件管理"]}
+                compact
+            />
         </div>
     {/if}
 </div>

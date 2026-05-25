@@ -210,7 +210,7 @@ export async function queryTodayQuickRecords(
 export async function addWorkspaceQuickRecord(
     plugin: any,
     config: EnhancedDiaryConfig,
-    categoryKey: EnhancedDiaryRecordCategoryKey,
+    categoryTitle: string,
     content: string
 ): Promise<WorkspaceRecordActionResult> {
     const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
@@ -224,7 +224,7 @@ export async function addWorkspaceQuickRecord(
 
     return addQuickRecordToDiary({
         docId: todayDoc.docId,
-        categoryKey,
+        categoryTitle,
         content,
     });
 }

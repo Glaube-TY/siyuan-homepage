@@ -96,6 +96,9 @@
             background-color: transparent;
             border: 1px solid var(--b3-border-color);
             border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
 
             &:hover {
                 background-color: var(--b3-theme-primary);
@@ -114,5 +117,11 @@
         align-items: center;
         justify-content: center;
         gap: 10px;
+
+        h2 {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
     }
 }

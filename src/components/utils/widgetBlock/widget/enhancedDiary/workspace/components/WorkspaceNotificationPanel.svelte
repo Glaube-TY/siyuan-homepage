@@ -3,6 +3,10 @@
     import type { EnhancedDiaryWorkspaceNotification } from "../enhancedDiaryWorkspaceNotifications";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
     import type { EnhancedDiaryWorkspaceReviewCard } from "../enhancedDiaryWorkspaceViewModel";
+    import {
+        loadSnoozedNotificationIds,
+        saveSnoozedNotificationIds,
+    } from "../enhancedDiaryWorkspaceNotificationState";
     import WorkspaceEmptyState from "./WorkspaceEmptyState.svelte";
 
     interface Props {
@@ -17,6 +21,7 @@
         onCompleteReview: (card: EnhancedDiaryWorkspaceReviewCard) => void | Promise<void>;
         onCompleteTask: (task: EnhancedDiaryWorkspaceTask) => void | Promise<void>;
         onPostponeTask: (task: EnhancedDiaryWorkspaceTask, target: "tomorrow" | "nextWeek") => void | Promise<void>;
+        onSnoozedChange?: () => void;
         initialSelectedNotificationId?: string;
         selectVersion?: number;
     }
@@ -33,6 +38,7 @@
         onCompleteReview,
         onCompleteTask,
         onPostponeTask,
+        onSnoozedChange,
         initialSelectedNotificationId = "",
         selectVersion = 0,
     }: Props = $props();
@@ -129,7 +135,7 @@
     let levelFilter: string = $state("all");
     let actionFilter: "all" | "actionable" | "readonly" | "snoozed" = $state("all");
     let selectedNotificationId: string | null = $state(null);
-    let snoozedIds: string[] = $state([]);
+    let snoozedIds: string[] = $state(loadSnoozedNotificationIds());
 
     function getLevelWeight(level: EnhancedDiaryWorkspaceNotification["level"]): number {
         if (level === "danger") return 3;
@@ -210,6 +216,8 @@
 
     function saveSnoozedIds(nextIds: string[]): void {
         snoozedIds = nextIds;
+        saveSnoozedNotificationIds(nextIds);
+        onSnoozedChange?.();
     }
 
     function snoozeNotification(id: string): void {

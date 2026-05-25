@@ -10,54 +10,25 @@
     let { task, onSelect, onClose }: Props = $props();
 </script>
 
-<div class="modal-backdrop" role="presentation" onclick={onClose}>
-    <section
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        tabindex="-1"
-        onclick={(event) => event.stopPropagation()}
-        onkeydown={(event) => event.stopPropagation()}
-    >
-        <h2>删除任务</h2>
-        <p>请选择删除方式。保留删除记录会先写入今日日记「任务动态」，写入成功后才删除原任务。</p>
-        <div class="task-name">{task.taskname}</div>
-        <footer>
-            <button type="button" onclick={onClose}>取消</button>
-            <button type="button" onclick={() => onSelect("log")}>保留删除记录</button>
-            <button type="button" class="danger" onclick={() => onSelect("delete")}>直接删除任务块</button>
-        </footer>
-    </section>
+<div class="delete-task-content">
+    <p>请选择删除方式。保留删除记录会先写入今日日记「任务动态」，写入成功后才删除原任务。</p>
+    <div class="task-name">{task.taskname}</div>
+    <footer>
+        <button type="button" onclick={onClose}>取消</button>
+        <button type="button" onclick={() => onSelect("log")}>保留删除记录</button>
+        <button type="button" class="danger" onclick={() => onSelect("delete")}>直接删除任务块</button>
+    </footer>
 </div>
 
 <style>
-    .modal-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 100000;
+    .delete-task-content {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 18px 20px 0;
+        max-height: min(72vh, 620px);
+        overflow: hidden;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.32);
-        padding: 20px;
-        backdrop-filter: blur(2px);
-    }
-
-    .modal {
-        width: min(520px, 100%);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 14px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
-        padding: 22px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
-    }
-
-    h2 {
-        margin: 0 0 10px;
-        font-size: 15px;
-        font-weight: 600;
-        letter-spacing: 0;
+        flex-direction: column;
     }
 
     p {
@@ -76,6 +47,8 @@
         margin-bottom: 18px;
         font-weight: 600;
         font-size: 13px;
+        max-height: min(48vh, 420px);
+        overflow: auto;
     }
 
     footer {
@@ -83,6 +56,12 @@
         justify-content: flex-end;
         flex-wrap: wrap;
         gap: 8px;
+        margin: 16px -20px 0;
+        padding: 14px 20px 16px;
+        border-top: 1px solid var(--b3-border-color);
+        background: var(--b3-theme-surface);
+        position: sticky;
+        bottom: 0;
     }
 
     button {

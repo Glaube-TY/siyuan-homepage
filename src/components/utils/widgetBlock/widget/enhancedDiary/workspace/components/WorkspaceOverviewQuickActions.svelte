@@ -1,4 +1,6 @@
 <script lang="ts">
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
+
     interface Props {
         hasTemplateMissing: boolean;
         onCreateTask: () => void;
@@ -17,25 +19,25 @@
     </div>
     <div class="quick-actions">
         <button type="button" class="quick-action-btn" onclick={onCreateTask}>
-            <span class="quick-action-icon">➕</span>
+            <span class="quick-action-icon"><WorkspaceIcon name="create" size={16} /></span>
             <span class="quick-action-label">新建任务</span>
         </button>
         <button type="button" class="quick-action-btn" onclick={onCreateRecord}>
-            <span class="quick-action-icon">📝</span>
+            <span class="quick-action-icon"><WorkspaceIcon name="records" size={16} /></span>
             <span class="quick-action-label">快速记录</span>
         </button>
         <button type="button" class="quick-action-btn" onclick={onOpenToday}>
-            <span class="quick-action-icon">📖</span>
+            <span class="quick-action-icon"><WorkspaceIcon name="diary" size={16} /></span>
             <span class="quick-action-label">打开今日日记</span>
         </button>
         {#if hasTemplateMissing}
             <button type="button" class="quick-action-btn warn" onclick={onAppendTemplate}>
-                <span class="quick-action-icon">🔧</span>
+                <span class="quick-action-icon"><WorkspaceIcon name="template" size={16} /></span>
                 <span class="quick-action-label">补充模板</span>
             </button>
         {/if}
         <button type="button" class="quick-action-btn" onclick={onGoReview}>
-            <span class="quick-action-icon">🔄</span>
+            <span class="quick-action-icon"><WorkspaceIcon name="review" size={16} /></span>
             <span class="quick-action-label">查看复盘</span>
         </button>
     </div>

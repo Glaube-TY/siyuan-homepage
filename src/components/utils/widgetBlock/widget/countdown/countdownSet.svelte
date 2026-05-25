@@ -3,6 +3,7 @@
     import ImageSourceSetting from "../../shared/ImageSourceSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     interface Props {
         eventList?: Array<{
@@ -102,7 +103,7 @@
                         </td>
                         <td>
                             <button class="remove-event" title="删除" onclick={() => removeEvent(index)}>
-                                🗑
+                                <SiyuanIcon name="delete" size={14} />
                             </button>
                         </td>
                     </tr>

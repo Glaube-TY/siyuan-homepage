@@ -4,6 +4,7 @@
     import { svelteDialog } from "@/libs/dialog";
     import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
     import musicList from "./musicList.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -525,8 +526,18 @@
         {/if}
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="音乐播放器"
+                subtitle="本地音乐播放，支持多种音频格式和播放模式。"
+                icon="music"
+                features={[
+                    "本地音乐文件夹读取",
+                    "支持 MP3/WAV/FLAC 等格式",
+                    "顺序/循环/随机播放模式"
+                ]}
+                highlights={["本地音乐", "多种格式", "播放模式"]}
+                compact
+            />
         </div>
     {/if}
 </div>

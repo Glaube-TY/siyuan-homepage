@@ -11,6 +11,7 @@
     import { loadWidgetLayoutSettings } from "./utils/layout-shared";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     interface Props {
         plugin: any;
@@ -53,7 +54,6 @@
     }
 
     onMount(async () => {
-        // 统一从 widgetLayout.json 读取列数
         const settings = await loadWidgetLayoutSettings(plugin);
         widgetLayoutNumber = settings.widgetLayoutNumber;
 
@@ -134,12 +134,17 @@
 
     <div class="danger-actions">
         <button class="hide-button" onclick={onHideForCurrentDevice}>
-            👁 当前设备隐藏
+            <SiyuanIcon name="hide" size={14} />
+            <span>当前设备隐藏</span>
         </button>
         <button class="delete-button" onclick={onDeleteGlobally}>
-            🗑 全局删除
+            <SiyuanIcon name="delete" size={14} />
+            <span>全局删除</span>
         </button>
-        <button class="cancel-button" onclick={onClose}>❌ 取消</button>
+        <button class="cancel-button" onclick={onClose}>
+            <SiyuanIcon name="cancel" size={14} />
+            <span>取消</span>
+        </button>
     </div>
 </div>
 
@@ -203,6 +208,10 @@
     }
 
     .hide-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
         background: #f59e0b;
         color: white;
         border: none;
@@ -218,6 +227,10 @@
     }
 
     .delete-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
         background: #ef4444;
         color: white;
         border: none;
@@ -233,6 +246,10 @@
     }
 
     .cancel-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
         background: #f1f5f9;
         color: #475569;
         border: none;

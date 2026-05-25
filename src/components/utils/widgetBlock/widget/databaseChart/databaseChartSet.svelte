@@ -3,6 +3,7 @@
     import { getAttributeView } from "@/api";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled: boolean;
@@ -250,7 +251,17 @@
         {/if}
     {/if}
 {:else}
-    <h3>👑会员专属权益👑</h3>
+    <AdvancedFeatureLock
+        title="数据库图表"
+        subtitle="数据库数据可视化图表，支持折线图、柱状图等多种类型。"
+        icon="chart"
+        features={[
+            "数据库数据可视化图表",
+            "支持折线图、柱状图、饼图等",
+            "适合数据分析和展示"
+        ]}
+        highlights={["数据图表", "多种类型", "数据分析"]}
+    />
 {/if}
 <p>组件开发中~</p>
 

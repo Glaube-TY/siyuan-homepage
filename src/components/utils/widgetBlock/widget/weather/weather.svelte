@@ -12,10 +12,18 @@
 
     let { plugin = $bindable(), contentTypeJson = "{}" }: Props = $props();
 
-    const parsedContent = JSON.parse(contentTypeJson);
-    const cityName = parsedContent?.data?.cityName || "";
-    const cityCode = parsedContent?.data?.cityCode || "";
-    const weatherStyle = parsedContent?.data?.weatherStyle || "default";
+    function parseContentTypeJson(raw: string): any {
+        try {
+            return JSON.parse(raw || "{}");
+        } catch {
+            return {};
+        }
+    }
+
+    const parsedContent = $derived(parseContentTypeJson(contentTypeJson));
+    const cityName = $derived(parsedContent?.data?.cityName || "");
+    const cityCode = $derived(parsedContent?.data?.cityCode || "");
+    const weatherStyle = $derived(parsedContent?.data?.weatherStyle || "default");
 
     let city: string = $state("加载中...");
     let temperature: string = $state("加载中...");

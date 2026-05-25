@@ -1,6 +1,7 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled?: boolean;
@@ -20,5 +21,15 @@
         </SettingRow>
     </SettingSection>
 {:else}
-    <h3>👑会员专属权益👑</h3>
+    <AdvancedFeatureLock
+        title="倒计时"
+        subtitle="重要日期倒计时组件，多种样式可选。"
+        icon="time"
+        features={[
+            "重要日期倒计时",
+            "多种样式展示",
+            "适合考试、DDL、纪念日"
+        ]}
+        highlights={["倒计时", "多样式", "纪念日"]}
+    />
 {/if}

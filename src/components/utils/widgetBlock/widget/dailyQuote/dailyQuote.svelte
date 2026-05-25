@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { getImage } from "@/components/tools/getImage";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -114,8 +115,18 @@
         </div>
     {:else if dailyQuoteMode === "remote"}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="每日一句"
+                subtitle="每日一句自动展示，让主页更有仪式感。"
+                icon="quote"
+                features={[
+                    "每日一句自动展示",
+                    "让主页更有仪式感",
+                    "适合长期阅读和写作"
+                ]}
+                highlights={["每日更新", "仪式感", "阅读写作"]}
+                compact
+            />
         </div>
     {/if}
 </div>

@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { register } from "swiper/element/bundle";
     import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -175,8 +176,18 @@
         {/if}
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="图片轮播"
+                subtitle="精美图片自动轮播，让主页更有视觉冲击力。"
+                icon="image"
+                features={[
+                    "自动轮播展示图片",
+                    "支持多种切换动画效果",
+                    "适合摄影作品和壁纸展示"
+                ]}
+                highlights={["自动轮播", "动画效果", "视觉展示"]}
+                compact
+            />
         </div>
     {/if}
 </div>

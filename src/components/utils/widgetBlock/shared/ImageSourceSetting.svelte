@@ -3,6 +3,7 @@
     import { getImage } from "@/components/tools/getImage";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     interface Props {
         title?: string;
@@ -95,7 +96,9 @@
         </SettingRow>
     {:else}
         <SettingRow title={uploadLabel}>
-            <button onclick={() => fileInput?.click()} class="file-action-btn">📁</button>
+            <button onclick={() => fileInput?.click()} class="file-action-btn">
+                <SiyuanIcon name="folder" size={14} />
+            </button>
             <input
                 type="file"
                 bind:this={fileInput}

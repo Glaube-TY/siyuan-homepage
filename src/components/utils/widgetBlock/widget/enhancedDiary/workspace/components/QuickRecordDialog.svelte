@@ -1,134 +1,108 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import {
-        ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
-        type EnhancedDiaryRecordCategoryKey,
-    } from "../../enhancedDiaryWorkspaceSections";
 
     interface Props {
         mode?: "create" | "edit";
-        initialCategoryKey?: EnhancedDiaryRecordCategoryKey;
+        initialCategoryTitle?: string;
         initialContent?: string;
-        onSubmit: (categoryKey: EnhancedDiaryRecordCategoryKey, content: string) => void | Promise<void>;
+        suggestedCategories?: string[];
+        onSubmit: (categoryTitle: string, content: string) => void | Promise<void>;
         onClose: () => void;
     }
 
     let {
         mode = "create",
-        initialCategoryKey = "uncategorized",
+        initialCategoryTitle = "",
         initialContent = "",
+        suggestedCategories = ["未分类", "想法", "问题", "决策", "日志"],
         onSubmit,
         onClose,
     }: Props = $props();
-    let categoryKey: EnhancedDiaryRecordCategoryKey = $state("uncategorized");
-    let content = $state("");
 
-    const categories = Object.entries(ENHANCED_DIARY_RECORD_CATEGORY_TITLES) as Array<[
-        EnhancedDiaryRecordCategoryKey,
-        string,
-    ]>;
+    let categoryTitle = $state("");
+    let content = $state("");
+    let showSuggestions = $state(false);
+    let inputFocused = $state(false);
+
+    function getFilteredCategories(): string[] {
+        const input = categoryTitle.trim().toLowerCase();
+        if (!input) return suggestedCategories;
+        return suggestedCategories.filter((cat) => cat.toLowerCase().includes(input));
+    }
+
+    function selectCategory(cat: string): void {
+        categoryTitle = cat;
+        showSuggestions = false;
+    }
+
+    function submit(): void {
+        const title = categoryTitle.trim() || "未分类";
+        onSubmit(title, content);
+    }
 
     onMount(() => {
-        categoryKey = initialCategoryKey;
+        if (mode === "edit") {
+            categoryTitle = initialCategoryTitle || "未分类";
+        } else {
+            categoryTitle = initialCategoryTitle || "";
+        }
         content = initialContent;
     });
 </script>
 
-<div class="modal-backdrop" role="presentation" onclick={onClose}>
-    <section
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        tabindex="-1"
-        onclick={(event) => event.stopPropagation()}
-        onkeydown={(event) => event.stopPropagation()}
-    >
-        <header>
-            <h2>{mode === "edit" ? "编辑记录" : "快速记录"}</h2>
-            <button type="button" onclick={onClose} aria-label="关闭">×</button>
-        </header>
-        <div class="form">
-            <label>分类
-                <select bind:value={categoryKey}>
-                    {#each categories as [key, label]}
-                        <option value={key}>{label}</option>
-                    {/each}
-                </select>
-            </label>
-            <label>记录内容
-                <textarea bind:value={content} placeholder="写下这条记录"></textarea>
-            </label>
-        </div>
-        <footer>
-            <button type="button" onclick={onClose}>取消</button>
-            <button type="button" class="primary" onclick={() => onSubmit(categoryKey, content)}>
-                {mode === "edit" ? "保存" : "添加"}
-            </button>
-        </footer>
-    </section>
+<div class="quick-record-form">
+    <div class="form">
+        <label>记录分类
+            <div class="category-input-group">
+                <input
+                    type="text"
+                    bind:value={categoryTitle}
+                    placeholder="默认：未分类"
+                    maxlength="30"
+                    onfocus={() => { inputFocused = true; showSuggestions = true; }}
+                    onblur={() => { inputFocused = false; setTimeout(() => { showSuggestions = false; }, 150); }}
+                    oninput={() => { showSuggestions = true; }}
+                />
+                {#if showSuggestions && inputFocused}
+                    {@const filtered = getFilteredCategories()}
+                    {#if filtered.length > 0}
+                        <div class="category-suggestions">
+                            {#each filtered as category}
+                                <button 
+                                    type="button" 
+                                    class="suggestion-item"
+                                    onmousedown={(e) => e.preventDefault()}
+                                    onclick={() => selectCategory(category)}
+                                >
+                                    {category}
+                                </button>
+                            {/each}
+                        </div>
+                    {/if}
+                {/if}
+            </div>
+        </label>
+        <label>记录内容
+            <textarea bind:value={content} placeholder="写下这条记录"></textarea>
+        </label>
+    </div>
+    <footer>
+        <button type="button" onclick={onClose}>取消</button>
+        <button type="button" class="primary" onclick={submit}>
+            {mode === "edit" ? "保存" : "添加"}
+        </button>
+    </footer>
 </div>
 
 <style>
-    .modal-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 100000;
+    .quick-record-form {
         display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.32);
-        padding: 20px;
-        backdrop-filter: blur(2px);
-    }
-
-    .modal {
-        width: min(560px, 100%);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 14px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
-        overflow: hidden;
-    }
-
-    header,
-    footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px 18px;
-        border-bottom: 1px solid var(--b3-border-color);
-    }
-
-    footer {
-        justify-content: flex-end;
-        gap: 8px;
-        border-top: 1px solid var(--b3-border-color);
-        border-bottom: none;
-        background: var(--b3-theme-surface);
-    }
-
-    h2 {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 600;
-        letter-spacing: 0;
-    }
-
-    header button {
-        border: none;
-        background: transparent;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.5;
-        font-size: 18px;
-        padding: 2px 6px;
-        cursor: pointer;
-        border-radius: 4px;
-    }
-
-    header button:hover {
-        opacity: 1;
-        background: var(--b3-theme-surface);
+        flex-direction: column;
+        min-height: 0;
+        width: 100%;
+        box-sizing: border-box;
+        flex: 1;
+        min-width: 0;
     }
 
     .form {
@@ -136,6 +110,8 @@
         flex-direction: column;
         gap: 14px;
         padding: 18px;
+        width: 100%;
+        box-sizing: border-box;
     }
 
     label {
@@ -146,9 +122,16 @@
         font-weight: 500;
         color: var(--b3-theme-on-surface);
         opacity: 0.8;
+        min-width: 0;
     }
 
-    select,
+    .category-input-group {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+    }
+
+    input,
     textarea {
         border: 1px solid var(--b3-border-color);
         border-radius: 7px;
@@ -157,9 +140,11 @@
         padding: 8px 10px;
         font-size: 13px;
         transition: border-color 0.12s;
+        width: 100%;
+        box-sizing: border-box;
     }
 
-    select:focus,
+    input:focus,
     textarea:focus {
         outline: none;
         border-color: var(--b3-theme-primary);
@@ -169,6 +154,41 @@
         min-height: 150px;
         resize: vertical;
         line-height: 1.6;
+    }
+
+    .category-suggestions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 4px;
+    }
+
+    .suggestion-item {
+        border: 1px solid var(--b3-border-color);
+        border-radius: 12px;
+        background: var(--b3-theme-background);
+        color: var(--b3-theme-on-surface);
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: border-color 0.1s, background 0.1s;
+    }
+
+    .suggestion-item:hover {
+        border-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+    }
+
+    footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 16px 18px;
+        border-top: 1px solid var(--b3-border-color);
+        background: var(--b3-theme-surface);
+        width: 100%;
+        box-sizing: border-box;
     }
 
     footer button {

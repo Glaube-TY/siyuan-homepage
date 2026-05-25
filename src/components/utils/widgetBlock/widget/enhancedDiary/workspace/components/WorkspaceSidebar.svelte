@@ -1,5 +1,7 @@
 <script lang="ts">
-    export type WorkspaceTab = "overview" | "tasks" | "projects" | "records" | "review" | "more" | "calendar" | "notifications";
+    import WorkspaceIcon, { type WorkspaceIconName } from "./WorkspaceIcon.svelte";
+
+    export type WorkspaceTab = "overview" | "tasks" | "projects" | "records" | "review" | "more" | "calendar" | "notifications" | "settings";
 
     interface Props {
         activeTab: WorkspaceTab;
@@ -9,13 +11,14 @@
 
     let { activeTab, onSelect, notificationCount = 0 }: Props = $props();
 
-    const tabs: Array<{ key: WorkspaceTab; label: string; icon: string }> = [
-        { key: "overview",       label: "总览",   icon: "🏠" },
-        { key: "tasks",          label: "任务",   icon: "✅" },
-        { key: "projects",       label: "项目",   icon: "🧩" },
-        { key: "records",        label: "记录",   icon: "📝" },
-        { key: "review",         label: "复盘",   icon: "🔄" },
-        { key: "more",           label: "更多",   icon: "⋯" },
+    const tabs: Array<{ key: WorkspaceTab; label: string; icon: WorkspaceIconName }> = [
+        { key: "overview",       label: "总览",   icon: "overview" },
+        { key: "tasks",          label: "任务",   icon: "tasks" },
+        { key: "projects",       label: "项目",   icon: "projects" },
+        { key: "records",        label: "记录",   icon: "records" },
+        { key: "review",         label: "复盘",   icon: "review" },
+        { key: "settings",       label: "设置",   icon: "settings" },
+        { key: "more",           label: "更多",   icon: "more" },
     ];
 
     function isTabActive(tabKey: WorkspaceTab): boolean {
@@ -34,7 +37,7 @@
             class:active={isTabActive(tab.key)}
             onclick={() => onSelect(tab.key)}
         >
-            <span class="tab-icon" aria-hidden="true">{tab.icon}</span>
+            <span class="tab-icon" aria-hidden="true"><WorkspaceIcon name={tab.icon} size={15} /></span>
             <span class="tab-label">{tab.label}</span>
             {#if tab.key === "more" && notificationCount > 0}
                 <em class="badge">{notificationCount > 99 ? "99+" : notificationCount}</em>

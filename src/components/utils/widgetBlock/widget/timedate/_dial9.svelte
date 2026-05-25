@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         contentTypeJson?: string;
@@ -75,8 +76,18 @@
     </svg>
 {:else}
     <div class="content-not-advanced">
-        <h2>👑高级会员专属功能👑</h2>
-        <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+        <AdvancedFeatureLock
+            title="时钟"
+            subtitle="多种风格时钟展示，适合主页装饰。"
+            icon="clock"
+            features={[
+                "多种风格时钟展示",
+                "模拟表盘设计",
+                "适合主页装饰和时间感知"
+            ]}
+            highlights={["模拟时钟", "多样式", "主页装饰"]}
+            compact
+        />
     </div>
 {/if}
 

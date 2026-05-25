@@ -14,12 +14,19 @@
 <!-- 子标签导航 -->
 <div class="sub-tab-nav">
     {#each subTabs as tab}
-        {#if !tab.requiresAdvanced || advancedEnabled}
-            <button
-                onclick={() => onTabChange(tab.key)}
-                class:active={settingsActiveTab === tab.key}
-                >{tab.label}</button
-            >
-        {/if}
+        <button
+            onclick={() => onTabChange(tab.key)}
+            class:active={settingsActiveTab === tab.key}
+            class:locked={tab.requiresAdvanced && !advancedEnabled}
+            >{tab.label}</button
+        >
     {/each}
 </div>
+
+<style lang="scss">
+    .sub-tab-nav {
+        button.locked {
+            opacity: 0.6;
+        }
+    }
+</style>

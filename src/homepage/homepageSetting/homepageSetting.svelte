@@ -24,6 +24,7 @@
     import SubTabNav from "./layout/SubTabNav.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     let { plugin, close }: HomepageSettingProps = $props();
 
@@ -747,6 +748,7 @@
                         <StylesSettingsTab
                             state={stylesSettingsState}
                             actions={stylesSettingsActions}
+                            advancedEnabled={advancedEnabled}
                         />
                     {/if}
 
@@ -832,10 +834,14 @@
             </div>
             <!-- 操作按钮 -->
             <div class="action-buttons">
-                <button class="btn primary no-link-style" onclick={confirmSave}
-                    >✅ 确认</button
-                >
-                <button class="btn" onclick={cancelSave}>❌ 取消</button>
+                <button class="btn primary no-link-style" onclick={confirmSave}>
+                    <SiyuanIcon name="confirm" size={14} />
+                    <span>确认</span>
+                </button>
+                <button class="btn" onclick={cancelSave}>
+                    <SiyuanIcon name="cancel" size={14} />
+                    <span>取消</span>
+                </button>
             </div>
         {:else if activeTab === "vip"}
             <div class="content-scroll-area full-content">

@@ -26,13 +26,34 @@ import {
     buildWorkspaceNotifications,
     type EnhancedDiaryWorkspaceNotification,
 } from "./enhancedDiaryWorkspaceNotifications";
+import {
+    buildWorkspaceCarryoverPlans,
+    type EnhancedDiaryCarryoverItem,
+} from "./enhancedDiaryWorkspaceCarryover";
+import { daysBetweenLocalDates } from "./enhancedDiaryWorkspaceDate";
 import type { EnhancedDiaryConfig } from "../enhancedDiaryTypes";
+
+export type EnhancedDiaryProjectHealthStatus =
+    | "healthy"
+    | "stale"
+    | "pileup"
+    | "overdue"
+    | "idle"
+    | "done";
+
+export type EnhancedDiaryProjectHealthTone = "success" | "warning" | "danger" | "normal";
 
 export interface EnhancedDiaryWorkspaceProject {
     name: string;
     taskCount: number;
     openTaskCount: number;
     todayTaskCount: number;
+    overdueTaskCount: number;
+    lastActivityDate: string;
+    inactiveDays: number | null;
+    healthStatus: EnhancedDiaryProjectHealthStatus;
+    healthLabel: string;
+    healthTone: EnhancedDiaryProjectHealthTone;
     progressMarkdown?: string;
     hasTodayProgress: boolean;
 }
@@ -53,6 +74,7 @@ export interface EnhancedDiaryWorkspaceState {
     notifications: EnhancedDiaryWorkspaceNotification[];
     reviewCards: EnhancedDiaryWorkspaceReviewCard[];
     reviewHistory: EnhancedDiaryWorkspaceReviewHistoryItem[];
+    carryoverPlans: EnhancedDiaryCarryoverItem[];
 }
 
 const EMPTY_SUMMARY: EnhancedDiaryWorkspaceSummary = {
@@ -98,10 +120,41 @@ function parseTodayProjectProgress(markdown?: string): Map<string, string> {
 
 function buildProjectSummary(
     tasks: EnhancedDiaryWorkspaceTask[],
-    todayMarkdown?: string
+    todayMarkdown: string | undefined,
+    today: string
 ): EnhancedDiaryWorkspaceProject[] {
     const map = new Map<string, EnhancedDiaryWorkspaceProject>();
     const progressMap = parseTodayProjectProgress(todayMarkdown);
+
+    function getLatestTaskDate(projectTasks: EnhancedDiaryWorkspaceTask[]): string {
+        return projectTasks
+            .map((task) => task.sourceDate || task.startDate || task.deadline || "")
+            .filter(Boolean)
+            .sort()
+            .slice(-1)[0] || "";
+    }
+
+    function resolveHealth(project: EnhancedDiaryWorkspaceProject): Pick<
+        EnhancedDiaryWorkspaceProject,
+        "healthStatus" | "healthLabel" | "healthTone"
+    > {
+        if (project.overdueTaskCount > 0) {
+            return { healthStatus: "overdue", healthLabel: "存在逾期", healthTone: "danger" };
+        }
+        if (project.openTaskCount >= 5) {
+            return { healthStatus: "pileup", healthLabel: "任务堆积", healthTone: "warning" };
+        }
+        if (project.openTaskCount > 0 && (project.inactiveDays == null || project.inactiveDays >= 14)) {
+            return { healthStatus: "idle", healthLabel: "长期无进展", healthTone: "danger" };
+        }
+        if (project.openTaskCount > 0 && project.inactiveDays >= 7) {
+            return { healthStatus: "stale", healthLabel: "轻微停滞", healthTone: "warning" };
+        }
+        if (project.taskCount > 0 && project.openTaskCount === 0) {
+            return { healthStatus: "done", healthLabel: "全部完成", healthTone: "success" };
+        }
+        return { healthStatus: "healthy", healthLabel: "健康推进", healthTone: "success" };
+    }
 
     tasks.forEach((task) => {
         task.tags.forEach((tag) => {
@@ -111,12 +164,19 @@ function buildProjectSummary(
                 taskCount: 0,
                 openTaskCount: 0,
                 todayTaskCount: 0,
+                overdueTaskCount: 0,
+                lastActivityDate: "",
+                inactiveDays: null,
+                healthStatus: "healthy",
+                healthLabel: "健康推进",
+                healthTone: "success",
                 progressMarkdown: progressMap.get(tag),
                 hasTodayProgress: progressMap.has(tag),
-            };
+            } satisfies EnhancedDiaryWorkspaceProject;
             current.taskCount += 1;
             if (!task.completed) current.openTaskCount += 1;
             if (task.isTodayTask) current.todayTaskCount += 1;
+            if (task.isOverdue) current.overdueTaskCount += 1;
             if (progressMap.has(tag)) {
                 current.progressMarkdown = progressMap.get(tag);
                 current.hasTodayProgress = true;
@@ -132,15 +192,36 @@ function buildProjectSummary(
             taskCount: 0,
             openTaskCount: 0,
             todayTaskCount: 0,
+            overdueTaskCount: 0,
+            lastActivityDate: today,
+            inactiveDays: 0,
+            healthStatus: "healthy",
+            healthLabel: "健康推进",
+            healthTone: "success",
             progressMarkdown: content,
             hasTodayProgress: true,
         });
     });
 
     return Array.from(map.values())
+        .map((project) => {
+            const projectTasks = tasks.filter((task) => task.tags.includes(project.name));
+            const lastActivityDate = project.hasTodayProgress ? today : getLatestTaskDate(projectTasks);
+            const inactiveDays = lastActivityDate ? Math.max(0, daysBetweenLocalDates(lastActivityDate, today)) : null;
+            const enriched = {
+                ...project,
+                lastActivityDate,
+                inactiveDays,
+            };
+            return {
+                ...enriched,
+                ...resolveHealth(enriched),
+            };
+        })
         .sort(
             (a, b) =>
                 Number(b.hasTodayProgress) - Number(a.hasTodayProgress) ||
+                b.overdueTaskCount - a.overdueTaskCount ||
                 b.openTaskCount - a.openTaskCount ||
                 b.todayTaskCount - a.todayTaskCount
         );
@@ -165,7 +246,7 @@ export async function loadEnhancedDiaryWorkspaceState(
         record.date = today;
         record.docTitle = todayDiary?.title || today;
     }
-    const projects = buildProjectSummary(tasks, todayDiary?.content);
+    const projects = buildProjectSummary(tasks, todayDiary?.content, today);
     const reviewCards = await buildWorkspaceReviewCards(config, date);
     const notifications = buildWorkspaceNotifications({
         tasks,
@@ -174,6 +255,12 @@ export async function loadEnhancedDiaryWorkspaceState(
         todayDocId: todayDiary?.id,
         reviewCards,
     });
+    let carryoverPlans: EnhancedDiaryCarryoverItem[] = [];
+    try {
+        carryoverPlans = await buildWorkspaceCarryoverPlans(config, date);
+    } catch (err) {
+        console.warn("[enhancedDiaryWorkspaceData] build carryover plans failed", err);
+    }
 
     return {
         today,
@@ -191,6 +278,7 @@ export async function loadEnhancedDiaryWorkspaceState(
         notifications,
         reviewCards,
         reviewHistory: [],
+        carryoverPlans,
     };
 }
 

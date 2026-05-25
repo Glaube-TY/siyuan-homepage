@@ -9,9 +9,28 @@
     }
 
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsed = JSON.parse(contentTypeJson);
-    let blockID = parsed.data?.[0]?.customBlockId;
-    const isRandomDoc = parsed.data?.[0]?.isRandomDoc;
+
+    function parseContentTypeJson(raw: string): any {
+        try {
+            return JSON.parse(raw || "{}");
+        } catch {
+            return {};
+        }
+    }
+
+    const parsed = $derived(parseContentTypeJson(contentTypeJson));
+    const configuredBlockID = $derived(parsed.data?.[0]?.customBlockId || "");
+    const isRandomDoc = $derived(Boolean(parsed.data?.[0]?.isRandomDoc));
+    let blockID = $state("");
+    let lastConfiguredBlockID = $state("");
+
+    $effect(() => {
+        if (configuredBlockID === lastConfiguredBlockID) {
+            return;
+        }
+        lastConfiguredBlockID = configuredBlockID;
+        blockID = configuredBlockID;
+    });
 
     let divProtyle: HTMLDivElement = $state();
     let protyle: any;

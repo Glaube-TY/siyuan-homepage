@@ -17,6 +17,29 @@ export type EnhancedDiaryYearRule = "dec31" | "nextJan1";
 
 export type EnhancedDiaryTemplateMap = Record<EnhancedDiaryPeriod, string>;
 
+export interface EnhancedDiaryWorkspaceCalendarSettings {
+    showLunar: boolean;
+    showSolarTerm: boolean;
+    showFestival: boolean;
+    showLegalHoliday: boolean;
+    showBriefCounts: boolean;
+}
+
+export interface EnhancedDiaryWorkspaceSettings {
+    calendar: EnhancedDiaryWorkspaceCalendarSettings;
+}
+
+export interface EnhancedDiaryReviewReminderWindow {
+    beforeDays: number;
+    afterDays: number;
+}
+
+export interface EnhancedDiaryReviewReminderWindows {
+    week: EnhancedDiaryReviewReminderWindow;
+    month: EnhancedDiaryReviewReminderWindow;
+    year: EnhancedDiaryReviewReminderWindow;
+}
+
 export interface EnhancedDiaryConfig {
     weekReviewDay: EnhancedDiaryWeekday;
     monthReviewRule: EnhancedDiaryMonthRule;
@@ -24,6 +47,9 @@ export interface EnhancedDiaryConfig {
     templates: EnhancedDiaryTemplateMap;
     dailyNotebookId?: string;
     taskMigrationReminderDays: number;
+    workspaceSettings: EnhancedDiaryWorkspaceSettings;
+    recordCategorySuggestions: string[];
+    reviewReminderWindows: EnhancedDiaryReviewReminderWindows;
 }
 
 export interface EnhancedDiaryTemplateContext {
@@ -80,77 +106,25 @@ const DEFAULT_DAY_TEMPLATE = `# 今日日记 {{date}}
 
 {{完成标记}}
 
-## 今日概览
+## 任务管理
 
-- 今日重点：
-- 今日状态：
-- 今日一句话：
+### 新建任务
 
-## 新建任务
+### 迁移任务
 
-> 今天新建的任务放在这里。任务格式兼容 Tasks Plus。
-
-- [ ] 示例任务 ❗❗ ⌛{{date}} 📅{{date}} #示例#
-
-## 迁移任务
-
-> 从旧日记迁移到今天继续处理的任务放在这里。任务第一行保持原样，迁移来源写在任务下方。
+### 任务动态
 
 ## 快速记录
 
-### 未分类
-
-#### 13:01 记录
-
-这里写具体记录内容。
-
-### 想法
-
-#### 13:05 记录
-
-这里写想法内容。
-
-### 问题
-
-#### 13:10 记录
-
-这里写问题内容。
-
-### 决策
-
-#### 13:15 记录
-
-这里写决策内容。
-
-### 日志
-
-#### 13:20 记录
-
-这里写过程日志。
-
-## 项目推进
-
-### 示例项目
-
-- 今日进展：
-- 遇到问题：
-- 下一步：
-
-## 任务动态
-
-- 示例：新增任务 / 完成任务 / 删除任务 / 迁移任务。
-
 ## 今日复盘
 
-### 发生了什么
+### 今日总结
 
-### 我的感受
+### 情绪状态
 
-### 今日收获
+### 收获与问题
 
-### 遇到的问题
-
-### 下一步`;
+### 明日关注`;
 
 const DEFAULT_WEEK_TEMPLATE = `# 本周复盘 {{week}}
 
@@ -158,31 +132,17 @@ const DEFAULT_WEEK_TEMPLATE = `# 本周复盘 {{week}}
 
 {{完成标记}}
 
-## 本周概览
+## 周复盘
 
-- 本周重点：
-- 本周状态：
-- 一句话总结：
+### 本周总结
 
-## 本周完成
+### 任务回顾
 
-## 本周未完成
+### 记录沉淀
 
-## 本周项目推进
+### 问题与风险
 
-## 本周重要记录
-
-## 本周复盘
-
-### 发生了什么
-
-### 我的感受
-
-### 本周收获
-
-### 遇到的问题
-
-### 下周下一步`;
+### 下周计划`;
 
 const DEFAULT_MONTH_TEMPLATE = `# 本月总结 {{month}}
 
@@ -190,27 +150,17 @@ const DEFAULT_MONTH_TEMPLATE = `# 本月总结 {{month}}
 
 {{完成标记}}
 
-## 本月概览
+## 月度复盘
 
-## 本月完成
+### 本月总结
 
-## 本月未完成
+### 关键进展
 
-## 本月项目推进
+### 任务回顾
 
-## 本月重要记录
+### 问题与风险
 
-## 本月总结
-
-### 发生了什么
-
-### 我的感受
-
-### 本月收获
-
-### 遇到的问题
-
-### 下月下一步`;
+### 下月计划`;
 
 const DEFAULT_YEAR_TEMPLATE = `# 年度总结 {{year}}
 
@@ -218,27 +168,17 @@ const DEFAULT_YEAR_TEMPLATE = `# 年度总结 {{year}}
 
 {{完成标记}}
 
-## 年度概览
+## 年度复盘
 
-## 年度完成
+### 年度总结
 
-## 年度未完成
+### 关键成果
 
-## 年度项目推进
+### 重要变化
 
-## 年度重要记录
+### 经验教训
 
-## 年度总结
-
-### 发生了什么
-
-### 我的感受
-
-### 年度收获
-
-### 遇到的问题
-
-### 明年下一步`;
+### 明年方向`;
 
 export const DEFAULT_ENHANCED_DIARY_TEMPLATES: EnhancedDiaryTemplateMap = {
     day: DEFAULT_DAY_TEMPLATE,
@@ -254,4 +194,19 @@ export const DEFAULT_ENHANCED_DIARY_CONFIG: EnhancedDiaryConfig = {
     templates: { ...DEFAULT_ENHANCED_DIARY_TEMPLATES },
     dailyNotebookId: "",
     taskMigrationReminderDays: 30,
+    workspaceSettings: {
+        calendar: {
+            showLunar: true,
+            showSolarTerm: true,
+            showFestival: true,
+            showLegalHoliday: true,
+            showBriefCounts: true,
+        },
+    },
+    recordCategorySuggestions: ["未分类", "想法", "问题", "决策", "日志"],
+    reviewReminderWindows: {
+        week: { beforeDays: 1, afterDays: 2 },
+        month: { beforeDays: 2, afterDays: 2 },
+        year: { beforeDays: 7, afterDays: 7 },
+    },
 };

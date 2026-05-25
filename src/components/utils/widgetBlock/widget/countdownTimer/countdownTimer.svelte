@@ -3,6 +3,7 @@
 
     import Default from "./_default.svelte";
     import Ring1 from "./_ring1.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         plugin: any;
@@ -109,8 +110,18 @@
         {/if}
     {:else}
         <div class="content-not-advanced">
-            <h2>👑高级会员专属功能👑</h2>
-            <h3>请在“主页设置”→“会员服务”中开通高级会员后使用</h3>
+            <AdvancedFeatureLock
+                title="倒计时"
+                subtitle="重要日期倒计时组件，多种样式可选。"
+                icon="time"
+                features={[
+                    "重要日期倒计时",
+                    "多种样式展示",
+                    "适合考试、DDL、纪念日"
+                ]}
+                highlights={["倒计时", "多样式", "纪念日"]}
+                compact
+            />
         </div>
     {/if}
 </div>

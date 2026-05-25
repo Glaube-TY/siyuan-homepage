@@ -1,8 +1,10 @@
 <script lang="ts">
     import type { EnhancedDiaryWorkspaceProject } from "../enhancedDiaryWorkspaceData";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
-    import { daysBetweenLocalDates, formatLocalDate } from "../enhancedDiaryWorkspaceDate";
+    import type { WorkspaceProjectStatusFilter } from "../enhancedDiaryWorkspaceNavigation";
+    import { formatLocalDate } from "../enhancedDiaryWorkspaceDate";
     import WorkspaceEmptyState from "./WorkspaceEmptyState.svelte";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         projects: EnhancedDiaryWorkspaceProject[];
@@ -10,13 +12,15 @@
         onGoTasks?: (projectName?: string) => void;
         initialSelectedProjectName?: string;
         selectVersion?: number;
+        initialStatusFilter?: WorkspaceProjectStatusFilter;
+        filterVersion?: number;
     }
 
-    let { projects, tasks, onGoTasks, initialSelectedProjectName = "", selectVersion = 0 }: Props = $props();
+    let { projects, tasks, onGoTasks, initialSelectedProjectName = "", selectVersion = 0, initialStatusFilter = "all", filterVersion = 0 }: Props = $props();
 
     let searchText: string = $state("");
-    let statusFilter: "all" | "open" | "todayProgress" | "todayTask" | "stale" | "done" = $state("all");
-    let sortKey: "default" | "openDesc" | "todayDesc" | "staleDesc" | "nameAsc" = $state("default");
+    let statusFilter: WorkspaceProjectStatusFilter = $state("all");
+    let sortKey: "default" | "openDesc" | "todayDesc" | "staleDesc" | "healthDesc" | "nameAsc" = $state("default");
     let selectedProjectName: string | null = $state(null);
 
     const totalProjectCount = $derived(projects.length);
@@ -33,25 +37,33 @@
 
     function getProjectLastActivityDate(projectName: string): string {
         const project = projects.find((p) => p.name === projectName);
-        if (project?.hasTodayProgress) return formatLocalDate(new Date());
-        return getProjectTasks(projectName)
-            .map((task) => task.sourceDate || task.startDate || task.deadline || "")
-            .filter(Boolean)
-            .sort()
-            .slice(-1)[0] || "";
+        return project?.lastActivityDate || "";
     }
 
     function getProjectInactiveDays(projectName: string): number | null {
-        const lastDate = getProjectLastActivityDate(projectName);
-        if (!lastDate) return null;
-        return Math.max(0, daysBetweenLocalDates(lastDate, formatLocalDate(new Date())));
+        const project = projects.find((p) => p.name === projectName);
+        return project?.inactiveDays ?? null;
     }
 
     function isProjectStale(projectName: string): boolean {
         const project = projects.find((p) => p.name === projectName);
-        if (!project || project.openTaskCount <= 0 || project.hasTodayProgress) return false;
-        const inactiveDays = getProjectInactiveDays(projectName);
-        return inactiveDays == null || inactiveDays >= 7;
+        return project?.healthStatus === "stale" || project?.healthStatus === "idle";
+    }
+
+    function getHealthWeight(project: EnhancedDiaryWorkspaceProject): number {
+        if (project.healthTone === "danger") return 3;
+        if (project.healthTone === "warning") return 2;
+        if (project.healthTone === "normal") return 1;
+        return 0;
+    }
+
+    function getProjectRiskDescription(project: EnhancedDiaryWorkspaceProject): string {
+        if (project.healthStatus === "overdue") return `存在 ${project.overdueTaskCount} 个逾期任务，建议优先清理截止风险。`;
+        if (project.healthStatus === "pileup") return `仍有 ${project.openTaskCount} 个未完成任务，适合拆分或收敛下一步动作。`;
+        if (project.healthStatus === "idle") return "项目有未完成任务，但长时间缺少推进记录，需要重新确认是否继续。";
+        if (project.healthStatus === "stale") return `项目已停滞 ${project.inactiveDays ?? "-"} 天，可以补一条推进记录或迁移关键任务。`;
+        if (project.healthStatus === "done") return "相关任务已经全部完成，可以在复盘中沉淀结果。";
+        return "项目近期没有明显风险，保持当前推进节奏即可。";
     }
 
     function getProjectTimeline(projectName: string): Array<{
@@ -100,6 +112,7 @@
     }
 
     const staleProjectCount = $derived(projects.filter((p) => isProjectStale(p.name)).length);
+    const riskyProjectCount = $derived(projects.filter((p) => p.healthTone === "danger" || p.healthTone === "warning").length);
 
     function matchProjectSearch(project: EnhancedDiaryWorkspaceProject, keyword: string): boolean {
         if (!keyword) return true;
@@ -129,6 +142,8 @@
                     case "todayProgress": return p.hasTodayProgress;
                     case "todayTask": return p.todayTaskCount > 0;
                     case "stale": return isProjectStale(p.name);
+                    case "overdue": return p.overdueTaskCount > 0;
+                    case "risk": return p.healthTone === "danger" || p.healthTone === "warning";
                     case "done": return p.taskCount > 0 && p.openTaskCount === 0;
                     default: return true;
                 }
@@ -149,6 +164,10 @@
                     case "staleDesc":
                         return Number(isProjectStale(b.name)) - Number(isProjectStale(a.name))
                             || (getProjectInactiveDays(b.name) ?? -1) - (getProjectInactiveDays(a.name) ?? -1)
+                            || b.openTaskCount - a.openTaskCount;
+                    case "healthDesc":
+                        return getHealthWeight(b) - getHealthWeight(a)
+                            || b.overdueTaskCount - a.overdueTaskCount
                             || b.openTaskCount - a.openTaskCount;
                     case "nameAsc":
                         return a.name.localeCompare(b.name, "zh-CN");
@@ -176,9 +195,6 @@
     const selectedProject = $derived(getSelectedProject());
     const selectedProjectTasks = $derived(getSelectedProjectTasks());
 
-    const selectedOverdueTaskCount = $derived(
-        selectedProjectTasks.filter((t) => t.isOverdue).length
-    );
     const selectedLastActivityDate = $derived(
         selectedProject ? getProjectLastActivityDate(selectedProject.name) : ""
     );
@@ -203,6 +219,25 @@
     }
 
     let lastProjectSelectVersion = $state(0);
+    let lastProjectFilterVersion = $state(0);
+
+    $effect(() => {
+        if (filterVersion <= lastProjectFilterVersion) return;
+        lastProjectFilterVersion = filterVersion;
+        statusFilter = initialStatusFilter;
+        searchText = "";
+        if (initialStatusFilter === "risk") {
+            sortKey = "healthDesc";
+        } else if (initialStatusFilter === "stale") {
+            sortKey = "staleDesc";
+        } else if (initialStatusFilter === "overdue") {
+            sortKey = "healthDesc";
+        } else {
+            sortKey = "default";
+        }
+        selectedProjectName = null;
+    });
+
     $effect(() => {
         if (selectVersion <= lastProjectSelectVersion) return;
         lastProjectSelectVersion = selectVersion;
@@ -253,6 +288,10 @@
                 <span class="stat-label">长期未推进</span>
                 <strong class="stat-value danger">{staleProjectCount}</strong>
             </div>
+            <div class="stat-card">
+                <span class="stat-label">风险项目</span>
+                <strong class="stat-value danger">{riskyProjectCount}</strong>
+            </div>
         </div>
 
         <div class="project-filter-card">
@@ -270,6 +309,8 @@
                     <option value="todayProgress">今日有推进</option>
                     <option value="todayTask">有今日任务</option>
                     <option value="stale">长期未推进</option>
+                    <option value="overdue">存在逾期</option>
+                    <option value="risk">风险项目</option>
                     <option value="done">全部完成</option>
                 </select>
                 <select class="project-filter-select" bind:value={sortKey}>
@@ -277,6 +318,7 @@
                     <option value="openDesc">未完成多优先</option>
                     <option value="todayDesc">今日活跃优先</option>
                     <option value="staleDesc">长期未推进优先</option>
+                    <option value="healthDesc">健康风险优先</option>
                     <option value="nameAsc">名称排序</option>
                 </select>
             </div>
@@ -315,6 +357,7 @@
                                         {#if isProjectStale(project.name)}
                                             <span class="mini-badge mini-danger">未推进</span>
                                         {/if}
+                                        <span class="mini-badge mini-health tone-{project.healthTone}">{project.healthLabel}</span>
                                     </span>
                                 </div>
                                 <div class="list-item-meta">
@@ -337,6 +380,7 @@
                             <div class="detail-head">
                                 <h3 class="detail-name">{selectedProject.name}</h3>
                                 <div class="detail-badges">
+                                    <span class="badge badge-health tone-{selectedProject.healthTone}">{selectedProject.healthLabel}</span>
                                     {#if selectedProject.hasTodayProgress}
                                         <span class="badge badge-primary">今日有推进</span>
                                     {/if}
@@ -366,7 +410,7 @@
                                 </div>
                                 <div class="metric-item">
                                     <span class="metric-label">逾期任务</span>
-                                    <strong class="metric-value {selectedOverdueTaskCount > 0 ? 'danger' : ''}">{selectedOverdueTaskCount}</strong>
+                                    <strong class="metric-value {selectedProject.overdueTaskCount > 0 ? 'danger' : ''}">{selectedProject.overdueTaskCount}</strong>
                                 </div>
                                 <div class="metric-item">
                                     <span class="metric-label">最近推进</span>
@@ -376,6 +420,14 @@
                                     <span class="metric-label">停滞天数</span>
                                     <strong class="metric-value {isProjectStale(selectedProject.name) ? 'danger' : ''}">{selectedInactiveDays ?? "-"}</strong>
                                 </div>
+                            </div>
+
+                            <div class="project-health-box tone-{selectedProject.healthTone}">
+                                <div class="project-health-title">
+                                    <WorkspaceIcon name={selectedProject.healthTone === "danger" ? "warning" : "projects"} size={15} />
+                                    <strong>{selectedProject.healthLabel}</strong>
+                                </div>
+                                <p>{getProjectRiskDescription(selectedProject)}</p>
                             </div>
 
                             <div class="detail-section">
@@ -397,7 +449,13 @@
                                         {#each selectedProjectTasks.slice(0, 10) as task}
                                             <div class="detail-task-item" class:completed={task.completed} class:overdue={task.isOverdue}>
                                                 <span class="task-status-icon">
-                                                    {task.completed ? "✅" : task.isOverdue ? "⚠️" : "○"}
+                                                    {#if task.completed}
+                                                        <WorkspaceIcon name="tasks" size={13} />
+                                                    {:else if task.isOverdue}
+                                                        <WorkspaceIcon name="warning" size={13} />
+                                                    {:else}
+                                                        <span class="task-status-dot"></span>
+                                                    {/if}
                                                 </span>
                                                 <span class="task-name">{task.taskname}</span>
                                                 <span class="task-meta">
@@ -473,7 +531,7 @@
 
     .overview-cards {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 12px;
     }
 
@@ -705,6 +763,26 @@
         color: var(--b3-theme-error, #d32f2f);
     }
 
+    .mini-health.tone-success {
+        background: rgba(40, 167, 69, 0.1);
+        color: #22863a;
+    }
+
+    .mini-health.tone-warning {
+        background: rgba(230, 168, 23, 0.12);
+        color: #b87300;
+    }
+
+    .mini-health.tone-danger {
+        background: rgba(211, 47, 47, 0.1);
+        color: var(--b3-theme-error, #d32f2f);
+    }
+
+    .mini-health.tone-normal {
+        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+        color: var(--b3-theme-primary);
+    }
+
     .list-item-meta {
         font-size: 10px;
         color: var(--b3-theme-on-surface);
@@ -785,6 +863,30 @@
         border: 1px solid rgba(40, 167, 69, 0.25);
     }
 
+    .badge-health.tone-success {
+        background: rgba(40, 167, 69, 0.1);
+        color: #22863a;
+        border: 1px solid rgba(40, 167, 69, 0.25);
+    }
+
+    .badge-health.tone-warning {
+        background: rgba(230, 168, 23, 0.12);
+        color: #b87300;
+        border: 1px solid rgba(230, 168, 23, 0.3);
+    }
+
+    .badge-health.tone-danger {
+        background: rgba(211, 47, 47, 0.1);
+        color: var(--b3-theme-error, #d32f2f);
+        border: 1px solid rgba(211, 47, 47, 0.25);
+    }
+
+    .badge-health.tone-normal {
+        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+        color: var(--b3-theme-primary);
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 25%, transparent);
+    }
+
     .detail-metrics {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -822,6 +924,41 @@
 
     .metric-value.warn { color: #e6a817; }
     .metric-value.danger { color: var(--b3-theme-error, #d32f2f); }
+
+    .project-health-box {
+        border: 1px solid var(--b3-border-color);
+        border-radius: 10px;
+        background: var(--b3-theme-background);
+        padding: 12px 14px;
+    }
+
+    .project-health-box.tone-danger {
+        border-left: 3px solid var(--b3-theme-error, #d32f2f);
+    }
+
+    .project-health-box.tone-warning {
+        border-left: 3px solid #e6a817;
+    }
+
+    .project-health-box.tone-success {
+        border-left: 3px solid #22863a;
+    }
+
+    .project-health-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--b3-theme-on-surface);
+    }
+
+    .project-health-box p {
+        margin: 6px 0 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.68;
+    }
 
     .detail-section {
         border-top: 1px solid var(--b3-border-color);
@@ -896,8 +1033,25 @@
     }
 
     .task-status-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
         flex-shrink: 0;
-        font-size: 11px;
+        color: var(--b3-theme-primary);
+    }
+
+    .detail-task-item.overdue .task-status-icon {
+        color: var(--b3-theme-error, #d32f2f);
+    }
+
+    .task-status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        border: 1px solid var(--b3-border-color);
+        background: var(--b3-theme-background);
     }
 
     .task-name {

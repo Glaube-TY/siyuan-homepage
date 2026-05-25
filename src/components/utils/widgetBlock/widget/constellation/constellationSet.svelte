@@ -1,6 +1,7 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled?: boolean;
@@ -38,5 +39,15 @@
     </SettingSection>
     <p>注：若某一接口失效请联系我更新~</p>
 {:else}
-    <h3>👑会员专属权益👑</h3>
+    <AdvancedFeatureLock
+        title="星座运势"
+        subtitle="每日星座运势更新，了解今日运势走向。"
+        icon="star"
+        features={[
+            "每日星座运势更新",
+            "多维度运势解析",
+            "适合星座文化爱好者"
+        ]}
+        highlights={["星座运势", "多维度解析", "每日更新"]}
+    />
 {/if}

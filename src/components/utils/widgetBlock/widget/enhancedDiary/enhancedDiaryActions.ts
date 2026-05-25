@@ -1,6 +1,6 @@
 import { generateTaskLine, type GenerateTasksPlusTaskInput } from "../tasksPlus/tasksPlusParser";
 import type { EnhancedDiaryConfig } from "./enhancedDiaryTypes";
-import type { EnhancedDiaryRecordCategoryKey } from "./enhancedDiaryWorkspaceSections";
+import { resolveRecordCategoryTitle } from "./enhancedDiaryWorkspaceSections";
 import {
     createTodayDailyNoteForWidget,
     getDiaryDocumentForDate,
@@ -9,7 +9,7 @@ import {
 } from "./enhancedDiaryDoc";
 import {
     appendMarkdownToDaySection,
-    appendMarkdownToRecordCategory,
+    appendMarkdownToRecordCategoryByTitle,
     type EnhancedDiaryInsertResult,
 } from "./enhancedDiaryBlockLocator";
 
@@ -127,7 +127,7 @@ export async function addNewTaskToDiary(params: {
 
 export async function addQuickRecordToDiary(params: {
     docId: string;
-    categoryKey: EnhancedDiaryRecordCategoryKey;
+    categoryTitle: string;
     content: string;
     now?: Date;
 }): Promise<EnhancedDiaryActionResult> {
@@ -140,10 +140,11 @@ export async function addQuickRecordToDiary(params: {
         };
     }
 
+    const { title: normalizedTitle } = resolveRecordCategoryTitle(params.categoryTitle);
     const markdown = `#### ${formatNowTime(params.now)} 记录\n\n${content}`;
-    const result = await appendMarkdownToRecordCategory({
+    const result = await appendMarkdownToRecordCategoryByTitle({
         docId: params.docId,
-        categoryKey: params.categoryKey,
+        categoryTitle: normalizedTitle,
         markdown,
     });
 

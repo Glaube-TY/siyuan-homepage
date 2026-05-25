@@ -12,21 +12,25 @@ export type CoreAction = typeof CORE_ACTIONS[number];
 
 const LABEL_TO_ACTION: Record<string, CoreAction> = {
     "🔍 搜索笔记": "search",
+    "搜索笔记": "search",
     "📅 今日日记": "diary",
+    "今日日记": "diary",
     "➕ 添加组件": "addWidget",
+    "添加组件": "addWidget",
     "⚙ 主页设置": "settings",
+    "主页设置": "settings",
 };
 
 const PROTECTED_ACTIONS: CoreAction[] = ["addWidget", "settings", "cleanEmptyDocs", "templateCenter"];
 
 export function createDefaultButtons(): HomepageButtonItem[] {
     return [
-        { id: 1728000000000, label: "🔍 搜索笔记", checked: true, shortcut: "Ctrl+P", order: 0, action: "search" },
-        { id: 1728000001000, label: "📅 今日日记", checked: true, shortcut: "Alt+5", order: 1, action: "diary" },
-        { id: 1728000002000, label: "➕ 添加组件", checked: true, shortcut: "", order: 2, action: "addWidget" },
-        { id: 1728000002400, label: "🎨 布局模板", checked: true, shortcut: "", order: 3, action: "templateCenter" },
-        { id: 1728000002500, label: "🧹 清理空文档", checked: true, shortcut: "", order: 4, action: "cleanEmptyDocs" },
-        { id: 1728000003000, label: "⚙ 主页设置", checked: true, shortcut: "", order: 5, action: "settings" },
+        { id: 1728000000000, label: "搜索笔记", checked: true, shortcut: "Ctrl+P", order: 0, action: "search" },
+        { id: 1728000001000, label: "今日日记", checked: true, shortcut: "Alt+5", order: 1, action: "diary" },
+        { id: 1728000002000, label: "添加组件", checked: true, shortcut: "", order: 2, action: "addWidget" },
+        { id: 1728000002400, label: "布局模板", checked: true, shortcut: "", order: 3, action: "templateCenter" },
+        { id: 1728000002500, label: "清理空文档", checked: true, shortcut: "", order: 4, action: "cleanEmptyDocs" },
+        { id: 1728000003000, label: "主页设置", checked: true, shortcut: "", order: 5, action: "settings" },
     ];
 }
 
@@ -77,7 +81,7 @@ export function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
         const maxOrder = normalized.length > 0 ? Math.max(...normalized.map((b) => b.order)) : -1;
         normalized.push({
             id: 1728000002500,
-            label: "🧹 清理空文档",
+            label: "清理空文档",
             checked: false,
             shortcut: "",
             order: maxOrder + 1,
@@ -91,7 +95,7 @@ export function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
         const maxOrder = normalized.length > 0 ? Math.max(...normalized.map((b) => b.order)) : -1;
         normalized.push({
             id: 1728000002400,
-            label: "🎨 布局模板",
+            label: "布局模板",
             checked: false,
             shortcut: "",
             order: maxOrder + 1,
@@ -102,7 +106,7 @@ export function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
     // 统一 templateCenter 内置按钮 label，老用户旧 label 强制刷新
     for (const item of normalized) {
         if (item.action === "templateCenter") {
-            item.label = "🎨 布局模板";
+            item.label = "布局模板";
         }
     }
 
@@ -131,7 +135,7 @@ export interface ButtonActionMeta {
 const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
     addWidget: {
         action: "addWidget",
-        title: "➕ 添加组件",
+        title: "添加组件",
         badge: "内置功能",
         description: "打开组件添加入口，用于向主页添加新的功能组件。",
         usage: [
@@ -141,7 +145,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
     },
     settings: {
         action: "settings",
-        title: "⚙ 主页设置",
+        title: "主页设置",
         badge: "内置功能",
         description: "打开主页设置窗口，用于调整主页行为、横幅、标题、按钮、组件和样式。",
         usage: [
@@ -151,7 +155,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
     },
     cleanEmptyDocs: {
         action: "cleanEmptyDocs",
-        title: "🧹 清理空文档",
+        title: "清理空文档",
         badge: "迁移优化",
         description: "扫描当前工作空间中的空文档，支持预览、多选和删除前复检。",
         sourceText: "该功能来自作者的独立项目，已迁移并针对当前主页插件优化。",
@@ -170,7 +174,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
     },
     templateCenter: {
         action: "templateCenter",
-        title: "🎨 布局模板",
+        title: "布局模板",
         badge: "会员功能",
         description: "打开布局模板中心，保存和应用你自己的主页布局方案。",
         usage: [

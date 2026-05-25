@@ -3,6 +3,7 @@
     import { showMessage } from "siyuan";
     import { recordCYBMOKKnock, migrateLegacyCYBMOKIfNeeded } from "./cybmokData";
     import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
+    import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         contentTypeJson?: string;
@@ -251,8 +252,17 @@
     </svg>
 {:else}
     <div class="content-not-advanced">
-        <h2>👑高级会员专属功能👑</h2>
-        <h3>请在"主页设置"→"会员服务"中开通高级会员后使用</h3>
+        <AdvancedFeatureLock
+            title="赛博木鱼"
+            subtitle="当代年轻人解压神器。"
+            icon="check"
+            features={[
+                "功德是自己积攒的",
+                "幸福是自己争取的"
+            ]}
+            highlights={["木鱼", "敲击"]}
+            compact
+        />
     </div>
 {/if}
 

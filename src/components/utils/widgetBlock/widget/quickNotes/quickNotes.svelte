@@ -13,7 +13,7 @@
     let { plugin, contentTypeJson = "{}" }: Props = $props();
     const parsed = $derived(JSON.parse(contentTypeJson));
 
-    const quickNotesTitle = $derived(parsed.data?.quickNotesTitle || "📝快速笔记");
+    const quickNotesTitle = $derived(parsed.data?.quickNotesTitle || "快速笔记");
     const quickNotesSort = $derived(parsed.data?.quickNotesSort || "DOC_ASC");
 
     let quickNotesEnabled = $state();

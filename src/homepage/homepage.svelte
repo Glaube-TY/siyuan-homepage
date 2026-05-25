@@ -50,6 +50,7 @@
         findExistingDeviceByHardware,
         deduplicateDeviceProfiles,
     } from "./utils/deviceProfile";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     import "./style/homepage.scss"
 
@@ -73,6 +74,32 @@
     let tempTitleIconEmoji = $state("🏠");
     let tempTitleIconImage: string | null = $state(null);
     let pageTitle = $state("思源笔记首页");
+
+    function getButtonIconName(button: { action?: string; label?: string }): string {
+        const action = button.action || "";
+        if (action === "search" || button.label?.includes("搜索笔记")) return "search";
+        if (action === "diary" || button.label?.includes("今日日记")) return "diary";
+        if (action === "addWidget" || button.label?.includes("添加组件")) return "create";
+        if (action === "settings" || button.label?.includes("主页设置")) return "settings";
+        if (action === "cleanEmptyDocs" || button.label?.includes("清理空文档")) return "delete";
+        if (action === "templateCenter" || button.label?.includes("布局模板")) return "style";
+        return "";
+    }
+
+    function getButtonDisplayLabel(button: { action?: string; label: string }): string {
+        const actionLabelMap: Record<string, string> = {
+            search: "搜索笔记",
+            diary: "今日日记",
+            addWidget: "添加组件",
+            settings: "主页设置",
+            cleanEmptyDocs: "清理空文档",
+            templateCenter: "布局模板",
+        };
+        if (button.action && actionLabelMap[button.action]) {
+            return actionLabelMap[button.action];
+        }
+        return button.label || '';
+    }
     let tempTitleIconStyle: string = $state("square");
 
     let statsInfoText =
@@ -1027,7 +1054,10 @@
                                     saveLayout,
                                 )}
                         >
-                            {sortedButtons.label}
+                            {#if getButtonIconName(sortedButtons)}
+                                <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
+                            {/if}
+                            <span>{getButtonDisplayLabel(sortedButtons)}</span>
                         </button>
                     {/if}
                 {/each}
@@ -1062,7 +1092,10 @@
                                     showMoreMenu = false;
                                 }}
                             >
-                                {item.label}
+                                {#if getButtonIconName(item)}
+                                    <SiyuanIcon name={getButtonIconName(item)} size={14} />
+                                {/if}
+                                <span>{getButtonDisplayLabel(item)}</span>
                             </button>
                         {/each}
                     </div>
