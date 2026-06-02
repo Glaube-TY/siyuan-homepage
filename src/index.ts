@@ -16,6 +16,12 @@ import Homepage from "./homepage/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
 import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
+import KbMainPanel from "@/features/kb/components/panels/kb-main-panel.svelte";
+import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.svelte";
+import { setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
+import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
+import { setKbChatSessionStoragePlugin } from "@/features/kb/services/session/kb-chat-session-storage";
+import { setNotebrainPlugin } from "@/features/kb/services/agentic-rag/storage";
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 
@@ -26,6 +32,9 @@ const TAB_ID = "siyuan-homepagehomepage_tab";
 const ENHANCED_DIARY_WORKSPACE_TAB_TYPE = "enhanced_diary_workspace_tab";
 const ENHANCED_DIARY_WORKSPACE_TAB_ID = "siyuan-homepageenhanced_diary_workspace_tab";
 const DOCK_TYPE = "homepage_dock";
+const KB_CHAT_TAB_TYPE = "kb_chat_tab";
+const KB_CHAT_TAB_ID = "siyuan-homepagekb_chat_tab";
+const KB_DOCK_TYPE = "homepage_kb_dock";
 
 const HOMEPAGE_ICON_SVG = `<symbol id="iconhomepage" viewBox="0 0 1024 1024">
     <path d="M918.050133 478.344533L512 165.341867 105.949867 478.344533a51.165867 51.165867 0 0 1-62.7712-80.8448L477.184 57.9584 512 25.6l34.833067 32.3584 434.005333 339.541333a51.2 51.2 0 1 1-62.788267 80.8448z" fill="#B02721" p-id="15736"></path><path d="M918.050133 478.344533L512 165.341867 105.949867 478.344533a51.165867 51.165867 0 0 1-62.7712-80.8448L477.184 57.9584 512 25.6l34.833067 32.3584 434.005333 339.541333a51.2 51.2 0 1 1-62.788267 80.8448z" fill="#B02721" p-id="15737"></path><path d="M512 165.341867L119.466667 467.9168V981.333333h785.066666V467.9168z" fill="#E0E1E2" p-id="15738"></path><path d="M1006.933333 810.666667a17.066667 17.066667 0 0 0-17.066666 17.066666v17.066667h-17.066667v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v17.066667h-34.133334a17.066667 17.066667 0 1 0 0 34.133333h34.133334v51.2h-34.133334a17.066667 17.066667 0 1 0 0 34.133334h34.133334v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h17.066667v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-153.6a17.066667 17.066667 0 0 0-17.066667-17.066666z m-34.133333 119.466666v-51.2h17.066667v51.2h-17.066667zM119.466667 878.933333a17.066667 17.066667 0 1 0 0-34.133333H85.333333v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v17.066667H34.133333v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v153.6a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h17.066667v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h34.133334a17.066667 17.066667 0 1 0 0-34.133334H85.333333v-51.2h34.133334z m-68.266667 51.2H34.133333v-51.2h17.066667v51.2z" fill="#E0E1E2" p-id="15739"></path><path d="M256 452.266667h204.8v136.533333H256zM256 691.2h204.8v170.666667H256zM563.2 452.266667h204.8v136.533333H563.2zM563.2 691.2h204.8v290.133333H563.2z" fill="#556080" p-id="15740"></path><path d="M563.2 452.266667h204.8v102.4H563.2zM256 452.266667h204.8v47.189333H256zM375.466667 759.466667v-68.266667h-34.133334v68.266667h-85.333333v34.133333h85.333333v68.266667h34.133334v-68.266667h85.333[... 52 char[... 14 chars omitted ...]
@@ -49,6 +58,7 @@ interface PluginConfig {
 export default class PluginHomepage extends Plugin {
     customTab!: () => Model;
     enhancedDiaryWorkspaceTab!: () => Model;
+    kbChatTab!: () => Model;
     isMobile = false;
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
     private homepageInstance: Record<string, any> | null = null;
@@ -56,6 +66,9 @@ export default class PluginHomepage extends Plugin {
     private enhancedDiaryWorkspaceInstance: Record<string, any> | null = null;
     private enhancedDiaryWorkspaceTabDiv: HTMLDivElement | null = null;
     private enhancedDiaryWorkspaceInitialTab = "overview";
+    private kbChatInstance: Record<string, any> | null = null;
+    private kbChatTabDiv: HTMLDivElement | null = null;
+    private kbDockInstance: Record<string, any> | null = null;
     private sidebarDockInstance: Record<string, any> | null = null;
     private homepageTabObserver: MutationObserver | null = null;
     ADVANCED = false;
@@ -204,6 +217,10 @@ export default class PluginHomepage extends Plugin {
 
     async onload() {
         const config = await this.getPluginConfig();
+        setKbSettingsPlugin(this);
+        setReferenceNavigationPlugin(this);
+        setKbChatSessionStoragePlugin(this);
+        setNotebrainPlugin(this);
         this.registerIcon();
 
         const frontEnd = getFrontend();
@@ -223,6 +240,9 @@ export default class PluginHomepage extends Plugin {
         if ((config.sidebarEnabled ?? false) && !this.isMobile) {
             this.registerDock();
         }
+        if (!this.isMobile) {
+            this.registerKbDock();
+        }
 
     }
 
@@ -234,6 +254,7 @@ export default class PluginHomepage extends Plugin {
         // 销毁 Homepage 组件实例
         this.destroyHomepageInstance();
         this.destroyEnhancedDiaryWorkspaceInstance();
+        this.destroyKbChatInstance();
 
         // 关闭移动端对话框
         if (this.currentMobileDialog) {
@@ -258,6 +279,15 @@ export default class PluginHomepage extends Plugin {
             this.sidebarDockInstance = null;
         }
 
+        if (this.kbDockInstance) {
+            try {
+                unmount(this.kbDockInstance);
+            } catch {
+                // ignore dock cleanup errors
+            }
+            this.kbDockInstance = null;
+        }
+
         // 断开主页 tab 连接状态观察器
         if (this.homepageTabObserver) {
             this.homepageTabObserver.disconnect();
@@ -268,6 +298,7 @@ export default class PluginHomepage extends Plugin {
     async onLayoutReady() {
         this.homepageTabDiv = document.createElement("div");
         this.enhancedDiaryWorkspaceTabDiv = document.createElement("div");
+        this.kbChatTabDiv = document.createElement("div");
         // 不再提前 mount，等 tab init 容器进入 DOM 后再创建实例
 
         // 建立轻量观察：当 homepageTabDiv 脱离 DOM 时自动销毁 Homepage 实例
@@ -280,6 +311,12 @@ export default class PluginHomepage extends Plugin {
                 (!this.enhancedDiaryWorkspaceTabDiv || !this.enhancedDiaryWorkspaceTabDiv.isConnected)
             ) {
                 this.destroyEnhancedDiaryWorkspaceInstance();
+            }
+            if (
+                this.kbChatInstance &&
+                (!this.kbChatTabDiv || !this.kbChatTabDiv.isConnected)
+            ) {
+                this.destroyKbChatInstance();
             }
         });
         this.homepageTabObserver.observe(document.body, { childList: true, subtree: true });
@@ -328,6 +365,24 @@ export default class PluginHomepage extends Plugin {
                     this.element.appendChild(self.enhancedDiaryWorkspaceTabDiv);
                     if (!self.enhancedDiaryWorkspaceInstance) {
                         self.createEnhancedDiaryWorkspaceInstance();
+                    }
+                }
+            },
+        });
+
+        this.kbChatTab = this.addTab({
+            type: KB_CHAT_TAB_TYPE,
+            async init() {
+                if (!this.element) {
+                    console.debug('[Homepage] KB chat tab init: element missing');
+                    return;
+                }
+
+                self.prepareKbChatContainer(this.element as HTMLElement);
+                if (self.kbChatTabDiv) {
+                    this.element.appendChild(self.kbChatTabDiv);
+                    if (!self.kbChatInstance) {
+                        self.createKbChatInstance();
                     }
                 }
             },
@@ -408,6 +463,54 @@ export default class PluginHomepage extends Plugin {
 
         if (this.enhancedDiaryWorkspaceTabDiv) {
             this.enhancedDiaryWorkspaceTabDiv.innerHTML = "";
+        }
+    }
+
+    private createKbChatInstance(): void {
+        if (!this.kbChatTabDiv || !this.kbChatTabDiv.isConnected) {
+            return;
+        }
+
+        this.kbChatInstance = mount(KbMainPanel as any, {
+            target: this.kbChatTabDiv,
+            props: {
+                placement: "tab",
+                onOpenSettings: () => this.openKbSettingsDialog(),
+            },
+        } as any);
+    }
+
+    private prepareKbChatContainer(tabElement: HTMLElement): void {
+        tabElement.style.height = "100%";
+        tabElement.style.width = "100%";
+        tabElement.style.minHeight = "0";
+        tabElement.style.display = "flex";
+        tabElement.style.flexDirection = "column";
+        tabElement.style.overflow = "hidden";
+
+        if (!this.kbChatTabDiv) {
+            return;
+        }
+        this.kbChatTabDiv.style.height = "100%";
+        this.kbChatTabDiv.style.width = "100%";
+        this.kbChatTabDiv.style.minHeight = "0";
+        this.kbChatTabDiv.style.flex = "1 1 auto";
+        this.kbChatTabDiv.style.display = "flex";
+        this.kbChatTabDiv.style.overflow = "hidden";
+    }
+
+    private destroyKbChatInstance(): void {
+        if (this.kbChatInstance) {
+            try {
+                unmount(this.kbChatInstance);
+            } catch (e) {
+                console.warn("[Plugin] destroy KB chat instance failed:", e);
+            }
+            this.kbChatInstance = null;
+        }
+
+        if (this.kbChatTabDiv) {
+            this.kbChatTabDiv.innerHTML = "";
         }
     }
 
@@ -577,6 +680,66 @@ export default class PluginHomepage extends Plugin {
         }, 0);
     }
 
+    public openKbSettingsDialog(): void {
+        const dialog = svelteDialog({
+            title: "AI 知识库设置",
+            width: "960px",
+            height: "72vh",
+            constructor: (containerEl: HTMLElement) => {
+                return mount(KbSettingsPanel as any, {
+                    target: containerEl,
+                    props: {
+                        close: () => {
+                            dialog.close();
+                        },
+                    },
+                } as any);
+            },
+        });
+    }
+
+    public openKbChatTab(): void {
+        if (this.isMobileFrontend()) {
+            showMessage("AI 知识库标签页暂不支持移动端", 3000);
+            return;
+        }
+
+        openTab({
+            app: this.app,
+            custom: {
+                icon: "iconSparkles",
+                title: "AI 知识库",
+                data: { text: "AI 知识库对话" },
+                id: KB_CHAT_TAB_ID,
+            },
+        });
+    }
+
+    public openKbDock(): void {
+        if (this.isMobileFrontend()) {
+            showMessage("移动端请使用 AI 知识库标签页", 3000);
+            return;
+        }
+
+        const layout = (window as any).siyuan?.layout;
+        layout?.rightDock?.showDock?.(true);
+
+        const selectors = [
+            `.dock__item[data-type="${KB_DOCK_TYPE}"]`,
+            `[data-type="${KB_DOCK_TYPE}"]`,
+        ];
+        const dockButton = selectors
+            .map((selector) => document.querySelector(selector) as HTMLElement | null)
+            .find(Boolean);
+
+        if (dockButton) {
+            dockButton.click();
+            return;
+        }
+
+        showMessage("AI 知识库侧边栏已注册，未找到可点击的侧边栏按钮", 3000);
+    }
+
     private openMobileHomepage() {
         // 如果已存在对话框，先关闭
         if (this.currentMobileDialog) {
@@ -650,6 +813,57 @@ export default class PluginHomepage extends Plugin {
                     }
                 } as any);
                 dock.element.appendChild(sidebarContainer);
+            },
+        });
+    }
+
+    private registerKbDock() {
+        this.addDock({
+            config: {
+                position: "RightTop",
+                size: { width: 360, height: 0 },
+                icon: "iconSparkles",
+                title: "AI 知识库对话",
+            },
+            data: {},
+            type: KB_DOCK_TYPE,
+            init: (dock) => {
+                if (this.kbDockInstance) {
+                    try {
+                        unmount(this.kbDockInstance);
+                    } catch {
+                        // ignore stale dock cleanup errors
+                    }
+                    this.kbDockInstance = null;
+                }
+
+                const existingContainer = dock.element.querySelector('[data-kb-dock-container]');
+                if (existingContainer) {
+                    existingContainer.remove();
+                }
+
+                const kbContainer = document.createElement("div");
+                kbContainer.setAttribute("data-kb-dock-container", "true");
+                kbContainer.style.height = "100%";
+                kbContainer.style.width = "100%";
+                this.kbDockInstance = mount(KbMainPanel as any, {
+                    target: kbContainer,
+                    props: {
+                        placement: "dock",
+                        onOpenSettings: () => this.openKbSettingsDialog(),
+                    },
+                } as any);
+                dock.element.appendChild(kbContainer);
+            },
+            destroy: () => {
+                if (this.kbDockInstance) {
+                    try {
+                        unmount(this.kbDockInstance);
+                    } catch {
+                        // ignore dock cleanup errors
+                    }
+                    this.kbDockInstance = null;
+                }
             },
         });
     }

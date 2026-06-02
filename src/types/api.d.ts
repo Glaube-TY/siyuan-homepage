@@ -65,3 +65,14 @@ interface IResExportResources {
     path: string;
 }
 
+interface DocFile {
+    id: string;
+    name: string;
+    path: string;
+    mtime: string;
+}
+
+interface IResListDocsByPath {
+    files: DocFile[];
+}
+

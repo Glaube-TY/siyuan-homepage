@@ -165,6 +165,15 @@ export async function getIDsByHPath(notebook: NotebookId, path: string): Promise
     return request(url, data);
 }
 
+export async function listDocsByPath(notebook: NotebookId, path: string): Promise<IResListDocsByPath> {
+    let data = {
+        notebook: notebook,
+        path: path,
+    };
+    let url = '/api/filetree/listDocsByPath';
+    return request(url, data);
+}
+
 // **************************************** Asset Files ****************************************
 
 export async function upload(assetsDirPath: string, files: any[]): Promise<IResUpload> {
@@ -326,6 +335,34 @@ export async function getBlockByID(blockId: string): Promise<Block> {
     let sqlScript = `select * from blocks where id ='${blockId}'`;
     let data = await sql(sqlScript);
     return data[0];
+}
+
+// **************************************** Search ****************************************
+
+export interface FullTextSearchBlockResult {
+    id: string;
+    rootID: string;
+    box: string;
+    path: string;
+    hPath?: string;
+    type: string;
+    content: string;
+    score?: number;
+}
+
+export interface FullTextSearchResponse {
+    blocks: FullTextSearchBlockResult[];
+    matchCount: number;
+    docCount: number;
+}
+
+export async function fullTextSearchBlock(query: string, page: number = 0): Promise<FullTextSearchResponse | null> {
+    const data = {
+        query: query,
+        page: page,
+    };
+    const url = '/api/search/fullTextSearchBlock';
+    return request(url, data);
 }
 
 // **************************************** Template ****************************************
