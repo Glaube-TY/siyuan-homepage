@@ -1,5 +1,4 @@
 import type { AgentScope } from "../../../../scope/types";
-import type { ActiveFocusScope } from "../../../../tools/knowledge-map-types";
 import type {
   KbConversationTurnReferences,
   KbRetrievalToolDeps,
@@ -12,7 +11,6 @@ export class KbRetrievalRuntimeState implements KbRetrievalToolDeps {
   private conversationTurns: readonly KbConversationTurnReferences[] | undefined;
   private settings: Partial<KbSettings> | undefined;
   private recentConversationContext: readonly RecentTurnContext[] | undefined;
-  private activeFocusScope: ActiveFocusScope | undefined;
 
   constructor(params: {
     scope: AgentScope;
@@ -35,9 +33,6 @@ export class KbRetrievalRuntimeState implements KbRetrievalToolDeps {
   }
 
   getEffectiveScope(): AgentScope | undefined {
-    if (this.activeFocusScope && this.activeFocusScope.docIds.length > 0) {
-      return { type: "custom_docs", docIds: this.activeFocusScope.docIds };
-    }
     return this.scope;
   }
 
@@ -51,17 +46,5 @@ export class KbRetrievalRuntimeState implements KbRetrievalToolDeps {
 
   getRecentConversationContext(): readonly RecentTurnContext[] | undefined {
     return this.recentConversationContext;
-  }
-
-  getActiveFocusScope(): ActiveFocusScope | undefined {
-    return this.activeFocusScope;
-  }
-
-  saveActiveFocusScope(scope: ActiveFocusScope): void {
-    this.activeFocusScope = scope;
-  }
-
-  clearActiveFocusScope(): void {
-    this.activeFocusScope = undefined;
   }
 }

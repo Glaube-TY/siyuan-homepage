@@ -3,7 +3,7 @@
  *
  * 职责：
  * - 提供 AgentScope 的显示标签和摘要生成
- * - 从旧 agent-core/scope/agent-scope-label.ts 低风险迁移
+ * - 不参与工具选择或读取决策
  */
 
 import type { AgentScope, AgentScopeSummary } from "./types";

@@ -169,21 +169,18 @@ ToolSafetyInfo 是对象结构，不使用 readonly / sideEffect 旧字段。
 ```ts
 const builtinKnowledgeBaseQa: SkillContract = {
   name: "builtin_knowledge_base_qa",
-  title: "知识库问答",
-  description: "说明如何参考思源知识库相关全局工具能力进行检索、读取、引用。",
+  title: "思源知识库问答",
+  description: "说明如何参考思源知识库相关全局工具能力进行结构查看、检索、读取和引用。",
   roleInstruction: "可使用思源知识库资料辅助回答。",
-  whenUseful: "当用户问题涉及知识库资料的检索、查找、总结、解释、对比或引用时可参考。",
-  boundary: "不写入、不删除、不修改笔记。不得输出 docId / blockId / path 等内部标识。",
+  whenUseful: "当用户请求涉及知识库资料的查找、总结、解释、对比或引用时可参考。",
+  boundary: "只读知识库；不写入、不删除、不修改。可以使用工具返回的 docId/blockId/url/fileId/resourceId 作为后续工具参数；不得编造资源 ID。不得输出 path/internalMapping/realPath 等内部实现字段。",
   toolNames: [
     "list_knowledge_map",
     "search_scope",
-    "list_scope_docs",
     "focus_doc_scope",
     "read_candidate_docs",
-    "read_previous_evidence",
-    "get_conversation_used_references",
   ],
-  guidance: "知识图谱和文档树用于呈现知识库结构，不包含文档正文；搜索用于发现候选资料；范围文档用于展示当前范围内的可读资料；需要总结、评价、解释或提取具体笔记内容时，读取候选文档以获得安全摘录和引用句柄。读取后会返回安全证据句柄，可供 final_answer 引用。\n\n通用检索策略：\n- 用户表达可能是概念化、泛称、简称或非文档原词；检索词不必等同用户原话。\n- Planner 可以根据用户意图、文档树标题、上下文、同义词、上位词、相关实体、时间线、主题词，自主组织一个或多个检索词。\n- 文档树用于理解知识库范围、栏目结构、标题线索和候选方向。\n- 搜索能力用于按 Planner 自拟检索词搜索，支持关键词与模糊检索。\n- 目录和文档树能力只能提供结构和候选线索，不能当正文证据。\n- 读取候选文档能力读取后的安全摘录才可作为具体内容依据。\n- 若问题可以直接调用历史参考资料进行回答，则不需要搜索，直接读取相应文档即可。\n- 如果候选已读取但证据不足，应说明「已读取候选但没有足够依据」，不要说「无法访问内容」。\n- 搜索不到时，可考虑换词、拆词、使用同义词、上位词或主题词，由 Planner 自主决定。\n\n引用建议：\n- 如果回答基于已读取的知识库资料，通常可以在 final_answer 中附带对应的引用句柄，便于 UI 展示来源。\n- 引用句柄来自读取候选文档后返回的安全证据句柄。\n- 这是使用建议，不是强制规则；资料不足时 Planner 可直接回答说明不确定或请求澄清。\n- final_answer 是全局最终回答工具，适用于所有场景，不要求必须附带引用。",
+  guidance: "（详见 guidance.ts，包含通用检索策略、结构查看/检索/读取能力、最近上下文和引用、final/progress 边界、JSON 输出规则等。全部使用推荐措辞，不是固定流程。）",
   priority: 100,
   enabledByDefault: true,
   buildPromptSection(ctx) { /* 渲染 Skill prompt 段落 */ },
@@ -299,7 +296,7 @@ MCP / 自定义 Skill 接入规则：
 - `search_scope`：搜索知识库
 - `list_scope_docs`：列出范围文档
 - `focus_doc_scope`：聚焦子目录
-- `read_candidate_docs`：读取候选文档（返回安全证据句柄，可供 final_answer 引用）
+- `read_candidate_docs`：读取候选文档（返回真实 docId/blockId 和内容片段，可供 final_answer 引用）
 - `read_previous_evidence`：读取历史引用证据
 - `get_conversation_used_references`：获取对话已用引用
 - `final_answer`：输出最终回答并结束本轮（全局 system tool）
@@ -503,8 +500,8 @@ v3 的核心是把 AI Planner 真正放回决策中心：
 
 引用是通用可展示来源，不是知识库专属证据：
 
-- **ResourceRef**：Planner 可见的安全句柄（字符串），底层真实 docId/blockId/path/url 仅工具内部使用。
-- **DisplayReference**：通用引用展示结构，包含 `handle`、`sourceType`、`title`、`subtitle`、`snippet`、`url`、`provider`、`openAction`、`metadata`。
+- **ResourceRef**：Planner 可见的引用标识（真实 docId/blockId/url），底层实现细节仅工具内部使用。
+- **DisplayReference**：通用引用展示结构，包含 `sourceType`、`title`、`snippet`、`url`、`provider`、`openAction`、`metadata`。
 - **DisplayReferenceStore**：管理 DisplayReference 的注册和解析，提供 `register`、`resolve`、`resolveMany`、`size`、`reset` 方法。
 
 ### 18.2 sourceType
@@ -557,9 +554,6 @@ interface ToolResult {
 | 错误码 | 说明 |
 |--------|------|
 | `invalid_args` | 参数格式不正确 |
-| `handle_not_found` | 句柄不存在 |
-| `handle_expired` | 句柄已过期 |
-| `wrong_handle_type` | 句柄类型不正确 |
 | `out_of_scope` | 超出作用域 |
 | `resource_not_found` | 资源不存在 |
 | `permission_denied` | 权限不足 |
@@ -813,7 +807,7 @@ interface SkillSourceLoader {
 
 - answer 是系统工具，不属于 kb-retrieval 私有工具。
 - answer 的 source 为 "system"。
-- answer 只承载 Planner 已经给出的 body / evidenceMode / displayedReferenceHandles，校验后交给 Harness 生成 answerDraft。
+- answer 只承载 Planner 已经给出的 body / references（通用展示来源），校验后交给 Harness 生成 answerDraft。
 - answer 不自动生成回答内容。
 - answer 不根据证据状态改写 evidenceMode。
 - answer 只能由 decision.type === "answer" 且 toolName === "answer" 触发。

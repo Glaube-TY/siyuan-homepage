@@ -43,12 +43,16 @@ function addCandidate(
     preview?: string;
     score?: number;
     hitType: "titleHit" | "contentHit" | "structureHit";
+    matchReason?: PlannerVisibleSearchCandidate["matchReason"];
+    matchedFields?: string[];
+    queryTerms?: string[];
+    exactTitleMatch?: boolean;
   },
 ): void {
   if (!input.docId) return;
   const safeTitle = sanitizeTitle(input.title);
 
-  // 同一 docId 已存在时：如果新命中有 blockId 而旧记录没有，补充 blockId
+  // 同一 docId 已存在时：如果新命中有 blockId 而旧记录没有，补充 blockId；同时补充 matchReason/matchedFields
   if (state.seenDocIds.has(input.docId)) {
     if (input.blockId) {
       const existing = state.candidates.find((c) => c.docId === input.docId);
@@ -66,6 +70,10 @@ function addCandidate(
     rank: state.candidates.length + 1,
     hitType: input.hitType,
     canReadContent: input.preview ? "true" : "unknown",
+    matchReason: input.matchReason,
+    matchedFields: input.matchedFields,
+    queryTerms: input.queryTerms,
+    exactTitleMatch: input.exactTitleMatch,
   };
   // blockId 只在块级命中且 blockId !== docId 时设置
   if (input.blockId && input.blockId !== input.docId) {
@@ -102,15 +110,24 @@ export async function executeSearchScope(
     seenDocIds: new Set<string>(),
   };
 
+  const queryTerms = args.query.trim().split(/\s+/).filter(Boolean);
+
   // docHits 是标题/结构级别的命中
   for (const docHit of result.docHits as AgenticDocHit[]) {
     const hasContentPreview = previewByDoc.has(docHit.docId);
+    const normalizedTitle = docHit.docTitle.trim().toLowerCase();
+    const normalizedQuery = args.query.trim().toLowerCase();
+    const exactTitleMatch = normalizedTitle === normalizedQuery;
     addCandidate(state, {
       docId: docHit.docId,
       title: docHit.docTitle,
       preview: previewByDoc.get(docHit.docId),
       score: docHit.score,
       hitType: hasContentPreview ? "contentHit" : "titleHit",
+      matchReason: hasContentPreview ? "content" : "title",
+      matchedFields: hasContentPreview ? ["content"] : ["title"],
+      queryTerms,
+      exactTitleMatch,
     });
   }
 
@@ -126,6 +143,10 @@ export async function executeSearchScope(
       preview: contentPreview,
       score: hit.score,
       hitType: "contentHit",
+      matchReason: "content",
+      matchedFields: ["content"],
+      queryTerms,
+      exactTitleMatch: false,
     });
   }
 

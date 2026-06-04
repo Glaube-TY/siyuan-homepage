@@ -201,6 +201,7 @@ function truncateTree(
 
   return {
     docId: node.docId,
+    sourceType: "siyuan_doc",
     title: sanitizeTitleForPlanner(node.title),
     depth: node.depth,
     childCount: node.childCount,

@@ -26,11 +26,6 @@ export interface SkillRuntimeContext {
   enabledSkillNames: readonly string[];
   /** 当前 turn 累计 observation（仅事实数据，零命中 / 候�?/ 证据 / 错误�?/ 预算耗尽）�?*/
   observations: SkillObservation[];
-  /** 预算快照：search / read 剩余量�?*/
-  budgets: {
-    searchRemaining: number;
-    readRemaining: number;
-  };
   /** 候选池 / 证据包的轻量计数（不暴露内容）�?*/
   candidateSummary?: {
     candidateDocCount: number;
@@ -82,9 +77,7 @@ export interface SkillObservation {
     strongCandidateDocCount?: number;
     unreadReadableCandidateCount?: number;
     contentItemCount?: number;
-    /** 工具命中数；�?ToolObservation.facts.hits 对齐�?*/
     hits?: number;
-    /** read_candidate_docs 累计读取�?doc 计数�?*/
     readDocCount?: number;
     totalNodeCount?: number;
     returnedNodeCount?: number;
@@ -95,14 +88,25 @@ export interface SkillObservation {
     hasMore?: boolean;
     linkedDocsErrorCount?: number;
     linkedDocsRequested?: boolean;
+    tagStatus?: "loaded" | "not_requested" | "not_available" | "truncated";
+    taggedNodeCount?: number;
+    tagErrorCount?: number;
     matchedNodeCount?: number;
     referenceCount?: number;
     errorCode?: string;
     isZeroHits?: boolean;
     searchRemaining?: number;
     readRemaining?: number;
-    /** Planner loop �?stepIndex；仅在循环级 observation 出现�?*/
     stepIndex?: number;
+    sameArgsAlreadyExecuted?: boolean;
+    firstStepIndex?: number;
+    repeatCount?: number;
+    noNewInformation?: boolean;
+    noProgress?: boolean;
+    semanticRepeat?: boolean;
+    sameQueryAlreadySearched?: boolean;
+    previousReturnedCandidateCount?: number;
+    previousTruncated?: boolean;
   };
   /** 0 命中 / 失败 / 错误时附带的 reasonCode（事实，不含建议）�?*/
   reasonCode?: string;

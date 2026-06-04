@@ -648,20 +648,47 @@ export async function currentTime(): Promise<number> {
 // 返回口径: 直接返回 Tag[] 数组，无需再取 res.data
 
 export interface Tag {
+    name?: string;
     label: string;
+    children?: Tag[];
+    type?: string;
+    depth?: number;
     count: number;
 }
 
-export async function getTag(sort: number = 1, ignoreMaxListHint: boolean = true, app?: string): Promise<Tag[]> {
-    const data: { sort: number; ignoreMaxListHint: boolean; app?: string } = {
-        sort,
-        ignoreMaxListHint,
-    };
-    if (app) {
-        data.app = app;
-    }
+export interface GetTagPayload {
+    sort?: number;
+    ignoreMaxListHint?: boolean;
+    app?: string;
+}
+
+export interface SearchTagResponse {
+    k: string;
+    tags: string[];
+}
+
+export async function getTag(
+    sortOrPayload: number | GetTagPayload = {},
+    ignoreMaxListHint: boolean = true,
+    app?: string,
+): Promise<Tag[]> {
+    const data: GetTagPayload = typeof sortOrPayload === "number"
+        ? {
+            sort: sortOrPayload,
+            ignoreMaxListHint,
+            ...(app ? { app } : {}),
+        }
+        : sortOrPayload;
     const res = await request('/api/tag/getTag', data);
-    return res || [];
+    return Array.isArray(res) ? res : [];
+}
+
+export async function searchTag(k: string = ""): Promise<SearchTagResponse> {
+    const res = await request('/api/search/searchTag', { k });
+    return {
+        k: typeof res?.k === "string" ? res.k : k,
+        tags: Array.isArray(res?.tags) ? res.tags.filter((item: unknown): item is string => typeof item === "string") : [],
+    };
 }
 
 

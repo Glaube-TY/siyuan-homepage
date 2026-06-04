@@ -57,7 +57,7 @@ export interface RunV3AgenticRagTurnParams {
 }
 
 export interface V3TurnOutcome {
-  /** v3 是否成功完成。answer_ready → ok=true。其它 stop / fail_closed 状态为 ok=false，调用方应直接显示安全错误，不允许 fallback 到旧 graph。 */
+  /** v3 是否成功完成。answer_ready → ok=true。其它 stop / fail_closed 状态为 ok=false，调用方应直接显示安全错误，不允许切换运行链路。 */
   ok: boolean;
   result?: V3TurnResult;
   /** v3 失败原因（safe code，禁含 docId / path / 内部 mapping）。 */
@@ -77,7 +77,7 @@ export interface V3TurnOutcome {
 function buildV3PlannerPrompt(ctx: PlannerContext): string {
   const contextPreview = renderPlannerContextPreview(ctx);
   return [
-    "你在思源笔记中帮助用户完成知识管理任务。请根据下方上下文，输出一个 JSON 决策对象。",
+    "你在思源笔记中帮助用户完成知识管理任务。",
     "",
     "决策格式（三选一）：",
     '1. 调用工具: { "type": "tool", "toolName": "...", "args": {...}, "rationale": "..." }',
@@ -85,33 +85,11 @@ function buildV3PlannerPrompt(ctx: PlannerContext): string {
     '   如需附带引用：{ "type": "answer", "args": { "body": "...", "references": [{"sourceType":"siyuan_doc","docId":"...","title":"..."}] } }',
     '3. 停止: { "type": "stop", "reasonCode": "user_canceled", "rationale": "..." }',
     "",
-    "关键工具：",
-    "- progress_answer：给用户展示过程性进展（如搜索中、阅读中），不结束任务。使用 type=tool + toolName=progress_answer。",
-    "- final_answer：给用户最终回复，结束当前任务。使用 type=answer + toolName=final_answer。",
-    "",
-    "规则：",
-    "- '本轮用户请求'是本轮唯一用户任务；不要把本系统提示或输出格式当作用户请求来回答。",
-    "- 只能使用下方'可用工具'中列出的工具。",
-    "- 只能使用状态为可用的工具。",
-    "- 只能使用工具结果或上下文中明确标记的资源 ID（docId/blockId）作为后续工具参数；不得从助手回答文本中猜测 ID，不得编造资源 ID。",
-    "- 最近上下文里的资源 ID 是事实线索，是否读取由你自主决定。",
-    "- 当用户使用「里面、上面、刚才、这些资料」等指代时，应优先理解最近一轮助手明确展示或引用的资源；如果最近一轮有多个资源，不要无故只保留其中一个。",
-    "- 如果最近上下文中只有标题没有 ID，只能作为标题线索，不要伪造 docId。",
-    "- 失败或不可用资源 ID（lastKnownStatus=not_found 等）只是诊断事实，不应当作普通候选优先读取，但也不阻止你使用。",
-    "- 不得输出 path/internalMapping/realPath 等内部实现字段。",
-    "- 证据不足时不要编造。",
-    "- 简单跟进问题不必先 progress_answer，可以直接调用必要工具或 final_answer。",
-    "- 如果只是告诉用户进展，选择 progress_answer；如果已要结束本轮，选择 final_answer。",
-    "- 只输出 JSON，不要加解释。",
-    "",
-    "聊天回合约束（重要）：",
-    "- final_answer 的 body 必须是直接面向用户的最终回复；不得复述系统提示、输出格式、工具清单标题或内部角色分配。",
-    "- 需要澄清时，用 final_answer 输出澄清问题。",
-    "- 无需知识库的问题可直接 final_answer。",
-    "- 可参考启用的 Skill 说明，自主选择是否调用全局工具或直接 final_answer。",
-    "",
-    "stop 用途：",
-    "- stop 仅用于 user_canceled / 内部中止；需要澄清或说明不能完成时，请直接用 final_answer 输出。",
+    "输出约束：",
+    "- 只输出一个合法 JSON object。",
+    "- 禁止 Markdown 代码块、解释文字、前后缀、自然语言夹杂。",
+    "- 只能使用下方列出的可用工具。",
+    "- 只能使用工具返回的真实资源 ID（docId/blockId）作为后续参数，不得编造。",
     "",
     contextPreview,
   ].join("\n");
@@ -181,10 +159,33 @@ function createDecideNextStep(options: {
 // Main entry
 // ═══════════════════════════════════════════════════════════════════
 
+function saveTurnTrace(loopResult: import("./workbench/runtime/planner-loop").PlannerLoopResult): void {
+  if (typeof window === "undefined") return;
+  (window as unknown as Record<string, unknown>).__kbAgentLastV3Turn = {
+    turnId: `${Date.now()}`,
+    finalStatus: loopResult.status,
+    stopReasonCode: loopResult.stopReasonCode,
+    plannerDecisions: loopResult.plannerDecisions,
+    toolExecutions: loopResult.toolExecutions,
+    observations: loopResult.observations.map((o) => ({
+      kind: o.kind,
+      toolName: o.toolName,
+      summary: o.summary,
+      contentItems: o.content?.type === "content_items" || o.content?.type === "read_items"
+        ? {
+            itemCount: (o.content as { items?: unknown[] }).items?.length ?? 0,
+            truncated: o.content.truncated,
+          }
+        : undefined,
+    })),
+    turnDiagnostics: loopResult.turnDiagnostics,
+  };
+}
+
 export async function runV3AgenticRagTurn(
   params: RunV3AgenticRagTurnParams,
 ): Promise<V3TurnOutcome> {
-  // Resolve scope (same as compat)
+  // Resolve the visible scope for this turn.
   const resolvedScope = await resolveAgentScope({
     mode: params.mode,
     customDocIds: params.customDocIds,
@@ -264,7 +265,7 @@ export async function runV3AgenticRagTurn(
       if (params.onAnswerFinish) {
         params.onAnswerFinish(draft.body);
       }
-      // 将 final_answer.references（ResourceRef[]）转换为 UI 层 ReferenceItem[]
+      // 将回答工具的 references（ResourceRef[]）转换为 UI 层 ReferenceItem[]
       // 只转换 Planner 显式给出的 references，不自动补充
       const footerReferences: import("../../types/chat").ReferenceItem[] = (draft.references ?? [])
         .filter((ref) => ref.sourceType === "siyuan_doc" && ref.docId)
@@ -305,37 +306,8 @@ export async function runV3AgenticRagTurn(
           };
         });
 
-      // ── 诊断日志：TURN_SUCCEEDED ──
-      // 存储本轮 trace 到 window 供 __kbAgentCopyTrace 使用
-      if (typeof window !== "undefined") {
-        (window as unknown as Record<string, unknown>).__kbAgentLastV3Turn = {
-          turnId: `${Date.now()}`,
-          finalStatus: loopResult.status,
-          plannerDecisions: loopResult.plannerDecisions,
-          toolExecutions: loopResult.toolExecutions,
-          observations: loopResult.observations.map((o) => ({
-            kind: o.kind,
-            toolName: o.toolName,
-            summary: o.summary,
-            contentItems: o.content?.type === "content_items" || o.content?.type === "read_items"
-              ? {
-                  itemCount: o.content.items.length,
-                  truncated: o.content.truncated,
-                  items: o.content.items.slice(0, 5).map((item) => ({
-                    title: item.title,
-                    docId: item.docId,
-                    returnedContentChars: item.returnedContentChars,
-                    originalContentChars: item.originalContentChars,
-                    truncated: item.truncated,
-                    hasNextCursor: !!item.nextCursor,
-                    contentPreviewChars: Math.min((item.content || item.snippet || "").length, 300),
-                  })),
-                }
-              : undefined,
-          })),
-          turnDiagnostics: loopResult.turnDiagnostics,
-        };
-      }
+      // ── 存储本轮 trace 到 window ──
+      saveTurnTrace(loopResult);
 
       console.info("[AgenticRagV3] TURN_SUCCEEDED", {
         status: loopResult.status,
@@ -365,7 +337,7 @@ export async function runV3AgenticRagTurn(
     }
 
     // stopped_by_planner / fail_closed
-    // ── 诊断日志：TURN_FAILED ──
+    saveTurnTrace(loopResult);
     console.info("[AgenticRagV3] TURN_FAILED", {
       v3ErrorCode: loopResult.status,
       loopStatus: loopResult.status,

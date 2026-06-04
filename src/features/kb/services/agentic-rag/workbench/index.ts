@@ -27,7 +27,6 @@ export type {
   ToolUnavailableReason,
   AnswerToolData,
   AnswerResourceRef,
-  BudgetSnapshot,
 } from "./contracts/tool-contract";
 export { isToolContractLike, formatToolSafety } from "./contracts/tool-contract";
 
@@ -63,7 +62,7 @@ export type { ObservationEntry } from "./runtime/observation-store";
 export { ObservationStore } from "./runtime/observation-store";
 
 export type { BudgetConfig, BudgetState, BudgetCategory } from "./runtime/budget-guard";
-export { BudgetGuard, resolveBudgetCategory } from "./runtime/budget-guard";
+export { BudgetGuard } from "./runtime/budget-guard";
 
 export type {
   ExecutionEngineDeps,

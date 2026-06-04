@@ -1,7 +1,7 @@
 /**
  * Planner-visible error sanitizer
  *
- * Planner-visible summary 只返回 fallback summary 的 scrub + truncate 版本。
+ * Planner-visible summary 只返回调用方提供的安全摘要的 scrub + truncate 版本。
  * 不读 err.message，不写流程建议，不替 Planner 选工具。
  */
 
@@ -19,19 +19,19 @@ const KEYED_FIELD_PATTERN =
 const REDACTED = "[redacted]";
 
 /**
- * 把一个"事实类型 fallback 文本"压成 Planner 可见 summary。
+ * 把一个事实类型安全文本压成 Planner 可见 summary。
  * - 不抛错。
  * - **不**读取 `err`（保留参数仅为兼容调用方，并避免下游误以为 raw detail 会被写入）。
- * - 对 `fallbackSummary` 做 scrub + truncate：即使调用方误传了含 docId / blockId / path
+ * - 对 `safeSummary` 做 scrub + truncate：即使调用方误传了含 docId / blockId / path
  *   / 原始 identifier 的字符串，也会先被兜底替换为 `[redacted]` 再截断。
  * - 不输出"建议下一步 / 改用 X 工具 / 自动回退"等流程规训。
  */
 export function sanitizePlannerVisibleError(
   err: unknown,
-  fallbackSummary: string,
+  safeSummary: string,
 ): string {
   void err;
-  const base = typeof fallbackSummary === "string" ? fallbackSummary : "";
+  const base = typeof safeSummary === "string" ? safeSummary : "";
   return truncate(scrubString(base));
 }
 

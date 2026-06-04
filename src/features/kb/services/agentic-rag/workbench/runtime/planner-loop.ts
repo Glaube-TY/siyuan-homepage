@@ -19,7 +19,7 @@ import { validatePlannerDecision, type PlannerDecision } from "../contracts/plan
 import { ExecutionEngine, type AnswerDraft } from "./execution-engine";
 import type { SkillRegistry } from "../registries/skill-registry";
 import type { ToolRegistry } from "../registries/tool-registry";
-import type { ToolRuntimeContext, BudgetSnapshot } from "../contracts/tool-contract";
+import type { ToolRuntimeContext } from "../contracts/tool-contract";
 import type { SkillObservation } from "../contracts/skill-contract";
 import { sanitizePlannerVisibleError } from "../guards/planner-visible-error";
 
@@ -72,6 +72,7 @@ export interface PlannerStepDiagnostic {
   decisionType: "tool" | "answer" | "stop" | "invalid";
   toolName?: string;
   argsSummary?: Record<string, unknown>;
+  exactDedupKeyHash?: string;
   rationaleChars?: number;
   validationOk: boolean;
   sanitizedError?: string;
@@ -82,6 +83,7 @@ export interface ToolExecDiagnostic {
   stepIndex: number;
   toolName: string;
   argsSummary?: Record<string, unknown>;
+  exactDedupKeyHash?: string;
   budgetBefore: { search: number; read: number };
   budgetAfter: { search: number; read: number };
   ok: boolean;
@@ -93,15 +95,10 @@ export interface ToolExecDiagnostic {
 }
 
 export interface TurnDiagnostics {
-  searchCallCount: number;
-  listMapCallCount: number;
-  readCandidateDocsDecisionCount: number;
-  readCandidateDocsExecuteCount: number;
-  readCandidateDocsValidationFailureCount: number;
-  finalAnswerDecisionCount: number;
+  repeatedToolCallCount: number;
+  cachedObservationCount: number;
   maxStepsHit: boolean;
   llmPlannerCallCount: number;
-  progressAnswerCount: number;
   readSuccessItemCount: number;
   emptyContentCount: number;
   containerWithoutContentCount: number;
@@ -115,6 +112,8 @@ export interface TurnDiagnostics {
   resolvedBlockCount: number;
   /** blockId 归属 docId 不匹配次数 */
   resourceMismatchCount: number;
+  /** 通用计数器：key 为 budgetCategory */
+  counters: Record<string, number>;
 }
 
 export interface PlannerLoopResult {
@@ -162,15 +161,76 @@ function summarizeArgs(args: unknown): Record<string, unknown> {
 }
 
 function buildToolRuntimeContext(
-  base: Omit<ToolRuntimeContext, "callCounts" | "budgets">,
-  budget: BudgetSnapshot,
+  base: Omit<ToolRuntimeContext, "callCounts">,
   store: ObservationStore,
 ): ToolRuntimeContext {
   return {
     ...base,
-    budgets: budget,
     callCounts: store.callCounts(),
   };
+}
+
+/** 稳定 JSON 序列化：对象 key 排序，数组保持顺序，去掉 undefined，空字符串保留。 */
+function stableStringify(value: unknown): string {
+  if (value === undefined) return "";
+  if (value === null) return "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return "NaN";
+    if (!Number.isFinite(value)) return value > 0 ? "Infinity" : "-Infinity";
+    return String(value);
+  }
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    const items: string[] = [];
+    for (const v of value) {
+      const s = stableStringify(v);
+      if (s !== "") {
+        items.push(s);
+      }
+    }
+    return `[${items.join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    const parts: string[] = [];
+    for (const k of keys) {
+      const v = (value as Record<string, unknown>)[k];
+      if (v === undefined) continue;
+      parts.push(`${JSON.stringify(k)}:${stableStringify(v)}`);
+    }
+    return `{${parts.join(",")}}`;
+  }
+  return "";
+}
+
+/** 生成 exact dedup key。优先用 tool inputSchema.safeParse 让默认值生效，失败则 fallback 到原始 args。 */
+function buildCanonicalToolCallKey(
+  toolName: string,
+  args: unknown,
+  toolRegistry: ToolRegistry,
+): { exactDedupKey: string; exactDedupKeyHash: string } {
+  const tool = toolRegistry.getTool(toolName);
+  let canonicalArgs: unknown = args;
+  if (
+    tool &&
+    tool.inputSchema &&
+    typeof (tool.inputSchema as { safeParse?: unknown }).safeParse === "function"
+  ) {
+    const parsed = (tool.inputSchema as { safeParse: (d: unknown) => { success: boolean; data?: unknown } }).safeParse(args);
+    if (parsed.success) {
+      canonicalArgs = parsed.data;
+    }
+  }
+  const serialized = stableStringify(canonicalArgs);
+  const exactDedupKey = `${toolName}::${serialized}`;
+  let hash = 5381;
+  for (let i = 0; i < exactDedupKey.length; i++) {
+    hash = ((hash << 5) + hash) + exactDedupKey.charCodeAt(i);
+  }
+  const hashHex = (hash >>> 0).toString(16).padStart(8, "0");
+  const exactDedupKeyHash = `${toolName}::${hashHex}`;
+  return { exactDedupKey, exactDedupKeyHash };
 }
 
 export class PlannerLoop {
@@ -194,21 +254,20 @@ export class PlannerLoop {
     let lastContext: PlannerContext | null = null;
     let lastDecision: PlannerDecision | null = null;
     let pendingAnswerDraft: AnswerDraft | undefined = undefined;
-    let budgetExhaustedEmitted = false;
     let invalidDecisionCount = 0;
     const progressBodies: string[] = [];
     const plannerDecisions: PlannerStepDiagnostic[] = [];
     const toolExecutions: ToolExecDiagnostic[] = [];
     const turnDiag: TurnDiagnostics = {
-      searchCallCount: 0, listMapCallCount: 0,
-      readCandidateDocsDecisionCount: 0, readCandidateDocsExecuteCount: 0,
-      readCandidateDocsValidationFailureCount: 0, finalAnswerDecisionCount: 0,
+      repeatedToolCallCount: 0,
+      cachedObservationCount: 0,
       maxStepsHit: false,
-      llmPlannerCallCount: 0, progressAnswerCount: 0,
+      llmPlannerCallCount: 0,
       readSuccessItemCount: 0, emptyContentCount: 0, containerWithoutContentCount: 0,
       docIdCount: 0, blockIdCount: 0,
       resolvedDocCount: 0, resolvedBlockCount: 0,
       resourceMismatchCount: 0,
+      counters: {},
     };
 
     store.reset();
@@ -232,27 +291,11 @@ export class PlannerLoop {
     while (stepIndex < this.maxSteps) {
       stepIndex += 1;
 
-      // 每轮重建前先把 budget 状态写成 observation，
-      // 确保 Planner 在 buildPlannerContext 之后立即看到。
-      if (budgetGuard.isAllExhausted(budget) && !budgetExhaustedEmitted) {
-        store.push({
-          kind: "budget_exhausted",
-          facts: {
-            searchRemaining: 0,
-            readRemaining: 0,
-            stepIndex,
-          },
-        } as SkillObservation);
-        budgetExhaustedEmitted = true;
-      }
+      // budget 只用于平台内部 trace，不推给 Planner 作为行为提示。
 
       const ctxInput: PlannerContextInput = {
         question: input.question,
         activeScopeMode: input.activeScopeMode,
-        budgets: {
-          searchRemaining: budget.searchRemaining,
-          readRemaining: budget.readRemaining,
-        },
         candidateSummary: input.candidateSummary,
         contentSummary: input.contentSummary,
         observations: input.initialObservations ?? [],
@@ -266,6 +309,8 @@ export class PlannerLoop {
         skillRegistry: this.deps.skillRegistry,
         toolRegistry: this.deps.toolRegistry,
         budgetGuard: this.deps.budgetGuard,
+        stepIndex,
+        maxSteps: this.maxSteps,
       });
       lastContext = ctx;
 
@@ -277,24 +322,34 @@ export class PlannerLoop {
         invalidDecisionCount = 0;
 
         // 记录决策 trace
+        const decisionToolName = (decision as { toolName?: string }).toolName ?? "";
+        const decisionArgs = (decision as { args?: unknown }).args;
+        const dedupInfo = decision.type === "tool"
+          ? buildCanonicalToolCallKey(decisionToolName, decisionArgs, this.deps.toolRegistry)
+          : { exactDedupKeyHash: undefined };
         const diag: PlannerStepDiagnostic = {
           stepIndex,
           decisionType: decision.type,
-          toolName: (decision as { toolName?: string }).toolName,
-          argsSummary: summarizeArgs((decision as { args?: unknown }).args),
+          toolName: decisionToolName,
+          argsSummary: summarizeArgs(decisionArgs),
+          exactDedupKeyHash: dedupInfo.exactDedupKeyHash,
           rationaleChars: (decision as { rationale?: string }).rationale?.length ?? 0,
           validationOk: true,
         };
         plannerDecisions.push(diag);
 
-        // 更新计数器
+        // 更新计数器（仅按 budgetCategory 聚合，用于 trace 展示）
         if (decision.type === "tool") {
           const tn = (decision as { toolName?: string }).toolName ?? "";
-          if (tn === "search_scope") turnDiag.searchCallCount++;
-          if (tn === "list_knowledge_map") turnDiag.listMapCallCount++;
-          if (tn === "read_candidate_docs") turnDiag.readCandidateDocsDecisionCount++;
+          const tool = this.deps.toolRegistry.getTool(tn);
+          if (tool?.budgetCategory && tool.budgetCategory !== "none") {
+            const key = `budget_${tool.budgetCategory}`;
+            turnDiag.counters[key] = (turnDiag.counters[key] ?? 0) + 1;
+          }
         }
-        if (decision.type === "answer") turnDiag.finalAnswerDecisionCount++;
+        if (decision.type === "answer") {
+          turnDiag.counters["answer_decision"] = (turnDiag.counters["answer_decision"] ?? 0) + 1;
+        }
 
         // 安全日志
         console.info("[AgenticRagV3] PLANNER_DECISION", diag);
@@ -318,7 +373,7 @@ export class PlannerLoop {
         store.push({
           kind: "planner_returned_no_action",
           facts: { errorCode, invalidAttempt: invalidDecisionCount },
-          summary: "Planner 决策格式无效，请重新输出合法 JSON 决策。",
+          summary: "输出格式错误。请只输出一个纯 JSON object，不要 Markdown、代码块或解释文字。格式：{\"type\":\"tool\",\"toolName\":\"...\",\"args\":{...}} 或 {\"type\":\"answer\",\"args\":{\"body\":\"...\"}}。",
         } as SkillObservation);
 
         // 超过预算才 fail_closed_no_planner_decision
@@ -340,6 +395,8 @@ export class PlannerLoop {
       }
       lastDecision = decision;
 
+
+
       if (decision.type === "stop") {
         return {
           status: "stopped_by_planner",
@@ -356,10 +413,6 @@ export class PlannerLoop {
 
       const toolCtx = buildToolRuntimeContext(
         input.toolRuntimeContextBase,
-        {
-          searchRemaining: budget.searchRemaining,
-          readRemaining: budget.readRemaining,
-        },
         store,
       );
 
@@ -407,6 +460,12 @@ export class PlannerLoop {
       }
 
       // decision.type === "tool"
+      const { exactDedupKeyHash } = buildCanonicalToolCallKey(
+        decision.toolName,
+        decision.args,
+        this.deps.toolRegistry,
+      );
+
       const budgetBefore = { search: budget.searchRemaining, read: budget.readRemaining };
       const outcome = await this.deps.executionEngine.execute(
         {
@@ -420,33 +479,31 @@ export class PlannerLoop {
       budget = outcome.budgetAfter;
 
       const tn = decision.toolName;
-      if (tn === "read_candidate_docs") {
-        turnDiag.readCandidateDocsExecuteCount++;
-        if (!outcome.ok && outcome.observation.facts?.errorCode === "validation_failed") {
-          turnDiag.readCandidateDocsValidationFailureCount++;
-        }
-        // 统计读取结果
-        const readOutput = outcome.observation as { facts?: Record<string, unknown> };
-        if (readOutput.facts) {
-          // contentItemCount 是 observation facts 中的实际字段名
-          if (typeof readOutput.facts.contentItemCount === "number") turnDiag.readSuccessItemCount += readOutput.facts.contentItemCount as number;
-          if (typeof readOutput.facts.emptyContentCount === "number") turnDiag.emptyContentCount += readOutput.facts.emptyContentCount as number;
-          if (typeof readOutput.facts.containerCount === "number") turnDiag.containerWithoutContentCount += readOutput.facts.containerCount as number;
-          if (typeof readOutput.facts.requestedDocIdCount === "number") turnDiag.docIdCount += readOutput.facts.requestedDocIdCount as number;
-          if (typeof readOutput.facts.requestedBlockIdCount === "number") turnDiag.blockIdCount += readOutput.facts.requestedBlockIdCount as number;
-          if (typeof readOutput.facts.resolvedDocCount === "number") turnDiag.resolvedDocCount += readOutput.facts.resolvedDocCount as number;
-          if (typeof readOutput.facts.resolvedBlockCount === "number") turnDiag.resolvedBlockCount += readOutput.facts.resolvedBlockCount as number;
-          if (typeof readOutput.facts.resourceMismatchCount === "number") turnDiag.resourceMismatchCount += readOutput.facts.resourceMismatchCount as number;
-        }
-      }
-      if (tn === "progress_answer") {
-        turnDiag.progressAnswerCount++;
+
+      // 通用 outcome facts 统计（不区分工具名）
+      const facts = outcome.observation.facts as Record<string, unknown> | undefined;
+      if (facts) {
+        const addIfNumber = (diagKey: keyof TurnDiagnostics, factKey: string) => {
+          const v = facts[factKey];
+          if (typeof v === "number") {
+            (turnDiag[diagKey] as number) = (turnDiag[diagKey] as number) + v;
+          }
+        };
+        addIfNumber("readSuccessItemCount", "contentItemCount");
+        addIfNumber("emptyContentCount", "emptyContentCount");
+        addIfNumber("containerWithoutContentCount", "containerCount");
+        addIfNumber("docIdCount", "requestedDocIdCount");
+        addIfNumber("blockIdCount", "requestedBlockIdCount");
+        addIfNumber("resolvedDocCount", "resolvedDocCount");
+        addIfNumber("resolvedBlockCount", "resolvedBlockCount");
+        addIfNumber("resourceMismatchCount", "resourceMismatchCount");
       }
 
       toolExecutions.push({
         stepIndex,
         toolName: tn,
         argsSummary: summarizeArgs(decision.args),
+        exactDedupKeyHash,
         budgetBefore,
         budgetAfter: { search: budget.searchRemaining, read: budget.readRemaining },
         ok: outcome.ok,

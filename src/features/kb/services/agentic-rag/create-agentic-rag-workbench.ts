@@ -12,6 +12,7 @@ import {
 } from "./skills/builtin/kb-retrieval/register";
 import type { KbRetrievalToolDeps } from "./skills/builtin/kb-retrieval/adapters/kb-retrieval-tool-deps";
 import { registerFinalAnswerTool } from "./skills/system/answer/register";
+import { registerSystemContextTools } from "./skills/system/context";
 import { registerProgressAnswerTool } from "./skills/system/progress-answer/register";
 import { registerUserMarkdownSkills } from "./skills/user";
 import type { UserSkillStorageAdapter } from "./shared/user-skill/user-skill-loader-types";
@@ -38,6 +39,7 @@ export function createAgenticRagWorkbench(
   const toolRegistry = getGlobalToolRegistry();
   if (options.kbRetrievalToolDeps) {
     registerBuiltinKbRetrievalTools(toolRegistry, options.kbRetrievalToolDeps);
+    registerSystemContextTools(toolRegistry, options.kbRetrievalToolDeps);
   }
   registerFinalAnswerTool(toolRegistry);
   registerProgressAnswerTool(toolRegistry);

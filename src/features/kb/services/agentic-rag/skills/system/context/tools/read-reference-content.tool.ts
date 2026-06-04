@@ -7,12 +7,12 @@ import type {
   ToolRuntimeContext,
 } from "../../../../workbench/contracts/tool-contract";
 import { extractErrorFacts } from "../../../../workbench/contracts/tool-contract";
-import type { KbRetrievalToolDeps } from "../adapters/kb-retrieval-tool-deps";
-import { executeReadCandidateDocs } from "../adapters/read-candidate-docs.adapter";
+import type { KbRetrievalToolDeps } from "../../../builtin/kb-retrieval/adapters/kb-retrieval-tool-deps";
+import { executeReadCandidateDocs } from "../../../builtin/kb-retrieval/adapters/read-candidate-docs.adapter";
 import {
   type PlannerVisibleReadItem,
   readCandidateDocsOutputSchema,
-} from "../schemas/read-candidate-docs.schema";
+} from "../../../builtin/kb-retrieval/schemas/read-candidate-docs.schema";
 
 const readReferenceContentInputSchema = z.object({
   docs: z.array(z.object({
@@ -22,10 +22,14 @@ const readReferenceContentInputSchema = z.object({
   }).refine((d) => d.docId || d.blockId, { message: "docId 或 blockId 至少提供一个" })).min(1).max(20).optional(),
   docIds: z.array(z.string().trim().min(1).max(120)).min(1).max(20).optional(),
   blockIds: z.array(z.string().trim().min(1).max(120)).min(1).max(20).optional(),
-  readMode: z.enum(["default", "full", "range"]).optional().default("default"),
+  readMode: z.enum(["default", "full", "range", "next"]).optional().default("default"),
+  cursor: z.string().trim().min(1).max(240).optional(),
   startOffset: z.number().int().min(0).optional(),
   maxCharsPerDoc: z.number().int().min(2000).max(100000).optional(),
-}).strict().refine((d) => d.docs || d.docIds || d.blockIds, { message: "docs/docIds/blockIds 至少提供一种" });
+}).strict().refine(
+  (d) => d.readMode === "next" ? !!d.cursor : !!(d.docs || d.docIds || d.blockIds),
+  { message: "需要提供 docs/docIds/blockIds 之一，或使用 next 模式 + cursor" },
+);
 
 export function createReadReferenceContentTool(deps: KbRetrievalToolDeps): ToolContract {
   return {
@@ -37,9 +41,9 @@ export function createReadReferenceContentTool(deps: KbRetrievalToolDeps): ToolC
     outputSchema: readCandidateDocsOutputSchema,
     outputKind: "content",
     safety: { readOnly: true },
-    boundary: "只消费 docId/blockId，不搜索、不自动改参、不自动继续读取、不暴露内部标识。",
+    boundary: "只消费 Planner 显式传入的 docId/blockId/cursor，不搜索、不自动改参、不自动继续读取、不暴露内部标识。",
     source: "builtin",
-    inputHint: "docs/docIds/blockIds（至少一种），readMode（default/full/range，可选），startOffset（range 可选），maxCharsPerDoc（2000-100000，可选）",
+    inputHint: "docs/docIds/blockIds（至少一种）或 readMode=next + cursor，readMode（default/full/range/next，可选），startOffset（range 可选），maxCharsPerDoc（2000-100000，可选）",
 
     availability(_ctx: ToolRuntimeContext): ToolAvailability {
       if (!deps.getScope()) {
@@ -63,7 +67,7 @@ export function createReadReferenceContentTool(deps: KbRetrievalToolDeps): ToolC
             errorCode: "invalid_args",
             message: "读取已展示来源的参数格式不正确。",
             recoverable: true,
-            hint: "请提供 docs/docIds/blockIds 至少一种；range 模式可附带 startOffset。",
+            hint: "请提供 docs/docIds/blockIds 至少一种；next 模式需提供 cursor；range 模式可附带 startOffset。",
           },
         };
       }
@@ -74,6 +78,7 @@ export function createReadReferenceContentTool(deps: KbRetrievalToolDeps): ToolC
           docIds: parsed.data.docIds,
           blockIds: parsed.data.blockIds,
           readMode: parsed.data.readMode,
+          cursor: parsed.data.cursor,
           startOffset: parsed.data.startOffset,
           maxCharsPerDoc: parsed.data.maxCharsPerDoc,
         });

@@ -6,7 +6,6 @@
 import type { AgentScope } from "../../../../scope/types";
 import type { KbSettings } from "../../../../../../types/settings";
 import type { RecentTurnContext } from "../../../../workbench/contracts/recent-turn-context";
-import type { ActiveFocusScope } from "../../../../tools/knowledge-map-types";
 
 export interface KbConversationReference {
   docId?: string;
@@ -20,11 +19,8 @@ export interface KbConversationTurnReferences {
 
 export interface KbRetrievalToolDeps {
   getScope(): AgentScope | undefined;
-  /** Effective scope respecting focus_doc_scope. Tools like search/list/read should use this. */
   getEffectiveScope(): AgentScope | undefined;
   getConversationTurns?(): readonly KbConversationTurnReferences[] | undefined;
   getRecentConversationContext?(): readonly RecentTurnContext[] | undefined;
   getSettings?(): Partial<KbSettings> | undefined;
-  getActiveFocusScope?(): ActiveFocusScope | undefined;
-  saveActiveFocusScope?(scope: ActiveFocusScope): void;
 }

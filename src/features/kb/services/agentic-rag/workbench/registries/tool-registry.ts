@@ -108,19 +108,9 @@ export class ToolRegistry {
   private snapshotManifest(
     tool: ToolContract,
     ctx: ToolRuntimeContext,
-    budgetGuard?: BudgetGuard,
+    _budgetGuard?: BudgetGuard,
   ): ToolManifest {
-    let availability = tool.availability(ctx);
-    if (availability.available && budgetGuard) {
-      const budgetCheck = budgetGuard.check(tool.name, ctx);
-      if (!budgetCheck.available) {
-        availability = {
-          available: false,
-          reasonCode: "budget_exhausted",
-          hint: budgetCheck.hint,
-        };
-      }
-    }
+    const availability = tool.availability(ctx);
     return {
       name: tool.name,
       title: tool.title,
@@ -146,7 +136,7 @@ export class ToolRegistry {
    */
   describeRegistry(
     ctx: ToolRuntimeContext,
-    budgetGuard?: BudgetGuard,
+    _budgetGuard?: BudgetGuard,
   ): Array<{
     name: string;
     source: ToolContract["source"];
@@ -157,19 +147,9 @@ export class ToolRegistry {
     return Array.from(this.tools.values()).map((entry) => {
       const tool = entry.tool;
       const isExecutionOnly = EXECUTION_ONLY_TOOL_NAMES.has(tool.name);
-      let availability = isExecutionOnly
+      const availability = isExecutionOnly
         ? { available: false, reasonCode: "execution_only_helper" as const }
         : tool.availability(ctx);
-      if (availability.available && !isExecutionOnly && budgetGuard) {
-        const budgetCheck = budgetGuard.check(tool.name, ctx);
-        if (!budgetCheck.available) {
-          availability = {
-            available: false,
-            reasonCode: budgetCheck.reasonCode ?? "budget_exhausted",
-            hint: budgetCheck.hint,
-          };
-        }
-      }
       return {
         name: tool.name,
         source: tool.source,

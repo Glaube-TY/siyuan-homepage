@@ -12,11 +12,8 @@ import {
 } from "./skill";
 import type { KbRetrievalToolDeps } from "./adapters/kb-retrieval-tool-deps";
 import { createListKnowledgeMapTool } from "./tools/list-knowledge-map.tool";
-import { createListRecentReferencesTool } from "./tools/list-recent-references.tool";
 import { createSearchScopeTool } from "./tools/search-scope.tool";
-import { createFocusDocScopeTool } from "./tools/focus-doc-scope.tool";
 import { createReadCandidateDocsTool } from "./tools/read-candidate-docs.tool";
-import { createReadReferenceContentTool } from "./tools/read-reference-content.tool";
 
 /**
  * 把 builtin_knowledge_base_qa 注册到 SkillRegistry。
@@ -39,20 +36,14 @@ export function registerBuiltinKbRetrievalTools(
 ): void {
   for (const toolName of [
     "list_knowledge_map",
-    "list_recent_references",
     "search_scope",
-    "focus_doc_scope",
     "read_candidate_docs",
-    "read_reference_content",
   ]) {
     if (registry.getTool(toolName)) {
       registry.unregisterTool(toolName);
     }
   }
   registry.registerTool(createListKnowledgeMapTool(deps));
-  registry.registerTool(createListRecentReferencesTool(deps));
   registry.registerTool(createSearchScopeTool(deps));
-  registry.registerTool(createFocusDocScopeTool(deps));
   registry.registerTool(createReadCandidateDocsTool(deps));
-  registry.registerTool(createReadReferenceContentTool(deps));
 }

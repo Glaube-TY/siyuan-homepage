@@ -22,7 +22,11 @@ import {
   getChildBlocks,
   fullTextSearchBlock,
   getBacklink,
+  getTag,
+  searchTag,
   type GetBacklinkPayload,
+  type GetTagPayload,
+  type Tag,
 } from "@/api";
 import { safeSqlSelect, escapeSqlString, type SafeSqlSelectOptions } from "./safe-sql";
 
@@ -80,4 +84,40 @@ export async function fullTextSearchBlockReadonly(query: string, page: number = 
 
 export async function getBacklinkReadonly(payload: GetBacklinkPayload) {
   return getBacklink(payload);
+}
+
+export type ReadonlyTag = Tag;
+
+export interface ReadonlySearchTagItem {
+  rawLabel: string;
+  displayLabel: string;
+  canonicalName: string;
+}
+
+export async function getTagsReadonly(payload: GetTagPayload = { ignoreMaxListHint: true }): Promise<ReadonlyTag[]> {
+  return getTag(payload);
+}
+
+function stripSearchTagHighlight(value: string): string {
+  return value
+    .replace(/<\/?mark>/gi, "")
+    .replace(/&lt;\/?mark&gt;/gi, "")
+    .trim();
+}
+
+export async function searchTagsReadonly(k: string = ""): Promise<{ k: string; tags: ReadonlySearchTagItem[] }> {
+  const result = await searchTag(k);
+  return {
+    k: result.k,
+    tags: result.tags
+      .map((rawLabel) => {
+        const displayLabel = stripSearchTagHighlight(rawLabel);
+        return {
+          rawLabel,
+          displayLabel,
+          canonicalName: displayLabel.trim(),
+        };
+      })
+      .filter((item) => item.canonicalName.length > 0),
+  };
 }

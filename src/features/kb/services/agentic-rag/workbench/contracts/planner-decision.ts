@@ -45,7 +45,7 @@ const ALLOWED_ANSWER_KEYS = new Set([
 export function validatePlannerDecision(decision: unknown): PlannerDecision {
   if (!decision || typeof decision !== "object") {
     throw new Error(
-      `[PlannerDecision] decision must be an object, got ${typeof decision}.`,
+      `decision must be a JSON object, got ${typeof decision}.`,
     );
   }
   assertNoForbiddenKeys(decision);
@@ -62,7 +62,7 @@ export function validatePlannerDecision(decision: unknown): PlannerDecision {
   if (normalized.type === "answer") return parseAnswerDecision(normalized);
   if (normalized.type === "stop") return parseStopDecision(normalized);
   throw new Error(
-    `[PlannerDecision] decision.type must be "tool" | "answer" | "stop" (got ${String(normalized.type)}).`,
+    `decision.type must be "tool" | "answer" | "stop" (got ${String(normalized.type)}).`,
   );
 }
 
@@ -100,11 +100,11 @@ function normalizeDecision(d: Record<string, unknown>): Record<string, unknown> 
 
 function parseToolDecision(d: Record<string, unknown>): PlannerToolDecision {
   if (typeof d.toolName !== "string" || !d.toolName) {
-    throw new Error(`[PlannerDecision] tool decision requires a non-empty toolName.`);
+    throw new Error(`tool decision requires a non-empty toolName.`);
   }
   if (d.toolName === "final_answer" || d.toolName === "answer") {
     throw new Error(
-      `[PlannerDecision] toolName "${d.toolName}" must use decision.type "answer", not "tool".`,
+      `toolName "${d.toolName}" must use decision.type "answer", not "tool".`,
     );
   }
   assertNoBlacklistKeysRecursive(d.args, "tool args");
@@ -119,11 +119,11 @@ function parseToolDecision(d: Record<string, unknown>): PlannerToolDecision {
 function parseAnswerDecision(d: Record<string, unknown>): PlannerAnswerDecision {
   if (d.toolName !== undefined) {
     if (typeof d.toolName !== "string") {
-      throw new Error(`[PlannerDecision] answer decision toolName must be a string.`);
+      throw new Error(`answer decision toolName must be a string.`);
     }
     if (d.toolName !== "final_answer" && d.toolName !== "answer") {
       throw new Error(
-        `[PlannerDecision] answer decision toolName must be "final_answer" (got "${d.toolName}").`,
+        `answer decision toolName must be "final_answer" (got "${d.toolName}").`,
       );
     }
   }
@@ -152,7 +152,7 @@ function parseStopDecision(d: Record<string, unknown>): PlannerStopDecision {
     reasonCode !== "internal_aborted"
   ) {
     throw new Error(
-      `[PlannerDecision] stop decision reasonCode invalid: ${String(reasonCode)}`,
+      `stop decision reasonCode invalid: ${String(reasonCode)}`,
     );
   }
   return {
@@ -164,24 +164,24 @@ function parseStopDecision(d: Record<string, unknown>): PlannerStopDecision {
 
 function assertAnswerArgsShape(args: unknown): void {
   if (args == null || typeof args !== "object") {
-    throw new Error(`[PlannerDecision] answer args must be an object with body.`);
+    throw new Error(`answer args must be an object with body.`);
   }
   const obj = args as Record<string, unknown>;
   if (typeof obj.body !== "string" || !obj.body.trim()) {
     throw new Error(
-      `[PlannerDecision] answer args.body must be a non-empty string.`,
+      `answer args.body must be a non-empty string.`,
     );
   }
   for (const key of Object.keys(obj)) {
     if (!ALLOWED_ANSWER_KEYS.has(key)) {
       throw new Error(
-        `[PlannerDecision] answer args contains key "${key}" not in whitelist.`,
+        `answer args contains key "${key}" not in whitelist.`,
       );
     }
   }
   if ("references" in obj && !Array.isArray(obj.references)) {
     throw new Error(
-      `[PlannerDecision] answer args.references must be an array.`,
+      `answer args.references must be an array.`,
     );
   }
   assertNoBlacklistKeysRecursive(obj, "answer args");
@@ -198,8 +198,7 @@ function assertNoBlacklistKeysRecursive(value: unknown, path: string): void {
     for (const key of Object.keys(value as Record<string, unknown>)) {
       if ((BLACKLIST_KEYS as readonly string[]).includes(key)) {
         throw new Error(
-          `[PlannerDecision] ${path} contains forbidden key "${key}". ` +
-            `Real IDs / paths are not exposed to Planner.`,
+          `${path} contains forbidden key "${key}".`,
         );
       }
       assertNoBlacklistKeysRecursive(
@@ -215,8 +214,7 @@ function assertNoForbiddenKeys(decision: unknown): void {
   for (const key of Object.keys(decision)) {
     if (isForbiddenFlowControlField(key)) {
       throw new Error(
-        `[PlannerDecision] decision contains forbidden key "${key}". ` +
-          `Planner must not carry flow-control hints / forbidden flow-control / real-ID key.`,
+        `decision contains forbidden key "${key}".`,
       );
     }
   }

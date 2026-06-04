@@ -6,7 +6,7 @@ import type {
   ToolRuntimeContext,
 } from "../../../../workbench/contracts/tool-contract";
 import { extractErrorFacts } from "../../../../workbench/contracts/tool-contract";
-import type { KbRetrievalToolDeps } from "../adapters/kb-retrieval-tool-deps";
+import type { KbRetrievalToolDeps } from "../../../builtin/kb-retrieval/adapters/kb-retrieval-tool-deps";
 import { executeListRecentReferences } from "../adapters/list-recent-references.adapter";
 import {
   type PlannerVisibleRecentReference,

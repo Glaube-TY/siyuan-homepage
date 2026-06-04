@@ -18,41 +18,24 @@ export function createFocusDocScopeTool(deps: KbRetrievalToolDeps): ToolContract
   return {
     name: "focus_doc_scope",
     title: "聚焦文档范围",
-    description: "将选中的 docId 解析为临时文档范围。",
-    capability: "将选中的文档 ID 扩展为文档范围，不读取文档正文。",
+    description:
+      "将选中的 docId 扩展为临时文档范围，返回范围内的文档结构列表。" +
+      "不读取文档正文，只返回结构信息（docId、标题、层级等）。" +
+      "返回的 docId 可直接传给阅读工具读取正文。",
+    capability: "将选中的文档 ID 扩展为文档范围，返回结构列表，不读取文档正文。",
     inputSchema: focusDocScopeInputSchema,
     outputSchema: focusDocScopeOutputSchema,
     outputKind: "navigation",
     safety: { readOnly: true },
     boundary: "只消费 docId；不读取、不搜索、不回答，不暴露内部标识。",
     source: "builtin",
-    inputHint: "docIds（字符串数组，必填），mode（\"exact\"|\"subtree\"|\"siblings\"|\"notebook\"，可选），maxDocIds（数字，可选）",
+    inputHint: "docIds（字符串数组，必填，必须来自工具返回的真实 docId），mode（\"exact\"|\"subtree\"|\"siblings\"|\"notebook\"，可选），maxDocIds（数字，可选）",
 
     availability(_ctx: ToolRuntimeContext): ToolAvailability {
-      if (!deps.saveActiveFocusScope) {
-        return {
-          available: false,
-          reasonCode: "prerequisite_missing",
-          hint: "当前无法设置聚焦范围。",
-        };
-      }
       return { available: true };
     },
 
     async execute(args: unknown, _ctx: ToolRuntimeContext): Promise<ToolResult> {
-      if (!deps.saveActiveFocusScope) {
-        return {
-          ok: false,
-          outputKind: "navigation",
-          data: null,
-          error: {
-            errorCode: "prerequisite_missing",
-            message: "当前无法设置聚焦范围。",
-            recoverable: false,
-            hint: "请确认作用域已正确初始化。",
-          },
-        };
-      }
 
       const parsed = focusDocScopeInputSchema.safeParse(args);
       if (!parsed.success) {
@@ -86,22 +69,6 @@ export function createFocusDocScopeTool(deps: KbRetrievalToolDeps): ToolContract
               message: "聚焦范围输出格式校验失败。",
               recoverable: false,
               hint: "请稍后重试。",
-            },
-          };
-        }
-
-        try {
-          deps.saveActiveFocusScope(result.activeFocusScope);
-        } catch {
-          return {
-            ok: false,
-            outputKind: "navigation",
-            data: null,
-            error: {
-              errorCode: "adapter_failed",
-              message: "内部聚焦范围保存失败。",
-              recoverable: false,
-              hint: "请稍后重试或换用其他工具。",
             },
           };
         }
@@ -159,11 +126,19 @@ export function createFocusDocScopeTool(deps: KbRetrievalToolDeps): ToolContract
           returnedCandidateCount: data.focusedDocCount,
           isZeroHits: data.focusedDocCount === 0,
         },
-        summary: `聚焦范围已加载（${data.mode} 模式）。`,
+        summary: `结构结果只说明资料在哪里，不等于正文内容。聚焦范围已加载（${data.mode} 模式）。`,
         content: {
-          type: "scope_docs",
-          docs: data.docs,
-          truncated: data.truncated,
+          type: "scope_docs" as const,
+          docs: data.docs.map((d) => ({
+            docId: d.docId,
+            title: d.title,
+            depth: d.depth,
+            childCount: d.childCount,
+            parentDocId: d.parentDocId,
+            hasChildren: d.hasChildren,
+            tags: d.tags,
+            linkedDocs: d.linkedDocs,
+          })),
         },
       };
     },

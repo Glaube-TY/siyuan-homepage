@@ -85,11 +85,15 @@ export interface ActiveFocusScope {
  */
 export interface KnowledgeMapNode {
   docId: string;
+  sourceType: string;
   title: string;
   depth: number;
   childCount: number;
   parentDocId?: string;
   siblingCount?: number;
+  hasChildren?: boolean;
+  nodeKind?: "document" | "container" | "unknown";
+  canReadContent?: boolean;
   children?: KnowledgeMapNode[];
   truncatedChildren?: boolean;
 }

@@ -10,7 +10,12 @@
 
 import { buildKnowledgeMap } from "../../../../tools/readers/knowledge-map-reader";
 import type { KnowledgeDocResource } from "../../../../tools/knowledge-map-types";
-import { getBacklinkReadonly } from "../../../../../siyuan/read-only-kernel";
+import {
+  getBacklinkReadonly,
+  getTagsReadonly,
+  sqlSelectReadonly,
+  type ReadonlyTag,
+} from "../../../../../siyuan/read-only-kernel";
 import type { KbRetrievalToolDeps } from "./kb-retrieval-tool-deps";
 import { sanitizeTitle } from "./kb-safe-text";
 import type {
@@ -28,6 +33,7 @@ interface FilterSpec {
 }
 
 type KnowledgeMapView = NonNullable<ListKnowledgeMapInput["view"]>;
+type TagStatus = "loaded" | "not_requested" | "not_available" | "truncated";
 
 interface PageWindow<T> {
   items: T[];
@@ -35,6 +41,24 @@ interface PageWindow<T> {
   hasMore: boolean;
   nextCursor?: string;
   total: number;
+}
+
+interface TagAttachResult {
+  status: TagStatus;
+  taggedNodeCount: number;
+  tagErrorCount: number;
+}
+
+interface TagBlockRow {
+  id?: string;
+  root_id?: string;
+  content?: string;
+  markdown?: string;
+}
+
+interface TagDictionaryEntry {
+  name: string;
+  count: number;
 }
 
 function normalizePath(value: unknown): string {
@@ -143,7 +167,7 @@ function resourceToNode(mapping: KnowledgeDocResource, children?: PlannerVisible
     siblingCount: mapping.siblingCount,
     hasChildren,
     nodeKind: "document",
-    canReadContent: !!mapping.internalDocId,
+    canReadContent: true, // 有真实 docId 默认可尝试读取，empty_content/container_without_content 由 read_candidate_docs 判断
   };
   if (children && children.length > 0) node.children = children;
   return node;
@@ -258,6 +282,161 @@ async function attachLinkedDocsToNodes(
   return errorCount;
 }
 
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function stripTagHighlight(value: string): string {
+  return value
+    .replace(/<\/?mark>/gi, "")
+    .replace(/&lt;\/?mark&gt;/gi, "")
+    .trim();
+}
+
+function normalizeTagName(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return stripTagHighlight(value)
+    .replace(/^#+/, "")
+    .replace(/#+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sanitizeVisibleTagName(value: string): string {
+  return value
+    .replace(/\d{14}-[a-z0-9]{7}/gi, "[redacted-id]")
+    .replace(/\b[0-9a-f]{32}\b/gi, "[redacted-id]")
+    .replace(/\.sy\b/gi, "[redacted-file]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+function flattenTagDictionary(tags: ReadonlyTag[]): Map<string, TagDictionaryEntry> {
+  const dictionary = new Map<string, TagDictionaryEntry>();
+  const visit = (tag: ReadonlyTag) => {
+    const canonicalName = normalizeTagName(tag.name ?? tag.label);
+    if (canonicalName) {
+      const entry = {
+        name: sanitizeVisibleTagName(canonicalName),
+        count: typeof tag.count === "number" && Number.isFinite(tag.count) ? Math.max(0, Math.floor(tag.count)) : 0,
+      };
+      dictionary.set(canonicalName, entry);
+      const labelName = normalizeTagName(tag.label);
+      if (labelName) dictionary.set(labelName, entry);
+    }
+    if (Array.isArray(tag.children)) {
+      for (const child of tag.children) visit(child);
+    }
+  };
+  for (const tag of tags) visit(tag);
+  return dictionary;
+}
+
+function isHeadingMarkdown(markdown: string): boolean {
+  return /^\s{0,3}#{1,6}\s+\S/.test(markdown);
+}
+
+function extractInlineTagsFromText(value: unknown): string[] {
+  if (typeof value !== "string" || !value.trim()) return [];
+  const tags: string[] = [];
+  const re = /#([^#\s][^#\n]*?)#/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(value)) !== null) {
+    const tagName = normalizeTagName(match[1]);
+    if (tagName) tags.push(tagName);
+  }
+  return tags;
+}
+
+function extractInlineTagsFromBlock(row: TagBlockRow): string[] {
+  const tags = extractInlineTagsFromText(row.content);
+  if (typeof row.markdown === "string" && !isHeadingMarkdown(row.markdown)) {
+    tags.push(...extractInlineTagsFromText(row.markdown));
+  }
+  return tags;
+}
+
+function resolveRowDocId(row: TagBlockRow, allowedDocIds: Set<string>): string | undefined {
+  const rootId = typeof row.root_id === "string" ? row.root_id.trim() : "";
+  if (rootId && allowedDocIds.has(rootId)) return rootId;
+  const id = typeof row.id === "string" ? row.id.trim() : "";
+  if (id && allowedDocIds.has(id)) return id;
+  return undefined;
+}
+
+async function attachTagsToNodes(
+  nodes: PlannerVisibleKnowledgeMapNode[],
+  includeTags: boolean,
+  tagLimit: number,
+): Promise<TagAttachResult> {
+  if (!includeTags) {
+    for (const node of nodes) node.tagStatus = "not_requested";
+    return { status: "not_requested", taggedNodeCount: 0, tagErrorCount: 0 };
+  }
+
+  const safeTagLimit = Math.max(0, Math.min(Math.floor(tagLimit), 100));
+  const docIds = [...new Set(nodes.map((node) => node.docId).filter((id): id is string => typeof id === "string" && id.length > 0))];
+  if (docIds.length === 0) {
+    return { status: "loaded", taggedNodeCount: 0, tagErrorCount: 0 };
+  }
+
+  try {
+    const tagDictionary = flattenTagDictionary(await getTagsReadonly({ ignoreMaxListHint: true }));
+    const tagSetsByDocId = new Map<string, Set<string>>();
+    const rowLimit = Math.min(Math.max(docIds.length * 80, 200), 3000);
+    const idList = docIds.map((id) => `'${escapeSqlLiteral(id)}'`).join(",");
+    const rows = await sqlSelectReadonly<TagBlockRow>(
+      `SELECT id, root_id, content, markdown FROM blocks WHERE root_id IN (${idList}) OR id IN (${idList}) LIMIT ${rowLimit}`,
+      { maxLimit: rowLimit, allowedTables: ["blocks"] },
+    );
+    const allowedDocIds = new Set(docIds);
+    for (const row of rows) {
+      const docId = resolveRowDocId(row, allowedDocIds);
+      if (!docId) continue;
+      const matchedTags = extractInlineTagsFromBlock(row);
+      if (matchedTags.length === 0) continue;
+      let docTags = tagSetsByDocId.get(docId);
+      if (!docTags) {
+        docTags = new Set<string>();
+        tagSetsByDocId.set(docId, docTags);
+      }
+      for (const tagName of matchedTags) {
+        const dictionaryEntry = tagDictionary.get(tagName);
+        if (dictionaryEntry?.name) docTags.add(dictionaryEntry.name);
+      }
+    }
+
+    let taggedNodeCount = 0;
+    let hasTruncated = rows.length >= rowLimit;
+    for (const node of nodes) {
+      const tagList = [...(tagSetsByDocId.get(node.docId) ?? [])];
+      node.tagCount = tagList.length;
+      if (tagList.length > 0) taggedNodeCount += 1;
+      node.tags = tagList.slice(0, safeTagLimit);
+      if (tagList.length > safeTagLimit || rows.length >= rowLimit) {
+        node.tagStatus = "truncated";
+        hasTruncated = true;
+      } else {
+        node.tagStatus = "loaded";
+      }
+    }
+
+    return {
+      status: hasTruncated ? "truncated" : "loaded",
+      taggedNodeCount,
+      tagErrorCount: 0,
+    };
+  } catch {
+    for (const node of nodes) {
+      node.tags = [];
+      node.tagCount = 0;
+      node.tagStatus = "not_available";
+    }
+    return { status: "not_available", taggedNodeCount: 0, tagErrorCount: 1 };
+  }
+}
+
 function cloneSafeNodeFromRaw(
   rawNode: unknown,
   sourceMapping: KnowledgeDocResource[],
@@ -349,23 +528,7 @@ function buildTreeSafeOutput(
   if (args.rootDocId) {
     const rootExists = sourceMapping.some((m) => m.internalDocId === args.rootDocId);
     if (!rootExists) {
-      return {
-        safeOutput: {
-          mode: "tree",
-          view: "subtree",
-          resultScope: "subtree",
-          notebooks: [],
-          totalNodeCount: 0,
-          returnedNodeCount: 0,
-          truncated: false,
-          hasMore: false,
-          error: {
-            code: "resource_not_found",
-            message: `rootDocId "${args.rootDocId}" 在当前范围内不存在。`,
-            hint: "请确认 rootDocId 是否正确，或先不带 rootDocId 调用 list_knowledge_map 获取可用 ID。",
-          },
-        },
-      };
+      throw new Error(`[resource_not_found] rootDocId "${args.rootDocId}" 在当前范围内不存在。请确认 rootDocId 是否来自当前可见范围内的真实文档 ID。`);
     }
   }
 
@@ -373,23 +536,7 @@ function buildTreeSafeOutput(
   if (args.notebookId) {
     const notebookExists = sourceMapping.some((m) => m.box === args.notebookId);
     if (!notebookExists) {
-      return {
-        safeOutput: {
-          mode: "tree",
-          view: "subtree",
-          resultScope: "subtree",
-          notebooks: [],
-          totalNodeCount: 0,
-          returnedNodeCount: 0,
-          truncated: false,
-          hasMore: false,
-          error: {
-            code: "resource_not_found",
-            message: `notebookId "${args.notebookId}" 在当前范围内不存在。`,
-            hint: "请确认 notebookId 是否正确，或先不带 notebookId 调用 list_knowledge_map 获取可用笔记本。",
-          },
-        },
-      };
+      throw new Error(`[resource_not_found] notebookId "${args.notebookId}" 在当前范围内不存在。请使用工具返回的真实 notebookId。`);
     }
   }
 
@@ -503,7 +650,7 @@ function buildListSafeOutput(
           error: {
             code: "resource_not_found",
             message: `rootDocId "${args.rootDocId}" 在当前范围内不存在。`,
-            hint: "请确认 rootDocId 是否正确，或先不带 rootDocId 调用 list_knowledge_map 获取可用 ID。",
+            hint: "请确认 rootDocId 是否来自当前可见范围内的真实文档 ID。",
           },
         },
       };
@@ -514,25 +661,7 @@ function buildListSafeOutput(
   if (args.notebookId) {
     const notebookExists = sourceMapping.some((m) => m.box === args.notebookId);
     if (!notebookExists) {
-      return {
-        safeOutput: {
-          mode: "list",
-          view: "list",
-          resultScope: "list",
-          notebooks: [],
-          docs: [],
-          totalNodeCount: 0,
-          returnedNodeCount: 0,
-          returnedDocCount: 0,
-          truncated: false,
-          hasMore: false,
-          error: {
-            code: "resource_not_found",
-            message: `notebookId "${args.notebookId}" 在当前范围内不存在。`,
-            hint: "请确认 notebookId 是否正确，或先不带 notebookId 调用 list_knowledge_map 获取可用笔记本。",
-          },
-        },
-      };
+      throw new Error(`[resource_not_found] notebookId "${args.notebookId}" 在当前范围内不存在。请使用工具返回的真实 notebookId。`);
     }
   }
 
@@ -544,6 +673,10 @@ function buildListSafeOutput(
   for (const mapping of selected) {
     docs.push(resourceToNode(mapping));
   }
+
+  const zeroError = filtered.length === 0
+    ? { code: "empty_scope" as const, message: "当前范围下没有匹配的文档。", hint: "请检查参数是否正确，或改用 notebooks 查看所有笔记本。" }
+    : undefined;
 
   return {
     safeOutput: {
@@ -557,6 +690,7 @@ function buildListSafeOutput(
       hasMore: page.hasMore,
       nextCursor: page.nextCursor,
       resultScope: "list",
+      error: zeroError,
     },
   };
 }
@@ -602,6 +736,7 @@ function buildPagedDocsOutput(
   view: KnowledgeMapView,
   docs: KnowledgeDocResource[],
   args: ListKnowledgeMapInput,
+  zeroError?: { code: "empty_children" | "empty_scope"; message: string; hint: string },
 ): { safeOutput: ListKnowledgeMapOutput; nodesForRelations: PlannerVisibleKnowledgeMapNode[] } {
   const page = pageItems(docs, args.limit ?? 50, args.cursor);
   const nodes = page.items.map((mapping) => resourceToNode(mapping));
@@ -618,6 +753,7 @@ function buildPagedDocsOutput(
       truncated: page.hasMore,
       hasMore: page.hasMore,
       nextCursor: page.nextCursor,
+      error: docs.length === 0 && zeroError ? zeroError : undefined,
     },
     nodesForRelations: nodes,
   };
@@ -655,7 +791,7 @@ function buildNotebookRootsOutput(
   const relationNodes: PlannerVisibleKnowledgeMapNode[] = [];
   const notebooks = page.items.map((notebook) => {
     const roots = notebook.roots.map((root) => {
-      const node: PlannerVisibleKnowledgeMapNode = { ...root, children: undefined, canReadContent: !!root.docId, nodeKind: "document" };
+      const node: PlannerVisibleKnowledgeMapNode = { ...root, children: undefined, canReadContent: true, nodeKind: "document" };
       relationNodes.push(node);
       return node;
     });
@@ -689,7 +825,12 @@ function buildChildrenOutput(
   } else {
     docs = sourceMapping.filter((mapping) => isNotebookRoot(mapping));
   }
-  return buildPagedDocsOutput("children", docs, args);
+  const zeroError = docs.length === 0
+    ? args.rootDocId
+      ? { code: "empty_children" as const, message: `该文档没有子文档。`, hint: "请确认 rootDocId 是否正确，或改用 subtree/neighborhood 查看更广范围。" }
+      : { code: "empty_scope" as const, message: `当前范围下没有根文档。`, hint: "请检查 notebookId 是否正确，或改用 notebooks 查看所有笔记本。" }
+    : undefined;
+  return buildPagedDocsOutput("children", docs, args, zeroError);
 }
 
 function buildSubtreeOutput(
@@ -704,7 +845,12 @@ function buildSubtreeOutput(
   } else {
     docs = sourceMapping.filter((mapping) => mapping.depth <= (args.maxDepth ?? 2));
   }
-  return buildPagedDocsOutput("subtree", docs, args);
+  const zeroError = docs.length === 0
+    ? args.rootDocId
+      ? { code: "empty_children" as const, message: `该文档在指定深度内没有子文档。`, hint: "请确认 rootDocId 是否正确，或增大 maxDepth。" }
+      : { code: "empty_scope" as const, message: `当前范围下没有文档。`, hint: "请检查 notebookId 是否正确，或改用 notebooks 查看所有笔记本。" }
+    : undefined;
+  return buildPagedDocsOutput("subtree", docs, args, zeroError);
 }
 
 function buildNeighborhoodOutput(
@@ -795,12 +941,19 @@ export async function executeListKnowledgeMap(
     args.includeLinkedDocs === true,
     args.relationLimit ?? 5,
   );
+  const tagResult = await attachTagsToNodes(
+    nodesForRelations,
+    args.includeTags === true,
+    args.tagLimit ?? 20,
+  );
   output.safeOutput.notebookApiLoaded = result.safeOutput.notebookApiLoaded;
   output.safeOutput.notebookCount = result.safeOutput.notebookCount;
   output.safeOutput.missingNotebookNameCount = result.safeOutput.missingNotebookNameCount;
   output.safeOutput.linkedDocsRequested = args.includeLinkedDocs === true;
   output.safeOutput.linkedDocsErrorCount = linkedDocsErrorCount;
-  output.safeOutput.tagStatus = args.includeTags ? "not_available" : "not_requested";
+  output.safeOutput.tagStatus = tagResult.status;
+  output.safeOutput.taggedNodeCount = tagResult.taggedNodeCount;
+  output.safeOutput.tagErrorCount = tagResult.tagErrorCount;
 
   console.info("[KB-AGENT | LIST_KNOWLEDGE_MAP_LOADED]", {
     mode: output.safeOutput.mode ?? "tree",
@@ -814,6 +967,9 @@ export async function executeListKnowledgeMap(
     missingNotebookNameCount: output.safeOutput.missingNotebookNameCount,
     linkedDocsRequested: output.safeOutput.linkedDocsRequested,
     linkedDocsErrorCount: output.safeOutput.linkedDocsErrorCount,
+    tagStatus: output.safeOutput.tagStatus,
+    taggedNodeCount: output.safeOutput.taggedNodeCount,
+    tagErrorCount: output.safeOutput.tagErrorCount,
     internalMappingCount: result.internalMapping.length,
     hasError: !!output.safeOutput.error,
     sourceNotebooksCount: Array.isArray((result.safeOutput as { notebooks?: unknown })?.notebooks)

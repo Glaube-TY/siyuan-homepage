@@ -2,9 +2,8 @@
  * Agentic RAG Scope Types
  *
  * 职责：
- * - 定义新主链路自己的 AgentScope / AgentScopeSummary / AgentScopeType / AgentScopeMode
- * - 不再 re-export 旧 agent-core 的 scope 类型
- * - 类型结构与旧 agent-core 当前行为保持兼容
+ * - 定义 V3 Workbench 使用的 AgentScope / AgentScopeSummary / AgentScopeType / AgentScopeMode
+ * - 不依赖其它运行链路的 scope 类型
  */
 
 /**

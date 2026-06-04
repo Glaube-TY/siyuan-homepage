@@ -41,7 +41,11 @@ export function createFinalAnswerTool(): ToolContract {
   return {
     name: "final_answer",
     title: "最终回答",
-    description: "向用户输出最终回复，并立即结束当前回合。仅在任务已完成、需要澄清、无需继续调用工具，或工具失败后无法继续时使用；如果只是说明接下来要做什么，通常不要使用 final_answer。references 可选，是通用展示来源。",
+    description:
+      "向用户输出最终回复，并立即结束当前回合。" +
+      "仅在任务已完成、需要澄清、无需继续调用工具，或工具失败后无法继续时使用；如果只是说明接下来要做什么，不要使用 final_answer。" +
+      "references 是来源展示，不是证据门槛，不强制附带。" +
+      "如果回答基于阅读工具返回的正文，建议在 references 中附上对应 docId 和 title；如果只是结构或候选发现，可以不附引用，但正文中应说明尚未读取正文。",
     capability: "输出最终回复并结束当前回合，可附带结构化资源引用。",
     inputSchema: ANSWER_INPUT_SCHEMA,
     outputSchema: ANSWER_OUTPUT_SCHEMA,
@@ -49,7 +53,8 @@ export function createFinalAnswerTool(): ToolContract {
     source: "system",
     safety: { readOnly: true },
     boundary: "只承载 Planner 提供的最终回复正文和显式 references；不自动读取资料，不自动生成引用，不决定下一步业务动作。调用后当前回合结束。",
-    inputHint: "body（字符串，必填），references（ResourceRef 数组，可选）",
+    inputHint: "body（字符串，必填），references（ResourceRef 数组，可选）。references 只展示来源，不是证据门槛。基于正文阅读时建议附 docId+title；仅结构/候选时可不附，但需说明尚未读取正文。",
+    budgetCategory: "none",
 
     availability(_ctx: ToolRuntimeContext) {
       return { available: true };

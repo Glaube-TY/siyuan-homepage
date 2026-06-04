@@ -46,13 +46,15 @@ export interface ExecutionOutcome {
   observation: ToolObservation;
   /** 更新后的 budget state。 */
   budgetAfter: BudgetState;
+  /** 原始 ToolResult，供 Workbench 通用资源提取使用 */
+  result?: ToolResult;
   /**
    * 当执行的是 answer 工具且成功时，从其 data 提取出的 AnswerDraft。
    * 任何"代码自动构造 answer"**不**允许。
    */
   answerDraft?: AnswerDraft;
   /**
-   * progress_answer 工具成功时的进展 body。
+   * progress 类工具成功时的进展 body。
    * 不结束 PlannerLoop，由 runV3 通过 onAnswerChunk 推送给 UI。
    */
   progressBody?: string;
@@ -91,40 +93,7 @@ export class ExecutionEngine {
       );
     }
 
-    const budgetCheck = this.deps.budgetGuard.check(call.toolName, ctx);
-    if (!budgetCheck.available) {
-      const observation: ToolObservation = {
-        toolName: call.toolName,
-        ok: false,
-        outputKind: "error_only",
-        facts: {
-          errorCode: "budget_exhausted",
-          errorRecoverable: false,
-          errorHint: "工具预算已用尽，无法继续调用该工具。",
-        },
-        summary: sanitizePlannerVisibleError(
-          new Error(budgetCheck.hint ?? ""),
-          "工具预算已用尽。",
-        ),
-      };
-      const pushed = this.pushObservationOrFailure(observation);
-      if (pushed.ok) {
-        return {
-          ok: false,
-          toolName: call.toolName,
-          observation: pushed.observation,
-          budgetAfter: budget,
-        };
-      }
-      return {
-        ok: false,
-        toolName: call.toolName,
-        observation: pushed.observation,
-        budgetAfter: budget,
-      };
-    }
-
-    // 工具硬可用性检查（不含 budget，budget 已在上方检查）。
+    // 工具硬可用性检查（不含 budget；budget 只用于平台内部 trace，不阻断工具执行）。
     const availability = tool.availability(ctx);
     if (!availability.available) {
       const observation: ToolObservation = {
@@ -194,7 +163,7 @@ export class ExecutionEngine {
       // 工具已进入 execute：视为已被尝试执行，需要消耗预算，
       // 避免 Planner 反复用同一个有 bug 的工具消耗 budget。answer 属于 none 类，
       // consume 不会改动预算。
-      const budgetAfter = this.deps.budgetGuard.consume(call.toolName, budget);
+      const budgetAfter = this.deps.budgetGuard.consume(tool.budgetCategory ?? "none", budget);
       const failObs = this.makeToolFailedObservation(
         call.toolName,
         "execution_error",
@@ -217,7 +186,7 @@ export class ExecutionEngine {
     if (tool.outputSchema && result.ok) {
       const outputParsed = (tool.outputSchema as { safeParse?: (d: unknown) => { success: boolean; error?: { message: string } } }).safeParse?.(result.data);
       if (outputParsed && !outputParsed.success) {
-        const budgetAfter = this.deps.budgetGuard.consume(call.toolName, budget);
+        const budgetAfter = this.deps.budgetGuard.consume(tool.budgetCategory ?? "none", budget);
         const failObs = this.makeToolFailedObservation(
           call.toolName,
           "output_validation_failed",
@@ -247,7 +216,7 @@ export class ExecutionEngine {
     try {
       observation = tool.observationFormatter(result, ctx);
     } catch (err) {
-      const budgetAfter = this.deps.budgetGuard.consume(call.toolName, budget);
+      const budgetAfter = this.deps.budgetGuard.consume(tool.budgetCategory ?? "none", budget);
       const failObs = this.makeToolFailedObservation(
         call.toolName,
         "observation_format_failed",
@@ -270,7 +239,7 @@ export class ExecutionEngine {
     }
 
     // 扣 budget
-    const budgetAfter = this.deps.budgetGuard.consume(call.toolName, budget);
+    const budgetAfter = this.deps.budgetGuard.consume(tool.budgetCategory ?? "none", budget);
 
     // push observation：原始 observation 成功则保留，失败则回退为 observation_rejected。
     const pushed = this.pushObservationOrFailure(observation);
@@ -278,7 +247,7 @@ export class ExecutionEngine {
     // answer 工具：尝试提取 AnswerDraft。失败时转为 tool_failed observation，
     // 留给下一轮 Planner 决定（**不**直接 throw 让循环崩溃）。
     let answerDraft: AnswerDraft | undefined;
-    if ((call.toolName === "final_answer" || call.toolName === "answer") && result.ok) {
+    if (tool.outputKind === "answer" && result.ok) {
       // 若 answer observation 本身被 store 拒绝，绝不产生 answerDraft。
       if (!pushed.ok) {
         return {
@@ -315,9 +284,9 @@ export class ExecutionEngine {
       }
     }
 
-    // progress_answer 工具：提取 progress body，不结束循环。
+    // progress 类工具：提取 progress body，不结束循环。
     let progressBody: string | undefined;
-    if (call.toolName === "progress_answer" && result.ok) {
+    if (tool.outputKind === "progress" && result.ok) {
       const data = result.data as { body?: string } | undefined;
       if (data && typeof data.body === "string") {
         progressBody = data.body;
@@ -329,6 +298,7 @@ export class ExecutionEngine {
       toolName: call.toolName,
       observation: pushed.observation,
       budgetAfter,
+      result,
       answerDraft,
       progressBody,
     };
@@ -391,11 +361,11 @@ export class ExecutionEngine {
    * 写入 observation，并显式报告结果。
    *
    * - observationStore.push 成功：返回 { ok: true, observation }。
-   * - 原始 observation 被拒绝：构造 fallback tool_failed observation（facts.errorCode =
+   * - 原始 observation 被拒绝：构造安全 tool_failed observation（facts.errorCode =
    *   "observation_rejected"，summary 为安全摘要，不含真实 docId / blockId / path），
    *   尝试 push 一次。
-   *   - fallback push 成功：返回 { ok: false, observation: fallback }。
-   *   - fallback push 仍失败：返回 { ok: false, observation: 内存中的 fallback }，
+   *   - 安全 observation push 成功：返回 { ok: false, observation }。
+   *   - 安全 observation push 仍失败：返回内存中的安全 observation，
    *     execute **不** throw，PlannerLoop 不会因此崩溃。
    */
   private pushObservationOrFailure(
@@ -405,7 +375,7 @@ export class ExecutionEngine {
       this.deps.observationStore.push(observation);
       return { ok: true, observation };
     } catch {
-      const fallbackObs: ToolObservation = {
+      const safeErrorObs: ToolObservation = {
         toolName: observation.toolName,
         ok: false,
         outputKind: "error_only",
@@ -416,19 +386,19 @@ export class ExecutionEngine {
         ),
       };
       try {
-        this.deps.observationStore.push(fallbackObs);
-        return { ok: false, observation: fallbackObs };
+        this.deps.observationStore.push(safeErrorObs);
+        return { ok: false, observation: safeErrorObs };
       } catch {
-        return { ok: false, observation: fallbackObs };
+        return { ok: false, observation: safeErrorObs };
       }
     }
   }
 }
 
 /**
- * Safely extracts the global final_answer payload.
+ * Safely extracts the global answer payload.
  * - references, when present, must be array.
- * - references must be safe resource handles and must not contain internal IDs or paths.
+ * - references 是通用展示来源（ResourceRef），不含内部 ID 或路径。
  */
 function summarizeArgs(args: unknown): Record<string, unknown> {
   if (!args || typeof args !== "object") return {};

@@ -1,8 +1,8 @@
 import type {
   KbConversationReference,
   KbRetrievalToolDeps,
-} from "./kb-retrieval-tool-deps";
-import { sanitizeTitle } from "./kb-safe-text";
+} from "../../../builtin/kb-retrieval/adapters/kb-retrieval-tool-deps";
+import { sanitizeTitle } from "../../../builtin/kb-retrieval/adapters/kb-safe-text";
 import type {
   ListRecentReferencesOutput,
   PlannerVisibleRecentReference,
@@ -40,7 +40,7 @@ export function executeListRecentReferences(
   const recentTurns = deps.getRecentConversationContext?.() ?? [];
   const byKey = new Map<string, AccumulatedRef>();
 
-  // 从 recentConversationContext 提取引用（按从旧到新遍历，后面覆盖前面的 lastSeenAt）
+  // 从 recentConversationContext 提取引用（按时间顺序遍历，后面覆盖前面的 lastSeenAt）
   for (const turn of recentTurns) {
     for (const ref of turn.displayReferences ?? []) {
       const docId = typeof ref.docId === "string" ? ref.docId.trim() : "";

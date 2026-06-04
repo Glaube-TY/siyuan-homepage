@@ -39,7 +39,7 @@ These checks validate that the live chat runtime:
 | # | Action | Expected | Pass? |
 |---|---|---|---|
 | 1 | Open the KB chat panel, send a "你能干什么？" question. | v3 Planner selects `answer` directly with `evidenceMode=without_kb_evidence`. Console shows `TURN_STARTED` then `TURN_SUCCEEDED`. No legacy markers. | ☐ |
-| 2 | Ask a KB question that requires retrieval. | v3 Planner calls `list_knowledge_map` / `search_scope` / `read_candidate_docs` then `answer` with `evidenceMode=with_evidence` and `displayedReferenceHandles` populated. Footer references resolve. | ☐ |
+| 2 | Ask a KB question that requires retrieval. | v3 Planner calls `list_knowledge_map` / `search_scope` / `read_candidate_docs` then `answer` with `references` populated. Footer references resolve. | ☐ |
 | 3 | Ask a question with `current_doc` scope. | No legacy "read full fixed doc and answer" shortcut. The Planner explicitly chooses KB Skill tools to fetch and read. | ☐ |
 | 4 | Ask a question with `custom_docs` scope. | Same as #3 — Planner chooses tools. No code-driven auto-read. | ☐ |
 | 5 | Force the LLM to return malformed JSON once. | v3 logs `PLANNER_SCHEMA_RETRY_ONCE`, retries once with the same prompt, then either succeeds or returns `fail_closed_no_planner_decision` with a safe assistant message. No legacy fallback. | ☐ |
@@ -52,7 +52,7 @@ These checks validate that the live chat runtime:
 | 11 | Inspect assistant action buttons after an answer with references. | No "continue search" / search icon action is rendered. UI must not create a deterministic KB follow-up turn. | ☐ |
 
 | 12 | Ask a follow-up such as "微积分这本书的读书笔记已做的咋样，提提意见". | The run must ground on `# 本轮用户请求`; final answer must discuss the requested notes/book and must not mention AI Planner, JSON decision objects, tool manifest wording, or internal role assignment. | ☐ |
-| 13 | Verify final_answer evidence closure. | When `evidenceMode=with_evidence`, `final_answer` must include `displayedReferenceHandles` or `safeEvidenceHandles`. If resource IDs are missing, the tool returns `tool_failed` with `errorCode=final_answer_missing_evidence_resource IDs`. If resource IDs cannot resolve to evidence, returns `final_answer_unresolved_evidence_resource IDs`. | ☐ |
+| 13 | Verify final_answer references. | `final_answer` 的 `references` 是可选的通用展示来源（ResourceRef[]）。缺少 references 时正常回答，不拒绝。 | ☐ |
 | 14 | Verify stop reason codes. | Only `user_canceled`, `planner_declined_to_act`, `internal_aborted` are valid stop reasons. `evidence_sufficient_to_stop` and `ambiguous_need_clarification` are no longer accepted. | ☐ |
 | 15 | Verify Skill enablement. | `userEnabledSkillNames` is not hardcoded in `runV3AgenticRagTurn`. Builtin KB Skill is enabled via `enabledByDefault: true` in SkillContract. | ☐ |
 

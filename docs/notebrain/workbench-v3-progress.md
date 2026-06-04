@@ -119,12 +119,12 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 
 | Stage | Goal | Status | Check Result | Next Step |
 |---|---|---|---|---|
-| A | Complete `list_knowledge_map` v3 loop | migrated-unverified | build/tsc passed; allocator + duplicate reject; notebook handle via allocator | Needs end-to-end verification |
+| A | Complete `list_knowledge_map` v3 loop | migrated-unverified | build/tsc passed; per-turn state + duplicate reject | Needs end-to-end verification |
 | B | Migrate `get_conversation_used_references` | migrated-unverified | build/tsc passed; uses deps allocator; no legacy imports | Needs end-to-end verification |
 | C | Migrate `search_scope` | migrated-unverified | build/tsc passed; uses effective scope + deps allocator | Needs end-to-end verification |
 | D | Migrate scope document range tools | migrated-unverified | build/tsc passed; list_scope_docs uses effective scope | Needs end-to-end verification |
-| E | Migrate `read_candidate_docs` | migrated-unverified | build/tsc passed; focus scope filtering active; content reference ID via allocator | Needs end-to-end verification |
-| F | Migrate `read_previous_evidence` | migrated-unverified | build/tsc passed; content reference ID via allocator | Needs end-to-end verification |
+| E | Migrate `read_candidate_docs` | migrated-unverified | build/tsc passed; focus scope filtering active; content reference via per-turn state | Needs end-to-end verification |
+| F | Migrate `read_previous_evidence` | migrated-unverified | build/tsc passed; content reference via per-turn state | Needs end-to-end verification |
 | G | Register full real KB skill tool set | migrated-unverified | KbRetrievalRuntimeState per-turn; inputHint on all tools | Needs end-to-end verification |
 | H | Connect v3 to main QA entry | integrated-unverified | runV3AgenticRagTurn + PlannerLoop + callLlmObject with reasoningEffort/providerOptions; v3-only runtime; build/tsc passed | Needs production verification |
 | I | Connect split chat storage | implemented | kb-session-store now reads/writes `notebrain/chat/index.json` + `notebrain/chat/sessions/*.json` through the v3 storage facade; old `kb-chat-sessions` is migration source only | Build/tsc passed; manual production verification still pending |
@@ -132,8 +132,8 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 | K | Clean legacy code | quarantined | deletion deferred until CodeGraph confirms zero runtime in-edges; legacy fallback removed from main QA entry | Blocked on legacy physical deletion audit |
 | L | Fix v3 Planner LLM param passing | implemented | chatModelSelection + reasoningEffort + providerOptions passed to callLlmObject structured + raw fallback | Build/tsc passed |
 | M | Inject conversation references | implemented | conversationTurns in params + KbRetrievalRuntimeState + extractConversationTurns in flow | Build/tsc passed |
-| N | Fix footerReferences closure | implemented | safeEvidenceHandles in AnswerToolData/AnswerDraft/extractAnswerDraft; merged with displayedReferenceHandles; resolveFooterReferences | Build/tsc passed |
-| O | Fix handle/content reference ID uniqueness | implemented | per-turn allocator; throw on duplicate; notebook handle via allocator | Build/tsc passed |
+| N | Fix footerReferences closure | implemented | footerReferences in AnswerToolData/AnswerDraft/extractAnswerDraft; resolved via references | Build/tsc passed |
+| O | Fix content reference ID uniqueness | implemented | per-turn state; throw on duplicate | Build/tsc passed |
 | P | Make focus_doc_scope affect subsequent tools | implemented | getEffectiveScope; read_candidate_docs filters by activeFocusScope | Build/tsc passed |
 | Q | Add Planner manifest inputHint | implemented | inputHint on all 8 tools; correct parameter descriptions | Build/tsc passed |
 | R | Fix raw fallback providerOptions safe mapping | implemented | extractOpenAICompatibleReasoningEffortFromProviderOptions helper; reads openai/openai-compatible nested keys only | Local build passed |
@@ -149,7 +149,7 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 | AC | Latest-user-request grounding | implemented | `renderPlannerContextPreview` now includes `# 本轮用户请求` with natural-language scope text and the raw user task; prompt forbids treating JSON format instructions as the user task; leakage prevention is at prompt construction, not answer post-processing | Build/tsc passed; needs manual regression check |
 | AD | Concrete document content reading | implemented | Safe excerpts increased from 500 to 3000 chars; snippet sanitizer no longer drops Markdown content just because it contains `/`; Planner/Skill/tool guidance now states list/search are not document bodies and content tasks should read candidate resource IDs; V3 actionHistory records safe tool names | Build/tsc passed; needs manual regression check |
 | AF | Global prompt and Skill prompt purity | implemented | Global identity no longer mentions Skills/Tools as capabilities; observations render as natural language; builtin/user Skill prompt sections are concise capability manuals without duplicate headings | Build/tsc passed; needs manual regression check |
-| AG | final_answer global tool refactor | implemented | final_answer is global system tool, not RAG-specific; evidenceMode optional (not flow control); references optional (no forced evidence); handle validation filters invalid resource IDs instead of rejecting answer; KB Skill guidance adds reference suggestions without enforcement | Build/tsc passed |
+| AG | final_answer global tool refactor | implemented | final_answer is global system tool, not RAG-specific; references optional (no forced evidence); invalid resource IDs filtered instead of rejecting answer; KB Skill guidance adds reference suggestions without enforcement | Build/tsc passed |
 | AH | DisplayReference / ResourceRef abstraction | implemented | New `display-reference.ts` contract + `InMemoryDisplayReferenceStore`; KB resource IDs registered as `DisplayReference` with `sourceType=siyuan_doc`; `resolveDisplayReferences` unifies multi-source reference resolution; `final_answer` uses `DisplayReferenceStore` for reference parsing | Build/tsc passed |
 | AI | Tool result and error observation standardization | implemented | `ToolResult` adds `ToolErrorDetail` structured error; `ToolObservation.facts` adds `errorMessage`/`errorHint`/`errorRecoverable`; all 7 KB tools updated with Chinese error messages and hints; `extractErrorFacts` helper added | Build/tsc passed |
 | AJ | Documentation back-to-principles | implemented | `00-first-principles.md` adds DisplayReference/ResourceRef section + tool error standardization; removes `evidenceMode` required from allowed list; `agent-skill-workbench-v3-design.md` adds sections 18/19; `workbench-v3-progress.md` updated with AH/AI/AJ status | Build/tsc passed |
@@ -157,19 +157,19 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 
 ## Tool Migration Status
 
-| Tool | v3 Status | Planner Visible | Read Only | Schema | Observation | Safe Handle | Replaces Legacy |
-|---|---|---|---|---|---|---|---|
-| `list_knowledge_map` | migrated-unverified | yes | yes | yes | yes | yes | partial |
-| `get_conversation_used_references` | migrated-unverified | yes | yes | yes | yes | yes | partial |
-| `search_scope` | migrated-unverified | yes | yes | yes | yes | yes | partial |
-| `list_scope_docs` | migrated-unverified | yes | yes | yes | yes | yes | partial |
-| `focus_doc_scope` | migrated-unverified | yes | yes | yes | yes | yes | partial |
-| `get_doc_tree_context` | removed_from_skill | no | N/A | N/A | N/A | N/A | no |
-| `read_candidate_docs` | migrated-unverified | yes | yes | yes | yes | yes | partial |
-| `read_previous_evidence` | migrated-unverified | yes | yes | yes | yes | yes | partial |
-| `read_docs` | Execution-only target | no | yes | legacy | legacy | no | no |
-| `read_block_context` | Execution-only target | no | yes | legacy | legacy | no | no |
-| `answer` | migrated-unverified | yes | yes | yes | yes | safe reference resource IDs (optional) | partial |
+| Tool | v3 Status | Planner Visible | Read Only | Schema | Observation | Replaces Legacy |
+|---|---|---|---|---|---|---|
+| `list_knowledge_map` | migrated-unverified | yes | yes | yes | yes | partial |
+| `get_conversation_used_references` | migrated-unverified | yes | yes | yes | yes | partial |
+| `search_scope` | migrated-unverified | yes | yes | yes | yes | partial |
+| `list_scope_docs` | migrated-unverified | yes | yes | yes | yes | partial |
+| `focus_doc_scope` | migrated-unverified | yes | yes | yes | yes | partial |
+| `get_doc_tree_context` | removed_from_skill | no | N/A | N/A | N/A | no |
+| `read_candidate_docs` | migrated-unverified | yes | yes | yes | yes | partial |
+| `read_previous_evidence` | migrated-unverified | yes | yes | yes | yes | partial |
+| `read_docs` | Execution-only target | no | yes | legacy | legacy | no |
+| `read_block_context` | Execution-only target | no | yes | legacy | legacy | no |
+| `answer` | migrated-unverified | yes | yes | yes | yes | partial |
 
 ## Module Boundaries
 
@@ -215,8 +215,8 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 | 12 | v3 PlannerLoop + LLM | ✅ callLlmObject with reasoningEffort/providerOptions |
 | 13 | Chat storage split | ✅ split storage primary; legacy `kb-chat-sessions` migration-only |
 | 14 | User skill registration | partial (no settings UI) |
-| 15 | Handle allocator | ✅ per-turn; throw on duplicate |
-| 16 | footerReferences closure | ✅ safeEvidenceHandles + displayedReferenceHandles |
+| 15 | Per-turn state management | ✅ per-turn; throw on duplicate |
+| 16 | footerReferences closure | ✅ references resolved via ResourceRef |
 | 17 | read_candidate_docs focus scope | ✅ filters by activeFocusScope.docIds |
 | 18 | Raw fallback providerOptions | ✅ extractOpenAICompatibleReasoningEffortFromProviderOptions reads nested openai/openai-compatible keys only |
 | 19 | Builtin Skill catalog | ✅ skill-catalog.ts imports from skill.ts/guidance.ts; no hardcoded duplicates |
@@ -263,13 +263,13 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 |---|---|---|---|
 | 1 | `get_doc_tree_context` was in `BUILTIN_KB_SKILL_TOOL_NAMES` and guidance without v3 ToolContract | 🔴 | Fixed — removed from skill.ts + guidance.ts |
 | 2 | `focus_doc_scope` saves `ActiveFocusScope` but no `getActiveFocusScope` in deps — not closed-loop | ✅ | Fixed — `getActiveFocusScope?` added to `KbRetrievalToolDeps` + `KbRetrievalRuntimeState` implements both save/get |
-| 3 | handle/evidence mapping lifecycle unclear — per-turn vs per-session undefined, no actual implementation | ✅ | Fixed — `KbRetrievalRuntimeState` created as per-turn instance; throw on duplicate; clearMappings() provided |
-| 4 | Module-level `evidenceHandleCounter` / `previousEvidenceHandleCounter` — cross-session pollution | 🔴 | Fixed — replaced with per-turn allocator via deps |
+| 3 | resource mapping lifecycle unclear — per-turn vs per-session undefined, no actual implementation | ✅ | Fixed — `KbRetrievalRuntimeState` created as per-turn instance; throw on duplicate; clearMappings() provided |
+| 4 | Module-level counters — cross-session pollution | 🔴 | Fixed — replaced with per-turn state via deps |
 | 5 | Duplicate `sanitizeTitle` / `sanitizeSnippet` / `containsInternalReference` across 4+ adapters | 🟡 | Fixed — extracted to `adapters/kb-safe-text.ts` |
 | 6 | Progress doc overstated A-F as "Done" | 🟡 | Fixed — recategorized as "migrated-unverified" |
 | 7 | callLlmObject structured path didn't pass reasoningEffort/providerOptions | 🔴 | Fixed — both structured and raw fallback paths now pass |
-| 8 | footerReferences always empty in v3 | 🔴 | Fixed — safeEvidenceHandles + displayedReferenceHandles merged and resolved |
-| 9 | Handle duplicate silently skipped | 🟡 | Fixed — throw on duplicate; callers catch and return adapter_failed |
+| 8 | footerReferences always empty in v3 | 🔴 | Fixed — references resolved via ResourceRef |
+| 9 | Duplicate resource ID silently skipped | 🟡 | Fixed — throw on duplicate; callers catch and return adapter_failed |
 | 10 | read_candidate_docs ignored focus scope | 🟡 | Fixed — resolveDocs filters by activeFocusScope.docIds |
 | 11 | inputHint inaccurate for focus_doc_scope/read_previous_evidence/answer | 🟡 | Fixed — correct parameter descriptions |
 
@@ -281,8 +281,8 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 - ~~`activeFocusScope` does not yet influence `getScope()` narrowing~~ → Resolved: `getEffectiveScope()` returns `custom_docs` scope when focus active.
 - ~~v3 `decideNextStep` prompt is minimal — no conversation history / recent context injected yet~~ → Resolved: conversationTurns injected via KbRetrievalRuntimeState.
 - ~~v3 Planner LLM params not passed~~ → Resolved: chatModelSelection + reasoningEffort + providerOptions passed to structured + raw fallback paths.
-- ~~footerReferences always empty~~ → Resolved: safeEvidenceHandles + displayedReferenceHandles merged and resolved via resolveFooterReferences.
-- ~~Handle uniqueness not guaranteed~~ → Resolved: per-turn allocator; throw on duplicate.
+- ~~footerReferences always empty~~ → Resolved: references resolved via ResourceRef.
+- ~~Resource ID uniqueness not guaranteed~~ → Resolved: per-turn state; throw on duplicate.
 - ~~No inputHint for Planner~~ → Resolved: inputHint on all 8 v3 tools with correct parameter descriptions.
 - ~~read_candidate_docs ignores focus scope~~ → Resolved: resolveDocs filters by activeFocusScope.docIds.
 - v3 main entry **not production-verified**; runtime is v3-only since Stage H runtime cutover.
@@ -331,7 +331,7 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 
 - **final_answer 入参统一为 references**：`ALLOWED_ANSWER_KEYS` 加入 `references`；`assertAnswerArgsShape` 校验 `references?: string[]`；`extractAnswerDraft` 提取 `references`；`AnswerDraft` 保留 `references`，`displayedReferenceHandles` / `safeEvidenceHandles` 标为兼容字段；`runV3AgenticRagTurn` 合并 `draft.references + displayedReferenceHandles + safeEvidenceHandles` 后调用 `resolveDisplayReferences`；Planner prompt 示例改为 `references`。
 - **DisplayReference 主链路**：`runV3` 使用 `resolveDisplayReferences` 解析引用；`resolveFooterReferences` 保留为兼容别名；`createAgenticRagWorkbench` 注入 `displayReferenceStore`，`resolveEvidenceHandles` 为兼容钩子；`final_answer` 只处理 Planner 显式传入的 `references`；`references` 为空时正常回答；`references` 解析失败返回结构化 observation。
-- **候选 handle 与展示引用语义**：AI 可见安全 handle，底层真实 ID 仅在工具内部；search/list 产生的 handle 是 resourceId；read 工具产生的 handle 注册为 DisplayReference；UI 文案不暗示"已读证据"；`final_answer` 只叫"展示引用解析"。
+- **候选资源与展示引用语义**：工具返回真实 docId/blockId/url；search/list 产生的候选是真实资源 ID；read 工具返回真实内容片段；UI 文案不暗示"已读证据"；`final_answer` 只叫"展示引用解析"。
 - **progress_answer 真正展示给用户**：`ExecutionOutcome` 添加 `progressBody` 字段；`ExecutionEngine` 提取 `progress_answer` 的 body；`PlannerLoopResult` 添加 `progressBodies` 数组；`PlannerLoop` 收集所有 progressBody；`V3ProgressEvent` 添加 `kind`/`body` 字段；`runV3` 在 answer_ready 前通过 `onProgress` 推送 progress bodies。
 - **结构化工具错误 observation**：`makeToolFailedObservation` 接受 `detail` 参数（`recoverable`/`field`/`expected`/`received`/`hint`）；所有错误调用点填充结构化信息；`validation_failed` 标记 `recoverable=true`；`execution_error`/`output_validation_failed`/`observation_format_failed` 标记 `recoverable=false`；`budget_exhausted`/`unavailable` 直接填充 facts 中的 `errorRecoverable`/`errorHint`；所有 message/hint 改为中文。
 - **收窄 stop 和全局 prompt**：`STOP_DECISION_SCHEMA` 删除 `planner_declined_to_act`；stop 仅保留 `user_canceled`/`internal_aborted`；Planner prompt 中 stop 说明合并为一句，强调需要澄清或说明不能完成时用 `final_answer`。
@@ -339,13 +339,13 @@ This step re-roots v3 into a real Skill-first Agent Workbench. The runtime no lo
 - **V3-only**：未 fallback 旧 run-agentic-rag-turn；未出现 GRAPH_START / LEGACY_FALLBACK_USED；Planner manifest 不含 read_docs / read_block_context；Planner-visible observation 不含真实 docId/blockId/path/internalMapping。
 - 状态仍为 `runtime-testing`，不写 `production verified`。
 
-### Stage AL — handle 兼容层删除，真实资源 ID 直传
+### Stage AL — 资源 ID 直传，删除兼容层
 
 - **PlannerDecision BLACKLIST_KEYS**：删除 `docId`/`blockId`/`notebookId`/`sourceDocIds`/`sourceBlockIds`，仅保留 `path`/`realPath`/`realDocId`/`realBlockId`/`internalMapping`。
 - **planner-visible-data-guard**：不再禁止 `docId`/`blockId`/`notebookId`，仅禁止内部路径和映射。
 - **final_answer**：`references` 从 `string[]`（resource IDs）改为 `ResourceRef[]`（结构化 `{sourceType, docId, blockId, url, title}`）。
-- **answer.tool.ts**：删除 `assertSafeHandles` 和 `DisplayReferenceStore` 依赖。
-- **ExecutionEngine**：`extractAnswerDraft` 简化，不再调用 `assertSafeResourceRef`。
+- **answer.tool.ts**：删除旧 handle 依赖。
+- **ExecutionEngine**：`extractAnswerDraft` 简化。
 - **Planner prompt**：改为"可以使用工具返回的 docId/blockId/url 作为后续参数"；final_answer 示例改为结构化 ResourceRef。
 - **create-agentic-rag-workbench**：删除 `displayReferenceStore` 参数。
 - `display-reference-store.ts`/`safe-resource-handle.ts`：保留为 dead code（仅 workbench/index.ts 导出，无运行时调用者）。

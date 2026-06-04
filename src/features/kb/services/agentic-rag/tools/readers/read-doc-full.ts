@@ -3,7 +3,7 @@
  *
  * 职责：
  * - 读取文档完整 Markdown 内容
- * - 从旧 agent-core/tools/read-doc-full-tool.ts 低风险迁移
+ * - 通过只读 facade 获取正文
  * - 使用 exportMdContent 读取完整 Markdown，不用 SQL content/markdown 拼全文
  * - SQL 只可用于内部读取 block ids 或必要元数据，不暴露给 LLM action 参数
  * - 不使用 hpath

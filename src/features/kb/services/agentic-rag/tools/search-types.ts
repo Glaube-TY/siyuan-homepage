@@ -1,11 +1,11 @@
 /**
  * Agentic RAG Search Types
  *
- * 本地 search 类型定义，脱离旧 agent-core/tools/search-blocks-tool。
+ * 本地 search 类型定义。
  *
  * 职责：
  * - 定义 AgenticSearchHit / AgenticRetrievalStrategy / SearchBlocksForAgenticRagParams / AgenticSearchResult
- * - 兼容旧结构，不从 agent-core/agent-task-plan 导入 RetrievalStrategy
+ * - 定义独立的 AgenticRetrievalStrategy，不依赖其它运行链路
  * - metadata 保留 backend/sourceBlockIds/type 作为内部候选来源信息
  */
 
@@ -22,7 +22,7 @@ export interface AgenticSearchHit {
   score?: number;
   box?: string;
   path?: string;
-  source?: "keyword_fuzzy" | "keyword" | "fuzzy" | "fallback" | "kernel_search" | "title_catalog";
+  source?: "keyword_fuzzy" | "keyword" | "fuzzy" | "kernel_search" | "title_catalog";
   metadata?: Record<string, unknown>;
 }
 

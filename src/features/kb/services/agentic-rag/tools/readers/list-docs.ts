@@ -3,7 +3,7 @@
  *
  * 职责：
  * - 枚举 scope 范围内的文档
- * - 从旧 agent-core/tools/list-docs-tool.ts 低风险迁移
+ * - 复用只读文档索引能力
  * - 复用 loadAllDocsFromSql 和 getDocsInScope，不重写检索算法
  * - 不使用 hpath/name/alias 作为核心字段
  * - 不引入 taskType/sourceTaskType

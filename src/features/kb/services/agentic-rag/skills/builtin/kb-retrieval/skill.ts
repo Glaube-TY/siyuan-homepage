@@ -27,7 +27,6 @@ export const BUILTIN_KB_SKILL_PRIORITY = 100;
 export const BUILTIN_KB_SKILL_TOOL_NAMES: readonly string[] = [
   "list_knowledge_map",
   "search_scope",
-  "focus_doc_scope",
   "read_candidate_docs",
 ];
 
@@ -75,8 +74,4 @@ export function createBuiltinKnowledgeBaseQaSkill(): SkillContract {
   };
 }
 
-export type BuiltinKbSkillToolName = (typeof BUILTIN_KB_SKILL_TOOL_NAMES)[number];
 
-export function isBuiltinKbSkillToolName(name: string): name is BuiltinKbSkillToolName {
-  return (BUILTIN_KB_SKILL_TOOL_NAMES as readonly string[]).includes(name);
-}

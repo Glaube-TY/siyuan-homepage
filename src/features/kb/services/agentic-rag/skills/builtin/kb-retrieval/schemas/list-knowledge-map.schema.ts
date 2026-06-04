@@ -35,6 +35,7 @@ export const listKnowledgeMapInputSchema = z.object({
   relationLimit: z.number().int().min(0).max(20).optional().default(5),
   includeClosedNotebooks: z.boolean().optional().default(false),
   includeTags: z.boolean().optional().default(false),
+  tagLimit: z.number().int().min(0).max(100).optional().default(20),
 }).strict();
 
 export type ListKnowledgeMapInput = z.infer<typeof listKnowledgeMapInputSchema>;
@@ -69,6 +70,9 @@ export const plannerVisibleKnowledgeMapNodeSchema = z.object({
   linkRefsCount: z.number().int().min(0).optional(),
   mentionsCount: z.number().int().min(0).optional(),
   linkedDocsStatus: z.enum(["not_requested", "available", "unavailable", "error"]).optional(),
+  tags: z.array(z.string()).optional(),
+  tagCount: z.number().int().min(0).optional(),
+  tagStatus: z.enum(["loaded", "not_requested", "not_available", "truncated"]).optional(),
   nodeStatus: z.enum(["available", "unavailable"]).optional(),
   children: z.lazy(() => z.array(plannerVisibleKnowledgeMapNodeSchema)).optional(),
   truncatedChildren: z.boolean().optional(),
@@ -110,9 +114,11 @@ export const listKnowledgeMapOutputSchema = z.object({
   missingNotebookNameCount: z.number().int().min(0).optional(),
   linkedDocsRequested: z.boolean().optional(),
   linkedDocsErrorCount: z.number().int().min(0).optional(),
-  tagStatus: z.enum(["not_requested", "not_available"]).optional(),
+  tagStatus: z.enum(["loaded", "not_requested", "not_available", "truncated"]).optional(),
+  taggedNodeCount: z.number().int().min(0).optional(),
+  tagErrorCount: z.number().int().min(0).optional(),
   error: z.object({
-    code: z.enum(["resource_not_found", "invalid_args"]),
+    code: z.enum(["resource_not_found", "invalid_args", "empty_children", "empty_scope"]),
     message: z.string(),
     hint: z.string(),
   }).optional(),

@@ -1,12 +1,12 @@
 /**
  * ResourceRef — 统一资源引用结构。
  *
- * 所有 KB 工具返回/接收资源时使用此结构，不再依赖 opaque identifier。
+ * 所有工具返回/接收资源时使用此结构，不再依赖 opaque identifier。
  *
  * 用途：
- * - search_scope / list_knowledge_map 返回候选资源时直接携带 sourceType + docId/blockId。
- * - read_candidate_docs 接收 Planner 显式传入的资源引用。
- * - final_answer references 可接受结构化引用对象。
+ * - 搜索/结构工具返回候选资源时直接携带 sourceType + docId/blockId。
+ * - 阅读工具接收 Planner 显式传入的资源引用。
+ * - 回答工具 references 可接受结构化引用对象。
  */
 
 export type ResourceSourceType =

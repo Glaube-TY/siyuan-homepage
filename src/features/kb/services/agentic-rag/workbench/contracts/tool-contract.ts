@@ -35,43 +35,26 @@ export type ToolOutputKind =
  * Planner 可见 observation content：安全展示数据，不含流程建议�? * 初期仅支�?knowledge_map�? */
 export interface PlannerVisibleKnowledgeMapNode {
   docId: string;
-  sourceType?: string;
   title: string;
   depth: number;
   childCount: number;
   parentDocId?: string;
-  siblingCount?: number;
   hasChildren?: boolean;
-  nodeKind?: "document" | "container" | "unknown";
-  canReadContent?: boolean;
+  tags?: string[];
   linkedDocs?: Array<{
     docId: string;
     title: string;
     relation: "backlink" | "mention";
-    count: number;
-    sampleBlockId?: string;
-    source: "getBacklink";
   }>;
-  linkRefsCount?: number;
-  mentionsCount?: number;
-  linkedDocsStatus?: "not_requested" | "available" | "unavailable" | "error";
-  nodeStatus?: "available" | "unavailable";
   children?: PlannerVisibleKnowledgeMapNode[];
-  truncatedChildren?: boolean;
 }
 
 export interface PlannerVisibleKnowledgeMapNotebook {
   notebookId: string;
   title: string;
   notebookName?: string;
-  notebookNameStatus?: "available" | "unavailable";
-  icon?: string;
-  sort?: number;
-  sortMode?: number;
-  closed?: boolean;
   docCount: number;
   roots: PlannerVisibleKnowledgeMapNode[];
-  truncated?: boolean;
 }
 
 export interface PlannerVisibleConversationReference {
@@ -88,53 +71,41 @@ export interface PlannerVisibleConversationReference {
 
 export interface PlannerVisibleSearchCandidate {
   docId: string;
-  blockId?: string;
-  sourceType?: string;
   title: string;
   preview?: string;
   rank: number;
-  score?: number;
+  tags?: string;
+  matchReason?: "title" | "content" | "tag" | "hpath" | "backlink" | "fts" | "hybrid";
+  hpath?: string;
+  hitType?: "titleHit" | "contentHit" | "structureHit";
+  matchedFields?: string[];
+  notebookId?: string;
+  blockId?: string;
 }
 
 export interface PlannerVisibleScopeDoc {
   docId: string;
-  sourceType?: string;
   title: string;
   depth?: number;
   childCount?: number;
   parentDocId?: string;
-  siblingCount?: number;
   hasChildren?: boolean;
-  nodeKind?: "document" | "container" | "unknown";
-  canReadContent?: boolean;
+  tags?: string[];
   linkedDocs?: Array<{
     docId: string;
     title: string;
     relation: "backlink" | "mention";
-    count: number;
-    sampleBlockId?: string;
-    source: "getBacklink";
   }>;
-  linkRefsCount?: number;
-  mentionsCount?: number;
-  linkedDocsStatus?: "not_requested" | "available" | "unavailable" | "error";
-  nodeStatus?: "available" | "unavailable";
 }
 
 export interface PlannerVisibleReadItem {
   docId?: string;
-  blockId?: string;
-  sourceType?: string;
   title: string;
   content?: string;
   snippet: string;
-  referenceIndex: number;
   truncated?: boolean;
-  originalContentChars?: number;
-  returnedContentChars?: number;
+  contentChars?: number;
   nextCursor?: string;
-  remainingChars?: number;
-  startOffset?: number;
 }
 
 export type PlannerVisibleObservationContent =
@@ -142,32 +113,32 @@ export type PlannerVisibleObservationContent =
       type: "knowledge_map";
       resultScope?: "notebooks" | "notebook_roots" | "children" | "subtree" | "neighborhood" | "list";
       notebooks: PlannerVisibleKnowledgeMapNotebook[];
-      truncated: boolean;
+      truncated?: boolean;
       hasMore?: boolean;
       nextCursor?: string;
     }
   | {
       type: "conversation_references";
       references: PlannerVisibleConversationReference[];
-      truncated: boolean;
+      truncated?: boolean;
     }
   | {
       type: "search_results";
       candidates: PlannerVisibleSearchCandidate[];
-      truncated: boolean;
+      truncated?: boolean;
     }
   | {
       type: "scope_docs";
       resultScope?: "notebooks" | "notebook_roots" | "children" | "subtree" | "neighborhood" | "list";
       docs: PlannerVisibleScopeDoc[];
-      truncated: boolean;
+      truncated?: boolean;
       hasMore?: boolean;
       nextCursor?: string;
     }
   | {
       type: "content_items" | "read_items";
       items: PlannerVisibleReadItem[];
-      truncated: boolean;
+      truncated?: boolean;
       errors?: Array<{
         docId?: string;
         blockId?: string;
@@ -249,12 +220,6 @@ export interface ToolResult {
   error?: ToolErrorDetail;
 }
 
-/** 预算快照�?*/
-export interface BudgetSnapshot {
-  searchRemaining: number;
-  readRemaining: number;
-}
-
 /**
  * Tool 返回�?Planner �?observation�?*�?*含事实�? */
 export interface ToolObservation {
@@ -269,27 +234,27 @@ export interface ToolObservation {
     unreadReadableCandidateCount?: number;
     contentItemCount?: number;
     hits?: number;
-    /** read_candidate_docs 累计读取的 doc 计数 */
+    /** 累计读取的 doc 计数 */
     readDocCount?: number;
-    /** read_candidate_docs 格式有效的 ID 数量 */
+    /** 格式有效的 ID 数量 */
     validDocIdCount?: number;
-    /** read_candidate_docs 实际解析到的资源数量 */
+    /** 实际解析到的资源数量 */
     resolvedDocCount?: number;
-    /** read_candidate_docs 正文为空的资源数 */
+    /** 正文为空的资源数 */
     emptyContentCount?: number;
-    /** read_candidate_docs 容器文档无内容的数量 */
+    /** 容器文档无内容的数量 */
     containerCount?: number;
-    /** read_candidate_docs 读取失败的资源数 */
+    /** 读取失败的资源数 */
     failedResourceCount?: number;
-    /** read_candidate_docs 请求的 docId 数量 */
+    /** 请求的 docId 数量 */
     requestedDocIdCount?: number;
-    /** read_candidate_docs 请求的 blockId 数量 */
+    /** 请求的 blockId 数量 */
     requestedBlockIdCount?: number;
-    /** read_candidate_docs 实际解析到的块数量 */
+    /** 实际解析到的块数量 */
     resolvedBlockCount?: number;
-    /** read_candidate_docs blockId 归属 docId 不匹配次数 */
+    /** blockId 归属 docId 不匹配次数 */
     resourceMismatchCount?: number;
-    /** read_candidate_docs 已读资源摘要 */
+    /** 已读资源摘要 */
     readItemsSummary?: Array<{
       docId: string;
       title: string;
@@ -298,18 +263,18 @@ export interface ToolObservation {
       hasNextCursor: boolean;
       status: string;
     }>;
-    /** read_candidate_docs 错误资源摘要 */
+    /** 错误资源摘要 */
     errorItemsSummary?: Array<{
       docId?: string;
       blockId?: string;
       code: string;
       message: string;
     }>;
-    /** list_knowledge_map 返回的节点总数 */
+    /** 结构/列表返回的节点总数 */
     totalNodeCount?: number;
-    /** list_knowledge_map 实际返回的节点数 */
+    /** 结构/列表实际返回的节点数 */
     returnedNodeCount?: number;
-    /** list_knowledge_map 返回的 notebook 数量 */
+    /** 结构/列表返回的 notebook 数量 */
     notebookCount?: number;
     notebookApiLoaded?: boolean;
     sourceNotebookCount?: number;
@@ -317,6 +282,9 @@ export interface ToolObservation {
     hasMore?: boolean;
     linkedDocsErrorCount?: number;
     linkedDocsRequested?: boolean;
+    tagStatus?: "loaded" | "not_requested" | "not_available" | "truncated";
+    taggedNodeCount?: number;
+    tagErrorCount?: number;
     matchedNodeCount?: number;
     referenceCount?: number;
     /** 向后兼容：简单错误码。优先使用 errorMessage / errorHint */
@@ -328,6 +296,12 @@ export interface ToolObservation {
     /** 是否可恢复（来自 ToolErrorDetail.recoverable） */
     errorRecoverable?: boolean;
     isZeroHits?: boolean;
+    /** 通用：exact args 重复执行 */
+    sameArgsAlreadyExecuted?: boolean;
+    /** 通用：首次执行步骤索引 */
+    firstStepIndex?: number;
+    /** 通用：重复计数 */
+    repeatCount?: number;
   };
   summary: string;
   /** Planner 可见安全内容（如知识图谱树）�?*/
@@ -337,7 +311,6 @@ export interface ToolObservation {
 /** 工具运行时上下文：Tool 看到的事实子集比 Skill 更窄�?*/
 export interface ToolRuntimeContext {
   question: string;
-  budgets: BudgetSnapshot;
   candidateSummary?: {
     candidateDocCount: number;
     strongCandidateDocCount: number;
@@ -352,7 +325,11 @@ export interface ToolRuntimeContext {
 }
 
 /**
- * Tool contract�? * - inputSchema **必须**是真�?ZodSchema；不允许 undefined�? * - availability 仅表达硬条件�? * - observationFormatter 仅输出事实�? */
+ * Tool contract
+ * - inputSchema **必须**是真实 ZodSchema；不允许 undefined placeholder
+ * - availability 仅表达硬条件
+ * - observationFormatter 仅输出事实
+ */
 export interface ToolContract {
   name: string;
   title: string;
@@ -366,12 +343,14 @@ export interface ToolContract {
   source: ToolSource;
   /** Brief parameter hint for Planner. No flow suggestions, no docId/blockId/path. */
   inputHint?: string;
+  /** 预算类别：search / read / none（默认 none）。仅用于 BudgetGuard 平台安全边界，Workbench 不据此做业务控制。 */
+  budgetCategory?: "search" | "read" | "none";
   availability(ctx: ToolRuntimeContext): ToolAvailability;
   execute(args: ToolInput, ctx: ToolRuntimeContext): Promise<ToolResult>;
   observationFormatter(result: ToolResult, ctx: ToolRuntimeContext): ToolObservation;
 }
 
-/** Tool 暴露�?Planner �?manifest�?*�?*�?execute�?*/
+/** Tool 暴露给 Planner 的 manifest（不含 execute） */
 export interface ToolManifest {
   name: string;
   title: string;

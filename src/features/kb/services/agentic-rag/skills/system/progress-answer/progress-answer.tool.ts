@@ -24,7 +24,7 @@ export function createProgressAnswerTool(): ToolContract {
   return {
     name: "progress_answer",
     title: "进展回答",
-    description: "向用户展示阶段性进展，不结束当前回合；调用后 Agent 应继续由 Planner 自主决定工具调用或最终回答。仅在需要可见进度、较长等待或阶段状态时使用；不要把 progress_answer 当作任务完成。",
+    description: "向用户展示阶段性进展，不结束当前回合；调用后由 Planner 自主决定工具调用或最终回答。仅在需要可见进度、较长等待或阶段状态时使用；不要把 progress_answer 当作任务完成。",
     capability: "展示进展但不结束当前回合。",
     inputSchema: PROGRESS_ANSWER_INPUT_SCHEMA,
     outputSchema: PROGRESS_ANSWER_OUTPUT_SCHEMA,
@@ -32,6 +32,7 @@ export function createProgressAnswerTool(): ToolContract {
     source: "system",
     safety: { readOnly: true },
     boundary: "不结束 Agent 回合，不读取资料，不决定下一步业务动作，不替代 final_answer。",
+    budgetCategory: "none",
 
     availability(_ctx: ToolRuntimeContext) {
       return { available: true };

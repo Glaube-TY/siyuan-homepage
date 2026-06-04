@@ -4,7 +4,7 @@
  * 预算的事实判定。budget 耗尽时只返回 unavailable；Planner 自己决定怎么处理。
  */
 
-import type { ToolAvailability, ToolRuntimeContext } from "../contracts/tool-contract";
+import type { ToolAvailability } from "../contracts/tool-contract";
 
 export interface BudgetConfig {
   /** 单 turn 内 search 类工具的最多调用次数。 */
@@ -24,38 +24,13 @@ const DEFAULT_CONFIG: Required<BudgetConfig> = {
 };
 
 /**
- * 把"该工具消耗哪类预算"映射到预算名。
- * 工具自身通过消耗类别声明预算；不声明的视为不消耗。
+ * 预算类别。
+ * 工具通过 ToolContract.budgetCategory 自行声明；不声明的视为 "none"。
  */
 export type BudgetCategory = "search" | "read" | "none";
 
 /**
- * 工具名 → 预算类别。
- * - read 类：read_candidate_docs、read_reference_content。
- * - search / navigation 类：search_scope、list_knowledge_map、focus_doc_scope、
- *   list_recent_references。
- * - none 类：final_answer、progress_answer、unknown。
- */
-export function resolveBudgetCategory(toolName: string): BudgetCategory {
-  switch (toolName) {
-    case "search_scope":
-    case "list_knowledge_map":
-    case "focus_doc_scope":
-    case "list_recent_references":
-      return "search";
-    case "read_candidate_docs":
-    case "read_reference_content":
-      return "read";
-    case "final_answer":
-    case "progress_answer":
-      return "none";
-    default:
-      return "none";
-  }
-}
-
-/**
- * BudgetGuard：根据工具名 + 当前预算状态判定是否可用。
+ * BudgetGuard：根据预算类别 + 当前预算状态判定是否可用。
  * 只能"硬拒绝"或"放行"，**不**给 Planner 任何建议。
  */
 export class BudgetGuard {
@@ -70,12 +45,11 @@ export class BudgetGuard {
   }
 
   /**
-   * 检查某工具的预算是否够用。
+   * 检查某预算类别是否还有余额。
    * 返回 ToolAvailability：available=false 时 reasonCode="budget_exhausted"。
    */
-  check(toolName: string, ctx: ToolRuntimeContext): ToolAvailability {
-    const category = resolveBudgetCategory(toolName);
-    const remaining = this.remainingForCategory(category, ctx);
+  check(category: BudgetCategory, state: BudgetState): ToolAvailability {
+    const remaining = this.remainingForCategory(category, state);
     if (category === "none") {
       return { available: true };
     }
@@ -94,8 +68,7 @@ export class BudgetGuard {
    * 返回更新后的 budget state（不修改入参对象）。
    * 调用方在 Tool execute 之后调用一次。
    */
-  consume(toolName: string, state: BudgetState): BudgetState {
-    const category = resolveBudgetCategory(toolName);
+  consume(category: BudgetCategory, state: BudgetState): BudgetState {
     if (category === "none") return state;
     const next: BudgetState = { ...state };
     switch (category) {
@@ -132,13 +105,13 @@ export class BudgetGuard {
 
   private remainingForCategory(
     category: BudgetCategory,
-    ctx: ToolRuntimeContext,
+    state: BudgetState,
   ): number {
     switch (category) {
       case "search":
-        return ctx.budgets.searchRemaining;
+        return state.searchRemaining;
       case "read":
-        return ctx.budgets.readRemaining;
+        return state.readRemaining;
       case "none":
         return Number.POSITIVE_INFINITY;
     }

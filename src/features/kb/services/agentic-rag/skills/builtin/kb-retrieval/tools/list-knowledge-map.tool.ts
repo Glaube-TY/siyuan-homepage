@@ -25,18 +25,19 @@ export function createListKnowledgeMapTool(deps: KbRetrievalToolDeps): ToolContr
     name: "list_knowledge_map",
     title: "知识结构",
     description:
-      "参数化查看当前知识范围内的笔记本、根文档、子节点、有限深度子树、中心文档邻域或扁平候选列表。只返回结构 observation，不读取正文，不自动调用搜索或读取工具。返回的 docId/notebookId/blockId 均为真实可调用资源 ID。",
+      "查看当前知识范围内的笔记本、目录、文档树、子文档、局部子树或邻域。只返回结构信息（目录），不读取正文。结构结果只说明资料在哪里，不等于正文内容。",
     capability:
-      "支持 view=notebooks/notebook_roots/children/subtree/neighborhood/list，支持 notebookId、rootDocId、centerDocId、limit、cursor、maxDepth、includeLinkedDocs、relationLimit。",
+      "支持 view=notebooks/notebook_roots/children/subtree/neighborhood/list。返回 notebookId、notebookName、docId、title、depth、parentDocId、childCount、hasChildren、hasMore、nextCursor。docId 可直接传给 read_candidate_docs 读取正文。",
     inputSchema: listKnowledgeMapInputSchema,
     outputSchema: listKnowledgeMapOutputSchema,
     outputKind: "tree",
     safety: { readOnly: true },
     boundary:
-      "不读取文档正文；不自动调用 read_candidate_docs；不把双链关系当作证据门槛；includeLinkedDocs 只返回轻量关系摘要，不返回 dom/content/markdown/path。",
+      "只返回结构/目录信息，不读取正文，不自动调用其他工具。不返回 content、markdown、dom、path、internalMapping。0 结果会说明原因（参数缺失、ID 不存在、无子节点、范围为空）。",
     source: "builtin",
     inputHint:
-      "view 可选；notebookId/rootDocId/centerDocId 使用工具返回的真实 ID；limit/cursor 用于分页；includeLinkedDocs=false 默认不查双链。",
+      "view（可选，默认 notebooks），notebookId/rootDocId/centerDocId（必须来自工具返回的真实 ID），limit/cursor（分页），maxDepth（子树深度）。",
+    budgetCategory: "none",
 
     availability(_ctx: ToolRuntimeContext): ToolAvailability {
       if (!deps.getScope()) {
@@ -104,7 +105,21 @@ export function createListKnowledgeMapTool(deps: KbRetrievalToolDeps): ToolContr
           outputKind: "tree",
           data: result.safeOutput,
         };
-      } catch {
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.startsWith("[resource_not_found]")) {
+          return {
+            ok: false,
+            outputKind: "tree",
+            data: null,
+            error: {
+              errorCode: "resource_not_found",
+              message: msg.replace(/^\[resource_not_found\]\s*/, ""),
+              recoverable: true,
+              hint: "请使用工具返回的真实 notebookId 或 rootDocId。",
+            },
+          };
+        }
         return {
           ok: false,
           outputKind: "tree",
@@ -148,14 +163,23 @@ export function createListKnowledgeMapTool(deps: KbRetrievalToolDeps): ToolContr
         truncated: boolean;
         hasMore: boolean;
         nextCursor?: string;
-        notebookApiLoaded?: boolean;
-        notebookCount?: number;
-        missingNotebookNameCount?: number;
-        linkedDocsRequested?: boolean;
-        linkedDocsErrorCount?: number;
+        error?: { code: string; message: string; hint: string };
       };
 
+      const pruneNode = (node: import("../../../../workbench/contracts/tool-contract").PlannerVisibleKnowledgeMapNode) => ({
+        docId: node.docId,
+        title: node.title,
+        depth: node.depth,
+        childCount: node.childCount,
+        parentDocId: node.parentDocId,
+        hasChildren: node.hasChildren,
+        tags: node.tags,
+        linkedDocs: node.linkedDocs,
+        children: node.children ? node.children.map(pruneNode) : undefined,
+      });
+
       if (data.docs) {
+        const errorPart = data.error ? `【${data.error.code}】${data.error.message}（${data.error.hint}）` : "";
         return {
           toolName: "list_knowledge_map",
           ok: true,
@@ -163,29 +187,34 @@ export function createListKnowledgeMapTool(deps: KbRetrievalToolDeps): ToolContr
           facts: {
             totalNodeCount: data.totalNodeCount,
             returnedNodeCount: data.returnedNodeCount,
-            candidateDocCount: data.totalNodeCount,
-            returnedCandidateCount: data.returnedDocCount ?? data.returnedNodeCount,
-            notebookApiLoaded: data.notebookApiLoaded,
-            notebookCount: data.notebookCount,
-            missingNotebookNameCount: data.missingNotebookNameCount,
             hasMore: data.hasMore,
-            linkedDocsRequested: data.linkedDocsRequested,
-            linkedDocsErrorCount: data.linkedDocsErrorCount,
+            errorCode: data.error?.code,
           },
-          summary: data.hasMore
-            ? `知识结构已返回 ${data.returnedDocCount ?? data.returnedNodeCount}/${data.totalNodeCount} 个节点；仍有更多，可使用 nextCursor 继续查看。`
-            : `知识结构已返回 ${data.returnedDocCount ?? data.returnedNodeCount} 个节点。`,
+          summary: data.error
+            ? `结构结果只说明资料在哪里，不等于正文内容。${errorPart}`
+            : data.hasMore
+              ? `结构结果只说明资料在哪里，不等于正文内容。已返回 ${data.returnedDocCount ?? data.returnedNodeCount}/${data.totalNodeCount} 个节点；仍有更多，可使用 nextCursor 继续查看。`
+              : `结构结果只说明资料在哪里，不等于正文内容。已返回 ${data.returnedDocCount ?? data.returnedNodeCount} 个节点。`,
           content: {
-            type: "scope_docs",
+            type: "scope_docs" as const,
             resultScope: data.resultScope,
-            docs: data.docs,
-            truncated: data.truncated,
+            docs: data.docs.map((d) => ({
+              docId: d.docId,
+              title: d.title,
+              depth: d.depth,
+              childCount: d.childCount,
+              parentDocId: d.parentDocId,
+              hasChildren: d.hasChildren,
+              tags: d.tags,
+              linkedDocs: d.linkedDocs,
+            })),
             hasMore: data.hasMore,
             nextCursor: data.nextCursor,
           },
         };
       }
 
+      const errorPart2 = data.error ? `【${data.error.code}】${data.error.message}（${data.error.hint}）` : "";
       return {
         toolName: "list_knowledge_map",
         ok: true,
@@ -193,22 +222,23 @@ export function createListKnowledgeMapTool(deps: KbRetrievalToolDeps): ToolContr
         facts: {
           totalNodeCount: data.totalNodeCount,
           returnedNodeCount: data.returnedNodeCount,
-          notebookCount: data.notebooks?.length ?? 0,
-          notebookApiLoaded: data.notebookApiLoaded,
-          sourceNotebookCount: data.notebookCount,
-          missingNotebookNameCount: data.missingNotebookNameCount,
           hasMore: data.hasMore,
-          linkedDocsRequested: data.linkedDocsRequested,
-          linkedDocsErrorCount: data.linkedDocsErrorCount,
+          errorCode: data.error?.code,
         },
-        summary: data.hasMore
-          ? `知识结构已返回 ${data.returnedNodeCount}/${data.totalNodeCount} 个节点；仍有更多，可使用 nextCursor 继续查看。`
-          : `知识结构已返回 ${data.returnedNodeCount} 个节点。`,
+        summary: data.error
+          ? `结构结果只说明资料在哪里，不等于正文内容。${errorPart2}`
+          : data.hasMore
+            ? `结构结果只说明资料在哪里，不等于正文内容。已返回 ${data.returnedNodeCount}/${data.totalNodeCount} 个节点；仍有更多，可使用 nextCursor 继续查看。`
+            : `结构结果只说明资料在哪里，不等于正文内容。已返回 ${data.returnedNodeCount} 个节点。`,
         content: {
-          type: "knowledge_map",
-          resultScope: data.resultScope,
-          notebooks: data.notebooks,
-          truncated: data.truncated,
+          type: "knowledge_map" as const,
+          notebooks: data.notebooks.map((nb) => ({
+            notebookId: nb.notebookId,
+            title: nb.title,
+            notebookName: nb.notebookName,
+            docCount: nb.docCount,
+            roots: nb.roots.map(pruneNode),
+          })),
           hasMore: data.hasMore,
           nextCursor: data.nextCursor,
         },

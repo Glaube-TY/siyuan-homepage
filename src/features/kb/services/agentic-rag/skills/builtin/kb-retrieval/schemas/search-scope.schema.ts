@@ -21,10 +21,15 @@ export const plannerVisibleSearchCandidateSchema = z.object({
   preview: z.string().optional(),
   rank: z.number().int().min(1),
   score: z.number().optional(),
-  /** 命中类型：titleHit=标题匹配, contentHit=正文匹配, structureHit=结构匹配 */
   hitType: z.enum(["titleHit", "contentHit", "structureHit"]).optional(),
-  /** 该 docId 是否可读取内容 */
   canReadContent: z.enum(["true", "false", "unknown"]).optional(),
+  notebookId: z.string().optional(),
+  hpath: z.string().optional(),
+  tags: z.string().optional(),
+  matchReason: z.enum(["title", "content", "tag", "hpath", "backlink", "fts", "hybrid"]).optional(),
+  matchedFields: z.array(z.string()).optional(),
+  queryTerms: z.array(z.string()).optional(),
+  exactTitleMatch: z.boolean().optional(),
 }).strict();
 
 export type PlannerVisibleSearchCandidate = z.infer<

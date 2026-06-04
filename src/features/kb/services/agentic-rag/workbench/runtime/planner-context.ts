@@ -33,11 +33,6 @@ export interface PlannerContextInput {
    * - 取代旧的 needsKnowledgeBase。
    */
   activeScopeMode: import("../../scope/types").AgentScopeMode;
-  /** 预算快照。 */
-  budgets: {
-    searchRemaining: number;
-    readRemaining: number;
-  };
   /** 候选池 / 证据包的事实摘要（不暴露内容）。 */
   candidateSummary?: SkillRuntimeContext["candidateSummary"];
   contentSummary?: SkillRuntimeContext["contentSummary"];
@@ -72,25 +67,20 @@ export interface PlannerContextInput {
  * 注意：本对象只承载**事实**与 **prompt 段落**，不承载业务动作 / 业务路线。
  */
 export interface PlannerContext {
-  /** 全局身份 / 默认目标，写入 Planner system prompt 顶部。 */
   globalIdentity: {
     role: string;
     defaultGoal: string;
     body: string;
   };
-  /** 按 priority 倒序排好的 Skill 段落。 */
   skillSections: SkillPromptSection[];
-  /** Planner 可见的 Tool manifest 列表（已过滤 execution-only）。 */
   toolManifest: ToolManifest[];
-  /** 累计 observation（仅事实）。 */
   observations: SkillObservation[];
-  /** 预算快照（直接透传）。 */
-  budgets: PlannerContextInput["budgets"];
-  /** 原始问题 + 用户选择的 scopeMode（仅运行时事实；prompt 中转为自然语言）。 */
   question: string;
   activeScopeMode: PlannerContextInput["activeScopeMode"];
-  /** 最近对话上下文（通用，脱敏）。 */
   recentConversationContext?: readonly RecentTurnContext[];
+  remainingStepCount: number;
+  maxStepCount: number;
+  currentStepIndex: number;
 }
 
 const GLOBAL_IDENTITY_BODY =
@@ -118,8 +108,11 @@ export function buildPlannerContext(
     skillRegistry: SkillRegistry;
     toolRegistry: ToolRegistry;
     budgetGuard?: BudgetGuard;
+    stepIndex: number;
+    maxSteps: number;
   },
 ): PlannerContext {
+  const remainingStepCount = Math.max(0, options.maxSteps - options.stepIndex);
   const observations = input.observationStore
     ? input.observationStore.getPlannerObservations()
     : input.observations;
@@ -138,7 +131,6 @@ export function buildPlannerContext(
       .getEnabledSkills(makeSkillPrefsCtx(input, toolManifest, observations))
       .map((s) => s.name),
     observations,
-    budgets: input.budgets,
     candidateSummary: input.candidateSummary,
     contentSummary: input.contentSummary,
     userEnabledSkillNames: input.userEnabledSkillNames,
@@ -156,17 +148,18 @@ export function buildPlannerContext(
     skillSections,
     toolManifest,
     observations,
-    budgets: input.budgets,
     question: input.question,
     activeScopeMode: input.activeScopeMode,
     recentConversationContext: input.recentConversationContext,
+    remainingStepCount,
+    maxStepCount: options.maxSteps,
+    currentStepIndex: options.stepIndex,
   };
 }
 
 function toToolRuntimeContext(input: PlannerContextInput): ToolRuntimeContext {
   return {
     question: input.question,
-    budgets: input.budgets,
     candidateSummary: input.candidateSummary,
     contentSummary: input.contentSummary,
     callCounts: input.callCounts ?? {},
@@ -184,7 +177,6 @@ function makeSkillPrefsCtx(
     toolManifest,
     enabledSkillNames: input.userEnabledSkillNames,
     observations,
-    budgets: input.budgets,
     candidateSummary: input.candidateSummary,
     contentSummary: input.contentSummary,
     userEnabledSkillNames: input.userEnabledSkillNames,
@@ -208,8 +200,16 @@ export function renderPlannerContextPreview(ctx: PlannerContext): string {
 
   blocks.push("# 本轮用户请求");
   blocks.push(`当前检索范围：${formatScopeModeForPrompt(ctx.activeScopeMode)}`);
-  blocks.push("请围绕下面这条用户请求决定是否需要查找或读取资料，并在回答中直接回应用户：");
+  blocks.push("用户请求：");
   blocks.push(ctx.question);
+  blocks.push("");
+
+  blocks.push("# 输出协议");
+  blocks.push("每步只能输出一个纯 JSON object，禁止 Markdown、代码块、解释文字、前后缀。");
+  blocks.push('工具调用：{"type":"tool","toolName":"工具名","args":{...}}');
+  blocks.push('最终回答：{"type":"answer","args":{"body":"回答正文","references":[]}}');
+  blocks.push('停止：{"type":"stop","reasonCode":"user_canceled"}');
+  blocks.push("rationale 可选，不要依赖它。");
   blocks.push("");
 
   // 最近对话上下文（帮助理解指代，不触发工具选择）
@@ -288,12 +288,6 @@ export function renderPlannerContextPreview(ctx: PlannerContext): string {
     }
   }
 
-  blocks.push("");
-  blocks.push("# 剩余读取预算");
-  blocks.push(
-    `搜索 ${ctx.budgets.searchRemaining} 次；读取内容 ${ctx.budgets.readRemaining} 次。`,
-  );
-
   return blocks.join("\n");
 }
 
@@ -357,8 +351,6 @@ function formatObservationFactsForPrompt(facts: SkillObservation["facts"]): stri
   if (facts.matchedNodeCount !== undefined) parts.push(`匹配节点 ${facts.matchedNodeCount} 个`);
   if (facts.referenceCount !== undefined) parts.push(`历史引用 ${facts.referenceCount} 条`);
   if (facts.isZeroHits === true) parts.push("未找到结果");
-  if (facts.searchRemaining !== undefined) parts.push(`剩余搜索 ${facts.searchRemaining} 次`);
-  if (facts.readRemaining !== undefined) parts.push(`剩余读文档 ${facts.readRemaining} 次`);
   if (facts.errorCode) parts.push(`错误：${formatReasonCodeForPrompt(facts.errorCode)}`);
   return parts.length > 0 ? `：${parts.join("；")}` : "";
 }
@@ -397,17 +389,17 @@ function renderContentItemsPreview(
 
   for (const item of content.items.slice(0, maxItems)) {
     const idPart = item.docId ? `docId: ${item.docId}` : "";
-    const charsInfo = item.truncated
-      ? `工具返回 ${item.returnedContentChars ?? 0} / 原文 ${item.originalContentChars ?? "?"} 字符（工具层截断）`
-      : `工具返回 ${item.returnedContentChars ?? 0} 字符`;
+    const charsInfo = item.contentChars !== undefined
+      ? `工具返回 ${item.contentChars} 字符`
+      : "";
     const cursorInfo = item.nextCursor ? `，nextCursor: ${item.nextCursor}` : "";
-    lines.push(`  - #${item.referenceIndex}「${item.title}」（${idPart}；${charsInfo}${cursorInfo}）`);
+    lines.push(`  - 「${item.title}」（${idPart}${charsInfo ? `；${charsInfo}` : ""}${cursorInfo}）`);
 
     const body = item.content || item.snippet || "";
     if (body.trim()) {
       const remaining = maxTotalContentChars - totalChars;
       if (remaining <= 0) {
-        lines.push("  （渲染上限已达，剩余已读内容未展示）");
+        lines.push("  （内容展示上限已达，剩余已读内容未展示）");
         break;
       }
       const itemLimit = Math.min(maxPerItemChars, remaining);
@@ -417,7 +409,7 @@ function renderContentItemsPreview(
       itemsShown++;
 
       if (renderTruncated) {
-        lines.push(`\n${rendered}\n...（渲染层截断：以上是正文前 ${rendered.length} 字符；工具仍有${item.nextCursor ? " nextCursor 可" : " "}继续读取）\n`);
+        lines.push(`\n${rendered}\n...（以上内容已截断，展示前 ${rendered.length} 字符；${item.nextCursor ? "可用 nextCursor 继续读取" : "仍有剩余内容"}）\n`);
       } else {
         lines.push(`\n${rendered}\n`);
       }
@@ -467,10 +459,11 @@ function renderSearchResultsPreview(
   const lines: string[] = [];
   lines.push("  搜索候选：");
   for (const candidate of content.candidates.slice(0, maxCandidates)) {
-    const scorePart = candidate.score !== undefined ? `；相关度 ${candidate.score}` : "";
-    const previewPart = candidate.preview ? `；预览：${candidate.preview}` : "";
-    const idPart = candidate.docId ? `（docId: ${candidate.docId}）` : "";
-    lines.push(`  - #${candidate.rank} ${candidate.title}${idPart}${scorePart}${previewPart}`);
+    const c = candidate as import("../contracts/tool-contract").PlannerVisibleSearchCandidate;
+    const previewPart = c.preview ? `；预览：${c.preview}` : "";
+    const matchReasonPart = c.matchReason ? `；匹配原因: ${c.matchReason}` : "";
+    const idPart = c.docId ? `（docId: ${c.docId}）` : "";
+    lines.push(`  - #${c.rank} ${c.title}${idPart}${previewPart}${matchReasonPart}`);
   }
   if (content.truncated || content.candidates.length > maxCandidates) {
     lines.push("  ...（搜索候选已截断）");
@@ -538,13 +531,9 @@ function renderKnowledgeMapPreview(
     if (nb.roots.length > maxRootsPerNotebook) {
       clipped = true;
     }
-
-    if (nb.truncated) {
-      lines.push("    ...（已截断）");
-    }
   }
 
-  if (content.truncated || content.notebooks.length > maxNotebooks || clipped) {
+  if (content.notebooks.length > maxNotebooks || clipped) {
     lines.push("  ...（知识库结构已截断）");
   }
 
@@ -569,9 +558,8 @@ function appendKnowledgeMapNode(
     return;
   }
   const indent = "    ".repeat(options.indentLevel);
-  const childIndicator = node.truncatedChildren ? "..." : "";
   const idPart = node.docId ? `（docId: ${node.docId}）` : "";
-  lines.push(`${indent}- ${node.title}${idPart}（子文档 ${node.childCount} 篇）${childIndicator}`);
+  lines.push(`${indent}- ${node.title}${idPart}（子文档 ${node.childCount} 篇）`);
   options.increment();
 
   if (node.children && node.children.length > 0 && options.depth < options.maxDepth) {

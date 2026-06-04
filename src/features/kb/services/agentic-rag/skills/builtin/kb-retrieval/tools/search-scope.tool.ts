@@ -18,15 +18,20 @@ export function createSearchScopeTool(deps: KbRetrievalToolDeps): ToolContract {
   return {
     name: "search_scope",
     title: "搜索范围",
-    description: "在当前知识库范围内搜索，返回候选文档资源，每个候选携带 docId。搜索结果仅标识可能相关的文档，不包含文档正文。",
-    capability: "返回与查询相关的文档候选，每个候选包含 docId、标题和预览。需要具体内容时，使用返回的 docId 调用 read_candidate_docs。支持按文档标题、标题路径、父级目录名、文档树中的标题文本命中文档候选。",
+    description:
+      "根据关键词在当前知识库范围内查找候选文档。返回候选列表，每项包含 docId、标题、预览、命中位置和匹配原因。搜索结果只是候选，不等于已读取正文。",
+    capability:
+      "用关键词查找可能相关的文档。返回 docId、title、preview、hpath、matchReason 等字段。docId 可直接传给 read_candidate_docs 读取正文。",
     inputSchema: searchScopeInputSchema,
     outputSchema: searchScopeOutputSchema,
     outputKind: "candidates",
     safety: { readOnly: true },
-    boundary: "不读取文档正文，不暴露内部标识。候选 docId 是 read_candidate_docs 的安全输入。",
+    boundary:
+      "只返回候选列表，不读取文档正文，不自动过滤，不自动排序修改结果。不返回内部标识。",
     source: "builtin",
-    inputHint: "query（字符串，必填），limit（数字，可选）",
+    inputHint:
+      "query（字符串，必填，搜索关键词），limit（数字，可选，最多返回多少候选）。",
+    budgetCategory: "search",
 
     availability(_ctx: ToolRuntimeContext): ToolAvailability {
       const scope = deps.getScope();
@@ -144,6 +149,15 @@ export function createSearchScopeTool(deps: KbRetrievalToolDeps): ToolContract {
         truncated: boolean;
       };
 
+      const topCandidates = (data.candidates ?? []).slice(0, 3);
+      const topSummaries = topCandidates.map((c) => {
+        const isWeakTitle = !c.title || /^未命名|untitled|无标题|new doc$/i.test(c.title.trim());
+        if (isWeakTitle && c.preview) {
+          return `${c.preview.slice(0, 40)}${c.preview.length > 40 ? "…" : ""}`;
+        }
+        return c.title || "（无标题）";
+      }).join("、");
+
       return {
         toolName: "search_scope",
         ok: true,
@@ -155,12 +169,23 @@ export function createSearchScopeTool(deps: KbRetrievalToolDeps): ToolContract {
           isZeroHits: data.returnedCandidateCount === 0,
         },
         summary: data.returnedCandidateCount === 0
-          ? "当前检索词未命中，可由 Planner 自主换用相关词或查看文档树。"
-          : `本次检索返回 ${data.returnedCandidateCount} 个可读取文档资源，包含 docId，可用于 read_candidate_docs。`,
+          ? "当前检索词未命中。"
+          : `搜索返回 ${data.returnedCandidateCount} 个候选。${topSummaries ? `前几个：${topSummaries}。` : ""}搜索结果只是候选，不代表已读取正文。`,
         content: {
-          type: "search_results",
-          candidates: data.candidates,
-          truncated: data.truncated,
+          type: "search_results" as const,
+          candidates: data.candidates.map((c) => ({
+            rank: c.rank,
+            docId: c.docId,
+            title: c.title,
+            preview: c.preview,
+            hpath: c.hpath,
+            hitType: c.hitType,
+            matchReason: c.matchReason,
+            matchedFields: c.matchedFields,
+            tags: c.tags,
+            notebookId: c.notebookId,
+            blockId: c.blockId,
+          })),
         },
       };
     },

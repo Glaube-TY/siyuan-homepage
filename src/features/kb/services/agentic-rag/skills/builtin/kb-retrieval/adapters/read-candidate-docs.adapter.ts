@@ -30,8 +30,8 @@ interface ResolvedDocForRead extends AgenticDocLite {
   inputId: string;
 }
 
-function clampReadChars(value: number | undefined, fallback: number): number {
-  const raw = value ?? fallback;
+function clampReadChars(value: number | undefined, defaultValue: number): number {
+  const raw = value ?? defaultValue;
   return Math.max(2000, Math.min(Math.floor(raw), HARD_MAX_CHARS_PER_DOC));
 }
 
@@ -204,7 +204,6 @@ async function batchQueryChildDocCount(docIds: string[]): Promise<Map<string, nu
  */
 function collectAndValidateIds(
   args: ReadCandidateDocsInput,
-  focusScope: { docIds: string[] } | null,
 ): {
   validIds: Array<{ id: string; inputId: string; kind: "doc" | "block"; pairedDocId?: string }>;
   errors: ReadCandidateDocsError[];
@@ -214,10 +213,6 @@ function collectAndValidateIds(
   const errors: ReadCandidateDocsError[] = [];
   const validIds: Array<{ id: string; inputId: string; kind: "doc" | "block"; pairedDocId?: string }> = [];
   const seenIds = new Set<string>();
-
-  const focusedDocIds = focusScope && focusScope.docIds.length > 0
-    ? new Set(focusScope.docIds)
-    : null;
 
   let requestedDocIdCount = 0;
   let requestedBlockIdCount = 0;
@@ -256,18 +251,6 @@ function collectAndValidateIds(
         continue;
       }
 
-      // 焦点范围校验
-      if (focusedDocIds && !focusedDocIds.has(id)) {
-        errors.push({
-          docId: ref.docId,
-          blockId: ref.blockId,
-          code: "permission_denied",
-          message: "该资源不在当前允许读取的范围内。",
-          hint: "请使用当前范围内返回的资源 ID。",
-        });
-        continue;
-      }
-
       const kind = hasBoth ? "block" : (ref.docId ? "doc" : "block");
       if (kind === "doc") requestedDocIdCount++;
       else requestedBlockIdCount++;
@@ -288,16 +271,6 @@ function collectAndValidateIds(
           code: "invalid_resource_id",
           message: `该 docId 不符合思源资源 ID 基本形态。`,
           hint: "请检查 ID 是否正确复制，思源 ID 格式为 14位时间戳-7位字母数字。",
-        });
-        continue;
-      }
-
-      if (focusedDocIds && !focusedDocIds.has(docId)) {
-        errors.push({
-          docId,
-          code: "permission_denied",
-          message: "该文档不在当前允许读取的范围内。",
-          hint: "请使用当前范围内返回的文档 ID。",
         });
         continue;
       }
@@ -323,16 +296,6 @@ function collectAndValidateIds(
         continue;
       }
 
-      if (focusedDocIds && !focusedDocIds.has(blockId)) {
-        errors.push({
-          blockId,
-          code: "permission_denied",
-          message: "该块不在当前允许读取的范围内。",
-          hint: "请使用当前范围内返回的资源 ID。",
-        });
-        continue;
-      }
-
       validIds.push({ id: blockId, inputId: blockId, kind: "block" });
     }
   }
@@ -348,32 +311,30 @@ export async function executeReadCandidateDocs(
   const cursorTarget = readMode === "next" ? parseCursor(args.cursor) : null;
 
   // ── 处理 cursor 模式 ──
+  // cursor 只作用于匹配的 docId，不为所有 doc 设置相同 offset。
   let cursorDoc: ResolvedDocForRead | null = null;
   if (readMode === "next" && cursorTarget) {
-    const focusScope = deps.getActiveFocusScope?.();
-    const focusedDocIds = focusScope && focusScope.docIds.length > 0
-      ? new Set(focusScope.docIds)
-      : null;
-    if (focusedDocIds && !focusedDocIds.has(cursorTarget.docId)) {
-      return {
-        safeOutput: {
-          items: [], readItems: [], contentItems: [],
-          errors: [{ docId: cursorTarget.docId, code: "permission_denied", message: "cursor 对应的文档不在当前允许读取的范围内。", hint: "请使用当前范围内返回的文档 ID。" }],
-          readItemCount: 0, contentItemCount: 0, readDocCount: 0,
-          requestedDocIdCount: 0, validDocIdCount: 0, resolvedDocCount: 0,
-          resolvedBlockCount: 0, resourceMismatchCount: 0,
-          emptyContentCount: 0, containerCount: 0, failedResourceCount: 1,
-          truncated: false, readMode,
-        },
-      };
-    }
-    cursorDoc = { inputId: cursorTarget.docId, docId: cursorTarget.docId, title: "未命名文档" };
+    cursorDoc = { inputId: cursorTarget.docId, docId: cursorTarget.docId, title: "" };
+  }
+
+  // 无效 cursor 早早失败
+  if (readMode === "next" && !cursorTarget) {
+    return {
+      safeOutput: {
+        items: [], readItems: [], contentItems: [],
+        errors: [{ code: "invalid_cursor", message: "readMode=next 需要有效的 cursor，但未提供或格式不正确。", hint: "请使用上次返回的 nextCursor 值。" }],
+        readItemCount: 0, contentItemCount: 0, readDocCount: 0,
+        requestedDocIdCount: 0, validDocIdCount: 0, resolvedDocCount: 0,
+        resolvedBlockCount: 0, resourceMismatchCount: 0,
+        emptyContentCount: 0, containerCount: 0, failedResourceCount: 1,
+        truncated: false, readMode,
+      },
+    };
   }
 
   // ── 第一步：收集并校验 ID 格式 ──
-  const focusScope = deps.getActiveFocusScope?.();
   const { validIds, errors: formatErrors, requestedDocIdCount, requestedBlockIdCount } =
-    collectAndValidateIds(args, focusScope);
+    collectAndValidateIds(args);
 
   const validDocIdCount = validIds.length;
 
@@ -510,17 +471,28 @@ export async function executeReadCandidateDocs(
   const maxChars = readMode === "full"
     ? clampReadChars(args.maxCharsPerDoc, HARD_MAX_CHARS_PER_DOC)
     : clampReadChars(args.maxCharsPerDoc, defaultMaxChars);
-  const startOffset = readMode === "next"
-    ? cursorTarget?.startOffset ?? 0
-    : readMode === "range" ? Math.max(0, Math.floor(args.startOffset ?? 0)) : 0;
+  const rangeStartOffset = readMode === "range" ? Math.max(0, Math.floor(args.startOffset ?? 0)) : 0;
 
   const items: PlannerVisibleReadItem[] = [];
   const readErrors: ReadCandidateDocsError[] = [];
+  const seenOffsets = new Map<string, number>(); // docId → last startOffset, for dedup
   let emptyContentCount = 0;
   let containerCount = 0;
+  let duplicateReadItemCount = 0;
 
   for (const candidate of resolvedDocs) {
-    const doc = await readDocFullForAgenticRag({ doc: candidate, maxChars, startOffset });
+    // cursor 偏移只作用于 cursor 对应的文档
+    const isCursorDoc = readMode === "next" && cursorTarget && candidate.docId === cursorTarget.docId;
+    const docStartOffset = isCursorDoc ? cursorTarget.startOffset : rangeStartOffset;
+
+    // 去重：同一 docId+startOffset 不重复读取
+    const lastOffset = seenOffsets.get(candidate.docId);
+    if (lastOffset !== undefined && lastOffset === docStartOffset) {
+      duplicateReadItemCount++;
+      continue;
+    }
+    seenOffsets.set(candidate.docId, docStartOffset);
+    const doc = await readDocFullForAgenticRag({ doc: candidate, maxChars, startOffset: docStartOffset });
     if (!doc) {
       readErrors.push({
         docId: candidate.docId,
@@ -565,7 +537,7 @@ export async function executeReadCandidateDocs(
       originalContentChars: doc.originalContentChars ?? doc.contentChars,
       returnedContentChars: doc.returnedContentChars ?? doc.contentChars,
       remainingChars: doc.remainingChars ?? 0,
-      startOffset: doc.startOffset ?? startOffset,
+      startOffset: doc.startOffset ?? docStartOffset,
     };
     if (doc.truncated) {
       item.truncated = true;
@@ -578,6 +550,9 @@ export async function executeReadCandidateDocs(
 
   const allReadErrors = [...allErrors, ...readErrors];
   const failedResourceCount = allReadErrors.length;
+  const truncatedDocCount = items.filter((i) => i.truncated).length;
+  const totalReturnedChars = items.reduce((sum, i) => sum + (i.returnedContentChars ?? 0), 0);
+  const largestDocChars = items.length > 0 ? Math.max(...items.map((i) => i.returnedContentChars ?? 0)) : 0;
 
   return {
     safeOutput: {
@@ -588,6 +563,8 @@ export async function executeReadCandidateDocs(
       validDocIdCount, resolvedDocCount,
       resolvedBlockCount, resourceMismatchCount,
       emptyContentCount, containerCount, failedResourceCount,
+      duplicateReadItemCount,
+      truncatedDocCount, totalReturnedChars, largestDocChars,
       truncated: items.some((item) => item.truncated), readMode,
     },
   };
