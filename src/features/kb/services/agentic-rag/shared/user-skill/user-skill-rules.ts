@@ -8,10 +8,7 @@ const SAFE_ID_PATTERN = /^[a-z0-9_-]+$/;
 const SAFE_FILENAME_PATTERN = /^[a-z0-9_-]+\.md$/;
 const SAFE_TOOL_NAME_PATTERN = /^[a-z0-9_-]+$/;
 
-const FORBIDDEN_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "read_docs",
-  "read_block_context",
-]);
+const FORBIDDEN_TOOL_NAMES: ReadonlySet<string> = new Set();
 
 const FLOW_CONTROL_KEYWORDS_LOWER: ReadonlySet<string> = new Set(
   FORBIDDEN_FLOW_CONTROL_FIELDS.map((k) => k.toLowerCase()),

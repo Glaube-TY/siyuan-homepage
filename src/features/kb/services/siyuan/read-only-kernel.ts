@@ -21,6 +21,8 @@ import {
   listDocsByPath,
   getChildBlocks,
   fullTextSearchBlock,
+  getBacklink,
+  type GetBacklinkPayload,
 } from "@/api";
 import { safeSqlSelect, escapeSqlString, type SafeSqlSelectOptions } from "./safe-sql";
 
@@ -74,4 +76,8 @@ export async function getBlockByIdReadonly(blockId: string): Promise<Record<stri
 
 export async function fullTextSearchBlockReadonly(query: string, page: number = 0) {
   return fullTextSearchBlock(query, page);
+}
+
+export async function getBacklinkReadonly(payload: GetBacklinkPayload) {
+  return getBacklink(payload);
 }

@@ -1,98 +1,92 @@
-/**
- * System tool: answer。不属于 KB retrieval 私有工具，不生成回答内容。
- */
-
 import { z } from "zod";
 import type {
   ToolContract,
   ToolResult,
-  ToolObservation,
   ToolRuntimeContext,
-  AnswerToolData,
+  ToolObservation,
 } from "../../../workbench/contracts/tool-contract";
-import { assertSafeDisplayedHandle } from "../../../workbench/evidence/evidence-pack";
+
+/**
+ * 资源引用 schema：直接暴露真实资源 ID。
+ * - 整篇文档引用：sourceType="siyuan_doc" + docId（不传 blockId）
+ * - 具体片段引用：sourceType="siyuan_doc" + docId + blockId
+ * - 网页引用：sourceType="web_page" + url
+ * - 文件引用：sourceType="file" + fileId
+ * - blockId 始终 optional，不强制出现
+ */
+const RESOURCE_REF_SCHEMA = z.object({
+  sourceType: z.enum(["siyuan_doc", "web_page", "file", "mcp_resource", "api_result"]),
+  docId: z.string().optional(),
+  blockId: z.string().optional(),
+  url: z.string().optional(),
+  fileId: z.string().optional(),
+  resourceId: z.string().optional(),
+  title: z.string().optional(),
+  provider: z.string().optional(),
+}).strict();
 
 const ANSWER_INPUT_SCHEMA = z.object({
   body: z.string().min(1, "answer body must be a non-empty string"),
-  evidenceMode: z.enum(["with_evidence", "insufficient_evidence", "without_kb_evidence"]),
-  displayedReferenceHandles: z.array(z.string()).optional(),
-  safeEvidenceHandles: z.array(z.string()).optional(),
-  rationale: z.string().optional(),
-  confidence: z.number().min(0).max(1).optional(),
-  uncertainty: z.string().optional(),
-});
+  references: z.array(RESOURCE_REF_SCHEMA).optional(),
+}).strict();
 
 const ANSWER_OUTPUT_SCHEMA = z.object({
   body: z.string(),
-  evidenceMode: z.enum(["with_evidence", "insufficient_evidence", "without_kb_evidence"]),
-  displayedReferenceHandles: z.array(z.string()).optional(),
-});
+  references: z.array(RESOURCE_REF_SCHEMA).optional(),
+}).strict();
 
-function assertSafeHandles(handles: string[] | undefined): void {
-  if (!Array.isArray(handles)) return;
-  for (let i = 0; i < handles.length; i += 1) {
-    assertSafeDisplayedHandle(handles[i]);
-  }
-}
+export type ResourceRef = z.infer<typeof RESOURCE_REF_SCHEMA>;
 
-export function createSystemAnswerTool(): ToolContract {
+export function createFinalAnswerTool(): ToolContract {
   return {
-    name: "answer",
-    title: "回答",
-    description:
-      "基于已收集的证据和观察，由 Planner 组织并输出最终回答。" +
-      "answer body 和 evidenceMode 必须由 Planner 明确给出。",
-    capability: "输出最终回答给用户",
+    name: "final_answer",
+    title: "最终回答",
+    description: "向用户输出最终回复，并立即结束当前回合。仅在任务已完成、需要澄清、无需继续调用工具，或工具失败后无法继续时使用；如果只是说明接下来要做什么，通常不要使用 final_answer。references 可选，是通用展示来源。",
+    capability: "输出最终回复并结束当前回合，可附带结构化资源引用。",
     inputSchema: ANSWER_INPUT_SCHEMA,
     outputSchema: ANSWER_OUTPUT_SCHEMA,
     outputKind: "answer",
     source: "system",
     safety: { readOnly: true },
-    boundary:
-      "只输出 Planner 给出的回答内容；不自动生成回答；" +
-      "不自动改写 evidenceMode；不暴露 docId / blockId / path。",
+    boundary: "只承载 Planner 提供的最终回复正文和显式 references；不自动读取资料，不自动生成引用，不决定下一步业务动作。调用后当前回合结束。",
+    inputHint: "body（字符串，必填），references（ResourceRef 数组，可选）",
 
     availability(_ctx: ToolRuntimeContext) {
       return { available: true };
     },
 
-    async execute(
-      args: unknown,
-      _ctx: ToolRuntimeContext,
-    ): Promise<ToolResult> {
-      const parsed = args as {
-        body: string;
-        evidenceMode: AnswerToolData["evidenceMode"];
-        displayedReferenceHandles?: string[];
-        safeEvidenceHandles?: string[];
-      };
-
-      assertSafeHandles(parsed.displayedReferenceHandles);
-      assertSafeHandles(parsed.safeEvidenceHandles);
-
-      const data: AnswerToolData = {
-        body: parsed.body,
-        evidenceMode: parsed.evidenceMode,
-        displayedReferenceHandles: parsed.displayedReferenceHandles,
-      };
-
+    async execute(args: unknown, _ctx: ToolRuntimeContext): Promise<ToolResult> {
+      const parsed = ANSWER_INPUT_SCHEMA.parse(args);
       return {
         ok: true,
         outputKind: "answer",
-        data,
+        data: {
+          body: parsed.body,
+          references: parsed.references,
+        },
       };
     },
 
-    observationFormatter(
-      result: ToolResult,
-      _ctx: ToolRuntimeContext,
-    ): ToolObservation {
+    observationFormatter(result: ToolResult, _ctx: ToolRuntimeContext): ToolObservation {
+      if (!result.ok) {
+        return {
+          toolName: "final_answer",
+          ok: false,
+          outputKind: "error_only",
+          facts: { errorCode: result.errorCode },
+          summary: "最终回答生成失败。",
+        };
+      }
+      const data = result.data as { references?: ResourceRef[] } | undefined;
+      const refCount = data?.references?.length ?? 0;
       return {
-        toolName: "answer",
-        ok: result.ok,
+        toolName: "final_answer",
+        ok: true,
         outputKind: "answer",
-        facts: {},
-        summary: "Answer drafted.",
+        facts: { referenceCount: refCount },
+        summary: refCount > 0
+          ? `最终回答已生成，附带了 ${refCount} 个引用。`
+          : "最终回答已生成。",
       };
     },
   };

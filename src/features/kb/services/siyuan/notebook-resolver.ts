@@ -3,7 +3,7 @@
  * 根据文档 ID 解析所属笔记本
  */
 
-import { request } from "@/api";
+import { sqlSelectReadonly } from "./read-only-kernel";
 
 /**
  * 根据文档 ID 获取所属笔记本 ID
@@ -14,9 +14,10 @@ export async function getNotebookIdByDocId(docId: string): Promise<string | null
   try {
     // 直接从 SQL 查询 notebook (box)
     const escapedDocId = docId.replace(/'/g, "''");
-    const result = await request("/api/query/sql", {
-      stmt: `SELECT box FROM blocks WHERE id = '${escapedDocId}' LIMIT 1`,
-    });
+    const result = await sqlSelectReadonly<{ box?: string }>(
+      `SELECT box FROM blocks WHERE id = '${escapedDocId}' LIMIT 1`,
+      { maxLimit: 1, allowedTables: ["blocks"] },
+    );
 
     if (result && result.length > 0 && result[0].box) {
       return result[0].box;

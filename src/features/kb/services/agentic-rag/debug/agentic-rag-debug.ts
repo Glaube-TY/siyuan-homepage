@@ -11,8 +11,6 @@
  * - 关键日志使用 console.info 确保默认可见，低价值细节用 console.debug
  */
 
-import type { FollowUpContext } from "../runtime/follow-up-context";
-
 function isDebugEnabled(): boolean {
   try {
     return localStorage.getItem("KB_AGENTIC_RAG_DEBUG") === "1";
@@ -183,8 +181,8 @@ const ID_REDACT_KEYS = new Set([
   "sourceBlockIds",
   "candidateDocIds",
   "previousReferenceDocIds",
-  "finalEvidenceDocIds",
-  "usedEvidenceDocIds",
+  "finalReferenceDocIds",
+  "usedReferenceDocIds",
   "rejectedDocIds",
   "rejectedBlockIds",
   "inputDocIds",
@@ -257,21 +255,100 @@ function exposeWindowDebugMethods(): void {
     w.__kbAgentDumpTrace = () => (w.__KB_AGENT_TRACE_EVENTS as AgentTraceEvent[]);
   }
 
+  // ── __kbAgentCopyTrace: 默认复制最近一次 V3 turn 结构化 trace ──
   if (!w.__kbAgentCopyTrace) {
     w.__kbAgentCopyTrace = async () => {
-      const json = JSON.stringify(w.__KB_AGENT_TRACE_EVENTS, null, 2);
+      const v3Turn = w.__kbAgentLastV3Turn as {
+        turnId?: string;
+        finalStatus?: string;
+        plannerDecisions?: unknown[];
+        toolExecutions?: unknown[];
+        observations?: unknown[];
+        turnDiagnostics?: Record<string, unknown>;
+      } | null;
+
+      if (!v3Turn) {
+        console.info("[KB-AGENT] 没有可用的 V3 turn 数据");
+        return null;
+      }
+
+      const diagnostics = {
+        llmPlannerCallCount: (v3Turn.turnDiagnostics?.llmPlannerCallCount as number) ?? 0,
+        progressAnswerCount: (v3Turn.turnDiagnostics?.progressAnswerCount as number) ?? 0,
+        searchCallCount: (v3Turn.turnDiagnostics?.searchCallCount as number) ?? 0,
+        listMapCallCount: (v3Turn.turnDiagnostics?.listMapCallCount as number) ?? 0,
+        readCandidateDocsExecuteCount: (v3Turn.turnDiagnostics?.readCandidateDocsExecuteCount as number) ?? 0,
+        readSuccessItemCount: (v3Turn.turnDiagnostics?.readSuccessItemCount as number) ?? 0,
+        emptyContentCount: (v3Turn.turnDiagnostics?.emptyContentCount as number) ?? 0,
+        containerWithoutContentCount: (v3Turn.turnDiagnostics?.containerWithoutContentCount as number) ?? 0,
+        finalAnswerDecisionCount: (v3Turn.turnDiagnostics?.finalAnswerDecisionCount as number) ?? 0,
+        docIdCount: (v3Turn.turnDiagnostics?.docIdCount as number) ?? 0,
+        blockIdCount: (v3Turn.turnDiagnostics?.blockIdCount as number) ?? 0,
+        resolvedDocCount: (v3Turn.turnDiagnostics?.resolvedDocCount as number) ?? 0,
+        resolvedBlockCount: (v3Turn.turnDiagnostics?.resolvedBlockCount as number) ?? 0,
+        resourceMismatchCount: (v3Turn.turnDiagnostics?.resourceMismatchCount as number) ?? 0,
+      };
+
+      const traceData = {
+        turnId: v3Turn.turnId || "",
+        finalStatus: v3Turn.finalStatus || "",
+        plannerDecisions: v3Turn.plannerDecisions || [],
+        toolExecutions: v3Turn.toolExecutions || [],
+        observations: v3Turn.observations || [],
+        diagnostics,
+      };
+
+      const json = JSON.stringify(traceData, null, 2);
+      w.__kbAgentLastTurnTraceJson = json;
       try {
         if (navigator.clipboard) {
           await navigator.clipboard.writeText(json);
-          console.info("[KB-AGENT] 已复制完整 trace JSON 到剪贴板，共", (w.__KB_AGENT_TRACE_EVENTS as AgentTraceEvent[]).length, "条事件");
+          console.info("[KB-AGENT] 已复制最近一次 V3 turn trace JSON 到剪贴板", diagnostics);
         } else {
-          console.info("[KB-AGENT] clipboard 不可用，请在控制台手动复制以下 JSON：");
-          console.info(json);
+          console.info("[KB-AGENT] clipboard 不可用，JSON 已写入 window.__kbAgentLastTurnTraceJson");
+        }
+      } catch (e) {
+        w.__kbAgentLastTurnTraceJson = json;
+        console.log(json);
+        console.info("[KB-AGENT] 复制失败，JSON 已写入 window.__kbAgentLastTurnTraceJson 并输出到 console");
+      }
+      return json;
+    };
+  }
+
+  // ── __kbAgentCopyLifecycleTrace: 复制完整生命周期 trace ──
+  if (!w.__kbAgentCopyLifecycleTrace) {
+    w.__kbAgentCopyLifecycleTrace = async () => {
+      const v3Turn = w.__kbAgentLastV3Turn;
+      const traceData = {
+        lifecycleEvents: w.__KB_AGENT_TRACE_EVENTS,
+        v3Turn: v3Turn || null,
+      };
+      const json = JSON.stringify(traceData, null, 2);
+      w.__kbAgentLifecycleTraceJson = json;
+      try {
+        if (navigator.clipboard) {
+          await navigator.clipboard.writeText(json);
+          console.info("[KB-AGENT] 已复制完整生命周期 trace JSON 到剪贴板", {
+            lifecycleEvents: (w.__KB_AGENT_TRACE_EVENTS as AgentTraceEvent[]).length,
+            hasV3Turn: !!v3Turn,
+            v3Steps: v3Turn ? (v3Turn as { plannerDecisions?: unknown[] }).plannerDecisions?.length : 0,
+          });
+        } else {
+          console.info("[KB-AGENT] clipboard 不可用，JSON 已写入 window.__kbAgentLifecycleTraceJson");
         }
       } catch {
-        console.info("[KB-AGENT] 复制失败，请在控制台手动复制以下 JSON：");
-        console.info(json);
+        console.info("[KB-AGENT] 复制失败，JSON 已写入 window.__kbAgentLifecycleTraceJson");
       }
+      return json;
+    };
+  }
+
+  // ── __kbAgentCopyLastTurnTrace: 与 __kbAgentCopyTrace 输出一致 ──
+  if (!w.__kbAgentCopyLastTurnTrace) {
+    w.__kbAgentCopyLastTurnTrace = async () => {
+      // 委托给 __kbAgentCopyTrace
+      return await (w.__kbAgentCopyTrace as () => Promise<string | null>)();
     };
   }
 
@@ -303,7 +380,7 @@ let traceHintShown = false;
 function showTraceHintOnce(): void {
   if (traceHintShown) return;
   traceHintShown = true;
-  console.info("[KB-AGENT] 调试日志已启用。可运行 window.__kbAgentCopyTrace() 复制完整 JSON 日志。");
+  console.info("[KB-AGENT] 调试日志已启用。可运行 window.__kbAgentCopyTrace() 复制最近一次 V3 turn JSON，或 window.__kbAgentCopyLifecycleTrace() 复制完整生命周期 JSON。");
   exposeWindowDebugMethods();
 }
 
@@ -363,17 +440,6 @@ export function debugTurnStart(trace: boolean | undefined, question: string, mod
   showTraceHintOnce();
 }
 
-export function debugLoopStart(trace: boolean | undefined, loopIndex: number, stepCount: number, searchCallCount: number, readDocCount: number, readBlockContextCount: number, currentActionType?: string): void {
-  if (!shouldLog(trace)) return;
-  console.info(tag(loopIndex, "LOOP_START"), {
-    stepCount,
-    searchCallCount,
-    readDocCount,
-    readBlockContextCount,
-    currentActionType,
-  });
-}
-
 export function debugDecideStart(trace: boolean | undefined, loopIndex: number): void {
   if (!shouldLog(trace)) return;
   console.debug(tag(loopIndex, "DECIDE_START"));
@@ -404,34 +470,7 @@ export function debugExecEnd(trace: boolean | undefined, loopIndex: number, tool
   const base = { toolName, durationMs, success, counts, error: detail?.error, warning: detail?.warning };
 
   let payload: Record<string, unknown>;
-
-  if (toolName === "read_docs") {
-    const args = detail?.argsSummary as Record<string, unknown> | undefined;
-    const inputDocIdCount = typeof args?.docIdCount === "number"
-      ? args.docIdCount
-      : Array.isArray(args?.docIds)
-        ? (args.docIds as string[]).length
-        : 0;
-    payload = {
-      ...base,
-      inputDocCount: inputDocIdCount,
-      attemptedDocCount: detail?.attemptedDocIds?.length ?? 0,
-      failedDocCount: detail?.failedDocIds?.length ?? 0,
-      documentsCount: detail?.documentsCount ?? 0,
-    };
-  } else if (toolName === "read_block_context") {
-    const args = detail?.argsSummary as Record<string, unknown> | undefined;
-    const inputBlockCount = typeof args?.blockIdCount === "number"
-      ? args.blockIdCount
-      : Array.isArray(args?.blockIds)
-        ? (args.blockIds as string[]).length
-        : 0;
-    payload = {
-      ...base,
-      inputBlockCount,
-      contextsCount: counts?.readBlockContextCount ?? 0,
-    };
-  } else if (toolName === "search_scope") {
+  if (toolName === "search_scope") {
     const args = detail?.argsSummary as Record<string, unknown> | undefined;
     const queries = (args?.queries as Array<Record<string, unknown>> | undefined) ?? [];
     const queryCount = queries.length;
@@ -538,20 +577,6 @@ export function debugReadDocsResult(trace: boolean | undefined, loopIndex: numbe
   console.info(tag(loopIndex, "READ_DOCS_RESULT"), { docIdCount: docs.length, results });
 }
 
-export function debugEvidenceGate(trace: boolean | undefined, loopIndex: number, status: string, shouldContinue: boolean, shouldAnswer: boolean, reasons: string[], candidateDocCount: number, candidateBlockCount: number, readDocCount: number, readBlockContextCount: number, remainingReadBudget: number, remainingSearchBudget: number, remainingBlockBudget: number): void {
-  if (!shouldLog(trace)) return;
-  const payload = {
-    status,
-    shouldContinue,
-    shouldAnswer,
-    reasons: reasons.slice(0, 3),
-    workspace: { candidateDocs: candidateDocCount, candidateBlocks: candidateBlockCount, readDocs: readDocCount, readBlockContexts: readBlockContextCount },
-    remainingBudgets: { read: remainingReadBudget, search: remainingSearchBudget, block: remainingBlockBudget },
-  };
-  console.info(tag(loopIndex, "EVIDENCE_GATE"), payload);
-  pushAgentDebugEvent("EVIDENCE_GATE", payload, "info");
-}
-
 export function debugReadDocStart(trace: boolean | undefined, loopIndex: number, _docId: string, title: string): void {
   if (!shouldLog(trace)) return;
   console.debug(tag(loopIndex, "READ_DOC_START"), { titleHash: stableShortHash(title, 8) });
@@ -560,22 +585,6 @@ export function debugReadDocStart(trace: boolean | undefined, loopIndex: number,
 export function debugReadDocEnd(trace: boolean | undefined, loopIndex: number, _docId: string, durationMs: number, contentChars: number, failed: boolean): void {
   if (!shouldLog(trace)) return;
   console.debug(tag(loopIndex, "READ_DOC_END"), { durationMs, contentChars, failed });
-}
-
-export function debugEvidencePack(trace: boolean | undefined, loopIndex: number, pack: { itemCount: number; items: Array<{ docTitle: string; readLevel: string; contentChars: number }>; evidenceMode: string }): void {
-  if (!shouldLog(trace)) return;
-  const previews = pack.items.slice(0, 10).map((item) => ({
-    docTitleHash: stableShortHash(item.docTitle),
-    readLevel: item.readLevel,
-    contentChars: item.contentChars,
-  }));
-  const payload = {
-    itemCount: pack.itemCount,
-    evidenceMode: pack.evidenceMode,
-    items: previews,
-  };
-  console.info(tag(loopIndex, "EVIDENCE_PACK"), payload);
-  pushAgentDebugEvent("EVIDENCE_PACK", payload, "info");
 }
 
 export function debugFooterReferences(trace: boolean | undefined, loopIndex: number, refs: Array<{ index: number; docTitle: string; docId: string }>): void {
@@ -601,31 +610,6 @@ export function debugComposeEnd(trace: boolean | undefined, loopIndex: number, a
   const payload = { answerChars };
   console.info(tag(loopIndex, "COMPOSE_END"), payload);
   pushAgentDebugEvent("COMPOSE_END", payload, "info");
-}
-
-export function debugGraphEnd(trace: boolean | undefined, loopIndex: number, actionHistoryCount: number, readDocCount: number, readBlockContextCount: number, searchCallCount: number, warningsCount: number): void {
-  if (!shouldLog(trace)) return;
-  const payload = {
-    actionHistoryCount,
-    readDocCount,
-    readBlockContextCount,
-    searchCallCount,
-    warningsCount,
-  };
-  console.info(tag(loopIndex, "GRAPH_END"), payload);
-  pushAgentDebugEvent("GRAPH_END", payload, "info");
-}
-
-export function debugLoopGuardTriggered(trace: boolean | undefined, loopIndex: number, maxLoopIterations: number, hasReadEvidence: boolean): void {
-  if (!shouldLog(trace)) return;
-  const payload = {
-    loopIndex,
-    maxLoopIterations,
-    hasReadEvidence,
-    detail: "循环保护触发，强制回答",
-  };
-  console.warn(tag(loopIndex, "LOOP_GUARD"), payload);
-  pushAgentDebugEvent("LOOP_GUARD", payload, "warn");
 }
 
 export function debugStepCountIncrement(trace: boolean | undefined, loopIndex: number, node: string, newStepCount: number): void {
@@ -663,43 +647,6 @@ export function debugCandidateDocsTable(trace: boolean | undefined, loopIndex: n
   };
   console.info(tag(loopIndex, "CANDIDATE_DOCS_TABLE"), payload);
   pushAgentDebugEvent("CANDIDATE_DOCS_TABLE", payload, "info");
-}
-
-export function debugFollowUpContext(trace: boolean | undefined, ctx: FollowUpContext | undefined): void {
-  if (!shouldLog(trace)) return;
-  if (!ctx) {
-    const payload = { status: "undefined" };
-    console.info("[KB-AGENT | FOLLOW_UP_CONTEXT]", payload);
-    pushAgentDebugEvent("FOLLOW_UP_CONTEXT", payload, "info");
-    return;
-  }
-  const payload = {
-    hasPreviousQuestion: !!ctx.previousUserQuestion,
-    previousReferenceDocIdsCount: ctx.previousReferenceDocIds.length,
-    previousReferenceTitles: ctx.previousReferenceTitles.slice(0, 8),
-    confidence: ctx.confidence,
-    reasons: ctx.reasons,
-  };
-  console.info("[KB-AGENT | FOLLOW_UP_CONTEXT]", payload);
-  pushAgentDebugEvent("FOLLOW_UP_CONTEXT", payload, "info");
-}
-
-export function debugRuntimeTurnFacts(trace: boolean | undefined, ctx: FollowUpContext | undefined): void {
-  if (!shouldLog(trace)) return;
-  if (!ctx) {
-    const payload = { status: "undefined" };
-    console.info("[KB-AGENT | RUNTIME_TURN_FACTS]", payload);
-    pushAgentDebugEvent("RUNTIME_TURN_FACTS", payload, "info");
-    return;
-  }
-  const payload = {
-    hasPreviousQuestion: !!ctx.previousUserQuestion,
-    previousReferenceDocIdsCount: ctx.previousReferenceDocIds.length,
-    confidence: ctx.confidence,
-    reasons: ctx.reasons,
-  };
-  console.info("[KB-AGENT | RUNTIME_TURN_FACTS]", payload);
-  pushAgentDebugEvent("RUNTIME_TURN_FACTS", payload, "info");
 }
 
 export interface ActionIdGuardDebugInfo {
@@ -788,31 +735,10 @@ export function debugValidationGate(
   }
 }
 
-export interface EvidencePackFilteredDebugInfo {
-  totalItems: number;
-  filteredItems: number;
-  usedEvidenceDocIds: string[];
-  droppedReferenceDocIds: string[];
-  candidateButUnusedDocIds: string[];
-}
-
-export function debugEvidencePackFiltered(trace: boolean | undefined, loopIndex: number, info: EvidencePackFilteredDebugInfo): void {
-  if (!shouldLog(trace)) return;
-  const payload = {
-    totalItems: info.totalItems,
-    filteredItems: info.filteredItems,
-    usedEvidenceDocCount: info.usedEvidenceDocIds.length,
-    droppedReferenceDocCount: info.droppedReferenceDocIds.length,
-    candidateButUnusedDocCount: info.candidateButUnusedDocIds.length,
-  };
-  console.info(tag(loopIndex, "EVIDENCE_PACK_FILTERED"), payload);
-  pushAgentDebugEvent("EVIDENCE_PACK_FILTERED", payload, "info");
-}
-
 export interface FooterReferencesFilteredDebugInfo {
   totalRefs: number;
   filteredRefs: number;
-  usedEvidenceDocIds: string[];
+  usedReferenceDocIds: string[];
   droppedReferenceDocIds: string[];
 }
 
@@ -821,7 +747,7 @@ export function debugFooterReferencesFiltered(trace: boolean | undefined, loopIn
   const payload = {
     totalRefs: info.totalRefs,
     filteredRefs: info.filteredRefs,
-    usedEvidenceDocCount: info.usedEvidenceDocIds.length,
+    usedReferenceDocCount: info.usedReferenceDocIds.length,
     droppedReferenceDocCount: info.droppedReferenceDocIds.length,
   };
   console.info(tag(loopIndex, "FOOTER_REFERENCES_FILTERED"), payload);
@@ -861,36 +787,17 @@ export function debugFooterReferencesSafe(trace: boolean | undefined, loopIndex:
   pushAgentDebugEvent("FOOTER_REFERENCES_SAFE", payload, "info");
 }
 
-export function debugEvidencePackFilteredSafe(trace: boolean | undefined, loopIndex: number, info: {
-  totalItems: number;
-  filteredItems: number;
-  usedEvidenceDocCount: number;
-  droppedReferenceDocCount: number;
-  candidateButUnusedDocCount: number;
-}): void {
-  if (!shouldLog(trace)) return;
-  const payload = {
-    totalItems: info.totalItems,
-    filteredItems: info.filteredItems,
-    usedEvidenceDocCount: info.usedEvidenceDocCount,
-    droppedReferenceDocCount: info.droppedReferenceDocCount,
-    candidateButUnusedDocCount: info.candidateButUnusedDocCount,
-  };
-  console.info(tag(loopIndex, "EVIDENCE_PACK_FILTERED_SAFE"), payload);
-  pushAgentDebugEvent("EVIDENCE_PACK_FILTERED_SAFE", payload, "info");
-}
-
 export function debugFooterReferencesFilteredSafe(trace: boolean | undefined, loopIndex: number, info: {
   totalRefs: number;
   filteredRefs: number;
-  usedEvidenceDocCount: number;
+  usedReferenceDocCount: number;
   droppedReferenceDocCount: number;
 }): void {
   if (!shouldLog(trace)) return;
   const payload = {
     totalRefs: info.totalRefs,
     filteredRefs: info.filteredRefs,
-    usedEvidenceDocCount: info.usedEvidenceDocCount,
+    usedReferenceDocCount: info.usedReferenceDocCount,
     droppedReferenceDocCount: info.droppedReferenceDocCount,
   };
   console.info(tag(loopIndex, "FOOTER_REFERENCES_FILTERED_SAFE"), payload);
@@ -947,7 +854,6 @@ export function debugFocusScopeSet(
   trace: boolean | undefined,
   loopIndex: number,
   info: {
-    focusedHandleCount: number;
     focusedDocCount: number;
     mode: string;
     truncated: boolean;
@@ -955,7 +861,6 @@ export function debugFocusScopeSet(
 ): void {
   if (!shouldLog(trace)) return;
   const payload = {
-    focusedHandleCount: info.focusedHandleCount,
     focusedDocCount: info.focusedDocCount,
     mode: info.mode,
     truncated: info.truncated,
@@ -981,23 +886,4 @@ export function debugSearchScopeFocusApplied(
   };
   console.info(tag(loopIndex, "SEARCH_SCOPE_FOCUS_APPLIED_SAFE"), payload);
   pushAgentDebugEvent("SEARCH_SCOPE_FOCUS_APPLIED_SAFE", payload, "info");
-}
-
-export function debugSearchScopeFocusFallback(
-  trace: boolean | undefined,
-  loopIndex: number,
-  info: {
-    reason: string;
-    originalFocusDocCount: number;
-    queryCount: number;
-  }
-): void {
-  if (!shouldLog(trace)) return;
-  const payload = {
-    reason: info.reason,
-    originalFocusDocCount: info.originalFocusDocCount,
-    queryCount: info.queryCount,
-  };
-  console.info(tag(loopIndex, "SEARCH_SCOPE_FOCUS_FALLBACK_SAFE"), payload);
-  pushAgentDebugEvent("SEARCH_SCOPE_FOCUS_FALLBACK_SAFE", payload, "info");
 }

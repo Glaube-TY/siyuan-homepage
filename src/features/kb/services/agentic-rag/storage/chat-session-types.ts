@@ -26,6 +26,7 @@ export interface ChatSessionIndex {
   version: 1;
   activeSessionId: string;
   sessions: ChatSessionIndexEntry[];
+  selectedMode?: string;
 }
 
 export interface ChatSessionMessage {

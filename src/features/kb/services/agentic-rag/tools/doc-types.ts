@@ -2,13 +2,12 @@
  * Agentic RAG Document Types
  *
  * 职责：
- * - 定义本地只读文档类型，不再依赖旧 agent-core 的 AgentDocLite / AgentDocFull
- * - 字段与当前旧工具输出保持兼容
+ * - 定义本地只读文档类型
  * - 不保留 sourceBlockIds 到最终 memory
  */
 
 /**
- * 轻量文档类型（用于 list_scope_docs 输出）
+ * 轻量文档类型（用于文档枚举、搜索候选和读取工具）
  */
 export interface AgenticDocLite {
   docId: string;
@@ -21,7 +20,7 @@ export interface AgenticDocLite {
 }
 
 /**
- * 文档全文类型（用于 read_docs 输出）
+ * 文档全文类型（用于内容读取工具输出）
  */
 export interface AgenticDocFull {
   docId: string;
@@ -33,6 +32,10 @@ export interface AgenticDocFull {
   truncated: boolean;
   contentChars: number;
   originalContentChars?: number;
+  startOffset?: number;
+  returnedContentChars?: number;
+  remainingChars?: number;
+  nextStartOffset?: number;
 }
 
 /**
@@ -51,6 +54,7 @@ export interface ListDocsForAgenticRagParams {
 export interface ReadDocFullForAgenticRagParams {
   doc: AgenticDocLite;
   maxChars?: number;
+  startOffset?: number;
   trace?: boolean;
 }
 
@@ -60,6 +64,7 @@ export interface ReadDocFullForAgenticRagParams {
 export interface ReadDocsFullForAgenticRagParams {
   docs: AgenticDocLite[];
   maxChars?: number;
+  startOffset?: number;
   concurrency?: number;
   trace?: boolean;
 }

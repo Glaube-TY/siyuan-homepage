@@ -77,6 +77,8 @@ export type KbSettings = {
   textMatchWeight: number;
   /** 预览命中权重 */
   previewMatchWeight: number;
+  /** Agent 单次读取每篇文档的默认字符数 */
+  agentReadMaxCharsPerDoc: number;
   /**
    * 聊天模型提供商列表（多提供商配置）
    */

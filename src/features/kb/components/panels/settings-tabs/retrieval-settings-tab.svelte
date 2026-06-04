@@ -92,6 +92,19 @@
         fnSize={false}
       />
     </Form.Wrap>
+
+    <Form.Wrap
+      title="单次读取文档字符数"
+      description="read_candidate_docs 默认每篇文档返回的最大字符数。值越大，单次读取越完整，但上下文占用越高。（范围：2000-100000，默认 12000）"
+      direction="column"
+    >
+      <Form.Input
+        type="number"
+        key="agentReadMaxCharsPerDoc"
+        bind:value={settings.agentReadMaxCharsPerDoc}
+        fnSize={false}
+      />
+    </Form.Wrap>
   </div>
 </div>
 

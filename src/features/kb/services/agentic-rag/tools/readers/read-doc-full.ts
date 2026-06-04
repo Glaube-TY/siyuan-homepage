@@ -24,7 +24,7 @@ import { safeTextMeta } from "../../debug/agentic-rag-debug";
 export async function readDocFullForAgenticRag(
   params: ReadDocFullForAgenticRagParams
 ): Promise<AgenticDocFull | null> {
-  const { doc, maxChars, trace } = params;
+  const { doc, maxChars, startOffset = 0, trace } = params;
 
   const title = doc.title || "未命名文档";
 
@@ -39,21 +39,41 @@ export async function readDocFullForAgenticRag(
 
     if (!markdown.trim()) {
       const titleMeta = safeTextMeta(title);
-      console.warn(`[AgenticRagReadDocFull] 文档 titleHash=${titleMeta.hash} chars=${titleMeta.chars} 无内容，跳过读取`);
-      return null;
+      console.warn(`[AgenticRagReadDocFull] 文档 titleHash=${titleMeta.hash} chars=${titleMeta.chars} 正文为空`);
+      return {
+        docId: doc.docId,
+        title: doc.title || "未命名文档",
+        box: doc.box,
+        path: doc.path,
+        content: "",
+        contentFormat: "markdown",
+        truncated: false,
+        contentChars: 0,
+        originalContentChars: 0,
+        startOffset: 0,
+        returnedContentChars: 0,
+        remainingChars: 0,
+        contentEmpty: true,
+      } as AgenticDocFull & { contentEmpty: true };
     }
 
     const originalContentChars = markdown.length;
 
-    let content = markdown;
-    let truncated = false;
+    const safeStartOffset = Math.max(0, Math.min(Math.floor(startOffset), originalContentChars));
+    const requestedMaxChars = maxChars !== undefined
+      ? Math.max(0, Math.floor(maxChars))
+      : undefined;
+    const endOffset = requestedMaxChars !== undefined
+      ? Math.min(originalContentChars, safeStartOffset + requestedMaxChars)
+      : originalContentChars;
 
-    // 默认不截断正文。只有显式传入 maxChars 且内容超过阈值时才截断
-    if (maxChars !== undefined && content.length > maxChars) {
-      content = content.slice(0, maxChars) + "\n\n<!-- 文档过长，已截断 -->";
-      truncated = true;
+    let content = markdown.slice(safeStartOffset, endOffset);
+    let truncated = safeStartOffset > 0 || endOffset < originalContentChars;
+
+    // 默认不截断正文。只有显式传入 maxChars 或 startOffset 使返回片段小于原文时才标记截断。
+    if (truncated) {
       const titleMeta = safeTextMeta(title);
-      console.warn(`[AgenticRagReadDocFull | READ_DOC_FULL_SAFE] 文档 titleHash=${titleMeta.hash} | 原始内容字符数: ${originalContentChars}, 最终内容字符数: ${content.length}, 截断: true, maxChars: ${maxChars}`);
+      console.warn(`[AgenticRagReadDocFull | READ_DOC_FULL_SAFE] 文档 titleHash=${titleMeta.hash} | 原始内容字符数: ${originalContentChars}, 起始偏移: ${safeStartOffset}, 最终内容字符数: ${content.length}, 截断: true, maxChars: ${maxChars}`);
     }
 
     const result: AgenticDocFull = {
@@ -66,6 +86,10 @@ export async function readDocFullForAgenticRag(
       truncated,
       contentChars: content.length,
       originalContentChars,
+      startOffset: safeStartOffset,
+      returnedContentChars: content.length,
+      remainingChars: Math.max(0, originalContentChars - endOffset),
+      nextStartOffset: endOffset < originalContentChars ? endOffset : undefined,
     };
 
     if (trace && !truncated) {
@@ -92,7 +116,7 @@ export async function readDocFullForAgenticRag(
 export async function readDocsFullForAgenticRag(
   params: ReadDocsFullForAgenticRagParams
 ): Promise<AgenticDocFull[]> {
-  const { docs, maxChars, concurrency = 3, trace } = params;
+  const { docs, maxChars, startOffset, concurrency = 3, trace } = params;
 
   if (docs.length === 0) {
     return [];
@@ -110,6 +134,7 @@ export async function readDocsFullForAgenticRag(
         const fullDoc = await readDocFullForAgenticRag({
           doc,
           maxChars,
+          startOffset,
           trace,
         });
         return fullDoc;

@@ -67,8 +67,8 @@ export function assertNoFlowControlFieldsInDecision(decision: PlannerDecision): 
   if (decision.type === "answer") {
     const args = (decision.args ?? {}) as Record<string, unknown>;
     for (const k of [
-      "evidenceDocIds",
-      "evidenceBlockIds",
+      "sourceDocIds",
+      "sourceBlockIds",
       "realDocId",
       "realBlockId",
     ]) {

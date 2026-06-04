@@ -2,7 +2,7 @@
  * KB retrieval skill: builtin_knowledge_base_qa
  *
  * Skill 仅描述能力与边界，不替 Planner 决定流程。
- * 具体 prompt 文案见 ./guidance.ts，工具集合见本文件。
+ * 具体 prompt 文案见 ./guidance.ts，工具名参考见本文件。
  */
 
 import type {
@@ -10,8 +10,7 @@ import type {
   SkillPromptSection,
   SkillRuntimeContext,
 } from "../../../workbench/contracts/skill-contract";
-import type { ToolManifest } from "../../../workbench/contracts/tool-contract";
-import { KB_RETRIEVAL_GUIDANCE_LINES, KB_RETRIEVAL_BOUNDARY, KB_RETRIEVAL_ROLE_INSTRUCTION, KB_RETRIEVAL_TITLE, KB_RETRIEVAL_WHEN_USEFUL } from "./guidance";
+import { KB_RETRIEVAL_GUIDANCE_LINES, KB_RETRIEVAL_BOUNDARY, KB_RETRIEVAL_ROLE_INSTRUCTION, KB_RETRIEVAL_TITLE, KB_RETRIEVAL_WHEN_USEFUL, KB_RETRIEVAL_DESCRIPTION } from "./guidance";
 
 /** Skill 唯一名。 */
 export const BUILTIN_KB_SKILL_NAME = "builtin_knowledge_base_qa";
@@ -19,33 +18,24 @@ export const BUILTIN_KB_SKILL_NAME = "builtin_knowledge_base_qa";
 /** 优先级：影响 prompt 展示顺序，不触发自动执行。 */
 export const BUILTIN_KB_SKILL_PRIORITY = 100;
 
-/** 该 Skill 暴露给 Planner 的工具名集合（声明）。 */
+/**
+ * 该 Skill 在文案中提到/参考的全局工具名集合。
+ *
+ * **不**代表绑定、拥有或执行顺序；Planner 仍可自由选择全局工具。
+ * 该列表仅用于在 buildPromptSection 中向 Planner 提示"本 Skill 文案提到了哪些工具"。
+ */
 export const BUILTIN_KB_SKILL_TOOL_NAMES: readonly string[] = [
   "list_knowledge_map",
   "search_scope",
   "focus_doc_scope",
-  "list_scope_docs",
-  "get_doc_tree_context",
-  "get_conversation_used_references",
-  "read_previous_evidence",
   "read_candidate_docs",
-  "answer",
 ];
-
-function pickSkillTools(
-  ctx: SkillRuntimeContext,
-): readonly ToolManifest[] {
-  const allowed = new Set(BUILTIN_KB_SKILL_TOOL_NAMES);
-  return ctx.toolManifest.filter((t) => allowed.has(t.name));
-}
 
 export function createBuiltinKnowledgeBaseQaSkill(): SkillContract {
   return {
     name: BUILTIN_KB_SKILL_NAME,
     title: KB_RETRIEVAL_TITLE,
-    description:
-      "基于思源知识库检索、读取、组织证据并回答用户问题。" +
-      "默认激活；除非用户明确不需要知识库，或问题明显无需知识库资料。",
+    description: KB_RETRIEVAL_DESCRIPTION,
     roleInstruction: KB_RETRIEVAL_ROLE_INSTRUCTION,
     whenUseful: KB_RETRIEVAL_WHEN_USEFUL,
     boundary: KB_RETRIEVAL_BOUNDARY,
@@ -54,33 +44,21 @@ export function createBuiltinKnowledgeBaseQaSkill(): SkillContract {
     priority: BUILTIN_KB_SKILL_PRIORITY,
     enabledByDefault: true,
 
-    buildPromptSection(ctx: SkillRuntimeContext): SkillPromptSection {
-      const tools = pickSkillTools(ctx);
-      const toolLines = tools.length
-        ? tools
-            .map((t) => {
-              const availabilityTag = t.availability.available
-                ? "[available]"
-                : `[unavailable:${t.availability.reasonCode ?? "unknown"}]`;
-              return `- ${t.name} (${t.title}) — ${t.capability} ${availabilityTag}`;
-            })
-            .join("\n")
-        : "- (no tools registered yet)";
+    buildPromptSection(_ctx: SkillRuntimeContext): SkillPromptSection {
+      const referencedTools = this.toolNames.length
+        ? this.toolNames.map((name) => `- ${name}`).join("\n")
+        : "- （无可参考工具）";
 
       const body = [
-        `## ${this.title}`,
+        `定位：${this.roleInstruction}`,
+        `适用场景：${this.whenUseful}`,
+        `边界：${this.boundary}`,
         "",
-        `**Role**: ${this.roleInstruction}`,
-        "",
-        `**When useful**: ${this.whenUseful}`,
-        "",
-        `**Boundary**: ${this.boundary}`,
-        "",
-        "**Guidance** (suggestion only — not enforced):",
+        "能力说明：",
         this.guidance,
         "",
-        "**Tools available in this Skill** (Planner may also use other enabled skills' tools):",
-        toolLines,
+        "本能力说明提到的可用工具：",
+        referencedTools,
       ].join("\n");
 
       const bytesEstimate = body.length;
@@ -93,10 +71,6 @@ export function createBuiltinKnowledgeBaseQaSkill(): SkillContract {
           bytesEstimate,
         },
       };
-    },
-
-    getTools(ctx: SkillRuntimeContext): readonly ToolManifest[] {
-      return pickSkillTools(ctx);
     },
   };
 }

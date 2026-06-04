@@ -293,8 +293,15 @@ kb-session-store.ts 是 legacy large store，当前不大拆。
 
 - `skills/builtin/kb-retrieval/tools/list-knowledge-map.tool.ts` owns the v3 `list_knowledge_map` contract.
 - `skills/builtin/kb-retrieval/tools/get-conversation-used-references.tool.ts` owns the v3 `get_conversation_used_references` contract.
-- Both tools are read-only and independent.
-- Planner-visible output is limited to safe handles, sanitized titles, hierarchy or reference counts, and truncation flags.
+- `skills/builtin/kb-retrieval/tools/search-scope.tool.ts` owns the v3 `search_scope` contract.
+- `skills/builtin/kb-retrieval/tools/list-scope-docs.tool.ts` owns the v3 `list_scope_docs` contract.
+- `skills/builtin/kb-retrieval/tools/focus-doc-scope.tool.ts` owns the v3 `focus_doc_scope` contract.
+- `skills/builtin/kb-retrieval/tools/read-candidate-docs.tool.ts` owns the v3 `read_candidate_docs` contract.
+- `skills/builtin/kb-retrieval/tools/read-previous-evidence.tool.ts` owns the v3 `read_previous_evidence` contract.
+- Migrated tools are read-only and independent.
+- Planner-visible output is limited to resource IDs, sanitized titles, hierarchy, candidates, reference counts, safe evidence snippets, and truncation flags.
 - Real `docId`, `blockId`, `notebookId`, physical path values, and internal mappings must stay outside `ToolResult.data`, observation facts, observation content, and Planner prompt text.
 - Adapters may use bottom-layer readers or injected providers, but they must not import legacy graph, harness contracts, planner, or actions.
+- `read_candidate_docs` may use a bottom-layer readonly document reader internally, but `read_docs` remains execution-only and must not appear in Planner-visible manifests.
+- `read_previous_evidence` may use a bottom-layer readonly document reader internally, but `read_docs` remains execution-only and must not appear in Planner-visible manifests.
 - Legacy executor implementations remain legacy references only and are not v3 flow sources.

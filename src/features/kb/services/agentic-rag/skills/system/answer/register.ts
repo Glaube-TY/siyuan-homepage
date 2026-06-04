@@ -1,16 +1,17 @@
 /**
- * System answer tool: register entry
- *
- * 幂等注册：如果 toolRegistry.getTool("answer") 已存在则跳过。
+ * System final_answer tool: register entry
  */
 
 import type { ToolRegistry } from "../../../workbench/registries/tool-registry";
 import { getGlobalToolRegistry } from "../../../workbench/registries/tool-registry";
-import { createSystemAnswerTool } from "./answer.tool";
+import { createFinalAnswerTool } from "./answer.tool";
 
-export function registerSystemAnswerTool(
+export function registerFinalAnswerTool(
   toolRegistry: ToolRegistry = getGlobalToolRegistry(),
 ): void {
-  if (toolRegistry.getTool("answer")) return;
-  toolRegistry.registerTool(createSystemAnswerTool());
+  if (toolRegistry.getTool("final_answer")) return;
+  if (toolRegistry.getTool("answer")) {
+    toolRegistry.unregisterTool("answer");
+  }
+  toolRegistry.registerTool(createFinalAnswerTool());
 }

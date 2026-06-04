@@ -1,23 +1,20 @@
 /**
  * Agentic RAG Turn Memory
  *
- * Agentic memory 只保存最终回答可见引用，不保存隐藏 Evidence Pack / 检索结果 / 全文。
+ * Agentic memory 只保存最终回答可见引用，不保存隐�?hidden read content / 检索结�?/ 全文�? *
+ * 职责�? * - 记录 turn 基本信息、scope、answerSummary
+ * - 记录 action trace 摘要（toolNames、searchQueries、read counts�? * - 记录 footer references（最终回答底部显示的参考资料）
+ * - 记录 answerItems（结构化回答条目�? * - 不保存证据正文、Markdown 全文、完�?prompt、完�?observation
+ * - 不保存隐�?hidden read content、readContentRefs、contentReferences
  *
- * 职责：
- * - 记录 turn 基本信息、scope、answerSummary
- * - 记录 action trace 摘要（toolNames、searchQueries、read counts）
- * - 记录 footer references（最终回答底部显示的参考资料）
- * - 记录 answerItems（结构化回答条目）
- * - 不保存证据正文、Markdown 全文、完整 prompt、完整 observation
- * - 不保存隐藏 Evidence Pack、readEvidenceRefs、evidenceReferences
- */
-
-import type { AgenticRagTurnResult } from "../run-agentic-rag-turn";
+ * V3-only：这里采�?duck-typed result，只访问最终回�?chat message
+ * 所需的安全展示字段�? */
 
 export interface AnswerItem {
   itemIndex: number;
   itemText: string;
-  usedEvidenceHandles: string[];
+  /** @deprecated 迁移中：改用 usedReferences: ResourceRef[] */
+  usedReferenceHandles: string[];
 }
 
 export interface AgenticRagTurnMemory {
@@ -38,6 +35,8 @@ export interface AgenticRagTurnMemory {
   };
   footerReferenceDocIds: string[];
   footerReferenceTitles: string[];
+  /** 块级引用 ID 列表（与 footerReferenceDocIds 对应，可选） */
+  footerReferenceBlockIds: string[];
   workspaceSummary?: {
     candidateDocCount: number;
     candidateBlockCount: number;
@@ -50,8 +49,22 @@ export interface BuildAgenticRagTurnMemoryParams {
   turnId: string;
   userQuestion: string;
   answer: string;
-  result: AgenticRagTurnResult;
+  result: AgenticRagTurnMemoryResultLike;
   maxAnswerSummaryChars?: number;
+}
+
+/**
+ * duck-typed V3 结果接口：仅访问最终回�?chat message 所需的最小字段�? */
+export interface AgenticRagTurnMemoryResultLike {
+  scope?: { type: string; [k: string]: unknown };
+  footerReferences?: { docId?: string; docTitle?: string; sourceBlockIds?: string[] }[];
+  actionHistory?: { type?: string }[];
+  workspace?: {
+    candidateDocs?: unknown[];
+    candidateBlocks?: unknown[];
+    docOutlines?: unknown[];
+    warnings?: string[];
+  };
 }
 
 function parseAnswerItems(
@@ -64,7 +77,7 @@ function parseAnswerItems(
   let currentItem: { index: number; lines: string[]; itemNumber?: number } | null = null;
 
   for (const line of lines) {
-    const numberedMatch = line.match(/^(\d+)[.、)\s]\s*(.*)/);
+    const numberedMatch = line.match(/^(\d+)[.�?\s]\s*(.*)/);
     const bulletMatch = line.match(/^[-*+]\s+(.*)/);
 
     if (numberedMatch || bulletMatch) {
@@ -72,7 +85,7 @@ function parseAnswerItems(
         items.push({
           itemIndex: items.length,
           itemText: currentItem.lines.join("\n").trim().slice(0, 200),
-          usedEvidenceHandles: [],
+          usedReferenceHandles: [],
         });
       }
       const content = numberedMatch ? numberedMatch[2] : bulletMatch[1];
@@ -87,7 +100,7 @@ function parseAnswerItems(
     items.push({
       itemIndex: items.length,
       itemText: currentItem.lines.join("\n").trim().slice(0, 200),
-      usedEvidenceHandles: [],
+      usedReferenceHandles: [],
     });
   }
 
@@ -95,7 +108,7 @@ function parseAnswerItems(
     items.push({
       itemIndex: 0,
       itemText: answerText.trim().slice(0, 200),
-      usedEvidenceHandles: [],
+      usedReferenceHandles: [],
     });
   }
 
@@ -113,9 +126,13 @@ export function buildAgenticRagTurnMemory(params: BuildAgenticRagTurnMemoryParam
 
   const footerReferenceDocIds: string[] = [];
   const footerReferenceTitles: string[] = [];
+  const footerReferenceBlockIds: string[] = [];
   for (const ref of result.footerReferences ?? []) {
     if (ref.docId) {
       footerReferenceDocIds.push(ref.docId);
+      // sourceBlockIds 中的第一个作为该引用的 blockId
+      const blockId = ref.sourceBlockIds?.[0];
+      footerReferenceBlockIds.push(blockId ?? "");
     }
     if (ref.docTitle) {
       footerReferenceTitles.push(ref.docTitle);
@@ -154,6 +171,7 @@ export function buildAgenticRagTurnMemory(params: BuildAgenticRagTurnMemoryParam
     },
     footerReferenceDocIds,
     footerReferenceTitles,
+    footerReferenceBlockIds,
     workspaceSummary,
   };
 }

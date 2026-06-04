@@ -11,52 +11,43 @@ export interface BudgetConfig {
   maxSearchCalls?: number;
   /** 单 turn 内 read 类工具的最多调用次数。 */
   maxReadCalls?: number;
-  /** 单 turn 内 block 类工具的最多调用次数。 */
-  maxBlockCalls?: number;
 }
 
 export interface BudgetState {
   searchRemaining: number;
   readRemaining: number;
-  blockRemaining: number;
 }
 
 const DEFAULT_CONFIG: Required<BudgetConfig> = {
   maxSearchCalls: 6,
   maxReadCalls: 8,
-  maxBlockCalls: 16,
 };
 
 /**
  * 把"该工具消耗哪类预算"映射到预算名。
  * 工具自身通过消耗类别声明预算；不声明的视为不消耗。
  */
-export type BudgetCategory = "search" | "read" | "block" | "none";
+export type BudgetCategory = "search" | "read" | "none";
 
 /**
  * 工具名 → 预算类别。
- * - read 类：read_candidate_docs、read_previous_evidence。
- * - search / navigation 类：search_scope、list_knowledge_map、list_scope_docs、
- *   focus_doc_scope、get_conversation_used_references。
- * - block 类：read_docs、read_block_context、get_doc_tree_context。
- * - none 类：answer、unknown。
+ * - read 类：read_candidate_docs、read_reference_content。
+ * - search / navigation 类：search_scope、list_knowledge_map、focus_doc_scope、
+ *   list_recent_references。
+ * - none 类：final_answer、progress_answer、unknown。
  */
 export function resolveBudgetCategory(toolName: string): BudgetCategory {
   switch (toolName) {
     case "search_scope":
     case "list_knowledge_map":
-    case "list_scope_docs":
     case "focus_doc_scope":
-    case "get_conversation_used_references":
+    case "list_recent_references":
       return "search";
     case "read_candidate_docs":
-    case "read_previous_evidence":
+    case "read_reference_content":
       return "read";
-    case "read_docs":
-    case "read_block_context":
-    case "get_doc_tree_context":
-      return "block";
-    case "answer":
+    case "final_answer":
+    case "progress_answer":
       return "none";
     default:
       return "none";
@@ -114,9 +105,6 @@ export class BudgetGuard {
       case "read":
         next.readRemaining = Math.max(0, state.readRemaining - 1);
         break;
-      case "block":
-        next.blockRemaining = Math.max(0, state.blockRemaining - 1);
-        break;
     }
     return next;
   }
@@ -128,7 +116,6 @@ export class BudgetGuard {
     return {
       searchRemaining: this.config.maxSearchCalls,
       readRemaining: this.config.maxReadCalls,
-      blockRemaining: this.config.maxBlockCalls,
     };
   }
 
@@ -139,8 +126,7 @@ export class BudgetGuard {
   isAllExhausted(state: BudgetState): boolean {
     return (
       state.searchRemaining <= 0 &&
-      state.readRemaining <= 0 &&
-      state.blockRemaining <= 0
+      state.readRemaining <= 0
     );
   }
 
@@ -153,8 +139,6 @@ export class BudgetGuard {
         return ctx.budgets.searchRemaining;
       case "read":
         return ctx.budgets.readRemaining;
-      case "block":
-        return ctx.budgets.blockRemaining;
       case "none":
         return Number.POSITIVE_INFINITY;
     }

@@ -85,24 +85,6 @@ export interface CitationSegment {
   citationIds: number[];
 }
 
-/**
- * Legacy Agent Turn Memory（旧 Agent Core 兼容）
- * 仅用于恢复旧会话数据，不接入新 Agentic RAG 主链路
- */
-export interface LegacyAgentTurnMemory {
-  turnId: string;
-  createdAt: number;
-  userQuestion: string;
-  standaloneQuestion: string;
-  taskType: string;
-  scope: unknown;
-  planSummary: string;
-  evidenceDocIds: string[];
-  footerReferenceDocIds: string[];
-  footerReferenceTitles: string[];
-  answerSummary: string;
-}
-
 /** AI 助手消息 */
 export type AssistantChatMessage = {
   id: string;
@@ -121,12 +103,6 @@ export type AssistantChatMessage = {
    * - 轻量结构，不保存证据正文、Markdown 全文、sourceBlockIds
    */
   agenticMemory?: import("../services/agentic-rag/runtime/turn-memory").AgenticRagTurnMemory;
-  /**
-   * Agent Turn Memory（可选，legacy Agent Core memory）
-   * - 仅旧 Agent Core 模式正式入口写入
-   * - 轻量结构，不保存证据正文、Markdown 全文、sourceBlockIds
-   */
-  agentMemory?: LegacyAgentTurnMemory;
   /**
    * 运行态状态文本（可选）
    * - 仅用于当前 UI 渲染，不持久化为最终回答内容

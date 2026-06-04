@@ -6,7 +6,7 @@
  * 职责：
  * - 根据 scope 枚举文档
  * - 按 box 分组，根据 path 解析层级
- * - 构建安全 handle 映射（不暴露真实 docId）
+ * - 构建真实 docId 映射（不生成 opaque identifier）
  * - 返回完整的文档树结构，供 AI planner 判断相关性
  * - 不读取正文，只返回标题和层级信息
  */
@@ -14,12 +14,13 @@
 import type { AgenticDocLite } from "../doc-types";
 import { listDocsForAgenticRag } from "./list-docs";
 import type { AgentScope } from "../../scope/types";
+import { lsNotebooksReadonly } from "../../../siyuan/read-only-kernel";
 import type {
-  SafeKnowledgeMapNode,
-  SafeKnowledgeMapNotebook,
+  KnowledgeMapNode,
+  KnowledgeMapNotebook,
   ListKnowledgeMapSafeOutput,
   ListKnowledgeMapInternalOutput,
-  KnowledgeDocHandleMapping,
+  KnowledgeDocResource,
 } from "../knowledge-map-types";
 
 interface InternalTreeNode {
@@ -29,15 +30,25 @@ interface InternalTreeNode {
   box?: string;
   path?: string;
   depth: number;
+  parentDocId?: string;
+  siblingCount?: number;
   childCount: number;
   children: InternalTreeNode[];
+}
+
+interface NotebookMeta {
+  notebookId: string;
+  notebookName?: string;
+  icon?: string;
+  sort?: number;
+  sortMode?: number;
+  closed?: boolean;
 }
 
 interface BuildKnowledgeMapParams {
   scope: AgentScope;
   maxDepth?: number;
   maxNodes?: number;
-  rootHandles?: string[];
   includeAncestors?: boolean;
   includeChildrenPreview?: boolean;
   trace?: boolean;
@@ -60,10 +71,37 @@ function parseDocIdFromPath(path: string): string[] {
   return path.split("/").filter(Boolean);
 }
 
+async function loadNotebookMetaMap(): Promise<{
+  notebookApiLoaded: boolean;
+  notebooks: Map<string, NotebookMeta>;
+}> {
+  try {
+    const result = await lsNotebooksReadonly();
+    const notebooks = new Map<string, NotebookMeta>();
+    const source = Array.isArray(result?.notebooks) ? result.notebooks : [];
+    for (const notebook of source) {
+      if (!notebook?.id) continue;
+      const raw = notebook as Notebook & { sortMode?: number };
+      notebooks.set(raw.id, {
+        notebookId: raw.id,
+        notebookName: raw.name,
+        icon: raw.icon,
+        sort: raw.sort,
+        sortMode: raw.sortMode,
+        closed: raw.closed,
+      });
+    }
+    return { notebookApiLoaded: true, notebooks };
+  } catch {
+    return { notebookApiLoaded: false, notebooks: new Map() };
+  }
+}
+
 function buildDocTree(docs: AgenticDocLite[]): Map<string, InternalTreeNode[]> {
   const boxGroups = new Map<string, AgenticDocLite[]>();
   for (const doc of docs) {
-    const box = doc.box || "unknown";
+    const box = doc.box || "";
+    if (!box) continue;
     if (!boxGroups.has(box)) {
       boxGroups.set(box, []);
     }
@@ -106,11 +144,21 @@ function buildDocTree(docs: AgenticDocLite[]): Map<string, InternalTreeNode[]> {
           parentNode.children.push(node);
           parentNode.childCount = parentNode.children.length;
           node.depth = parentNode.depth + 1;
+          node.parentDocId = parentNode.docId;
         } else {
           rootNodes.push(node);
         }
       } else {
         rootNodes.push(node);
+      }
+    }
+
+    for (const node of nodeMap.values()) {
+      if (node.parentDocId) {
+        const parentNode = nodeMap.get(node.parentDocId);
+        node.siblingCount = parentNode ? Math.max(0, parentNode.children.length - 1) : 0;
+      } else {
+        node.siblingCount = Math.max(0, rootNodes.length - 1);
       }
     }
 
@@ -125,7 +173,7 @@ function truncateTree(
   maxDepth: number,
   maxNodes: number,
   currentCount: { value: number },
-): SafeKnowledgeMapNode | null {
+): KnowledgeMapNode | null {
   if (currentCount.value >= maxNodes) {
     return null;
   }
@@ -136,7 +184,7 @@ function truncateTree(
 
   currentCount.value++;
 
-  const children: SafeKnowledgeMapNode[] = [];
+  const children: KnowledgeMapNode[] = [];
   const truncatedChildren = node.children.length > 0 && node.depth + 1 > maxDepth;
 
   if (!truncatedChildren) {
@@ -152,61 +200,63 @@ function truncateTree(
   }
 
   return {
-    handle: "",
+    docId: node.docId,
     title: sanitizeTitleForPlanner(node.title),
     depth: node.depth,
     childCount: node.childCount,
+    parentDocId: node.parentDocId,
+    siblingCount: node.siblingCount,
     children: children.length > 0 ? children : undefined,
     truncatedChildren: truncatedChildren || (node.children.length > children.length),
   };
 }
 
-function assignHandles(
-  safeNode: SafeKnowledgeMapNode,
-  internalNode: InternalTreeNode,
-  offset: number,
-  mapping: KnowledgeDocHandleMapping[],
-): number {
-  const handle = `km_${offset}`;
-  safeNode.handle = handle;
-
+/**
+ * 从树节点构建 KnowledgeDocResource 映射。
+ * 直接使用真实 docId，不生成 identifier。
+ */
+function buildResourceMappingFromTree(
+  node: InternalTreeNode,
+  mapping: KnowledgeDocResource[],
+): void {
   mapping.push({
-    handle,
-    internalDocId: internalNode.docId,
-    title: internalNode.title,
-    titlePath: internalNode.titlePath,
-    box: internalNode.box,
-    path: internalNode.path,
-    depth: internalNode.depth,
-    childCount: internalNode.childCount,
+    internalDocId: node.docId,
+    title: node.title,
+    titlePath: node.titlePath,
+    box: node.box,
+    path: node.path,
+    depth: node.depth,
+    parentDocId: node.parentDocId,
+    siblingCount: node.siblingCount,
+    childCount: node.childCount,
     source: "knowledge_map",
   });
 
-  let nextOffset = offset + 1;
-
-  if (safeNode.children && internalNode.children) {
-    for (let i = 0; i < safeNode.children.length && i < internalNode.children.length; i++) {
-      nextOffset = assignHandles(safeNode.children[i], internalNode.children[i], nextOffset, mapping);
-    }
+  for (const child of node.children) {
+    buildResourceMappingFromTree(child, mapping);
   }
-
-  return nextOffset;
 }
 
 function buildNotebooksFromTrees(
   trees: Map<string, InternalTreeNode[]>,
   maxDepth: number,
   maxNodes: number,
-): { notebooks: SafeKnowledgeMapNotebook[]; totalNodeCount: number; returnedNodeCount: number; mapping: KnowledgeDocHandleMapping[] } {
-  const notebooks: SafeKnowledgeMapNotebook[] = [];
-  const mapping: KnowledgeDocHandleMapping[] = [];
+  notebookMetaMap: Map<string, NotebookMeta>,
+): {
+  notebooks: KnowledgeMapNotebook[];
+  totalNodeCount: number;
+  returnedNodeCount: number;
+  mapping: KnowledgeDocResource[];
+  missingNotebookNameCount: number;
+} {
+  const notebooks: KnowledgeMapNotebook[] = [];
+  const mapping: KnowledgeDocResource[] = [];
   let totalNodeCount = 0;
   let returnedNodeCount = 0;
-  let handleOffset = 0;
-  let notebookIndex = 0;
+  let missingNotebookNameCount = 0;
 
-  for (const [_box, roots] of trees) {
-    const notebookNodes: SafeKnowledgeMapNode[] = [];
+  for (const [box, roots] of trees) {
+    const notebookNodes: KnowledgeMapNode[] = [];
     let notebookTotal = 0;
 
     for (const root of roots) {
@@ -220,7 +270,7 @@ function buildNotebooksFromTrees(
       const counter = { value: 0 };
       const safeNode = truncateTree(root, maxDepth, maxNodes - returnedNodeCount, counter);
       if (safeNode) {
-        handleOffset = assignHandles(safeNode, root, handleOffset, mapping);
+        buildResourceMappingFromTree(root, mapping);
         returnedNodeCount += counter.value;
         notebookNodes.push(safeNode);
       }
@@ -229,18 +279,27 @@ function buildNotebooksFromTrees(
     totalNodeCount += notebookTotal;
 
     if (notebookNodes.length > 0) {
+      // 使用真实 box ID 作为 notebookId，标题取第一个根文档标题或 "Notebook"
+      const notebookMeta = notebookMetaMap.get(box);
+      const notebookName = notebookMeta?.notebookName?.trim() || undefined;
+      if (!notebookName) missingNotebookNameCount += 1;
       notebooks.push({
-        handle: `nb_${notebookIndex}`,
-        title: `Notebook ${notebookIndex + 1}`,
+        notebookId: box,
+        title: notebookName ?? box,
+        notebookName,
+        notebookNameStatus: notebookName ? "available" : "unavailable",
+        icon: notebookMeta?.icon,
+        sort: notebookMeta?.sort,
+        sortMode: notebookMeta?.sortMode,
+        closed: notebookMeta?.closed,
         docCount: notebookTotal,
         roots: notebookNodes,
         truncated: notebookTotal > returnedNodeCount,
       });
-      notebookIndex++;
     }
   }
 
-  return { notebooks, totalNodeCount, returnedNodeCount, mapping };
+  return { notebooks, totalNodeCount, returnedNodeCount, mapping, missingNotebookNameCount };
 }
 
 export async function buildKnowledgeMap(
@@ -259,16 +318,20 @@ export async function buildKnowledgeMap(
     trace,
   });
 
+  const { notebookApiLoaded, notebooks: notebookMetaMap } = await loadNotebookMetaMap();
   const trees = buildDocTree(docs);
 
-  const { notebooks, totalNodeCount, returnedNodeCount, mapping } =
-    buildNotebooksFromTrees(trees, maxDepth, maxNodes);
+  const { notebooks, totalNodeCount, returnedNodeCount, mapping, missingNotebookNameCount } =
+    buildNotebooksFromTrees(trees, maxDepth, maxNodes, notebookMetaMap);
 
   const safeOutput: ListKnowledgeMapSafeOutput = {
     notebooks,
     totalNodeCount,
     returnedNodeCount,
     truncated: totalNodeCount > returnedNodeCount,
+    notebookApiLoaded,
+    notebookCount: notebookMetaMap.size,
+    missingNotebookNameCount,
   };
 
   return {

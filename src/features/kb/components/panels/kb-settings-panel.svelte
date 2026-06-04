@@ -7,6 +7,7 @@
   import BasicSettingsTab from "./settings-tabs/basic-settings-tab.svelte";
   import ModelSettingsTab from "./settings-tabs/model-settings-tab.svelte";
   import RetrievalSettingsTab from "./settings-tabs/retrieval-settings-tab.svelte";
+  import SkillsSettingsTab from "./settings-tabs/skills-settings-tab.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   // 页签定义
@@ -14,6 +15,7 @@
     { id: "basic", label: "基础设置", icon: "iconSettings" },
     { id: "model", label: "大模型配置", icon: "iconSparkles" },
     { id: "retrieval", label: "检索与上下文", icon: "iconSearch" },
+    { id: "skills", label: "技能", icon: "iconPlugin" },
   ] as const;
 
   type TabId = typeof TABS[number]["id"];
@@ -86,6 +88,8 @@
               <ModelSettingsTab bind:settings />
             {:else if activeTab === "retrieval"}
               <RetrievalSettingsTab bind:settings />
+            {:else if activeTab === "skills"}
+              <SkillsSettingsTab />
             {/if}
           </div>
         </div>

@@ -22,4 +22,3 @@ export {
   deleteUserSkill,
   deleteUserSkillByFilename,
 } from "./user-skill-store";
-export { loadMigrationState, saveMigrationState, needsMigration } from "./storage-migration";

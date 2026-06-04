@@ -41,7 +41,7 @@ export async function requestRaw(url: string, data: any): Promise<IWebSocketData
 
 export async function lsNotebooks(): Promise<IReslsNotebooks> {
     let url = '/api/notebook/lsNotebooks';
-    return request(url, '');
+    return request(url, {});
 }
 
 
@@ -363,6 +363,20 @@ export async function fullTextSearchBlock(query: string, page: number = 0): Prom
     };
     const url = '/api/search/fullTextSearchBlock';
     return request(url, data);
+}
+
+// **************************************** References ****************************************
+
+export interface GetBacklinkPayload {
+    id: string;
+    k?: string;
+    mk?: string;
+    beforeLen?: number;
+    containChildren?: boolean;
+}
+
+export async function getBacklink(payload: GetBacklinkPayload): Promise<any> {
+    return request('/api/ref/getBacklink', payload);
 }
 
 // **************************************** Template ****************************************

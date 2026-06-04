@@ -1,40 +1,28 @@
 /**
  * Planner-visible data guard
  *
- * 防止真实思源内部引用（docId / blockId / notebookId / path 等）泄漏到
- * Planner 可见数据中。仅在运行时检查传入对象，**不** 扫描 TypeScript 注释。
- * 该 guard **不** 替 Planner 选工具，不读 / 改业务状态。
+ * 防止内部实现字段（path / realPath / internalMapping / realDocId / realBlockId）
+ * 泄漏到 Planner 可见数据中。
+ *
+ * docId / blockId / notebookId / url / fileId / resourceId 等公开资源 ID 允许出现。
+ * 本 guard 不替 Planner 选工具，不读/改业务状态。
  */
 
 const FORBIDDEN_KEYS: readonly string[] = [
-  "docId",
-  "blockId",
-  "notebookId",
-  "box",
   "path",
   "realPath",
   "titlePath",
   "internalMapping",
   "realDocId",
   "realBlockId",
-  "evidenceDocId",
-  "evidenceBlockId",
 ] as const;
 
 const FORBIDDEN_KEY_SET = new Set<string>(FORBIDDEN_KEYS);
 
-const SIYUAN_BLOCK_ID_PATTERN = /\d{14}-[a-z0-9]{7}/;
-const HEX_32_PATTERN = /\b[0-9a-f]{32}\b/i;
-const PATH_PATTERN = /(?:[A-Za-z0-9_.-]*[/\\][A-Za-z0-9_./\\-]+|\.sy\b)/;
+const FORBIDDEN_PATH_PATTERN = /(?:^|[^a-zA-Z0-9])(?:[A-Za-z]:[/\\]|\.sy\b)/;
 
 const SKIP_KEYS = new Set<string>(["inputSchema", "outputSchema"]);
 
-/**
- * 递归检查 value。
- * - 任一禁止 key 出现 → 抛错。
- * - 任一 string 命中 思源 block id / 32 位 hex / 路径 / .sy → 抛错。
- * - 用 WeakSet 防循环。
- */
 export function assertNoPlannerVisibleInternalReferences(
   value: unknown,
   path: string,
@@ -42,9 +30,9 @@ export function assertNoPlannerVisibleInternalReferences(
 ): void {
   if (value === null || value === undefined) return;
   if (typeof value !== "object") {
-    if (typeof value === "string" && containsForbiddenString(value)) {
+    if (typeof value === "string" && FORBIDDEN_PATH_PATTERN.test(value)) {
       throw new Error(
-        `[planner-visible-data-guard] ${path} contains a forbidden internal reference value.`,
+        `[planner-visible-data-guard] ${path} contains a forbidden internal path reference.`,
       );
     }
     return;
@@ -71,11 +59,4 @@ export function assertNoPlannerVisibleInternalReferences(
     }
     assertNoPlannerVisibleInternalReferences(obj[key], `${path}.${key}`, visited);
   }
-}
-
-function containsForbiddenString(input: string): boolean {
-  if (SIYUAN_BLOCK_ID_PATTERN.test(input)) return true;
-  if (HEX_32_PATTERN.test(input)) return true;
-  if (PATH_PATTERN.test(input)) return true;
-  return false;
 }

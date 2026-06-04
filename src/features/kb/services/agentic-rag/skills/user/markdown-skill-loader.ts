@@ -4,7 +4,6 @@
 
 import type { SkillSourceLoader, SkillLoadContext } from "../../workbench/contracts/skill-source";
 import type { SkillContract, SkillRuntimeContext, SkillPromptSection } from "../../workbench/contracts/skill-contract";
-import type { ToolManifest } from "../../workbench/contracts/tool-contract";
 import { assertNoFlowControlFields } from "../../workbench/guards/flow-control-guard";
 import { parseUserSkillMarkdown } from "./user-skill-parser";
 import type { UserSkillFrontmatter, UserSkillIndexEntry } from "../../shared/user-skill/user-skill-storage-types";
@@ -31,38 +30,24 @@ function createUserSkillContract(
   const skill: SkillContract = {
     name: `user_${entry.id}`,
     title,
-    description: `User Skill: ${title}`,
+    description: `用户技能：${title}`,
     roleInstruction: guidance,
-    whenUseful: `When user needs "${title}" capability.`,
-    boundary: "User skill, follows system security constraints.",
+    whenUseful: `当用户需要"${title}"相关能力时可参考。`,
+    boundary: "用户技能，遵循系统安全约束。",
     toolNames: validatedToolNames,
     guidance,
     priority,
     enabledByDefault,
 
-    buildPromptSection(ctx: SkillRuntimeContext): SkillPromptSection {
-      const manifestByName = new Map(ctx.toolManifest.map((t) => [t.name, t]));
-      const visibleTools = validatedToolNames
-        .filter((name) => manifestByName.has(name))
-        .map((name) => manifestByName.get(name)!);
-
-      const toolLines = visibleTools.length
-        ? visibleTools
-            .map((t) => {
-              const tag = t.availability.available
-                ? "[available]"
-                : `[unavailable:${t.availability.reasonCode ?? "unknown"}]`;
-              return `- ${t.name} (${t.title}) — ${t.capability} ${tag}`;
-            })
-            .join("\n")
+    buildPromptSection(_ctx: SkillRuntimeContext): SkillPromptSection {
+      const referencedTools = validatedToolNames.length
+        ? validatedToolNames.map((name) => `- ${name}`).join("\n")
         : "";
 
       const body = [
-        `## ${title}`,
-        "",
         guidance,
         "",
-        toolLines ? "**Tools**:\n" + toolLines : "",
+        referencedTools ? "本能力说明提到的可用工具：\n" + referencedTools : "",
       ]
         .filter(Boolean)
         .join("\n");
@@ -76,12 +61,6 @@ function createUserSkillContract(
           bytesEstimate: body.length,
         },
       };
-    },
-
-    getTools(ctx: SkillRuntimeContext): readonly ToolManifest[] {
-      if (validatedToolNames.length === 0) return [];
-      const allowed = new Set(validatedToolNames);
-      return ctx.toolManifest.filter((t) => allowed.has(t.name));
     },
   };
 

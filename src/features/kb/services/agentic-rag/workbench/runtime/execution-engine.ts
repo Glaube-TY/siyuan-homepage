@@ -2,7 +2,7 @@
  * ExecutionEngine
  *
  * 职责：validate / execute / observe。
- * 不替 Planner 选工具，不替 Planner 决定 evidenceMode。
+ * 不替 Planner 选工具，不替 Planner 决定回答内容。
  * 错误信息统一过 sanitizePlannerVisibleError。
  */
 
@@ -20,7 +20,6 @@ import { EXECUTION_ONLY_TOOL_NAMES } from "../registries/tool-registry";
 import { BudgetGuard } from "./budget-guard";
 import type { BudgetState } from "./budget-guard";
 import { ObservationStore } from "./observation-store";
-import { assertSafeDisplayedHandle } from "../evidence/evidence-pack";
 import { sanitizePlannerVisibleError } from "../guards/planner-visible-error";
 
 export interface ExecutionEngineDeps {
@@ -37,10 +36,8 @@ export interface PlannedToolCall {
 }
 
 export interface AnswerDraft {
-  evidenceMode: "with_evidence" | "insufficient_evidence" | "without_kb_evidence";
   body: string;
-  /** UI 展示句柄，**不含**真实 docId / blockId / path。 */
-  displayedReferenceHandles?: string[];
+  references?: import("../../skills/system/answer/answer.tool").ResourceRef[];
 }
 
 export interface ExecutionOutcome {
@@ -54,6 +51,11 @@ export interface ExecutionOutcome {
    * 任何"代码自动构造 answer"**不**允许。
    */
   answerDraft?: AnswerDraft;
+  /**
+   * progress_answer 工具成功时的进展 body。
+   * 不结束 PlannerLoop，由 runV3 通过 onAnswerChunk 推送给 UI。
+   */
+  progressBody?: string;
 }
 
 export class ExecutionEngine {
@@ -72,7 +74,7 @@ export class ExecutionEngine {
         "tool_not_registered",
         sanitizePlannerVisibleError(
           undefined,
-          "Tool is not registered.",
+          "工具未注册。",
         ),
       );
     }
@@ -84,7 +86,7 @@ export class ExecutionEngine {
         "execution_only_helper",
         sanitizePlannerVisibleError(
           undefined,
-          "Tool is execution-only and must not be chosen directly by Planner.",
+          "该工具仅供内部执行，不可由 Planner 直接选择。",
         ),
       );
     }
@@ -95,10 +97,14 @@ export class ExecutionEngine {
         toolName: call.toolName,
         ok: false,
         outputKind: "error_only",
-        facts: { errorCode: "budget_exhausted" },
+        facts: {
+          errorCode: "budget_exhausted",
+          errorRecoverable: false,
+          errorHint: "工具预算已用尽，无法继续调用该工具。",
+        },
         summary: sanitizePlannerVisibleError(
           new Error(budgetCheck.hint ?? ""),
-          "Tool budget exhausted.",
+          "工具预算已用尽。",
         ),
       };
       const pushed = this.pushObservationOrFailure(observation);
@@ -125,10 +131,14 @@ export class ExecutionEngine {
         toolName: call.toolName,
         ok: false,
         outputKind: "error_only",
-        facts: { errorCode: availability.reasonCode ?? "unavailable" },
+        facts: {
+          errorCode: availability.reasonCode ?? "unavailable",
+          errorRecoverable: false,
+          errorHint: availability.hint ?? "工具当前不可用。",
+        },
         summary: sanitizePlannerVisibleError(
           new Error(availability.hint ?? ""),
-          "Tool unavailable.",
+          "工具不可用。",
         ),
       };
       const pushed = this.pushObservationOrFailure(observation);
@@ -143,13 +153,29 @@ export class ExecutionEngine {
     // 入参校验
     const parsed = tool.inputSchema.safeParse(call.args);
     if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      // 诊断日志
+      console.info("[AgenticRagV3] TOOL_INPUT_VALIDATION_FAILED", {
+        toolName: call.toolName,
+        issuePath: firstIssue?.path?.join(".") ?? "",
+        issueMessage: firstIssue?.message ?? "",
+        issueCode: firstIssue?.code ?? "",
+        argsSummary: summarizeArgs(call.args),
+      });
       const failObs = this.makeToolFailedObservation(
         call.toolName,
         "validation_failed",
         sanitizePlannerVisibleError(
           new Error(parsed.error.message),
-          "Tool args failed schema validation.",
+          "工具参数校验失败。",
         ),
+        {
+          recoverable: true,
+          field: firstIssue?.path?.join(".") ?? "args",
+          expected: "符合工具 inputSchema 的参数",
+          received: firstIssue?.message ?? "参数格式错误",
+          hint: "请检查参数格式是否符合工具定义。",
+        },
       );
       const pushed = this.pushObservationOrFailure(failObs);
       return {
@@ -172,7 +198,11 @@ export class ExecutionEngine {
       const failObs = this.makeToolFailedObservation(
         call.toolName,
         "execution_error",
-        sanitizePlannerVisibleError(err, "Tool execution failed."),
+        sanitizePlannerVisibleError(err, "工具执行失败。"),
+        {
+          recoverable: false,
+          hint: "工具执行时发生异常，请尝试调整参数或换一种方式调用。",
+        },
       );
       const pushed = this.pushObservationOrFailure(failObs);
       return {
@@ -193,8 +223,14 @@ export class ExecutionEngine {
           "output_validation_failed",
           sanitizePlannerVisibleError(
             new Error(outputParsed.error?.message ?? ""),
-            "Tool output failed schema validation.",
+            "工具输出校验失败。",
           ),
+          {
+            recoverable: false,
+            expected: "符合工具 outputSchema 的输出",
+            received: outputParsed.error?.message ?? "输出格式错误",
+            hint: "工具返回结果格式不符合定义，请重试或换一种方式调用。",
+          },
         );
         const pushed = this.pushObservationOrFailure(failObs);
         return {
@@ -217,8 +253,12 @@ export class ExecutionEngine {
         "observation_format_failed",
         sanitizePlannerVisibleError(
           err,
-          "observationFormatter threw an error.",
+          "observationFormatter 执行失败。",
         ),
+        {
+          recoverable: false,
+          hint: "工具结果格式化失败，请重试。",
+        },
       );
       const pushed = this.pushObservationOrFailure(failObs);
       return {
@@ -238,7 +278,7 @@ export class ExecutionEngine {
     // answer 工具：尝试提取 AnswerDraft。失败时转为 tool_failed observation，
     // 留给下一轮 Planner 决定（**不**直接 throw 让循环崩溃）。
     let answerDraft: AnswerDraft | undefined;
-    if (call.toolName === "answer" && result.ok) {
+    if ((call.toolName === "final_answer" || call.toolName === "answer") && result.ok) {
       // 若 answer observation 本身被 store 拒绝，绝不产生 answerDraft。
       if (!pushed.ok) {
         return {
@@ -256,8 +296,14 @@ export class ExecutionEngine {
           "answer_extract_failed",
           sanitizePlannerVisibleError(
             err,
-            "answer tool result is malformed.",
+            "回答工具结果格式错误。",
           ),
+          {
+            recoverable: true,
+            expected: "包含 body 字段的回答对象",
+            received: "回答格式错误",
+            hint: "请确保回答包含 body 字段，且 references 为字符串数组。",
+          },
         );
         const pushedFail = this.pushObservationOrFailure(failObservation);
         return {
@@ -269,12 +315,22 @@ export class ExecutionEngine {
       }
     }
 
+    // progress_answer 工具：提取 progress body，不结束循环。
+    let progressBody: string | undefined;
+    if (call.toolName === "progress_answer" && result.ok) {
+      const data = result.data as { body?: string } | undefined;
+      if (data && typeof data.body === "string") {
+        progressBody = data.body;
+      }
+    }
+
     return {
       ok: pushed.ok && result.ok,
       toolName: call.toolName,
       observation: pushed.observation,
       budgetAfter,
       answerDraft,
+      progressBody,
     };
   }
 
@@ -282,12 +338,35 @@ export class ExecutionEngine {
     toolName: string,
     reasonCode: string,
     summary: string,
+    detail?: {
+      recoverable?: boolean;
+      field?: string;
+      expected?: string;
+      received?: string;
+      hint?: string;
+    },
   ): ToolObservation {
+    const facts: Record<string, unknown> = { errorCode: reasonCode };
+    if (detail?.recoverable !== undefined) {
+      facts.errorRecoverable = detail.recoverable;
+    }
+    if (detail?.field) {
+      facts.errorField = detail.field;
+    }
+    if (detail?.expected) {
+      facts.errorExpected = detail.expected;
+    }
+    if (detail?.received) {
+      facts.errorReceived = detail.received;
+    }
+    if (detail?.hint) {
+      facts.errorHint = detail.hint;
+    }
     return {
       toolName,
       ok: false,
       outputKind: "error_only",
-      facts: { errorCode: reasonCode },
+      facts,
       summary,
     };
   }
@@ -347,11 +426,29 @@ export class ExecutionEngine {
 }
 
 /**
- * 从 answer tool 的 ToolResult.data 中安全提取 AnswerDraft。
- * - displayedReferenceHandles 如果存在，必须整体是 string[]。
- * - 非 string 元素直接 throw（由 ExecutionEngine 转成 tool_failed observation）。
- * - 不得包含 docId / blockId / path 形式。
+ * Safely extracts the global final_answer payload.
+ * - references, when present, must be array.
+ * - references must be safe resource handles and must not contain internal IDs or paths.
  */
+function summarizeArgs(args: unknown): Record<string, unknown> {
+  if (!args || typeof args !== "object") return {};
+  const a = args as Record<string, unknown>;
+  const s: Record<string, unknown> = {};
+  if (typeof a.query === "string") { s.queryChars = a.query.length; s.queryPreview = a.query.slice(0, 40); }
+  if (Array.isArray(a.docIds)) { s.docIdCount = a.docIds.length; s.docIds = a.docIds.slice(0, 3); }
+  if (Array.isArray(a.blockIds)) { s.blockIdCount = a.blockIds.length; s.blockIds = a.blockIds.slice(0, 3); }
+  if (Array.isArray(a.docs)) {
+    s.docsCount = a.docs.length;
+    const docItems = a.docs as Array<Record<string, unknown>>;
+    s.docsDocIdCount = docItems.filter((d) => typeof d.docId === "string").length;
+    s.docsBlockIdCount = docItems.filter((d) => typeof d.blockId === "string").length;
+    s.docsSourceTypes = [...new Set(docItems.map((d) => d.sourceType).filter(Boolean))].slice(0, 3);
+  }
+  if (typeof a.readMode === "string") s.readMode = a.readMode;
+  if (typeof a.cursor === "string") s.hasCursor = a.cursor.length > 0;
+  return s;
+}
+
 export function extractAnswerDraft(data: unknown): AnswerDraft {
   if (!data || typeof data !== "object") {
     throw new Error(
@@ -361,46 +458,33 @@ export function extractAnswerDraft(data: unknown): AnswerDraft {
   const obj = data as Partial<AnswerToolData>;
   if (typeof obj.body !== "string") {
     throw new Error(
-      `[ExecutionEngine] answer tool result.data.body must be a string.`,
+      `[ExecutionEngine] answer tool result.data.body must be an object.`,
     );
   }
-  if (
-    obj.evidenceMode !== "with_evidence" &&
-    obj.evidenceMode !== "insufficient_evidence" &&
-    obj.evidenceMode !== "without_kb_evidence"
-  ) {
-    throw new Error(
-      `[ExecutionEngine] answer tool result.data.evidenceMode must be one of ` +
-        `with_evidence | insufficient_evidence | without_kb_evidence (got ${String(obj.evidenceMode)}).`,
-    );
-  }
-  let handles: string[] | undefined;
-  if (obj.displayedReferenceHandles !== undefined) {
-    if (!Array.isArray(obj.displayedReferenceHandles)) {
+  let references: import("../../skills/system/answer/answer.tool").ResourceRef[] | undefined;
+  if (obj.references !== undefined) {
+    if (!Array.isArray(obj.references)) {
       throw new Error(
-        `[ExecutionEngine] answer tool result.data.displayedReferenceHandles must be string[].`,
+        `[ExecutionEngine] answer tool result.data.references must be array.`,
       );
     }
-    handles = [];
-    for (let i = 0; i < obj.displayedReferenceHandles.length; i += 1) {
-      const h = obj.displayedReferenceHandles[i];
-      if (typeof h !== "string") {
+    references = [];
+    for (let i = 0; i < obj.references.length; i += 1) {
+      const h = obj.references[i];
+      if (typeof h !== "object") {
         throw new Error(
-          `[ExecutionEngine] answer tool result.data.displayedReferenceHandles[${i}] must be a string (got ${typeof h}).`,
+          `[ExecutionEngine] answer tool result.data.references[${i}] must be an object (got ${typeof h}).`,
         );
       }
-      assertSafeDisplayedHandle(h);
-      handles.push(h);
+      references.push(h as import("../../skills/system/answer/answer.tool").ResourceRef);
     }
   }
   return {
-    evidenceMode: obj.evidenceMode,
     body: obj.body,
-    displayedReferenceHandles: handles,
+    references,
   };
 }
 
-/** 闸门：是否 execution-only helper。 */
 export function isExecutionOnlyTool(name: string): boolean {
   return EXECUTION_ONLY_TOOL_NAMES.has(name);
 }

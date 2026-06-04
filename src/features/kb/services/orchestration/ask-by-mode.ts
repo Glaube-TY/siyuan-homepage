@@ -25,7 +25,7 @@ function createMessageId(): string {
 
 /**
  * 统一入口：按模式提问
- * 直接转发到 askByModeInner，模型选择由 runAgenticRagTurn 内部处理
+ * 直接转发到 askByModeInner，模型选择由 v3 runtime 内部处理
  */
 export async function askByMode(params: AskByModeParams): Promise<AskByModeResult> {
   return askByModeInner(params);

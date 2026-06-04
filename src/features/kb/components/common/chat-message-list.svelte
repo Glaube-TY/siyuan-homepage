@@ -6,7 +6,6 @@
   import { isTextChatMessage } from "../../types/chat";
   import type { KbAssistantActionAlignment } from "../../types/settings";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
-  import { pushAgentDebugEvent } from "../../services/agentic-rag/debug/agentic-rag-debug";
 
   export let messages: ChatMessage[] = [];
   export let assistantActionAlignment: KbAssistantActionAlignment = "left";
@@ -41,59 +40,10 @@
   $: hasCompactedMessages = messages.some((m) => (m as { compacted?: boolean }).compacted);
   $: firstNonCompactedIndex = messages.findIndex((m) => !(m as { compacted?: boolean }).compacted);
 
-  /**
-   * 判断消息是否有可继续扩展的证据
-   * fixed scope (custom_docs) 下隐藏"继续查找"：固定文档问答没有"继续检索范围"的语义
-   */
-  function hasEvidenceForContinuation(message: ChatMessage): boolean {
-    if (message.role !== "assistant") return false;
-
-    const precedingUser = findPrecedingUserMessage(message.id);
-    const effectiveScopeMode = precedingUser?.requestContext?.effectiveScopeMode;
-    if (effectiveScopeMode === "custom_docs") {
-      return false;
-    }
-
-    const hasEvidence = (message.agentMemory?.evidenceDocIds?.length > 0) || (message.citedReferences?.length > 0);
-    if (!hasEvidence) {
-      return false;
-    }
-    return true;
-  }
-
-  let lastContinueSearchTraceMessageId: string | null = null;
-  $: {
-    const effectiveLastAssistant = lastMessage?.role === "assistant" ? lastMessage : null;
-    if (effectiveLastAssistant && effectiveLastAssistant.id !== lastContinueSearchTraceMessageId) {
-      const precedingUser = findPrecedingUserMessage(effectiveLastAssistant.id);
-      const effectiveScopeMode = precedingUser?.requestContext?.effectiveScopeMode;
-      const canContinue = hasEvidenceForContinuation(effectiveLastAssistant);
-      if (effectiveScopeMode === "custom_docs" || !canContinue) {
-        lastContinueSearchTraceMessageId = effectiveLastAssistant.id;
-        pushAgentDebugEvent("CONTINUE_SEARCH_VISIBILITY_SAFE", {
-          hasRequestContext: !!precedingUser?.requestContext,
-          effectiveScopeMode: effectiveScopeMode ?? "unknown",
-          canContinueSearch: canContinue,
-          reasonCode: effectiveScopeMode === "custom_docs" ? "fixed_scope" : "no_evidence",
-        }, "info");
-      }
-    }
-  }
-
-  function findPrecedingUserMessage(assistantMessageId: string): import("../../types/chat").UserChatMessage | null {
-    const idx = messages.findIndex((m) => m.id === assistantMessageId);
-    if (idx <= 0) return null;
-    for (let i = idx - 1; i >= 0; i--) {
-      if (messages[i].role === "user") return messages[i] as import("../../types/chat").UserChatMessage;
-    }
-    return null;
-  }
-
   const dispatch = createEventDispatcher<{
     regenerate: void;
     retry: void;
     sendSuggestedQuestion: string;
-    continueSearch: { assistantMessageId: string };
   }>();
 
   /**
@@ -214,10 +164,8 @@
           {canRetry}
           {asking}
           {assistantActionAlignment}
-          canContinueSearch={message.id === lastAssistantMessageId && !asking && hasEvidenceForContinuation(message)}
           on:regenerate={() => dispatch('regenerate')}
           on:retry={() => dispatch('retry')}
-          on:continueSearch={(e) => dispatch('continueSearch', e.detail)}
         />
       {/each}
     </div>

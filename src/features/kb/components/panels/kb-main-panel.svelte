@@ -345,46 +345,6 @@
     );
   }
 
-  // 继续查找 - 复用上一轮 requestContext
-  async function handleContinueSearch(e: CustomEvent<{ assistantMessageId: string }>) {
-    if (asking) return;
-
-    const assistantMessageId = e.detail.assistantMessageId;
-    const assistantIdx = messages.findIndex((m) => m.id === assistantMessageId);
-    let precedingUserMessage: import("../../types/chat").UserChatMessage | null = null;
-    if (assistantIdx > 0) {
-      for (let i = assistantIdx - 1; i >= 0; i--) {
-        if (messages[i].role === "user") {
-          precedingUserMessage = messages[i] as import("../../types/chat").UserChatMessage;
-          break;
-        }
-      }
-    }
-
-    const requestContext = precedingUserMessage?.requestContext;
-    if (requestContext?.effectiveScopeMode === "custom_docs") {
-      return;
-    }
-
-    const hasRequestContext = !!requestContext;
-    const rawMode = requestContext?.originalMode as ChatMode | undefined;
-    const effectiveMode = hasRequestContext && rawMode && CHAT_MODES.some((m) => m.id === rawMode)
-      ? rawMode
-      : selectedMode;
-    const reusedThinkingMode = requestContext?.thinkingMode as import("../../types/session").ThinkingMode | undefined;
-    const thinkingModeSource = hasRequestContext && reusedThinkingMode ? "requestContext" : "store";
-
-    pushAgentDebugEvent("CONTINUE_SEARCH_REQUEST_CONTEXT_REUSED_SAFE", {
-      hasRequestContext,
-      originalMode: requestContext?.originalMode ?? "unknown",
-      effectiveScopeMode: requestContext?.effectiveScopeMode ?? effectiveMode,
-      thinkingModeSource,
-      missingRequestContext: !hasRequestContext,
-    }, "info");
-
-    await handleAskByMode(effectiveMode, "请基于上一轮结果继续查找相关资料", reusedThinkingMode ?? $kbSessionStore.thinkingMode ?? "off");
-  }
-
   // 切换会话侧边栏显示
   function toggleConversationSidebar() {
     conversationSidebarOpen = !conversationSidebarOpen;
@@ -960,7 +920,6 @@
           on:regenerate={handleRegenerate}
           on:retry={handleRetry}
           on:sendSuggestedQuestion={handleSuggestedQuestion}
-          on:continueSearch={handleContinueSearch}
           {assistantActionAlignment}
           {suggestedQuestions}
           emptyTitle="开始提问"

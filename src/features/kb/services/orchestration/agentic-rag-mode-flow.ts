@@ -1,13 +1,18 @@
 /**
  * Agentic RAG Mode Flow
  *
- * 新 Agentic RAG 服务入口到现有聊天 UI 状态的适配层。
+ * v3 Skill-first Agent Workbench 的 orchestration 适配层。
  *
  * 职责：
  * - 添加/复用 user message、创建 assistant pending、构建 recentContext
- * - 调用 runAgenticRagTurn、把 composed answer 写回 assistant message
+ * - 调用 runV3AgenticRagTurn、把 composed answer 写回 assistant message
  * - 支持流式输出：onAnswerChunk 逐 chunk 更新 assistant message content
  * - 写入 agenticMemory 和 citedReferences，不构建旧 AgentTurnMemory
+ *
+ * 重要（runtime cutover to v3-only）：
+ * - 真实聊天只走 v3；不允许 switch 到其他运行时。
+ * - v3 失败时直接把安全错误呈现到当前 assistant message。
+ * - 本路径只调用 V3 Agent Workbench。
  *
  * 流程：
  *   1. trim question
@@ -16,7 +21,7 @@
  *   4. updateState asking=true
  *   5. 创建 assistant pending
  *   6. 构建 recentContext
- *   7. 调用 runAgenticRagTurn（含流式回调）
+ *   7. 调用 runV3AgenticRagTurn（含流式回调）
  *   8. 处理结果（abort/正常/错误）
  *   9. updateState asking=false
  */
@@ -25,12 +30,18 @@ import type { AskByModeParams, AskByModeResult } from "./ask-by-mode-types";
 import type { ChatMode } from "../../constants/chat-modes";
 import type { ChatMessage } from "../../types/chat";
 import type { AgentScopeMode } from "../agentic-rag/scope/types";
-import type { AgenticRagProgressEvent } from "../agentic-rag/run-agentic-rag-turn";
-import { runAgenticRagTurn } from "../agentic-rag/run-agentic-rag-turn";
-import { buildAgenticRecentContext } from "../agentic-rag/runtime/build-runtime-context";
+import { runV3AgenticRagTurn, type V3TurnOutcome } from "../agentic-rag/run-v3-agentic-rag-turn";
+import type { V3TurnResult } from "../agentic-rag/workbench/contracts/turn-result";
 import { buildAgenticRagTurnMemory } from "../agentic-rag/runtime/turn-memory";
 import { pushAgentDebugEvent } from "../agentic-rag/debug/agentic-rag-debug";
 import { buildTurnSummary } from "../context-compression";
+import type { RecentTurnContext } from "../agentic-rag/workbench/contracts/recent-turn-context";
+
+// Re-export for backward compatibility
+export type { RecentTurnContext };
+
+/** 最多保留最近 N 轮对话上下文。 */
+const MAX_RECENT_TURNS = 6;
 
 /**
  * Agentic RAG Mode Flow 参数
@@ -55,6 +66,109 @@ function mapChatModeToAgentScopeMode(mode: ChatMode): AgentScopeMode | null {
     default:
       return null;
   }
+}
+
+/**
+ * 从历史消息构建最近对话上下文（脱敏，不含 docId/blockId/path/internalMapping）。
+ * - 提取最近 N 条 user/assistant 消息摘要。
+ * - 如果上一轮 assistant 展示了 references，提取其资源 ID + title + sourceType + snippet。
+ * - 如果上一轮有 visible artifacts（如文档树、候选列表），提取其摘要。
+ * - 内容只作为中性上下文事实，不触发任何工具选择。
+ * - 通用结构，未来可复用于网页、MCP、文件等来源。
+ */
+function buildRecentConversationContext(messages: ChatMessage[]): RecentTurnContext[] {
+  const turns: RecentTurnContext[] = [];
+
+  // 从后往前遍历，收集最近 N 轮
+  // turnIndex: 0=最近一轮 assistant，1=上一轮...
+  let assistantTurnIndex = 0;
+  for (let i = messages.length - 1; i >= 0 && turns.length < MAX_RECENT_TURNS; i--) {
+    const msg = messages[i];
+
+    if (msg.role === "user") {
+      turns.unshift({
+        role: "user",
+        textPreview: truncateText(msg.content, 200),
+        createdAt: msg.createdAt,
+      });
+    } else if (msg.role === "assistant" && msg.content) {
+      const currentTurnAge = assistantTurnIndex;
+      assistantTurnIndex++;
+
+      const entry: RecentTurnContext = {
+        role: "assistant",
+        textPreview: truncateText(msg.content, 300),
+        createdAt: msg.createdAt,
+        turnIndex: currentTurnAge,
+      };
+
+      // 提取 displayReferences：直接使用真实 docId/blockId。
+      const mem = (msg as { agenticMemory?: { footerReferenceDocIds?: string[]; footerReferenceTitles?: string[]; footerReferenceBlockIds?: string[]; workspaceSummary?: { candidateDocCount?: number; candidateBlockCount?: number } }; id?: string }).agenticMemory;
+      const msgId = (msg as { id?: string }).id;
+      const footerRefs = mem?.footerReferenceDocIds?.map((docId, idx) => {
+        const blockId = mem?.footerReferenceBlockIds?.[idx];
+        const rawTitle = mem?.footerReferenceTitles?.[idx];
+        const ref: NonNullable<RecentTurnContext["displayReferences"]>[number] = {
+          docId,
+          // title 为空但 docId 存在时不丢资源，使用"未命名资源"
+          title: rawTitle || "未命名资源",
+          sourceType: "siyuan_doc",
+          source: "final_answer_reference",
+          turnAge: currentTurnAge,
+          sourceTurnId: msgId,
+        };
+        if (blockId) {
+          ref.blockId = blockId;
+        }
+        return ref;
+      }).filter((r) => r.docId);
+      if (footerRefs && footerRefs.length > 0) {
+        entry.displayReferences = footerRefs;
+      }
+
+      // 提取 visible artifacts（如文档树标题、候选列表数量等）
+      const artifacts = extractVisibleArtifacts(mem);
+      if (artifacts && artifacts.length > 0) {
+        entry.visibleArtifacts = artifacts;
+      }
+
+      turns.unshift(entry);
+    }
+  }
+
+  return turns;
+}
+
+/** 截断文本到指定长度。 */
+function truncateText(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen) + "...";
+}
+
+/** 从 assistant message 的 agenticMemory 提取可见产物摘要（如文档树标题、候选列表数量等）。 */
+function extractVisibleArtifacts(mem: { workspaceSummary?: { candidateDocCount?: number; candidateBlockCount?: number } } | undefined): RecentTurnContext["visibleArtifacts"] {
+  const artifacts: NonNullable<RecentTurnContext["visibleArtifacts"]> = [];
+
+  // 从 agenticMemory 的 workspaceSummary 提取候选文档/块数量
+  const ws = mem?.workspaceSummary;
+  if (ws) {
+    if (ws.candidateDocCount && ws.candidateDocCount > 0) {
+      artifacts.push({
+        type: "candidate_docs",
+        count: ws.candidateDocCount,
+        summary: `候选文档 ${ws.candidateDocCount} 篇`,
+      });
+    }
+    if (ws.candidateBlockCount && ws.candidateBlockCount > 0) {
+      artifacts.push({
+        type: "candidate_blocks",
+        count: ws.candidateBlockCount,
+        summary: `候选块 ${ws.candidateBlockCount} 段`,
+      });
+    }
+  }
+
+  return artifacts.length > 0 ? artifacts : undefined;
 }
 
 function formatAgenticRagUserError(errorMsg: string): string {
@@ -82,62 +196,38 @@ function isAgenticRagDebugLogEnabled(): boolean {
   return env?.DEV === true || env?.MODE === "development";
 }
 
-function mapAgenticRagProgressToStatusText(event: AgenticRagProgressEvent): string {
-  switch (event.phase) {
-    case "resolving_scope":
-      return "正在获取上下文";
-    case "building_context":
-      return "正在准备上下文";
-    case "analyzing_question":
-      return "正在分析问题";
-    case "planning_retrieval":
-      return "正在确定检索方案";
-    case "searching_evidence":
-      return "正在检索资料";
-    case "assembling_evidence":
-      return "正在组合资料";
-    case "reading_fixed_docs":
-      return "正在获取文档";
-    case "running_agent_loop":
-      return "正在分析和检索资料";
-    case "composing_answer":
-      return "正在组织回答";
-    case "streaming_answer":
-      return "正在生成回答";
-    case "done":
-      return "已完成";
-    default:
-      return "正在处理";
+/**
+ * dev-only v3 strict runtime test 开关。
+ * - 仅在开发环境或 trace/debug 开启时生效。
+ * - 通过 localStorage "kbAgent.v3StrictRuntimeTest" === "1" 开启。
+ * - 默认不开启，不影响普通用户。
+ * - 仅用于诊断 v3 失败路径，不参与 Planner 工具选择，不改变 Tool/Skill 决策。
+ */
+function isV3StrictRuntimeTestEnabled(): boolean {
+  if (typeof window === "undefined" || typeof window.localStorage === "undefined") {
+    return false;
   }
+  try {
+    if (window.localStorage.getItem("kbAgent.v3StrictRuntimeTest") !== "1") {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  return isAgenticRagDebugLogEnabled();
 }
 
-function logAgenticRagDebugSnapshot(result: Awaited<ReturnType<typeof runAgenticRagTurn>>): void {
-  if (!isAgenticRagDebugLogEnabled()) {
-    return;
-  }
-
-  const traceBrief = (result.trace ?? []).slice(0, 20).map((s) => ({
-    name: s.name,
-    status: s.status,
-  }));
-
-  const actionNames = (result.actionHistory ?? []).map((a) => a.type);
-
-  console.debug("[AgenticRagDebugSnapshot]", {
-    scopeType: result.scope?.type,
-    workspaceReadDocs: result.workspace?.readDocuments?.length ?? 0,
-    workspaceBlockContexts: result.workspace?.readBlockContexts?.length ?? 0,
-    toolActionNames: actionNames,
-    evidenceItemCount: result.finalEvidencePack?.items.length ?? 0,
-    footerReferencesCount: result.footerReferences.length,
-    warningsCount: result.warnings.length,
-    traceBrief,
-  });
+function sanitizeV3ErrorCode(raw: string | undefined): string {
+  if (!raw) return "v3_runtime_error";
+  // 仅保留可见的 safe code；不含 docId / path / 内部 mapping。
+  // v3 自身的 safe code 形如 "stopped_by_planner" / "fail_closed_max_steps" /
+  // "fail_closed_no_planner_decision" / "exception"，已经安全。
+  return String(raw).slice(0, 64);
 }
 
 /**
  * 运行 Agentic RAG Mode Flow
- * 适配层：将 runAgenticRagTurn 结果转换为现有聊天消息和状态
+ * 适配层：将 runV3AgenticRagTurn 结果转换为现有聊天消息和状态
  * @param params 参数
  * @returns AskByModeResult
  */
@@ -157,7 +247,6 @@ export async function runAgenticRagModeFlow(
     chatModelSelection,
     thinkingMode,
     customDocIds,
-    attachedDocs,
   } = params;
 
   const assistantMessageId = createMessageId();
@@ -206,6 +295,8 @@ export async function runAgenticRagModeFlow(
         createdAt: Date.now(),
       });
     }
+    // actualUserMessageId 当前 v3 路径下不直接被引用；保留赋值以备 future 最近上下文回写。
+    void actualUserMessageId;
 
     addMessage({
       id: assistantMessageId,
@@ -230,221 +321,88 @@ export async function runAgenticRagModeFlow(
       agentStatus: "正在准备上下文",
     }));
 
-    const excludeMessageIds = [
-      actualUserMessageId,
-      assistantMessageId,
-    ].filter((id): id is string => Boolean(id));
-
     const currentState = getState();
-    const recentContext = buildAgenticRecentContext({
-      messages: currentState.messages,
-      excludeMessageIds,
-      maxTurns: 6,
-      maxChars: 2400,
-      compressedContextSummary: currentState.compressedContextSummary,
-    });
 
-    const traceEnabled = isAgenticRagDebugLogEnabled();
-
-    if (traceEnabled) {
+    if (isAgenticRagDebugLogEnabled()) {
       console.info("[KB-AGENT | RAG 启动]", {
         scopeMode,
-        traceEnabled,
+        traceEnabled: true,
       });
     }
 
     let streamingContent = "";
-    let hasTextDeltaStarted = false;
-    let reasoningStreamingActive = false;
-    let latestStatusKind = "正在准备上下文";
-    let uiChunkIndex = 0;
 
-    const updateRunMessageAgentStatus = (statusText: string | undefined) => {
-      if (!setMessages) return;
-      if (statusText === latestStatusKind) return;
-      const previousStatus = latestStatusKind;
-      latestStatusKind = statusText ?? "cleared";
-      setMessages((messages) =>
-        messages.map((m) => {
-          if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-          if (m.content.trim().length > 0) return m;
-          console.info("[KB-AGENT | ASSISTANT_RUN_STATUS_UPDATED_SAFE]", {
-            from: previousStatus,
-            to: statusText ?? "cleared",
-            contentChars: m.content.length,
-          });
-          return { ...m, agentStatus: statusText };
-        })
-      );
-    };
-
-    const result = await runAgenticRagTurn({
+    // ── v3-only runtime path（runtime cutover） ──
+    // 真实聊天只走 v3 Agent Workbench。
+    // v3 失败时直接把安全错误呈现到当前 assistant message。
+    let result: V3TurnResult | null = null;
+    const recentConversationContext = buildRecentConversationContext(currentState.messages);
+    const v3Outcome: V3TurnOutcome = await runV3AgenticRagTurn({
       question: trimmed,
       mode: scopeMode,
       customDocIds: hasCustomDocs ? customDocIds : undefined,
-      attachedDocs: attachedDocs && attachedDocs.length > 0 ? attachedDocs : undefined,
-      recentContextSummary: recentContext?.summary,
-      trace: traceEnabled,
-      runtime: {
-        abortSignal,
-        trace: traceEnabled,
-        recentContext: recentContext
-          ? {
-              ...recentContext,
-            }
-          : undefined,
-        onAnswerStart: () => {
-          if (reasoningStreamingActive) return;
-          pushAgentDebugEvent("ASSISTANT_RUN_WAITING_FOR_TEXT_STATE_SAFE", {
-            mode: scopeMode,
-            isFixedDocumentScope: scopeMode === "custom_docs",
-            hasContent: streamingContent.length > 0,
-            statusSet: "waiting_for_text",
-          }, "info");
-          updateRunMessageAgentStatus("正在等待模型正文输出");
-        },
-        onAnswerChunk: ({ chunk, fullContent }) => {
-          uiChunkIndex++;
-          streamingContent = fullContent;
-          if (!hasTextDeltaStarted) {
-            hasTextDeltaStarted = true;
-            pushAgentDebugEvent("ASSISTANT_RUN_FIRST_CHUNK_CLEARED_STATUS_SAFE", {
-              chunkIndex: uiChunkIndex,
-              fullContentChars: fullContent.length,
-              hadAgentStatus: latestStatusKind !== "cleared",
-            }, "info");
-          }
-          if (setMessages) {
-            let messageFound = false;
-            let isComplete = false;
-            let hadAgentStatus = false;
-            setMessages((messages) =>
-              messages.map((m) => {
-                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-                messageFound = true;
-                isComplete = !!m.isComplete;
-                hadAgentStatus = !!m.agentStatus;
-                return { ...m, content: fullContent, agentStatus: undefined, isComplete: false };
-              })
-            );
-            if (!messageFound) {
-              pushAgentDebugEvent("ASSISTANT_RUN_STREAM_CHUNK_DROPPED_SAFE", {
-                chunkIndex: uiChunkIndex,
-                deltaChars: chunk.length,
-                fullContentChars: fullContent.length,
-                messageFound: false,
-              }, "warn");
-            } else if (uiChunkIndex === 0) {
-              pushAgentDebugEvent("ASSISTANT_RUN_STREAM_CHUNK_APPLIED_SAFE", {
-                chunkIndex: uiChunkIndex,
-                deltaChars: chunk.length,
-                fullContentChars: fullContent.length,
-                messageFound: true,
-                isComplete,
-                hadAgentStatus,
-              }, "debug");
-            }
-          }
-        },
-        onAnswerFinish: (fullContent) => {
-          reasoningStreamingActive = false;
-          if (fullContent.trim().length > 0 && setMessages) {
-            setMessages((messages) =>
-              messages.map((m) =>
-                m.id === assistantMessageId && m.role === "assistant"
-                  ? { ...m, agentStatus: undefined, isComplete: false }
-                  : m
-              )
-            );
-          }
-        },
-        onReasoningStart: () => {
-          reasoningStreamingActive = true;
-          updateState((state) => ({
-            ...state,
-            agentStatus: undefined,
-          }));
-          if (setMessages) {
-            setMessages((messages) =>
-              messages.map((m) =>
-                m.id === assistantMessageId && m.role === "assistant"
-                  ? { ...m, reasoning: { content: "", status: "streaming", partCount: 0, chars: 0 }, agentStatus: undefined }
-                  : m
-              )
-            );
-          }
-        },
-        onReasoningChunk: ({ fullContent }) => {
-          if (setMessages) {
-            setMessages((messages) =>
-              messages.map((m) => {
-                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-                const prev = m.reasoning ?? { content: "", status: "streaming" as const, partCount: 0, chars: 0 };
-                return {
-                  ...m,
-                  reasoning: {
-                    content: fullContent,
-                    status: "streaming" as const,
-                    partCount: prev.partCount + 1,
-                    chars: fullContent.length,
-                  },
-                  agentStatus: undefined,
-                };
-              })
-            );
-          }
-        },
-        onReasoningFinish: (fullContent) => {
-          reasoningStreamingActive = false;
-          if (setMessages) {
-            setMessages((messages) =>
-              messages.map((m) => {
-                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-                const prev = m.reasoning ?? { content: "", status: "streaming" as const, partCount: 0, chars: 0 };
-                return {
-                  ...m,
-                  reasoning: {
-                    content: fullContent,
-                    status: "done",
-                    partCount: prev.partCount,
-                    chars: fullContent.length,
-                  },
-                };
-              })
-            );
-          }
-        },
-      },
+      abortSignal,
       chatModelSelection,
       thinkingMode: thinkingMode ?? "off",
-      onProgress: (event) => {
-        if (event.phase === "resolving_scope") {
-          console.info("[KB-AGENT | THINKING_MODE_RESOLVED_SAFE]", {
-            uiValue: thinkingMode ?? "off",
-            runtimeValue: thinkingMode ?? "off",
-            mode: scopeMode,
-          });
+      recentConversationContext,
+      onAnswerChunk: ({ fullContent }) => {
+        streamingContent = fullContent;
+        if (setMessages) {
+          setMessages((messages) =>
+            messages.map((m) => {
+              if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+              return { ...m, content: fullContent, agentStatus: undefined, isComplete: false };
+            })
+          );
         }
-        if (event.phase === "streaming_answer") {
-          if (!hasTextDeltaStarted) {
-            hasTextDeltaStarted = true;
-            reasoningStreamingActive = false;
-            updateRunMessageAgentStatus("正在等待模型正文输出");
-          }
-          return;
+      },
+      onAnswerFinish: (fullContent) => {
+        if (fullContent.trim().length > 0 && setMessages) {
+          setMessages((messages) =>
+            messages.map((m) =>
+              m.id === assistantMessageId && m.role === "assistant"
+                ? { ...m, agentStatus: undefined, isComplete: false }
+                : m
+            )
+          );
         }
-        if (reasoningStreamingActive) return;
-        const statusText = event.detail || mapAgenticRagProgressToStatusText(event);
-        updateState((state) => ({
-          ...state,
-          agentStatus: statusText,
-        }));
-        updateRunMessageAgentStatus(statusText);
       },
     });
 
-    if (isAgenticRagDebugLogEnabled()) {
-      logAgenticRagDebugSnapshot(result);
+    if (v3Outcome.ok && v3Outcome.result) {
+      result = v3Outcome.result;
+    } else {
+      // v3 失败：直接呈现安全错误到 assistant message，不 switch 到其他运行时。
+      const safeCode = sanitizeV3ErrorCode(v3Outcome.v3ErrorCode);
+      const errMsg = `V3 Workbench 未完成本轮回答：${safeCode}`;
+      console.info("[AgenticRagV3] V3_RUNTIME_NO_FALLBACK", {
+        v3ErrorCode: safeCode,
+        stopReasonCode: v3Outcome.stopReasonCode,
+        scopeMode,
+      });
+
+      if (isV3StrictRuntimeTestEnabled()) {
+        throw new Error(`V3 runtime failed: ${safeCode}`);
+      }
+
+      result = {
+        scope: { type: "whole_kb" },
+        scopeSummary: { type: "whole_kb", title: "知识库" },
+        answer: errMsg,
+        footerReferences: [],
+        warnings: [errMsg],
+        trace: [],
+        actionHistory: [],
+      };
+    }
+
+    if (isAgenticRagDebugLogEnabled() && result) {
+      console.info("[KB-AGENT | V3_TURN_OUTCOME]", {
+        scopeMode,
+        v3Ok: v3Outcome.ok,
+        steps: v3Outcome.steps,
+        footerReferencesCount: v3Outcome.footerReferencesCount ?? result.footerReferences.length,
+      });
     }
 
     if (abortSignal?.aborted) {

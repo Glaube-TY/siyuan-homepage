@@ -12,7 +12,7 @@ import {
   restoreKbChatSessions,
   saveKbChatSessionStorage,
   isTransientAssistantPlaceholder,
-} from "../services/session/kb-chat-session-storage";
+} from "../services/agentic-rag/storage/chat-session-facade";
 import {
   resolveReferenceDocInfos,
   type ResolvedReferenceDocInfo,

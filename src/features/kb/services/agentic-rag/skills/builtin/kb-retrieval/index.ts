@@ -13,3 +13,4 @@ export type { BuiltinKbSkillToolName } from "./skill";
 
 export { registerBuiltinKbRetrievalSkill, registerBuiltinKbRetrievalTools } from "./register";
 export type { KbRetrievalToolDeps } from "./adapters/kb-retrieval-tool-deps";
+export { KbRetrievalRuntimeState } from "./adapters/kb-retrieval-runtime-state";

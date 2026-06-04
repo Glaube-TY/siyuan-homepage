@@ -12,10 +12,7 @@ import { assertNoFlowControlFields } from "../guards/flow-control-guard";
 import type { BudgetGuard } from "../runtime/budget-guard";
 
 /** execution-only helper 名字集合：Planner **不可见**。 */
-export const EXECUTION_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "read_docs",
-  "read_block_context",
-]);
+export const EXECUTION_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set();
 
 function assertSafetyObject(tool: ToolContract): void {
   const safety = tool.safety as ToolSafetyInfo | undefined;
@@ -134,7 +131,7 @@ export class ToolRegistry {
       safety: tool.safety,
       boundary: tool.boundary,
       source: tool.source,
-      boundSkillName: tool.boundSkillName,
+      inputHint: tool.inputHint,
       availability,
     };
   }
@@ -153,7 +150,6 @@ export class ToolRegistry {
   ): Array<{
     name: string;
     source: ToolContract["source"];
-    boundSkillName?: string;
     available: boolean;
     reasonCode?: string;
     isExecutionOnly: boolean;
@@ -177,7 +173,6 @@ export class ToolRegistry {
       return {
         name: tool.name,
         source: tool.source,
-        boundSkillName: tool.boundSkillName,
         available: availability.available,
         reasonCode: availability.reasonCode,
         isExecutionOnly,

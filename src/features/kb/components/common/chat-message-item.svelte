@@ -12,7 +12,6 @@
   export let isLastAssistant: boolean = false;
   export let isLastError: boolean = false;
   export let canRegenerate: boolean = false;
-  export let canContinueSearch: boolean = false;
   export let canRetry: boolean = false;
   // asking 状态，用于控制按钮显示
   export let asking: boolean = false;
@@ -21,7 +20,6 @@
   const dispatch = createEventDispatcher<{
     regenerate: void;
     retry: void;
-    continueSearch: { assistantMessageId: string };
   }>();
 
   // 复制状态管理
@@ -240,20 +238,7 @@
         <!-- 操作按钮区 -->
         {#if shouldShowAssistantActions}
           <div class={`assistant-actions align-${assistantActionAlignment}`}>
-            <!-- 继续查找 -->
-            {#if canContinueSearch}
-              <button
-                class="action-btn"
-                on:click={() => dispatch("continueSearch", { assistantMessageId: message.id })}
-                title="继续查找相关资料"
-              >
-                <span class="action-icon"
-                  ><SiyuanIcon name="iconSearch" size={14} /></span
-                >
-              </button>
-            {/if}
             {#if isLastAssistant}
-              <div class="action-divider"></div>
               <button
                 class="action-btn regenerate-btn"
                 on:click={() => dispatch("regenerate")}
@@ -516,13 +501,6 @@
           justify-content: flex-end;
         }
 
-        // 按钮分隔线
-        .action-divider {
-          width: 1px;
-          height: 14px;
-          background: var(--b3-border-color);
-          margin: 0 2px;
-        }
       }
     }
 

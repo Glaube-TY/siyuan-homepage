@@ -29,11 +29,34 @@ v3 明确改为 **Skill-first Agent Workbench**：
 ### 默认项目身份与默认目标
 
 - 当前项目默认身份是 **"思源笔记 AI 知识库助手"**。
-- 默认目标是 **基于思源知识库资料回答用户问题**。
+- 默认目标是 **帮助用户完成知识管理相关任务**（检索、查找、总结、解释、对比、引用等）。
 - 具体如何找资料（要不要先列知识地图、要不要聚焦子目录、要不要读历史引用），由 AI Planner 根据内置知识库问答 Skill 和工具 observation 自主决定。
 - 除非用户明确不需要知识库，或问题明显无需知识库资料，否则 AI 可以使用知识库问答 Skill。
 - Skill 可以提供工具说明、工具关系、工具使用建议、边界提醒，**但不能由代码强制执行**。
 - 内置 Skill 的优先级可以高，但优先级只影响 prompt 展示，不影响代码自动调用。
+
+### 全局身份统一
+
+Planner 可见的全局身份统一为：
+
+> 你是运行在思源笔记中的 AI 助手，可直接回答，也可参考已启用的 Skill 说明和全局工具完成任务。
+
+不得自称模型、厂商、MiMo、小米、OpenAI。
+
+### 中文提示语要求
+
+项目中给 AI Planner 的所有可见提示语必须使用中文，包括但不限于：
+- Tool 的 title / description / capability / boundary / inputHint
+- Tool observation 的 summary
+- Skill 的 prompt 段落
+- Planner 的 system prompt
+- 错误信息的 Planner 可见摘要
+
+工具 `name` 可以保留英文机器名（如 `search_scope`、`read_candidate_docs`、`final_answer`）。
+
+### 禁止基于内容/关键词/正则判断流程
+
+代码不得根据问题文本、工具结果文本、回答文本中的关键词、正则表达式或自然语言内容自动选择下一步业务动作。流程决策完全由 AI Planner 基于 observation 事实做出。
 
 ## 工具结果只能 observation → Planner
 
@@ -80,6 +103,35 @@ v3 明确改为 **Skill-first Agent Workbench**：
 | **Evidence Gate** | 评估证据状态：够不够 / 缺哪类 / 是否还有预算 | 不得建议下一业务工具 |
 | **State Machine** | 维护 UI 状态和 trace 状态 | 不得驱动业务工具选择 |
 
+## Skill 是通用能力包说明
+
+Skill 是通用能力包说明，不是具体问题类型规则库：
+
+- Skill guidance 可以写"使用建议 / 检索策略 / 证据边界"。
+- 策略建议必须是通用策略，不是针对某个问题类型的补丁。
+- 不要按问题类型、文档类型、主题类型分支写规则。
+- 可以建议：用户表达可能是概念化、泛称、简称或非文档原词；检索词不必等同用户原话。
+- 可以建议：Planner 可以根据用户意图、文档树标题、上下文、同义词、上位词、相关实体、时间线、主题词，自主组织检索词。
+- 可以建议：文档树用于理解知识库范围、栏目结构、标题线索和候选方向。
+- 可以建议：搜索不到时可考虑换词、拆词、使用同义词、上位词或主题词，由 Planner 自主决定。
+- 可以建议：候选文档只代表可能相关，具体结论应基于已读取摘录。
+- 策略建议只帮助 Planner 判断，不是工具执行顺序，不是自动流程。
+- 不要把 toolNames 写成绑定、拥有、执行顺序或启用条件。
+- 优化效果优先优化 Skill guidance、Tool manifest、observation，而不是改底层代码或写流程判断。
+
+## final_answer 是全局最终回答工具
+
+final_answer 是全局 system tool，不属于任何 Skill，适用于所有场景：
+
+- final_answer 是通用回答工具，适用于知识库问答、普通聊天、未来所有 Skill / MCP / 操作型能力。
+- body 必填：Planner 提供的回答正文。
+- references 可选：Planner 显式传入的引用句柄，用于 UI footer 展示来源。
+- evidenceMode 可选：Planner 自我标注，不作为代码流程控制条件。
+- 不强制要求证据、不因缺少 references 而失败、不根据知识库证据状态判断是否允许回答。
+- 引用句柄校验只用于防止伪造引用和泄露内部 ID，不是业务流程控制。
+- 校验失败时只过滤无效 resource IDs，不拒绝整个回答。
+- 未来 Skill / MCP / 操作型能力不应被知识库证据概念限制。
+
 ## Codex / Claude Code 式核心循环
 
 ```
@@ -118,13 +170,11 @@ AI Planner 继续自主决定：再调一个 tool / 调 answer / 调其他 skill
   - `search_scope`
   - `list_scope_docs`
   - `focus_doc_scope`
-  - `get_doc_tree_context`
   - `read_candidate_docs`
   - `read_previous_evidence`
   - `get_conversation_used_references`
-  - `answer`
-- `guidance`: 可根据问题选择搜索、目录、历史引用、候选读取等工具。工具可以组合使用，没有强制顺序。证据足够时由 AI Planner 自己选择 `answer`。
-- `boundary`: 不写入、不删除、不修改笔记。资料不足时要明确说明范围。不得在 evidenceMode / answerKind 上替 AI 决策。不得输出 docId / blockId / path 等内部标识。
+- `guidance`: 可根据问题选择搜索、目录、历史引用、候选读取等工具。工具可以组合使用，没有强制顺序。引用是可选建议，不是强制规则。
+- `boundary`: 不写入、不删除、不修改笔记。资料不足时要明确说明范围。不得输出 docId / blockId / path 等内部标识。
 - `priority`: 100
 - `enabledByDefault`: true
 
@@ -164,6 +214,36 @@ AI Planner 继续自主决定：再调一个 tool / 调 answer / 调其他 skill
 - Tool 不返回"建议下一步"信息。
 - Tool 返回的 observation 必须是事实数据，不带"你应该"语义。
 - `read_docs` 仍然是 execution-only helper：只能由 `read_candidate_docs` 或 `read_previous_evidence` 内部使用，不出现在 Planner 可见工具中。
+
+## 全局 System Tools
+
+`final_answer` 和 `progress_answer` 是全局 system tools，不属于任何 Skill：
+
+- `final_answer`：向用户输出最终回答，成功后结束本轮 Agent 循环。
+- `progress_answer`：向用户输出进展信息，成功后不结束本轮 Agent 循环。
+- 这两个工具始终对 Planner 可见，不受任何 Skill 启用/禁用状态影响。
+- `final_answer` 不要求证据、不因缺少 references 失败；`evidenceMode` 仅是 Planner 自我标注，不控制成功/失败。
+
+## DisplayReference / ResourceRef 抽象
+
+引用是通用可展示来源，不是知识库专属证据：
+
+- **ResourceRef**（安全句柄）：Planner 可见的引用标识，底层真实 docId/blockId/path/url 仅工具内部使用。
+- **DisplayReference**：通用引用展示结构，包含 handle、sourceType、title、subtitle、snippet、url、provider、openAction、metadata。
+- **sourceType** 支持：`siyuan_doc`（思源文档）、`web_page`（网页）、`file`（文件）、`mcp_resource`（MCP 资源）、`api_result`（API 结果）、`operation_result`（操作结果）、`unknown`。
+- 工具可以返回 resourceId / referenceHandle 给 Planner 使用。
+- UI footer 展示 DisplayReference，后续可按 sourceType 打开思源文档、网页、文件或 MCP 资源。
+- 代码不得从"存在已读资料"自动生成 references，不得从普通候选自动生成 references（除非候选已被工具注册为可展示 DisplayReference）。
+- 引用解析失败时返回结构化 observation，不由代码补引用、删回答或自动换下一步。
+
+## 工具结果和错误 observation 标准化
+
+- 工具调用错了就错了，不要代码兜底，不要自动修参，不要自动换工具。
+- ToolResult 失败时返回结构化错误：`{ ok:false, error:{ errorCode, message, recoverable, field?, expected?, received?, hint? } }`。
+- 常见错误码：`invalid_args`、`handle_not_found`、`handle_expired`、`wrong_handle_type`、`out_of_scope`、`resource_not_found`、`permission_denied`、`tool_internal_error`。
+- 错误 message / hint 必须中文，并给 Planner 可理解的修正信息。
+- observation 不得包含真实 docId/blockId/path/internalMapping。
+- Planner 根据 observation 自己决定下一步。
 
 ## Evidence Gate 降级为 Observation Producer
 
@@ -269,22 +349,22 @@ rg "inventoryOnly" src/features/kb/services/agentic-rag
 - 不做新功能、不做性能优化、不做 prompt 美化、不做 provider 改造。
 - 先恢复 Codex / Claude Code 式 Harness 基线，再继续开发。
 
-## 禁止自动选择 focus handles
+## 禁止自动选择 focus resource IDs
 
-**代码不得自动选择 focus handles。**
+**代码不得自动选择 focus resource IDs。**
 
 focus_doc_scope 只能由 AI Planner 基于资料目录明确选择 handle，或由用户/上下文显式提供 handle。
 
-Recovery / continuation / fallback 不能从 docHandleMappings 中取前 N 个 handle 伪造 focus_doc_scope。
+Recovery / continuation / fallback 不能从 resourceIdMappings 中取前 N 个 handle 伪造 focus_doc_scope。
 
 ### 禁止项
 
 - chooseFocusHandles
-- first N handles fallback
+- first N resource IDs fallback
 - auto focus from catalog order
-- fallback focus without planner-selected handles
-- 从 knowledgeMap/docHandleMappings 中自动取 handle 构造 focus_doc_scope
-- 任何在 Planner 未明确输出 handles 的情况下生成 focus_doc_scope 的逻辑
+- fallback focus without planner-selected resource IDs
+- 从 knowledgeMap/resourceIdMappings 中自动取 handle 构造 focus_doc_scope
+- 任何在 Planner 未明确输出 resource IDs 的情况下生成 focus_doc_scope 的逻辑
 
 ## 当前阶段边界：只读知识库 Agent
 
@@ -307,7 +387,7 @@ Recovery / continuation / fallback 不能从 docHandleMappings 中取前 N 个 h
 - 任何 Planner 可见动作 `decisionSource` 不是 `ai_planner`，视为偏离主线。
 - `answer` 不是 `ai_planner`，视为严重偏离。
 - `read_docs` 出现在 Planner `allowedActions` 中，视为严重偏离。
-- `focus_doc_scope` 没有 planner-selected handles，视为严重偏离。
+- `focus_doc_scope` 没有 planner-selected resource IDs，视为严重偏离。
 - `evidence_gate` / 状态机直接生成工具动作，视为严重偏离。
 - 检测到偏离时，下一轮开发必须优先回正，不允许继续做性能/体验/新功能。
 
@@ -408,13 +488,13 @@ Recovery / continuation / fallback 不能从 docHandleMappings 中取前 N 个 h
 - 工具说明：工具是什么、参数怎么写、返回什么、边界是什么
 - 参数格式
 - 状态 observation：当前有哪些候选、已读证据数、允许动作、禁止动作
-- 证据要求：answer.args.evidenceMode 必填
 - 安全约束：禁止输出 docId/blockId/path
 - 输出 JSON schema
 - 一句轻提示："资料目录/文档树可帮助缩小检索范围"
 
 ### 禁止
 
+- evidenceMode 必填、answer 必须有证据、Evidence Gate 作为当前主线等旧表达
 - 对话类型分类（relationToPrevious / refine_previous_answer / expand_scope / same_target_followup）
 - 追问类型分类（conversationReferents / refersToPreviousAnswer / correctionToPreviousAnswer）
 - 上下文模式判断（coverageIntent / stableTarget / searchQuerySource）

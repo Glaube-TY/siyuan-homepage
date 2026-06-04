@@ -4,10 +4,10 @@
  * 文档图谱工具的类型定义。
  *
  * 职责：
- * - 定义 KnowledgeMapState、KnowledgeDocHandleMapping、ActiveFocusScope
- * - 定义 SafeKnowledgeMapNode、SafeKnowledgeMapNotebook、ListKnowledgeMapSafeOutput
+ * - 定义 KnowledgeMapState、KnowledgeDocResource、ActiveFocusScope
+ * - 定义 KnowledgeMapNode、KnowledgeMapNotebook、ListKnowledgeMapSafeOutput
  * - 定义 FocusDocScopeSafeOutput
- * - 不暴露真实 docId/blockId/path/box 给 AI
+ * - 使用真实资源 ID（docId），不生成或暴露 opaque identifier
  */
 
 /**
@@ -24,19 +24,25 @@ export interface KnowledgeMapState {
 }
 
 /**
- * 文档 handle 映射
- * 安全 handle 到真实 docId 的映射，不暴露给 AI
+ * 文档资源映射
+ * 真实 docId 到资源元数据的映射，不生成 identifier
  */
-export interface KnowledgeDocHandleMapping {
-  handle: string;
+export interface KnowledgeDocResource {
   internalDocId: string;
   title: string;
   titlePath?: string;
   box?: string;
   path?: string;
   depth: number;
+  parentDocId?: string;
+  siblingCount?: number;
   childCount?: number;
-  source: "knowledge_map" | "doc_tree_context" | "conversation_reference";
+  source:
+    | "knowledge_map"
+    | "conversation_reference"
+    | "search_scope"
+    | "focus_doc_scope"
+    | "read_candidate_docs";
 }
 
 /**
@@ -59,7 +65,6 @@ export interface ExpandedFocusDoc {
  * AI 根据图谱选择的临时检索范围
  */
 export interface ActiveFocusScope {
-  handles: string[];
   docIds: string[];
   mode: FocusScopeMode;
   reason: string;
@@ -70,30 +75,39 @@ export interface ActiveFocusScope {
   primaryRoot?: {
     title: string;
     titlePath?: string;
-    handle: string;
+    docId: string;
   };
 }
 
 /**
- * 安全图谱节点（对 AI 可见）
+ * 知识图谱节点（对 AI 可见）
+ * 使用真实 docId，不生成 identifier
  */
-export interface SafeKnowledgeMapNode {
-  handle: string;
+export interface KnowledgeMapNode {
+  docId: string;
   title: string;
   depth: number;
   childCount: number;
-  children?: SafeKnowledgeMapNode[];
+  parentDocId?: string;
+  siblingCount?: number;
+  children?: KnowledgeMapNode[];
   truncatedChildren?: boolean;
 }
 
 /**
- * 安全图谱笔记本（对 AI 可见）
+ * 知识图谱笔记本（对 AI 可见）
  */
-export interface SafeKnowledgeMapNotebook {
-  handle: string;
+export interface KnowledgeMapNotebook {
+  notebookId: string;
   title: string;
+  notebookName?: string;
+  notebookNameStatus?: "available" | "unavailable";
+  icon?: string;
+  sort?: number;
+  sortMode?: number;
+  closed?: boolean;
   docCount: number;
-  roots: SafeKnowledgeMapNode[];
+  roots: KnowledgeMapNode[];
   truncated?: boolean;
 }
 
@@ -101,10 +115,13 @@ export interface SafeKnowledgeMapNotebook {
  * list_knowledge_map 工具安全输出（对 AI 可见）
  */
 export interface ListKnowledgeMapSafeOutput {
-  notebooks: SafeKnowledgeMapNotebook[];
+  notebooks: KnowledgeMapNotebook[];
   totalNodeCount: number;
   returnedNodeCount: number;
   truncated: boolean;
+  notebookApiLoaded?: boolean;
+  notebookCount?: number;
+  missingNotebookNameCount?: number;
 }
 
 /**
@@ -112,14 +129,13 @@ export interface ListKnowledgeMapSafeOutput {
  */
 export interface ListKnowledgeMapInternalOutput {
   safeOutput: ListKnowledgeMapSafeOutput;
-  internalMapping: KnowledgeDocHandleMapping[];
+  internalMapping: KnowledgeDocResource[];
 }
 
 /**
  * focus_doc_scope 工具安全输出（对 AI 可见）
  */
 export interface FocusDocScopeSafeOutput {
-  focusedHandleCount: number;
   focusedDocCount: number;
   mode: FocusScopeMode;
   truncated: boolean;

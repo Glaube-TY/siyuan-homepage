@@ -46,7 +46,7 @@ export type KbSessionState = {
   /**
    * 当前 Agent 运行状态文本
    * - 用于向用户展示简洁的运行状态，如"正在分析问题"、"正在检索资料"
-   * - 不暴露内部 taskType、traceSteps、raw plan、raw evidence
+   * - 不暴露内部 taskType、traceSteps、raw plan、raw hidden content
    * - 不持久化，新一轮提问时会被重置
    */
   agentStatus?: string;
@@ -55,7 +55,7 @@ export type KbSessionState = {
    * 思考模式开关
    * - 用户手动控制，不是自动模型策略
    * - 只影响 compose_answer 阶段的 reasoning 控制
-   * - 不影响 analyze_turn / planner / tool execution / evidence_gate
+   * - 不影响 analyze_turn / planner / tool execution / content_read_gate
    */
   thinkingMode?: ThinkingMode;
 

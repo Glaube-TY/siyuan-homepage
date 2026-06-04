@@ -1,6 +1,5 @@
 /**
- * Workbench index: 集中导出 Skill-first Agent Workbench 通用模块。
- */
+ * Workbench index: 闆嗕腑瀵煎嚭 Skill-first Agent Workbench 閫氱敤妯″潡銆? */
 
 // contracts
 export type {
@@ -27,6 +26,7 @@ export type {
   ToolOutputKind,
   ToolUnavailableReason,
   AnswerToolData,
+  AnswerResourceRef,
   BudgetSnapshot,
 } from "./contracts/tool-contract";
 export { isToolContractLike, formatToolSafety } from "./contracts/tool-contract";
@@ -98,9 +98,8 @@ export {
 
 export { assertNoPlannerVisibleInternalReferences } from "./guards/planner-visible-data-guard";
 
-// evidence
-export type { EvidenceAnchor, DisplayedHandleMeta } from "./evidence/evidence-pack";
-export { EvidencePack, assertSafeDisplayedHandle } from "./evidence/evidence-pack";
+// references
+export { InMemoryDisplayReferenceStore } from "./references/display-reference-store";
 
 // self-check
 export {

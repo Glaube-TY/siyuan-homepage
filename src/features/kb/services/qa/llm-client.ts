@@ -20,7 +20,7 @@ import { createSelectedChatModel, resolveOpenAICompatibleBaseUrlForProvider } fr
 import type { ChatModelSelection } from "../../types/chat-model-selection";
 import { DEFAULT_TEMPERATURE } from "../../constants/default-settings";
 import { pushAgentDebugEvent, getIsVerboseStreamDebugEnabled } from "../agentic-rag/debug/agentic-rag-debug";
-import { resolveProviderProfile } from "./provider-profile";
+import { resolveProviderProfile, buildReasoningProviderOptionsFromProfile } from "./provider-profile";
 
 export class AiProviderUnavailableError extends Error {
   providerType: string;
@@ -522,14 +522,21 @@ export function providerSupportsReasoningControl(providerType: string): boolean 
   return ["mimo", "mimo-api", "mimo-coding-plan"].includes(providerType);
 }
 
+/**
+ * 将 reasoningEffort 转换为 AI SDK providerOptions。
+ *
+ * 委托给 provider-profile 的能力映射：
+ * - 仅当 provider profile supportsReasoningControl 时才返回 providerOptions；
+ * - effort === "none" 时返回 undefined；
+ * - openai_effort 风格返回 `{ openai: { reasoning_effort: effort } }`；
+ * - 不支持的 provider 不强行写 providerOptions。
+ */
 function buildReasoningProviderOptions(
-  _providerType: string,
+  providerType: string,
   effort: "low" | "medium" | "none",
 ): Record<string, Record<string, unknown>> | undefined {
-  if (effort === "none") {
-    return undefined;
-  }
-  return undefined;
+  const profile = resolveProviderProfile(providerType);
+  return buildReasoningProviderOptionsFromProfile(profile, effort);
 }
 
 // ==================== 增强 JSON 解析 ====================
@@ -913,6 +920,33 @@ function extractResultShape(result: unknown): {
   return { textChars: text.length, finishReason, inputTokens, outputTokens, totalTokens, contentPartCount, textPartCount, reasoningPartCount };
 }
 
+/**
+ * 从 providerOptions 中安全提取 reasoning_effort 值。
+ *
+ * AI SDK 的 providerOptions 结构为 Record<string, Record<string, unknown>>，
+ * 即 { providerName: { key: value } }。
+ * 只读取 openai / openai-compatible 下的 reasoning_effort / reasoningEffort，
+ * 只接受 "low" | "medium" 这类安全字符串值，"none" 不写入请求体。
+ * 不把整个 providerOptions 展开到 raw JSON 请求体。
+ */
+function extractOpenAICompatibleReasoningEffortFromProviderOptions(
+  providerOptions: Record<string, Record<string, unknown>> | undefined,
+): "low" | "medium" | undefined {
+  if (!providerOptions) return undefined;
+  const SAFE_EFFORT_VALUES = new Set(["low", "medium"]);
+  for (const key of ["openai", "openai-compatible"]) {
+    const provider = providerOptions[key];
+    if (!provider || typeof provider !== "object") continue;
+    for (const field of ["reasoning_effort", "reasoningEffort"]) {
+      const val = provider[field];
+      if (typeof val === "string" && SAFE_EFFORT_VALUES.has(val)) {
+        return val as "low" | "medium";
+      }
+    }
+  }
+  return undefined;
+}
+
 async function callOpenAICompatibleRawJsonObjectFallback<T>(
   selected: ReturnType<typeof createSelectedChatModel>,
   prompt: string,
@@ -954,6 +988,17 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
     const sanitized = sanitizeTemperatureForProvider(providerConfig.type, Number(temp));
     if (sanitized !== undefined) body.temperature = sanitized;
     if (withResponseFormat) body.response_format = { type: "json_object" };
+    // reasoningEffort 真实传递（OpenAI-compatible top-level 参数）
+    // providerOptions 安全映射（优先级高于 reasoningEffort）
+    const extractedEffort = extractOpenAICompatibleReasoningEffortFromProviderOptions(options.providerOptions);
+    if (extractedEffort) {
+      body.reasoning_effort = extractedEffort;
+    } else {
+      const reasoningEffort = options.reasoningEffort;
+      if (reasoningEffort && reasoningEffort !== "none") {
+        body.reasoning_effort = reasoningEffort;
+      }
+    }
     return body;
   };
 
@@ -1198,6 +1243,21 @@ async function callLlmObjectFallback<T>(
     if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
       opts.maxOutputTokens = options.maxOutputTokens;
     }
+    // reasoningEffort / providerOptions 真实传递
+    if (options.providerOptions) {
+      opts.providerOptions = options.providerOptions as typeof opts.providerOptions;
+    } else if (
+      options.reasoningEffort &&
+      providerSupportsReasoningControl(selected.providerConfig.type)
+    ) {
+      const built = buildReasoningProviderOptions(
+        selected.providerConfig.type,
+        options.reasoningEffort,
+      );
+      if (built) {
+        opts.providerOptions = built as typeof opts.providerOptions;
+      }
+    }
     return opts;
   };
 
@@ -1357,6 +1417,22 @@ export async function callLlmObject<T>(
   // 如果 options.maxOutputTokens 有值，覆盖 modelConfig 的值
   if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
     generateOptions.maxOutputTokens = options.maxOutputTokens;
+  }
+
+  // reasoningEffort / providerOptions 真实传递
+  if (options.providerOptions) {
+    generateOptions.providerOptions = options.providerOptions as typeof generateOptions.providerOptions;
+  } else if (
+    options.reasoningEffort &&
+    providerSupportsReasoningControl(selected.providerConfig.type)
+  ) {
+    const built = buildReasoningProviderOptions(
+      selected.providerConfig.type,
+      options.reasoningEffort,
+    );
+    if (built) {
+      generateOptions.providerOptions = built as typeof generateOptions.providerOptions;
+    }
   }
 
   try {

@@ -1,15 +1,4 @@
-/**
- * PlannerDecision
- *
- * 决策校验。
- * - answer toolName 必须严格等于 "answer"。
- * - 不信任 LLM 返回的 decidedAt / stepIndex / observationsSnapshot。
- * - 递归检查流程控制字段和黑名单键。
- * - answer args 仅允许白名单字段。
- */
-
 import { assertNoFlowControlFields, isForbiddenFlowControlField } from "../guards/flow-control-guard";
-import { assertSafeDisplayedHandle } from "../evidence/evidence-pack";
 
 export type PlannerDecision =
   | PlannerToolDecision
@@ -25,7 +14,7 @@ export interface PlannerToolDecision {
 
 export interface PlannerAnswerDecision {
   type: "answer";
-  toolName: "answer";
+  toolName: "final_answer" | "answer";
   args: unknown;
   rationale?: string;
 }
@@ -37,31 +26,20 @@ export interface PlannerStopDecision {
 }
 
 export type PlannerStopReasonCode =
-  | "planner_declined_to_act"
   | "user_canceled"
-  | "evidence_sufficient_to_stop"
-  | "ambiguous_need_clarification";
+  | "internal_aborted";
 
 const BLACKLIST_KEYS = [
-  "evidenceDocIds",
-  "evidenceBlockIds",
-  "realDocId",
-  "realBlockId",
-  "docId",
-  "blockId",
-  "notebookId",
   "path",
   "realPath",
+  "realDocId",
+  "realBlockId",
+  "internalMapping",
 ] as const;
 
 const ALLOWED_ANSWER_KEYS = new Set([
   "body",
-  "evidenceMode",
-  "displayedReferenceHandles",
-  "safeEvidenceHandles",
-  "rationale",
-  "confidence",
-  "uncertainty",
+  "references",
 ]);
 
 export function validatePlannerDecision(decision: unknown): PlannerDecision {
@@ -74,21 +52,59 @@ export function validatePlannerDecision(decision: unknown): PlannerDecision {
   assertNoFlowControlFields(decision, "decision");
 
   const d = decision as { type?: unknown } & Record<string, unknown>;
-  if (d.type === "tool") return parseToolDecision(d);
-  if (d.type === "answer") return parseAnswerDecision(d);
-  if (d.type === "stop") return parseStopDecision(d);
+
+  // 归一化：兼容 { type:"answer", body:"..." }（args 层缺失）
+  // 归一化：兼容 { type:"tool", toolName:"final_answer"/"answer" } → 归一化为 answer decision
+  // 归一化：兼容 { type:"tool", toolName:"...", args:null } → args={}
+  const normalized = normalizeDecision(d);
+
+  if (normalized.type === "tool") return parseToolDecision(normalized);
+  if (normalized.type === "answer") return parseAnswerDecision(normalized);
+  if (normalized.type === "stop") return parseStopDecision(normalized);
   throw new Error(
-    `[PlannerDecision] decision.type must be "tool" | "answer" | "stop" (got ${String(d.type)}).`,
+    `[PlannerDecision] decision.type must be "tool" | "answer" | "stop" (got ${String(normalized.type)}).`,
   );
+}
+
+/**
+ * 归一化 Planner 原始决策对象。
+ * 所有归一化只针对 Planner 已显式输出的决策字段，不根据问题或证据自动选择下一步。
+ */
+function normalizeDecision(d: Record<string, unknown>): Record<string, unknown> {
+  const type = d.type as string | undefined;
+
+  // 兼容 { type:"tool", toolName:"final_answer"/"answer" } → 归一化为 answer
+  if (type === "tool") {
+    const toolName = d.toolName as string | undefined;
+    if (toolName === "final_answer" || toolName === "answer") {
+      return {
+        ...d,
+        type: "answer",
+        toolName: "final_answer",
+        args: d.args ?? {},
+      };
+    }
+    // 兼容 args:null → args={}
+    if (d.args === null || d.args === undefined) {
+      return { ...d, args: {} };
+    }
+  }
+
+  // 兼容 { type:"answer", args:null } → args={}
+  if (type === "answer" && (d.args === null || d.args === undefined)) {
+    return { ...d, args: {} };
+  }
+
+  return d;
 }
 
 function parseToolDecision(d: Record<string, unknown>): PlannerToolDecision {
   if (typeof d.toolName !== "string" || !d.toolName) {
     throw new Error(`[PlannerDecision] tool decision requires a non-empty toolName.`);
   }
-  if (d.toolName === "answer") {
+  if (d.toolName === "final_answer" || d.toolName === "answer") {
     throw new Error(
-      `[PlannerDecision] toolName "answer" must use decision.type "answer", not "tool".`,
+      `[PlannerDecision] toolName "${d.toolName}" must use decision.type "answer", not "tool".`,
     );
   }
   assertNoBlacklistKeysRecursive(d.args, "tool args");
@@ -101,19 +117,30 @@ function parseToolDecision(d: Record<string, unknown>): PlannerToolDecision {
 }
 
 function parseAnswerDecision(d: Record<string, unknown>): PlannerAnswerDecision {
-  if (typeof d.toolName !== "string") {
-    throw new Error(`[PlannerDecision] answer decision requires toolName.`);
+  if (d.toolName !== undefined) {
+    if (typeof d.toolName !== "string") {
+      throw new Error(`[PlannerDecision] answer decision toolName must be a string.`);
+    }
+    if (d.toolName !== "final_answer" && d.toolName !== "answer") {
+      throw new Error(
+        `[PlannerDecision] answer decision toolName must be "final_answer" (got "${d.toolName}").`,
+      );
+    }
   }
-  if (d.toolName !== "answer") {
-    throw new Error(
-      `[PlannerDecision] answer decision toolName must be "answer" (got "${d.toolName}").`,
-    );
-  }
-  assertAnswerArgsShape(d.args);
+
+  // 兼容 args 层缺失时，从顶层提取 body/references
+  const rawArgs = d.args && typeof d.args === "object"
+    ? d.args
+    : {
+        body: d.body,
+        references: d.references,
+      };
+
+  assertAnswerArgsShape(rawArgs);
   return {
     type: "answer",
-    toolName: "answer",
-    args: d.args,
+    toolName: "final_answer",
+    args: rawArgs,
     rationale: typeof d.rationale === "string" ? d.rationale : undefined,
   };
 }
@@ -121,10 +148,8 @@ function parseAnswerDecision(d: Record<string, unknown>): PlannerAnswerDecision 
 function parseStopDecision(d: Record<string, unknown>): PlannerStopDecision {
   const reasonCode = d.reasonCode as PlannerStopReasonCode;
   if (
-    reasonCode !== "planner_declined_to_act" &&
     reasonCode !== "user_canceled" &&
-    reasonCode !== "evidence_sufficient_to_stop" &&
-    reasonCode !== "ambiguous_need_clarification"
+    reasonCode !== "internal_aborted"
   ) {
     throw new Error(
       `[PlannerDecision] stop decision reasonCode invalid: ${String(reasonCode)}`,
@@ -138,11 +163,8 @@ function parseStopDecision(d: Record<string, unknown>): PlannerStopDecision {
 }
 
 function assertAnswerArgsShape(args: unknown): void {
-  if (args == null) {
+  if (args == null || typeof args !== "object") {
     throw new Error(`[PlannerDecision] answer args must be an object with body.`);
-  }
-  if (typeof args !== "object") {
-    throw new Error(`[PlannerDecision] answer args must be an object.`);
   }
   const obj = args as Record<string, unknown>;
   if (typeof obj.body !== "string" || !obj.body.trim()) {
@@ -150,17 +172,6 @@ function assertAnswerArgsShape(args: unknown): void {
       `[PlannerDecision] answer args.body must be a non-empty string.`,
     );
   }
-  if (
-    obj.evidenceMode !== "with_evidence" &&
-    obj.evidenceMode !== "insufficient_evidence" &&
-    obj.evidenceMode !== "without_kb_evidence"
-  ) {
-    throw new Error(
-      `[PlannerDecision] answer args.evidenceMode must be one of ` +
-        `with_evidence | insufficient_evidence | without_kb_evidence.`,
-    );
-  }
-
   for (const key of Object.keys(obj)) {
     if (!ALLOWED_ANSWER_KEYS.has(key)) {
       throw new Error(
@@ -168,44 +179,12 @@ function assertAnswerArgsShape(args: unknown): void {
       );
     }
   }
-
-  if (
-    "displayedReferenceHandles" in obj &&
-    !isStringArray(obj.displayedReferenceHandles)
-  ) {
+  if ("references" in obj && !Array.isArray(obj.references)) {
     throw new Error(
-      `[PlannerDecision] answer args.displayedReferenceHandles must be string[].`,
+      `[PlannerDecision] answer args.references must be an array.`,
     );
   }
-  if (
-    "safeEvidenceHandles" in obj &&
-    !isStringArray(obj.safeEvidenceHandles)
-  ) {
-    throw new Error(
-      `[PlannerDecision] answer args.safeEvidenceHandles must be string[].`,
-    );
-  }
-
-  if (Array.isArray(obj.displayedReferenceHandles)) {
-    for (let i = 0; i < obj.displayedReferenceHandles.length; i += 1) {
-      assertSafeDisplayedHandle(obj.displayedReferenceHandles[i]);
-    }
-  }
-  if (Array.isArray(obj.safeEvidenceHandles)) {
-    for (let i = 0; i < obj.safeEvidenceHandles.length; i += 1) {
-      assertSafeDisplayedHandle(obj.safeEvidenceHandles[i]);
-    }
-  }
-
   assertNoBlacklistKeysRecursive(obj, "answer args");
-}
-
-function isStringArray(v: unknown): v is string[] {
-  if (!Array.isArray(v)) return false;
-  for (const x of v) {
-    if (typeof x !== "string") return false;
-  }
-  return true;
 }
 
 function assertNoBlacklistKeysRecursive(value: unknown, path: string): void {
@@ -237,7 +216,7 @@ function assertNoForbiddenKeys(decision: unknown): void {
     if (isForbiddenFlowControlField(key)) {
       throw new Error(
         `[PlannerDecision] decision contains forbidden key "${key}". ` +
-          `Planner must not carry flow-control hints / finalizeAnswer / real IDs.`,
+          `Planner must not carry flow-control hints / forbidden flow-control / real-ID key.`,
       );
     }
   }

@@ -205,6 +205,15 @@ function normalizeNumericSettings(settings: Partial<KbSettings>): Partial<KbSett
     );
   }
 
+  if (normalized.agentReadMaxCharsPerDoc !== undefined) {
+    normalized.agentReadMaxCharsPerDoc = normalizeIntegerSetting(
+      normalized.agentReadMaxCharsPerDoc,
+      DEFAULT_KB_SETTINGS.agentReadMaxCharsPerDoc,
+      2000,
+      100000
+    );
+  }
+
   // 归一化 chatProviders 中模型的 temperature 和 maxTokens
   // 注意：这里只负责数值归一化，不要补 id/name/type/baseUrl，交给 sanitizeChatProviders 统一处理
   // 使用 unknown 中间态避免 TypeScript 类型冲突
@@ -311,6 +320,7 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     headingMatchWeight: normalized.headingMatchWeight ?? DEFAULT_KB_SETTINGS.headingMatchWeight,
     textMatchWeight: normalized.textMatchWeight ?? DEFAULT_KB_SETTINGS.textMatchWeight,
     previewMatchWeight: normalized.previewMatchWeight ?? DEFAULT_KB_SETTINGS.previewMatchWeight,
+    agentReadMaxCharsPerDoc: normalized.agentReadMaxCharsPerDoc ?? DEFAULT_KB_SETTINGS.agentReadMaxCharsPerDoc,
     chatProviders,
     selectedChatProviderId: finalSelectedProviderId,
     selectedChatModelId: finalSelectedModelId,

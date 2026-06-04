@@ -248,7 +248,7 @@ export async function searchBlocksForAgenticRag(
   }
 
   if (scope.type === "current_doc" || scope.type === "custom_docs") {
-    warnings.push("固定范围应使用 read_docs/read_block_context 而不是 search_scope");
+    warnings.push("固定文档范围不开放 search_scope。");
     return {
       hits: [],
       docHits: [],
