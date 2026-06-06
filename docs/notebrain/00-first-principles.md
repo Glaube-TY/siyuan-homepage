@@ -49,8 +49,9 @@
 2. **历史工具 observation 不进入上下文。**
    conversationContext 不包含 workbenchEvents、ToolDispatch、ToolResult、历史 observation、正文、debug trace。需要历史正文时 Planner 自主调用读取工具。
 
-3. **自动压缩不调用 LLM。**
-   压缩只使用 Planner 已通过 `final_answer.stageSummary` 给出的会话内阶段摘要；Workbench 不生成摘要，不从回答正文截断摘要，也不读取历史工具 observation。
+3. **常规阶段摘要压缩不调用 LLM；Emergency Context Compaction 例外。**
+   常规压缩只使用 Planner 已通过 `final_answer.stageSummary` 给出的会话内阶段摘要；Workbench 不生成摘要，不从回答正文截断摘要，也不读取历史工具 observation。
+   当上下文用量达到硬阈值（forceCompressionRatio，默认 90%）且常规阶段摘要压缩无法安全压缩时，允许触发一次性的 Emergency Context Compaction：由 LLM 基于未覆盖的完整问答轮次生成应急阶段摘要。Emergency Compaction 是上下文预算管理的 system action，不是普通工具，不出现在 Tool manifest，不写 ObservationLog，不读工具 observation，不写长期记忆，只生成当前会话内阶段摘要。
 
 4. **压缩摘要过长时滚动处理。**
    `compressedContextSummary` 完全由 `stageSummaries` 渲染，过长时前面折成 `[更早阶段摘要已折叠，不进入 Planner]`，不把超长摘要塞进 Planner。

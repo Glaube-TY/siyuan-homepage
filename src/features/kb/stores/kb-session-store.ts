@@ -665,8 +665,8 @@ function createKbSessionStore() {
 
     /**
      * 执行上下文压缩（用户手动触发）
-     * - 不调用 LLM，只使用 Planner 阶段摘要
-     * - 只压缩阶段摘要覆盖边界内的完整问答轮次
+     * - 手动常规压缩不调用 LLM；Emergency Compaction 只在发送前硬阈值兜底触发
+     * - 只使用 Planner 阶段摘要做边界 compact
      * - 未覆盖对话继续保留原文
      * - 标记旧消息为 compacted（不物理删除）
      * - 保存 compressionState 和 compressedContextSummary

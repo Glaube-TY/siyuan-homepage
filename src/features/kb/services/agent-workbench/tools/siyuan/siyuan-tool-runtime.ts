@@ -10,13 +10,16 @@ import type { KbSettings } from "../../../../types/settings";
 export class SiyuanToolRuntimeState implements SiyuanToolDeps {
   private scope: AgentScope | undefined;
   private settings: Partial<KbSettings> | undefined;
+  private loadPluginDataFn: (<T = unknown>(key: string) => Promise<T | null>) | undefined;
 
   constructor(params: {
     scope: AgentScope;
     settings?: Partial<KbSettings>;
+    loadPluginData?: <T = unknown>(key: string) => Promise<T | null>;
   }) {
     this.scope = params.scope;
     this.settings = params.settings;
+    this.loadPluginDataFn = params.loadPluginData;
   }
 
   setScope(scope: AgentScope): void {
@@ -33,5 +36,10 @@ export class SiyuanToolRuntimeState implements SiyuanToolDeps {
 
   getSettings(): Partial<KbSettings> | undefined {
     return this.settings;
+  }
+
+  loadPluginData<T = unknown>(key: string): Promise<T | null> {
+    if (!this.loadPluginDataFn) return Promise.resolve(null);
+    return this.loadPluginDataFn<T>(key);
   }
 }

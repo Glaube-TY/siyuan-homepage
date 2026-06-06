@@ -28,16 +28,20 @@
 import type { AskByModeParams, AskByModeResult } from "./ask-by-mode-types";
 import type { ChatMode } from "../../constants/chat-modes";
 import type { ChatMessage, ConversationStageSummary } from "../../types/chat";
+import type { ChatModelSelection } from "../../types/chat-model-selection";
 import type { AgentScopeMode } from "../agent-workbench/scope/types";
 import { runAgentTurn, type AgentTurnOutcome } from "../agent-workbench/runtime/run-agent-turn";
 import type { AgentTurnResult } from "../agent-workbench";
 import { buildAgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
-import { maybeAutoCompressContext } from "../context-compression";
+import { maybeAutoCompressContext, emergencyCompressContext } from "../context-compression";
+import type { MaybeAutoCompressResult } from "../context-compression";
 import { estimateContextUsage } from "../../types/context-usage";
 import { buildConversationContext } from "../agent-workbench/runtime/conversation-context-builder";
-import { findCompleteConversationTurn } from "../agent-workbench/runtime/conversation-turns";
+import { findCompleteConversationTurn, getCompleteConversationTurns } from "../agent-workbench/runtime/conversation-turns";
 import { showMessage } from "siyuan";
+import type { KbSessionState } from "../../types/session";
+import type { ContextUsageSnapshot } from "../../types/context-usage";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -53,6 +57,187 @@ function createMessageId(): string {
 
 function createStageSummaryId(): string {
   return `stage-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+interface PreflightCompressionResult {
+  ok: boolean;
+  reason?: string;
+}
+
+async function resolvePreflightCompression(
+  params: {
+    getState: () => KbSessionState;
+    updateState: (updater: (state: KbSessionState) => Partial<KbSessionState>) => void;
+    initialUsageSnapshot: ContextUsageSnapshot;
+    contextWindowTokens: number | undefined;
+    chatModelSelection: ChatModelSelection | null | undefined;
+    abortSignal: AbortSignal | undefined;
+    schedulePersist: (() => void) | undefined;
+  }
+): Promise<PreflightCompressionResult> {
+  const { getState, updateState, initialUsageSnapshot, contextWindowTokens, chatModelSelection, abortSignal, schedulePersist } = params;
+
+  const forceCompressionRatio = getState().compressionState?.forceCompressionRatio ?? 0.9;
+  const isForce = initialUsageSnapshot.usageRatio >= forceCompressionRatio;
+
+  const reEstimate = (state: KbSessionState): ContextUsageSnapshot => {
+    return estimateContextUsage({
+      messages: state.messages,
+      attachedDocCount: 0,
+      compressedSummaryChars: state.compressedContextSummary?.length ?? 0,
+      stageSummaryStatusChars: 160 + ((state.stageSummaries?.length ?? 0) > 0 ? 80 : 0),
+      contextWindowTokens: contextWindowTokens ?? initialUsageSnapshot.maxContextTokens,
+    });
+  };
+
+  const applyCompressResult = (result: MaybeAutoCompressResult): boolean => {
+    if (result.action === "compressed" && result.updatedMessages) {
+      updateState((state) => ({
+        ...state,
+        messages: result.updatedMessages!,
+        compressedContextSummary: result.newCompressedContextSummary ?? state.compressedContextSummary,
+        compressionState: result.newCompressionState ?? state.compressionState,
+      }));
+      return true;
+    }
+    if (result.action === "emergency_compressed" && result.newStageSummaries) {
+      updateState((state) => ({
+        ...state,
+        stageSummaries: [...(state.stageSummaries ?? []), ...result.newStageSummaries!],
+      }));
+      return true;
+    }
+    return false;
+  };
+
+  const tryCompress = async (allowEmergency: boolean): Promise<MaybeAutoCompressResult> => {
+    const state = getState();
+    const snapshot = reEstimate(state);
+    return maybeAutoCompressContext({
+      messages: state.messages,
+      stageSummaries: state.stageSummaries ?? [],
+      compressedContextSummary: state.compressedContextSummary,
+      compressionState: state.compressionState,
+      usageRatio: snapshot.usageRatio,
+      maxContextTokens: snapshot.maxContextTokens,
+      maxContextSource: snapshot.maxContextSource,
+      chatModelSelection,
+      abortSignal,
+      allowEmergency,
+    });
+  };
+
+  // Step 1: try compression (allow emergency fallback inside maybeAutoCompressContext)
+  const step1 = await tryCompress(true);
+  const step1Applied = applyCompressResult(step1);
+  if (step1Applied) {
+    try { schedulePersist?.(); } catch { /* persist failure is non-blocking */ }
+  }
+
+  if (!isForce) {
+    return { ok: true };
+  }
+
+  // Force path: must re-estimate after each step
+  let state = getState();
+  let snapshot = reEstimate(state);
+
+  if (snapshot.usageRatio < forceCompressionRatio) {
+    return { ok: true };
+  }
+
+  // Still over limit after step 1
+  const completeTurns = getCompleteConversationTurns(state.messages);
+  const lastSummarizedTurnIndex = state.stageSummaries?.length
+    ? Math.max(...state.stageSummaries.map((s) => s.endTurnIndex))
+    : 0;
+  const hasUncoveredTurns = completeTurns.some(
+    (t) => t.turnIndex > lastSummarizedTurnIndex && !t.user.compacted && !t.assistant.compacted
+  );
+
+  if (!hasUncoveredTurns) {
+    pushAgentDebugEvent("CONTEXT_FORCE_COMPRESSION_STILL_OVER_LIMIT", {
+      usageRatioPct: Math.round(snapshot.usageRatio * 100),
+      maxContextTokens: snapshot.maxContextTokens,
+      messageCount: state.messages.length,
+      stageSummaryCount: state.stageSummaries?.length ?? 0,
+      compressedMessageCount: state.compressionState?.compressedMessageCount ?? 0,
+    }, "warn");
+    return { ok: false, reason: "普通压缩后仍超过硬阈值，且没有可进一步压缩的轮次" };
+  }
+
+  // If step1 already triggered emergency, retry normal compression then re-estimate
+  if (step1.action === "emergency_compressed") {
+    const retry = await tryCompress(false);
+    if (applyCompressResult(retry)) {
+      try { schedulePersist?.(); } catch { /* persist failure is non-blocking */ }
+    }
+
+    state = getState();
+    snapshot = reEstimate(state);
+
+    if (snapshot.usageRatio < forceCompressionRatio) {
+      return { ok: true };
+    }
+
+    pushAgentDebugEvent("CONTEXT_EMERGENCY_COMPACTION_STILL_OVER_LIMIT", {
+      usageRatioPct: Math.round(snapshot.usageRatio * 100),
+      maxContextTokens: snapshot.maxContextTokens,
+      messageCount: state.messages.length,
+      stageSummaryCount: state.stageSummaries?.length ?? 0,
+      compressedMessageCount: state.compressionState?.compressedMessageCount ?? 0,
+    }, "warn");
+    return { ok: false, reason: "emergency 压缩后仍超过硬阈值" };
+  }
+
+  // Step 1 was "compressed" or "no_op". We have uncovered turns. Trigger emergency manually.
+  const emergencyResult = await emergencyCompressContext({
+    messages: state.messages,
+    stageSummaries: state.stageSummaries ?? [],
+    usageRatio: snapshot.usageRatio,
+    maxContextTokens: snapshot.maxContextTokens,
+    chatModelSelection,
+    abortSignal,
+  });
+
+  if (!emergencyResult.success || !emergencyResult.newStageSummaries) {
+    pushAgentDebugEvent("CONTEXT_FORCE_COMPRESSION_STILL_OVER_LIMIT", {
+      usageRatioPct: Math.round(snapshot.usageRatio * 100),
+      maxContextTokens: snapshot.maxContextTokens,
+      messageCount: state.messages.length,
+      stageSummaryCount: state.stageSummaries?.length ?? 0,
+      compressedMessageCount: state.compressionState?.compressedMessageCount ?? 0,
+    }, "warn");
+    return { ok: false, reason: "普通压缩后仍超过硬阈值，emergency 压缩失败" };
+  }
+
+  updateState((s) => ({
+    ...s,
+    stageSummaries: [...(s.stageSummaries ?? []), ...emergencyResult.newStageSummaries!],
+  }));
+  try { schedulePersist?.(); } catch { /* persist failure is non-blocking */ }
+
+  // Retry normal compression after emergency (allowEmergency = false)
+  const retry = await tryCompress(false);
+  if (applyCompressResult(retry)) {
+    try { schedulePersist?.(); } catch { /* persist failure is non-blocking */ }
+  }
+
+  state = getState();
+  snapshot = reEstimate(state);
+
+  if (snapshot.usageRatio < forceCompressionRatio) {
+    return { ok: true };
+  }
+
+  pushAgentDebugEvent("CONTEXT_EMERGENCY_COMPACTION_STILL_OVER_LIMIT", {
+    usageRatioPct: Math.round(snapshot.usageRatio * 100),
+    maxContextTokens: snapshot.maxContextTokens,
+    messageCount: state.messages.length,
+    stageSummaryCount: state.stageSummaries?.length ?? 0,
+    compressedMessageCount: state.compressionState?.compressedMessageCount ?? 0,
+  }, "warn");
+  return { ok: false, reason: "emergency 压缩后仍超过硬阈值" };
 }
 
 function mapChatModeToAgentScopeMode(mode: ChatMode): AgentScopeMode | null {
@@ -257,87 +442,44 @@ export async function runAgentWorkbenchModeFlow(
       stageSummaryStatusChars: 160 + ((stateForConversationContext.stageSummaries?.length ?? 0) > 0 ? 80 : 0),
       contextWindowTokens,
     });
-    const usageRatio = usageSnapshot.usageRatio;
-    const forceCompressionRatio = stateForConversationContext.compressionState?.forceCompressionRatio ?? 0.9;
-    const isForce = usageRatio >= forceCompressionRatio;
 
-    try {
-      const autoCompressResult = await maybeAutoCompressContext({
-        messages: stateForConversationContext.messages,
-        stageSummaries: stateForConversationContext.stageSummaries ?? [],
-        compressedContextSummary: stateForConversationContext.compressedContextSummary,
-        compressionState: stateForConversationContext.compressionState,
-        usageRatio,
-        maxContextTokens: usageSnapshot.maxContextTokens,
-        maxContextSource: usageSnapshot.maxContextSource,
-      });
-
-      if (autoCompressResult.action === "compressed" && autoCompressResult.updatedMessages) {
-        // Update state with compressed messages and summary
-        updateState((state) => ({
-          ...state,
-          messages: autoCompressResult.updatedMessages!,
-          compressedContextSummary: autoCompressResult.newCompressedContextSummary ?? state.compressedContextSummary,
-          compressionState: autoCompressResult.newCompressionState ?? state.compressionState,
-        }));
-
-        // Persist if available
+    const preflightResult = await resolvePreflightCompression({
+      getState,
+      updateState,
+      initialUsageSnapshot: usageSnapshot,
+      contextWindowTokens,
+      chatModelSelection: params.chatModelSelection,
+      abortSignal: params.abortSignal,
+      schedulePersist: () => {
         try {
           const persistFn = (params as unknown as Record<string, unknown>).schedulePersist;
           if (typeof persistFn === "function") {
             (persistFn as () => void)();
           }
         } catch { /* persist failure is non-blocking */ }
-      } else if (autoCompressResult.action === "emergency_compressed" && autoCompressResult.newStageSummaries) {
-        // Emergency compression generated new stage summaries — merge them in
-        updateState((state) => ({
-          ...state,
-          stageSummaries: [...(state.stageSummaries ?? []), ...autoCompressResult.newStageSummaries!],
-        }));
+      },
+    });
 
-        // After emergency stage summaries are added, try normal compression again
-        const stateAfterEmergency = getState();
-        const retryResult = maybeAutoCompressContext({
-          messages: stateAfterEmergency.messages,
-          stageSummaries: stateAfterEmergency.stageSummaries ?? [],
-          compressedContextSummary: stateAfterEmergency.compressedContextSummary,
-          compressionState: stateAfterEmergency.compressionState,
-          usageRatio,
-          maxContextTokens: usageSnapshot.maxContextTokens,
-          maxContextSource: usageSnapshot.maxContextSource,
-        });
+    if (!preflightResult.ok) {
+      try {
+        showMessage("上下文压力过大，紧急压缩未能完成。建议手动压缩或开启新对话。", 5000);
+      } catch { /* showMessage may not be available in all contexts */ }
 
-        // Note: retryResult is a Promise now since maybeAutoCompressContext is async
-        // but we don't want to recursively trigger emergency again, so we handle
-        // only "compressed" result here
-        const resolvedRetry = await retryResult;
-        if (resolvedRetry.action === "compressed" && resolvedRetry.updatedMessages) {
-          updateState((state) => ({
-            ...state,
-            messages: resolvedRetry.updatedMessages!,
-            compressedContextSummary: resolvedRetry.newCompressedContextSummary ?? state.compressedContextSummary,
-            compressionState: resolvedRetry.newCompressionState ?? state.compressionState,
-          }));
-        }
-
-        try {
-          const persistFn = (params as unknown as Record<string, unknown>).schedulePersist;
-          if (typeof persistFn === "function") {
-            (persistFn as () => void)();
-          }
-        } catch { /* persist failure is non-blocking */ }
-      } else if (isForce && autoCompressResult.action === "no_op") {
-        // Emergency compression was attempted but failed — notify user via toast
-        try {
-          showMessage("上下文压力过大，紧急压缩未能完成。建议手动压缩或开启新对话。", 5000);
-        } catch { /* showMessage may not be available in all contexts */ }
+      if (setMessages) {
+        setMessages((messages) =>
+          messages.filter((m) => !(m.id === assistantMessageId && m.role === "assistant" && !m.content.trim()))
+        );
       }
-    } catch (err) {
-      // Auto compression failure must not block the conversation
-      pushAgentDebugEvent("CONTEXT_AUTO_COMPRESSION_FAILED", {
-        error: err instanceof Error ? err.message.slice(0, 80) : String(err),
-        phase: "pre_build_context",
-      }, "warn");
+
+      updateState((state) => ({
+        ...state,
+        asking: false,
+        qaError: "",
+        error: "",
+        agentStatus: undefined,
+      }));
+
+      return { success: false, error: preflightResult.reason ?? "上下文压力过大，紧急压缩未能完成" };
     }
 
     // Re-read state after potential auto compression

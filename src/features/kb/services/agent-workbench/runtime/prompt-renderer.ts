@@ -123,6 +123,8 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
     blocks.push(stringifyForPrompt(ctx.conversationContext));
   }
   blocks.push("");
+  blocks.push("conversationContext.currentTurn.runtimeNow 表示插件运行时的当前本地时间。你在理解‘今天、昨天、明天、本周、现在、刚才、最近’等时间相关问题时，应优先使用 runtimeNow。如果用户问当前时间，可以依据 runtimeNow 回答。runtimeNow 不是工具 observation，也不是历史消息；它只代表本轮上下文构建时的运行时刻。");
+  blocks.push("");
 
   // Output protocol
   blocks.push("# 输出格式");
@@ -132,7 +134,7 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
   blocks.push('需要阶段摘要时：{"type":"answer","args":{"body":"回答正文","references":[],"stageSummary":{"summary":"阶段摘要正文"}}}');
   blocks.push('当回答基于真实资源 ID（docId、blockId、url、fileId、resourceId）时，应在 references 中列出对应来源。');
   blocks.push('stageSummary 是可选的历史阶段摘要。默认不要写。只有当上一个阶段摘要之后的对话已经积累了对后续继续对话有帮助的信息时，才在最终回答中输出 stageSummary。摘要应忠实概括这段历史对话的关键信息，不预设固定格式，不编造，不重复已有阶段摘要。');
-  blocks.push('适合输出 stageSummary 的情况：连续多轮对话后形成了值得后续保留的关键信息或结论；当前回答包含对后续对话有参考价值的判断、规则或方案；用户明确要求保存阶段摘要；或不总结会导致后续压缩丢失重要上下文。简单寒暄、确认、过渡回复、无新增信息时不要输出。');
+  blocks.push('适合输出 stageSummary 的情况：连续多轮对话后形成了值得后续保留的关键信息或结论；当前回答包含对后续对话有参考价值的信息、约束或上下文线索；用户明确要求保存阶段摘要；或不总结会导致后续压缩丢失重要上下文。简单寒暄、确认、过渡回复、无新增信息时不要输出。');
   blocks.push('上下文压力提示：conversationContext.stageSummaryStatus.pressureLevel 表示上下文预算压力（none/suggested/recommended/urgent/required），pressureReason 说明原因。这只是预算压力提示，你仍自主判断是否输出 stageSummary；但 pressureLevel 为 required 时，除非最近内容完全无实质信息，否则应在 final_answer 中输出 stageSummary。');
   blocks.push('stageSummary.summary 建议 300-1000 字，简短阶段可 150-300 字，最多 1500 字。只总结上一个阶段摘要之后的新对话，并覆盖到当前最终回答为止；不要重述已有阶段摘要。');
   blocks.push('stageSummary 不得记录工具 observation 原文、ToolDispatch、ToolResult、workbenchEvents、debug trace、full prompt、internal path、realPath、工具返回正文、未经 grounding 的参考资料或代码内部隐藏映射。');

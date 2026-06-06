@@ -113,8 +113,37 @@ export {
 } from "./tools/siyuan/read-docs.tool";
 export type { ReadDocsInput, ReadDocsOutput, ReadDocsItem, ReadDocsError, ReadDocsDeps } from "./tools/siyuan/read-docs.tool";
 
+export {
+  createGetDailyWorkspaceOverviewTool,
+  getDailyWorkspaceOverviewInputSchema,
+  getDailyWorkspaceOverviewOutputSchema,
+} from "./tools/siyuan/get-daily-workspace-overview.tool";
+export type { GetDailyWorkspaceOverviewInput, GetDailyWorkspaceOverviewOutput, GetDailyWorkspaceOverviewDeps } from "./tools/siyuan/get-daily-workspace-overview.tool";
+
+export {
+  createQueryTasksTool,
+  queryTasksInputSchema,
+  queryTasksOutputSchema,
+} from "./tools/siyuan/query-tasks.tool";
+export type { QueryTasksInput, QueryTasksOutput, QueryTasksDeps } from "./tools/siyuan/query-tasks.tool";
+
+export {
+  createQueryDiaryRecordsTool,
+  queryDiaryRecordsInputSchema,
+  queryDiaryRecordsOutputSchema,
+} from "./tools/siyuan/query-diary-records.tool";
+export type { QueryDiaryRecordsInput, QueryDiaryRecordsOutput, QueryDiaryRecordsDeps } from "./tools/siyuan/query-diary-records.tool";
+
+export {
+  createFindDiaryDocsTool,
+  findDiaryDocsInputSchema,
+  findDiaryDocsOutputSchema,
+} from "./tools/siyuan/find-diary-docs.tool";
+export type { FindDiaryDocsInput, FindDiaryDocsOutput, FindDiaryDocsDeps } from "./tools/siyuan/find-diary-docs.tool";
+
 // skills
 export { createKnowledgeBaseQaSkill, BUILTIN_KB_SKILL_NAME } from "./skills/builtin/knowledge-base-qa.skill";
+export { createScheduleTaskDiarySkill, BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "./skills/builtin/schedule-task-diary.skill";
 
 // debug (dev-only)
 export { checkToolSchemaSanity, runSchemaSanity } from "./debug/schema-sanity";

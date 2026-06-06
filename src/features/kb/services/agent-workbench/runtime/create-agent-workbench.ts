@@ -19,13 +19,34 @@ import {
   createReadDocsTool,
   type ReadDocsDeps,
 } from "../tools/siyuan/read-docs.tool";
+import {
+  createGetDailyWorkspaceOverviewTool,
+  type GetDailyWorkspaceOverviewDeps,
+} from "../tools/siyuan/get-daily-workspace-overview.tool";
+import {
+  createQueryTasksTool,
+  type QueryTasksDeps,
+} from "../tools/siyuan/query-tasks.tool";
+import {
+  createQueryDiaryRecordsTool,
+  type QueryDiaryRecordsDeps,
+} from "../tools/siyuan/query-diary-records.tool";
+import {
+  createFindDiaryDocsTool,
+  type FindDiaryDocsDeps,
+} from "../tools/siyuan/find-diary-docs.tool";
 import { createKnowledgeBaseQaSkill } from "../skills/builtin/knowledge-base-qa.skill";
+import { createScheduleTaskDiarySkill } from "../skills/builtin/schedule-task-diary.skill";
 
 // Tool execution implementations — independent of Skill directory
 import type { SiyuanToolDeps } from "../tools/siyuan/siyuan-tool-deps";
 import { executeListKnowledgeMap } from "../tools/siyuan/impl/list-knowledge-map.impl";
 import { executeSearchScope } from "../tools/siyuan/impl/search-scope.impl";
 import { executeReadDocs } from "../tools/siyuan/impl/read-docs.impl";
+import { executeGetDailyWorkspaceOverview } from "../tools/siyuan/impl/get-daily-workspace-overview.impl";
+import { executeQueryTasks } from "../tools/siyuan/impl/query-tasks.impl";
+import { executeQueryDiaryRecords } from "../tools/siyuan/impl/query-diary-records.impl";
+import { executeFindDiaryDocs } from "../tools/siyuan/impl/find-diary-docs.impl";
 
 // User skill loader (uses new agent-workbench contracts directly)
 import { MarkdownSkillLoader } from "../skills/user/markdown-skill-loader";
@@ -60,7 +81,19 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   const readDeps: ReadDocsDeps = {
     executeReadDocs: (args) => executeReadDocs(deps, args),
   };
-  return { lkmDeps, searchDeps, readDeps };
+  const overviewDeps: GetDailyWorkspaceOverviewDeps = {
+    executeGetDailyWorkspaceOverview: (args) => executeGetDailyWorkspaceOverview(deps, args),
+  };
+  const taskDeps: QueryTasksDeps = {
+    executeQueryTasks: (args) => executeQueryTasks(deps, args),
+  };
+  const recordDeps: QueryDiaryRecordsDeps = {
+    executeQueryDiaryRecords: (args) => executeQueryDiaryRecords(deps, args),
+  };
+  const diaryDocDeps: FindDiaryDocsDeps = {
+    executeFindDiaryDocs: (args) => executeFindDiaryDocs(deps, args),
+  };
+  return { lkmDeps, searchDeps, readDeps, overviewDeps, taskDeps, recordDeps, diaryDocDeps };
 }
 
 export function createAgentWorkbenchRuntime(
@@ -72,16 +105,29 @@ export function createAgentWorkbenchRuntime(
 
   // Register built-in skill
   skillRegistry.ensureSkill(createKnowledgeBaseQaSkill(), "builtin");
+  skillRegistry.ensureSkill(createScheduleTaskDiarySkill(), "builtin");
 
   // Register final_answer (plannerVisible: false — not in tool manifest)
   toolRegistry.ensureTool(createFinalAnswerTool());
 
   // Register siyuan tools
   if (options.kbRetrievalToolDeps) {
-    const { lkmDeps, searchDeps, readDeps } = createSiyuanToolDeps(options.kbRetrievalToolDeps);
+    const {
+      lkmDeps,
+      searchDeps,
+      readDeps,
+      overviewDeps,
+      taskDeps,
+      recordDeps,
+      diaryDocDeps,
+    } = createSiyuanToolDeps(options.kbRetrievalToolDeps);
     toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
     toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
     toolRegistry.ensureTool(createReadDocsTool(readDeps));
+    toolRegistry.ensureTool(createGetDailyWorkspaceOverviewTool(overviewDeps));
+    toolRegistry.ensureTool(createQueryTasksTool(taskDeps));
+    toolRegistry.ensureTool(createQueryDiaryRecordsTool(recordDeps));
+    toolRegistry.ensureTool(createFindDiaryDocsTool(diaryDocDeps));
   }
 
   // Single debug entry point — no console output by default

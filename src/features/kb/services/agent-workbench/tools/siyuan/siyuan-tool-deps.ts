@@ -10,4 +10,5 @@ export interface SiyuanToolDeps {
   getScope(): AgentScope | undefined;
   getEffectiveScope(): AgentScope | undefined;
   getSettings?(): Partial<KbSettings> | undefined;
+  loadPluginData?<T = unknown>(key: string): Promise<T | null>;
 }

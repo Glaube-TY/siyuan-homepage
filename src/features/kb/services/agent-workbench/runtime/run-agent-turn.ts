@@ -14,6 +14,7 @@ import { PromptJsonPlannerProvider } from "./planner-provider";
 import { callLlmObject, type LlmCallOptions } from "../../qa/llm-client";
 import { resolveReasoningEffortForCompose, resolveEffectiveCapability } from "../../qa/model-capabilities";
 import { getKbSettings } from "../../settings/kb-settings-service";
+import { loadData as loadPluginData } from "../storage/notebrain-plugin-storage";
 import { resolveAgentScope } from "../scope/resolve-scope";
 import type { AgentScopeMode } from "../scope/types";
 import type { AgentWorkbenchEvent } from "../contracts/turn-event";
@@ -198,7 +199,7 @@ export async function runAgentTurn(
   });
   const scope = resolvedScope.scope;
 
-  const deps = new SiyuanToolRuntimeState({ scope });
+  const deps = new SiyuanToolRuntimeState({ scope, loadPluginData });
 
   const wb = createAgentWorkbenchRuntime({
     kbRetrievalToolDeps: deps,

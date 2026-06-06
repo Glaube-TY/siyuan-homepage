@@ -133,7 +133,7 @@ Reasonix 的 thin harness 思路对本项目有参考价值：
 - **run_skill / subagent skill**：当前 Skill 是独立中文提示语能力包，不拥有工具、不绑定工具。未来如果 Skill 很多，可以考虑 Skill index + 按需注入，但仍不得让 Skill 拥有工具或规定固定流程。
 - **allowedTools skill 绑定**：所有工具对所有 Skill 可见，不做 per-skill 工具过滤。
 - **finalReadiness / complete_step**：不实现，Planner 自行判断何时回答。
-- **阶段摘要 context compression**：发送前仍可根据上下文用量自动触发压缩；使用当前模型 `contextWindowTokens` 估算，无模型配置时 fallback 默认值；不调用 LLM；只 compact 已被 Planner `stageSummary` 覆盖的完整 user + completed assistant 问答轮次；未覆盖对话保持原文；`compressedContextSummary` 完全由当前会话 `stageSummaries` 渲染；没有阶段摘要覆盖时自动压缩 no-op、手动压缩返回不可安全压缩提示（toast，不写入聊天消息）；历史工具 observation 不进入上下文；这是会话上下文预算管理，不是长期记忆，也不是业务流程控制；Planner 可参考 `unsummarizedTurnCount` 判断是否生成 stageSummary，但 Workbench 不强制生成。
+- **阶段摘要 context compression**：发送前仍可根据上下文用量自动触发压缩；使用当前模型 `contextWindowTokens` 估算，无模型配置时 fallback 默认值；常规压缩不调用 LLM，仅使用 Planner 已提供的 `stageSummary` 做边界 compact；仅在达到硬阈值（forceCompressionRatio，默认 90%）且常规压缩无法安全压缩时，允许触发一次性的 Emergency Context Compaction 由 LLM 生成应急阶段摘要；只 compact 已被 Planner `stageSummary` 覆盖的完整 user + completed assistant 问答轮次；未覆盖对话保持原文；`compressedContextSummary` 完全由当前会话 `stageSummaries` 渲染；没有阶段摘要覆盖时自动压缩 no-op、手动压缩返回不可安全压缩提示（toast，不写入聊天消息）；历史工具 observation 不进入上下文；这是会话上下文预算管理，不是长期记忆，也不是业务流程控制；Planner 可参考 `unsummarizedTurnCount` 判断是否生成 stageSummary，但 Workbench 不强制生成。
 
 ## 工具目标
 

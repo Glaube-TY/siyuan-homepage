@@ -318,6 +318,14 @@ export function collectObservationReferences(
       collectKnowledgeMapReferences(entry.content, refs);
     } else if (entry.toolName === "search_scope") {
       collectSearchScopeReferences(entry.content, refs);
+    } else if (entry.toolName === "get_daily_workspace_overview") {
+      collectDailyWorkspaceOverviewReferences(entry.content, refs);
+    } else if (entry.toolName === "query_tasks") {
+      collectAgendaTaskReferences(entry.content, refs);
+    } else if (entry.toolName === "query_diary_records") {
+      collectAgendaRecordReferences(entry.content, refs);
+    } else if (entry.toolName === "find_diary_docs") {
+      collectDiaryDocReferences(entry.content, refs);
     }
     if (refs.length >= MAX_OBSERVATION_REFERENCES) break;
   }
@@ -484,6 +492,129 @@ function collectKnowledgeNode(
     if (!collectKnowledgeNode(child, refs, depth + 1)) return false;
   }
   return refs.length < MAX_OBSERVATION_REFERENCES;
+}
+
+function collectDailyWorkspaceOverviewReferences(
+  content: unknown,
+  refs: CollectedReference[],
+): void {
+  const root = asRecord(content);
+  if (!root) return;
+
+  const todayDiary = asRecord(root.todayDiary);
+  if (todayDiary) {
+    if (!pushReference(refs, makeSiyuanReference({
+      docId: todayDiary.docId,
+      title: todayDiary.title,
+      priority: REASON_PRIORITY.structure_result,
+      reason: "structure_result",
+    }))) return;
+  }
+
+  collectAgendaTaskReferencesFromArray(root.tasks, refs);
+  collectAgendaRecordReferencesFromArray(root.records, refs);
+  collectDiaryDocReferencesFromArray(root.reviews, refs, "structure_result");
+  collectDiaryDocReferencesFromArray(root.carryoverPlans, refs, "read_content");
+
+  const notifications = Array.isArray(root.notifications) ? root.notifications : [];
+  for (const notification of notifications) {
+    const record = asRecord(notification);
+    if (!record) continue;
+    if (!pushReference(refs, makeSiyuanReference({
+      docId: record.relatedDocId,
+      title: record.title,
+      priority: REASON_PRIORITY.structure_result,
+      reason: "structure_result",
+    }))) return;
+  }
+}
+
+function collectAgendaTaskReferences(
+  content: unknown,
+  refs: CollectedReference[],
+): void {
+  const root = asRecord(content);
+  collectAgendaTaskReferencesFromArray(root?.tasks, refs);
+}
+
+function collectAgendaTaskReferencesFromArray(
+  tasks: unknown,
+  refs: CollectedReference[],
+): void {
+  const items = Array.isArray(tasks) ? tasks : [];
+  for (const item of items) {
+    const record = asRecord(item);
+    if (!record) continue;
+    const taskTitle = readString(record.taskname);
+    if (!pushReference(refs, makeSiyuanReference({
+      docId: record.sourceDocId ?? record.rootId,
+      blockId: record.blockId,
+      title: taskTitle ? `任务：${taskTitle}` : record.sourceDocTitle,
+      priority: REASON_PRIORITY.read_content,
+      reason: "read_content",
+    }))) return;
+  }
+}
+
+function collectAgendaRecordReferences(
+  content: unknown,
+  refs: CollectedReference[],
+): void {
+  const root = asRecord(content);
+  collectAgendaRecordReferencesFromArray(root?.records, refs);
+}
+
+function collectAgendaRecordReferencesFromArray(
+  records: unknown,
+  refs: CollectedReference[],
+): void {
+  const items = Array.isArray(records) ? records : [];
+  for (const item of items) {
+    const record = asRecord(item);
+    if (!record) continue;
+    const headingTitle = readString(record.headingTitle);
+    const categoryTitle = readString(record.categoryTitle);
+    const title = headingTitle
+      ? `快速记录：${headingTitle}`
+      : categoryTitle
+        ? `快速记录：${categoryTitle}`
+        : record.docTitle;
+    if (!pushReference(refs, makeSiyuanReference({
+      docId: record.docId,
+      blockId: record.headingBlockId,
+      title,
+      priority: REASON_PRIORITY.read_content,
+      reason: "read_content",
+    }))) return;
+  }
+}
+
+function collectDiaryDocReferences(
+  content: unknown,
+  refs: CollectedReference[],
+): void {
+  const root = asRecord(content);
+  collectDiaryDocReferencesFromArray(root?.docs, refs, undefined);
+}
+
+function collectDiaryDocReferencesFromArray(
+  docs: unknown,
+  refs: CollectedReference[],
+  forcedReason: ReferenceReason | undefined,
+): void {
+  const items = Array.isArray(docs) ? docs : [];
+  for (const item of items) {
+    const record = asRecord(item);
+    if (!record) continue;
+    const hasPreview = typeof record.markdownPreview === "string" && record.markdownPreview.trim().length > 0;
+    const reason = forcedReason ?? (hasPreview ? "read_content" : "structure_result");
+    if (!pushReference(refs, makeSiyuanReference({
+      docId: record.docId,
+      title: record.title,
+      priority: REASON_PRIORITY[reason],
+      reason,
+    }))) return;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════

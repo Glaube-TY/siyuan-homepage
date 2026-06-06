@@ -16,6 +16,16 @@ import { setSchemaSanityResult } from "./workbench-debug";
 
 export type { SchemaSanityResult } from "./workbench-debug";
 
+const BUILTIN_SIYUAN_TOOL_NAMES = new Set([
+  "list_knowledge_map",
+  "search_scope",
+  "read_docs",
+  "get_daily_workspace_overview",
+  "query_tasks",
+  "query_diary_records",
+  "find_diary_docs",
+]);
+
 /**
  * Check all planner-visible tool schemas for structural correctness.
  * Built-in siyuan tools have extra checks (specific field requirements).
@@ -34,7 +44,7 @@ export function checkToolSchemaSanity(manifests: ToolManifest[]): SchemaSanityRe
     }
 
     // ── 2. Built-in siyuan tools MUST have inputJsonSchema ──
-    if (["list_knowledge_map", "search_scope", "read_docs"].includes(name)) {
+    if (BUILTIN_SIYUAN_TOOL_NAMES.has(name)) {
       if (!tool.inputJsonSchema) {
         errors.push(`Built-in tool "${name}" must have inputJsonSchema.`);
         continue;
@@ -67,7 +77,7 @@ export function checkToolSchemaSanity(manifests: ToolManifest[]): SchemaSanityRe
     }
 
     // ── 7. Built-in tools: additionalProperties === false ──
-    if (["list_knowledge_map", "search_scope", "read_docs"].includes(name)) {
+    if (BUILTIN_SIYUAN_TOOL_NAMES.has(name)) {
       if (schema.additionalProperties !== false) {
         errors.push(`Tool "${name}" inputJsonSchema additionalProperties must be false.`);
       }

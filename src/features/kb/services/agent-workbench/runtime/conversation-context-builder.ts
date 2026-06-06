@@ -70,6 +70,14 @@ export interface StageSummaryStatus {
   pressureReason: string;
 }
 
+export interface RuntimeNowInfo {
+  iso: string;
+  localText: string;
+  timezone: string | undefined;
+  timezoneOffsetMinutes: number;
+  timestampMs: number;
+}
+
 export interface ConversationContextSnapshot {
   version: number;
   currentTurn: {
@@ -85,6 +93,7 @@ export interface ConversationContextSnapshot {
       title: string;
       source?: string;
     }>;
+    runtimeNow?: RuntimeNowInfo;
   };
   stageSummaryStatus: StageSummaryStatus;
   compressed?: {
@@ -150,6 +159,18 @@ function buildAttachedDocs(user: UserChatMessage | undefined): ConversationConte
 
 function buildTurnAttachedDocs(user: UserChatMessage): ConversationTurnContext["user"]["attachedDocs"] {
   return buildAttachedDocs(user);
+}
+
+function buildRuntimeNow(): RuntimeNowInfo {
+  const now = new Date();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return {
+    iso: now.toISOString(),
+    localText: now.toLocaleString("zh-CN", { hour12: false }),
+    timezone: timezone || undefined,
+    timezoneOffsetMinutes: -now.getTimezoneOffset(),
+    timestampMs: now.getTime(),
+  };
 }
 
 function buildCurrentScope(user: UserChatMessage | undefined): ConversationContextSnapshot["currentTurn"]["scope"] {
@@ -385,6 +406,7 @@ export function buildConversationContext(
       userQuestion: truncateText(params.currentQuestion, MAX_USER_TEXT_CHARS),
       ...(currentScope ? { scope: currentScope } : {}),
       ...(attachedDocs ? { attachedDocs } : {}),
+      runtimeNow: buildRuntimeNow(),
     },
     stageSummaryStatus: buildStageSummaryStatus(params.messages, stageSummaries, !!compressed, params.usageRatio ?? 0),
     ...(compressed ? { compressed } : {}),
