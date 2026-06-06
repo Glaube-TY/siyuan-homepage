@@ -1,37 +1,54 @@
 import type {
   AssistantChatMessage,
   ChatMessage,
+  ConversationStageSummary,
   ErrorChatMessage,
   KbConversationSession,
   ReferenceItem,
   UserChatMessage,
 } from "../../types/chat";
-import type { AgenticRagTurnMemory } from "../agentic-rag/runtime/turn-memory";
+import type { AgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
+import type { AgentWorkbenchEvent } from "../agent-workbench/contracts/turn-event";
 
 export interface PersistedReferenceItem {
   index: number;
   docId?: string;
-  readLevel?: "snippet" | "section" | "document";
+  readLevel?: "content" | "structure" | "candidate" | "snippet" | "section" | "document";
+  referenceReason?: "planner_explicit" | "read_content" | "structure_result" | "search_candidate";
+  grounded?: boolean;
   docTitle?: string;
   displayTitle?: string;
   box?: string;
   path?: string;
 }
 
-export interface PersistedAgenticRagTurnMemory {
+export interface PersistedAgentTurnMemory {
   turnId: string;
   createdAt: number;
   userQuestion: string;
-  scope?: AgenticRagTurnMemory["scope"];
-  answerSummary: string;
-  answerItems?: AgenticRagTurnMemory["answerItems"];
+  scope?: AgentTurnMemory["scope"];
   actionTraceSummary: {
     toolNames: string[];
   };
   footerReferenceDocIds: string[];
   footerReferenceTitles: string[];
   footerReferenceBlockIds?: string[];
-  workspaceSummary?: AgenticRagTurnMemory["workspaceSummary"];
+  footerReferenceReasons?: string[];
+  footerReferenceReadLevels?: string[];
+  footerReferenceGroundedFlags?: boolean[];
+}
+
+export interface PersistedWorkbenchEvent {
+  type: "ToolDispatch" | "ToolResult" | "TurnFailed" | "AssistantFinal";
+  stepIndex?: number;
+  at?: number;
+  toolName?: string;
+  argsPreview?: Record<string, unknown>;
+  ok?: boolean;
+  outputSummary?: string;
+  errorCode?: string;
+  durationMs?: number;
+  message?: string;
 }
 
 export type PersistedChatMessage =
@@ -52,11 +69,10 @@ export type PersistedChatMessage =
       citationSegments?: import("../../types/chat").CitationSegment[];
       citedReferences?: PersistedReferenceItem[];
       isComplete?: boolean;
-      agenticMemory?: PersistedAgenticRagTurnMemory;
+      agentMemory?: PersistedAgentTurnMemory;
+      workbenchEvents?: PersistedWorkbenchEvent[];
       reasoning?: { content: string; chars: number; partCount: number };
       compacted?: boolean;
-      hiddenTurnSummary?: string;
-      hiddenTurnSummaryMeta?: AssistantChatMessage["hiddenTurnSummaryMeta"];
     };
 
 export interface PersistedConversation {
@@ -65,6 +81,7 @@ export interface PersistedConversation {
   createdAt: number;
   updatedAt: number;
   messages: PersistedChatMessage[];
+  stageSummaries?: ConversationStageSummary[];
   compressionState?: import("../../types/context-usage").ContextCompressionState;
   compressedContextSummary?: string;
 }
@@ -74,45 +91,164 @@ export function isTransientAssistantPlaceholder(message: ChatMessage): boolean {
     message.role === "assistant" &&
     !message.content.trim() &&
     message.isComplete === false &&
-    !message.agenticMemory &&
+    !message.agentMemory &&
     !(message.citedReferences && message.citedReferences.length > 0)
   );
 }
 
-function toPersistedAgenticRagTurnMemory(memory: AgenticRagTurnMemory): PersistedAgenticRagTurnMemory {
+function toPersistedAgentTurnMemory(memory: AgentTurnMemory): PersistedAgentTurnMemory {
   return {
     turnId: memory.turnId,
     createdAt: memory.createdAt,
     userQuestion: memory.userQuestion,
     scope: memory.scope,
-    answerSummary: memory.answerSummary,
-    answerItems: memory.answerItems,
     actionTraceSummary: {
       toolNames: memory.actionTraceSummary.toolNames,
     },
-    footerReferenceDocIds: Array.from(new Set(memory.footerReferenceDocIds)),
-    footerReferenceTitles: Array.from(new Set(memory.footerReferenceTitles)),
+    // Do NOT use Set() here — it breaks index alignment across parallel arrays.
+    footerReferenceDocIds: memory.footerReferenceDocIds,
+    footerReferenceTitles: memory.footerReferenceTitles,
     footerReferenceBlockIds: memory.footerReferenceBlockIds,
-    workspaceSummary: memory.workspaceSummary,
+    footerReferenceReasons: memory.footerReferenceReasons,
+    footerReferenceReadLevels: memory.footerReferenceReadLevels,
+    footerReferenceGroundedFlags: memory.footerReferenceGroundedFlags,
   };
 }
 
-function fromPersistedAgenticRagTurnMemory(memory: PersistedAgenticRagTurnMemory): AgenticRagTurnMemory {
+function fromPersistedAgentTurnMemory(memory: PersistedAgentTurnMemory): AgentTurnMemory {
+  // Ignore legacy answerSummary / answerItems if present in old persisted data
   return {
     turnId: memory.turnId,
     createdAt: memory.createdAt,
     userQuestion: memory.userQuestion,
     scope: memory.scope,
-    answerSummary: memory.answerSummary,
-    answerItems: memory.answerItems ?? [],
     actionTraceSummary: {
       toolNames: memory.actionTraceSummary.toolNames,
     },
     footerReferenceDocIds: memory.footerReferenceDocIds,
     footerReferenceTitles: memory.footerReferenceTitles,
     footerReferenceBlockIds: memory.footerReferenceBlockIds ?? [],
-    workspaceSummary: memory.workspaceSummary,
+    footerReferenceReasons: memory.footerReferenceReasons ?? [],
+    footerReferenceReadLevels: memory.footerReferenceReadLevels ?? [],
+    footerReferenceGroundedFlags: memory.footerReferenceGroundedFlags ?? [],
   };
+}
+
+function truncatePersistedText(value: unknown, maxChars: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  if (!text) return undefined;
+  return text.length <= maxChars ? text : `${text.slice(0, Math.max(0, maxChars - 3))}...`;
+}
+
+function toPersistedArgsPreview(argsPreview: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!argsPreview) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(argsPreview)) {
+    if (value == null) continue;
+    if (typeof value === "string") {
+      out[key] = truncatePersistedText(value, 240);
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      out[key] = value;
+    } else if (Array.isArray(value)) {
+      out[key] = value.slice(0, 8).map((item) => {
+        if (typeof item === "string") return truncatePersistedText(item, 120) ?? "";
+        if (typeof item === "number" || typeof item === "boolean") return item;
+        return "[object]";
+      });
+    } else {
+      out[key] = "[object]";
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkbenchEvent | null {
+  switch (event.type) {
+    case "ToolDispatch":
+      return {
+        type: "ToolDispatch",
+        stepIndex: event.stepIndex,
+        at: event.at,
+        toolName: event.toolName,
+        argsPreview: toPersistedArgsPreview(event.argsPreview),
+      };
+    case "ToolResult":
+      return {
+        type: "ToolResult",
+        stepIndex: event.stepIndex,
+        at: event.at,
+        toolName: event.toolName,
+        ok: event.ok,
+        outputSummary: truncatePersistedText(event.outputSummary, 300),
+        errorCode: truncatePersistedText(event.errorCode, 80),
+        durationMs: event.durationMs,
+      };
+    case "TurnFailed":
+      return {
+        type: "TurnFailed",
+        stepIndex: event.stepIndex,
+        at: event.at,
+        message: truncatePersistedText(event.message, 300),
+        errorCode: truncatePersistedText(event.status, 80),
+      };
+    case "AssistantFinal":
+      return {
+        type: "AssistantFinal",
+        stepIndex: event.stepIndex,
+        at: event.at,
+        message: truncatePersistedText(event.message, 200),
+      };
+    default:
+      return null;
+  }
+}
+
+function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkbenchEvent | null {
+  const at = event.at ?? Date.now();
+  const stepIndex = event.stepIndex ?? 0;
+  switch (event.type) {
+    case "ToolDispatch":
+      return {
+        type: "ToolDispatch",
+        stepIndex,
+        at,
+        toolCallId: `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
+        toolName: event.toolName ?? "unknown",
+        argsPreview: event.argsPreview ?? {},
+        readOnly: true,
+        startedAt: at,
+      };
+    case "ToolResult":
+      return {
+        type: "ToolResult",
+        stepIndex,
+        at,
+        toolCallId: `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
+        toolName: event.toolName ?? "unknown",
+        ok: event.ok ?? false,
+        outputSummary: event.outputSummary,
+        errorCode: event.errorCode,
+        durationMs: event.durationMs ?? 0,
+      };
+    case "TurnFailed":
+      return {
+        type: "TurnFailed",
+        stepIndex,
+        at,
+        message: event.message,
+        status: event.errorCode,
+      };
+    case "AssistantFinal":
+      return {
+        type: "AssistantFinal",
+        stepIndex,
+        at,
+        message: event.message,
+      };
+    default:
+      return null;
+  }
 }
 
 function toPersistedReferenceItem(item: ReferenceItem): PersistedReferenceItem {
@@ -120,6 +256,8 @@ function toPersistedReferenceItem(item: ReferenceItem): PersistedReferenceItem {
     index: item.index,
     docId: item.docId,
     readLevel: item.readLevel,
+    referenceReason: item.referenceReason,
+    grounded: item.grounded,
     docTitle: item.docTitle,
     displayTitle: item.displayTitle,
     box: item.box,
@@ -136,6 +274,8 @@ function fromPersistedReferenceItem(item: PersistedReferenceItem): ReferenceItem
     headingPathText: item.docTitle || "",
     sourceBlockIds: [],
     readLevel: item.readLevel,
+    referenceReason: item.referenceReason,
+    grounded: item.grounded,
     box: item.box,
     path: item.path,
   };
@@ -181,8 +321,14 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
       if (message.isComplete === false) {
         persisted.isComplete = false;
       }
-      if (message.agenticMemory) {
-        persisted.agenticMemory = toPersistedAgenticRagTurnMemory(message.agenticMemory);
+      if (message.agentMemory) {
+        persisted.agentMemory = toPersistedAgentTurnMemory(message.agentMemory);
+      }
+      if (message.isComplete !== false && message.workbenchEvents && message.workbenchEvents.length > 0) {
+        const persistedEvents = message.workbenchEvents
+          .map(toPersistedWorkbenchEvent)
+          .filter((event): event is PersistedWorkbenchEvent => event !== null);
+        if (persistedEvents.length > 0) persisted.workbenchEvents = persistedEvents;
       }
       if (message.reasoning?.status === "done" && message.reasoning.content.trim().length > 0) {
         persisted.reasoning = {
@@ -192,8 +338,6 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
         };
       }
       if (message.compacted) persisted.compacted = true;
-      if (message.hiddenTurnSummary) persisted.hiddenTurnSummary = message.hiddenTurnSummary;
-      if (message.hiddenTurnSummaryMeta) persisted.hiddenTurnSummaryMeta = message.hiddenTurnSummaryMeta;
       return persisted;
     }
     case "loading":
@@ -235,8 +379,14 @@ function fromPersistedMessage(message: PersistedChatMessage): ChatMessage {
       if (message.citedReferences && message.citedReferences.length > 0) {
         assistantMsg.citedReferences = message.citedReferences.map(fromPersistedReferenceItem);
       }
-      if (message.agenticMemory) {
-        assistantMsg.agenticMemory = fromPersistedAgenticRagTurnMemory(message.agenticMemory);
+      if (message.agentMemory) {
+        assistantMsg.agentMemory = fromPersistedAgentTurnMemory(message.agentMemory);
+      }
+      if (message.workbenchEvents && message.workbenchEvents.length > 0) {
+        const restoredEvents = message.workbenchEvents
+          .map(fromPersistedWorkbenchEvent)
+          .filter((event): event is AgentWorkbenchEvent => event !== null);
+        if (restoredEvents.length > 0) assistantMsg.workbenchEvents = restoredEvents;
       }
       if (message.reasoning && message.reasoning.content.trim().length > 0) {
         assistantMsg.reasoning = {
@@ -247,8 +397,6 @@ function fromPersistedMessage(message: PersistedChatMessage): ChatMessage {
         };
       }
       if (message.compacted) assistantMsg.compacted = true;
-      if (message.hiddenTurnSummary) assistantMsg.hiddenTurnSummary = message.hiddenTurnSummary;
-      if (message.hiddenTurnSummaryMeta) assistantMsg.hiddenTurnSummaryMeta = message.hiddenTurnSummaryMeta;
       return assistantMsg;
     }
   }
@@ -261,6 +409,7 @@ export function toPersistedConversation(session: KbConversationSession): Persist
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     messages: session.messages.map(toPersistedMessage).filter((m): m is PersistedChatMessage => !!m),
+    stageSummaries: session.stageSummaries ?? [],
     compressionState: session.compressionState,
     compressedContextSummary: session.compressedContextSummary,
   };
@@ -276,6 +425,7 @@ export function fromPersistedConversation(
     createdAt: persisted.createdAt,
     updatedAt: persisted.updatedAt,
     messages: persisted.messages.map(fromPersistedMessage),
+    stageSummaries: persisted.stageSummaries ?? [],
     compressionState: persisted.compressionState,
     compressedContextSummary: persisted.compressedContextSummary,
     ...defaults,

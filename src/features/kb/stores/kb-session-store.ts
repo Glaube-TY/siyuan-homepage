@@ -12,14 +12,13 @@ import {
   restoreKbChatSessions,
   saveKbChatSessionStorage,
   isTransientAssistantPlaceholder,
-} from "../services/agentic-rag/storage/chat-session-facade";
+} from "../services/agent-workbench/storage/chat-session-facade";
 import {
   resolveReferenceDocInfos,
   type ResolvedReferenceDocInfo,
 } from "../services/session/reference-doc-resolver";
-import { estimateContextUsage, estimateDocContentChars } from "../types/context-usage";
-import { pushAgentDebugEvent } from "../services/agentic-rag/debug/agentic-rag-debug";
-import { safeSqlSelect } from "../services/siyuan/safe-sql";
+import { estimateContextUsage } from "../types/context-usage";
+import { pushAgentDebugEvent } from "../services/agent-workbench/debug/workbench-debug";
 import { executeCompression as doCompress } from "../services/context-compression";
 
 /** 生成会话唯一 id */
@@ -42,6 +41,7 @@ const initialState: KbSessionState = {
   asking: false,
   qaError: "",
   messages: [],
+  stageSummaries: [],
   // selectedMode 初始 undefined，由组件决定默认值
 };
 
@@ -72,6 +72,7 @@ function createDefaultConversation(): KbConversationSession {
     createdAt: now,
     updatedAt: now,
     messages: [],
+    stageSummaries: [],
   };
 }
 
@@ -85,6 +86,7 @@ function createKbSessionStore() {
     ...initialState,
     // 将会话数据同步到 KbSessionState 的对应字段
     messages: defaultConversation.messages,
+    stageSummaries: defaultConversation.stageSummaries ?? [],
   };
 
   const { subscribe, set, update } = writable<KbSessionState & { conversations: KbConversationSession[]; activeConversationId: string }>({
@@ -110,23 +112,6 @@ function createKbSessionStore() {
     const seq = ++contextUsageRequestSeq;
     const state = get({ subscribe });
 
-    let fixedDocContentChars = 0;
-    let estimateFailedCount = 0;
-    if (composerDocIds.length > 0) {
-      try {
-        const docResult = await estimateDocContentChars(composerDocIds, async (sql) => {
-          return safeSqlSelect<{ root_id: string; total_chars: number }>(sql, {
-            maxLimit: 100,
-            allowedTables: ["blocks"],
-          });
-        });
-        fixedDocContentChars = docResult.totalChars;
-        estimateFailedCount = docResult.estimateFailedCount;
-      } catch {
-        estimateFailedCount = composerDocIds.length;
-      }
-    }
-
     // 竞态防护：如果已有更新的请求，跳过本次写入
     if (seq !== contextUsageRequestSeq) return;
 
@@ -142,10 +127,10 @@ function createKbSessionStore() {
     const snapshot = estimateContextUsage({
       messages: state.messages,
       attachedDocCount: composerDocIds.length,
-      fixedDocContentChars,
       runtimeReferenceDocCount: refDocIds.size,
       contextWindowTokens,
       compressedSummaryChars: state.compressedContextSummary?.length ?? 0,
+      stageSummaryStatusChars: 160 + ((state.stageSummaries?.length ?? 0) > 0 ? 80 : 0),
     });
 
     // 写入前再次检查竞态
@@ -165,8 +150,6 @@ function createKbSessionStore() {
       level: snapshot.level,
       messageCount: state.messages.length,
       attachedDocCount: composerDocIds.length,
-      fixedDocContentChars,
-      estimateFailedCount,
       breakdown: snapshot.breakdown,
     }, "info");
 
@@ -261,11 +244,14 @@ function createKbSessionStore() {
   }
 
   // 统一快照 helper - 将当前 active state 写回会话
-  // 注意：运行态字段不进入快照，避免持久化
+  // 注意：运行态字段不进入快照，避免持久化；但压缩状态需要持久化
   function buildConversationSnapshot(state: ExtendedState, conversation: KbConversationSession): KbConversationSession {
     return {
       ...conversation,
       messages: state.messages,
+      stageSummaries: state.stageSummaries ?? [],
+      compressedContextSummary: state.compressedContextSummary,
+      compressionState: state.compressionState,
       updatedAt: Date.now(),
     };
   }
@@ -376,11 +362,27 @@ function createKbSessionStore() {
       update((state) => ({
         ...state,
         messages: [],
+        stageSummaries: [],
         asking: false,
         qaError: "",
         error: "",
         draftQuestion: "",
         agentStatus: undefined,
+        contextUsage: undefined,
+        compressedContextSummary: undefined,
+        compressionState: undefined,
+        conversations: state.conversations.map((c) =>
+          c.id === state.activeConversationId
+            ? {
+                ...c,
+                messages: [],
+                stageSummaries: [],
+                compressedContextSummary: undefined,
+                compressionState: undefined,
+                updatedAt: Date.now(),
+              }
+            : c
+        ),
       }));
       // 触发持久化
       schedulePersist();
@@ -412,6 +414,7 @@ function createKbSessionStore() {
           conversations: [...stateWithSnapshot.conversations, newConversation],
           activeConversationId: newConversation.id,
           messages: newConversation.messages,
+          stageSummaries: newConversation.stageSummaries ?? [],
           agentStatus: undefined,
           asking: false,
           qaError: "",
@@ -438,6 +441,7 @@ function createKbSessionStore() {
           ...stateWithSnapshot,
           activeConversationId: id,
           messages: targetConv.messages,
+          stageSummaries: targetConv.stageSummaries ?? [],
           agentStatus: undefined,
           asking: false,
           qaError: "",
@@ -485,12 +489,15 @@ function createKbSessionStore() {
             conversations: remainingConversations,
             activeConversationId: newActiveConv.id,
             messages: newActiveConv.messages,
+            stageSummaries: newActiveConv.stageSummaries ?? [],
             agentStatus: undefined,
             asking: false,
             qaError: "",
             draftQuestion: "",
             error: "",
             contextUsage: undefined,
+            compressedContextSummary: newActiveConv.compressedContextSummary,
+            compressionState: newActiveConv.compressionState,
           };
         }
 
@@ -536,6 +543,7 @@ function createKbSessionStore() {
       set({
         ...initialState,
         messages: defaultConv.messages,
+        stageSummaries: defaultConv.stageSummaries ?? [],
         conversations: [defaultConv],
         activeConversationId: defaultConv.id,
       });
@@ -593,6 +601,7 @@ function createKbSessionStore() {
             conversations: cleanedConversations,
             activeConversationId: activeId,
             messages: targetConv.messages,
+            stageSummaries: targetConv.stageSummaries ?? [],
             agentStatus: undefined,
             asking: false,
             qaError: "",
@@ -656,8 +665,10 @@ function createKbSessionStore() {
 
     /**
      * 执行上下文压缩（用户手动触发）
-     * - 调用 LLM 生成压缩摘要
-     * - 标记旧消息为 compacted
+     * - 不调用 LLM，只使用 Planner 阶段摘要
+     * - 只压缩阶段摘要覆盖边界内的完整问答轮次
+     * - 未覆盖对话继续保留原文
+     * - 标记旧消息为 compacted（不物理删除）
      * - 保存 compressionState 和 compressedContextSummary
      * - 失败时不修改 messages
      */
@@ -667,7 +678,12 @@ function createKbSessionStore() {
         return { success: false, error: "正在问答中，请等待完成" };
       }
 
-      const result = await doCompress(state.messages);
+      const result = await doCompress(
+        state.messages,
+        state.stageSummaries ?? [],
+        state.compressedContextSummary,
+        state.compressionState,
+      );
 
       if (!result.success) {
         return { success: false, error: result.error };
@@ -696,6 +712,7 @@ function createKbSessionStore() {
               ? {
                   ...c,
                   messages: updatedMessages,
+                  stageSummaries: s.stageSummaries ?? [],
                   compressionState: result.compressionState,
                   compressedContextSummary: result.summary,
                   updatedAt: Date.now(),
@@ -730,6 +747,8 @@ function createKbSessionStore() {
         return {
           ...s,
           messages: updatedMessages,
+          stageSummaries: [],
+          contextUsage: undefined,
           compressedContextSummary: undefined,
           compressionState: undefined,
           conversations: s.conversations.map((c) =>
@@ -737,6 +756,7 @@ function createKbSessionStore() {
               ? {
                   ...c,
                   messages: updatedMessages,
+                  stageSummaries: [],
                   compressionState: undefined,
                   compressedContextSummary: undefined,
                   updatedAt: Date.now(),

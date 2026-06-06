@@ -1,2 +1,0 @@
-export { registerSystemContextTools } from "./register";
-

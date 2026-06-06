@@ -1,10 +1,11 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import type { ChatMessage, ReferenceItem } from "../../types/chat";
+  import type { AgentWorkbenchEvent } from "../../services/agent-workbench";
   import type { KbAssistantActionAlignment } from "../../types/settings";
   import { navigateToReference, navigateToDocId } from "../../services/siyuan/reference-navigation";
   import { mdToHtml } from "../../utils/md-to-html";
-  import { pushAgentDebugEvent } from "../../services/agentic-rag/debug/agentic-rag-debug";
+  import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   // Props - 由父组件 ChatMessageList 传入
@@ -98,13 +99,6 @@
   $: hasAssistantContent =
     message.role === "assistant" && message.content.trim().length > 0;
 
-  // 判断 assistant 是否显示运行态状态（content 为空且 agentStatus 非空，且 reasoning 非 streaming）
-  $: isAssistantPending =
-    message.role === "assistant" &&
-    !message.content.trim() &&
-    message.agentStatus &&
-    message.reasoning?.status !== "streaming";
-
   let attachedDocsTraceEmitted = false;
   $: if (!attachedDocsTraceEmitted && message.role === "user" && message.attachedDocs?.length) {
     attachedDocsTraceEmitted = true;
@@ -138,6 +132,238 @@
     message.role === "assistant" && message.reasoning?.content
       ? mdToHtml(message.reasoning.content)
       : "";
+
+  $: workbenchEvents =
+    message.role === "assistant" ? message.workbenchEvents ?? [] : [];
+  const VISIBLE_WORKBENCH_EVENT_TYPES = new Set<AgentWorkbenchEvent["type"]>([
+    "ToolDispatch",
+    "ToolResult",
+    "TurnFailed",
+  ]);
+  $: visibleWorkbenchEvents = workbenchEvents.filter((event) =>
+    VISIBLE_WORKBENCH_EVENT_TYPES.has(event.type) &&
+    // final_answer is a system action behind the answer protocol;
+    // never show it as an ordinary tool dispatch/result.
+    !("toolName" in event && event.toolName === "final_answer")
+  );
+
+  // 判断 assistant 是否显示运行态状态（content 为空且 agentStatus 非空，且 reasoning 非 streaming）
+  $: isAssistantPending =
+    message.role === "assistant" &&
+    !message.content.trim() &&
+    message.agentStatus &&
+    visibleWorkbenchEvents.length === 0 &&
+    message.reasoning?.status !== "streaming";
+
+  let workbenchEventsExpanded = false;
+  let workbenchEventsMessageId = "";
+
+  $: if (message.id !== workbenchEventsMessageId) {
+    workbenchEventsMessageId = message.id;
+    workbenchEventsExpanded = false;
+  }
+
+  const TOOL_DISPLAY_NAME: Record<string, string> = {
+    list_knowledge_map: "查看知识库结构",
+    search_scope: "搜索知识库",
+    read_docs: "读取文档正文",
+  };
+
+  const ARG_LABELS: Record<string, string> = {
+    query: "关键词",
+    limit: "数量",
+    docIds: "文档",
+    blockIds: "块",
+    maxChars: "最大字数",
+    view: "视图",
+    maxDepth: "层级",
+    rootDocId: "根文档",
+    centerDocId: "中心文档",
+    notebookId: "笔记本",
+    cursor: "继续位置",
+    includeTags: "标签",
+    includeLinkedDocs: "关联文档",
+  };
+
+  const VIEW_LABELS: Record<string, string> = {
+    notebooks: "笔记本",
+    notebook_roots: "笔记本根文档",
+    children: "子文档",
+    subtree: "子树",
+    neighborhood: "邻域",
+    list: "列表",
+  };
+
+  function toggleWorkbenchEvents(): void {
+    workbenchEventsExpanded = !workbenchEventsExpanded;
+  }
+
+  function formatToolDisplayName(toolName: string | undefined): string {
+    if (!toolName) return "执行工具";
+    return TOOL_DISPLAY_NAME[toolName] ?? "执行工具";
+  }
+
+  function formatArgValue(key: string, value: unknown): string | undefined {
+    if (value == null) return undefined;
+    if (key === "query" && typeof value === "string") return `“${value}”`;
+    if (key === "docIds" && Array.isArray(value)) return `${value.length} 个文档`;
+    if (key === "blockIds" && Array.isArray(value)) return `${value.length} 个块`;
+    if (key === "cursor" && typeof value === "string") return "继续读取位置";
+    if (key === "view" && typeof value === "string") return VIEW_LABELS[value] ?? value;
+    if (key === "maxDepth" && typeof value === "number") return `${value} 层`;
+    if (key === "limit" && typeof value === "number") return `${value}`;
+    if (key === "maxChars" && typeof value === "number") return `${value}`;
+    if (key === "rootDocId" || key === "centerDocId" || key === "notebookId") return "已指定";
+    if (key === "includeTags" || key === "includeLinkedDocs") return value ? "是" : "否";
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}...` : value;
+    return undefined;
+  }
+
+  function formatArgsPreview(argsPreview: Record<string, unknown> | undefined): string {
+    const entries = Object.entries(argsPreview ?? {});
+    if (entries.length === 0) return "无参数。";
+    const parts = entries
+      .map(([key, value]) => {
+        const label = ARG_LABELS[key];
+        const formatted = label ? formatArgValue(key, value) : undefined;
+        return label && formatted ? `${label}：${formatted}` : "";
+      })
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join("；") : "参数已省略。";
+  }
+
+  function formatResultSummary(toolName: string | undefined, outputSummary: string | undefined): string {
+    const fallback = `${formatToolDisplayName(toolName)}已完成。`;
+    if (!outputSummary) return fallback;
+    if (toolName && outputSummary === `工具 ${toolName} 执行成功。`) return fallback;
+    return outputSummary;
+  }
+
+  interface WorkbenchDisplayStep {
+    key: string;
+    toolName?: string;
+    title: string;
+    summary: string;
+    durationMs?: number;
+    ok?: boolean;
+    running?: boolean;
+  }
+
+  let workbenchDisplaySteps: WorkbenchDisplayStep[] = [];
+  let workbenchProcessSummary = "";
+
+  function getStepKey(event: AgentWorkbenchEvent, index: number): string {
+    if ("toolCallId" in event && event.toolCallId) return event.toolCallId;
+    if ("toolName" in event) return `${event.stepIndex ?? index}-${event.toolName}`;
+    return `event-${event.stepIndex ?? index}-${event.at}`;
+  }
+
+  function buildDisplaySteps(events: AgentWorkbenchEvent[]): WorkbenchDisplayStep[] {
+    const steps: WorkbenchDisplayStep[] = [];
+    const byKey = new Map<string, WorkbenchDisplayStep>();
+
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index];
+      if (event.type === "TurnFailed") {
+        steps.push({
+          key: `failed-${event.stepIndex ?? index}-${event.at}`,
+          title: "处理失败",
+          summary: event.message ?? "本轮处理未完成。",
+          ok: false,
+        });
+        continue;
+      }
+
+      if (event.type !== "ToolDispatch" && event.type !== "ToolResult") continue;
+
+      const key = getStepKey(event, index);
+      const existing = byKey.get(key);
+
+      if (event.type === "ToolDispatch") {
+        const step: WorkbenchDisplayStep = existing ?? {
+          key,
+          toolName: event.toolName,
+          title: `正在${formatToolDisplayName(event.toolName)}`,
+          summary: formatArgsPreview(event.argsPreview),
+          running: true,
+        };
+        step.toolName = event.toolName;
+        step.title = `正在${formatToolDisplayName(event.toolName)}`;
+        step.summary = formatArgsPreview(event.argsPreview);
+        step.running = true;
+        if (!existing) {
+          byKey.set(key, step);
+          steps.push(step);
+        }
+        continue;
+      }
+
+      const step: WorkbenchDisplayStep = existing ?? {
+        key,
+        toolName: event.toolName,
+        title: formatToolDisplayName(event.toolName),
+        summary: "",
+      };
+      step.toolName = event.toolName;
+      step.ok = event.ok;
+      step.running = false;
+      step.durationMs = event.durationMs;
+      if (event.ok) {
+        step.title = formatToolDisplayName(event.toolName);
+        step.summary = formatResultSummary(event.toolName, event.outputSummary);
+      } else {
+        step.title = `${formatToolDisplayName(event.toolName)}失败`;
+        step.summary = `失败：${event.errorCode || "未知错误"}`;
+      }
+      if (!existing) {
+        byKey.set(key, step);
+        steps.push(step);
+      }
+    }
+
+    return steps;
+  }
+
+  function countDisplaySteps(toolName: string): number {
+    return workbenchDisplaySteps.filter((step) => step.toolName === toolName).length;
+  }
+
+  function readDocsDisplayCount(): number {
+    let total = 0;
+    for (const step of workbenchDisplaySteps) {
+      if (step.toolName !== "read_docs" || step.ok === false) continue;
+      const match = step.summary.match(/已读取\s+(\d+)/);
+      total += match ? Number(match[1]) || 0 : 0;
+    }
+    return total;
+  }
+
+  function buildWorkbenchProcessSummary(): string {
+    const failed = [...workbenchDisplaySteps].reverse().find((step) => step.ok === false);
+    if (failed) return `${formatToolDisplayName(failed.toolName)}失败`;
+
+    const running = [...workbenchDisplaySteps].reverse().find((step) => step.running);
+    if (running) return `正在${formatToolDisplayName(running.toolName)}`;
+
+    const parts: string[] = [];
+    const structureCount = countDisplaySteps("list_knowledge_map");
+    const searchCount = countDisplaySteps("search_scope");
+    const readStepCount = countDisplaySteps("read_docs");
+    const readCount = readDocsDisplayCount();
+    if (structureCount > 0) parts.push(`查看结构 ${structureCount} 次`);
+    if (searchCount > 0) parts.push(`搜索知识库 ${searchCount} 次`);
+    if (readCount > 0) {
+      parts.push(`读取文档 ${readCount} 篇`);
+    } else if (readStepCount > 0) {
+      parts.push(`读取文档 ${readStepCount} 次`);
+    }
+
+    return parts.join("，");
+  }
+
+  $: workbenchDisplaySteps = buildDisplaySteps(visibleWorkbenchEvents);
+  $: workbenchProcessSummary = buildWorkbenchProcessSummary();
 </script>
 
 <div class="chat-message-item {message.role}">
@@ -187,6 +413,48 @@
                 {:else}
                   {@html reasoningHtml}
                 {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        {#if workbenchDisplaySteps.length}
+          <div class="workbench-events">
+            <button
+              type="button"
+              class="workbench-events-toggle"
+              on:click={toggleWorkbenchEvents}
+              aria-expanded={workbenchEventsExpanded}
+            >
+              <span
+                class="workbench-events-toggle-icon"
+                class:expanded={workbenchEventsExpanded}
+              >
+                <SiyuanIcon name="next" size={12} />
+              </span>
+              <span class="workbench-events-title">处理过程</span>
+              <span class="workbench-events-summary">{workbenchProcessSummary}</span>
+            </button>
+
+            {#if workbenchEventsExpanded}
+              <div class="workbench-event-list">
+                {#each workbenchDisplaySteps as step (step.key)}
+                  <div
+                    class="workbench-event"
+                    class:is-error={step.ok === false}
+                    class:is-running={step.running}
+                  >
+                    <div class="workbench-event-header">
+                      <span class="workbench-event-type">{step.title}</span>
+                      {#if step.durationMs !== undefined}
+                        <span class="workbench-event-duration">{step.durationMs}ms</span>
+                      {/if}
+                    </div>
+                    {#if step.summary}
+                      <div class="workbench-event-summary">{step.summary}</div>
+                    {/if}
+                  </div>
+                {/each}
               </div>
             {/if}
           </div>
@@ -633,6 +901,123 @@
   .agent-status-line .loading-dots::after {
     content: "...";
     animation: dots 1.5s steps(4, end) infinite;
+  }
+
+  .workbench-events {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 10px;
+  }
+
+  .workbench-events-toggle {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 6px;
+    background: var(--b3-theme-background-light);
+    color: var(--b3-theme-on-surface);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--b3-theme-primary-light);
+      background: var(--b3-theme-surface-light);
+    }
+  }
+
+  .workbench-events-toggle-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: var(--b3-theme-on-surface-light);
+    transition: transform 0.15s ease;
+
+    &.expanded {
+      transform: rotate(90deg);
+    }
+  }
+
+  .workbench-events-title {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .workbench-events-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--b3-theme-on-surface-light);
+  }
+
+  .workbench-event-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+    max-height: 200px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .workbench-event {
+    padding: 7px 9px;
+    border: 1px solid var(--b3-border-color);
+    border-left: 3px solid var(--b3-theme-primary);
+    border-radius: 6px;
+    background: var(--b3-theme-background-light);
+    color: var(--b3-theme-on-surface);
+    overflow-wrap: anywhere;
+  }
+
+  .workbench-event.is-error {
+    border-left-color: var(--b3-theme-error);
+    background: var(--b3-theme-error-light);
+  }
+
+  .workbench-event.is-running {
+    border-left-color: var(--b3-theme-primary-light);
+  }
+
+  .workbench-event-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .workbench-event-type {
+    font-weight: 600;
+    color: var(--b3-theme-primary);
+  }
+
+  .workbench-event.is-error .workbench-event-type {
+    color: var(--b3-theme-error);
+  }
+
+  .workbench-event-duration {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--b3-theme-on-surface-light);
+  }
+
+  .workbench-event-summary {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--b3-theme-on-surface-light);
   }
 
   // 已停止的半截回答提示

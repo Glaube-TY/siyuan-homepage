@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { builtinSkills } from "../../../services/agentic-rag/skills/builtin/skill-catalog";
+  import { builtinSkills } from "../../../services/agent-workbench/skills/builtin/skill-catalog";
 </script>
 
 <div class="skills-settings-tab">
@@ -29,16 +29,6 @@
         <div class="skill-description">{skill.description}</div>
 
         <div class="skill-section">
-          <h4 class="section-subtitle">角色说明</h4>
-          <p class="section-content">{skill.roleInstruction}</p>
-        </div>
-
-        <div class="skill-section">
-          <h4 class="section-subtitle">适用场景</h4>
-          <p class="section-content">{skill.whenUseful}</p>
-        </div>
-
-        <div class="skill-section">
           <h4 class="section-subtitle">能力边界</h4>
           <p class="section-content">{skill.boundary}</p>
         </div>
@@ -51,15 +41,6 @@
             {/each}
           </div>
         </details>
-
-        <div class="skill-tools">
-          <h4 class="section-subtitle">Referenced global tools</h4>
-          <ul class="tool-list">
-            {#each skill.toolNames as toolName}
-              <li class="tool-item">{toolName}</li>
-            {/each}
-          </ul>
-        </div>
       </div>
     {/each}
   </div>
@@ -224,27 +205,4 @@
     line-height: 1.5;
   }
 
-  .skill-tools {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .tool-list {
-    margin: 0;
-    padding-left: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    list-style: none;
-  }
-
-  .tool-item {
-    font-size: 12px;
-    color: var(--b3-theme-on-surface);
-    background: var(--b3-theme-surface-variant);
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-family: monospace;
-  }
 </style>

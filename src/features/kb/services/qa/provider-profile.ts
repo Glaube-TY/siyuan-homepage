@@ -11,7 +11,7 @@
  */
 
 import type { ReasoningCapabilityType } from "../../types/settings";
-import { pushAgentDebugEvent } from "../agentic-rag/debug/agentic-rag-debug";
+import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 
 export type EndpointKind = "api" | "coding_plan" | "openai_compatible" | "unknown";
 

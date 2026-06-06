@@ -1,5 +1,5 @@
 import type { ReasoningCapabilityType } from "../../types/settings";
-import { pushAgentDebugEvent } from "../agentic-rag/debug/agentic-rag-debug";
+import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 
 export type ThinkingMode = "off" | "on";
 
@@ -72,7 +72,7 @@ const composeObservationCache = loadComposeObservationFromStorage();
 export function recordComposeObservation(obs: ComposeRuntimeObservation): void {
   const key = `${obs.providerType}:${obs.modelLabel}`;
   composeObservationCache.set(key, obs);
-  console.info("[KB-AGENT | COMPOSE_RUNTIME_OBSERVATION_RECORDED_SAFE]", {
+  pushAgentDebugEvent("COMPOSE_RUNTIME_OBSERVATION_RECORDED_SAFE", {
     providerType: obs.providerType,
     modelLabel: obs.modelLabel,
     reason: obs.reason,

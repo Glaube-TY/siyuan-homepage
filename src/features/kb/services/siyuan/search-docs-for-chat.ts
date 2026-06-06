@@ -5,11 +5,11 @@
  * - 为聊天输入框提供只读文档搜索能力
  * - 使用共享检索核心 (searchKnowledgeBaseCore) 三通道搜索
  * - 只返回轻量元信息，不读取正文
- * - 这是 UI 搜索服务，不写入 workspace/candidateDocs/researchCandidatePool
- * - 不触发 Planner，不改变 EvidenceGate
+ * - 这是 UI 搜索服务，不写入 Agent Workbench 运行态
+ * - 不触发 Planner
  */
 
-import { pushAgentDebugEvent } from "../agentic-rag/debug/agentic-rag-debug";
+import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { searchKnowledgeBaseCore, type DocResult } from "./knowledge-base-search-core";
 
 export interface ChatDocSearchResult {

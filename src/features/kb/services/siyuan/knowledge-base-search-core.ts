@@ -1,7 +1,7 @@
 /**
  * Knowledge Base Search Core
  *
- * 共享只读检索核心，为 Agentic search_scope 和手动文档搜索提供统一检索能力。
+ * 共享只读检索核心，为 Workbench search_scope 和手动文档搜索提供统一检索能力。
  *
  * 职责：
  * - 三通道检索：siyuan_kernel_search → title_catalog_search → project_hybrid_search
@@ -21,7 +21,7 @@ import {
   type AnyRetrievalScope,
 } from "../retrieval/hybrid-search";
 
-import { pushAgentDebugEvent } from "../agentic-rag/debug/agentic-rag-debug";
+import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { escapeSqlLike } from "../siyuan-sql-retrieval/sql-utils";
 import { sqlSelectReadonly, fullTextSearchBlockReadonly } from "./read-only-kernel";
 
@@ -31,7 +31,7 @@ export type RetrievalChannelName =
   | "project_hybrid_search";
 
 export type RetrievalCaller =
-  | "agentic_search_scope"
+  | "search_scope_tool"
   | "manual_doc_search";
 
 export interface RetrievalCoreInput {

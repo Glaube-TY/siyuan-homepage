@@ -4,14 +4,14 @@
  *
  * 职责：
  * - 统一接收 mode + question
- * - 作为 dispatcher 分发到 Agentic RAG Mode Flow
- * - 所有模式统一收口到 Agentic RAG
+ * - 作为 dispatcher 分发到 Agent Workbench Mode Flow
+ * - 所有模式统一收口到 Agent Workbench
  */
 
 import { isChatModeAvailable, CHAT_MODES } from "../../constants/chat-modes";
 import type { AskByModeParams, AskByModeResult } from "./ask-by-mode-types";
-import { runAgenticRagModeFlow } from "./agentic-rag-mode-flow";
-import { pushAgentDebugEvent } from "../agentic-rag/debug/agentic-rag-debug";
+import { runAgentWorkbenchModeFlow } from "./agent-workbench-mode-flow";
+import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import type { UserMessageRequestContext } from "../../types/chat";
 
 export type { AskByModeParams, AskByModeResult } from "./ask-by-mode-types";
@@ -25,7 +25,7 @@ function createMessageId(): string {
 
 /**
  * 统一入口：按模式提问
- * 直接转发到 askByModeInner，模型选择由 v3 runtime 内部处理
+ * 直接转发到 askByModeInner，模型选择由 Agent Workbench runtime 内部处理
  */
 export async function askByMode(params: AskByModeParams): Promise<AskByModeResult> {
   return askByModeInner(params);
@@ -33,7 +33,7 @@ export async function askByMode(params: AskByModeParams): Promise<AskByModeResul
 
 /**
  * askByMode 内部实现
- * 统一收口到 Agentic RAG Mode Flow
+ * 统一收口到 Agent Workbench Mode Flow
  */
 async function askByModeInner(params: AskByModeParams): Promise<AskByModeResult> {
   const { mode, question, addMessage, updateState, existingUserMessageId, attachedDocs } = params;
@@ -100,8 +100,8 @@ async function askByModeInner(params: AskByModeParams): Promise<AskByModeResult>
     error: "",
   }));
 
-  // 所有模式统一收口到 Agentic RAG Mode Flow
-  return runAgenticRagModeFlow({
+  // 所有模式统一收口到 Agent Workbench Mode Flow
+  return runAgentWorkbenchModeFlow({
     ...params,
     attachedDocs: effectiveAttachedDocs,
     question: trimmed,

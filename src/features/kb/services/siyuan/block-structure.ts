@@ -1,7 +1,7 @@
 /**
  * Block Structure
  *
- * 只读 blocks 表操作函数，为 Agentic RAG 工具层提供块结构查询能力。
+ * 只读 blocks 表操作函数，为 Agent Workbench 工具层提供块结构查询能力。
  *
  * 职责：
  * - 通过 safeSqlSelect / escapeSqlString 读取 blocks 表，不直接 import api.ts

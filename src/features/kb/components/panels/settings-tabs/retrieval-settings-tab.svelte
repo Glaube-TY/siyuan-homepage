@@ -63,39 +63,13 @@
     </Form.Wrap>
   </div>
 
-  <!-- 上下文构建参数分组 -->
+  <!-- 文档读取参数分组 -->
   <div class="settings-group">
-    <h3 class="group-title">上下文构建参数</h3>
-
-    <Form.Wrap
-      title="最大上下文条数"
-      description="构建 QA 上下文时最多使用的条数（范围：1–10，默认 5）"
-      direction="column"
-    >
-      <Form.Input
-        type="number"
-        key="maxContextItems"
-        bind:value={settings.maxContextItems}
-        fnSize={false}
-      />
-    </Form.Wrap>
-
-    <Form.Wrap
-      title="单条上下文最大长度"
-      description="每条上下文内容的最大字符数（范围：200–12000，默认 800）"
-      direction="column"
-    >
-      <Form.Input
-        type="number"
-        key="maxContextTextLength"
-        bind:value={settings.maxContextTextLength}
-        fnSize={false}
-      />
-    </Form.Wrap>
+    <h3 class="group-title">文档读取参数</h3>
 
     <Form.Wrap
       title="单次读取文档字符数"
-      description="read_candidate_docs 默认每篇文档返回的最大字符数。值越大，单次读取越完整，但上下文占用越高。（范围：2000-100000，默认 12000）"
+      description="read_docs 默认每篇文档返回的最大字符数。值越大，单次读取越完整，但上下文占用越高。（范围：2000-100000，默认 12000）"
       direction="column"
     >
       <Form.Input

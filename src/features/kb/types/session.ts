@@ -4,7 +4,7 @@
  * 为 orchestration 层函数提供命名返回类型
  */
 
-import type { ChatMessage } from "./chat";
+import type { ChatMessage, ConversationStageSummary } from "./chat";
 import type { ChatMode } from "../constants/chat-modes";
 import type { ChatModelSelection } from "./chat-model-selection";
 import type { KbConversationSession } from "./chat";
@@ -72,6 +72,12 @@ export type KbSessionState = {
    * - 不影响 Planner 决策和工具链路
    */
   compressedContextSummary?: string;
+
+  /**
+   * Planner 生成的会话内阶段摘要。
+   * 仅用于当前会话上下文预算管理，不写入长期记忆或思源文档。
+   */
+  stageSummaries?: ConversationStageSummary[];
 
   /**
    * 压缩状态（运行时，从会话层同步）

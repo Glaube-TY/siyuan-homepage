@@ -173,6 +173,7 @@ function normalizeProviderModels(
           name: rawName || "请填写模型 ID",
           temperature: fallbackTemperature,
           maxTokens: undefined,
+          contextWindowTokens: undefined,
           default: false,
           enabled: false,
           supportVision: rawModel.supportVision,
@@ -196,6 +197,12 @@ function normalizeProviderModels(
       maxTokens = isNaN(val) || val <= 0 ? undefined : val;
     }
 
+    let contextWindowTokens: number | undefined = undefined;
+    if (rawModel.contextWindowTokens !== undefined) {
+      const val = parseInt(String(rawModel.contextWindowTokens), 10);
+      contextWindowTokens = isNaN(val) || val <= 0 ? undefined : val;
+    }
+
     const modelName = String(rawModel.name ?? "").trim() || modelId;
 
     existingMap.set(modelId, {
@@ -203,6 +210,7 @@ function normalizeProviderModels(
       name: modelName,
       temperature,
       maxTokens,
+      contextWindowTokens,
       default: rawModel.default,
       enabled: typeof rawModel.enabled === "boolean" ? rawModel.enabled : true,
       supportVision: rawModel.supportVision,

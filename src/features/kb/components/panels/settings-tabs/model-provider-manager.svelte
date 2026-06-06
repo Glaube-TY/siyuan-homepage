@@ -218,17 +218,18 @@
     modelActionMessage = "";
   }
 
-  // 判断模板是否已添加
+  // 判断模板是否已添加（openai-compatible 允许多次添加）
   function isPresetAdded(presetId: string): boolean {
+    if (presetId === "openai-compatible") return false;
     return settings.chatProviders.some((p) => p.presetId === presetId || p.id === presetId);
   }
 
-  // 处理模板选择：选择后立即添加，禁止重复添加
+  // 处理模板选择：选择后立即添加；非 openai-compatible 禁止重复添加
   function handlePresetSelect(presetId: string) {
     if (!presetId) return;
 
-    // 已添加则不重复添加
-    if (isPresetAdded(presetId)) {
+    // 非 openai-compatible 且已添加则不重复添加
+    if (presetId !== "openai-compatible" && isPresetAdded(presetId)) {
       selectedPresetId = "";
       return;
     }

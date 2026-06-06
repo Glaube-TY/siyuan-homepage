@@ -1,7 +1,7 @@
 /**
  * Safe SQL
  *
- * 安全 SELECT 封装，为 Agentic RAG 工具层提供只读 SQL 边界。
+ * 安全 SELECT 封装，为 Agent Workbench 工具层提供只读 SQL 边界。
  *
  * 职责：
  * - 只允许 SELECT 开头
@@ -30,7 +30,7 @@ export type SafeSqlValidationResult =
 const WRITE_KEYWORDS = [
   "INSERT", "UPDATE", "DELETE", "DROP", "ALTER",
   "CREATE", "REPLACE", "TRUNCATE", "ATTACH",
-  "DETACH", "PRAGMA", "VACUUM", "REINDEX",
+  "DETACH", "PAgent WorkbenchMA", "VACUUM", "REINDEX",
 ];
 
 const COMMENT_PATTERNS = ["--", "/*", "*/"];

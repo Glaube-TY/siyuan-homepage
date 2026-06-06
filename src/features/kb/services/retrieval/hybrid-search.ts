@@ -11,6 +11,7 @@
  */
 
 import type { SearchHit } from "../../types/search";
+import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 
 // ==================== Scope Descriptor ====================
 
@@ -399,7 +400,7 @@ class KeywordChannel implements RetrievalChannel {
     const hits: SearchHit[] = [];
     
     for (const candidate of candidates) {
-      // 取每个候选文档的最佳 block
+      // 取每个候选结果的最佳 block
       const bestBlock = candidate.matchedBlocks[0];
       if (!bestBlock) continue;
 
@@ -486,7 +487,7 @@ class FtsChannel implements RetrievalChannel {
     const hits: SearchHit[] = [];
     
     for (const candidate of candidates) {
-      // 取每个候选文档的最佳 block
+      // 取每个候选结果的最佳 block
       const bestBlock = candidate.matchedBlocks[0];
       if (!bestBlock) continue;
 
@@ -634,7 +635,7 @@ export async function searchHybridInScope(
   for (const settled of channelResults) {
     if (settled.status === "rejected") continue;
     const { channelName, hits, durationMs } = settled.value;
-    console.info("[KB-AGENT | RETRIEVAL_CHANNEL_TIMING_SAFE]", {
+    pushAgentDebugEvent("RETRIEVAL_CHANNEL_TIMING_SAFE", {
       scopeType,
       channel: channelName,
       durationMs,

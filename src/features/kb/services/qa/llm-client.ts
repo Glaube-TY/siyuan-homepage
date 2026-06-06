@@ -19,7 +19,7 @@ import { getKbSettings } from "../settings/kb-settings-service";
 import { createSelectedChatModel, resolveOpenAICompatibleBaseUrlForProvider } from "./model-provider-factory";
 import type { ChatModelSelection } from "../../types/chat-model-selection";
 import { DEFAULT_TEMPERATURE } from "../../constants/default-settings";
-import { pushAgentDebugEvent, getIsVerboseStreamDebugEnabled } from "../agentic-rag/debug/agentic-rag-debug";
+import { pushAgentDebugEvent, getIsVerboseStreamDebugEnabled } from "../agent-workbench/debug/workbench-debug";
 import { resolveProviderProfile, buildReasoningProviderOptionsFromProfile } from "./provider-profile";
 
 export class AiProviderUnavailableError extends Error {
@@ -400,7 +400,7 @@ export async function callLlm(
 
     if (!content) {
       const durationMs = Date.now() - startTime;
-      console.info("[KB-AGENT | LLM_CALL_TIMING]", {
+      pushAgentDebugEvent("LLM_CALL_TIMING", {
         purpose: "compose",
         providerType: selected.providerConfig.type,
         modelLabel: selected.modelLabel,
@@ -411,7 +411,7 @@ export async function callLlm(
     }
 
     const durationMs = Date.now() - startTime;
-    console.info("[KB-AGENT | LLM_CALL_TIMING]", {
+    pushAgentDebugEvent("LLM_CALL_TIMING", {
       purpose: "compose",
       providerType: selected.providerConfig.type,
       modelLabel: selected.modelLabel,
@@ -422,7 +422,7 @@ export async function callLlm(
     return { content };
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
-    console.info("[KB-AGENT | LLM_CALL_TIMING]", {
+    pushAgentDebugEvent("LLM_CALL_TIMING", {
       purpose: "compose",
       providerType: selected.providerConfig.type,
       modelLabel: selected.modelLabel,
@@ -643,7 +643,7 @@ function parseLlmJsonObjectFromTextSafe<T>(
   const candidates = extractBalancedJsonObjects(cleaned);
 
   if (candidates.length === 0) {
-    console.info("[KB-AGENT | LLM_JSON_FALLBACK_PARSE_FAILED_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_FALLBACK_PARSE_FAILED_SAFE", {
       providerType,
       modelLabel,
       rawChars: cleaned.length,
@@ -664,7 +664,7 @@ function parseLlmJsonObjectFromTextSafe<T>(
   }
 
   if (parsedCandidates.length === 0) {
-    console.info("[KB-AGENT | LLM_JSON_FALLBACK_PARSE_FAILED_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_FALLBACK_PARSE_FAILED_SAFE", {
       providerType,
       modelLabel,
       rawChars: cleaned.length,
@@ -678,7 +678,7 @@ function parseLlmJsonObjectFromTextSafe<T>(
     for (const candidate of parsedCandidates) {
       const result = schema.safeParse(candidate.parsed);
       if (result.success) {
-        console.info("[KB-AGENT | LLM_JSON_FALLBACK_PARSE_REPAIRED_SAFE]", {
+        pushAgentDebugEvent("LLM_JSON_FALLBACK_PARSE_REPAIRED_SAFE", {
           providerType,
           modelLabel,
           rawChars: cleaned.length,
@@ -696,7 +696,7 @@ function parseLlmJsonObjectFromTextSafe<T>(
 
     const firstResult = schema.safeParse(parsedCandidates[0].parsed);
     const issues = !firstResult.success ? firstResult.error.issues : [];
-    console.info("[KB-AGENT | LLM_JSON_FALLBACK_PARSE_FAILED_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_FALLBACK_PARSE_FAILED_SAFE", {
       providerType,
       modelLabel,
       rawChars: cleaned.length,
@@ -717,7 +717,7 @@ function parseLlmJsonObjectFromTextSafe<T>(
     };
   }
 
-  console.info("[KB-AGENT | LLM_JSON_FALLBACK_PARSE_REPAIRED_SAFE]", {
+  pushAgentDebugEvent("LLM_JSON_FALLBACK_PARSE_REPAIRED_SAFE", {
     providerType,
     modelLabel,
     rawChars: cleaned.length,
@@ -806,7 +806,7 @@ function updateControlPlaneJsonObservation(
       lastUpdatedAt: Date.now(),
     };
     controlPlaneJsonObservationCache.set(key, obs);
-    console.info("[KB-AGENT | CONTROL_PLANE_JSON_OBSERVATION_RECORDED_SAFE]", {
+    pushAgentDebugEvent("CONTROL_PLANE_JSON_OBSERVATION_RECORDED_SAFE", {
       providerType,
       modelLabel,
       mode: obs.controlPlaneJsonMode,
@@ -824,7 +824,7 @@ function updateControlPlaneJsonObservation(
   }
   existing.controlPlaneJsonMode = "raw_first";
   existing.lastUpdatedAt = Date.now();
-  console.info("[KB-AGENT | CONTROL_PLANE_JSON_OBSERVATION_RECORDED_SAFE]", {
+  pushAgentDebugEvent("CONTROL_PLANE_JSON_OBSERVATION_RECORDED_SAFE", {
     providerType,
     modelLabel,
     mode: existing.controlPlaneJsonMode,
@@ -839,7 +839,7 @@ function shouldUseRawFirst(providerType: string, modelLabel: string): boolean {
   const obs = getControlPlaneJsonObservation(providerType, modelLabel);
   const result = obs?.controlPlaneJsonMode === "raw_first";
   if (obs) {
-    console.info("[KB-AGENT | CONTROL_PLANE_JSON_MODE_RESOLVED_SAFE]", {
+    pushAgentDebugEvent("CONTROL_PLANE_JSON_MODE_RESOLVED_SAFE", {
       providerType,
       modelLabel,
       mode: obs.controlPlaneJsonMode,
@@ -972,7 +972,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   const purpose = options.purpose ?? "generic";
   const maxTokens = options.maxOutputTokens ?? CONTROL_PLANE_JSON_MAX_OUTPUT_TOKENS;
 
-  console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_START_SAFE]", {
+  pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_START_SAFE", {
     providerType: providerConfig.type,
     modelLabel: modelId,
     purpose,
@@ -1031,7 +1031,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   try {
     response = await doFetch(buildBody(true));
   } catch (fetchErr: any) {
-    console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
       providerType: providerConfig.type,
       modelLabel: modelId,
       purpose,
@@ -1041,7 +1041,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   }
 
   if (!response.ok && (response.status === 400 || response.status === 422)) {
-    console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_RETRY_NO_RESPONSE_FORMAT_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_RETRY_NO_RESPONSE_FORMAT_SAFE", {
       providerType: providerConfig.type,
       modelLabel: modelId,
       purpose,
@@ -1050,7 +1050,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
     try {
       response = await doFetch(buildBody(false));
     } catch (retryErr: any) {
-      console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE]", {
+      pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
         providerType: providerConfig.type,
         modelLabel: modelId,
         purpose,
@@ -1061,7 +1061,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   }
 
   if (!response.ok) {
-    console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
       providerType: providerConfig.type,
       modelLabel: modelId,
       purpose,
@@ -1074,7 +1074,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   try {
     data = await response.json();
   } catch {
-    console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
       providerType: providerConfig.type,
       modelLabel: modelId,
       purpose,
@@ -1085,7 +1085,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
 
   const { content, reasoningChars, reasoningCount } = extractContent(data);
 
-  console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_RESULT_SAFE]", {
+  pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_RESULT_SAFE", {
     providerType: providerConfig.type,
     modelLabel: modelId,
     purpose,
@@ -1096,7 +1096,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
 
   if (!content || content.trim().length === 0) {
     if (reasoningCount > 0 && reasoningChars > 0) {
-      console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE]", {
+      pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
         providerType: providerConfig.type,
         modelLabel: modelId,
         purpose,
@@ -1104,7 +1104,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
       });
       throw new Error("OpenAI-compatible raw fallback: 模型只返回 reasoning，无 content");
     }
-    console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
       providerType: providerConfig.type,
       modelLabel: modelId,
       purpose,
@@ -1115,7 +1115,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
 
   const parseResult = parseLlmJsonObjectFromTextSafe(content, providerConfig.type, modelId, schema);
   if (!parseResult.success) {
-    console.info("[KB-AGENT | LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
       providerType: providerConfig.type,
       modelLabel: modelId,
       purpose,
@@ -1169,7 +1169,7 @@ async function callLlmObjectFallback<T>(
   const useRawFirst = defaultRawFirst || profileRawFirst || shouldUseRawFirst(selected.providerConfig.type, selected.modelConfig.id);
 
   if (useRawFirst) {
-    console.info("[KB-AGENT | LLM_JSON_CONTROL_PLANE_RAW_FIRST_START_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_CONTROL_PLANE_RAW_FIRST_START_SAFE", {
       providerType: selected.providerConfig.type,
       modelLabel: selected.modelConfig.id,
       purpose,
@@ -1178,14 +1178,14 @@ async function callLlmObjectFallback<T>(
     });
     try {
       const rawResult = await callOpenAICompatibleRawJsonObjectFallback(selected, prompt, schema, options);
-      console.info("[KB-AGENT | LLM_JSON_CONTROL_PLANE_RAW_FIRST_SUCCESS_SAFE]", {
+      pushAgentDebugEvent("LLM_JSON_CONTROL_PLANE_RAW_FIRST_SUCCESS_SAFE", {
         providerType: selected.providerConfig.type,
         modelLabel: selected.modelConfig.id,
         purpose,
       });
       return rawResult;
     } catch (rawErr) {
-      console.info("[KB-AGENT | LLM_JSON_CONTROL_PLANE_RAW_FIRST_FAILED_SAFE]", {
+      pushAgentDebugEvent("LLM_JSON_CONTROL_PLANE_RAW_FIRST_FAILED_SAFE", {
         providerType: selected.providerConfig.type,
         modelLabel: selected.modelConfig.id,
         purpose,
@@ -1268,7 +1268,7 @@ async function callLlmObjectFallback<T>(
     const durationMs = Date.now() - startTime;
     const shape = extractResultShape(result);
 
-    console.info("[KB-AGENT | LLM_CALL_TIMING]", {
+    pushAgentDebugEvent("LLM_CALL_TIMING", {
       purpose: "structured_json_fallback",
       providerType: selected.providerConfig.type,
       modelLabel: selected.modelConfig.id,
@@ -1279,7 +1279,7 @@ async function callLlmObjectFallback<T>(
       isRetry,
     });
 
-    console.info("[KB-AGENT | LLM_JSON_FALLBACK_RESULT_SHAPE_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_FALLBACK_RESULT_SHAPE_SAFE", {
       providerType: selected.providerConfig.type,
       modelLabel: selected.modelConfig.id,
       purpose,
@@ -1296,7 +1296,7 @@ async function callLlmObjectFallback<T>(
 
     if (!text || text.trim().length === 0) {
       lastErrorKind = "empty_text";
-      console.info("[KB-AGENT | LLM_JSON_FALLBACK_EMPTY_TEXT_SAFE]", {
+      pushAgentDebugEvent("LLM_JSON_FALLBACK_EMPTY_TEXT_SAFE", {
         providerType: selected.providerConfig.type,
         modelLabel: selected.modelConfig.id,
         purpose,
@@ -1329,7 +1329,7 @@ async function callLlmObjectFallback<T>(
 
   if (attemptCount <= JSON_FALLBACK_MAX_RETRIES) {
     const retryPrompt = buildSchemaAwareJsonRetryPrompt(prompt);
-    console.info("[KB-AGENT | LLM_JSON_FALLBACK_RETRY_SAFE]", {
+    pushAgentDebugEvent("LLM_JSON_FALLBACK_RETRY_SAFE", {
       providerType: selected.providerConfig.type,
       modelLabel: selected.modelConfig.id,
       purpose,
@@ -1355,7 +1355,7 @@ async function callLlmObjectFallback<T>(
     }
   }
 
-  console.info("[KB-AGENT | LLM_JSON_FALLBACK_TERMINAL_FAILED_SAFE]", {
+  pushAgentDebugEvent("LLM_JSON_FALLBACK_TERMINAL_FAILED_SAFE", {
     providerType: selected.providerConfig.type,
     modelLabel: selected.modelConfig.id,
     purpose,
@@ -1560,7 +1560,7 @@ function logStreamPartSafe(
   const extracted = extractTextDeltaFromStreamPart(part);
   const extractedChars = extracted.length;
 
-  console.info(`[KB-AGENT | LLM_STREAM_PART_SAFE]`, {
+  pushAgentDebugEvent("LLM_STREAM_PART_SAFE", {
     partIndex,
     partType,
     keys,
@@ -1828,7 +1828,7 @@ export async function streamLlm(
           await callbacks.onFinish?.(fullContent);
           return;
         }
-        console.info("[KB-AGENT | LLM_STREAM_LOCAL_ABORT_SUPPRESSED_FINISH_SAFE]", {
+        pushAgentDebugEvent("LLM_STREAM_LOCAL_ABORT_SUPPRESSED_FINISH_SAFE", {
           providerType: selected.providerConfig.type,
           modelLabel: selected.modelLabel,
           fullContentChars: fullContent.length,

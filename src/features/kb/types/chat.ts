@@ -31,11 +31,16 @@ export type ReferenceItem = {
   docScore?: number;
   /**
    * 证据层级（可选，Agent Core 使用）
-   * - snippet: 片段证据
-   * - section: 章节证据
-   * - document: 全文证据
+   * - content: 已读正文
+   * - structure: 结构来源
+   * - candidate: 搜索候选
+   * - snippet/section/document: 旧格式兼容
    */
-  readLevel?: "snippet" | "section" | "document";
+  readLevel?: "content" | "structure" | "candidate" | "snippet" | "section" | "document";
+  /** 引用原因（可选，Agent Core 使用） */
+  referenceReason?: "planner_explicit" | "read_content" | "structure_result" | "search_candidate";
+  /** 是否已通过 grounding 校验（Agent Core 使用） */
+  grounded?: boolean;
 };
 
 /** 用户手动附加的文档（轻量元信息，不存正文） */
@@ -98,11 +103,18 @@ export type AssistantChatMessage = {
   /** 回答是否已完成（用于控制按钮显示） */
   isComplete?: boolean;
   /**
-   * Agentic RAG Turn Memory（可选）
-   * - Agentic RAG 模式写入
+   * Agent Workbench Turn Memory（可选）
+   * - Agent Workbench 模式写入
    * - 轻量结构，不保存证据正文、Markdown 全文、sourceBlockIds
    */
-  agenticMemory?: import("../services/agentic-rag/runtime/turn-memory").AgenticRagTurnMemory;
+  agentMemory?: import("../services/agent-workbench/memory/agent-turn-memory").AgentTurnMemory;
+  /**
+   * 本轮 Workbench 轻量 UI 事件流
+   * - 可持久化用于会话复现
+   * - 不保存 observation data、prompt、工具正文或 debug trace
+   * - 不进入 conversationContext / Planner prompt
+   */
+  workbenchEvents?: import("../services/agent-workbench").AgentWorkbenchEvent[];
   /**
    * 运行态状态文本（可选）
    * - 仅用于当前 UI 渲染，不持久化为最终回答内容
@@ -123,15 +135,6 @@ export type AssistantChatMessage = {
   };
   /** 已被压缩标记（true 时不再全文进入 runtime context） */
   compacted?: boolean;
-  /** 隐藏轮次摘要（仅用于上下文压缩，不展示给用户） */
-  hiddenTurnSummary?: string;
-  /** 隐藏摘要元数据 */
-  hiddenTurnSummaryMeta?: {
-    summaryVersion: number;
-    summaryCreatedAt: number;
-    summarySource: "agentic_memory" | "llm_generated" | "content_truncated";
-    summaryFailed?: boolean;
-  };
 };
 
 /** 错误消息 */
@@ -200,8 +203,24 @@ export type KbConversationSession = {
   updatedAt: number;
   /** 消息列表 */
   messages: ChatMessage[];
+  /** Planner 生成的会话内阶段摘要，仅用于当前会话上下文预算管理 */
+  stageSummaries?: ConversationStageSummary[];
   /** 压缩状态（可选，兼容旧会话） */
   compressionState?: import("./context-usage").ContextCompressionState;
   /** 压缩摘要文本（可选） */
   compressedContextSummary?: string;
+};
+
+export type ConversationStageSummary = {
+  id: string;
+  index: number;
+  summary: string;
+  createdAt: number;
+  startAfterAssistantMessageId?: string;
+  startTurnIndex: number;
+  endUserMessageId: string;
+  endAssistantMessageId: string;
+  endTurnIndex: number;
+  source: "planner_stage_summary" | "emergency_llm_stage_summary";
+  summaryChars: number;
 };

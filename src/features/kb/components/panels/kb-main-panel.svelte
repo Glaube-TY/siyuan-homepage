@@ -8,8 +8,9 @@
   import type { ChatMode } from "../../constants/chat-modes";
   import { CHAT_MODES, DEFAULT_CHAT_MODE, getChatModeLabel } from "../../constants/chat-modes";
   import { askByMode } from "../../services/orchestration/ask-by-mode";
-  import { pushAgentDebugEvent } from "../../services/agentic-rag/debug/agentic-rag-debug";
+  import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import { getCurrentDocumentId } from "../../services/siyuan/current-doc-service";
+  import { showMessage } from "siyuan";
   import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "../../services/settings/kb-settings-service";
   import {
     buildChatModelOptions,
@@ -189,7 +190,16 @@
     if (asking) return;
     const result = await kbSessionStore.executeCompression();
     if (!result.success && result.error) {
-      console.warn("[KbMainPanel] Compression failed:", result.error);
+      console.warn("[KbMainPanel] Compression skipped:", result.error);
+      showMessage(result.error, 4000);
+      const isNoStageSummary = result.error.includes("当前还没有历史摘要");
+      pushAgentDebugEvent(
+        isNoStageSummary
+          ? "CONTEXT_COMPRESSION_MANUAL_SKIPPED_NO_STAGE_SUMMARY_COVERAGE"
+          : "CONTEXT_COMPRESSION_MANUAL_SKIPPED",
+        { reason: result.error },
+        "info",
+      );
     }
     refreshContextUsageSafe("compression_applied");
   }
@@ -238,10 +248,41 @@
       return;
     }
 
-    kbSessionStore.update((state) => ({
-      ...state,
-      messages: state.messages.slice(0, -1),
-    }));
+    kbSessionStore.update((state) => {
+      const removedAssistantId = lastMessage.id;
+      const removedStageSummary = (state.stageSummaries ?? [])
+        .find((summary) => summary.endAssistantMessageId === removedAssistantId);
+      const stageSummaries = removedStageSummary
+        ? (state.stageSummaries ?? []).filter((summary) => summary.index < removedStageSummary.index)
+        : state.stageSummaries;
+
+      // If a stage summary was removed, compression state may be stale —
+      // clear it and un-compacted remaining messages to avoid stale compressedContextSummary
+      if (removedStageSummary) {
+        const unCompactedMessages = state.messages.map((m) => {
+          if ((m.role === "user" || m.role === "assistant") && (m as { compacted?: boolean }).compacted) {
+            const { compacted, ...rest } = m as typeof m & { compacted?: boolean };
+            return rest as typeof m;
+          }
+          return m;
+        });
+
+        return {
+          ...state,
+          messages: unCompactedMessages.slice(0, -1),
+          stageSummaries,
+          compressedContextSummary: undefined,
+          compressionState: undefined,
+          contextUsage: undefined,
+        };
+      }
+
+      return {
+        ...state,
+        messages: state.messages.slice(0, -1),
+        stageSummaries,
+      };
+    });
 
     const requestContext = precedingUserMessage.requestContext;
     const rawMode = requestContext?.originalMode as ChatMode | undefined;
@@ -650,7 +691,7 @@
 
     const effectiveThinkingMode = submittedThinkingMode ?? $kbSessionStore.thinkingMode ?? "off";
 
-    console.info("[KB-AGENT | THINKING_MODE_SOURCE_SAFE]", {
+    pushAgentDebugEvent("THINKING_MODE_SOURCE_SAFE", {
       sourceName: "handleAskByMode",
       rawValue: submittedThinkingMode,
       normalizedValue: effectiveThinkingMode,
@@ -703,6 +744,7 @@
       thinkingMode: effectiveThinkingMode,
       customDocIds,
       attachedDocs,
+      contextWindowTokens: getSelectedContextWindowTokens(),
     });
 
     // 只有当前会话仍等于请求归属会话时，才同步状态
@@ -790,6 +832,7 @@
       },
       abortSignal: abortController.signal,
       chatModelSelection,
+      contextWindowTokens: getSelectedContextWindowTokens(),
     });
 
     if (activeConversationId === requestConversationId) {
@@ -941,6 +984,7 @@
           contextUsage={$kbSessionStore.contextUsage}
           compressionState={$kbSessionStore.compressionState}
           compressedContextSummary={$kbSessionStore.compressedContextSummary}
+          stageSummaryCount={($kbSessionStore.stageSummaries ?? []).length}
           {availableModes}
           on:send={handleSend}
           on:stop={handleStop}

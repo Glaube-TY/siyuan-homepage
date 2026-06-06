@@ -65,10 +65,6 @@ export type KbAssistantActionAlignment = "left" | "center" | "right";
 export type KbSettings = {
   /** AI 回答底部操作按钮对齐方式 */
   assistantActionAlignment: KbAssistantActionAlignment;
-  /** 最大上下文条数 */
-  maxContextItems: number;
-  /** 单条上下文最大长度 */
-  maxContextTextLength: number;
   /** 第一次检索最大返回条数 */
   firstPassMaxHits: number;
   /** 标题路径命中权重 */

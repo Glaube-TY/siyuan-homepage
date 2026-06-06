@@ -80,6 +80,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+    align-items: flex-start;
 
     &.checkbox-row {
       flex-direction: row;
@@ -95,6 +96,7 @@
     font-weight: 500;
     color: var(--b3-theme-on-surface);
     cursor: auto;
+    width: 100%;
   }
 
   .form-input {
@@ -105,6 +107,7 @@
     color: var(--b3-theme-on-surface);
     font-size: 14px;
     min-width: 0;
+    width: 100%;
 
     &:focus {
       outline: none;
@@ -115,6 +118,8 @@
   .input-hint {
     font-size: 12px;
     color: var(--b3-theme-on-surface-light);
+    text-align: left;
+    width: 100%;
   }
 
   .checkbox-label {

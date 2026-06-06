@@ -1,7 +1,7 @@
 /**
  * Read-Only Kernel
  *
- * 只读 API facade，为 Agentic RAG 工具层提供思源只读能力边界。
+ * 只读 API facade，为 Agent Workbench 工具层提供思源只读能力边界。
  *
  * 职责：
  * - 只导出只读函数，命名加 Readonly 后缀

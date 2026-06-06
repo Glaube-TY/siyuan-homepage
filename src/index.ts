@@ -20,7 +20,7 @@ import KbMainPanel from "@/features/kb/components/panels/kb-main-panel.svelte";
 import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.svelte";
 import { setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
 import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
-import { setNotebrainPlugin } from "@/features/kb/services/agentic-rag/storage";
+import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage";
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 

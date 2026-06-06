@@ -9,7 +9,7 @@
   import { searchDocsForChatAttachment, type ChatDocSearchResult } from "../../services/siyuan/search-docs-for-chat";
   import { getCurrentDocumentId, resolveDocMetaForAttachment } from "../../services/siyuan/current-doc-service";
   import { navigateToDocId } from "../../services/siyuan/reference-navigation";
-  import { pushAgentDebugEvent } from "../../services/agentic-rag/debug/agentic-rag-debug";
+  import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
 
@@ -25,6 +25,7 @@
   export let contextUsage: ContextUsageSnapshot | undefined = undefined;
   export let compressionState: import("../../types/context-usage").ContextCompressionState | undefined = undefined;
   export let compressedContextSummary: string | undefined = undefined;
+  export let stageSummaryCount: number = 0;
 
   let inputValue = value;
   let textareaElement: HTMLTextAreaElement;
@@ -36,7 +37,21 @@
   let contextPopoverCloseTimer: ReturnType<typeof setTimeout> | null = null;
   let contextPopoverTrigger: "hover" | "focus" | "click" = "hover";
 
-  $: canCompress = !asking;
+  $: canCompress = (() => {
+    if (asking) return false;
+    if (stageSummaryCount === 0) return false;
+    const latestCompressedStageIndex = compressionState?.latestCompressedStageIndex ?? 0;
+    if (compressionState?.enabled && latestCompressedStageIndex >= stageSummaryCount) return false;
+    return true;
+  })();
+
+  $: compressDisabledReason = (() => {
+    if (asking) return "正在问答中";
+    if (stageSummaryCount === 0) return "当前还没有历史摘要，暂时无法压缩。";
+    const latestCompressedStageIndex = compressionState?.latestCompressedStageIndex ?? 0;
+    if (compressionState?.enabled && latestCompressedStageIndex >= stageSummaryCount) return "压缩已是最新";
+    return "";
+  })();
 
   function openContextPopover(trigger: "hover" | "focus" | "click") {
     if (contextPopoverCloseTimer) {
@@ -397,7 +412,7 @@
     }];
     pushAgentDebugEvent("MANUAL_DOC_SELECTED_SAFE", {
       selectedDocCount: attachedDocs.length,
-      deduped: true,
+      alreadySelectedGuard: true,
     }, "info");
     if (mentionActive && textareaElement) {
       const before = inputValue.substring(0, mentionStartPos);
@@ -702,11 +717,10 @@
         {@const circumference = 2 * Math.PI * radius}
         {@const drawRatio = hasUsage ? contextUsage.usageRatio : 0}
         {@const offset = circumference * (1 - drawRatio)}
-        {@const fixedDocTokens = hasUsage ? Math.round(contextUsage.breakdown.fixedDocContentEstimate / 3.5) : 0}
         {@const usageLevel = hasUsage ? contextUsage.level : "normal"}
         {@const windowTokens = hasUsage ? contextUsage.maxContextTokens : 128000}
         {@const estTokens = hasUsage ? contextUsage.estimatedTokens : 0}
-        {@const windowSourceLabel = hasUsage && contextUsage.maxContextSource === "model_config" ? "模型配置" : "默认窗口"}
+        {@const windowSourceLabel = hasUsage && contextUsage.maxContextSource === "model_config" ? "模型配置" : "默认估算窗口"}
         {@const displayPct = pct > 100 ? "100+" : String(pct)}
         {@const ariaLabel = `上下文使用约 ${pct}%，状态 ${usageLevel}`}
         <div
@@ -763,8 +777,6 @@
               <span class="popover-grid-value">{displayPct}%</span>
               <span class="popover-grid-label">估算 token</span>
               <span class="popover-grid-value">{estTokens.toLocaleString()} / {windowTokens.toLocaleString()}</span>
-              <span class="popover-grid-label">固定文档</span>
-              <span class="popover-grid-value">{fixedDocTokens.toLocaleString()} token</span>
               <span class="popover-grid-label">状态</span>
               <span class="popover-grid-value">{windowSourceLabel}</span>
               {#if compressionState?.enabled && compressedContextSummary}
@@ -775,17 +787,22 @@
             <span class="popover-divider"></span>
             {#if compressionState?.enabled && compressedContextSummary}
               <span class="popover-compression-detail">
-                摘要 {compressionState.summaryTokenEstimate ?? 0} token，保留最近 {compressionState.preservedRecentTurnCount ?? 0} 轮
+                历史摘要 {compressionState.summaryTokenEstimate ?? 0} token，已压缩到第 {compressionState.latestCompressedTurnIndex ?? 0} 轮
               </span>
               <div class="popover-actions">
-                <button type="button" class="popover-btn primary" class:highlight={usageLevel === "warn" || usageLevel === "critical"} on:click|stopPropagation={handleCompressAction} disabled={asking}>更新压缩摘要</button>
+                <button type="button" class="popover-btn primary" class:highlight={usageLevel === "warn" || usageLevel === "critical"} on:click|stopPropagation={handleCompressAction} disabled={!canCompress}>
+                  {canCompress ? "更新压缩" : "压缩已是最新"}
+                </button>
                 <button type="button" class="popover-btn secondary" on:click|stopPropagation={handleClearCompressionAction} disabled={asking}>清除压缩</button>
               </div>
             {:else}
-              <span class="popover-info">将较早对话压缩为摘要，最近几轮保持原文。</span>
+              <span class="popover-info">仅压缩已形成历史摘要的较早对话，最近对话会保留原文。</span>
+              {#if compressDisabledReason}
+                <span class="popover-warning">{compressDisabledReason}</span>
+              {/if}
               <div class="popover-actions">
-                <button type="button" class="popover-btn primary" class:highlight={usageLevel === "warn" || usageLevel === "critical"} on:click|stopPropagation={handleCompressAction} disabled={asking || !canCompress}>
-                  {canCompress ? "压缩旧上下文" : "暂无可压缩旧上下文"}
+                <button type="button" class="popover-btn primary" class:highlight={usageLevel === "warn" || usageLevel === "critical"} on:click|stopPropagation={handleCompressAction} disabled={!canCompress}>
+                  {canCompress ? "压缩上下文" : "暂无可压缩上下文"}
                 </button>
               </div>
             {/if}
@@ -1139,6 +1156,13 @@
     .popover-info {
       font-size: 11px;
       color: var(--b3-theme-on-surface-light-3, #666);
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+
+    .popover-warning {
+      font-size: 11px;
+      color: var(--b3-theme-warning, #d48806);
       line-height: 1.4;
       margin-bottom: 6px;
     }

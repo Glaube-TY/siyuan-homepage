@@ -73,7 +73,7 @@
   <div class="models-list">
     {#each provider.models as model, modelIndex (modelIndex)}
       <div class="model-item">
-        <div class="model-fields">
+        <div class="model-main-fields">
           <div class="model-field">
             <label>
               <span>模型 ID</span>
@@ -102,7 +102,7 @@
               />
             </label>
           </div>
-          <div class="model-field small">
+          <div class="model-field">
             <label>
               <span>Temperature</span>
               <input
@@ -119,9 +119,11 @@
               />
             </label>
           </div>
-          <div class="model-field small">
+        </div>
+        <div class="model-token-fields">
+          <div class="model-field" title="单次响应的最大输出 Token 数，不填则使用服务商默认">
             <label>
-              <span>Max Tokens</span>
+              <span>输出上限 Max Tokens</span>
               <input
                 type="number"
                 value={model.maxTokens || ""}
@@ -133,7 +135,25 @@
                       : undefined,
                   })}
                 class="form-input"
-                placeholder="无限制"
+                placeholder="不限制/使用服务商默认"
+              />
+            </label>
+          </div>
+          <div class="model-field" title="输入+输出的总 Token 窗口，用于上下文用量估算和自动压缩触发；留空使用默认估算窗口">
+            <label>
+              <span>上下文窗口 Token 数</span>
+              <input
+                type="number"
+                value={model.contextWindowTokens || ""}
+                min="1"
+                on:input={(e) =>
+                  onUpdateModel(provider.id, modelIndex, {
+                    contextWindowTokens: e.currentTarget.value
+                      ? parseInt(e.currentTarget.value, 10)
+                      : undefined,
+                  })}
+                class="form-input"
+                placeholder="留空使用默认估算窗口"
               />
             </label>
           </div>
@@ -268,12 +288,6 @@
     line-height: 1.5;
   }
 
-  .models-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
   .models-empty-state {
     padding: 24px 16px;
     text-align: center;
@@ -289,6 +303,13 @@
     }
   }
 
+  .models-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
   .model-item {
     padding: 12px;
     border: 1px solid var(--b3-border-color);
@@ -297,15 +318,34 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
-  .model-fields {
+  .model-main-fields {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(96px, 0.6fr);
     gap: 12px;
+    min-width: 0;
 
-    .model-field.small {
-      max-width: 120px;
+    @media (max-width: 900px) {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    @media (max-width: 640px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .model-token-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    min-width: 0;
+
+    @media (max-width: 900px) {
+      grid-template-columns: 1fr;
     }
   }
 
@@ -315,10 +355,6 @@
     gap: 4px;
     min-width: 0;
 
-    &.small {
-      max-width: 100px;
-    }
-
     label {
       display: flex;
       flex-direction: column;
@@ -326,6 +362,14 @@
       font-size: 12px;
       color: var(--b3-theme-on-surface-light);
       cursor: auto;
+      min-width: 0;
+      word-break: break-word;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      min-width: 0;
     }
   }
 

@@ -16,7 +16,7 @@
     "make-install": "vite build && node --no-warnings ./scripts/make_install.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test:kb-agent-parity": "tsx src/features/kb/services/agentic-rag/harness/parity/dev-runner.ts"
+    "test:kb-agent-parity": "node scripts/run_kb_agent_parity.cjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

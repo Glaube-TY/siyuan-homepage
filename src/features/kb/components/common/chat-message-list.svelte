@@ -36,9 +36,26 @@
   // 内部推导：是否可以重试（最后一条消息是 error）
   $: canRetry = !asking && lastMessage?.role === "error" && hasUserMessage;
 
-  // 内部推导：是否有已压缩的消息
-  $: hasCompactedMessages = messages.some((m) => (m as { compacted?: boolean }).compacted);
-  $: firstNonCompactedIndex = messages.findIndex((m) => !(m as { compacted?: boolean }).compacted);
+  // 找到 compacted → 非 compacted 的边界：最后一个 compacted 消息之后的第一个非 compacted 消息索引
+  // 分隔线应该显示在这个位置之前
+  $: compressionBoundaryIndex = (() => {
+    let lastCompactedIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if ((messages[i] as { compacted?: boolean }).compacted) {
+        lastCompactedIdx = i;
+        break;
+      }
+    }
+    if (lastCompactedIdx < 0) return -1;
+    // 找到 lastCompactedIdx 之后第一个非 compacted 消息
+    for (let i = lastCompactedIdx + 1; i < messages.length; i++) {
+      if (!(messages[i] as { compacted?: boolean }).compacted) {
+        return i;
+      }
+    }
+    // 所有 compacted 消息之后没有非 compacted 消息，不显示分隔线
+    return -1;
+  })();
 
   const dispatch = createEventDispatcher<{
     regenerate: void;
@@ -149,9 +166,9 @@
   {:else}
     <div class="messages">
       {#each messages as message, msgIdx (message.id)}
-        {#if hasCompactedMessages && msgIdx === firstNonCompactedIndex && firstNonCompactedIndex > 0}
+        {#if compressionBoundaryIndex >= 0 && msgIdx === compressionBoundaryIndex}
           <div class="compression-separator">
-            <span class="compression-separator-text">较早上下文已压缩为摘要</span>
+            <span class="compression-separator-text">以上对话已压缩，仅保留阶段摘要用于上下文</span>
           </div>
         {/if}
         <!-- 消息项：传入消息数据和状态标识 -->

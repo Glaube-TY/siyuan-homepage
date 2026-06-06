@@ -35,6 +35,8 @@ export interface AskByModeParams {
   customDocIds?: string[];
   /** 用户手动附加的文档轻量元信息（可选，写入 user message 便于 UI 展示） */
   attachedDocs?: AttachedKbDoc[];
+  /** 当前模型的上下文窗口 tokens 数（可选，用于上下文预算估算和压缩触发） */
+  contextWindowTokens?: number;
 }
 
 /** Ask By Mode 结果 */

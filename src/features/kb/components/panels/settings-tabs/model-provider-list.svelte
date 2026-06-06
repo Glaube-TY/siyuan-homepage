@@ -25,6 +25,17 @@
 </script>
 
 <div class="provider-list">
+  <div class="add-provider">
+    <select bind:value={selectedPresetId} on:change={handlePresetChange} class="preset-select">
+      <option value="">添加供应商...</option>
+      {#each MODEL_PROVIDER_PRESETS as preset}
+        <option value={preset.id} disabled={preset.id !== "openai-compatible" && isPresetAdded(preset.id)}>
+          {preset.label}{preset.id !== "openai-compatible" && isPresetAdded(preset.id) ? "（已添加）" : preset.id === "openai-compatible" && isPresetAdded(preset.id) ? "（可重复添加）" : ""}
+        </option>
+      {/each}
+    </select>
+  </div>
+
   <div class="list-header">
     <span class="list-title">供应商列表</span>
   </div>
@@ -32,7 +43,7 @@
   <div class="provider-items">
     {#if providers.length === 0}
       <div class="empty-state">
-        还没有模型供应商，请从下方预设添加。
+        还没有模型供应商，请从上方添加。
       </div>
     {:else}
       {#each providers as provider, providerIndex (`${providerIndex}-${normalizeId(provider.id)}`)}
@@ -58,17 +69,6 @@
         </button>
       {/each}
     {/if}
-  </div>
-
-  <div class="add-provider">
-    <select bind:value={selectedPresetId} on:change={handlePresetChange} class="preset-select">
-      <option value="">选择供应商模板...</option>
-      {#each MODEL_PROVIDER_PRESETS as preset}
-        <option value={preset.id} disabled={isPresetAdded(preset.id)}>
-          {preset.label}{isPresetAdded(preset.id) ? "（已添加）" : ""}
-        </option>
-      {/each}
-    </select>
   </div>
 </div>
 
@@ -188,8 +188,8 @@
   }
 
   .add-provider {
-    padding-top: 8px;
-    border-top: 1px solid var(--b3-border-color);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--b3-border-color);
   }
 
   .preset-select {

@@ -9,8 +9,6 @@ export const DEFAULT_TEMPERATURE = 0.3;
 
 export const DEFAULT_KB_SETTINGS: KbSettings = {
   assistantActionAlignment: "left",
-  maxContextItems: 5,
-  maxContextTextLength: 800,
   firstPassMaxHits: 50,
   headingMatchWeight: 10,
   textMatchWeight: 5,

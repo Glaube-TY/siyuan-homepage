@@ -151,24 +151,6 @@ export async function saveKbSettings(settings: Partial<KbSettings>): Promise<KbS
 function normalizeNumericSettings(settings: Partial<KbSettings>): Partial<KbSettings> {
   const normalized = { ...settings };
 
-  if (normalized.maxContextItems !== undefined) {
-    normalized.maxContextItems = normalizeIntegerSetting(
-      normalized.maxContextItems,
-      DEFAULT_KB_SETTINGS.maxContextItems,
-      1,
-      10
-    );
-  }
-
-  if (normalized.maxContextTextLength !== undefined) {
-    normalized.maxContextTextLength = normalizeIntegerSetting(
-      normalized.maxContextTextLength,
-      DEFAULT_KB_SETTINGS.maxContextTextLength,
-      200,
-      12000
-    );
-  }
-
   if (normalized.firstPassMaxHits !== undefined) {
     normalized.firstPassMaxHits = normalizeIntegerSetting(
       normalized.firstPassMaxHits,
@@ -253,6 +235,12 @@ function normalizeNumericSettings(settings: Partial<KbSettings>): Partial<KbSett
           modelCopy.maxTokens = isNaN(val) || val <= 0 ? undefined : val;
         }
 
+        // 归一化 contextWindowTokens
+        if (modelCopy.contextWindowTokens !== undefined) {
+          const val = parseInt(String(modelCopy.contextWindowTokens), 10);
+          modelCopy.contextWindowTokens = isNaN(val) || val <= 0 ? undefined : val;
+        }
+
         return modelCopy;
       });
 
@@ -314,8 +302,6 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
   // 第四步：显式构造 KbSettings 返回对象
   return {
     assistantActionAlignment: normalizeAssistantActionAlignment(normalized.assistantActionAlignment),
-    maxContextItems: normalized.maxContextItems ?? DEFAULT_KB_SETTINGS.maxContextItems,
-    maxContextTextLength: normalized.maxContextTextLength ?? DEFAULT_KB_SETTINGS.maxContextTextLength,
     firstPassMaxHits: normalized.firstPassMaxHits ?? DEFAULT_KB_SETTINGS.firstPassMaxHits,
     headingMatchWeight: normalized.headingMatchWeight ?? DEFAULT_KB_SETTINGS.headingMatchWeight,
     textMatchWeight: normalized.textMatchWeight ?? DEFAULT_KB_SETTINGS.textMatchWeight,
