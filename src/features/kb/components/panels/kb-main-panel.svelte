@@ -27,10 +27,15 @@
   export let placement: "dock" | "tab" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
 
+  // Web search state
+  let webSearchEnabled = false;
+  let webAccessMode: "off" | "smart" | "required" = "off";
+
   const TAB_CHAT_MODES: ChatMode[] = ["whole_kb"];
   const CURRENT_DOCUMENT_REQUIRED_MODES: ChatMode[] = [
     "current_notebook",
     "current_doc_with_children",
+    "current_doc_neighborhood",
   ];
 
   // 使用 $ 前缀自动订阅 store 状态
@@ -116,28 +121,30 @@
    * 使用和 selectedMode 一致的校验逻辑
    */
   function normalizeSendPayload(
-    detail: string | { question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[] }
-  ): { question: string; mode: ChatMode; thinkingMode: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[] } {
+    detail: string | { question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" }
+  ): { question: string; mode: ChatMode; thinkingMode: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" } {
     const storeThinkingMode = $kbSessionStore.thinkingMode ?? "off";
     if (typeof detail === "string") {
-      return { question: detail, mode: selectedMode, thinkingMode: storeThinkingMode };
+      return { question: detail, mode: selectedMode, thinkingMode: storeThinkingMode, webAccessMode: webAccessMode };
     }
     const question = detail.question;
     const payloadMode = detail.mode;
     const payloadThinkingMode = detail.thinkingMode ?? storeThinkingMode;
     const attachedDocIds = detail.attachedDocIds;
     const attachedDocs = detail.attachedDocs;
+    const submittedWebAccessMode = detail.webAccessMode;
     if (payloadMode && CHAT_MODES.some((m) => m.id === payloadMode)) {
       if (!availableModes || availableModes.includes(payloadMode)) {
-        return { question, mode: payloadMode, thinkingMode: payloadThinkingMode, attachedDocIds, attachedDocs };
+        return { question, mode: payloadMode, thinkingMode: payloadThinkingMode, attachedDocIds, attachedDocs, webAccessMode: submittedWebAccessMode };
       }
     }
-    return { question, mode: selectedMode, thinkingMode: payloadThinkingMode, attachedDocIds, attachedDocs };
+    return { question, mode: selectedMode, thinkingMode: payloadThinkingMode, attachedDocIds, attachedDocs, webAccessMode: submittedWebAccessMode };
   }
 
-  async function handleSend(e: CustomEvent<string | { question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[] }>) {
+  async function handleSend(e: CustomEvent<string | { question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" }>) {
     if (asking) return;
-    const { question, mode: effectiveMode, thinkingMode: submittedThinkingMode, attachedDocIds, attachedDocs } = normalizeSendPayload(e.detail);
+    const payload = normalizeSendPayload(e.detail);
+    const { question, mode: effectiveMode, thinkingMode: submittedThinkingMode, attachedDocIds, attachedDocs, webAccessMode: submittedWebAccessMode } = payload;
     if (!question.trim()) return;
 
     if (effectiveMode !== storedSelectedMode) {
@@ -146,6 +153,10 @@
 
     if (submittedThinkingMode !== ($kbSessionStore.thinkingMode ?? "off")) {
       kbSessionStore.setThinkingMode(submittedThinkingMode);
+    }
+
+    if (submittedWebAccessMode) {
+      webAccessMode = submittedWebAccessMode;
     }
 
     if (import.meta.env.DEV) {
@@ -157,11 +168,12 @@
         placement,
         availableModes,
         attachedDocCount: attachedDocIds?.length ?? 0,
+        webAccessMode: submittedWebAccessMode ?? "off",
       });
     }
 
     kbSessionStore.setDraftQuestion("");
-    await handleAskByMode(effectiveMode, question, submittedThinkingMode, attachedDocIds, attachedDocs);
+    await handleAskByMode(effectiveMode, question, submittedThinkingMode, attachedDocIds, attachedDocs, submittedWebAccessMode);
   }
 
   /**
@@ -170,7 +182,7 @@
   async function handleSuggestedQuestion(e: CustomEvent<string>) {
     if (asking) return;
     const question = e.detail;
-    await handleAskByMode(selectedMode, question, $kbSessionStore.thinkingMode ?? "off");
+    await handleAskByMode(selectedMode, question, $kbSessionStore.thinkingMode ?? "off", undefined, undefined, webAccessMode);
   }
 
   /**
@@ -290,7 +302,11 @@
 
     const reusedThinkingMode = requestContext?.thinkingMode as import("../../types/session").ThinkingMode | undefined;
     const hasThinkingMode = !!reusedThinkingMode;
-    const thinkingModeSource = hasThinkingMode ? "requestContext" : "store";
+    // 当前 UI 状态优先，旧 requestContext 仅作 fallback
+    const effectiveThinkingMode = $kbSessionStore.thinkingMode ?? reusedThinkingMode ?? "off";
+    const thinkingModeSource = $kbSessionStore.thinkingMode ? "store" : hasThinkingMode ? "requestContext" : "default_off";
+
+    const reusedWebAccessMode = requestContext?.webAccessMode ?? webAccessMode;
 
     if (requestContext) {
       pushAgentDebugEvent("REGENERATE_REQUEST_CONTEXT_REUSED_SAFE", {
@@ -298,6 +314,8 @@
         effectiveScopeMode: requestContext.effectiveScopeMode,
         hasCustomDocs: Array.isArray(requestContext.customDocIds) && requestContext.customDocIds.length > 0,
         docCount: requestContext.customDocIds?.length ?? 0,
+        webAccessMode: reusedWebAccessMode,
+        hasExplicitWebAccessMode: !!requestContext?.webAccessMode,
       }, "info");
     } else {
       pushAgentDebugEvent("REGENERATE_REQUEST_CONTEXT_REUSED_SAFE", {
@@ -312,6 +330,9 @@
     pushAgentDebugEvent("REGENERATE_THINKING_CONTEXT_REUSED_SAFE", {
       hasThinkingMode,
       thinkingModeSource,
+      rawValue: reusedThinkingMode,
+      normalizedValue: effectiveThinkingMode,
+      hasExplicitUserValue: !!$kbSessionStore.thinkingMode,
     }, "info");
 
     await handleAskByModeWithExistingUser(
@@ -321,7 +342,8 @@
       chatModelSelection,
       requestContext?.customDocIds,
       requestContext?.attachedDocs,
-      reusedThinkingMode,
+      effectiveThinkingMode,
+      reusedWebAccessMode,
     );
   }
 
@@ -360,7 +382,10 @@
 
     const reusedThinkingMode = requestContext?.thinkingMode as import("../../types/session").ThinkingMode | undefined;
     const hasThinkingMode = !!reusedThinkingMode;
-    const thinkingModeSource = hasThinkingMode ? "requestContext" : "store";
+    // 当前 UI 状态优先，旧 requestContext 仅作 fallback
+    const effectiveThinkingMode = $kbSessionStore.thinkingMode ?? reusedThinkingMode ?? "off";
+    const thinkingModeSource = $kbSessionStore.thinkingMode ? "store" : hasThinkingMode ? "requestContext" : "default_off";
+    const reusedWebAccessMode = requestContext?.webAccessMode ?? webAccessMode;
 
     pushAgentDebugEvent("RETRY_REQUEST_CONTEXT_REUSED_SAFE", {
       hasRequestContext,
@@ -368,11 +393,16 @@
       effectiveScopeMode: requestContext?.effectiveScopeMode ?? effectiveMode,
       customDocCount: customDocIds?.length ?? attachedDocs?.length ?? 0,
       missingRequestContext: !hasRequestContext,
+      webAccessMode: reusedWebAccessMode,
+      hasExplicitWebAccessMode: !!requestContext?.webAccessMode,
     }, "info");
 
     pushAgentDebugEvent("RETRY_THINKING_CONTEXT_REUSED_SAFE", {
       hasThinkingMode,
       thinkingModeSource,
+      rawValue: reusedThinkingMode,
+      normalizedValue: effectiveThinkingMode,
+      hasExplicitUserValue: !!$kbSessionStore.thinkingMode,
     }, "info");
 
     await handleAskByModeWithExistingUser(
@@ -382,7 +412,8 @@
       chatModelSelection,
       customDocIds,
       attachedDocs,
-      reusedThinkingMode,
+      effectiveThinkingMode,
+      reusedWebAccessMode,
     );
   }
 
@@ -663,7 +694,7 @@
   /**
    * 统一提问入口：调用 orchestration 层
    */
-  async function handleAskByMode(mode: ChatMode, question: string, submittedThinkingMode?: import("../../types/session").ThinkingMode, customDocIds?: string[], attachedDocs?: import("../../types/chat").AttachedKbDoc[]) {
+  async function handleAskByMode(mode: ChatMode, question: string, submittedThinkingMode?: import("../../types/session").ThinkingMode, customDocIds?: string[], attachedDocs?: import("../../types/chat").AttachedKbDoc[], submittedWebAccessMode?: "off" | "smart" | "required") {
     if (import.meta.env.DEV) {
       console.debug("[KbMainPanel] askByMode called", {
         mode,
@@ -698,6 +729,13 @@
       hasExplicitUserValue: submittedThinkingMode !== undefined && submittedThinkingMode !== null,
       mode,
     });
+
+    pushAgentDebugEvent("WEB_ACCESS_MODE_SOURCE_SAFE", {
+      sourceName: "handleAskByMode",
+      rawValue: submittedWebAccessMode,
+      normalizedValue: submittedWebAccessMode ?? webAccessMode,
+      hasExplicitUserValue: submittedWebAccessMode !== undefined && submittedWebAccessMode !== null,
+    }, "info");
 
     const result = await askByMode({
       mode,
@@ -745,6 +783,7 @@
       customDocIds,
       attachedDocs,
       contextWindowTokens: getSelectedContextWindowTokens(),
+      webAccessMode: submittedWebAccessMode ?? webAccessMode,
     });
 
     // 只有当前会话仍等于请求归属会话时，才同步状态
@@ -772,6 +811,7 @@
     customDocIds?: string[],
     attachedDocs?: import("../../types/chat").AttachedKbDoc[],
     submittedThinkingMode?: import("../../types/session").ThinkingMode,
+    submittedWebAccessMode?: "off" | "smart" | "required",
   ) {
     if (!ensureCurrentDocumentModeAvailable(mode)) {
       return;
@@ -788,6 +828,22 @@
     const abortController = getNewAbortController();
 
     const effectiveThinkingMode = submittedThinkingMode ?? $kbSessionStore.thinkingMode ?? "off";
+
+    pushAgentDebugEvent("THINKING_MODE_SOURCE_SAFE", {
+      sourceName: "handleAskByModeWithExistingUser",
+      rawValue: submittedThinkingMode,
+      normalizedValue: effectiveThinkingMode,
+      hasExplicitUserValue: submittedThinkingMode !== undefined && submittedThinkingMode !== null,
+    }, "info");
+
+    const effectiveWebAccessMode = submittedWebAccessMode ?? webAccessMode;
+
+    pushAgentDebugEvent("WEB_ACCESS_MODE_SOURCE_SAFE", {
+      sourceName: "handleAskByModeWithExistingUser",
+      rawValue: submittedWebAccessMode,
+      normalizedValue: effectiveWebAccessMode,
+      hasExplicitUserValue: submittedWebAccessMode !== undefined && submittedWebAccessMode !== null,
+    }, "info");
 
     const result = await askByMode({
       mode,
@@ -833,6 +889,7 @@
       abortSignal: abortController.signal,
       chatModelSelection,
       contextWindowTokens: getSelectedContextWindowTokens(),
+      webAccessMode: effectiveWebAccessMode,
     });
 
     if (activeConversationId === requestConversationId) {
@@ -854,6 +911,10 @@
     if (detail?.assistantActionAlignment) {
       assistantActionAlignment = detail.assistantActionAlignment;
     }
+    if (detail?.settings?.webSearch?.enabled !== undefined) {
+      webSearchEnabled = detail.settings.webSearch.enabled;
+      if (!webSearchEnabled) webAccessMode = "off";
+    }
     void refreshChatModelOptions();
   }
 
@@ -861,6 +922,10 @@
     void (async () => {
       await kbSessionStore.hydrateConversations();
       await refreshChatModelOptions();
+      try {
+        const settings = await getKbSettings();
+        webSearchEnabled = settings.webSearch?.enabled ?? false;
+      } catch { /* ignore */ }
       refreshContextUsageSafe("hydrate");
     })();
     window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged as EventListener);
@@ -986,6 +1051,9 @@
           compressedContextSummary={$kbSessionStore.compressedContextSummary}
           stageSummaryCount={($kbSessionStore.stageSummaries ?? []).length}
           {availableModes}
+          webSearchEnabled
+          {webAccessMode}
+          on:webAccessModeChange={(e) => { webAccessMode = e.detail; }}
           on:send={handleSend}
           on:stop={handleStop}
           on:modeChange={handleModeChange}

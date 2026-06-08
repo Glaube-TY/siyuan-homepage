@@ -54,6 +54,9 @@ function convertAgentScopeToRetrievalScope(scope: AgentScope): AnyRetrievalScope
         rootDocTitle: scope.rootTitle,
         box: scope.box,
       };
+    case "doc_neighborhood":
+      // 底层使用 whole_kb 检索，结果由 resolvedIncludeDocIds 过滤
+      return { type: "whole_kb" };
     case "current_doc":
     case "custom_docs":
       return null;
@@ -256,7 +259,33 @@ export async function searchKnowledgeBlocks(
   }
 
   let resolvedIncludeDocIds: string[] | undefined;
-  if (includeDocIds && includeDocIds.length > 0) {
+  if (scope.type === "doc_neighborhood") {
+    if (!scope.docIds || scope.docIds.length === 0) {
+      warnings.push("文档邻域范围为空");
+      return {
+        hits: [],
+        docHits: [],
+        searchedScopeType: scope.type,
+        warnings,
+      };
+    }
+    const neighborhoodIds = [...new Set(scope.docIds.filter(Boolean))];
+    if (includeDocIds && includeDocIds.length > 0) {
+      const externalSet = new Set(includeDocIds.filter(Boolean));
+      resolvedIncludeDocIds = neighborhoodIds.filter((id) => externalSet.has(id));
+    } else {
+      resolvedIncludeDocIds = neighborhoodIds;
+    }
+    if (resolvedIncludeDocIds.length === 0) {
+      warnings.push("文档邻域与过滤条件无交集");
+      return {
+        hits: [],
+        docHits: [],
+        searchedScopeType: scope.type,
+        warnings,
+      };
+    }
+  } else if (includeDocIds && includeDocIds.length > 0) {
     resolvedIncludeDocIds = [...new Set(includeDocIds.filter(Boolean))];
     if (resolvedIncludeDocIds.length === 0) {
       warnings.push("includeDocIds 被去重后为空集");
@@ -447,6 +476,7 @@ export async function searchKnowledgeBlocks(
   const blockLevelCandidateCount = hits.length;
 
   pushAgentDebugEvent("SEARCH_SCOPE_SHARED_CORE_USED_SAFE", {
+    scopeType: scope.type,
     candidateDocCount,
     candidateBlockCount: hits.length,
     kernelDocCount,
@@ -454,6 +484,7 @@ export async function searchKnowledgeBlocks(
     hybridDocCount,
     docLevelCandidateCount,
     blockLevelCandidateCount,
+    neighborhoodDocCount: scope.type === "doc_neighborhood" ? scope.docIds.length : undefined,
   }, "info");
 
   if (trace) {

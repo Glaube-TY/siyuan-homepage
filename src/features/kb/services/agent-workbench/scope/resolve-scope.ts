@@ -13,17 +13,18 @@ import { summarizeAgentScope } from "./scope-label";
 import { pushAgentDebugEvent } from "../debug/workbench-debug";
 import { getCurrentDocumentIdOrThrow } from "../../siyuan/current-doc-service";
 import { getNotebookIdByDocId } from "../../siyuan/notebook-resolver";
+import { parseDocIdPath, getParentDocIdFromPath } from "../../doc-graph/path-utils";
 
 /**
  * 解析文档元数据（title 和 box）
  * @param docId 文档 ID
  * @returns title 和 box
  */
-async function resolveDocMeta(docId: string): Promise<{ title?: string; box?: string }> {
+async function resolveDocMeta(docId: string): Promise<{ title?: string; box?: string; path?: string }> {
   try {
     const escapedDocId = docId.replace(/'/g, "''");
-    const rows = await sqlSelectReadonly<{ content?: string; box?: string }>(
-      `SELECT id, content, box FROM blocks WHERE id = '${escapedDocId}' AND type = 'd'`,
+    const rows = await sqlSelectReadonly<{ content?: string; box?: string; path?: string }>(
+      `SELECT id, content, box, path FROM blocks WHERE id = '${escapedDocId}' AND type = 'd'`,
       { maxLimit: 1, allowedTables: ["blocks"] }
     );
 
@@ -31,6 +32,7 @@ async function resolveDocMeta(docId: string): Promise<{ title?: string; box?: st
       return {
         title: rows[0].content,
         box: rows[0].box,
+        path: rows[0].path,
       };
     }
   } catch (e) {
@@ -60,6 +62,9 @@ export async function resolveAgentScope(
 
     case "current_doc_with_children":
       return await resolveDocTreeScope(trace);
+
+    case "current_doc_neighborhood":
+      return await resolveCurrentDocNeighborhoodScope(trace);
 
     case "current_notebook":
       return await resolveNotebookScope(trace);
@@ -124,6 +129,86 @@ async function resolveDocTreeScope(trace?: boolean): Promise<ResolvedAgentScope>
   return {
     scope,
     summary: summarizeAgentScope(scope),
+  };
+}
+
+/**
+ * 解析当前文档邻域 scope
+ *
+ * 当前文档邻域 = 当前文档 + 父级链 + 同级兄弟文档 + 直接子文档
+ * - 不包含孙子文档及更深后代
+ * - 不包含父文档的兄弟文档
+ * - 不包含反链、提及、标签文档
+ */
+async function resolveCurrentDocNeighborhoodScope(trace?: boolean): Promise<ResolvedAgentScope> {
+  const docId = getCurrentDocumentIdOrThrow();
+  const meta = await resolveDocMeta(docId);
+
+  if (!meta.box || !meta.path) {
+    throw new Error("无法确定当前文档的笔记本或路径，不能构造文档邻域范围");
+  }
+
+  // 从当前文档 path 解析父级链（根到父）
+  const pathParts = parseDocIdPath(meta.path);
+  const ancestorDocIds = pathParts.slice(0, -1);
+
+  // 查询同一 box 下所有文档的轻量元数据
+  const rows = await sqlSelectReadonly<{ id: string; content: string; path: string }>(
+    `SELECT id, content, path FROM blocks WHERE box = '${meta.box.replace(/'/g, "''")}' AND type = 'd'`,
+    { maxLimit: 5000, allowedTables: ["blocks"] },
+  );
+
+  const allDocs = (rows ?? []).map((r) => ({
+    id: r.id,
+    title: r.content || "",
+    path: r.path || "",
+    parentDocId: getParentDocIdFromPath(r.path || ""),
+  }));
+
+  const currentDoc = allDocs.find((d) => d.id === docId);
+  const currentParentDocId = currentDoc?.parentDocId;
+
+  // 同级兄弟：同 parentDocId，排除当前文档
+  const siblingDocIds = allDocs
+    .filter((d) => d.id !== docId && d.parentDocId === currentParentDocId)
+    .map((d) => d.id);
+
+  // 直接子文档：parentDocId 等于当前 docId
+  const childDocIds = allDocs
+    .filter((d) => d.parentDocId === docId)
+    .map((d) => d.id);
+
+  // 组装：父级链（根到父）→ 当前文档 → 同级兄弟 → 直接子文档
+  const docIds = [
+    ...ancestorDocIds,
+    docId,
+    ...siblingDocIds,
+    ...childDocIds,
+  ];
+  const uniqueDocIds = [...new Set(docIds)];
+
+  if (trace) {
+    pushAgentDebugEvent("SCOPE_RESOLVED", {
+      type: "doc_neighborhood",
+      docCount: uniqueDocIds.length,
+      hasParent: ancestorDocIds.length > 0,
+      siblingCount: siblingDocIds.length,
+      childCount: childDocIds.length,
+      ancestorCount: ancestorDocIds.length,
+    }, "debug");
+  }
+
+  const scope: AgentScope = {
+    type: "doc_neighborhood",
+    centerDocId: docId,
+    centerTitle: meta.title,
+    box: meta.box,
+    docIds: uniqueDocIds,
+  };
+
+  return {
+    scope,
+    summary: summarizeAgentScope(scope, { docCount: uniqueDocIds.length }),
   };
 }
 

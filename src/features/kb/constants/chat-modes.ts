@@ -6,6 +6,7 @@
 export type ChatMode =
   | "current_notebook"
   | "current_doc_with_children"
+  | "current_doc_neighborhood"
   | "whole_kb";
 
 export interface ChatModeConfig {
@@ -24,8 +25,14 @@ export const CHAT_MODES: ChatModeConfig[] = [
   },
   {
     id: "current_doc_with_children",
-    label: "文档及子文档",
+    label: "当前文档及子文档",
     description: "基于当前文档及其子文档检索",
+    available: true,
+  },
+  {
+    id: "current_doc_neighborhood",
+    label: "当前文档邻域",
+    description: "检索当前文档、父级链、同级文档和直接子文档",
     available: true,
   },
   {

@@ -61,14 +61,38 @@ import { runSchemaSanity } from "../debug/schema-sanity";
 // Single debug entry point
 import { setupAgentDebug } from "../debug/workbench-debug";
 
+// Web search tools — factory imports only, no side effects
+import { createWebSearchTool } from "../tools/web-search/web-search.tool";
+import { createWebReadPageTool } from "../tools/web-search/web-read-page.tool";
+import type { WebSearchProvider } from "../tools/web-search/web-search-provider";
+
 export interface AgentWorkbenchRuntime {
   skillRegistry: SkillRegistry;
   toolRegistry: ToolRegistry;
   observationLog: ObservationLog;
 }
 
+export interface BuiltinCapabilityAccess {
+  knowledgeBase: boolean;
+  scheduleTaskDiary: boolean;
+}
+
 export interface AgentWorkbenchRuntimeOptions {
   kbRetrievalToolDeps?: SiyuanToolDeps;
+  /** Optional: web search runtime deps. When present + mode smart/required, registers web_search. */
+  webSearchToolDeps?: {
+    getProvider(): WebSearchProvider;
+    maxResults: number;
+    timeoutMs: number;
+  };
+  /** Optional: web read page runtime deps. When present, registers global web_read_page. */
+  webReadPageToolDeps?: {
+    readProxyEndpoint?: string;
+    readPageMaxChars: number;
+    timeoutMs: number;
+  };
+  /** Built-in capability visibility from settings. Not a business controller — just composition-root gate. */
+  builtinCapabilityAccess?: BuiltinCapabilityAccess;
 }
 
 function createSiyuanToolDeps(deps: SiyuanToolDeps) {
@@ -103,9 +127,13 @@ export function createAgentWorkbenchRuntime(
   const skillRegistry = new SkillRegistry();
   const toolRegistry = new ToolRegistry();
 
-  // Register built-in skill
-  skillRegistry.ensureSkill(createKnowledgeBaseQaSkill(), "builtin");
-  skillRegistry.ensureSkill(createScheduleTaskDiarySkill(), "builtin");
+  // Register built-in skills based on capability access (settings-level visibility gate)
+  if (options.builtinCapabilityAccess?.knowledgeBase !== false) {
+    skillRegistry.ensureSkill(createKnowledgeBaseQaSkill(), "builtin");
+  }
+  if (options.builtinCapabilityAccess?.scheduleTaskDiary !== false) {
+    skillRegistry.ensureSkill(createScheduleTaskDiarySkill(), "builtin");
+  }
 
   // Register final_answer (plannerVisible: false — not in tool manifest)
   toolRegistry.ensureTool(createFinalAnswerTool());
@@ -121,13 +149,39 @@ export function createAgentWorkbenchRuntime(
       recordDeps,
       diaryDocDeps,
     } = createSiyuanToolDeps(options.kbRetrievalToolDeps);
-    toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
-    toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
+
+    // read_docs is a global read-only tool; register whenever kbRetrievalToolDeps are present
     toolRegistry.ensureTool(createReadDocsTool(readDeps));
-    toolRegistry.ensureTool(createGetDailyWorkspaceOverviewTool(overviewDeps));
-    toolRegistry.ensureTool(createQueryTasksTool(taskDeps));
-    toolRegistry.ensureTool(createQueryDiaryRecordsTool(recordDeps));
-    toolRegistry.ensureTool(createFindDiaryDocsTool(diaryDocDeps));
+
+    if (options.builtinCapabilityAccess?.knowledgeBase !== false) {
+      toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
+      toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
+    }
+
+    if (options.builtinCapabilityAccess?.scheduleTaskDiary !== false) {
+      toolRegistry.ensureTool(createGetDailyWorkspaceOverviewTool(overviewDeps));
+      toolRegistry.ensureTool(createQueryTasksTool(taskDeps));
+      toolRegistry.ensureTool(createQueryDiaryRecordsTool(recordDeps));
+      toolRegistry.ensureTool(createFindDiaryDocsTool(diaryDocDeps));
+    }
+  }
+
+  // Register web search tool (when web search access is enabled)
+  if (options.webSearchToolDeps) {
+    toolRegistry.ensureTool(createWebSearchTool({
+      getProvider: options.webSearchToolDeps.getProvider,
+      maxResults: options.webSearchToolDeps.maxResults,
+      timeoutMs: options.webSearchToolDeps.timeoutMs,
+    }));
+  }
+
+  // Register web read page tool (when web read access is enabled)
+  if (options.webReadPageToolDeps) {
+    toolRegistry.ensureTool(createWebReadPageTool({
+      readProxyEndpoint: options.webReadPageToolDeps.readProxyEndpoint,
+      readPageMaxChars: options.webReadPageToolDeps.readPageMaxChars,
+      timeoutMs: options.webReadPageToolDeps.timeoutMs,
+    }));
   }
 
   // Single debug entry point — no console output by default

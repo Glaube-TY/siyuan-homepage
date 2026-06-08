@@ -16,6 +16,10 @@
 4. **Skill 只是中文能力说明。**
    Skill 描述工具能力、边界和通用建议。不拥有工具、不绑定工具、不规定固定步骤，不写成具体场景规则库。
 
+   内置 Skill 开关是**设置层面的能力可见性边界**。关闭某个内置能力时，本轮不注入对应能力说明，也不注册该能力域下的内部工具；这不是 Skill 拥有 Tool，而是 composition root 对内置能力域做统一可见性控制。全局读取类工具（如 `read_docs`、`web_read_page`）是全局独立能力，不属于普通 Skill，不由 Skill 开关控制。
+
+   全局能力可以由运行时上下文说明，不必做成 Skill；联网搜索（`web_search`）属于本轮全局搜索能力，由输入框 off/smart/required 模式控制。输入框联网搜索模式只控制搜索能力，不控制明确资源读取能力（如 `web_read_page`）。
+
 5. **工具结果暴露真实可调用资源 ID。**
    使用 docId、blockId、url、fileId、resourceId。不使用隐藏 handle 映射。不暴露 path、internalMapping、realPath 等内部字段。
 

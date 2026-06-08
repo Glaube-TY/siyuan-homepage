@@ -29,6 +29,10 @@ export interface AgentTurnMemory {
   footerReferenceReasons: string[];
   footerReferenceReadLevels: string[];
   footerReferenceGroundedFlags: boolean[];
+  footerReferenceSourceTypes: string[];
+  footerReferenceUrls: string[];
+  footerReferenceSourceNames: string[];
+  footerReferenceProviders: string[];
 }
 
 export interface BuildAgentTurnMemoryParams {
@@ -46,6 +50,10 @@ export interface AgentTurnMemoryResultLike {
     readLevel?: string;
     referenceReason?: string;
     grounded?: boolean;
+    sourceType?: string;
+    url?: string;
+    sourceName?: string;
+    provider?: string;
   }[];
   events?: AgentWorkbenchEvent[];
 }
@@ -73,6 +81,10 @@ export function buildAgentTurnMemory(params: BuildAgentTurnMemoryParams): AgentT
   const footerReferenceReasons: string[] = [];
   const footerReferenceReadLevels: string[] = [];
   const footerReferenceGroundedFlags: boolean[] = [];
+  const footerReferenceSourceTypes: string[] = [];
+  const footerReferenceUrls: string[] = [];
+  const footerReferenceSourceNames: string[] = [];
+  const footerReferenceProviders: string[] = [];
   for (const ref of result.footerReferences ?? []) {
     // Push ALL fields for EVERY ref to keep parallel arrays aligned at the same index.
     // Missing values become empty strings / false.
@@ -82,6 +94,10 @@ export function buildAgentTurnMemory(params: BuildAgentTurnMemoryParams): AgentT
     footerReferenceReasons.push((ref as { referenceReason?: string }).referenceReason ?? "");
     footerReferenceReadLevels.push(ref.readLevel ?? "");
     footerReferenceGroundedFlags.push((ref as { grounded?: boolean }).grounded ?? false);
+    footerReferenceSourceTypes.push((ref as { sourceType?: string }).sourceType ?? "");
+    footerReferenceUrls.push((ref as { url?: string }).url ?? "");
+    footerReferenceSourceNames.push((ref as { sourceName?: string }).sourceName ?? "");
+    footerReferenceProviders.push((ref as { provider?: string }).provider ?? "");
   }
 
   return {
@@ -106,5 +122,9 @@ export function buildAgentTurnMemory(params: BuildAgentTurnMemoryParams): AgentT
     footerReferenceReasons,
     footerReferenceReadLevels,
     footerReferenceGroundedFlags,
+    footerReferenceSourceTypes,
+    footerReferenceUrls,
+    footerReferenceSourceNames,
+    footerReferenceProviders,
   };
 }

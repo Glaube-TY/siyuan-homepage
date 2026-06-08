@@ -5,14 +5,12 @@
  * No loop-owned step cap and no business logic in the loop.
  */
 
-import { z } from "zod";
 import { createAgentWorkbenchRuntime, refreshUserSkills } from "./create-agent-workbench";
 import { SiyuanToolRuntimeState } from "../tools/siyuan/siyuan-tool-runtime";
 import { AgentLoop } from "./agent-loop";
 import { ToolExecutor } from "./tool-executor";
 import { PromptJsonPlannerProvider } from "./planner-provider";
-import { callLlmObject, type LlmCallOptions } from "../../qa/llm-client";
-import { resolveReasoningEffortForCompose, resolveEffectiveCapability } from "../../qa/model-capabilities";
+import { callModelJson } from "../../qa/kb-model-call";
 import { getKbSettings } from "../../settings/kb-settings-service";
 import { loadData as loadPluginData } from "../storage/notebrain-plugin-storage";
 import { resolveAgentScope } from "../scope/resolve-scope";
@@ -20,10 +18,11 @@ import type { AgentScopeMode } from "../scope/types";
 import type { AgentWorkbenchEvent } from "../contracts/turn-event";
 import type { AgentTurnResult } from "../contracts/turn-result";
 import type { ChatModelSelection } from "../../../types/chat-model-selection";
-import type { ThinkingMode } from "../../qa/model-capabilities";
+import type { ThinkingMode } from "../../../types/session";
 import { saveTurnTrace } from "./turn-trace-store";
 import { pushAgentDebugEvent } from "../debug/workbench-debug";
 import type { ConversationContextSnapshot } from "./conversation-context-builder";
+import { plannerDecisionZodSchema } from "../contracts/planner-decision";
 import {
   buildReferenceGroundingSet,
   collectObservationReferences,
@@ -31,6 +30,41 @@ import {
   normalizeAnswerReferences,
   toFooterReferenceItems,
 } from "./reference-collector";
+import type { AgentWorkbenchRuntimeOptions } from "./create-agent-workbench";
+import { streamFinalAnswerFromDraft } from "./final-answer-composer";
+import { hydrateAttachedDocsForTurn } from "./attached-doc-hydration";
+import { BUILTIN_KB_SKILL_NAME } from "../skills/builtin/knowledge-base-qa.skill";
+import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../skills/builtin/schedule-task-diary.skill";
+
+// Web search provider factory (imports only factories, no side effects)
+import { createAnySearchProvider } from "../tools/web-search/providers/anysearch.provider";
+import { createCustomJsonProvider } from "../tools/web-search/providers/custom-json.provider";
+import { createTavilyProvider } from "../tools/web-search/providers/tavily.provider";
+import type { WebSearchProvider } from "../tools/web-search/web-search-provider";
+
+function createWebSearchProvider(ws: {
+  provider: string;
+  apiKey?: string;
+  searchEndpoint?: string;
+  anySearchZone?: "cn" | "intl";
+  anySearchLanguage?: string;
+  timeoutMs: number;
+}): WebSearchProvider | null {
+  try {
+    switch (ws.provider) {
+      case "anysearch":
+        return createAnySearchProvider({ apiKey: ws.apiKey, anySearchZone: ws.anySearchZone, anySearchLanguage: ws.anySearchLanguage, timeoutMs: ws.timeoutMs });
+      case "custom_json":
+        return createCustomJsonProvider({ searchEndpoint: ws.searchEndpoint, timeoutMs: ws.timeoutMs });
+      case "tavily":
+        return createTavilyProvider({ apiKey: ws.apiKey, timeoutMs: ws.timeoutMs });
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // Types
@@ -49,6 +83,8 @@ export interface RunAgentTurnParams {
   onWorkbenchEvent?: (event: AgentWorkbenchEvent) => void;
   onAnswerChunk?: (event: { chunk: string; fullContent: string }) => void;
   onAnswerFinish?: (fullContent: string) => void;
+  /** Reasoning stream callback: only called when thinkingMode=on and model returns reasoning */
+  onReasoningDelta?: (event: { type: "reasoning-start" | "reasoning-delta" | "reasoning-end"; delta?: string }) => void;
 }
 
 export interface AgentTurnOutcome {
@@ -70,42 +106,18 @@ function createPlannerProvider(options: {
   abortSignal?: AbortSignal;
 }): PromptJsonPlannerProvider {
   return new PromptJsonPlannerProvider(async (prompt, opts) => {
-    let reasoningEffort: "low" | "medium" | "none" | undefined;
-    let providerOptions: Record<string, Record<string, unknown>> | undefined;
-    try {
-      const settings = await getKbSettings();
-      const providerId = options.chatModelSelection?.providerId ?? settings.selectedChatProviderId;
-      const provider = (settings.chatProviders ?? []).find((p) => p.id === providerId);
-      const providerType = provider?.type ?? "";
-      const modelId = options.chatModelSelection?.modelId ?? settings.selectedChatModelId;
-      const modelConfig = (provider?.models ?? []).find((m) => m.id === modelId);
-      const userDeclaredCapability = modelConfig?.reasoningCapability;
-      const capability = resolveEffectiveCapability(providerType, userDeclaredCapability);
-      const resolved = resolveReasoningEffortForCompose(
-        options.thinkingMode ?? "off",
-        capability,
-      );
-      reasoningEffort = resolved.effort;
-      providerOptions = resolved.providerOptions;
-    } catch {
-      // If settings resolution fails, proceed without reasoning effort.
-    }
+    const userThinkingMode = options.thinkingMode ?? "off";
 
-    const llmOptions: LlmCallOptions = {
-      abortSignal: opts.abortSignal ?? options.abortSignal,
-      purpose: "planner",
-      maxOutputTokens: 2048,
-      temperature: 0.1,
-      chatModelSelection: options.chatModelSelection,
-      reasoningEffort,
-      providerOptions,
-    };
-
-    const looseSchema = z.object({}).passthrough();
-    const first = await callLlmObject(prompt, looseSchema, llmOptions);
-    if (first && typeof first === "object" && (first as { errorKind?: unknown }).errorKind === "schema_validation_failed") {
-      return await callLlmObject(prompt, looseSchema, llmOptions);
-    }
+    const first = await callModelJson(
+      prompt,
+      plannerDecisionZodSchema,
+      userThinkingMode,
+      {
+        abortSignal: opts.abortSignal ?? options.abortSignal,
+        purpose: "planner",
+        chatModelSelection: options.chatModelSelection,
+      },
+    );
     return first;
   });
 }
@@ -122,69 +134,7 @@ function toTraceEvents(events: AgentWorkbenchEvent[]) {
   }));
 }
 
-function delayDisplayChunk(ms: number, abortSignal?: AbortSignal): Promise<void> {
-  if (abortSignal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, ms);
-    const cleanup = () => {
-      clearTimeout(timer);
-      abortSignal?.removeEventListener("abort", onAbort);
-    };
-    const onAbort = () => {
-      cleanup();
-      resolve();
-    };
-    abortSignal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
 
-function findDisplayChunkEnd(text: string, start: number): number {
-  const minEnd = Math.min(text.length, start + 16);
-  const maxEnd = Math.min(text.length, start + 32);
-  if (maxEnd >= text.length) return text.length;
-
-  const windowText = text.slice(minEnd, maxEnd);
-  const punctuationMatch = /[。！？；，、\n]/.exec(windowText);
-  if (punctuationMatch?.index !== undefined) {
-    return minEnd + punctuationMatch.index + 1;
-  }
-  return maxEnd;
-}
-
-async function emitDisplayAnswerChunks(
-  fullContent: string,
-  options: {
-    abortSignal?: AbortSignal;
-    onAnswerChunk?: (event: { chunk: string; fullContent: string }) => void;
-    onAnswerFinish?: (fullContent: string) => void;
-  },
-): Promise<string> {
-  if (!options.onAnswerChunk) {
-    if (!options.abortSignal?.aborted) options.onAnswerFinish?.(fullContent);
-    return options.abortSignal?.aborted ? "" : fullContent;
-  }
-
-  let emitted = "";
-  while (emitted.length < fullContent.length) {
-    if (options.abortSignal?.aborted) return emitted;
-    const start = emitted.length;
-    const end = findDisplayChunkEnd(fullContent, start);
-    const chunk = fullContent.slice(start, end);
-    emitted = fullContent.slice(0, end);
-    options.onAnswerChunk({ chunk, fullContent: emitted });
-    if (end < fullContent.length) {
-      await delayDisplayChunk(14, options.abortSignal);
-    }
-  }
-
-  if (!options.abortSignal?.aborted) {
-    options.onAnswerFinish?.(fullContent);
-  }
-  return emitted;
-}
 
 // ═══════════════════════════════════════════════════════════════════
 // Main entry
@@ -201,9 +151,52 @@ export async function runAgentTurn(
 
   const deps = new SiyuanToolRuntimeState({ scope, loadPluginData });
 
+  // Build web search deps from conversation context + settings
+  let webSearchToolDeps: AgentWorkbenchRuntimeOptions["webSearchToolDeps"] | undefined;
+  let webReadPageToolDeps: AgentWorkbenchRuntimeOptions["webReadPageToolDeps"] | undefined;
+  const settings = await getKbSettings();
+  const ws = settings.webSearch;
+
+  const webSearchAccess = params.conversationContext?.currentTurn?.webAccess;
+  if (webSearchAccess?.enabled && ws.enabled) {
+    const provider = createWebSearchProvider(ws);
+    if (provider) {
+      webSearchToolDeps = {
+        getProvider: () => provider,
+        maxResults: webSearchAccess.maxResults,
+        timeoutMs: ws.timeoutMs,
+      };
+    }
+  }
+
+  const webReadAccess = params.conversationContext?.currentTurn?.webReadAccess;
+  if (webReadAccess?.enabled) {
+    webReadPageToolDeps = {
+      readProxyEndpoint: ws.readProxyEndpoint || undefined,
+      readPageMaxChars: ws.readPageMaxChars,
+      timeoutMs: ws.timeoutMs,
+    };
+  }
+
+  const disabledBuiltinSkills = new Set(settings.skillSettings?.disabledBuiltinSkillNames ?? []);
+  const builtinCapabilityAccess = {
+    knowledgeBase: !disabledBuiltinSkills.has(BUILTIN_KB_SKILL_NAME),
+    scheduleTaskDiary: !disabledBuiltinSkills.has(BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME),
+  };
+
   const wb = createAgentWorkbenchRuntime({
     kbRetrievalToolDeps: deps,
+    webSearchToolDeps,
+    webReadPageToolDeps,
+    builtinCapabilityAccess,
   });
+
+  pushAgentDebugEvent("WEB_TOOL_REGISTRATION_SAFE", {
+    mode: webSearchAccess?.mode ?? "off",
+    webSearchRegistered: !!webSearchToolDeps,
+    webReadPageRegistered: !!webReadPageToolDeps,
+    settingsEnabled: ws.enabled,
+  }, "info");
 
   // Load user skills (non-blocking, failures are logged not thrown)
   try {
@@ -214,6 +207,58 @@ export async function runAgentTurn(
 
   const toolExecutor = new ToolExecutor(wb.toolRegistry, wb.observationLog);
   const localEvents: AgentWorkbenchEvent[] = [];
+
+  // ── Hydrate attached docs before loop starts ──
+  // User-explicitly-selected docs are treated as current-turn input material,
+  // not as a Planner tool decision. Load them into observationLog so both
+  // Planner and Composer can see the content without waiting for read_docs.
+  const attachedDocIds = params.attachedDocs?.map((d) => d.docId).filter(Boolean) ?? [];
+  if (attachedDocIds.length > 0) {
+    params.onWorkbenchEvent?.({
+      type: "Notice",
+      message: "加载已选文档...",
+      at: Date.now(),
+    });
+
+    const hydration = await hydrateAttachedDocsForTurn(attachedDocIds);
+
+    for (const item of hydration.items) {
+      wb.observationLog.push({
+        kind: "skill_observation",
+        summary: `用户附加文档已加载: ${item.title}`,
+        content: {
+          items: [{
+            docId: item.docId,
+            title: item.title,
+            content: item.content,
+            contentChars: item.contentChars,
+            truncated: item.truncated,
+            chunkIndex: item.chunkIndex,
+            chunkCount: item.chunkCount,
+          }],
+          source: "attached_doc_hydration",
+        },
+      });
+    }
+
+    for (const err of hydration.errors) {
+      wb.observationLog.push({
+        kind: "skill_observation",
+        summary: `用户附加文档加载失败: ${err.message}`,
+        reasonCode: err.code,
+        content: {
+          error: { docId: err.docId, code: err.code, message: err.message },
+          source: "attached_doc_hydration",
+        },
+      });
+    }
+
+    params.onWorkbenchEvent?.({
+      type: "Notice",
+      message: `已加载 ${hydration.loadedCount} 个已选文档`,
+      at: Date.now(),
+    });
+  }
 
   const loop = new AgentLoop({
     skillRegistry: wb.skillRegistry,
@@ -237,6 +282,7 @@ export async function runAgentTurn(
       question: params.question,
       conversationContext: params.conversationContext,
       userEnabledSkillNames: [],
+      userDisabledSkillNames: settings.skillSettings?.disabledBuiltinSkillNames ?? [],
     });
 
     const eventsForTrace = localEvents.length > 0 ? localEvents : loopResult.events;
@@ -253,11 +299,28 @@ export async function runAgentTurn(
     if (loopResult.status === "answer_ready" && loopResult.answerDraft) {
       const draft = loopResult.answerDraft;
 
-      await emitDisplayAnswerChunks(draft.body, {
-        abortSignal: params.abortSignal,
-        onAnswerChunk: params.onAnswerChunk,
-        onAnswerFinish: params.onAnswerFinish,
+      // Always run Composer so evidence constraints are never bypassed,
+      // even when the caller only provided onAnswerFinish (non-streaming).
+      params.onWorkbenchEvent?.({
+        type: "Notice",
+        message: "正在生成回答...",
+        at: Date.now(),
       });
+
+      const composedBody = await streamFinalAnswerFromDraft({
+        question: params.question,
+        observations: wb.observationLog.all(),
+        draftBody: draft.body,
+        onChunk: params.onAnswerChunk,
+        onFinish: params.onAnswerFinish,
+        onWorkbenchEvent: params.onWorkbenchEvent,
+        onReasoningDelta: params.thinkingMode === "on" ? params.onReasoningDelta : undefined,
+        abortSignal: params.abortSignal,
+        chatModelSelection: params.chatModelSelection,
+        thinkingMode: params.thinkingMode,
+      });
+
+      draft.body = composedBody;
 
       // Grounding flow:
       // 1. fallbackRefs from observation log → used ONLY for groundingSet evidence.

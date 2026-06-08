@@ -19,6 +19,8 @@ export function getAgentScopeLabel(scope: AgentScope): string {
       return scope.title || "当前文档";
     case "doc_tree":
       return scope.rootTitle || "当前文档及子文档";
+    case "doc_neighborhood":
+      return scope.centerTitle ? `当前文档邻域：${scope.centerTitle}` : "当前文档邻域";
     case "notebook":
       return scope.notebookName || scope.notebookId || "当前笔记本";
     case "whole_kb":

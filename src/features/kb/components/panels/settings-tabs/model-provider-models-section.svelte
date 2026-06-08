@@ -4,6 +4,7 @@
   import {
     normalizeId,
     hasUsableChatModel,
+    getChatModelKey,
   } from "../../../services/settings/chat-provider-config";
 
   export let provider: KbChatProviderConfig;
@@ -11,6 +12,7 @@
   export let modelActionMessage: string = "";
   export let modelActionMessageType: "success" | "error" = "success";
   export let testingModelKey: string = "";
+  export let testResults: Record<string, ModelConnectionTestResult> = {};
 
   export let canRefreshModels: (provider: KbChatProviderConfig) => boolean;
   export let getRefreshButtonTitle: (provider: KbChatProviderConfig) => string;
@@ -25,7 +27,6 @@
   export let getSelectModelTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
   export let getTestModelTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
   export let isTestingModel: (providerId: string, modelId: string) => boolean;
-  export let getModelTestResult: (providerId: string, modelId: string) => ModelConnectionTestResult | undefined;
 </script>
 
 <div class="models-section">
@@ -72,6 +73,7 @@
 
   <div class="models-list">
     {#each provider.models as model, modelIndex (modelIndex)}
+      {@const modelKey = getChatModelKey(normalizeId(provider.id), normalizeId(model.id))}
       <div class="model-item">
         <div class="model-main-fields">
           <div class="model-field">
@@ -205,9 +207,14 @@
         </div>
 
         <!-- 测试结果 -->
-        {#if getModelTestResult(provider.id, model.id)}
-          {@const result = getModelTestResult(provider.id, model.id)}
-          <div class="test-result" class:success={result.success} class:error={!result.success}>
+        {#if testResults[modelKey]}
+          {@const result = testResults[modelKey]}
+          <div
+            class="test-result"
+            class:success={result.severity ? result.severity === "success" : result.success}
+            class:warning={result.severity === "warning"}
+            class:error={result.severity ? result.severity === "error" : !result.success}
+          >
             {result.message}
           </div>
         {/if}
@@ -394,6 +401,12 @@
       border: 1px solid #4caf50;
       background: rgba(76, 175, 80, 0.1);
       color: #2e7d32;
+    }
+
+    &.warning {
+      border: 1px solid #ff9800;
+      background: rgba(255, 152, 0, 0.1);
+      color: #e65100;
     }
 
     &.error {

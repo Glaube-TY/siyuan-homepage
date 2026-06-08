@@ -207,6 +207,20 @@ export async function listSiyuanDocsForTool(
         break;
       }
 
+      case "doc_neighborhood": {
+        if (scope.docIds && scope.docIds.length > 0) {
+          const validIds = [
+            ...new Set(
+              scope.docIds
+                .map((id) => id.trim())
+                .filter(Boolean)
+            ),
+          ];
+          docs = await queryDocMetasByIds(validIds);
+        }
+        break;
+      }
+
       case "notebook": {
         if (scope.notebookId) {
           const docIndexLites = await getDocsInScope(

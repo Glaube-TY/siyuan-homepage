@@ -85,7 +85,26 @@
 
   // 获取引用项显示标签
   function getReferenceLabel(ref: ReferenceItem): string {
+    if (ref.sourceType === "web_page") {
+      return ref.displayTitle || ref.docTitle || ref.sourceName || ref.url || "参考网页";
+    }
     return ref.displayTitle || ref.docTitle || "参考文档";
+  }
+
+  // 获取引用项类型图标（纯 UI helper，不改动 reference 生成逻辑）
+  function getReferenceIconName(ref: ReferenceItem): string {
+    switch (ref.sourceType) {
+      case "web_page":
+        return "iconLanguage";
+      case "mcp_resource":
+        return "iconPlugin";
+      case "api_result":
+        return "iconDatabase";
+      case "siyuan_doc":
+      case "file":
+      default:
+        return "iconFile";
+    }
   }
 
   // 判断 assistant 是否正在生成中（运行态：asking 为 true 且未完成）
@@ -147,13 +166,11 @@
     !("toolName" in event && event.toolName === "final_answer")
   );
 
-  // 判断 assistant 是否显示运行态状态（content 为空且 agentStatus 非空，且 reasoning 非 streaming）
+  // 判断 assistant 是否显示运行态状态（content 为空且 agentStatus 非空）
   $: isAssistantPending =
     message.role === "assistant" &&
     !message.content.trim() &&
-    message.agentStatus &&
-    visibleWorkbenchEvents.length === 0 &&
-    message.reasoning?.status !== "streaming";
+    !!message.agentStatus;
 
   let workbenchEventsExpanded = false;
   let workbenchEventsMessageId = "";
@@ -167,6 +184,8 @@
     list_knowledge_map: "查看知识库结构",
     search_scope: "搜索知识库",
     read_docs: "读取文档正文",
+    web_search: "联网搜索",
+    web_read_page: "读取网页",
   };
 
   const ARG_LABELS: Record<string, string> = {
@@ -183,6 +202,10 @@
     cursor: "继续位置",
     includeTags: "标签",
     includeLinkedDocs: "关联文档",
+    url: "网址",
+    chunkIndex: "块序号",
+    chunkChars: "块大小",
+    chunkCount: "总块数",
   };
 
   const VIEW_LABELS: Record<string, string> = {
@@ -215,6 +238,7 @@
     if (key === "maxChars" && typeof value === "number") return `${value}`;
     if (key === "rootDocId" || key === "centerDocId" || key === "notebookId") return "已指定";
     if (key === "includeTags" || key === "includeLinkedDocs") return value ? "是" : "否";
+    if (key === "url" && typeof value === "string") return value.length > 40 ? `${value.slice(0, 37)}...` : value;
     if (typeof value === "number" || typeof value === "boolean") return String(value);
     if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}...` : value;
     return undefined;
@@ -314,7 +338,7 @@
         step.summary = formatResultSummary(event.toolName, event.outputSummary);
       } else {
         step.title = `${formatToolDisplayName(event.toolName)}失败`;
-        step.summary = `失败：${event.errorCode || "未知错误"}`;
+        step.summary = event.outputSummary || `失败：${event.errorCode || "未知错误"}`;
       }
       if (!existing) {
         byKey.set(key, step);
@@ -351,6 +375,8 @@
     const searchCount = countDisplaySteps("search_scope");
     const readStepCount = countDisplaySteps("read_docs");
     const readCount = readDocsDisplayCount();
+    const webSearchCount = countDisplaySteps("web_search");
+    const webReadCount = countDisplaySteps("web_read_page");
     if (structureCount > 0) parts.push(`查看结构 ${structureCount} 次`);
     if (searchCount > 0) parts.push(`搜索知识库 ${searchCount} 次`);
     if (readCount > 0) {
@@ -358,8 +384,14 @@
     } else if (readStepCount > 0) {
       parts.push(`读取文档 ${readStepCount} 次`);
     }
+    if (webSearchCount > 0) parts.push(`联网搜索 ${webSearchCount} 次`);
+    if (webReadCount > 0) parts.push(`读取网页 ${webReadCount} 次`);
 
-    return parts.join("，");
+    const summary = parts.join("，");
+    if (message.role === "assistant" && message.agentStatus) {
+      return summary ? `${summary} · ${message.agentStatus}` : message.agentStatus;
+    }
+    return summary;
   }
 
   $: workbenchDisplaySteps = buildDisplaySteps(visibleWorkbenchEvents);
@@ -382,42 +414,6 @@
     {#if message.role === "assistant"}
       <!-- AI 回答消息 - 渲染 Markdown -->
       <div class="bubble markdown-content assistant-bubble">
-        {#if hasReasoning}
-          <div class="reasoning-section">
-            <button
-              type="button"
-              class="reasoning-toggle"
-              on:click={() => (reasoningCollapsed = !reasoningCollapsed)}
-            >
-              <span
-                class="reasoning-toggle-icon"
-                class:collapsed={reasoningCollapsed}>▶</span
-              >
-              <span class="reasoning-toggle-label">
-                {#if message.reasoning?.status === "streaming"}
-                  正在思考...
-                {:else}
-                  思考过程
-                {/if}
-              </span>
-              {#if message.reasoning?.status === "done" && message.reasoning?.chars > 0}
-                <span class="reasoning-toggle-meta"
-                  >{message.reasoning.chars} 字</span
-                >
-              {/if}
-            </button>
-            {#if !reasoningCollapsed}
-              <div class="reasoning-content markdown-content">
-                {#if message.reasoning?.status === "streaming" && !message.reasoning?.content}
-                  <span class="reasoning-placeholder">正在思考...</span>
-                {:else}
-                  {@html reasoningHtml}
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/if}
-
         {#if workbenchDisplaySteps.length}
           <div class="workbench-events">
             <button
@@ -460,6 +456,44 @@
           </div>
         {/if}
 
+        {#if hasReasoning}
+          <div class="reasoning-section">
+            <button
+              type="button"
+              class="reasoning-toggle"
+              on:click={() => (reasoningCollapsed = !reasoningCollapsed)}
+            >
+              <span
+                class="reasoning-toggle-icon"
+                class:collapsed={reasoningCollapsed}
+              >
+                <SiyuanIcon name="next" size={12} />
+              </span>
+              <span class="reasoning-toggle-label">
+                {#if message.reasoning?.status === "streaming"}
+                  正在思考...
+                {:else}
+                  思考过程
+                {/if}
+              </span>
+              {#if message.reasoning?.status === "done" && message.reasoning?.chars > 0}
+                <span class="reasoning-toggle-meta"
+                  >{message.reasoning.chars} 字</span
+                >
+              {/if}
+            </button>
+            {#if !reasoningCollapsed}
+              <div class="reasoning-content markdown-content">
+                {#if message.reasoning?.status === "streaming" && !message.reasoning?.content}
+                  <span class="reasoning-placeholder">正在思考...</span>
+                {:else}
+                  {@html reasoningHtml}
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
         {#if isAssistantPending}
           <!-- 运行态状态：content 为空且 agentStatus 非空时显示 -->
           <div class="agent-status-line">
@@ -482,9 +516,12 @@
                 type="button"
                 class="citation-marker"
                 class:is-truncated={truncated}
-                title={`打开引用文档：${label}`}
+                title={ref.sourceType === "web_page" ? `打开网页：${label}` : `打开引用文档：${label}`}
                 on:click={() => handleReferenceClick(ref)}
               >
+                <span class="citation-type-icon" aria-hidden="true">
+                  <SiyuanIcon name={getReferenceIconName(ref)} size={11} />
+                </span>
                 <span class="citation-static-text">
                   {truncateCitationLabel(label)}
                 </span>
@@ -569,6 +606,7 @@
                 title={doc.title || doc.docId}
                 on:click={() => handleAttachedDocClick(doc)}
               >
+                <span class="user-doc-chip-icon"><SiyuanIcon name="iconFile" size={11} /></span>
                 <span class="user-doc-chip-title">{doc.title || doc.docId}</span>
               </button>
             {/each}
@@ -606,6 +644,7 @@
     &.user .user-doc-chip {
       display: inline-flex;
       align-items: center;
+      gap: 3px;
       padding: 2px 6px;
       background: rgba(255, 255, 255, 0.15);
       border: 1px solid rgba(255, 255, 255, 0.3);
@@ -620,6 +659,13 @@
       &:hover {
         background: rgba(255, 255, 255, 0.25);
       }
+    }
+
+    &.user .user-doc-chip-icon {
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+      opacity: 0.9;
     }
 
     &.user .user-doc-chip-title {
@@ -1133,7 +1179,17 @@
 
   .citation-marker.is-truncated {
     width: auto;
-    min-width: 4.8em;
+    min-width: 5.6em;
+  }
+
+  .citation-type-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-right: 3px;
+    color: currentColor;
+    opacity: 0.85;
   }
 
   .citation-static-text {
@@ -1144,7 +1200,7 @@
 
   .citation-scroll-viewport {
     position: absolute;
-    left: 6px;
+    left: 21px;
     right: 6px;
     top: 50%;
     transform: translateY(-50%);
@@ -1218,7 +1274,11 @@
   }
 
   .reasoning-toggle-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: 10px;
+    color: var(--b3-theme-on-surface-light);
     transition: transform 0.15s ease;
     flex-shrink: 0;
 

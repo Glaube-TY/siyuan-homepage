@@ -3,10 +3,12 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
+  DEFAULT_WEB_SEARCH_SETTINGS,
+  DEFAULT_SKILL_SETTINGS,
 } from "../../constants/default-settings";
 import {
   sanitizeChatProviders as sanitizeChatProvidersCore,
@@ -65,6 +67,103 @@ function normalizeAssistantActionAlignment(raw: unknown): KbSettings["assistantA
     return raw;
   }
   return DEFAULT_KB_SETTINGS.assistantActionAlignment;
+}
+
+/**
+ * 归一化 Skill 设置
+ * - disabledBuiltinSkillNames 只保留合法 string，去重
+ */
+function normalizeSkillSettings(raw: unknown): KbSkillSettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_SKILL_SETTINGS };
+  }
+  const s = raw as Record<string, unknown>;
+  const rawNames = s.disabledBuiltinSkillNames;
+  let names: string[] = [];
+  if (Array.isArray(rawNames)) {
+    names = rawNames.filter((n): n is string => typeof n === "string" && n.length > 0);
+    names = [...new Set(names)];
+  }
+  return {
+    disabledBuiltinSkillNames: names,
+  };
+}
+
+/**
+ * 归一化网页搜索设置
+ * - 非对象 → 回退默认值
+ * - 数值 clamp 到有效范围
+ * - 空字符串的可选字段 → undefined
+ * - 无效 provider → "anysearch"
+ * - 无效 zone → "cn"
+ * - 空 language → "zh-CN"
+ */
+function normalizeWebSearchSettings(raw: unknown): WebSearchSettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_WEB_SEARCH_SETTINGS };
+  }
+
+  const s = raw as Record<string, unknown>;
+
+  // enabled
+  const enabled = typeof s.enabled === "boolean" ? s.enabled : DEFAULT_WEB_SEARCH_SETTINGS.enabled;
+
+  // provider
+  const providerRaw = s.provider;
+  const provider =
+    providerRaw === "anysearch" || providerRaw === "custom_json" || providerRaw === "tavily"
+      ? providerRaw
+      : DEFAULT_WEB_SEARCH_SETTINGS.provider;
+
+  // optional string fields — empty string → undefined
+  const optionalString = (key: string): string | undefined => {
+    const v = s[key];
+    if (typeof v === "string" && v.length > 0) return v;
+    return undefined;
+  };
+
+  // maxResults (1-10, integer)
+  const maxResults =
+    typeof s.maxResults === "number" && Number.isFinite(s.maxResults)
+      ? clampNumber(Math.round(s.maxResults), 1, 10)
+      : DEFAULT_WEB_SEARCH_SETTINGS.maxResults;
+
+  // readPageMaxChars (2000-30000, integer)
+  const readPageMaxChars =
+    typeof s.readPageMaxChars === "number" && Number.isFinite(s.readPageMaxChars)
+      ? clampNumber(Math.round(s.readPageMaxChars), 2000, 30000)
+      : DEFAULT_WEB_SEARCH_SETTINGS.readPageMaxChars;
+
+  // timeoutMs (5000-60000, integer)
+  const timeoutMs =
+    typeof s.timeoutMs === "number" && Number.isFinite(s.timeoutMs)
+      ? clampNumber(Math.round(s.timeoutMs), 5000, 60000)
+      : DEFAULT_WEB_SEARCH_SETTINGS.timeoutMs;
+
+  // anySearchZone
+  const zoneRaw = s.anySearchZone;
+  const anySearchZone: WebSearchSettings["anySearchZone"] =
+    zoneRaw === "cn" || zoneRaw === "intl" ? zoneRaw : DEFAULT_WEB_SEARCH_SETTINGS.anySearchZone;
+
+  // anySearchLanguage
+  const langRaw = s.anySearchLanguage;
+  const anySearchLanguage =
+    typeof langRaw === "string" && langRaw.length > 0
+      ? langRaw
+      : DEFAULT_WEB_SEARCH_SETTINGS.anySearchLanguage;
+
+  return {
+    enabled,
+    provider,
+    searchEndpoint: optionalString("searchEndpoint"),
+    readProxyEndpoint: optionalString("readProxyEndpoint"),
+    apiKey: optionalString("apiKey"),
+    maxResults,
+    readPageMaxChars,
+    timeoutMs,
+    anySearchZone,
+    anySearchLanguage,
+  };
 }
 
 // ==================== KB Settings Changed Event ====================
@@ -196,6 +295,42 @@ function normalizeNumericSettings(settings: Partial<KbSettings>): Partial<KbSett
     );
   }
 
+  // 归一化 webSearch 中的数值字段（处理字符串型配置漂移）
+  // normalizeWebSearchSettings 会做最终 clamp，这里先做 parseInt 转换
+  const rawWebSearch = (normalized as { webSearch?: unknown }).webSearch;
+  if (rawWebSearch && typeof rawWebSearch === "object") {
+    const ws = { ...rawWebSearch } as Record<string, unknown>;
+
+    if (ws.maxResults !== undefined) {
+      ws.maxResults = normalizeIntegerSetting(
+        ws.maxResults,
+        DEFAULT_WEB_SEARCH_SETTINGS.maxResults,
+        1,
+        10
+      );
+    }
+
+    if (ws.readPageMaxChars !== undefined) {
+      ws.readPageMaxChars = normalizeIntegerSetting(
+        ws.readPageMaxChars,
+        DEFAULT_WEB_SEARCH_SETTINGS.readPageMaxChars,
+        2000,
+        30000
+      );
+    }
+
+    if (ws.timeoutMs !== undefined) {
+      ws.timeoutMs = normalizeIntegerSetting(
+        ws.timeoutMs,
+        DEFAULT_WEB_SEARCH_SETTINGS.timeoutMs,
+        5000,
+        60000
+      );
+    }
+
+    (normalized as { webSearch?: unknown }).webSearch = ws;
+  }
+
   // 归一化 chatProviders 中模型的 temperature 和 maxTokens
   // 注意：这里只负责数值归一化，不要补 id/name/type/baseUrl，交给 sanitizeChatProviders 统一处理
   // 使用 unknown 中间态避免 TypeScript 类型冲突
@@ -307,9 +442,14 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     textMatchWeight: normalized.textMatchWeight ?? DEFAULT_KB_SETTINGS.textMatchWeight,
     previewMatchWeight: normalized.previewMatchWeight ?? DEFAULT_KB_SETTINGS.previewMatchWeight,
     agentReadMaxCharsPerDoc: normalized.agentReadMaxCharsPerDoc ?? DEFAULT_KB_SETTINGS.agentReadMaxCharsPerDoc,
+    controlPlaneThinkingEnabled: typeof normalized.controlPlaneThinkingEnabled === "boolean"
+      ? normalized.controlPlaneThinkingEnabled
+      : DEFAULT_KB_SETTINGS.controlPlaneThinkingEnabled,
     chatProviders,
     selectedChatProviderId: finalSelectedProviderId,
     selectedChatModelId: finalSelectedModelId,
+    webSearch: normalizeWebSearchSettings(normalized.webSearch),
+    skillSettings: normalizeSkillSettings(normalized.skillSettings),
   };
 }
 

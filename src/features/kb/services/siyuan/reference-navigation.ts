@@ -32,6 +32,18 @@ function getPlugin(): any {
  * @returns 是否成功
  */
 export async function navigateToReference(item: ReferenceItem): Promise<boolean> {
+  // Web page references — open in new tab, no plugin needed
+  if (item.sourceType === "web_page" && item.url) {
+    try {
+      window.open(item.url, "_blank", "noopener,noreferrer");
+      return true;
+    } catch {
+      console.error("[ReferenceNavigation] Failed to open web page:", item.url);
+      pushErrMsg("无法打开网页", 3000);
+      return false;
+    }
+  }
+
   const plugin = getPlugin();
   if (!plugin) {
     console.error("[ReferenceNavigation] Plugin instance not set");

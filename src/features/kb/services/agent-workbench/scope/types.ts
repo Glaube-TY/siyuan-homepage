@@ -12,6 +12,7 @@
 export type AgentScope =
   | { type: "current_doc"; docId: string; title?: string; box?: string }
   | { type: "doc_tree"; rootDocId: string; rootTitle?: string; box: string }
+  | { type: "doc_neighborhood"; centerDocId: string; centerTitle?: string; box: string; docIds: string[] }
   | { type: "notebook"; notebookId: string; notebookName?: string }
   | { type: "whole_kb" }
   | { type: "custom_docs"; docIds: string[] };
@@ -39,6 +40,7 @@ export interface AgentScopeSummary {
 export type AgentScopeMode =
   | "current_doc"
   | "current_doc_with_children"
+  | "current_doc_neighborhood"
   | "current_notebook"
   | "whole_kb"
   | "custom_docs";
@@ -70,8 +72,8 @@ export function isFixedDocumentScope(mode: AgentScopeMode): boolean {
 
 /**
  * 判断是否为检索型 Agent 范围。
- * whole_kb / current_notebook / current_doc_with_children 可使用 Agent Workbench 检索工具。
+ * whole_kb / current_notebook / current_doc_with_children / current_doc_neighborhood 可使用 Agent Workbench 检索工具。
  */
 export function isAgentRetrievalScope(mode: AgentScopeMode): boolean {
-  return mode === "whole_kb" || mode === "current_notebook" || mode === "current_doc_with_children";
+  return mode === "whole_kb" || mode === "current_notebook" || mode === "current_doc_with_children" || mode === "current_doc_neighborhood";
 }

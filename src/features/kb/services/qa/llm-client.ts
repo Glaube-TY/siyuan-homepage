@@ -1,16 +1,13 @@
 /**
- * LLM Client
- * 模型调用封装 - 基于 AI SDK Core
+ * LLM Client — 内部 adapter（仅供 kb-model-call.ts 使用）
  *
  * 职责：
- * - 统一封装 AI SDK 调用
- * - 提供基础错误处理
- * - 为后续 streaming 预留扩展点
- * - 支持本轮模型选择覆盖
+ * - 封装 AI SDK（generateText / streamText）调用
+ * - 处理 OpenAI-compatible raw JSON fallback
+ * - 提供基础错误处理和 debug 统计
  *
- * 注意：
- * - 当前阶段主要使用 generateText（非流式）
- * - streamText 接口已预留，但 UI 暂不切换
+ * 业务层不得直接导入本文件的任何函数或类型。
+ * 所有模型调用必须通过 qa/kb-model-call.ts。
  */
 
 import { generateText, streamText, Output } from "ai";
@@ -20,7 +17,7 @@ import { createSelectedChatModel, resolveOpenAICompatibleBaseUrlForProvider } fr
 import type { ChatModelSelection } from "../../types/chat-model-selection";
 import { DEFAULT_TEMPERATURE } from "../../constants/default-settings";
 import { pushAgentDebugEvent, getIsVerboseStreamDebugEnabled } from "../agent-workbench/debug/workbench-debug";
-import { resolveProviderProfile, buildReasoningProviderOptionsFromProfile } from "./provider-profile";
+import { resolveProviderProfile } from "./provider-profile";
 
 export class AiProviderUnavailableError extends Error {
   providerType: string;
@@ -294,6 +291,9 @@ function sanitizeTemperatureForProvider(
   return temperature;
 }
 
+/**
+ * @internal 仅供 qa/kb-model-call.ts 内部使用，业务层不得直接导入。
+ */
 export interface LlmCallOptions {
   /** 温度，默认使用模型配置 */
   temperature?: number;
@@ -305,9 +305,7 @@ export interface LlmCallOptions {
   chatModelSelection?: ChatModelSelection | null;
   /** 用于中断请求的 AbortSignal */
   abortSignal?: AbortSignal;
-  /** 推理力度控制：low=最小推理，medium=适度推理，none=禁用深度推理 */
-  reasoningEffort?: "low" | "medium" | "none";
-  /** 预构建的 providerOptions（优先于 reasoningEffort + buildReasoningProviderOptions） */
+  /** 预构建的 providerOptions（由 kb-model-call 统一构造） */
   providerOptions?: Record<string, Record<string, unknown>>;
   /** 调用目的，用于日志区分 */
   purpose?: "analyze" | "planner" | "compose" | "generic";
@@ -343,9 +341,7 @@ export interface LlmResponse {
 
 /**
  * 调用 LLM（非流式）
- * @param prompt 提示词
- * @param options 可选参数
- * @returns 模型返回的文本内容
+ * @internal 仅供 qa/kb-model-call.ts 内部使用，业务层不得直接导入。
  */
 export async function callLlm(
   prompt: string,
@@ -391,6 +387,10 @@ export async function callLlm(
 
   if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
     generateOptions.maxOutputTokens = options.maxOutputTokens;
+  }
+
+  if (options.providerOptions) {
+    generateOptions.providerOptions = options.providerOptions as typeof generateOptions.providerOptions;
   }
 
   try {
@@ -485,58 +485,19 @@ export async function callLlm(
 }
 
 /**
- * 调用 LLM 获取结构化 JSON 输出
- * @param prompt 提示词
- * @param options 可选参数
- * @returns 解析后的 JSON 对象
- */
-export async function callLlmJson<T = unknown>(
-  prompt: string,
-  options: LlmCallOptions = {}
-): Promise<T> {
-  const response = await callLlm(prompt, options);
-
-  try {
-    // 尝试提取 JSON 块（如果模型输出了 markdown 代码块）
-    const jsonMatch = response.content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const cleanText = jsonMatch ? jsonMatch[1].trim() : response.content.trim();
-    return JSON.parse(cleanText) as T;
-  } catch (err) {
-    throw new Error(`JSON 解析失败: ${err}`);
-  }
-}
-
-/**
  * 判断 provider 是否支持 AI SDK structuredOutputs
- * 所有四个入口底层都是 OpenAI-compatible，不原生支持 structuredOutputs
+ * 所有入口底层都是 OpenAI-compatible，不原生支持 structuredOutputs
+ * @internal — 只在 llm-client 内部使用，业务层不得直接调用
  */
-export function providerSupportsStructuredOutputs(_providerType: string): boolean {
+function providerSupportsStructuredOutputs(_providerType: string): boolean {
   return false;
 }
 
-export function isOpenAICompatibleProtocolProvider(providerType: string): boolean {
-  return ["kimi", "kimi-api", "kimi-coding", "mimo", "mimo-api", "mimo-coding-plan", "deepseek", "deepseek-api", "openai-compatible"].includes(providerType);
-}
-
-export function providerSupportsReasoningControl(providerType: string): boolean {
-  return ["mimo", "mimo-api", "mimo-coding-plan"].includes(providerType);
-}
-
 /**
- * 将 reasoningEffort 转换为 AI SDK providerOptions。
- *
- * 委托给 provider-profile 的能力映射：
- * - 仅当 provider profile supportsReasoningControl 时才返回 providerOptions；
- * - effort === "none" 时返回 undefined；
- * - openai_effort 风格返回 `{ openai: { reasoning_effort: effort } }`；
- * - 不支持的 provider 不强行写 providerOptions。
+ * @internal — 只在 llm-client 内部使用，业务层不得直接调用
  */
-function buildReasoningProviderOptions(
-  providerType: string,
-  effort: "low" | "medium" | "none",
-): Record<string, Record<string, unknown>> | undefined {
-  const profile = resolveProviderProfile(providerType);
-  return buildReasoningProviderOptionsFromProfile(profile, effort);
+function isOpenAICompatibleProtocolProvider(providerType: string): boolean {
+  return ["kimi", "kimi-api", "kimi-coding", "mimo", "mimo-api", "mimo-coding-plan", "deepseek", "deepseek-api", "openai-compatible"].includes(providerType);
 }
 
 // ==================== 增强 JSON 解析 ====================
@@ -625,6 +586,18 @@ interface ParseLlmJsonObjectResult {
   firstIssuePath?: string;
 }
 
+function safeRepairJsonCandidateText(text: string): string {
+  let repaired = text.trim();
+  // Remove wrapping code blocks (defensive; upstream already strips most)
+  const codeBlockMatch = repaired.match(/^```(?:json)?\s*([\s\S]*?)```$/);
+  if (codeBlockMatch) {
+    repaired = codeBlockMatch[1].trim();
+  }
+  // Remove trailing commas before } or ]
+  repaired = repaired.replace(/,\s*([}\]])/g, "$1");
+  return repaired;
+}
+
 function parseLlmJsonObjectFromTextSafe<T>(
   rawText: string,
   providerType: string,
@@ -653,13 +626,25 @@ function parseLlmJsonObjectFromTextSafe<T>(
     return { success: false, candidateCount: 0, usedCandidateIndex: -1, errorKind: "no_json_found" };
   }
 
-  const parsedCandidates: { parsed: unknown; index: number }[] = [];
+  const parsedCandidates: { parsed: unknown; index: number; repaired: boolean }[] = [];
+  let repairAttempted = false;
+  let repairSucceeded = false;
   for (let i = 0; i < candidates.length; i++) {
     try {
       const parsed = JSON.parse(candidates[i].text);
-      parsedCandidates.push({ parsed, index: i });
+      parsedCandidates.push({ parsed, index: i, repaired: false });
     } catch {
-      // skip invalid JSON
+      const repairedText = safeRepairJsonCandidateText(candidates[i].text);
+      if (repairedText !== candidates[i].text) {
+        repairAttempted = true;
+        try {
+          const parsed = JSON.parse(repairedText);
+          parsedCandidates.push({ parsed, index: i, repaired: true });
+          repairSucceeded = true;
+        } catch {
+          // skip still invalid JSON
+        }
+      }
     }
   }
 
@@ -670,6 +655,8 @@ function parseLlmJsonObjectFromTextSafe<T>(
       rawChars: cleaned.length,
       candidateCount: candidates.length,
       errorKind: "json_parse_failed",
+      repairAttempted,
+      repairSucceeded,
     });
     return { success: false, candidateCount: candidates.length, usedCandidateIndex: -1, errorKind: "json_parse_failed" };
   }
@@ -684,6 +671,8 @@ function parseLlmJsonObjectFromTextSafe<T>(
           rawChars: cleaned.length,
           candidateCount: candidates.length,
           usedCandidateIndex: candidate.index,
+          repairAttempted,
+          repairSucceeded,
         });
         return {
           success: true,
@@ -694,9 +683,25 @@ function parseLlmJsonObjectFromTextSafe<T>(
       }
     }
 
-    const firstResult = schema.safeParse(parsedCandidates[0].parsed);
+    const firstParsed = parsedCandidates[0].parsed;
+    const firstResult = schema.safeParse(firstParsed);
     const issues = !firstResult.success ? firstResult.error.issues : [];
-    pushAgentDebugEvent("LLM_JSON_FALLBACK_PARSE_FAILED_SAFE", {
+
+    const parsedObj = firstParsed && typeof firstParsed === "object" ? firstParsed as Record<string, unknown> : {};
+    const candidateTopLevelType = typeof parsedObj.type === "string" ? parsedObj.type : undefined;
+    const candidateTopLevelKeys = Object.keys(parsedObj).slice(0, 12);
+    const argsObj = parsedObj.args && typeof parsedObj.args === "object" && parsedObj.args !== null
+      ? parsedObj.args as Record<string, unknown>
+      : undefined;
+    const candidateArgsKeys = argsObj ? Object.keys(argsObj).slice(0, 12) : undefined;
+    const candidateBodyChars = typeof argsObj?.body === "string" ? argsObj.body.length : undefined;
+    const refs = argsObj?.references;
+    const candidateReferencesType = Array.isArray(refs) ? "array" : refs === undefined ? "undefined" : typeof refs;
+    const decisionShape = candidateTopLevelType && !["tool", "answer", "stop"].includes(candidateTopLevelType)
+      ? "unknown_type"
+      : undefined;
+
+    pushAgentDebugEvent("LLM_JSON_SCHEMA_VALIDATION_SHAPE_SAFE", {
       providerType,
       modelLabel,
       rawChars: cleaned.length,
@@ -705,6 +710,14 @@ function parseLlmJsonObjectFromTextSafe<T>(
       issueCount: issues.length,
       firstIssueCode: issues[0]?.code,
       firstIssuePath: issues[0]?.path?.join("."),
+      candidateTopLevelType,
+      candidateTopLevelKeys,
+      candidateArgsKeys,
+      candidateBodyChars,
+      candidateReferencesType,
+      decisionShape,
+      repairAttempted,
+      repairSucceeded,
     });
     return {
       success: false,
@@ -723,6 +736,8 @@ function parseLlmJsonObjectFromTextSafe<T>(
     rawChars: cleaned.length,
     candidateCount: candidates.length,
     usedCandidateIndex: parsedCandidates[0].index,
+    repairAttempted,
+    repairSucceeded,
   });
   return {
     success: true,
@@ -735,7 +750,7 @@ function parseLlmJsonObjectFromTextSafe<T>(
 const JSON_FALLBACK_MAX_RETRIES = 1;
 const JSON_FALLBACK_RETRY_SUFFIX = "\n\n=== 重试指令 ===\n上次输出不是合法 schema JSON。请重新输出。只能输出一个 JSON object，第一个字符 {，最后一个字符 }，不要 Markdown，不要解释，不要思考过程。";
 
-export const CONTROL_PLANE_JSON_MAX_OUTPUT_TOKENS = 800;
+const CONTROL_PLANE_JSON_MAX_OUTPUT_TOKENS = 800;
 
 interface ControlPlaneJsonObservation {
   providerType: string;
@@ -921,27 +936,23 @@ function extractResultShape(result: unknown): {
 }
 
 /**
- * 从 providerOptions 中安全提取 reasoning_effort 值。
+ * 从 providerOptions 中安全提取 thinking.type 参数。
  *
- * AI SDK 的 providerOptions 结构为 Record<string, Record<string, unknown>>，
- * 即 { providerName: { key: value } }。
- * 只读取 openai / openai-compatible 下的 reasoning_effort / reasoningEffort，
- * 只接受 "low" | "medium" 这类安全字符串值，"none" 不写入请求体。
- * 不把整个 providerOptions 展开到 raw JSON 请求体。
+ * 只接受 "enabled"。off 时 providerOptions 为 undefined，不会出现 disabled。
+ * 本函数只读取 openai/openai-compatible 下的 thinking.type，不把整个 providerOptions 展开到 raw body。
  */
-function extractOpenAICompatibleReasoningEffortFromProviderOptions(
+function extractOpenAICompatibleThinkingTypeFromProviderOptions(
   providerOptions: Record<string, Record<string, unknown>> | undefined,
-): "low" | "medium" | undefined {
+): { type: "enabled" } | undefined {
   if (!providerOptions) return undefined;
-  const SAFE_EFFORT_VALUES = new Set(["low", "medium"]);
   for (const key of ["openai", "openai-compatible"]) {
     const provider = providerOptions[key];
     if (!provider || typeof provider !== "object") continue;
-    for (const field of ["reasoning_effort", "reasoningEffort"]) {
-      const val = provider[field];
-      if (typeof val === "string" && SAFE_EFFORT_VALUES.has(val)) {
-        return val as "low" | "medium";
-      }
+    const thinking = provider["thinking"];
+    if (!thinking || typeof thinking !== "object") continue;
+    const typeVal = (thinking as Record<string, unknown>)["type"];
+    if (typeVal === "enabled") {
+      return { type: "enabled" };
     }
   }
   return undefined;
@@ -952,9 +963,11 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   prompt: string,
   schema: ZodType<T>,
   options: LlmCallOptions = {},
+  isRetry: boolean = false,
 ): Promise<T> {
   const providerConfig = selected.providerConfig;
   const modelId = selected.modelConfig.id;
+
   const apiKey = providerConfig.apiKey;
   let baseURL = resolveOpenAICompatibleBaseUrlForProvider(providerConfig);
 
@@ -976,29 +989,47 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
     providerType: providerConfig.type,
     modelLabel: modelId,
     purpose,
+    rawPromptMode: isRetry ? "system_user_json_contract_retry" : "system_user_json_contract",
   });
 
   const buildBody = (withResponseFormat: boolean) => {
+    const systemContent = isRetry
+      ? "你是控制面 JSON 输出器，只能输出一个合法 JSON object；第一个字符必须是 {，最后一个字符必须是 }；禁止 Markdown、解释、思考过程、自然语言前后缀。字符串必须是合法 JSON 字符串；换行必须写成 \\n；引号必须转义；不允许未转义的多行字符串；不允许尾逗号；answer.body 应是简洁草稿或要点，不要输出长篇正文。"
+      : "你是控制面 JSON 输出器，只能输出一个合法 JSON object；第一个字符必须是 {，最后一个字符必须是 }；禁止 Markdown、解释、思考过程、自然语言前后缀。";
+
     const body: Record<string, unknown> = {
       model: modelId,
-      messages: [{ role: "user", content: prompt + "\n\n请只输出一个合法 JSON Object，不要 Markdown 代码块，不要解释。" }],
+      messages: [
+        { role: "system", content: systemContent },
+        { role: "user", content: prompt },
+      ],
       max_tokens: maxTokens,
     };
-    const temp = options.temperature ?? selected.modelConfig.temperature ?? DEFAULT_TEMPERATURE;
-    const sanitized = sanitizeTemperatureForProvider(providerConfig.type, Number(temp));
-    if (sanitized !== undefined) body.temperature = sanitized;
-    if (withResponseFormat) body.response_format = { type: "json_object" };
-    // reasoningEffort 真实传递（OpenAI-compatible top-level 参数）
-    // providerOptions 安全映射（优先级高于 reasoningEffort）
-    const extractedEffort = extractOpenAICompatibleReasoningEffortFromProviderOptions(options.providerOptions);
-    if (extractedEffort) {
-      body.reasoning_effort = extractedEffort;
+
+    if (purpose === "planner") {
+      const sanitized = sanitizeTemperatureForProvider(providerConfig.type, 0);
+      if (sanitized !== undefined) body.temperature = sanitized;
     } else {
-      const reasoningEffort = options.reasoningEffort;
-      if (reasoningEffort && reasoningEffort !== "none") {
-        body.reasoning_effort = reasoningEffort;
-      }
+      const temp = options.temperature ?? selected.modelConfig.temperature ?? DEFAULT_TEMPERATURE;
+      const sanitized = sanitizeTemperatureForProvider(providerConfig.type, Number(temp));
+      if (sanitized !== undefined) body.temperature = sanitized;
     }
+
+    if (withResponseFormat) body.response_format = { type: "json_object" };
+    // thinking 参数由 kb-model-call.ts 统一放入 providerOptions，
+    // 此处只负责从 providerOptions 提取 thinking.type 到 raw body
+    const extractedThinking = extractOpenAICompatibleThinkingTypeFromProviderOptions(options.providerOptions);
+    if (extractedThinking) {
+      body.thinking = extractedThinking;
+    }
+
+    pushAgentDebugEvent("LLM_JSON_RAW_REQUEST_BODY_FEATURES_SAFE", {
+      hasProviderOptions: !!options.providerOptions,
+      hasThinkingParam: !!extractedThinking,
+      thinkingType: extractedThinking?.type ?? null,
+      requestMode: purpose,
+    });
+
     return body;
   };
 
@@ -1157,7 +1188,6 @@ async function callLlmObjectFallback<T>(
   let profileAllowStructuredFallback = true;
   try {
     const profile = resolveProviderProfile(selected.providerConfig.type, {
-      reasoningCapability: selected.modelConfig.reasoningCapability,
       finalComposeMode: selected.modelConfig.finalComposeMode,
     });
     profileRawFirst = profile.controlPlaneStrategy === "raw_first";
@@ -1192,19 +1222,22 @@ async function callLlmObjectFallback<T>(
         errorMessage: rawErr instanceof Error ? rawErr.message.substring(0, 100) : "unknown",
       });
       if (!profileAllowStructuredFallback) {
+        const retryPrompt = buildSchemaAwareJsonRetryPrompt(prompt);
         pushAgentDebugEvent("CONTROL_PLANE_FAST_JSON_RETRY_SAFE", {
           providerType: selected.providerConfig.type,
           modelLabel: selected.modelConfig.id,
           retryCount: 1,
           reason: "raw_first_failed,profile_no_structured_fallback",
+          retryPromptMode: "system_user_json_contract_retry",
         }, "info");
         try {
-          const retryResult = await callOpenAICompatibleRawJsonObjectFallback(selected, prompt, schema, options);
+          const retryResult = await callOpenAICompatibleRawJsonObjectFallback(selected, retryPrompt, schema, options, true);
           pushAgentDebugEvent("CONTROL_PLANE_FAST_JSON_RETRY_SAFE", {
             providerType: selected.providerConfig.type,
             modelLabel: selected.modelConfig.id,
             retryCount: 1,
             reason: "retry_success",
+            retryPromptMode: "system_user_json_contract_retry",
           }, "info");
           return retryResult;
         } catch (retryErr) {
@@ -1243,20 +1276,9 @@ async function callLlmObjectFallback<T>(
     if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
       opts.maxOutputTokens = options.maxOutputTokens;
     }
-    // reasoningEffort / providerOptions 真实传递
+    // providerOptions 真实传递
     if (options.providerOptions) {
       opts.providerOptions = options.providerOptions as typeof opts.providerOptions;
-    } else if (
-      options.reasoningEffort &&
-      providerSupportsReasoningControl(selected.providerConfig.type)
-    ) {
-      const built = buildReasoningProviderOptions(
-        selected.providerConfig.type,
-        options.reasoningEffort,
-      );
-      if (built) {
-        opts.providerOptions = built as typeof opts.providerOptions;
-      }
     }
     return opts;
   };
@@ -1365,6 +1387,9 @@ async function callLlmObjectFallback<T>(
   throw new Error(`JSON 解析失败 [${selected.providerLabel} / ${selected.modelLabel}]: ${lastErrorKind}`);
 }
 
+/**
+ * @internal 仅供 qa/kb-model-call.ts 内部使用，业务层不得直接导入。
+ */
 export async function callLlmObject<T>(
   prompt: string,
   schema: ZodType<T>,
@@ -1419,20 +1444,9 @@ export async function callLlmObject<T>(
     generateOptions.maxOutputTokens = options.maxOutputTokens;
   }
 
-  // reasoningEffort / providerOptions 真实传递
+  // providerOptions 真实传递
   if (options.providerOptions) {
     generateOptions.providerOptions = options.providerOptions as typeof generateOptions.providerOptions;
-  } else if (
-    options.reasoningEffort &&
-    providerSupportsReasoningControl(selected.providerConfig.type)
-  ) {
-    const built = buildReasoningProviderOptions(
-      selected.providerConfig.type,
-      options.reasoningEffort,
-    );
-    if (built) {
-      generateOptions.providerOptions = built as typeof generateOptions.providerOptions;
-    }
   }
 
   try {
@@ -1480,11 +1494,6 @@ export interface StreamChunk {
   /** 本次增量内容 */
   chunk: string;
   /** 当前累积的完整内容 */
-  fullContent: string;
-}
-
-export interface StreamChunk {
-  chunk: string;
   fullContent: string;
 }
 
@@ -1613,11 +1622,7 @@ function buildLlmStreamError(
 
 /**
  * 流式调用 LLM
- * @param prompt 提示词
- * @param callbacks 回调函数
- * @param options 可选参数
- * @param abortSignal 用于中断请求
- * @returns 可取消的流式调用
+ * @internal 仅供 qa/kb-model-call.ts 内部使用，业务层不得直接导入。
  */
 export async function streamLlm(
   prompt: string,
@@ -1672,28 +1677,19 @@ export async function streamLlm(
 
   if (options.providerOptions) {
     streamOptions.providerOptions = options.providerOptions as any;
-  } else if (options.reasoningEffort && providerSupportsReasoningControl(selected.providerConfig.type)) {
-    const reasoningOptions = buildReasoningProviderOptions(selected.providerConfig.type, options.reasoningEffort);
-    if (reasoningOptions) {
-      streamOptions.providerOptions = reasoningOptions as any;
-    }
   }
 
   const hasProviderOptions = !!streamOptions.providerOptions;
   const openaiOptions = (streamOptions.providerOptions as any)?.openai ?? {};
   const hasThinkingParam = !!openaiOptions.thinking;
   const thinkingType = openaiOptions.thinking?.type ?? undefined;
-  const hasReasoningEffort = openaiOptions.reasoning_effort !== undefined;
-  const requestMode = options.reasoningEffort ? "reasoning_effort" : hasThinkingParam ? "thinking_type" : "none";
 
-  pushAgentDebugEvent("PROVIDER_REQUEST_BODY_FEATURES_SAFE", {
-    providerType: selected.providerConfig.type,
-    endpointKind: "openai_compatible",
-    hasProviderOptions,
+  pushAgentDebugEvent("LLM_ADAPTER_REQUEST_BODY_FEATURES_SAFE", {
+    purpose: options.purpose ?? "generic",
+    mode: "stream",
     hasThinkingParam,
     thinkingType: thinkingType ?? null,
-    hasReasoningEffort,
-    requestMode,
+    hasProviderOptions,
   }, "info");
 
   // fullContent 提升到 try 外部，保证各分支都能安全访问
@@ -1807,17 +1803,34 @@ export async function streamLlm(
         durationMs: streamDurationMs,
       }, "info");
 
-      const reasoningControlApplied = hasThinkingParam || hasReasoningEffort;
-      const reasoningEffective = reasoningControlApplied ? reasoningPartCount === 0 : undefined;
-      if (reasoningControlApplied) {
+      if (hasThinkingParam && reasoningPartCount > 0) {
+        // thinkingMode=on: reasoning returned as requested
         pushAgentDebugEvent("PROVIDER_REASONING_CONTROL_EFFECT_SAFE", {
           providerType: selected.providerConfig.type,
           modelLabel: selected.modelLabel,
-          reasoningControlApplied,
+          reasoningControlApplied: true,
           reasoningPartCount,
           reasoningChars,
-          effective: reasoningEffective,
-          reasonCode: reasoningEffective ? undefined : "provider_still_returned_reasoning",
+          effect: "reasoning_returned_as_requested" as const,
+        }, "info");
+      } else if (hasThinkingParam) {
+        pushAgentDebugEvent("PROVIDER_REASONING_CONTROL_EFFECT_SAFE", {
+          providerType: selected.providerConfig.type,
+          modelLabel: selected.modelLabel,
+          reasoningControlApplied: true,
+          reasoningPartCount,
+          reasoningChars,
+          effect: "reasoning_not_returned" as const,
+        }, "info");
+      } else if (reasoningPartCount > 0) {
+        // thinkingMode=off but provider still returned reasoning — safe debug only
+        pushAgentDebugEvent("PROVIDER_REASONING_CONTROL_EFFECT_SAFE", {
+          providerType: selected.providerConfig.type,
+          modelLabel: selected.modelLabel,
+          reasoningControlApplied: false,
+          reasoningPartCount,
+          reasoningChars,
+          effect: "provider_returned_reasoning_when_off",
         }, "info");
       }
 

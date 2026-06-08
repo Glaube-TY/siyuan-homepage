@@ -5,11 +5,16 @@
  * docIds, blockIds, or a per-document nextCursor. It does not accept old
  * sourceType/doc reference objects, search for replacements, or continue
  * reading automatically.
+ *
+ * Chunking model (new):
+ * - Internal: fetch full Markdown for each doc (no truncation).
+ * - External: return only the requested chunk by chunkIndex.
+ * - Metadata includes fullContentChars, chunkCount, hasNextChunk, etc.
+ * - nextCursor is kept for backward compatibility; Planner should prefer chunkIndex.
  */
 
 import { readSiyuanDocForTool } from "../internal/readers/read-doc-full";
 import type { SiyuanDocLite } from "../internal/doc-types";
-import type { AgentScope } from "../../../scope/types";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import { sanitizeTitle, sanitizeContent } from "./safe-text";
 import type {
@@ -17,13 +22,13 @@ import type {
   ReadDocsError,
   ReadDocsInput,
   ReadDocsOutput,
+  ReadDocsChunkMeta,
 } from "../contracts/read-docs.contract";
 import { sqlSelectReadonly } from "../../../../siyuan/read-only-kernel";
 
-const DEFAULT_AGENT_READ_MAX_CHARS = 12000;
-const HARD_MAX_CHARS = 100000;
+const DEFAULT_CHUNK_CHARS = 12000;
 const SIYUAN_ID_RE = /^\d{14}-[a-z0-9]{7}$/i;
-const READ_NOTE = "这些是已读取正文，可用于总结、分析、比较。nextCursor 只绑定当前 docId。";
+const READ_NOTE = "这些是已读取正文，可用于总结、分析、比较。支持分块返回，chunkIndex 从 1 开始。";
 
 interface ResourceMeta {
   id: string;
@@ -40,9 +45,9 @@ interface ResolvedDocForRead extends SiyuanDocLite {
   inputKind: "doc" | "block";
 }
 
-function clampReadChars(value: number | undefined, defaultValue: number): number {
+function clampChunkChars(value: number | undefined, defaultValue: number): number {
   const raw = value ?? defaultValue;
-  return Math.max(2000, Math.min(Math.floor(raw), HARD_MAX_CHARS));
+  return Math.max(2000, Math.min(Math.floor(raw), 30000));
 }
 
 function makeCursor(docId: string, nextOffset: number): string {
@@ -66,66 +71,7 @@ function isValidSiyuanId(id: string): boolean {
   return SIYUAN_ID_RE.test(id);
 }
 
-function getResourceDocId(meta: ResourceMeta): string {
-  return meta.type === "d" ? meta.id : (meta.rootId || meta.id);
-}
-
-function describeScope(scope: AgentScope): string {
-  switch (scope.type) {
-    case "current_doc":
-      return "当前文档";
-    case "doc_tree":
-      return "当前文档及子文档";
-    case "notebook":
-      return "当前笔记本";
-    case "custom_docs":
-      return "用户选择的文档";
-    case "whole_kb":
-      return "全库";
-    default:
-      return "当前范围";
-  }
-}
-
-function isResourceInsideExplicitScope(
-  scope: AgentScope | undefined,
-  meta: ResourceMeta,
-  rootMeta?: ResourceMeta,
-): boolean {
-  if (!scope || scope.type === "whole_kb") return true;
-
-  const resourceDocId = getResourceDocId(meta);
-  switch (scope.type) {
-    case "current_doc":
-      return resourceDocId === scope.docId;
-    case "custom_docs":
-      return scope.docIds.includes(resourceDocId);
-    case "notebook":
-      return meta.box === scope.notebookId;
-    case "doc_tree":
-      if (resourceDocId === scope.rootDocId) return true;
-      if (!rootMeta?.path || meta.box !== scope.box) return false;
-      return meta.path === rootMeta.path || meta.path.startsWith(`${rootMeta.path}/`);
-    default:
-      return true;
-  }
-}
-
-function makeOutOfScopeError(
-  scope: AgentScope | undefined,
-  meta: ResourceMeta,
-  kind: "doc" | "block",
-): ReadDocsError | null {
-  if (!scope || scope.type === "whole_kb") return null;
-  return {
-    ...(kind === "doc" ? { docId: meta.id } : { blockId: meta.id, docId: meta.rootId || undefined }),
-    code: "out_of_scope",
-    message: `该资源不在用户显式选择的${describeScope(scope)}范围内。`,
-    hint: "请使用当前范围内由结构或搜索工具返回的真实 docId/blockId，或让用户切换知识范围。",
-  };
-}
-
-async function batchQueryResourceMeta(ids: string[]): Promise<Map<string, ResourceMeta>> {
+export async function batchQueryResourceMeta(ids: string[]): Promise<Map<string, ResourceMeta>> {
   const result = new Map<string, ResourceMeta>();
   const uniqueIds = [...new Set(ids.filter(Boolean))];
   if (uniqueIds.length === 0) return result;
@@ -213,6 +159,86 @@ function makeEmptyOutput(errors: ReadDocsError[] | undefined): ReadDocsOutput {
   };
 }
 
+// ── Chunk utilities ──
+
+function splitIntoChunks(text: string, chunkSize: number): { chunks: string[]; metas: ReadDocsChunkMeta[] } {
+  const chunks: string[] = [];
+  const metas: ReadDocsChunkMeta[] = [];
+  let start = 0;
+  let index = 1;
+
+  while (start < text.length) {
+    let end = Math.min(start + chunkSize, text.length);
+    if (end < text.length) {
+      const searchStart = Math.max(start, Math.floor(end - chunkSize * 0.2));
+      const searchWindow = text.slice(searchStart, end);
+      const lastBreak = Math.max(searchWindow.lastIndexOf("\n\n"), searchWindow.lastIndexOf("\n"));
+      if (lastBreak > 0) {
+        end = searchStart + lastBreak;
+      }
+    }
+    const chunkText = text.slice(start, end);
+    chunks.push(chunkText);
+    metas.push({ index, start, end, charCount: chunkText.length });
+    start = end;
+    index++;
+  }
+
+  return { chunks, metas };
+}
+
+function splitIntoExactChunkCount(text: string, chunkCount: number): { chunks: string[]; metas: ReadDocsChunkMeta[] } {
+  const chunks: string[] = [];
+  const metas: ReadDocsChunkMeta[] = [];
+  const total = text.length;
+  let start = 0;
+
+  for (let i = 0; i < chunkCount; i++) {
+    const isLast = i === chunkCount - 1;
+    const idealEnd = isLast ? total : Math.round(((i + 1) / chunkCount) * total);
+    let end = idealEnd;
+
+    if (!isLast && end < total) {
+      const chunkSize = idealEnd - start;
+      const searchRadius = Math.max(1, Math.floor(chunkSize * 0.2));
+      const searchStart = Math.max(start, end - searchRadius);
+      const searchEnd = Math.min(total, end + searchRadius);
+      const window = text.slice(searchStart, searchEnd);
+      let bestBreak = -1;
+      let bestDist = Infinity;
+      for (let pos = 0; pos < window.length; pos++) {
+        if (window[pos] === "\n") {
+          const absPos = searchStart + pos;
+          const dist = Math.abs(absPos - idealEnd);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestBreak = absPos;
+          }
+        }
+      }
+      if (bestBreak >= 0) {
+        end = bestBreak;
+      }
+    }
+
+    const chunkText = text.slice(start, end);
+    chunks.push(chunkText);
+    metas.push({ index: i + 1, start, end, charCount: chunkText.length });
+    start = end;
+  }
+
+  return { chunks, metas };
+}
+
+function findChunkIndexForOffset(metas: ReadDocsChunkMeta[], offset: number): number {
+  for (const meta of metas) {
+    if (offset >= meta.start && offset < meta.end) return meta.index;
+  }
+  return metas.length > 0 ? metas[metas.length - 1].index : 1;
+}
+
+// ── Main execution ──
+
 export async function executeReadDocs(
   deps: KbRetrievalToolDeps,
   args: ReadDocsInput,
@@ -234,18 +260,8 @@ export async function executeReadDocs(
   const { validIds, errors: formatErrors } = collectAndValidateIds(args);
   if (cursorTarget) validIds.push({ id: cursorTarget.docId, kind: "doc" });
 
-  const scope = deps.getEffectiveScope() ?? deps.getScope();
   const allIds = validIds.map((v) => v.id);
-  if (scope?.type === "doc_tree") {
-    allIds.push(scope.rootDocId);
-  } else if (scope?.type === "current_doc") {
-    allIds.push(scope.docId);
-  } else if (scope?.type === "custom_docs") {
-    allIds.push(...scope.docIds);
-  }
-
   const metaMap = await batchQueryResourceMeta(allIds);
-  const scopeRootMeta = scope?.type === "doc_tree" ? metaMap.get(scope.rootDocId) : undefined;
   const resolvedDocs: ResolvedDocForRead[] = [];
   const existenceErrors: ReadDocsError[] = [];
 
@@ -258,12 +274,6 @@ export async function executeReadDocs(
         message: kind === "doc" ? "该 docId 对应的文档不存在。" : "该 blockId 对应的块不存在。",
         hint: "请确认 ID 来自结构或搜索工具返回，并且资源尚未被删除。",
       });
-      continue;
-    }
-
-    if (!isResourceInsideExplicitScope(scope, meta, scopeRootMeta)) {
-      const scopeError = makeOutOfScopeError(scope, meta, kind);
-      if (scopeError) existenceErrors.push(scopeError);
       continue;
     }
 
@@ -281,25 +291,33 @@ export async function executeReadDocs(
     return { safeOutput: makeEmptyOutput([...formatErrors, ...existenceErrors]) };
   }
 
+  // Resolve chunk params
   const settingsDefault = deps.getSettings?.()?.agentReadMaxCharsPerDoc;
-  const defaultMaxChars = clampReadChars(
+  const defaultChunkChars = clampChunkChars(
     typeof settingsDefault === "number" ? settingsDefault : undefined,
-    DEFAULT_AGENT_READ_MAX_CHARS,
+    DEFAULT_CHUNK_CHARS,
   );
-  const maxChars = clampReadChars(args.maxChars, defaultMaxChars);
+  const globalChunkIndex = Math.max(1, Math.floor(args.chunkIndex ?? 1));
+
+  let globalChunkSize: number;
+  let globalEffectiveChunkCount: number | undefined;
+  if (args.chunkCount != null && args.chunkCount > 0) {
+    globalEffectiveChunkCount = args.chunkCount;
+  } else {
+    globalChunkSize = clampChunkChars(args.chunkChars ?? args.maxChars, defaultChunkChars);
+  }
+
   const items: ReadDocsItem[] = [];
   const readErrors: ReadDocsError[] = [];
   const seenReadWindows = new Set<string>();
 
   for (const candidate of resolvedDocs) {
-    const startOffset = cursorTarget && candidate.docId === cursorTarget.docId
-      ? cursorTarget.startOffset
-      : 0;
-    const readWindowKey = `${candidate.docId}:${startOffset}`;
+    const readWindowKey = `${candidate.docId}:full`;
     if (seenReadWindows.has(readWindowKey)) continue;
     seenReadWindows.add(readWindowKey);
 
-    const doc = await readSiyuanDocForTool({ doc: candidate, maxChars, startOffset });
+    // Read full content (no truncation)
+    const doc = await readSiyuanDocForTool({ doc: candidate, maxChars: undefined, startOffset: 0 });
     if (!doc) {
       readErrors.push({
         docId: candidate.docId,
@@ -330,19 +348,73 @@ export async function executeReadDocs(
       continue;
     }
 
+    const fullContent = doc.content;
+    const fullChars = fullContent.length;
+
+    // Determine per-doc chunk params
+    let chunkSize: number;
+    let effectiveChunkCount: number | undefined;
+    if (globalEffectiveChunkCount != null) {
+      effectiveChunkCount = globalEffectiveChunkCount;
+    } else {
+      chunkSize = globalChunkSize!;
+    }
+
+    let chunks: string[];
+    let metas: ReadDocsChunkMeta[];
+    if (effectiveChunkCount != null) {
+      const safeCount = Math.min(effectiveChunkCount, Math.max(1, fullChars));
+      ({ chunks, metas } = splitIntoExactChunkCount(fullContent, safeCount));
+    } else {
+      ({ chunks, metas } = splitIntoChunks(fullContent, chunkSize));
+    }
+    const totalChunks = chunks.length;
+
+    // Determine chunkIndex for this doc
+    let docChunkIndex = globalChunkIndex;
+    if (cursorTarget && candidate.docId === cursorTarget.docId && !args.chunkIndex) {
+      // Backward compat: if cursor points to this doc and no explicit chunkIndex,
+      // infer chunkIndex from cursor startOffset
+      docChunkIndex = findChunkIndexForOffset(metas, cursorTarget.startOffset);
+    }
+
+    if (docChunkIndex > totalChunks) {
+      readErrors.push({
+        docId: candidate.docId,
+        code: "chunk_index_out_of_range",
+        message: `chunkIndex ${docChunkIndex} 超出范围，当前文档共 ${totalChunks} 块。`,
+        hint: `请使用 1-${totalChunks} 之间的 chunkIndex。`,
+      });
+      continue;
+    }
+
+    const currentChunkText = chunks[docChunkIndex - 1];
+    const currentMeta = metas[docChunkIndex - 1];
+
     const item: ReadDocsItem = {
       docId: doc.docId,
       title: sanitizeTitle(doc.title),
-      content: sanitizeContent(doc.content),
-      contentChars: doc.returnedContentChars ?? doc.contentChars,
+      content: sanitizeContent(currentChunkText),
+      contentChars: currentChunkText.length,
+      truncated: totalChunks > 1,
+      // Chunk metadata
+      fullContentChars: fullChars,
+      returnedContentChars: currentChunkText.length,
+      chunkIndex: docChunkIndex,
+      chunkCount: totalChunks,
+      chunkStart: currentMeta.start,
+      chunkEnd: currentMeta.end,
+      hasPrevChunk: docChunkIndex > 1,
+      hasNextChunk: docChunkIndex < totalChunks,
+      chunks: metas,
     };
     if (candidate.inputKind === "block") item.blockId = candidate.inputId;
-    if (doc.truncated) {
-      item.truncated = true;
-      if (doc.nextStartOffset !== undefined) {
-        item.nextCursor = makeCursor(doc.docId, doc.nextStartOffset);
-      }
+
+    // Backward-compat nextCursor
+    if (docChunkIndex < totalChunks) {
+      item.nextCursor = makeCursor(doc.docId, currentMeta.end);
     }
+
     items.push(item);
   }
 

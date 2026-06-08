@@ -19,7 +19,7 @@ import type { ContextCompressionState } from "../types/context-usage";
 import type { ChatModelSelection } from "../types/chat-model-selection";
 import { pushAgentDebugEvent } from "./agent-workbench/debug/workbench-debug";
 import { getCompleteConversationTurns } from "./agent-workbench/runtime/conversation-turns";
-import { callLlmJson } from "./qa/llm-client";
+import { callModelText } from "./qa/kb-model-call";
 
 const COMPRESSION_VERSION = 3;
 
@@ -912,12 +912,18 @@ export async function emergencyCompressContext(
         promptLength: prompt.length,
       }, "info");
 
-      const llmOutput = await callLlmJson<EmergencyCompressionOutput>(prompt, {
+      const rawText = await callModelText(prompt, "off", {
         temperature: 0.3,
         maxOutputTokens: 2000,
         chatModelSelection: chatModelSelection ?? undefined,
         abortSignal: abortSignal ?? undefined,
+        purpose: "generic",
       });
+
+      // JSON 提取（兼容 markdown 代码块）
+      const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      const cleanText = jsonMatch ? jsonMatch[1].trim() : rawText.trim();
+      const llmOutput = JSON.parse(cleanText) as EmergencyCompressionOutput;
 
       const validation = validateEmergencyOutput(llmOutput, completedTurnCount, lastSummarizedTurnIndex, chunk);
       if (!validation.valid) {

@@ -25,14 +25,14 @@ export function createListKnowledgeMapTool(deps: ListKnowledgeMapDeps): ToolCont
   return {
     name: "list_knowledge_map",
     title: "查看知识结构",
-    description: "查看思源知识结构：笔记本、文档树、子文档、局部子树、邻域。只返回结构信息（目录），不读取正文。docId 可传给 read_docs。",
+    description: "查看思源知识结构：笔记本、文档树、子文档、局部子树、邻域。只返回结构信息（目录），不读取正文。结构范围由聊天框当前知识库范围限定。",
     inputSchema: listKnowledgeMapInputSchema,
     outputSchema: listKnowledgeMapOutputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "builtin",
     inputHint: "view（可选，默认 notebook_roots），notebookId/rootDocId/centerDocId（必须来自工具返回的真实 ID），maxDepth（子树深度，默认2），limit（分页），cursor（继续查看），includeTags/includeLinkedDocs。",
-    boundary: "只返回结构/目录信息，不读取正文。0 结果会说明原因：invalid_args / resource_not_found / empty_children / empty_scope。",
+    boundary: "只返回结构/目录信息，不读取正文。0 结果会说明原因：invalid_args / resource_not_found / empty_children / empty_scope。结构范围由聊天框当前知识库范围限定。",
     plannerVisible: true,
 
     // Explicit override: z.preprocess makes auto-conversion unreliable.

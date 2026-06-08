@@ -76,6 +76,8 @@ export class AgentLoop {
 
     let stepIndex = 0;
     let invalidCount = 0;
+    let blockedAnswerCount = 0;
+    const MAX_BLOCKED_ANSWERS = 2;
     const events: AgentWorkbenchEvent[] = [];
     const track = (e: AgentWorkbenchEvent): void => {
       events.push(e);
@@ -126,6 +128,14 @@ export class AgentLoop {
         toolRegistry: this.deps.toolRegistry,
         observationLog: log,
       });
+      // Emit generic status before planner decision; cleared by ToolDispatch when a tool runs.
+      track({
+        type: "Notice",
+        stepIndex,
+        at: now(),
+        message: "正在分析已有信息...",
+      });
+
       // Get decision via planner provider
       let rawDecision: unknown;
       try {
@@ -187,6 +197,34 @@ export class AgentLoop {
       // We validate/normalize via final_answer tool's schema + execute,
       // but never push to ObservationLog, never affect callCounts.
       if (decision.type === "answer") {
+        // Required web access guard: if mode is "required" and no web tool
+        // has been called yet, push a system observation and continue
+        // (max 2 blocked answers, then fail closed).
+        const webAccess = input.conversationContext?.currentTurn?.webAccess;
+        if (webAccess?.mode === "required") {
+          const counts = log.callCounts();
+          if (!counts["web_search"] && !counts["web_read_page"]) {
+            blockedAnswerCount += 1;
+            if (blockedAnswerCount <= MAX_BLOCKED_ANSWERS) {
+              log.push({
+                kind: "skill_observation",
+                summary: "本轮设置为必须联网，最终回答前需要先调用 web_search 或 web_read_page。",
+                reasonCode: "web_required_not_called",
+              });
+              continue;
+            }
+            // Exceeded block limit — fail closed
+            track({
+              type: "TurnFailed",
+              stepIndex,
+              at: now(),
+              status: "fail_closed_no_planner_decision",
+              message: "required 联网模式下模型连续未调用联网工具。",
+            });
+            return { status: "fail_closed_no_planner_decision", steps: stepIndex, events };
+          }
+        }
+
         const result = await executeFinalAnswerSystemAction(
           this.deps.toolRegistry,
           decision.args,

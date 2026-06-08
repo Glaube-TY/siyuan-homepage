@@ -685,7 +685,7 @@
         getSelectModelTitle={getSelectModelTitle}
         getTestModelTitle={getTestModelTitle}
         isTestingModel={isTestingModel}
-        getModelTestResult={getModelTestResult}
+        testResults={testResults}
       />
     {:else}
       <div class="editor-empty-state">

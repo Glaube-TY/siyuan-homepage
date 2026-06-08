@@ -20,6 +20,10 @@ export interface PersistedReferenceItem {
   displayTitle?: string;
   box?: string;
   path?: string;
+  sourceType?: "siyuan_doc" | "web_page" | "file" | "mcp_resource" | "api_result";
+  url?: string;
+  sourceName?: string;
+  provider?: string;
 }
 
 export interface PersistedAgentTurnMemory {
@@ -36,6 +40,10 @@ export interface PersistedAgentTurnMemory {
   footerReferenceReasons?: string[];
   footerReferenceReadLevels?: string[];
   footerReferenceGroundedFlags?: boolean[];
+  footerReferenceSourceTypes?: string[];
+  footerReferenceUrls?: string[];
+  footerReferenceSourceNames?: string[];
+  footerReferenceProviders?: string[];
 }
 
 export interface PersistedWorkbenchEvent {
@@ -112,6 +120,10 @@ function toPersistedAgentTurnMemory(memory: AgentTurnMemory): PersistedAgentTurn
     footerReferenceReasons: memory.footerReferenceReasons,
     footerReferenceReadLevels: memory.footerReferenceReadLevels,
     footerReferenceGroundedFlags: memory.footerReferenceGroundedFlags,
+    footerReferenceSourceTypes: memory.footerReferenceSourceTypes,
+    footerReferenceUrls: memory.footerReferenceUrls,
+    footerReferenceSourceNames: memory.footerReferenceSourceNames,
+    footerReferenceProviders: memory.footerReferenceProviders,
   };
 }
 
@@ -131,6 +143,10 @@ function fromPersistedAgentTurnMemory(memory: PersistedAgentTurnMemory): AgentTu
     footerReferenceReasons: memory.footerReferenceReasons ?? [],
     footerReferenceReadLevels: memory.footerReferenceReadLevels ?? [],
     footerReferenceGroundedFlags: memory.footerReferenceGroundedFlags ?? [],
+    footerReferenceSourceTypes: memory.footerReferenceSourceTypes ?? [],
+    footerReferenceUrls: memory.footerReferenceUrls ?? [],
+    footerReferenceSourceNames: memory.footerReferenceSourceNames ?? [],
+    footerReferenceProviders: memory.footerReferenceProviders ?? [],
   };
 }
 
@@ -262,6 +278,10 @@ function toPersistedReferenceItem(item: ReferenceItem): PersistedReferenceItem {
     displayTitle: item.displayTitle,
     box: item.box,
     path: item.path,
+    sourceType: item.sourceType,
+    url: item.url,
+    sourceName: item.sourceName,
+    provider: item.provider,
   };
 }
 
@@ -278,6 +298,10 @@ function fromPersistedReferenceItem(item: PersistedReferenceItem): ReferenceItem
     grounded: item.grounded,
     box: item.box,
     path: item.path,
+    sourceType: item.sourceType,
+    url: item.url,
+    sourceName: item.sourceName,
+    provider: item.provider,
   };
 }
 

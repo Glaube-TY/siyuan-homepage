@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Button } from "siyuan-kit-svelte";
   import type { KbSettings } from "../../types/settings";
   import { DEFAULT_KB_SETTINGS } from "../../constants/default-settings";
   import { getKbSettings, saveKbSettings } from "../../services/settings/kb-settings-service";
@@ -8,6 +7,7 @@
   import ModelSettingsTab from "./settings-tabs/model-settings-tab.svelte";
   import RetrievalSettingsTab from "./settings-tabs/retrieval-settings-tab.svelte";
   import SkillsSettingsTab from "./settings-tabs/skills-settings-tab.svelte";
+  import WebSearchSettingsTab from "./settings-tabs/web-search-settings-tab.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   // 页签定义
@@ -16,6 +16,7 @@
     { id: "model", label: "大模型配置", icon: "iconSparkles" },
     { id: "retrieval", label: "检索与上下文", icon: "iconSearch" },
     { id: "skills", label: "技能", icon: "iconPlugin" },
+    { id: "webSearch", label: "联网搜索", icon: "iconLanguage" },
   ] as const;
 
   type TabId = typeof TABS[number]["id"];
@@ -80,6 +81,24 @@
 
       <!-- 右侧内容 -->
       <div class="settings-main">
+        <!-- 顶部操作栏 -->
+        <div class="settings-header">
+          <div class="header-title">{TABS.find((t) => t.id === activeTab)?.label ?? ""}</div>
+          <div class="header-actions">
+            {#if saveMessage}
+              <span class="save-message" class:success={saveMessageType === "success"} class:error={saveMessageType === "error"}>{saveMessage}</span>
+            {/if}
+            <button
+              type="button"
+              class="save-btn"
+              disabled={saving}
+              on:click={handleSave}
+            >
+              {saving ? "保存中..." : "保存设置"}
+            </button>
+          </div>
+        </div>
+
         <div class="main-content">
           <div class="tab-container">
             {#if activeTab === "basic"}
@@ -89,21 +108,9 @@
             {:else if activeTab === "retrieval"}
               <RetrievalSettingsTab bind:settings />
             {:else if activeTab === "skills"}
-              <SkillsSettingsTab />
-            {/if}
-          </div>
-        </div>
-
-        <!-- 保存区域 -->
-        <div class="main-actions">
-          <div class="actions-inner">
-            <Button
-              label={saving ? "保存中..." : "保存设置"}
-              disabled={saving}
-              on:click={handleSave}
-            />
-            {#if saveMessage}
-              <span class="save-message" class:success={saveMessageType === "success"} class:error={saveMessageType === "error"}>{saveMessage}</span>
+              <SkillsSettingsTab bind:settings />
+            {:else if activeTab === "webSearch"}
+              <WebSearchSettingsTab bind:settings />
             {/if}
           </div>
         </div>
@@ -229,19 +236,50 @@
     }
   }
 
-  .main-actions {
-    padding: 16px 28px;
-    border-top: 1px solid var(--b3-border-color);
+  .settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 28px;
+    border-bottom: 1px solid var(--b3-border-color);
     background: var(--b3-theme-background);
     flex-shrink: 0;
+    min-height: 0;
   }
 
-  // 保存区内层：与内容区统一栅格
-  .actions-inner {
+  .header-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--b3-theme-on-surface);
+  }
+
+  .header-actions {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding-left: 4px;
+  }
+
+  .save-btn {
+    padding: 6px 16px;
+    border: none;
+    border-radius: 6px;
+    background: var(--b3-theme-primary);
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.4;
+    font-family: inherit;
+    transition: all 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background: var(--b3-theme-primary-dark, var(--b3-theme-primary));
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   }
 
   .save-message {

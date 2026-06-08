@@ -27,17 +27,19 @@
 
 import type { AskByModeParams, AskByModeResult } from "./ask-by-mode-types";
 import type { ChatMode } from "../../constants/chat-modes";
-import type { ChatMessage, ConversationStageSummary } from "../../types/chat";
+import type { ChatMessage, ConversationStageSummary, UserChatMessage } from "../../types/chat";
 import type { ChatModelSelection } from "../../types/chat-model-selection";
 import type { AgentScopeMode } from "../agent-workbench/scope/types";
 import { runAgentTurn, type AgentTurnOutcome } from "../agent-workbench/runtime/run-agent-turn";
-import type { AgentTurnResult } from "../agent-workbench";
+import type { AgentTurnResult, AgentWorkbenchEvent } from "../agent-workbench";
 import { buildAgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { maybeAutoCompressContext, emergencyCompressContext } from "../context-compression";
 import type { MaybeAutoCompressResult } from "../context-compression";
+import { getKbSettings } from "../settings/kb-settings-service";
 import { estimateContextUsage } from "../../types/context-usage";
 import { buildConversationContext } from "../agent-workbench/runtime/conversation-context-builder";
+import type { BuildConversationContextParams } from "../agent-workbench/runtime/conversation-context-builder";
 import { findCompleteConversationTurn, getCompleteConversationTurns } from "../agent-workbench/runtime/conversation-turns";
 import { showMessage } from "siyuan";
 import type { KbSessionState } from "../../types/session";
@@ -244,6 +246,8 @@ function mapChatModeToAgentScopeMode(mode: ChatMode): AgentScopeMode | null {
   switch (mode) {
     case "current_doc_with_children":
       return "current_doc_with_children";
+    case "current_doc_neighborhood":
+      return "current_doc_neighborhood";
     case "current_notebook":
       return "current_notebook";
     case "whole_kb":
@@ -494,6 +498,41 @@ export async function runAgentWorkbenchModeFlow(
       contextWindowTokens,
     });
 
+    // Fetch web search settings for conversation context
+    let webSearchSettings: BuildConversationContextParams["webSearchSettings"];
+    try {
+      const kbSettings = await getKbSettings();
+      if (kbSettings?.webSearch) {
+        webSearchSettings = {
+          enabled: kbSettings.webSearch.enabled,
+          provider: kbSettings.webSearch.provider,
+          maxResults: kbSettings.webSearch.maxResults,
+          readPageMaxChars: kbSettings.webSearch.readPageMaxChars,
+        };
+      }
+    } catch { /* ignore */ }
+
+    // Determine effective webAccessMode for this turn.
+    // Priority: params.webAccessMode (from UI) > user message requestContext > "off"
+    // kb-main-panel already resolves requestContext > inputBar > "off" before passing here,
+    // so params.webAccessMode is usually the correct effective value.
+    // This fallback to requestContext is a safety net for internal callers that may not pass it.
+    const currentUserMsg = stateAfterCompression.messages.find(
+      (m): m is UserChatMessage =>
+        m.role === "user" && m.id === actualUserMessageId,
+    );
+    const effectiveWebAccessMode = params.webAccessMode
+      ?? currentUserMsg?.requestContext?.webAccessMode
+      ?? "off";
+
+    pushAgentDebugEvent("WEB_ACCESS_MODE_SOURCE_SAFE", {
+      sourceName: "agent-workbench-mode-flow",
+      rawValue: params.webAccessMode,
+      normalizedValue: effectiveWebAccessMode,
+      hasExplicitUserValue: params.webAccessMode !== undefined && params.webAccessMode !== null,
+      requestContextFallback: !params.webAccessMode && !!currentUserMsg?.requestContext?.webAccessMode,
+    }, "info");
+
     const conversationContext = buildConversationContext({
       messages: stateAfterCompression.messages,
       stageSummaries: stateAfterCompression.stageSummaries ?? [],
@@ -502,11 +541,13 @@ export async function runAgentWorkbenchModeFlow(
       compressedContextSummary: stateAfterCompression.compressedContextSummary,
       compressionState: stateAfterCompression.compressionState,
       usageRatio: usageSnapshotForContext.usageRatio,
+      webSearchSettings,
+      webAccessModeOverride: effectiveWebAccessMode,
     });
 
     // Extract attachedDocs from current user message for reference grounding
     const currentUserMessage = stateAfterCompression.messages.find(
-      (m): m is import("../../types/chat").UserChatMessage =>
+      (m): m is UserChatMessage =>
         m.role === "user" && m.id === actualUserMessageId,
     );
     const attachedDocs = currentUserMessage?.attachedDocs?.map((d) => ({
@@ -520,6 +561,7 @@ export async function runAgentWorkbenchModeFlow(
       content: "",
       createdAt: Date.now(),
       isComplete: false,
+      agentStatus: "正在分析问题并规划...",
     });
 
     pushAgentDebugEvent("ASSISTANT_RUN_MESSAGE_CREATED", {
@@ -532,7 +574,7 @@ export async function runAgentWorkbenchModeFlow(
       asking: true,
       qaError: "",
       error: "",
-      agentStatus: undefined,
+      agentStatus: "正在分析问题并规划...",
     }));
 
     if (isAgentWorkbenchDebugLogEnabled()) {
@@ -543,7 +585,10 @@ export async function runAgentWorkbenchModeFlow(
     }
 
     let streamingContent = "";
-    let liveWorkbenchEvents: import("../agent-workbench").AgentWorkbenchEvent[] = [];
+    let liveWorkbenchEvents: AgentWorkbenchEvent[] = [];
+    let reasoningContent = "";
+    let reasoningPartCount = 0;
+    const userThinkingMode = thinkingMode ?? "off";
 
     // Agent Workbench runtime path.
     // 真实聊天只走 Agent Workbench。
@@ -557,7 +602,52 @@ export async function runAgentWorkbenchModeFlow(
       attachedDocs,
       abortSignal,
       chatModelSelection,
-      thinkingMode: thinkingMode ?? "off",
+      thinkingMode: userThinkingMode,
+      onReasoningDelta: (event) => {
+        // Only process reasoning when thinkingMode=on
+        if (userThinkingMode !== "on") {
+          pushAgentDebugEvent("REASONING_RECEIVED_WHEN_OFF_SAFE", {
+            type: event.type,
+            action: "discarded",
+          }, "info");
+          return;
+        }
+        if (event.type === "reasoning-start") {
+          reasoningContent = "";
+          reasoningPartCount = 0;
+          if (setMessages) {
+            setMessages((messages) =>
+              messages.map((m) => {
+                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+                return { ...m, reasoning: { content: "", status: "streaming", partCount: 0, chars: 0 } };
+              })
+            );
+          }
+        } else if (event.type === "reasoning-delta" && event.delta) {
+          reasoningContent += event.delta;
+          reasoningPartCount++;
+          if (setMessages) {
+            setMessages((messages) =>
+              messages.map((m) => {
+                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+                return { ...m, reasoning: { content: reasoningContent, status: "streaming", partCount: reasoningPartCount, chars: reasoningContent.length } };
+              })
+            );
+          }
+        } else if (event.type === "reasoning-end") {
+          if (setMessages) {
+            setMessages((messages) =>
+              messages.map((m) => {
+                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+                const finalReasoning = reasoningContent.trim().length > 0
+                  ? { content: reasoningContent, status: "done" as const, partCount: reasoningPartCount, chars: reasoningContent.length }
+                  : undefined;
+                return { ...m, reasoning: finalReasoning };
+              })
+            );
+          }
+        }
+      },
       onAnswerChunk: ({ fullContent }) => {
         streamingContent = fullContent;
         if (setMessages) {
@@ -573,11 +663,17 @@ export async function runAgentWorkbenchModeFlow(
         liveWorkbenchEvents = [...liveWorkbenchEvents, event];
         if (setMessages) {
           setMessages((messages) =>
-            messages.map((m) =>
-              m.id === assistantMessageId && m.role === "assistant"
-                ? { ...m, workbenchEvents: liveWorkbenchEvents }
-                : m
-            )
+            messages.map((m) => {
+              if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+              // Clear agentStatus when a tool starts executing;
+              // workbenchEvents will show the specific tool details.
+              // Set agentStatus on Notice (e.g. "正在生成最终回答...").
+              const nextAgentStatus =
+                event.type === "ToolDispatch" ? undefined
+                : event.type === "Notice" ? event.message
+                : m.agentStatus;
+              return { ...m, workbenchEvents: liveWorkbenchEvents, agentStatus: nextAgentStatus };
+            })
           );
         }
       },
@@ -675,6 +771,10 @@ export async function runAgentWorkbenchModeFlow(
                 workbenchEvents: result.events.length > 0 ? result.events : liveWorkbenchEvents,
                 isComplete: true,
                 agentStatus: undefined,
+                // Ensure reasoning status is "done" at finalize
+                reasoning: m.reasoning && m.reasoning.status === "streaming"
+                  ? { ...m.reasoning, status: "done" as const }
+                  : m.reasoning,
               }
             : m
         )

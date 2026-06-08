@@ -164,7 +164,7 @@ export async function executeSearchScope(
       hitCount,
       candidateDocCount,
       returnedCandidateCount: state.candidates.length,
-      note: "搜索结果只是候选，不代表已读取正文；docId 可传给 read_docs。",
+      note: "搜索结果只是候选，不代表已读取正文。",
       summary,
       warnings: result.warnings && result.warnings.length > 0 ? result.warnings : undefined,
     },

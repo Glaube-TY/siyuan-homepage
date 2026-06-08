@@ -41,6 +41,14 @@ export type ReferenceItem = {
   referenceReason?: "planner_explicit" | "read_content" | "structure_result" | "search_candidate";
   /** 是否已通过 grounding 校验（Agent Core 使用） */
   grounded?: boolean;
+  /** 来源类型：siyuan_doc（默认）或 web_page 等 */
+  sourceType?: "siyuan_doc" | "web_page" | "file" | "mcp_resource" | "api_result";
+  /** 网页 URL（sourceType=web_page 时使用） */
+  url?: string;
+  /** 来源名称（如域名） */
+  sourceName?: string;
+  /** 搜索/读取 provider */
+  provider?: string;
 };
 
 /** 用户手动附加的文档（轻量元信息，不存正文） */
@@ -66,6 +74,8 @@ export interface UserMessageRequestContext {
   fixedDocIds?: string[];
   thinkingMode?: string;
   createdFrom: "send" | "regenerate" | "retry";
+  /** 联网模式: off(关闭), smart(智能), required(必须) */
+  webAccessMode?: "off" | "smart" | "required";
 }
 
 /** 用户消息 */

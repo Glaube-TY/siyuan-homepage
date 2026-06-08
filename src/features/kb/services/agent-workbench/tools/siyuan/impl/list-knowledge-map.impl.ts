@@ -16,6 +16,7 @@ import {
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import { pushAgentDebugEvent } from "../../../debug/workbench-debug";
 import { sanitizeTitle } from "./safe-text";
+import type { AgentScope } from "../../../scope/types";
 import type {
   ListKnowledgeMapInput,
   ListKnowledgeMapOutput,
@@ -32,7 +33,7 @@ interface FilterSpec {
 
 type KnowledgeMapView = NonNullable<ListKnowledgeMapInput["view"]>;
 type TagStatus = "loaded" | "not_requested" | "not_available" | "truncated";
-const STRUCTURE_NOTE = "结构结果只表示资料位置，不是正文；docId 可传给 read_docs。";
+const STRUCTURE_NOTE = "结构结果只表示资料位置，不是正文。";
 const TRUNCATED_NO_CURSOR_NOTE = "结果已截断，但当前视图不支持 cursor 续取。";
 const INTERNAL_SOURCE_NODE_LIMIT = 500;
 const INTERNAL_RELATION_LIMIT = 5;
@@ -68,8 +69,9 @@ function normalizePath(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function resolveView(args: ListKnowledgeMapInput): KnowledgeMapView {
+function resolveView(args: ListKnowledgeMapInput, scope: AgentScope): KnowledgeMapView {
   if (args.view) return args.view;
+  if (scope.type === "doc_neighborhood") return "neighborhood";
   return "notebook_roots";
 }
 
@@ -791,12 +793,22 @@ function buildNeighborhoodOutput(
   if (!center) {
     throw new Error(`[resource_not_found] centerDocId "${centerDocId ?? ""}" 在当前范围内不存在。请使用当前工具结果中明确返回的 docId 作为 centerDocId。`);
   }
-  const parent = center.parentDocId ? findMappingByDocId(sourceMapping, center.parentDocId) : undefined;
+
+  // 父级链：从根到直接父级
+  const parentChain: KnowledgeDocResource[] = [];
+  let currentParentId = center.parentDocId;
+  while (currentParentId) {
+    const parentDoc = findMappingByDocId(sourceMapping, currentParentId);
+    if (!parentDoc) break;
+    parentChain.unshift(parentDoc);
+    currentParentId = parentDoc.parentDocId;
+  }
+
   const siblings = center.parentDocId
     ? sourceMapping.filter((mapping) => mapping.parentDocId === center.parentDocId && mapping.internalDocId !== center.internalDocId)
     : sourceMapping.filter((mapping) => mapping.box === center.box && isNotebookRoot(mapping) && mapping.internalDocId !== center.internalDocId);
   const children = sourceMapping.filter((mapping) => isDirectChild(mapping, center.internalDocId));
-  const docs = [parent, center, ...siblings, ...children].filter((item): item is KnowledgeDocResource => !!item);
+  const docs = [...parentChain, center, ...siblings, ...children].filter((item): item is KnowledgeDocResource => !!item);
   const zeroError = docs.length === 0
     ? { code: "empty_children" as const, message: `该文档的邻域内没有其他文档。`, hint: "请确认 centerDocId 是否正确，或改用 subtree 查看更广范围。" }
     : undefined;
@@ -813,7 +825,12 @@ export async function executeListKnowledgeMap(
   if (!scope) {
     throw new Error("Scope not available.");
   }
-  const view = resolveView(args);
+  const view = resolveView(args, scope);
+
+  // doc_neighborhood 范围默认使用中心文档作为 centerDocId
+  if (scope.type === "doc_neighborhood" && !args.centerDocId && !args.rootDocId) {
+    args = { ...args, centerDocId: scope.centerDocId };
+  }
 
   const result = await buildKnowledgeMap({
     scope,

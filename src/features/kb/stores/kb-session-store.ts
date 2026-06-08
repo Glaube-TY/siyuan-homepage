@@ -42,6 +42,7 @@ const initialState: KbSessionState = {
   qaError: "",
   messages: [],
   stageSummaries: [],
+  thinkingMode: "off",
   // selectedMode 初始 undefined，由组件决定默认值
 };
 

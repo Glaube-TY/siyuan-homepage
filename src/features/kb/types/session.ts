@@ -8,10 +8,9 @@ import type { ChatMessage, ConversationStageSummary } from "./chat";
 import type { ChatMode } from "../constants/chat-modes";
 import type { ChatModelSelection } from "./chat-model-selection";
 import type { KbConversationSession } from "./chat";
-import type { ThinkingMode } from "../services/qa/model-capabilities";
 import type { ContextUsageSnapshot, ContextCompressionState } from "./context-usage";
 
-export type { ThinkingMode } from "../services/qa/model-capabilities";
+export type ThinkingMode = "off" | "on";
 export type { ContextUsageSnapshot, ContextUsageLevel, ContextCompressionState, ContextUsageMaxContextSource } from "./context-usage";
 
 /**
@@ -54,8 +53,8 @@ export type KbSessionState = {
   /**
    * 思考模式开关
    * - 用户手动控制，不是自动模型策略
-   * - 只影响 compose_answer 阶段的 reasoning 控制
-   * - 不影响 analyze_turn / planner / tool execution / content_read_gate
+   * - 本轮所有 LLM 调用的 reasoning 控制参数（Planner、Composer 等）
+   * - 不影响工具执行、证据边界或业务流程
    */
   thinkingMode?: ThinkingMode;
 

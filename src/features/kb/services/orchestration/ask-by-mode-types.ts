@@ -37,6 +37,8 @@ export interface AskByModeParams {
   attachedDocs?: AttachedKbDoc[];
   /** 当前模型的上下文窗口 tokens 数（可选，用于上下文预算估算和压缩触发） */
   contextWindowTokens?: number;
+  /** 联网搜索模式: off(关闭), smart(智能), required(必须) */
+  webAccessMode?: "off" | "smart" | "required";
 }
 
 /** Ask By Mode 结果 */

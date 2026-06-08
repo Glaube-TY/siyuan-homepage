@@ -26,6 +26,7 @@ export interface ConversationReferenceContext {
   fileId?: string;
   resourceId?: string;
   title?: string;
+  sourceName?: string;
   provider?: string;
   referenceReason?: "planner_explicit" | "read_content" | "structure_result" | "search_candidate";
   readLevel?: "content" | "structure" | "candidate";
@@ -94,6 +95,16 @@ export interface ConversationContextSnapshot {
       source?: string;
     }>;
     runtimeNow?: RuntimeNowInfo;
+    webAccess?: {
+      enabled: boolean;
+      mode: "smart" | "required";
+      provider: string;
+      maxResults: number;
+      readPageMaxChars: number;
+    };
+    webReadAccess?: {
+      enabled: true;
+    };
   };
   stageSummaryStatus: StageSummaryStatus;
   compressed?: {
@@ -118,6 +129,14 @@ export interface BuildConversationContextParams {
   compressedContextSummary?: string;
   compressionState?: ContextCompressionState;
   usageRatio?: number;
+  webSearchSettings?: {
+    enabled: boolean;
+    provider: string;
+    maxResults: number;
+    readPageMaxChars: number;
+  };
+  /** Override webAccessMode for current turn. Takes priority over user message requestContext.webAccessMode. */
+  webAccessModeOverride?: "off" | "smart" | "required";
 }
 
 const SNAPSHOT_VERSION = 2;
@@ -159,6 +178,45 @@ function buildAttachedDocs(user: UserChatMessage | undefined): ConversationConte
 
 function buildTurnAttachedDocs(user: UserChatMessage): ConversationTurnContext["user"]["attachedDocs"] {
   return buildAttachedDocs(user);
+}
+
+function resolveWebAccessMode(
+  user: UserChatMessage | undefined,
+  settings: BuildConversationContextParams["webSearchSettings"],
+  override?: "off" | "smart" | "required",
+): "smart" | "required" | undefined {
+  if (!settings?.enabled) return undefined;
+  const mode = override ?? user?.requestContext?.webAccessMode;
+  if (!mode || mode === "off") return undefined;
+  return mode;
+}
+
+function buildWebSearchAccess(
+  user: UserChatMessage | undefined,
+  settings: BuildConversationContextParams["webSearchSettings"],
+  override?: "off" | "smart" | "required",
+): ConversationContextSnapshot["currentTurn"]["webAccess"] {
+  const mode = resolveWebAccessMode(user, settings, override);
+  if (!mode) return undefined;
+  return {
+    enabled: true,
+    mode,
+    provider: settings!.provider,
+    maxResults: settings!.maxResults,
+    readPageMaxChars: settings!.readPageMaxChars,
+  };
+}
+
+function buildWebReadAccess(
+  _user: UserChatMessage | undefined,
+  settings: BuildConversationContextParams["webSearchSettings"],
+  _override?: "off" | "smart" | "required",
+): ConversationContextSnapshot["currentTurn"]["webReadAccess"] {
+  // web_read_page is a global read-only tool, independent of the off/smart/required search mode
+  // and independent of the webSearch.enabled toggle. It is available whenever webSearch settings
+  // exist so that the Planner can read explicit URLs even when web search is turned off.
+  if (!settings) return undefined;
+  return { enabled: true };
 }
 
 function buildRuntimeNow(): RuntimeNowInfo {
@@ -211,16 +269,22 @@ function buildReferencesFromMemory(memory: AssistantChatMessage["agentMemory"]):
   if (!memory?.footerReferenceDocIds?.length) return [];
 
   return memory.footerReferenceDocIds
-    .map((docId, index) => ({
-      sourceType: "siyuan_doc" as const,
-      docId,
-      blockId: cleanString(memory.footerReferenceBlockIds?.[index]),
-      title: cleanString(memory.footerReferenceTitles?.[index]),
-      referenceReason: cleanString(memory.footerReferenceReasons?.[index]) as ConversationReferenceContext["referenceReason"],
-      readLevel: cleanString(memory.footerReferenceReadLevels?.[index]) as ConversationReferenceContext["readLevel"],
-      grounded: memory.footerReferenceGroundedFlags?.[index] ?? false,
-    }))
-    .filter((ref) => ref.grounded === true && (ref.docId || ref.blockId))
+    .map((docId, index) => {
+      const sourceType = cleanString(memory.footerReferenceSourceTypes?.[index]) as ConversationReferenceContext["sourceType"] ?? "siyuan_doc";
+      return {
+        sourceType,
+        docId,
+        blockId: cleanString(memory.footerReferenceBlockIds?.[index]),
+        title: cleanString(memory.footerReferenceTitles?.[index]),
+        url: cleanString(memory.footerReferenceUrls?.[index]),
+        sourceName: cleanString(memory.footerReferenceSourceNames?.[index]),
+        provider: cleanString(memory.footerReferenceProviders?.[index]),
+        referenceReason: cleanString(memory.footerReferenceReasons?.[index]) as ConversationReferenceContext["referenceReason"],
+        readLevel: cleanString(memory.footerReferenceReadLevels?.[index]) as ConversationReferenceContext["readLevel"],
+        grounded: memory.footerReferenceGroundedFlags?.[index] ?? false,
+      };
+    })
+    .filter((ref) => ref.grounded === true && (ref.docId || ref.blockId || ref.url))
     .slice(0, MAX_REFERENCES);
 }
 
@@ -234,16 +298,24 @@ function buildReferenceFromCitation(ref: ReferenceItem): ConversationReferenceCo
     ? rawReadLevel as "content" | "structure" | "candidate"
     : undefined;
 
+  const sourceType = ref.sourceType ?? "siyuan_doc";
+
   const contextRef: ConversationReferenceContext = {
-    sourceType: "siyuan_doc",
+    sourceType: sourceType as ConversationReferenceContext["sourceType"],
     docId: cleanString(ref.docId),
     blockId: cleanString(ref.sourceBlockIds?.[0]),
-    title: cleanString(ref.displayTitle) ?? cleanString(ref.docTitle) ?? cleanString(ref.headingPathText),
+    url: cleanString(ref.url),
+    sourceName: cleanString(ref.sourceName),
+    provider: cleanString(ref.provider),
+    title: cleanString(ref.displayTitle) ?? cleanString(ref.docTitle) ?? cleanString(ref.headingPathText) ?? cleanString(ref.sourceName) ?? cleanString(ref.url),
     readLevel,
     referenceReason: ref.referenceReason,
     grounded: true,
   };
 
+  if (sourceType === "web_page") {
+    return contextRef.url ? contextRef : null;
+  }
   return contextRef.docId || contextRef.blockId ? contextRef : null;
 }
 
@@ -399,6 +471,8 @@ export function buildConversationContext(
   const attachedDocs = buildAttachedDocs(currentUserMessage);
   const currentScope = buildCurrentScope(currentUserMessage);
   const compressed = buildCompressed(params.compressedContextSummary, params.compressionState);
+  const webSearchAccess = buildWebSearchAccess(currentUserMessage, params.webSearchSettings, params.webAccessModeOverride);
+  const webReadAccess = buildWebReadAccess(currentUserMessage, params.webSearchSettings, params.webAccessModeOverride);
 
   return {
     version: SNAPSHOT_VERSION,
@@ -407,6 +481,8 @@ export function buildConversationContext(
       ...(currentScope ? { scope: currentScope } : {}),
       ...(attachedDocs ? { attachedDocs } : {}),
       runtimeNow: buildRuntimeNow(),
+      ...(webSearchAccess ? { webAccess: webSearchAccess } : {}),
+      ...(webReadAccess ? { webReadAccess: webReadAccess } : {}),
     },
     stageSummaryStatus: buildStageSummaryStatus(params.messages, stageSummaries, !!compressed, params.usageRatio ?? 0),
     ...(compressed ? { compressed } : {}),

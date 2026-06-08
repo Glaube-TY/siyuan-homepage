@@ -26,13 +26,40 @@
   export let compressionState: import("../../types/context-usage").ContextCompressionState | undefined = undefined;
   export let compressedContextSummary: string | undefined = undefined;
   export let stageSummaryCount: number = 0;
+  export let webSearchEnabled: boolean = false;
+  export let webAccessMode: "off" | "smart" | "required" = "off";
 
   let inputValue = value;
   let textareaElement: HTMLTextAreaElement;
   let showModeMenu = false;
   let showModelMenu = false;
   let showContextPopover = false;
+  let showWebAccessMenu = false;
   let contextRingEl: HTMLDivElement | undefined;
+
+  // Web access mode helpers
+  $: if (!webSearchEnabled) webAccessMode = "off";
+
+  function toggleWebAccessMode() {
+    showWebAccessMenu = !showWebAccessMenu;
+    if (showWebAccessMenu) {
+      showModeMenu = false;
+      showModelMenu = false;
+      showDocSearch = false;
+      closeContextPopover();
+    }
+  }
+
+  function selectWebAccessMode(mode: "off" | "smart" | "required") {
+    webAccessMode = mode;
+    showWebAccessMenu = false;
+    dispatch("webAccessModeChange", mode);
+  }
+
+  // Auto-close web access menu when disabled
+  $: if (asking || !webSearchEnabled) {
+    showWebAccessMenu = false;
+  }
   let contextPopoverEl: HTMLElement | undefined;
   let contextPopoverCloseTimer: ReturnType<typeof setTimeout> | null = null;
   let contextPopoverTrigger: "hover" | "focus" | "click" = "hover";
@@ -261,7 +288,7 @@
   }
 
   const dispatch = createEventDispatcher<{
-    send: { question: string; mode: ChatMode; thinkingMode: ThinkingMode; attachedDocIds?: string[]; attachedDocs?: AttachedKbDoc[] };
+    send: { question: string; mode: ChatMode; thinkingMode: ThinkingMode; attachedDocIds?: string[]; attachedDocs?: AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" };
     stop: void;
     modeChange: ChatMode;
     input: string;
@@ -271,6 +298,7 @@
     attachedDocsChange: { docIds: string[] };
     compressionRequest: void;
     compressionClear: void;
+    webAccessModeChange: "off" | "smart" | "required";
   }>();
 
   function toggleThinkingMode() {
@@ -296,7 +324,7 @@
         effectiveScopeMode: attachedDocs.length > 0 ? "custom_docs" : selectedMode,
         modeSelectorLocked,
       }, "info");
-      dispatch("send", { question: trimmed, mode: selectedMode, thinkingMode, attachedDocIds: docIds.length > 0 ? docIds : undefined, attachedDocs: docsPayload });
+      dispatch("send", { question: trimmed, mode: selectedMode, thinkingMode, attachedDocIds: docIds.length > 0 ? docIds : undefined, attachedDocs: docsPayload, webAccessMode });
       inputValue = "";
       value = "";
       attachedDocs = [];
@@ -485,6 +513,7 @@
     if (showDocSearch) {
       docSearchQuery = "";
       docSearchResults = [];
+      showWebAccessMenu = false;
     }
   }
 
@@ -540,6 +569,7 @@
     showModeMenu = !showModeMenu;
     if (showModeMenu) {
       showModelMenu = false;
+      showWebAccessMenu = false;
     }
   }
 
@@ -548,6 +578,7 @@
     showModelMenu = !showModelMenu;
     if (showModelMenu) {
       showModeMenu = false;
+      showWebAccessMenu = false;
       dispatch("refreshModels");
     }
   }
@@ -576,6 +607,9 @@
       docSearchResults = [];
       docSearchQuery = "";
     }
+    if (!target.closest(".web-search-toggle")) {
+      showWebAccessMenu = false;
+    }
     if (!target.closest(".mention-popup") && !mentionActive) {
       docSearchResults = [];
     }
@@ -587,16 +621,24 @@
   onMount(() => {
     document.addEventListener("click", handleClickOutside);
     document.addEventListener("keydown", handleContextPopoverKeydown);
+    document.addEventListener("keydown", handleWebAccessKeydown);
   });
 
   onDestroy(() => {
     document.removeEventListener("click", handleClickOutside);
     document.removeEventListener("keydown", handleContextPopoverKeydown);
+    document.removeEventListener("keydown", handleWebAccessKeydown);
     if (contextPopoverCloseTimer) {
       clearTimeout(contextPopoverCloseTimer);
       contextPopoverCloseTimer = null;
     }
   });
+
+  function handleWebAccessKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && showWebAccessMenu) {
+      showWebAccessMenu = false;
+    }
+  }
 </script>
 
 <div class="chat-input-wrapper">
@@ -637,6 +679,37 @@
           </div>
         {/if}
       </div>
+
+      {#if webSearchEnabled}
+        <!-- Web search mode toggle -->
+        <div class="web-search-toggle">
+          <button
+            type="button"
+            class="web-search-btn"
+            class:web-smart={webAccessMode === "smart"}
+            class:web-required={webAccessMode === "required"}
+            on:click={toggleWebAccessMode}
+            disabled={asking}
+            title={webAccessMode === "off" ? "联网搜索：关闭搜索" : webAccessMode === "smart" ? "联网搜索：智能搜索" : "联网搜索：必须联网"}
+            aria-label={webAccessMode === "off" ? "联网搜索：关闭搜索" : webAccessMode === "smart" ? "联网搜索：智能搜索" : "联网搜索：必须联网"}
+          >
+            <SiyuanIcon name="iconLanguage" size={14} />
+          </button>
+          {#if showWebAccessMenu}
+            <div class="mode-menu web-access-menu">
+              <button type="button" class="mode-option web-access-option" class:selected={webAccessMode === "off"} on:click={() => selectWebAccessMode("off")}>
+                <span class="option-label">关闭搜索</span>
+              </button>
+              <button type="button" class="mode-option web-access-option" class:selected={webAccessMode === "smart"} on:click={() => selectWebAccessMode("smart")}>
+                <span class="option-label">智能搜索</span>
+              </button>
+              <button type="button" class="mode-option web-access-option" class:selected={webAccessMode === "required"} on:click={() => selectWebAccessMode("required")}>
+                <span class="option-label">必须联网</span>
+              </button>
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       <div class="doc-search-trigger">
         <button
@@ -683,6 +756,17 @@
 
     <!-- Bottom action row -->
     <div class="input-actions-row">
+      <button
+        type="button"
+        class="thinking-toggle"
+        class:active={thinkingMode === "on"}
+        on:click={toggleThinkingMode}
+        disabled={asking}
+        title="开启模型深度思考。"
+      >
+        <SiyuanIcon name="iconSparkles" size={14} />
+      </button>
+
       <div class="model-selector">
         <button type="button" class="model-button" on:click={toggleModelMenu} disabled={asking} title={modelButtonTitle}>
           <span class="model-label">{currentModelLabel}</span>
@@ -809,17 +893,6 @@
           </span>
         {/if}
       {/key}
-
-      <button
-        type="button"
-        class="thinking-toggle"
-        class:active={thinkingMode === "on"}
-        on:click={toggleThinkingMode}
-        disabled={asking}
-        title="开启模型深度思考。"
-      >
-        <span>💡</span>
-      </button>
 
       {#if asking}
         <Button
@@ -1614,5 +1687,59 @@
 
   .doc-search-trigger {
     position: relative;
+  }
+
+  // Web search toggle
+  .web-search-toggle {
+    position: relative;
+  }
+
+  .web-search-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    border: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-surface);
+    cursor: pointer;
+    color: var(--b3-theme-on-surface);
+    transition: all 0.15s ease;
+
+    &:hover {
+      background: var(--b3-list-hover);
+    }
+
+    &.web-smart {
+      background: var(--b3-theme-primary-light, rgba(64, 144, 255, 0.15));
+      border-color: var(--b3-theme-primary, #4090ff);
+      color: var(--b3-theme-primary, #4090ff);
+
+      &:hover {
+        background: var(--b3-theme-primary-light, rgba(64, 144, 255, 0.25));
+      }
+    }
+
+    &.web-required {
+      background: rgba(230, 168, 23, 0.16);
+      border-color: var(--b3-theme-warning, #d48806);
+      color: var(--b3-theme-warning, #d48806);
+
+      &:hover {
+        background: rgba(230, 168, 23, 0.26);
+      }
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  }
+
+  // Web access menu — stronger selected state
+  .web-access-option.selected {
+    background: var(--b3-theme-primary-light, rgba(64, 144, 255, 0.12));
+    font-weight: 600;
   }
 </style>

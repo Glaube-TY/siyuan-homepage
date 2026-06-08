@@ -2,7 +2,41 @@
  * Planner decision types: only tool / answer / stop.
  */
 
+import { z } from "zod";
 import { isForbiddenFlowControlField } from "../shared/flow-control";
+
+export const plannerDecisionZodSchema = z.union([
+  z.object({
+    type: z.literal("tool"),
+    toolName: z.string().min(1),
+    args: z.record(z.string(), z.unknown()),
+  }).strict(),
+  z.object({
+    type: z.literal("answer"),
+    args: z.object({
+      body: z.string().min(1).max(2000),
+      references: z.array(z.object({
+        sourceType: z.enum(["siyuan_doc", "web_page", "file", "mcp_resource", "api_result"]).optional(),
+        docId: z.string().optional(),
+        blockId: z.string().optional(),
+        url: z.string().optional(),
+        fileId: z.string().optional(),
+        resourceId: z.string().optional(),
+        title: z.string().optional(),
+        sourceName: z.string().optional(),
+        provider: z.string().optional(),
+      }).strict()).optional().default([]),
+      stageSummary: z.object({
+        summary: z.string().trim().min(1).max(1500),
+      }).strict().optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    type: z.literal("stop"),
+    reasonCode: z.enum(["user_canceled", "internal_aborted", "need_clarification", "cannot_continue"]),
+    message: z.string().optional(),
+  }).strict(),
+]);
 
 export type PlannerDecision =
   | PlannerToolDecision
@@ -48,6 +82,7 @@ export interface AnswerResourceRef {
   fileId?: string;
   resourceId?: string;
   title?: string;
+  sourceName?: string;
   provider?: string;
 }
 
@@ -212,7 +247,7 @@ const ALLOWED_REF_SOURCE_TYPES = new Set([
 ]);
 
 const ALLOWED_REF_KEYS = new Set([
-  "sourceType", "docId", "blockId", "url", "fileId", "resourceId", "title", "provider",
+  "sourceType", "docId", "blockId", "url", "fileId", "resourceId", "title", "sourceName", "provider",
 ]);
 
 function assertValidReferences(refs: unknown[]): void {
@@ -230,7 +265,7 @@ function assertValidReferences(refs: unknown[]): void {
     if (r.sourceType !== undefined && !ALLOWED_REF_SOURCE_TYPES.has(r.sourceType as string)) {
       throw new Error(`answer args.references[${i}].sourceType invalid: ${String(r.sourceType)}`);
     }
-    for (const strKey of ["docId", "blockId", "url", "fileId", "resourceId", "title", "provider"] as const) {
+    for (const strKey of ["docId", "blockId", "url", "fileId", "resourceId", "title", "sourceName", "provider"] as const) {
       const val = r[strKey];
       if (val !== undefined && typeof val !== "string") {
         throw new Error(`answer args.references[${i}].${strKey} must be a string.`);

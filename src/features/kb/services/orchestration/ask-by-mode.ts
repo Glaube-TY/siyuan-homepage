@@ -62,7 +62,36 @@ async function askByModeInner(params: AskByModeParams): Promise<AskByModeResult>
 
   if (existingUserMessageId) {
     // 重新生成：复用已有 user message，不追加重复 user
+    // 合并/更新 requestContext，确保 thinkingMode / webAccessMode 不丢状态
     userMessageId = existingUserMessageId;
+    const existingMsg = params.getState().messages.find(
+      (m) => m.id === existingUserMessageId && m.role === "user",
+    );
+    const existingContext = (existingMsg as { requestContext?: UserMessageRequestContext } | undefined)?.requestContext;
+    const effectiveThinkingMode = params.thinkingMode ?? existingContext?.thinkingMode ?? "off";
+    const effectiveWebAccessMode = params.webAccessMode ?? existingContext?.webAccessMode ?? "off";
+    const mergedRequestContext: UserMessageRequestContext = {
+      originalMode: existingContext?.originalMode ?? mode,
+      effectiveScopeMode: existingContext?.effectiveScopeMode ?? effectiveScopeMode,
+      customDocIds: existingContext?.customDocIds ?? customDocIds,
+      attachedDocs: existingContext?.attachedDocs ?? effectiveAttachedDocs,
+      thinkingMode: effectiveThinkingMode,
+      createdFrom: existingContext?.createdFrom ?? "regenerate",
+      webAccessMode: effectiveWebAccessMode,
+    };
+    params.setMessages((messages) =>
+      messages.map((m) => {
+        if (m.id !== existingUserMessageId || m.role !== "user") return m;
+        return { ...m, requestContext: mergedRequestContext } as typeof m;
+      }),
+    );
+    pushAgentDebugEvent("USER_MESSAGE_REQUEST_CONTEXT_MERGED_SAFE", {
+      userMessageId: existingUserMessageId,
+      hasPreviousContext: !!existingContext,
+      thinkingMode: effectiveThinkingMode,
+      webAccessMode: effectiveWebAccessMode,
+      createdFrom: mergedRequestContext.createdFrom,
+    }, "info");
   } else {
     // 新提问：添加用户消息
     userMessageId = createMessageId();
@@ -73,6 +102,7 @@ async function askByModeInner(params: AskByModeParams): Promise<AskByModeResult>
       attachedDocs: effectiveAttachedDocs,
       thinkingMode: params.thinkingMode,
       createdFrom: "send",
+      webAccessMode: params.webAccessMode ?? "off",
     };
     addMessage({
       id: userMessageId,

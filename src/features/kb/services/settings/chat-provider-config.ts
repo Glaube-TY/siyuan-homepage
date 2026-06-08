@@ -177,7 +177,6 @@ function normalizeProviderModels(
           default: false,
           enabled: false,
           supportVision: rawModel.supportVision,
-          supportThinking: rawModel.supportThinking,
         };
       }
       continue;
@@ -214,7 +213,6 @@ function normalizeProviderModels(
       default: rawModel.default,
       enabled: typeof rawModel.enabled === "boolean" ? rawModel.enabled : true,
       supportVision: rawModel.supportVision,
-      supportThinking: rawModel.supportThinking,
     });
   }
 
@@ -400,7 +398,7 @@ export function resolveSelectedChatConfig(
  * 合并发现的模型到 provider
  * - discovered model id 必须 trim，空 id 跳过
  * - 同一 provider 下按 trim 后 model id 去重
- * - 保留已有模型的用户配置字段（name、temperature、maxTokens、enabled、supportVision、supportThinking）
+ * - 保留已有模型的用户配置字段（name、temperature、maxTokens、enabled、supportVision）
  * - 如果已有重复模型 ID，保留第一个有效配置，跳过后续重复项
  * - 如果发现到真实模型，移除原来的空 id 禁用占位模型
  * - default 逻辑：只认可"可用模型"的 default；如果没有可用 default，先清掉所有 default，再把第一个可用模型设为 default=true；如果存在多个可用 default，只保留第一个
