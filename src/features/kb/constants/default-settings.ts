@@ -2,7 +2,7 @@
  * 知识库默认设置
  */
 
-import type { KbSettings, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings } from "../types/settings";
+import type { KbSettings, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings } from "../types/settings";
 
 /** 默认温度参数 */
 export const DEFAULT_TEMPERATURE = 0.3;
@@ -18,6 +18,12 @@ export const DEFAULT_GLOBAL_MEMORY_SETTINGS: GlobalMemorySettings = {
   docId: "",
   maxChars: 8000,
   allowAiUpdate: false,
+};
+
+/** 默认快捷提示语设置 */
+export const DEFAULT_QUICK_PROMPTS_SETTINGS: QuickPromptsSettings = {
+  enabled: false,
+  docId: "",
 };
 
 /** 默认网页搜索设置 */
@@ -57,4 +63,6 @@ export const DEFAULT_KB_SETTINGS: KbSettings = {
   toolSettings: DEFAULT_TOOL_SETTINGS,
   /** 全局记忆设置 */
   globalMemory: DEFAULT_GLOBAL_MEMORY_SETTINGS,
+  /** 快捷提示语设置 */
+  quickPrompts: DEFAULT_QUICK_PROMPTS_SETTINGS,
 };

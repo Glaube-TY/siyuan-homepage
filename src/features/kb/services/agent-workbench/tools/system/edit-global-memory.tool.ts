@@ -26,6 +26,8 @@ type EditGlobalMemoryInput = z.infer<typeof editGlobalMemoryInputSchema>;
 
 const editGlobalMemoryOutputSchema = z.object({
   ok: z.boolean(),
+  operation: z.enum(["list", "create", "update", "delete", "move"]),
+  changed: z.boolean(),
   items: z
     .array(
       z.object({
@@ -35,6 +37,8 @@ const editGlobalMemoryOutputSchema = z.object({
       })
     )
     .optional(),
+  affectedItemIds: z.array(z.string()).optional(),
+  message: z.string().optional(),
 });
 
 type EditGlobalMemoryOutput = z.infer<typeof editGlobalMemoryOutputSchema>;
@@ -52,14 +56,16 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
   return {
     name: "edit_global_memory",
     title: "编辑全局记忆",
-    description: "对配置好的全局记忆文档进行段落级管理：列出、新增、修改、删除或移动记忆条目。",
+    description:
+      "按条目管理配置好的全局记忆文档；list 只读取条目 ID 与内容，create/update/delete/move 会实际修改文档。",
     inputSchema: editGlobalMemoryInputSchema,
     outputSchema: editGlobalMemoryOutputSchema,
     readOnly: false,
     safety: { readOnly: false },
     source: "builtin",
     inputHint: "operation（list/create/update/delete/move），create/update 时提供 text，delete/update/move 时提供 item_id，move 时提供 position 和 target_id",
-    boundary: "只能编辑配置好的全局记忆文档中的段落条目；update/delete 前会校验 item_id 归属；不接受任意 docId；不自动决定是否需要记住。",
+    boundary:
+      "只能编辑配置好的全局记忆文档中的段落条目；update/delete 前会校验 item_id 归属；不接受任意 docId；不自动决定是否需要记住。list 不会修改记忆；只有 create/update/delete/move 成功后才代表记忆已变更。",
     plannerVisible: true,
 
     availability() {
@@ -101,7 +107,10 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
           ok: true,
           data: {
             ok: true,
+            operation: "list",
+            changed: false,
             items: items.map((it) => ({ id: it.id, text: it.text, index: it.index })),
+            message: `已列出全局记忆，共 ${items.length} 条。`,
           },
         };
       }
@@ -135,7 +144,11 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
           ok: true,
           data: {
             ok: true,
+            operation: "create",
+            changed: true,
             items: items.map((it) => ({ id: it.id, text: it.text, index: it.index })),
+            affectedItemIds: [newId],
+            message: "已新增 1 条全局记忆。",
           },
         };
       }
@@ -177,7 +190,11 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
           ok: true,
           data: {
             ok: true,
+            operation: "update",
+            changed: true,
             items: items.map((it) => ({ id: it.id, text: it.text, index: it.index })),
+            affectedItemIds: [itemId],
+            message: "已更新 1 条全局记忆。",
           },
         };
       }
@@ -204,7 +221,11 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
           ok: true,
           data: {
             ok: true,
+            operation: "delete",
+            changed: true,
             items: items.map((it) => ({ id: it.id, text: it.text, index: it.index })),
+            affectedItemIds: [itemId],
+            message: "已删除 1 条全局记忆。",
           },
         };
       }
@@ -247,7 +268,11 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
           ok: true,
           data: {
             ok: true,
+            operation: "move",
+            changed: true,
             items: items.map((it) => ({ id: it.id, text: it.text, index: it.index })),
+            affectedItemIds: [itemId],
+            message: "已调整 1 条全局记忆顺序。",
           },
         };
       }
@@ -263,6 +288,13 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
       if (!result.ok) {
         return result.error?.message ?? "编辑全局记忆失败";
       }
+      const data = result.data;
+      if (data?.message) return data.message;
+      if (data?.operation === "list") return `已列出全局记忆，共 ${data.items?.length ?? 0} 条。`;
+      if (data?.operation === "create") return "已新增 1 条全局记忆。";
+      if (data?.operation === "update") return "已更新 1 条全局记忆。";
+      if (data?.operation === "delete") return "已删除 1 条全局记忆。";
+      if (data?.operation === "move") return "已调整 1 条全局记忆顺序。";
       return "已编辑全局记忆";
     },
   };

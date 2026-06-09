@@ -313,6 +313,30 @@ function sanitizeAgentTurnErrorCode(raw: string | undefined): string {
   return String(raw).slice(0, 64);
 }
 
+function mergeWorkbenchEvents(a: AgentWorkbenchEvent[], b: AgentWorkbenchEvent[]): AgentWorkbenchEvent[] {
+  const seen = new Set<string>();
+  const out: AgentWorkbenchEvent[] = [];
+  for (const event of a) {
+    const key =
+      (event.type === "ToolDispatch" || event.type === "ToolResult") && "toolCallId" in event
+        ? `${event.type}:${event.toolCallId}`
+        : `${event.type}:${event.stepIndex ?? -1}:${event.at}:${(event as any).message ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(event);
+  }
+  for (const event of b) {
+    const key =
+      (event.type === "ToolDispatch" || event.type === "ToolResult") && "toolCallId" in event
+        ? `${event.type}:${event.toolCallId}`
+        : `${event.type}:${event.stepIndex ?? -1}:${event.at}:${(event as any).message ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(event);
+  }
+  return out;
+}
+
 function appendPlannerStageSummary(params: {
   messages: ChatMessage[];
   existing: readonly ConversationStageSummary[] | undefined;
@@ -681,13 +705,16 @@ export async function runAgentWorkbenchModeFlow(
           setMessages((messages) =>
             messages.map((m) => {
               if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-              // Clear agentStatus when a tool starts executing;
+              if (m.isComplete === true) return m;
+              // Clear agentStatus when a tool starts executing or when assistant finalizes;
               // workbenchEvents will show the specific tool details.
               // Set agentStatus on Notice (e.g. "正在生成最终回答...").
               const nextAgentStatus =
-                event.type === "ToolDispatch" ? undefined
-                : event.type === "Notice" ? event.message
-                : m.agentStatus;
+                event.type === "ToolDispatch" || event.type === "AssistantFinal"
+                  ? undefined
+                  : event.type === "Notice"
+                    ? event.message
+                    : m.agentStatus;
               return { ...m, workbenchEvents: liveWorkbenchEvents, agentStatus: nextAgentStatus };
             })
           );
@@ -778,6 +805,8 @@ export async function runAgentWorkbenchModeFlow(
         result,
       });
 
+      const finalWorkbenchEvents = mergeWorkbenchEvents(liveWorkbenchEvents, result.events);
+
       setMessages((messages) =>
         messages.map((m) =>
           m.id === assistantMessageId && m.role === "assistant"
@@ -786,7 +815,7 @@ export async function runAgentWorkbenchModeFlow(
                 content: streamingContent || result.answer,
                 citedReferences: result.footerReferences,
                 agentMemory,
-                workbenchEvents: result.events.length > 0 ? result.events : liveWorkbenchEvents,
+                workbenchEvents: finalWorkbenchEvents,
                 isComplete: true,
                 agentStatus: undefined,
                 // Ensure reasoning status is "done" at finalize

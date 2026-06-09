@@ -67,7 +67,7 @@ import { createWebReadPageTool } from "../tools/web-search/web-read-page.tool";
 import type { WebSearchProvider } from "../tools/web-search/web-search-provider";
 
 // Global memory tool
-import { createEditGlobalMemoryTool } from "../tools/system/append-global-memory.tool";
+import { createEditGlobalMemoryTool } from "../tools/system/edit-global-memory.tool";
 
 export interface AgentWorkbenchRuntime {
   skillRegistry: SkillRegistry;

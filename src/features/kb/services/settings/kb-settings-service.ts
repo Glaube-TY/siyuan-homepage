@@ -3,7 +3,7 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
@@ -11,6 +11,7 @@ import {
   DEFAULT_SKILL_SETTINGS,
   DEFAULT_TOOL_SETTINGS,
   DEFAULT_GLOBAL_MEMORY_SETTINGS,
+  DEFAULT_QUICK_PROMPTS_SETTINGS,
 } from "../../constants/default-settings";
 import {
   sanitizeChatProviders as sanitizeChatProvidersCore,
@@ -115,6 +116,28 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
   }
   return {
     disabledGlobalToolNames: names,
+  };
+}
+
+/**
+ * 归一化快捷提示语设置
+ * - 非对象 → 回退默认值
+ * - enabled 只接受 boolean
+ * - docId 只接受 string，trim
+ */
+function normalizeQuickPromptsSettings(raw: unknown): QuickPromptsSettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_QUICK_PROMPTS_SETTINGS };
+  }
+  const s = raw as Record<string, unknown>;
+  const enabled = typeof s.enabled === "boolean" ? s.enabled : DEFAULT_QUICK_PROMPTS_SETTINGS.enabled;
+  const docId = typeof s.docId === "string" ? s.docId.trim() : DEFAULT_QUICK_PROMPTS_SETTINGS.docId;
+  const rawUpdatedAt = s.updatedAt;
+  const updatedAt = typeof rawUpdatedAt === "number" && Number.isFinite(rawUpdatedAt) ? rawUpdatedAt : undefined;
+  return {
+    enabled,
+    docId,
+    ...(updatedAt !== undefined ? { updatedAt } : {}),
   };
 }
 
@@ -523,6 +546,7 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     skillSettings: normalizeSkillSettings(normalized.skillSettings),
     toolSettings: normalizeToolSettings(normalized.toolSettings),
     globalMemory: normalizeGlobalMemorySettings(normalized.globalMemory),
+    quickPrompts: normalizeQuickPromptsSettings(normalized.quickPrompts),
   };
 }
 

@@ -23,6 +23,7 @@
     retry: void;
     quoteSelection: { text: string };
     editUserMessage: { text: string };
+    deleteTurn: { assistantMessageId: string };
   }>();
 
   // 复制状态管理
@@ -188,6 +189,7 @@
     read_docs: "读取文档正文",
     web_search: "联网搜索",
     web_read_page: "读取网页",
+    edit_global_memory: "编辑全局记忆",
   };
 
   const ARG_LABELS: Record<string, string> = {
@@ -206,6 +208,11 @@
     includeLinkedDocs: "关联文档",
     url: "网址",
     chunkIndex: "块序号",
+    operation: "操作",
+    item_id: "记忆条目",
+    target_id: "目标条目",
+    position: "位置",
+    text: "内容",
     chunkChars: "块大小",
     chunkCount: "总块数",
   };
@@ -390,8 +397,13 @@
     if (webReadCount > 0) parts.push(`读取网页 ${webReadCount} 次`);
 
     const summary = parts.join("，");
-    if (message.role === "assistant" && message.agentStatus) {
-      return summary ? `${summary} · ${message.agentStatus}` : message.agentStatus;
+    const assistantMessage = message.role === "assistant" ? message : undefined;
+    const isRunningAssistant =
+      assistantMessage &&
+      assistantMessage.isComplete === false &&
+      !!assistantMessage.agentStatus;
+    if (isRunningAssistant) {
+      return summary ? `${summary} · ${assistantMessage.agentStatus}` : assistantMessage.agentStatus;
     }
     return summary;
   }
@@ -623,6 +635,16 @@
                   name={isCopied ? "iconCheck" : "iconCopy"}
                   size={14}
                 />
+              </span>
+            </button>
+            <button
+              class="action-btn delete-btn"
+              on:click={() => dispatch("deleteTurn", { assistantMessageId: message.id })}
+              disabled={asking}
+              title="删除本轮对话"
+            >
+              <span class="action-icon">
+                <SiyuanIcon name="iconTrashcan" size={14} />
               </span>
             </button>
           </div>
@@ -1094,6 +1116,11 @@
       opacity: 0.4;
       cursor: not-allowed;
     }
+  }
+
+  .delete-btn:hover:not(:disabled) {
+    border-color: var(--b3-theme-error);
+    color: var(--b3-theme-error);
   }
 
   .action-icon {

@@ -184,6 +184,7 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
     blocks.push("# 全局记忆");
     blocks.push("以下内容来自用户可编辑的长期记忆文档，代表用户的长期偏好、稳定约束和常用设置。");
     blocks.push("可用于回答风格、长期偏好、稳定约束。不能替代当前问题和正文证据。不能把记忆当来源引用。与当前明确指令冲突时，以当前指令为准。不要把临时任务、网页正文、工具结果、阶段摘要、未经确认事实写入长期记忆。全局记忆按条目顺序提供，顺序靠前的内容在整理偏好时更优先参考。如需更新长期记忆，可使用“编辑全局记忆”工具对条目进行新增、更新、删除或移动；遇到冲突时应优先整理为一致内容，而不是重复追加冲突条目。");
+    blocks.push("注意：全局记忆正文不包含条目 ID。若需要编辑、删除、合并或调整记忆条目，应先使用 edit_global_memory 的 list 获取条目 ID，再根据用户意图调用 update/delete/move/create。list 只是查看，不代表已修改。只有本轮出现 edit_global_memory 的 create/update/delete/move 成功结果时，才能声称已经修改或整理全局记忆。如果只是查看了条目，应说“我查看了”，不能说“我整理了”或“已完成修改”。");
     blocks.push(ctx.globalMemory);
     if (ctx.globalMemory.length >= 7900) {
       blocks.push("（记忆内容可能已截断）");

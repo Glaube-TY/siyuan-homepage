@@ -62,6 +62,7 @@
     retry: void;
     quoteSelection: { text: string };
     editUserMessage: { text: string };
+    deleteTurn: { assistantMessageId: string };
     sendSuggestedQuestion: string;
   }>();
 
@@ -321,6 +322,7 @@
               on:retry={() => dispatch('retry')}
               on:quoteSelection={(e) => dispatch('quoteSelection', e.detail)}
               on:editUserMessage={(e) => dispatch('editUserMessage', e.detail)}
+              on:deleteTurn={(e) => dispatch('deleteTurn', e.detail)}
             />
           </div>
         {/each}

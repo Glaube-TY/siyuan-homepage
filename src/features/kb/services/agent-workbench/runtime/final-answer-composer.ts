@@ -324,6 +324,7 @@ function renderFinalAnswerComposePrompt(params: FinalAnswerComposerParams, conte
   blocks.push("5. 如果资料不足，如实说明。");
   blocks.push("6. 保持中文回答。");
   blocks.push("7. 直接输出最终回答正文，不输出思考过程、推理过程、计划、JSON、Markdown 代码块标记或工具调用说明。");
+  blocks.push("8. 涉及写入、删除、整理、修改类操作时，必须根据本轮工具结果摘要判断是否真的完成。如果本轮只有 edit_global_memory 的 list 或没有 edit_global_memory 成功变更结果，不要声称已整理、已删除或已更新。如果工具失败，应如实说明失败或需要用户继续确认。");
 
   return blocks.join("\n");
 }

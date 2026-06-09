@@ -31,6 +31,10 @@
   let webSearchEnabled = false;
   let webAccessMode: "off" | "smart" | "required" = "off";
 
+  // Quick prompts state
+  let quickPromptsEnabled = false;
+  let quickPromptsDocId = "";
+
   const TAB_CHAT_MODES: ChatMode[] = ["whole_kb"];
   const CURRENT_DOCUMENT_REQUIRED_MODES: ChatMode[] = [
     "current_notebook",
@@ -241,6 +245,14 @@
     if (asking) return;
     kbSessionStore.setDraftQuestion(e.detail.text);
     chatInputBarRef?.focusTextarea();
+  }
+
+  function handleDeleteTurn(e: CustomEvent<{ assistantMessageId: string }>) {
+    if (asking) return;
+    const deleted = kbSessionStore.deleteTurnByAssistantId(e.detail.assistantMessageId);
+    if (deleted) {
+      refreshContextUsageSafe("delete_turn");
+    }
   }
 
   /**
@@ -923,12 +935,17 @@
    */
   function handleKbSettingsChanged(event: Event) {
     const detail = (event as CustomEvent).detail;
-    if (detail?.assistantActionAlignment) {
-      assistantActionAlignment = detail.assistantActionAlignment;
+    const nextSettings = detail?.settings ?? detail;
+    if (nextSettings?.assistantActionAlignment) {
+      assistantActionAlignment = nextSettings.assistantActionAlignment;
     }
-    if (detail?.settings?.webSearch?.enabled !== undefined) {
-      webSearchEnabled = detail.settings.webSearch.enabled;
+    if (nextSettings?.webSearch?.enabled !== undefined) {
+      webSearchEnabled = nextSettings.webSearch.enabled;
       if (!webSearchEnabled) webAccessMode = "off";
+    }
+    if (nextSettings?.quickPrompts) {
+      quickPromptsEnabled = nextSettings.quickPrompts.enabled ?? false;
+      quickPromptsDocId = nextSettings.quickPrompts.docId ?? "";
     }
     void refreshChatModelOptions();
   }
@@ -940,6 +957,8 @@
       try {
         const settings = await getKbSettings();
         webSearchEnabled = settings.webSearch?.enabled ?? false;
+        quickPromptsEnabled = settings.quickPrompts?.enabled ?? false;
+        quickPromptsDocId = settings.quickPrompts?.docId ?? "";
       } catch { /* ignore */ }
       refreshContextUsageSafe("hydrate");
     })();
@@ -1044,6 +1063,7 @@
           on:retry={handleRetry}
           on:quoteSelection={handleQuoteSelection}
           on:editUserMessage={handleEditUserMessage}
+          on:deleteTurn={handleDeleteTurn}
           on:sendSuggestedQuestion={handleSuggestedQuestion}
           {assistantActionAlignment}
           {suggestedQuestions}
@@ -1071,6 +1091,8 @@
           {availableModes}
           webSearchEnabled
           {webAccessMode}
+          {quickPromptsEnabled}
+          {quickPromptsDocId}
           on:webAccessModeChange={(e) => { webAccessMode = e.detail; }}
           on:send={handleSend}
           on:stop={handleStop}

@@ -12,6 +12,8 @@
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
+  import { listQuickPromptItems } from "../../services/quick-prompts/quick-prompts-doc";
+  import type { QuickPromptItem } from "../../services/quick-prompts/quick-prompts-doc";
 
   export let value: string = "";
   export let disabled: boolean = false;
@@ -28,6 +30,8 @@
   export let stageSummaryCount: number = 0;
   export let webSearchEnabled: boolean = false;
   export let webAccessMode: "off" | "smart" | "required" = "off";
+  export let quickPromptsEnabled: boolean = false;
+  export let quickPromptsDocId: string = "";
 
   let inputValue = value;
   let textareaElement: HTMLTextAreaElement;
@@ -36,6 +40,11 @@
   let showContextPopover = false;
   let showWebAccessMenu = false;
   let contextRingEl: HTMLDivElement | undefined;
+
+  // Quick prompts
+  let showQuickPrompts = false;
+  let quickPromptItems: QuickPromptItem[] = [];
+  let quickPromptsLoading = false;
 
   // Web access mode helpers
   $: if (!webSearchEnabled) webAccessMode = "off";
@@ -591,6 +600,44 @@
     showModeMenu = false;
   }
 
+  function toggleQuickPrompts() {
+    if (asking) return;
+    showQuickPrompts = !showQuickPrompts;
+    if (showQuickPrompts) {
+      showModeMenu = false;
+      showModelMenu = false;
+      showDocSearch = false;
+      showWebAccessMenu = false;
+      closeContextPopover();
+      void loadQuickPrompts();
+    }
+  }
+
+  async function loadQuickPrompts() {
+    if (!quickPromptsDocId) return;
+    quickPromptsLoading = true;
+    try {
+      quickPromptItems = await listQuickPromptItems(quickPromptsDocId);
+    } catch {
+      quickPromptItems = [];
+    }
+    quickPromptsLoading = false;
+  }
+
+  function handleQuickPromptClick(item: QuickPromptItem) {
+    const current = inputValue.trim();
+    if (current) {
+      inputValue = current + "\n\n" + item.text;
+    } else {
+      inputValue = item.text;
+    }
+    dispatch("input", inputValue);
+    showQuickPrompts = false;
+    setTimeout(() => {
+      textareaElement?.focus();
+    }, 0);
+  }
+
   function handleClickOutside(event: MouseEvent) {
     const target = event.target as HTMLElement;
     if (!target.closest(".mode-selector")) {
@@ -612,6 +659,9 @@
     }
     if (!target.closest(".context-usage-ring") && !target.closest(".context-usage-popover")) {
       closeContextPopover();
+    }
+    if (!target.closest(".quick-prompts-toggle") && !target.closest(".quick-prompts-menu")) {
+      showQuickPrompts = false;
     }
   }
 
@@ -722,6 +772,44 @@
           <span>文档{attachedDocs.length > 0 ? `(${attachedDocs.length})` : ""}</span>
         </button>
       </div>
+
+      {#if quickPromptsEnabled && quickPromptsDocId}
+        <div class="quick-prompts-toggle">
+          <button
+            type="button"
+            class="thinking-toggle"
+            class:active={showQuickPrompts}
+            on:click={toggleQuickPrompts}
+            disabled={asking}
+            title="快捷提示语"
+          >
+            <SiyuanIcon name="iconQuote" size={14} />
+            <span>提示语</span>
+          </button>
+          {#if showQuickPrompts}
+            <div class="quick-prompts-menu">
+              {#if quickPromptsLoading}
+                <div class="quick-prompts-hint">加载中…</div>
+              {:else if quickPromptItems.length === 0}
+                <div class="quick-prompts-hint">暂无提示语</div>
+              {:else}
+                <div class="quick-prompts-list">
+                  {#each quickPromptItems as item}
+                    <button
+                      type="button"
+                      class="quick-prompts-item"
+                      on:click={() => handleQuickPromptClick(item)}
+                      title={item.text}
+                    >
+                      <span class="quick-prompts-text">{item.text}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
 
     <!-- Attached docs chips row -->
@@ -1743,5 +1831,66 @@
   .web-access-option.selected {
     background: var(--b3-theme-primary-light, rgba(64, 144, 255, 0.12));
     font-weight: 600;
+  }
+
+  // Quick prompts
+  .quick-prompts-toggle {
+    position: relative;
+  }
+
+  .quick-prompts-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 50;
+    width: min(360px, calc(100vw - 32px));
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--b3-theme-background);
+    border: 1px solid var(--b3-border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .quick-prompts-hint {
+    padding: 12px 8px;
+    font-size: 13px;
+    color: var(--b3-theme-on-surface-light);
+    text-align: center;
+  }
+
+  .quick-prompts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .quick-prompts-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 8px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease;
+
+    &:hover {
+      background: var(--b3-theme-background-light);
+    }
+  }
+
+  .quick-prompts-text {
+    font-size: 13px;
+    color: var(--b3-theme-on-surface);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

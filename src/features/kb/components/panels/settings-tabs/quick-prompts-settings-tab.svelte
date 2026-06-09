@@ -5,52 +5,52 @@
   import { pushErrMsg } from "@/api";
   import { openTab, openMobileFileById } from "siyuan";
   import {
-    validateGlobalMemoryDocId,
-    listGlobalMemoryItems,
-    createGlobalMemoryItem,
-    updateGlobalMemoryItem,
-    deleteGlobalMemoryItem,
-    moveGlobalMemoryItem,
-  } from "../../../services/agent-workbench/memory/global-memory-doc";
-  import type { GlobalMemoryItem } from "../../../services/agent-workbench/memory/global-memory-types";
+    validateQuickPromptsDocId,
+    listQuickPromptItems,
+    createQuickPromptItem,
+    updateQuickPromptItem,
+    deleteQuickPromptItem,
+    moveQuickPromptItem,
+  } from "../../../services/quick-prompts/quick-prompts-doc";
+  import type { QuickPromptItem } from "../../../services/quick-prompts/quick-prompts-doc";
   import DocBlockListEditor from "../../common/doc-block-list-editor.svelte";
 
   export let settings: KbSettings;
 
-  $: gm = settings?.globalMemory ?? { docId: "", enabled: false, maxChars: 8000, allowAiUpdate: false };
+  $: qp = settings?.quickPrompts ?? { docId: "", enabled: false };
 
-  let localDocId = settings?.globalMemory?.docId ?? "";
+  let localDocId = settings?.quickPrompts?.docId ?? "";
   let docIdValid: boolean | undefined = undefined;
   let validating = false;
 
-  let items: GlobalMemoryItem[] = [];
+  let items: QuickPromptItem[] = [];
   let loadingItems = false;
 
   onMount(async () => {
-    if (gm.docId) {
-      await runValidate(gm.docId);
+    if (qp.docId) {
+      await runValidate(qp.docId);
     } else {
       docIdValid = false;
-      if (gm.enabled) {
-        updateGm({ enabled: false });
+      if (qp.enabled) {
+        updateQp({ enabled: false });
       }
     }
   });
 
-  function updateGm(partial: Partial<typeof gm>) {
+  function updateQp(partial: Partial<typeof qp>) {
     settings = {
       ...settings,
-      globalMemory: { ...gm, ...partial },
+      quickPrompts: { ...qp, ...partial },
     };
   }
 
   async function runValidate(docId: string) {
     validating = true;
     try {
-      const result = await validateGlobalMemoryDocId(docId);
+      const result = await validateQuickPromptsDocId(docId);
       docIdValid = result.valid;
-      if (!result.valid && gm.enabled) {
-        updateGm({ enabled: false });
+      if (!result.valid && qp.enabled) {
+        updateQp({ enabled: false });
       }
       if (result.valid) {
         await loadItems(docId);
@@ -66,15 +66,15 @@
 
   async function handleDocIdBlur() {
     const trimmed = localDocId.trim();
-    if (trimmed !== gm.docId) {
-      updateGm({ docId: trimmed });
+    if (trimmed !== qp.docId) {
+      updateQp({ docId: trimmed });
     }
     items = [];
     await runValidate(trimmed);
   }
 
   function handleOpenDoc() {
-    const docId = gm.docId;
+    const docId = qp.docId;
     if (!docId) return;
     const plugin = getKbPlugin();
     if (!plugin) {
@@ -91,44 +91,44 @@
   async function loadItems(docId: string) {
     loadingItems = true;
     try {
-      items = await listGlobalMemoryItems(docId);
+      items = await listQuickPromptItems(docId);
     } finally {
       loadingItems = false;
     }
   }
 
   async function handleAdd(text: string) {
-    if (!gm.docId || !docIdValid) return;
-    const id = await createGlobalMemoryItem(gm.docId, text);
+    if (!qp.docId || !docIdValid) return;
+    const id = await createQuickPromptItem(qp.docId, text);
     if (id) {
-      await loadItems(gm.docId);
+      await loadItems(qp.docId);
     } else {
       pushErrMsg("添加失败", 3000);
     }
   }
 
   async function handleUpdate(itemId: string, text: string) {
-    const ok = await updateGlobalMemoryItem(itemId, text);
+    const ok = await updateQuickPromptItem(itemId, text);
     if (ok) {
-      if (gm.docId) await loadItems(gm.docId);
+      if (qp.docId) await loadItems(qp.docId);
     } else {
       pushErrMsg("保存失败", 3000);
     }
   }
 
   async function handleDelete(itemId: string) {
-    if (!confirm("确定删除这条记忆？")) return;
-    const ok = await deleteGlobalMemoryItem(itemId);
+    if (!confirm("确定删除这条提示语？")) return;
+    const ok = await deleteQuickPromptItem(itemId);
     if (ok) {
-      if (gm.docId) await loadItems(gm.docId);
+      if (qp.docId) await loadItems(qp.docId);
     } else {
       pushErrMsg("删除失败", 3000);
     }
   }
 
   async function handleRefresh() {
-    if (gm.docId && docIdValid) {
-      await loadItems(gm.docId);
+    if (qp.docId && docIdValid) {
+      await loadItems(qp.docId);
     }
   }
 
@@ -157,26 +157,26 @@
       targetId = without[newIndex].id;
     }
 
-    const ok = await moveGlobalMemoryItem(gm.docId, moving.id, position, targetId);
+    const ok = await moveQuickPromptItem(qp.docId, moving.id, position, targetId);
     if (ok) {
-      await loadItems(gm.docId);
+      await loadItems(qp.docId);
     } else {
       pushErrMsg("排序失败", 3000);
       items = before;
-      await loadItems(gm.docId);
+      await loadItems(qp.docId);
     }
   }
 </script>
 
-<div class="memory-settings-tab">
+<div class="quick-prompts-settings-tab">
   <section class="settings-group">
-    <h3 class="group-title">全局记忆</h3>
+    <h3 class="group-title">快捷提示语</h3>
 
     <div class="setting-row">
       <div class="setting-copy">
-        <div class="setting-title">记忆文档 ID</div>
+        <div class="setting-title">提示语文档 ID</div>
         <div class="setting-desc">
-          思源笔记文档 ID。AI 将读取该文档内容作为全局记忆。
+          思源笔记文档 ID。该文档下每个顶层段落块就是一条快捷提示语。
         </div>
       </div>
       <div class="setting-control">
@@ -198,16 +198,16 @@
 
     <div class="setting-row">
       <div class="setting-copy">
-        <div class="setting-title">开启全局记忆</div>
-        <div class="setting-desc">启用后，AI 每轮对话都会读取指定思源文档中的长期偏好与约束。</div>
+        <div class="setting-title">开启快捷提示语</div>
+        <div class="setting-desc">启用后，输入框会显示提示语按钮，可快速插入常用提示。</div>
       </div>
       <div class="setting-control setting-control--switch">
         <input
           type="checkbox"
           class="b3-switch fn__flex-center"
-          checked={gm.enabled}
+          checked={qp.enabled}
           disabled={!docIdValid}
-          on:change={(e) => updateGm({ enabled: e.currentTarget.checked })}
+          on:change={(e) => updateQp({ enabled: e.currentTarget.checked })}
         />
       </div>
     </div>
@@ -220,10 +220,10 @@
         <button
           type="button"
           class="b3-button b3-button--outline"
-          disabled={!gm.docId || docIdValid !== true}
+          disabled={!qp.docId || docIdValid !== true}
           on:click={handleOpenDoc}
         >
-          打开记忆文档
+          打开提示语文档
         </button>
       </div>
     </div>
@@ -234,14 +234,14 @@
       <DocBlockListEditor
         {items}
         loading={loadingItems}
-        title="记忆内容"
-        placeholder="输入新记忆…"
-        emptyHint="暂无记忆，上方输入后添加"
-        dragHandleClass="memory-drag-handle"
-        sortableGhostClass="memory-sortable-ghost"
-        sortableChosenClass="memory-sortable-chosen"
-        sortableDragClass="memory-sortable-drag"
-        dataIdAttr="data-memory-id"
+        title="提示语内容"
+        placeholder="输入新提示语…"
+        emptyHint="暂无提示语，上方输入后添加"
+        dragHandleClass="prompt-drag-handle"
+        sortableGhostClass="prompt-sortable-ghost"
+        sortableChosenClass="prompt-sortable-chosen"
+        sortableDragClass="prompt-sortable-drag"
+        dataIdAttr="data-prompt-id"
         onAdd={handleAdd}
         onUpdate={handleUpdate}
         onDelete={handleDelete}
@@ -250,12 +250,12 @@
       />
     </section>
   {:else if docIdValid === false}
-    <div class="hint hint--error hint--center">填写有效文档 ID 后显示记忆内容</div>
+    <div class="hint hint--error hint--center">填写有效文档 ID 后显示提示语内容</div>
   {/if}
 </div>
 
 <style lang="scss">
-  .memory-settings-tab {
+  .quick-prompts-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
@@ -358,12 +358,12 @@
     width: 240px;
   }
 
-  :global(.memory-sortable-ghost) {
+  :global(.prompt-sortable-ghost) {
     opacity: 0.35;
     background: var(--b3-theme-primary-light, rgba(66, 133, 244, 0.08));
   }
 
-  :global(.memory-sortable-chosen .memory-drag-handle) {
+  :global(.prompt-sortable-chosen .prompt-drag-handle) {
     cursor: grabbing;
   }
 </style>

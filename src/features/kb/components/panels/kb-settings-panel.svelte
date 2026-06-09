@@ -10,6 +10,7 @@
   import ToolsSettingsTab from "./settings-tabs/tools-settings-tab.svelte";
   import WebSearchSettingsTab from "./settings-tabs/web-search-settings-tab.svelte";
   import MemorySettingsTab from "./settings-tabs/memory-settings-tab.svelte";
+  import QuickPromptsSettingsTab from "./settings-tabs/quick-prompts-settings-tab.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   // 页签定义
@@ -21,6 +22,7 @@
     { id: "tools", label: "工具", icon: "iconKey" },
     { id: "webSearch", label: "联网搜索", icon: "iconLanguage" },
     { id: "memory", label: "记忆", icon: "iconHistory" },
+    { id: "quickPrompts", label: "快捷提示语", icon: "iconQuote" },
   ] as const;
 
   type TabId = typeof TABS[number]["id"];
@@ -119,6 +121,8 @@
               <WebSearchSettingsTab bind:settings />
             {:else if activeTab === "memory"}
               <MemorySettingsTab bind:settings />
+            {:else if activeTab === "quickPrompts"}
+              <QuickPromptsSettingsTab bind:settings />
             {/if}
           </div>
         </div>

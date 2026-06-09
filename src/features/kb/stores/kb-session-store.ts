@@ -771,6 +771,82 @@ function createKbSessionStore() {
     },
 
     /**
+     * 根据 assistant 消息 ID 删除整轮对话（包含对应的 user 消息）
+     * 删除后清空阶段摘要和压缩状态，避免被删内容继续出现在上下文中
+     */
+    deleteTurnByAssistantId: (assistantMessageId: string): boolean => {
+      let deleted = false;
+      update((state) => {
+        const assistantIndex = state.messages.findIndex(
+          (m) => m.id === assistantMessageId && m.role === "assistant"
+        );
+        if (assistantIndex < 0) return state;
+
+        // 向前找到最近的 user 消息作为本轮起点
+        let startIndex = assistantIndex;
+        for (let i = assistantIndex - 1; i >= 0; i--) {
+          if (state.messages[i].role === "user") {
+            startIndex = i;
+            break;
+          }
+        }
+
+        const newMessages = state.messages.filter((_, i) => i < startIndex || i > assistantIndex);
+
+        // 移除剩余消息的 compacted 标记
+        const unCompactedMessages = newMessages.map((m) => {
+          if ((m.role === "user" || m.role === "assistant") && (m as { compacted?: boolean }).compacted) {
+            const { compacted, ...rest } = m as typeof m & { compacted?: boolean };
+            return rest as typeof m;
+          }
+          return m;
+        });
+
+        // 重新生成标题：无消息则恢复默认，否则取第一条 user 消息前 20 字
+        let newTitle = state.conversations.find((c) => c.id === state.activeConversationId)?.title ?? DEFAULT_CONVERSATION_TITLE;
+        const firstUser = unCompactedMessages.find((m) => m.role === "user");
+        if (!firstUser) {
+          newTitle = DEFAULT_CONVERSATION_TITLE;
+        } else if (newTitle !== DEFAULT_CONVERSATION_TITLE) {
+          // 如果当前标题等于被删 user 消息的截断，则重新生成
+          const deletedUser = state.messages[startIndex];
+          if (deletedUser?.role === "user" && newTitle === truncate(deletedUser.content.trim(), 20)) {
+            newTitle = truncate(firstUser.content.trim(), 20);
+          }
+        }
+
+        deleted = true;
+
+        return {
+          ...state,
+          messages: unCompactedMessages,
+          stageSummaries: [],
+          compressedContextSummary: undefined,
+          compressionState: undefined,
+          contextUsage: undefined,
+          conversations: state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? {
+                  ...c,
+                  messages: unCompactedMessages,
+                  stageSummaries: [],
+                  compressedContextSummary: undefined,
+                  compressionState: undefined,
+                  title: newTitle,
+                  updatedAt: Date.now(),
+                }
+              : c
+          ),
+        };
+      });
+
+      if (deleted) {
+        schedulePersist();
+      }
+      return deleted;
+    },
+
+    /**
      * 立即持久化当前会话数据
      * - 不保存 loading 消息
      * - 不保存运行态 trace

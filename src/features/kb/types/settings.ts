@@ -93,6 +93,16 @@ export type KbToolSettings = {
   disabledGlobalToolNames: KbGlobalToolName[];
 };
 
+/** 快捷提示语设置 */
+export type QuickPromptsSettings = {
+  /** 是否启用快捷提示语 */
+  enabled: boolean;
+  /** 提示语文档 ID */
+  docId: string;
+  /** 最后更新时间 */
+  updatedAt?: number;
+};
+
 /** 全局记忆设置 */
 export type GlobalMemorySettings = {
   /** 是否启用全局记忆 */
@@ -155,4 +165,8 @@ export type KbSettings = {
    * 全局记忆设置
    */
   globalMemory: GlobalMemorySettings;
+  /**
+   * 快捷提示语设置
+   */
+  quickPrompts: QuickPromptsSettings;
 };
