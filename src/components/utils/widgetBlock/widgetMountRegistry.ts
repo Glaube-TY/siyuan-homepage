@@ -32,7 +32,6 @@ import countdownTimer from "./widget/countdownTimer/countdownTimer.svelte";
 import conditionDocs from "./widget/conditionDocs/conditionDocs.svelte";
 import fixedAssets from "./widget/fixedAssets/fixedAssets.svelte";
 import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
-import notebrain from "./widget/notebrain/notebrain.svelte";
 
 const widgetRegistry: Record<string, any> = {
     "latest-docs": latestDocs,
@@ -68,7 +67,6 @@ const widgetRegistry: Record<string, any> = {
     "conditionDocs": conditionDocs,
     "fixedAssets": fixedAssets,
     "enhancedDiary": enhancedDiary,
-    "notebrain": notebrain,
 };
 
 const widgetNeedsPlugin: Set<string> = new Set([
@@ -102,7 +100,6 @@ const widgetNeedsPlugin: Set<string> = new Set([
     "conditionDocs",
     "fixedAssets",
     "enhancedDiary",
-    "notebrain",
 ]);
 
 export function mountWidgetContent(

@@ -332,14 +332,15 @@
       mentionActive = false;
       docSearchResults = [];
       docSearchQuery = "";
-      if (textareaElement) {
-        textareaElement.style.height = "auto";
-      }
     }
   }
 
   function handleStop() {
     dispatch("stop");
+  }
+
+  export function focusTextarea() {
+    textareaElement?.focus();
   }
 
   function handleKeyDown(event: KeyboardEvent) {
@@ -366,10 +367,6 @@
   }
 
   function handleInput() {
-    if (textareaElement) {
-      textareaElement.style.height = "auto";
-      textareaElement.style.height = Math.min(textareaElement.scrollHeight, 200) + "px";
-    }
     dispatch("input", inputValue);
     detectMentionTrigger();
   }
@@ -617,6 +614,8 @@
       closeContextPopover();
     }
   }
+
+
 
   onMount(() => {
     document.addEventListener("click", handleClickOutside);
@@ -897,7 +896,7 @@
       {#if asking}
         <Button
           label="停止"
-          disabled={disabled}
+          disabled={false}
           on:click={handleStop}
         />
       {:else}
@@ -1071,9 +1070,9 @@
   // Textarea row
   .chat-textarea {
     width: 100%;
-    min-height: 36px;
-    max-height: 200px;
-    padding: 6px 8px;
+    min-height: 44px;
+    max-height: 160px;
+    padding: 6px 4px;
     border: none;
     background: transparent;
     font-size: 14px;
@@ -1081,8 +1080,11 @@
     color: var(--b3-theme-on-surface);
     resize: none;
     outline: none;
+    overflow-y: auto;
     box-sizing: border-box;
     font-family: inherit;
+    field-sizing: content;
+    scrollbar-gutter: stable;
 
     &::placeholder {
       color: var(--b3-theme-on-surface-light);

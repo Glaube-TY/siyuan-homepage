@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
   import ChatMessageItem from "./chat-message-item.svelte";
   import { kbSessionStore } from "../../stores/kb-session-store";
   import type { ChatMessage } from "../../types/chat";
@@ -60,6 +60,8 @@
   const dispatch = createEventDispatcher<{
     regenerate: void;
     retry: void;
+    quoteSelection: { text: string };
+    editUserMessage: { text: string };
     sendSuggestedQuestion: string;
   }>();
 
@@ -103,6 +105,11 @@
    */
   function handleScroll() {
     // 滚动时不需要特殊处理，自动滚动前会检查 isNearBottom
+    if (scrollNavRaf) cancelAnimationFrame(scrollNavRaf);
+    scrollNavRaf = requestAnimationFrame(() => {
+      updateActiveTurnFromScroll();
+      scrollNavRaf = undefined;
+    });
   }
 
   // 最后一条消息的内容（用于检测流式更新）
@@ -139,51 +146,200 @@
       }
     }
   }
+
+  // ===== 问答导航 =====
+  interface TurnNavItem {
+    messageId: string;
+    index: number;
+    preview: string;
+  }
+
+  // 基于 messages 派生问答导航项（只取 user 消息，不写入 store）
+  $: turnNavItems = ((): TurnNavItem[] => {
+    let idx = 0;
+    return messages
+      .filter((m) => m.role === "user" && m.content?.trim())
+      .map((m) => {
+        idx += 1;
+        const raw = m.content.trim().replace(/\s+/g, " ");
+        const preview = raw.length > 50 ? raw.slice(0, 50) + "…" : raw;
+        return { messageId: m.id, index: idx, preview };
+      });
+  })();
+
+  const MAX_NAV_ITEMS = 10;
+
+  // 消息变化后：若 active 不在当前列表中，默认设为最后一轮
+  $: if (turnNavItems.length > 0) {
+    const exists = turnNavItems.some((t) => t.messageId === activeTurnMessageId);
+    if (!exists) {
+      activeTurnMessageId = turnNavItems[turnNavItems.length - 1]?.messageId;
+    }
+  }
+
+  // 当前视口正在查看的用户问题轮次
+  let activeTurnMessageId: string | undefined;
+  let scrollNavRaf: number | undefined;
+
+  // 根据 activeTurnMessageId 截取附近最多 10 个导航项
+  $: visibleTurnNavItems = ((): TurnNavItem[] => {
+    if (turnNavItems.length <= MAX_NAV_ITEMS) return turnNavItems;
+    const activeIndex = turnNavItems.findIndex(
+      (t) => t.messageId === activeTurnMessageId
+    );
+    const center = activeIndex >= 0 ? activeIndex : turnNavItems.length - 1;
+    const half = Math.floor(MAX_NAV_ITEMS / 2);
+    let start = center - half;
+    if (start < 0) start = 0;
+    if (start > turnNavItems.length - MAX_NAV_ITEMS) {
+      start = turnNavItems.length - MAX_NAV_ITEMS;
+    }
+    return turnNavItems.slice(start, start + MAX_NAV_ITEMS);
+  })();
+
+  // 当前高亮的消息 id（点击跳转后的短暂高亮）
+  let highlightedUserMessageId: string | null = null;
+  let highlightedAssistantMessageId: string | null = null;
+  let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * 根据当前滚动位置计算正在查看的用户问题轮次
+   */
+  function updateActiveTurnFromScroll() {
+    if (!scrollContainer || turnNavItems.length === 0) return;
+    const viewportCenter =
+      scrollContainer.scrollTop + scrollContainer.clientHeight / 2;
+
+    let bestId: string | undefined = turnNavItems[0]?.messageId;
+    for (const item of turnNavItems) {
+      const anchor = scrollContainer.querySelector(
+        `.message-anchor[data-message-id="${item.messageId}"]`
+      ) as HTMLElement | null;
+      if (!anchor) continue;
+      if (anchor.offsetTop <= viewportCenter) {
+        bestId = item.messageId;
+      } else {
+        break;
+      }
+    }
+    activeTurnMessageId = bestId;
+  }
+
+  /**
+   * 滚动到指定消息并短暂高亮该轮问答
+   */
+  function scrollToMessage(messageId: string) {
+    activeTurnMessageId = messageId;
+    const target = scrollContainer?.querySelector(
+      `.message-anchor[data-message-id="${messageId}"]`
+    ) as HTMLElement | null;
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    // 高亮 user 消息
+    highlightedUserMessageId = messageId;
+
+    // 找到该 user 消息后面的第一条 assistant 消息，一并高亮
+    const userIndex = messages.findIndex((m) => m.id === messageId);
+    if (userIndex >= 0) {
+      for (let i = userIndex + 1; i < messages.length; i++) {
+        if (messages[i].role === "assistant") {
+          highlightedAssistantMessageId = messages[i].id;
+          break;
+        }
+      }
+    }
+
+    // 约 1600ms 后清除高亮
+    if (highlightTimer) {
+      clearTimeout(highlightTimer);
+    }
+    highlightTimer = setTimeout(() => {
+      highlightedUserMessageId = null;
+      highlightedAssistantMessageId = null;
+    }, 1600);
+  }
+
+  onDestroy(() => {
+    if (highlightTimer) {
+      clearTimeout(highlightTimer);
+    }
+    if (scrollNavRaf) {
+      cancelAnimationFrame(scrollNavRaf);
+    }
+  });
 </script>
 
-<div class="chat-message-list" bind:this={scrollContainer} on:scroll={handleScroll}>
-  {#if messages.length === 0}
-    <div class="empty-state">
-      <div class="empty-icon"><SiyuanIcon name="iconFeedback" size={48} /></div>
-      <div class="empty-title">{emptyTitle}</div>
-      <div class="empty-desc">{emptyDescription}</div>
-      <!-- 快捷建议问题 -->
-      {#if suggestedQuestions.length > 0}
-        <div class="suggested-questions">
-          {#each suggestedQuestions as question}
-            <button
-              type="button"
-              class="suggested-question-btn"
-              on:click={() => handleSuggestedQuestion(question)}
-              disabled={asking}
-            >
-              {question}
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-  {:else}
-    <div class="messages">
-      {#each messages as message, msgIdx (message.id)}
-        {#if compressionBoundaryIndex >= 0 && msgIdx === compressionBoundaryIndex}
-          <div class="compression-separator">
-            <span class="compression-separator-text">以上对话已压缩，仅保留阶段摘要用于上下文</span>
+<div class="chat-message-list">
+  <div class="chat-scroll-viewport" bind:this={scrollContainer} on:scroll={handleScroll}>
+    {#if messages.length === 0}
+      <div class="empty-state">
+        <div class="empty-icon"><SiyuanIcon name="iconFeedback" size={48} /></div>
+        <div class="empty-title">{emptyTitle}</div>
+        <div class="empty-desc">{emptyDescription}</div>
+        <!-- 快捷建议问题 -->
+        {#if suggestedQuestions.length > 0}
+          <div class="suggested-questions">
+            {#each suggestedQuestions as question}
+              <button
+                type="button"
+                class="suggested-question-btn"
+                on:click={() => handleSuggestedQuestion(question)}
+                disabled={asking}
+              >
+                {question}
+              </button>
+            {/each}
           </div>
         {/if}
-        <!-- 消息项：传入消息数据和状态标识 -->
-        <svelte:component
-          this={ChatMessageItem}
-          {message}
-          isLastAssistant={message.id === lastAssistantMessageId}
-          isLastError={message.id === lastErrorMessageId}
-          {canRegenerate}
-          {canRetry}
-          {asking}
-          {assistantActionAlignment}
-          on:regenerate={() => dispatch('regenerate')}
-          on:retry={() => dispatch('retry')}
-        />
+      </div>
+    {:else}
+      <div class="messages">
+        {#each messages as message, msgIdx (message.id)}
+          {#if compressionBoundaryIndex >= 0 && msgIdx === compressionBoundaryIndex}
+            <div class="compression-separator">
+              <span class="compression-separator-text">以上对话已压缩，仅保留阶段摘要用于上下文</span>
+            </div>
+          {/if}
+          <!-- 消息项：传入消息数据和状态标识 -->
+          <div
+            class="message-anchor"
+            data-message-id={message.id}
+            class:is-highlighted={message.id === highlightedUserMessageId || message.id === highlightedAssistantMessageId}
+          >
+            <svelte:component
+              this={ChatMessageItem}
+              {message}
+              isLastAssistant={message.id === lastAssistantMessageId}
+              isLastError={message.id === lastErrorMessageId}
+              {canRegenerate}
+              {canRetry}
+              {asking}
+              {assistantActionAlignment}
+              on:regenerate={() => dispatch('regenerate')}
+              on:retry={() => dispatch('retry')}
+              on:quoteSelection={(e) => dispatch('quoteSelection', e.detail)}
+              on:editUserMessage={(e) => dispatch('editUserMessage', e.detail)}
+            />
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  {#if messages.length > 0 && visibleTurnNavItems.length >= 2}
+    <div class="conversation-jump-rail">
+      {#each visibleTurnNavItems as item (item.messageId)}
+        <button
+          type="button"
+          class="jump-item"
+          class:active={item.messageId === activeTurnMessageId || item.messageId === highlightedUserMessageId}
+          title={`第 ${item.index} 轮：${item.preview}`}
+          on:click={() => scrollToMessage(item.messageId)}
+        >
+          <span class="jump-dot"></span>
+        </button>
       {/each}
     </div>
   {/if}
@@ -193,8 +349,16 @@
   .chat-message-list {
     flex: 1;
     min-height: 0;
+    position: relative;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .chat-scroll-viewport {
+    height: 100%;
     overflow-y: auto;
     padding: 12px;
+    box-sizing: border-box;
   }
 
   .empty-state {
@@ -259,7 +423,8 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 8px 0;
+    padding: 8px 10px 8px 0;
+    position: relative;
   }
 
   .compression-separator {
@@ -281,5 +446,72 @@
     font-size: 11px;
     color: var(--b3-theme-on-surface-light-3, #999);
     white-space: nowrap;
+  }
+
+  .message-anchor {
+    transition: box-shadow 0.2s ease;
+    border-radius: 8px;
+
+    &.is-highlighted {
+      box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest), 0 0 12px var(--b3-theme-primary-lightest);
+    }
+  }
+
+  .conversation-jump-rail {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    z-index: 5;
+    width: 20px;
+  }
+
+  .jump-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    &:hover {
+      width: 22px;
+      height: 22px;
+      margin: 4px 0;
+    }
+
+    &.active .jump-dot {
+      background: var(--b3-theme-primary);
+    }
+  }
+
+  .jump-dot {
+    display: block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--b3-theme-on-surface-light-3, #bbb);
+    transition: all 0.2s ease;
+
+    .jump-item:hover & {
+      width: 10px;
+      height: 10px;
+      background: var(--b3-theme-primary);
+    }
+  }
+
+  @media (max-width: 480px) {
+    .conversation-jump-rail {
+      display: none;
+    }
   }
 </style>

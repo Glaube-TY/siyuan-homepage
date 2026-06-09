@@ -35,12 +35,72 @@
   } = { id: "", title: "", enabled: true, priority: 40, guidance: "" };
   let editorError = "";
 
+  // 用户 Skill 能力说明预览缓存
+  let userSkillGuidancePreview: Record<string, string> = {};
+
+  // 排序后的用户 Skill 列表
+  $: sortedUserSkills = [...userSkills].sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
+    return (a.title || a.id).localeCompare(b.title || b.id);
+  });
+
+  function formatShortDate(ts: number): string {
+    if (!ts || ts <= 0) return "";
+    try {
+      const d = new Date(ts);
+      return d.toLocaleString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  }
+
+  function deduplicateSkills(skills: UserSkillIndexEntry[]): UserSkillIndexEntry[] {
+    const map = new Map<string, UserSkillIndexEntry>();
+    for (const s of skills) {
+      const existing = map.get(s.id);
+      if (!existing || s.updatedAt > existing.updatedAt) {
+        map.set(s.id, s);
+      }
+    }
+    return Array.from(map.values());
+  }
+
   // 加载用户 Skill
   async function refreshUserSkillList() {
     loadingUserSkills = true;
     try {
       const index = await loadUserSkillIndex();
-      userSkills = index?.skills ?? [];
+      const rawSkills = index?.skills ?? [];
+      // 防御性去重：同 id 保留 updatedAt 更新的一条，发现重复后顺手修复存储
+      const deduped = deduplicateSkills(rawSkills);
+      if (deduped.length !== rawSkills.length && index) {
+        await saveUserSkillIndex({ ...index, skills: deduped });
+      }
+      userSkills = deduped;
+      // 并行加载能力说明预览，捕获错误不阻塞页面
+      await Promise.all(
+        userSkills.map(async (entry) => {
+          if (userSkillGuidancePreview[entry.id] !== undefined) return;
+          try {
+            const markdown = await loadUserSkillMarkdown(entry.id);
+            if (markdown) {
+              const parsed = parseUserSkillMarkdown(markdown);
+              userSkillGuidancePreview[entry.id] = parsed.guidance;
+            } else {
+              userSkillGuidancePreview[entry.id] = "";
+            }
+          } catch {
+            userSkillGuidancePreview[entry.id] = "";
+          }
+        }),
+      );
+      userSkillGuidancePreview = { ...userSkillGuidancePreview };
     } catch (e) {
       console.error("[SkillsSettingsTab] Failed to load user skills", e);
       userSkills = [];
@@ -94,6 +154,8 @@
       const updated = index.skills.filter((s) => s.id !== entry.id);
       await saveUserSkillIndex({ ...index, skills: updated });
     }
+    delete userSkillGuidancePreview[entry.id];
+    userSkillGuidancePreview = { ...userSkillGuidancePreview };
     await refreshUserSkillList();
   }
 
@@ -149,7 +211,12 @@
   async function saveUserSkill() {
     editorError = "";
 
-    const { id, title, enabled, priority, guidance } = editingSkill;
+    let { id, title, enabled, priority, guidance } = editingSkill;
+
+    // priority 归一化
+    const normalizedPriority = Math.min(100, Math.max(0, Number.isFinite(priority) ? priority : 40));
+    priority = normalizedPriority;
+    editingSkill.priority = normalizedPriority;
 
     if (!isValidUserSkillId(id)) {
       editorError = "Skill ID 不合法，只能包含小写字母、数字、下划线和连字符。";
@@ -194,7 +261,6 @@ ${guidance.trim()}`;
 
       const index: UserSkillIndex = (await loadUserSkillIndex()) ?? { version: 1, skills: [] };
       const filename = toSafeSkillFilename(id);
-      const existingIndex = index.skills.findIndex((s) => s.id === id);
       const entry: UserSkillIndexEntry = {
         id,
         title,
@@ -204,13 +270,13 @@ ${guidance.trim()}`;
         updatedAt: Date.now(),
       };
 
-      if (existingIndex >= 0) {
-        index.skills[existingIndex] = entry;
-      } else {
-        index.skills.push(entry);
-      }
+      const remaining = index.skills.filter((s) => s.id !== id);
+      index.skills = [...remaining, entry];
 
       await saveUserSkillIndex(index);
+      // 刷新预览缓存
+      userSkillGuidancePreview[id] = guidance;
+      userSkillGuidancePreview = { ...userSkillGuidancePreview };
       showEditor = false;
       await refreshUserSkillList();
     } catch (e) {
@@ -285,7 +351,7 @@ ${guidance.trim()}`;
       <p class="empty-state">暂无自定义 Skill，点击右上角按钮添加。</p>
     {:else}
       <div class="skills-list">
-        {#each userSkills as entry (entry.id)}
+        {#each sortedUserSkills as entry (entry.id)}
           <div class="skill-card">
             <div class="skill-main">
               <div class="skill-info">
@@ -293,7 +359,13 @@ ${guidance.trim()}`;
                   <span class="skill-title">{entry.title}</span>
                   <span class="skill-badge user">自定义</span>
                 </div>
-                <span class="skill-id">{entry.id}</span>
+                <div class="skill-meta-row">
+                  <span class="skill-id">{entry.id}</span>
+                  <span class="skill-meta">优先级 {entry.priority}</span>
+                  {#if entry.updatedAt}
+                    <span class="skill-meta">更新于 {formatShortDate(entry.updatedAt)}</span>
+                  {/if}
+                </div>
               </div>
               <div class="skill-actions">
                 <div class="toggle-wrap">
@@ -323,6 +395,21 @@ ${guidance.trim()}`;
                 </button>
               </div>
             </div>
+            <details class="skill-details">
+              <summary class="details-summary">详情</summary>
+              <div class="details-body">
+                <div class="detail-block">
+                  <span class="detail-label">能力说明</span>
+                  <p class="detail-content preview">
+                    {#if userSkillGuidancePreview[entry.id] !== undefined}
+                      {userSkillGuidancePreview[entry.id].slice(0, 800)}{userSkillGuidancePreview[entry.id].length > 800 ? "……" : ""}
+                    {:else}
+                      加载中...
+                    {/if}
+                  </p>
+                </div>
+              </div>
+            </details>
           </div>
         {/each}
       </div>
@@ -365,8 +452,8 @@ ${guidance.trim()}`;
           </label>
 
           <div class="field-row inline">
-            <label class="inline-field">
-              <span class="field-label">优先级</span>
+            <div class="inline-field priority-field">
+              <span class="field-label">优先级（越大越靠前）</span>
               <input
                 type="number"
                 class="form-input number"
@@ -378,7 +465,8 @@ ${guidance.trim()}`;
                 min="0"
                 max="100"
               />
-            </label>
+              <span class="field-hint">仅影响多个 Skill 注入上下文时的排列顺序。</span>
+            </div>
             <div class="inline-field">
               <span class="field-label">启用</span>
               <label class="switch">
@@ -399,6 +487,12 @@ ${guidance.trim()}`;
               rows={12}
             ></textarea>
           </label>
+          <div class="guidance-meta">
+            <span class="char-count">{editingSkill.guidance.length} 字符</span>
+            {#if editingSkill.guidance.length > 8000}
+              <span class="char-hint">建议保持简洁，过长会占用上下文</span>
+            {/if}
+          </div>
         </div>
 
         {#if editorError}
@@ -553,6 +647,19 @@ ${guidance.trim()}`;
     color: var(--b3-theme-on-surface);
     opacity: 0.6;
     font-family: monospace;
+  }
+
+  .skill-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .skill-meta {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.7;
   }
 
   .toggle-wrap {
@@ -794,6 +901,18 @@ ${guidance.trim()}`;
     gap: 6px;
   }
 
+  .inline-field.priority-field {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .field-hint {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.7;
+  }
+
   .form-input {
     flex: 1;
     padding: 6px 10px;
@@ -829,6 +948,35 @@ ${guidance.trim()}`;
     line-height: 1.6;
     resize: vertical;
     min-height: 120px;
+  }
+
+  .editor-guidance {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .guidance-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .char-count {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.7;
+  }
+
+  .char-hint {
+    font-size: 12px;
+    color: var(--b3-theme-error);
+    opacity: 0.85;
+  }
+
+  .detail-content.preview {
+    white-space: pre-wrap;
   }
 
   .editor-error {

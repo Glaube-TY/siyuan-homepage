@@ -119,6 +119,8 @@ export interface ConversationContextSnapshot {
   };
   recentTurns: ConversationTurnContext[];
   note: string;
+  /** 全局记忆内容（已截断处理） */
+  globalMemory?: string;
 }
 
 export interface BuildConversationContextParams {
@@ -137,6 +139,8 @@ export interface BuildConversationContextParams {
   };
   /** Override webAccessMode for current turn. Takes priority over user message requestContext.webAccessMode. */
   webAccessModeOverride?: "off" | "smart" | "required";
+  /** 全局记忆内容（已截断处理） */
+  globalMemory?: string;
 }
 
 const SNAPSHOT_VERSION = 2;
@@ -488,5 +492,6 @@ export function buildConversationContext(
     ...(compressed ? { compressed } : {}),
     recentTurns: buildRecentTurns(params.messages, params.currentUserMessageId),
     note: SNAPSHOT_NOTE,
+    ...(params.globalMemory ? { globalMemory: params.globalMemory } : {}),
   };
 }

@@ -50,6 +50,8 @@ export interface HomepageSettingConfig {
     deviceProfiles?: DeviceProfilesMap;
     bannerDeviceProfiles?: Record<string, BannerDeviceProfile>;
     defaultDocPreviewMode?: DocPreviewMode;
+    aiKbDockEnabled?: boolean;
+    aiKbTabEnabled?: boolean;
 }
 
 export async function loadHomepageSettingConfig(plugin: any): Promise<HomepageSettingConfig | null> {

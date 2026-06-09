@@ -20,6 +20,7 @@
     import ButtonSettingsTab from "./tabs/ButtonSettingsTab.svelte"
     import WidgetsSettingsTab from "./tabs/WidgetsSettingsTab.svelte"
     import StylesSettingsTab from "./tabs/StylesSettingsTab.svelte"
+    import AiKnowledgeBaseSettingsTab from "./tabs/AiKnowledgeBaseSettingsTab.svelte"
     import MainTabNav from "./layout/MainTabNav.svelte"
     import SubTabNav from "./layout/SubTabNav.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
@@ -76,6 +77,9 @@
     let taskEditorEnabled = $state(true);
     // 文档预览模式设置
     let defaultDocPreviewMode = $state<"preview" | "wysiwyg">("preview");
+    // AI 知识库入口开关
+    let aiKbDockEnabled = $state(true);
+    let aiKbTabEnabled = $state(true);
 
     let widgetsSettingsState = $derived<WidgetsSettingsState>({
         widgetLayoutNumber,
@@ -227,6 +231,10 @@
                 return "preview";
             };
             defaultDocPreviewMode = validPreviewMode(savedConfig.defaultDocPreviewMode);
+
+            // AI 知识库入口开关
+            aiKbDockEnabled = savedConfig.aiKbDockEnabled ?? true;
+            aiKbTabEnabled = savedConfig.aiKbTabEnabled ?? true;
 
             footerEnabled = savedConfig.footerEnabled ?? true;
             footerContent = savedConfig.footerContent || "";
@@ -557,6 +565,10 @@
             // 文档预览模式
             defaultDocPreviewMode: defaultDocPreviewMode,
 
+            // AI 知识库入口开关
+            aiKbDockEnabled: aiKbDockEnabled,
+            aiKbTabEnabled: aiKbTabEnabled,
+
             // 页脚配置
             footerEnabled: footerEnabled,
             footerContent: footerContent,
@@ -580,10 +592,20 @@
             bannerDeviceProfiles: bannerDeviceProfiles,
         };
 
+        // 检测 AI 知识库入口开关是否变化，变化后需要刷新才能重新注册
+        const aiKbChanged =
+            existingConfig.aiKbDockEnabled !== aiKbDockEnabled ||
+            existingConfig.aiKbTabEnabled !== aiKbTabEnabled;
+
         await saveHomepageSettingConfig(plugin, config);
 
         // 派发全局事件通知主页配置已保存
         window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
+
+        if (aiKbChanged) {
+            plugin.triggerHomepageFullReload("ai-kb-entry-settings-changed");
+            return;
+        }
 
         if (close) close();
     }
@@ -855,6 +877,15 @@
                     onDeactivate={handleVipDeactivate}
                     onActivate={handleVipActivate}
                     onActivationCodeChange={handleActivationCodeChange}
+                />
+            </div>
+        {:else if activeTab === "aiKnowledgeBase"}
+            <div class="content-scroll-area full-content">
+                <AiKnowledgeBaseSettingsTab
+                    aiKbDockEnabled={aiKbDockEnabled}
+                    aiKbTabEnabled={aiKbTabEnabled}
+                    onAiKbDockEnabledChange={(value) => aiKbDockEnabled = value}
+                    onAiKbTabEnabledChange={(value) => aiKbTabEnabled = value}
                 />
             </div>
         {:else if activeTab === "about"}

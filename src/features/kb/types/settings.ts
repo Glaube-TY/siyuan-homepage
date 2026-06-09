@@ -84,6 +84,29 @@ export type KbSkillSettings = {
   disabledBuiltinSkillNames: string[];
 };
 
+/** 全局工具名称 */
+export type KbGlobalToolName = "read_docs" | "web_read_page" | "edit_global_memory";
+
+/** 全局工具设置 */
+export type KbToolSettings = {
+  /** 被禁用的全局工具名称列表 */
+  disabledGlobalToolNames: KbGlobalToolName[];
+};
+
+/** 全局记忆设置 */
+export type GlobalMemorySettings = {
+  /** 是否启用全局记忆 */
+  enabled: boolean;
+  /** 记忆文档 ID */
+  docId: string;
+  /** 最大读取字符数 */
+  maxChars: number;
+  /** 是否允许 AI 更新记忆 */
+  allowAiUpdate: boolean;
+  /** 最后更新时间 */
+  updatedAt?: number;
+};
+
 export type KbSettings = {
   /** AI 回答底部操作按钮对齐方式 */
   assistantActionAlignment: KbAssistantActionAlignment;
@@ -124,4 +147,12 @@ export type KbSettings = {
    * Skill 设置
    */
   skillSettings: KbSkillSettings;
+  /**
+   * 全局工具设置
+   */
+  toolSettings: KbToolSettings;
+  /**
+   * 全局记忆设置
+   */
+  globalMemory: GlobalMemorySettings;
 };

@@ -16,7 +16,7 @@ import Homepage from "./homepage/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
 import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
-import KbMainPanel from "@/features/kb/components/panels/kb-main-panel.svelte";
+import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
 import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.svelte";
 import { setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
 import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
@@ -52,6 +52,8 @@ interface PluginConfig {
     sidebarEnabled?: boolean;
     autoOpenMobileHomepage?: boolean;
     autoOpenHomepage?: boolean;
+    aiKbDockEnabled?: boolean;
+    aiKbTabEnabled?: boolean;
 }
 
 export default class PluginHomepage extends Plugin {
@@ -231,14 +233,14 @@ export default class PluginHomepage extends Plugin {
         }
         this.data[STORAGE_NAME] = { readonlyText: "Readonly" };
 
-        this.registerTopBar();
+        this.registerTopBar(config);
         this.registerCommand();
 
         // 在非移动端时注册 dock 侧边栏
         if ((config.sidebarEnabled ?? false) && !this.isMobile) {
             this.registerDock();
         }
-        if (!this.isMobile) {
+        if ((config.aiKbDockEnabled ?? true) && !this.isMobile) {
             this.registerKbDock();
         }
 
@@ -469,9 +471,10 @@ export default class PluginHomepage extends Plugin {
             return;
         }
 
-        this.kbChatInstance = mount(KbMainPanel as any, {
+        this.kbChatInstance = mount(KbPremiumGatePanel as any, {
             target: this.kbChatTabDiv,
             props: {
+                plugin: this,
                 placement: "tab",
                 onOpenSettings: () => this.openKbSettingsDialog(),
             },
@@ -610,7 +613,7 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    private registerTopBar() {
+    private registerTopBar(config: PluginConfig) {
         this.addTopBar({
             icon: "iconhomepage",
             title: "打开主页",
@@ -623,6 +626,15 @@ export default class PluginHomepage extends Plugin {
                 }
             }
         });
+
+        if (config.aiKbTabEnabled ?? true) {
+            this.addTopBar({
+                icon: "iconSparkles",
+                title: "打开 AI 知识库",
+                position: "left",
+                callback: () => this.openKbChatTab(),
+            });
+        }
     }
 
     private isMobileFrontend(): boolean {
@@ -696,9 +708,15 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    public openKbChatTab(): void {
+    public async openKbChatTab(): Promise<void> {
         if (this.isMobileFrontend()) {
             showMessage("AI 知识库标签页暂不支持移动端", 3000);
+            return;
+        }
+
+        const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
+        if (config.aiKbTabEnabled === false) {
+            showMessage("AI 知识库标签页对话未开启，请在主页设置中启用", 3000);
             return;
         }
 
@@ -713,9 +731,15 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    public openKbDock(): void {
+    public async openKbDock(): Promise<void> {
         if (this.isMobileFrontend()) {
             showMessage("移动端请使用 AI 知识库标签页", 3000);
+            return;
+        }
+
+        const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
+        if (config.aiKbDockEnabled === false) {
+            showMessage("AI 知识库侧边栏对话未开启，请在主页设置中启用", 3000);
             return;
         }
 
@@ -844,9 +868,10 @@ export default class PluginHomepage extends Plugin {
                 kbContainer.setAttribute("data-kb-dock-container", "true");
                 kbContainer.style.height = "100%";
                 kbContainer.style.width = "100%";
-                this.kbDockInstance = mount(KbMainPanel as any, {
+                this.kbDockInstance = mount(KbPremiumGatePanel as any, {
                     target: kbContainer,
                     props: {
+                        plugin: this,
                         placement: "dock",
                         onOpenSettings: () => this.openKbSettingsDialog(),
                     },

@@ -49,6 +49,7 @@
   let chatModelOptions: ChatModelOption[] = [];
   let selectedChatModelKey = "";
   let assistantActionAlignment: KbAssistantActionAlignment = "left";
+  let chatInputBarRef: ChatInputBar;
 
   let composerAttachedDocIds: string[] = [];
 
@@ -226,6 +227,20 @@
     kbSessionStore.stop();
     kbSessionStore.syncActiveConversationSnapshot();
     refreshContextUsageSafe("stop");
+  }
+
+  function handleQuoteSelection(e: CustomEvent<{ text: string }>) {
+    if (asking) return;
+    const text = e.detail.text.slice(0, 2000);
+    const draft = `> ${text}\n\n继续追问：`;
+    kbSessionStore.setDraftQuestion(draft);
+    chatInputBarRef?.focusTextarea();
+  }
+
+  function handleEditUserMessage(e: CustomEvent<{ text: string }>) {
+    if (asking) return;
+    kbSessionStore.setDraftQuestion(e.detail.text);
+    chatInputBarRef?.focusTextarea();
   }
 
   /**
@@ -1027,6 +1042,8 @@
           {messages}
           on:regenerate={handleRegenerate}
           on:retry={handleRetry}
+          on:quoteSelection={handleQuoteSelection}
+          on:editUserMessage={handleEditUserMessage}
           on:sendSuggestedQuestion={handleSuggestedQuestion}
           {assistantActionAlignment}
           {suggestedQuestions}
@@ -1038,6 +1055,7 @@
 
         <!-- 输入区 -->
         <ChatInputBar
+          bind:this={chatInputBarRef}
           selectedMode={selectedMode}
           value={draftQuestion ?? ""}
           disabled={asking}

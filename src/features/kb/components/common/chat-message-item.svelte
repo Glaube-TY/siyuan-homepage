@@ -21,6 +21,8 @@
   const dispatch = createEventDispatcher<{
     regenerate: void;
     retry: void;
+    quoteSelection: { text: string };
+    editUserMessage: { text: string };
   }>();
 
   // 复制状态管理
@@ -396,7 +398,60 @@
 
   $: workbenchDisplaySteps = buildDisplaySteps(visibleWorkbenchEvents);
   $: workbenchProcessSummary = buildWorkbenchProcessSummary();
+
+  // 选中文本追问
+  let selectedText = "";
+  let showQuotePopover = false;
+  let quotePopoverPos = { x: 0, y: 0 };
+  let assistantContentEl: HTMLDivElement;
+  let quotePopoverEl: HTMLDivElement;
+
+  function handleMouseUpInAssistant(e: MouseEvent) {
+    if (quotePopoverEl?.contains(e.target as Node)) return;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      showQuotePopover = false;
+      return;
+    }
+    const text = selection.toString().trim();
+    if (!text || !assistantContentEl) {
+      showQuotePopover = false;
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!assistantContentEl.contains(range.commonAncestorContainer)) {
+      showQuotePopover = false;
+      return;
+    }
+    selectedText = text;
+    const rect = range.getBoundingClientRect();
+    quotePopoverPos = {
+      x: rect.left + rect.width / 2,
+      y: rect.bottom + 8,
+    };
+    showQuotePopover = true;
+  }
+
+  function handleQuoteClick() {
+    const text = selectedText;
+    if (!text) return;
+    dispatch("quoteSelection", { text });
+    showQuotePopover = false;
+    window.getSelection()?.removeAllRanges();
+  }
+
+  function hideQuotePopover(e: MouseEvent) {
+    if (quotePopoverEl?.contains(e.target as Node)) return;
+    showQuotePopover = false;
+  }
+
+  // 用户消息 hover 操作
+  function handleEditUserMessage() {
+    dispatch("editUserMessage", { text: message.content });
+  }
 </script>
+
+<svelte:window on:mousedown={hideQuotePopover} on:mouseup={handleMouseUpInAssistant} />
 
 <div class="chat-message-item {message.role}">
   <div class="avatar">
@@ -413,7 +468,10 @@
   <div class="content">
     {#if message.role === "assistant"}
       <!-- AI 回答消息 - 渲染 Markdown -->
-      <div class="bubble markdown-content assistant-bubble">
+      <div
+        class="bubble markdown-content assistant-bubble"
+        bind:this={assistantContentEl}
+      >
         {#if workbenchDisplaySteps.length}
           <div class="workbench-events">
             <button
@@ -569,6 +627,28 @@
             </button>
           </div>
         {/if}
+
+        <!-- 追问浮层 -->
+        {#if showQuotePopover}
+          <div
+            class="quote-popover"
+            role="dialog"
+            tabindex="-1"
+            style="left: {quotePopoverPos.x}px; top: {quotePopoverPos.y}px;"
+            bind:this={quotePopoverEl}
+            on:mousedown|stopPropagation
+          >
+            <button
+              type="button"
+              class="quote-popover-btn"
+              on:mousedown|stopPropagation|preventDefault
+              on:click|stopPropagation={handleQuoteClick}
+            >
+              <SiyuanIcon name="iconQuote" size={13} />
+              <span>追问</span>
+            </button>
+          </div>
+        {/if}
       </div>
     {:else if message.role === "error"}
       <!-- Error 消息 - 显示内容和重试按钮 -->
@@ -591,11 +671,35 @@
       </div>
     {:else}
       <!-- 普通消息 (user/loading) -->
-      <div class="bubble">
+      <div class="bubble user-bubble">
         {#if message.role === "loading"}
           <span class="loading-dots">思考中</span>
         {:else}
-          {message.content}
+          <div class="message-text">{message.content}</div>
+          {#if message.role === "user" && message.content}
+            <div class="user-actions">
+              <button
+                type="button"
+                class="action-btn user-action-btn"
+                on:click={() => handleCopy(message.content, message.id)}
+                title="复制问题"
+              >
+                <span class="action-icon">
+                  <SiyuanIcon name={isCopied ? "iconCheck" : "iconCopy"} size={14} />
+                </span>
+              </button>
+              <button
+                type="button"
+                class="action-btn user-action-btn"
+                on:click={handleEditUserMessage}
+                title="编辑问题"
+              >
+                <span class="action-icon">
+                  <SiyuanIcon name="iconEdit" size={14} />
+                </span>
+              </button>
+            </div>
+          {/if}
         {/if}
         {#if message.role === "user" && message.attachedDocs?.length}
           <div class="user-attached-docs">
@@ -677,6 +781,8 @@
     &.assistant .bubble {
       background: var(--b3-theme-surface);
       position: relative;
+      user-select: text;
+      -webkit-user-select: text;
 
       &.markdown-content {
         // Markdown 内容基础样式
@@ -870,6 +976,96 @@
     word-break: break-word;
   }
 
+  .message-text {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .user-bubble {
+    position: relative;
+  }
+
+  .user-actions {
+    position: absolute;
+    top: 100%;
+    right: 8px;
+    padding-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(2px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+
+    /* 透明桥接区：鼠标从气泡移到按钮时不经过空白断层 */
+    &::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 6px;
+    }
+
+    .user-bubble:hover &,
+    .user-bubble:focus-within &,
+    &:hover,
+    &:focus-within {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+  }
+
+  .user-action-btn {
+    &:hover,
+    &:focus-visible {
+      border-color: var(--b3-theme-primary-light);
+      background: var(--b3-theme-background-light);
+      color: var(--b3-theme-primary);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest);
+    }
+  }
+
+  .quote-popover {
+    position: fixed;
+    z-index: 100;
+    transform: translateX(-50%);
+  }
+
+  .quote-popover-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--b3-theme-background);
+    border: 1px solid var(--b3-border-color);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.15s ease;
+
+    &:hover {
+      background: var(--b3-theme-primary-lightest);
+      border-color: var(--b3-theme-primary);
+      color: var(--b3-theme-primary);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest);
+    }
+  }
+
   .action-btn {
     display: flex;
     align-items: center;
@@ -885,6 +1081,8 @@
     color: var(--b3-theme-on-surface-light);
     opacity: 0.7;
     transition: all 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
 
     &:hover {
       opacity: 1;
@@ -971,6 +1169,8 @@
     line-height: 1.4;
     text-align: left;
     cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
 
     &:hover {
       border-color: var(--b3-theme-primary-light);
@@ -1159,6 +1359,8 @@
     appearance: none;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     transition: all 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
 
     &:hover,
     &:focus,
@@ -1259,14 +1461,18 @@
     align-items: center;
     gap: 6px;
     width: 100%;
-    padding: 4px 0;
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--b3-theme-on-surface-light);
+    padding: 6px 8px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 6px;
+    background: var(--b3-theme-background-light);
+    color: var(--b3-theme-on-surface);
+    font: inherit;
     font-size: 12px;
     line-height: 1.4;
     text-align: left;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
 
     &:hover {
       color: var(--b3-theme-on-surface);

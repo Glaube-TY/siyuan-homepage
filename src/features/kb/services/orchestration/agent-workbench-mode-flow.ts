@@ -38,6 +38,7 @@ import { maybeAutoCompressContext, emergencyCompressContext } from "../context-c
 import type { MaybeAutoCompressResult } from "../context-compression";
 import { getKbSettings } from "../settings/kb-settings-service";
 import { estimateContextUsage } from "../../types/context-usage";
+import { readGlobalMemory, validateGlobalMemoryDocId } from "../agent-workbench/memory/global-memory-doc";
 import { buildConversationContext } from "../agent-workbench/runtime/conversation-context-builder";
 import type { BuildConversationContextParams } from "../agent-workbench/runtime/conversation-context-builder";
 import { findCompleteConversationTurn, getCompleteConversationTurns } from "../agent-workbench/runtime/conversation-turns";
@@ -52,6 +53,8 @@ export interface RunAgentWorkbenchModeFlowParams extends AskByModeParams {
   userMessageAlreadyAdded?: boolean;
   userMessageId?: string;
 }
+
+const MANUAL_STOP_MESSAGE = "已手动停止回答。";
 
 function createMessageId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -498,8 +501,9 @@ export async function runAgentWorkbenchModeFlow(
       contextWindowTokens,
     });
 
-    // Fetch web search settings for conversation context
+    // Fetch web search settings and global memory for conversation context
     let webSearchSettings: BuildConversationContextParams["webSearchSettings"];
+    let globalMemoryText: string | undefined;
     try {
       const kbSettings = await getKbSettings();
       if (kbSettings?.webSearch) {
@@ -509,6 +513,16 @@ export async function runAgentWorkbenchModeFlow(
           maxResults: kbSettings.webSearch.maxResults,
           readPageMaxChars: kbSettings.webSearch.readPageMaxChars,
         };
+      }
+      if (kbSettings?.globalMemory?.enabled && kbSettings.globalMemory.docId) {
+        const validation = await validateGlobalMemoryDocId(kbSettings.globalMemory.docId);
+        if (validation.valid) {
+          const mem = await readGlobalMemory(kbSettings.globalMemory.docId, kbSettings.globalMemory.maxChars);
+          globalMemoryText = mem.content;
+          if (mem.truncated) {
+            globalMemoryText += "\n（记忆内容已截断）";
+          }
+        }
       }
     } catch { /* ignore */ }
 
@@ -543,6 +557,7 @@ export async function runAgentWorkbenchModeFlow(
       usageRatio: usageSnapshotForContext.usageRatio,
       webSearchSettings,
       webAccessModeOverride: effectiveWebAccessMode,
+      globalMemory: globalMemoryText,
     });
 
     // Extract attachedDocs from current user message for reference grounding
@@ -603,6 +618,7 @@ export async function runAgentWorkbenchModeFlow(
       abortSignal,
       chatModelSelection,
       thinkingMode: userThinkingMode,
+      globalMemory: globalMemoryText,
       onReasoningDelta: (event) => {
         // Only process reasoning when thinkingMode=on
         if (userThinkingMode !== "on") {
@@ -728,17 +744,19 @@ export async function runAgentWorkbenchModeFlow(
     if (abortSignal?.aborted) {
       if (setMessages) {
         setMessages((messages) =>
-          messages
-            .map((m) => {
-              if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-              if (!m.content.trim()) return null;
-              return {
-                ...m,
-                agentStatus: undefined,
-                isComplete: false,
-              };
-            })
-            .filter((m): m is ChatMessage => m !== null)
+          messages.map((m) => {
+            if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+            if (m.content.trim()) {
+              return { ...m, agentStatus: undefined, isComplete: false };
+            }
+            return {
+              ...m,
+              content: MANUAL_STOP_MESSAGE,
+              agentStatus: undefined,
+              isComplete: true,
+              reasoning: m.reasoning?.status === "streaming" ? undefined : m.reasoning,
+            };
+          })
         );
       }
 
@@ -815,19 +833,21 @@ export async function runAgentWorkbenchModeFlow(
   } catch (err) {
     if (isAbortLikeError(err, abortSignal)) {
       if (setMessages) {
-        setMessages((messages) => {
-          const filtered = messages.filter((m) => {
-            if (m.id !== assistantMessageId) return true;
-            if (m.role !== "assistant") return true;
-            return m.content.trim().length > 0;
-          });
-
-          return filtered.map((m) =>
-            m.id === assistantMessageId && m.role === "assistant"
-              ? { ...m, agentStatus: undefined, isComplete: false }
-              : m
-          );
-        });
+        setMessages((messages) =>
+          messages.map((m) => {
+            if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+            if (m.content.trim()) {
+              return { ...m, agentStatus: undefined, isComplete: false };
+            }
+            return {
+              ...m,
+              content: MANUAL_STOP_MESSAGE,
+              agentStatus: undefined,
+              isComplete: true,
+              reasoning: m.reasoning?.status === "streaming" ? undefined : m.reasoning,
+            };
+          })
+        );
       }
 
       updateState((state) => ({

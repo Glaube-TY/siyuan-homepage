@@ -53,6 +53,8 @@ export interface AgentLoopInput {
   conversationContext?: ConversationContextSnapshot;
   userEnabledSkillNames: readonly string[];
   userDisabledSkillNames?: readonly string[];
+  /** 全局记忆内容（已截断处理） */
+  globalMemory?: string;
 }
 
 export class AgentLoop {
@@ -122,6 +124,7 @@ export class AgentLoop {
         userEnabledSkillNames: input.userEnabledSkillNames,
         userDisabledSkillNames: input.userDisabledSkillNames,
         callCounts: log.callCounts(),
+        globalMemory: input.globalMemory,
       };
       const ctx = buildPlannerContext(ctxInput, {
         skillRegistry: this.deps.skillRegistry,

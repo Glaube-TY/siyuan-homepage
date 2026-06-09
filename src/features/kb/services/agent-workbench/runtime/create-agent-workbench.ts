@@ -66,6 +66,9 @@ import { createWebSearchTool } from "../tools/web-search/web-search.tool";
 import { createWebReadPageTool } from "../tools/web-search/web-read-page.tool";
 import type { WebSearchProvider } from "../tools/web-search/web-search-provider";
 
+// Global memory tool
+import { createEditGlobalMemoryTool } from "../tools/system/append-global-memory.tool";
+
 export interface AgentWorkbenchRuntime {
   skillRegistry: SkillRegistry;
   toolRegistry: ToolRegistry;
@@ -93,6 +96,17 @@ export interface AgentWorkbenchRuntimeOptions {
   };
   /** Built-in capability visibility from settings. Not a business controller — just composition-root gate. */
   builtinCapabilityAccess?: BuiltinCapabilityAccess;
+  /** Global tool visibility from settings. Controls whether read_docs / web_read_page / edit_global_memory are registered. */
+  globalToolAccess?: {
+    readDocs: boolean;
+    webReadPage: boolean;
+    editGlobalMemory: boolean;
+  };
+  /** Optional: global memory tool deps. When present, registers edit_global_memory. */
+  globalMemoryToolDeps?: {
+    docId: string;
+    maxEntryChars: number;
+  };
 }
 
 function createSiyuanToolDeps(deps: SiyuanToolDeps) {
@@ -150,8 +164,10 @@ export function createAgentWorkbenchRuntime(
       diaryDocDeps,
     } = createSiyuanToolDeps(options.kbRetrievalToolDeps);
 
-    // read_docs is a global read-only tool; register whenever kbRetrievalToolDeps are present
-    toolRegistry.ensureTool(createReadDocsTool(readDeps));
+    // read_docs is a global read-only tool; register when kbRetrievalToolDeps are present and not disabled
+    if (options.globalToolAccess?.readDocs !== false) {
+      toolRegistry.ensureTool(createReadDocsTool(readDeps));
+    }
 
     if (options.builtinCapabilityAccess?.knowledgeBase !== false) {
       toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
@@ -175,12 +191,20 @@ export function createAgentWorkbenchRuntime(
     }));
   }
 
-  // Register web read page tool (when web read access is enabled)
-  if (options.webReadPageToolDeps) {
+  // Register web read page tool (when web read access is enabled and not disabled)
+  if (options.webReadPageToolDeps && options.globalToolAccess?.webReadPage !== false) {
     toolRegistry.ensureTool(createWebReadPageTool({
       readProxyEndpoint: options.webReadPageToolDeps.readProxyEndpoint,
       readPageMaxChars: options.webReadPageToolDeps.readPageMaxChars,
       timeoutMs: options.webReadPageToolDeps.timeoutMs,
+    }));
+  }
+
+  // Register global memory edit tool (when deps present and not disabled)
+  if (options.globalMemoryToolDeps && options.globalToolAccess?.editGlobalMemory !== false) {
+    toolRegistry.ensureTool(createEditGlobalMemoryTool({
+      docId: options.globalMemoryToolDeps.docId,
+      maxEntryChars: options.globalMemoryToolDeps.maxEntryChars,
     }));
   }
 

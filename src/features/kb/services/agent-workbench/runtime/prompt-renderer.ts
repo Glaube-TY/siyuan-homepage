@@ -179,6 +179,18 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
   blocks.push("你是运行在思源笔记中的 AI 助手，帮助用户处理知识管理和资料阅读任务。");
   blocks.push("");
 
+  // Global memory
+  if (ctx.globalMemory && ctx.globalMemory.length > 0) {
+    blocks.push("# 全局记忆");
+    blocks.push("以下内容来自用户可编辑的长期记忆文档，代表用户的长期偏好、稳定约束和常用设置。");
+    blocks.push("可用于回答风格、长期偏好、稳定约束。不能替代当前问题和正文证据。不能把记忆当来源引用。与当前明确指令冲突时，以当前指令为准。不要把临时任务、网页正文、工具结果、阶段摘要、未经确认事实写入长期记忆。全局记忆按条目顺序提供，顺序靠前的内容在整理偏好时更优先参考。如需更新长期记忆，可使用“编辑全局记忆”工具对条目进行新增、更新、删除或移动；遇到冲突时应优先整理为一致内容，而不是重复追加冲突条目。");
+    blocks.push(ctx.globalMemory);
+    if (ctx.globalMemory.length >= 7900) {
+      blocks.push("（记忆内容可能已截断）");
+    }
+    blocks.push("");
+  }
+
   // User request
   blocks.push("# 用户请求");
   blocks.push(ctx.question);
@@ -249,11 +261,15 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
   }
 
   // Conversation context — session history, separate from tool observations.
+  // 若 globalMemory 已在独立区块展示，从 conversationContext JSON 中剔除以避免重复。
   blocks.push("# 对话上下文（JSON）");
   if (!ctx.conversationContext) {
     blocks.push("（暂无历史上下文）");
   } else {
-    blocks.push(stringifyForPrompt(ctx.conversationContext));
+    const conversationContextForPrompt = ctx.globalMemory
+      ? { ...ctx.conversationContext, globalMemory: undefined }
+      : ctx.conversationContext;
+    blocks.push(stringifyForPrompt(conversationContextForPrompt));
   }
   blocks.push("");
   blocks.push("conversationContext.currentTurn.runtimeNow 表示插件运行时的当前本地时间，可用于理解相对时间和当前时间。runtimeNow 不是工具 observation，也不是历史消息；它只代表本轮上下文构建时的运行时刻。");

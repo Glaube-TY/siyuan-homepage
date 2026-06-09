@@ -3,12 +3,14 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
   DEFAULT_WEB_SEARCH_SETTINGS,
   DEFAULT_SKILL_SETTINGS,
+  DEFAULT_TOOL_SETTINGS,
+  DEFAULT_GLOBAL_MEMORY_SETTINGS,
 } from "../../constants/default-settings";
 import {
   sanitizeChatProviders as sanitizeChatProvidersCore,
@@ -86,6 +88,68 @@ function normalizeSkillSettings(raw: unknown): KbSkillSettings {
   }
   return {
     disabledBuiltinSkillNames: names,
+  };
+}
+
+/**
+ * 归一化全局工具设置
+ * - 只保留合法全局工具名 read_docs / web_read_page
+ * - 去重
+ * - 旧设置缺失时回退默认值
+ */
+function normalizeToolSettings(raw: unknown): KbToolSettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_TOOL_SETTINGS };
+  }
+  const s = raw as Record<string, unknown>;
+  const rawNames = s.disabledGlobalToolNames;
+  const validNames: KbToolSettings["disabledGlobalToolNames"] = ["read_docs", "web_read_page", "edit_global_memory"];
+  let names: KbToolSettings["disabledGlobalToolNames"] = [];
+  if (Array.isArray(rawNames)) {
+    names = rawNames
+      .map((n) => (n === "append_global_memory" ? "edit_global_memory" : n))
+      .filter((n): n is KbToolSettings["disabledGlobalToolNames"][number] =>
+        typeof n === "string" && validNames.includes(n as KbToolSettings["disabledGlobalToolNames"][number])
+      );
+    names = [...new Set(names)];
+  }
+  return {
+    disabledGlobalToolNames: names,
+  };
+}
+
+/**
+ * 归一化全局记忆设置
+ * - 非对象 → 回退默认值
+ * - docId 只保留 string
+ * - maxChars clamp 到 [500, 30000]
+ */
+function normalizeGlobalMemorySettings(raw: unknown): GlobalMemorySettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_GLOBAL_MEMORY_SETTINGS };
+  }
+  const s = raw as Record<string, unknown>;
+
+  const enabled = typeof s.enabled === "boolean" ? s.enabled : DEFAULT_GLOBAL_MEMORY_SETTINGS.enabled;
+  const docId = typeof s.docId === "string" ? s.docId : DEFAULT_GLOBAL_MEMORY_SETTINGS.docId;
+
+  const rawMaxChars = s.maxChars;
+  let maxChars = DEFAULT_GLOBAL_MEMORY_SETTINGS.maxChars;
+  if (typeof rawMaxChars === "number" && Number.isFinite(rawMaxChars)) {
+    maxChars = clampNumber(Math.round(rawMaxChars), 500, 30000);
+  }
+
+  const allowAiUpdate = typeof s.allowAiUpdate === "boolean" ? s.allowAiUpdate : DEFAULT_GLOBAL_MEMORY_SETTINGS.allowAiUpdate;
+
+  const rawUpdatedAt = s.updatedAt;
+  const updatedAt = typeof rawUpdatedAt === "number" && Number.isFinite(rawUpdatedAt) ? rawUpdatedAt : undefined;
+
+  return {
+    enabled,
+    docId,
+    maxChars,
+    allowAiUpdate,
+    ...(updatedAt !== undefined ? { updatedAt } : {}),
   };
 }
 
@@ -192,6 +256,13 @@ function getPlugin(): any {
   if (!pluginInstance) {
     console.warn("[KB Settings] Plugin instance not set, using default settings");
   }
+  return pluginInstance;
+}
+
+/**
+ * 获取插件实例（供 UI 组件使用）
+ */
+export function getKbPlugin(): any {
   return pluginInstance;
 }
 
@@ -450,6 +521,8 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     selectedChatModelId: finalSelectedModelId,
     webSearch: normalizeWebSearchSettings(normalized.webSearch),
     skillSettings: normalizeSkillSettings(normalized.skillSettings),
+    toolSettings: normalizeToolSettings(normalized.toolSettings),
+    globalMemory: normalizeGlobalMemorySettings(normalized.globalMemory),
   };
 }
 

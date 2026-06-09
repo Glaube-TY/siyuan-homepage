@@ -28,6 +28,8 @@ export interface FinalAnswerComposerParams {
   abortSignal?: AbortSignal;
   chatModelSelection?: ChatModelSelection | null;
   thinkingMode?: ThinkingMode;
+  /** 全局记忆内容（已截断处理） */
+  globalMemory?: string;
 }
 
 export async function streamFinalAnswerFromDraft(params: FinalAnswerComposerParams): Promise<string> {
@@ -280,6 +282,12 @@ function renderFinalAnswerComposePrompt(params: FinalAnswerComposerParams, conte
   blocks.push("# 用户问题");
   blocks.push(params.question);
   blocks.push("");
+
+  if (params.globalMemory && params.globalMemory.length > 0) {
+    blocks.push("# 用户长期偏好 / 全局记忆");
+    blocks.push(params.globalMemory);
+    blocks.push("");
+  }
 
   if (contentEvidence) {
     blocks.push(contentEvidence);

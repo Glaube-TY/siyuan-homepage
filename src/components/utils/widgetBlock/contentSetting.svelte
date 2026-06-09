@@ -1227,7 +1227,6 @@
                     <option value="latest-docs">最近文档</option>
                     <option value="recent-journals">最近日记</option>
                     <option value="quick-notes">快速笔记</option>
-                    <option value="notebrain">AI 知识库</option>
                     <option value="childDocs">子文档</option>
                     <option value="conditionDocs">条件文档</option>
                     <option value="stikynot">便签👑</option>
@@ -1294,12 +1293,6 @@
                     />
                 {:else if selectedContentType === "quick-notes"}
                     <QuickNotesSet bind:quickNotesTitle bind:quickNotesSort />
-                {:else if selectedContentType === "notebrain"}
-                    <div class="setting-section">
-                        <p class="setting-tip">
-                            AI 知识库组件会在主页中显示设置、打开侧边栏、打开标签页三个入口。
-                        </p>
-                    </div>
                 {:else if selectedContentType === "stikynot"}
                     <StikynotSet {advancedEnabled} bind:stikynotStyle />
                 {:else if selectedContentType === "childDocs"}
@@ -1903,13 +1896,6 @@
                         type: "quick-notes",
                         blockId: currentBlockId,
                         data: { quickNotesTitle, quickNotesSort },
-                    };
-                } else if (selectedContentType === "notebrain") {
-                    contentTypeJson = {
-                        activeTab: activeTab,
-                        type: "notebrain",
-                        blockId: currentBlockId,
-                        data: {},
                     };
                 } else if (selectedContentType === "dailyQuote") {
                     contentTypeJson = {

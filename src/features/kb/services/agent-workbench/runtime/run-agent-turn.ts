@@ -33,6 +33,7 @@ import {
 import type { AgentWorkbenchRuntimeOptions } from "./create-agent-workbench";
 import { streamFinalAnswerFromDraft } from "./final-answer-composer";
 import { hydrateAttachedDocsForTurn } from "./attached-doc-hydration";
+import { readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
 import { BUILTIN_KB_SKILL_NAME } from "../skills/builtin/knowledge-base-qa.skill";
 import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../skills/builtin/schedule-task-diary.skill";
 
@@ -85,6 +86,8 @@ export interface RunAgentTurnParams {
   onAnswerFinish?: (fullContent: string) => void;
   /** Reasoning stream callback: only called when thinkingMode=on and model returns reasoning */
   onReasoningDelta?: (event: { type: "reasoning-start" | "reasoning-delta" | "reasoning-end"; delta?: string }) => void;
+  /** 全局记忆内容（已截断处理）。若传入则优先使用，不再自行读取设置。 */
+  globalMemory?: string;
 }
 
 export interface AgentTurnOutcome {
@@ -169,12 +172,46 @@ export async function runAgentTurn(
     }
   }
 
+  const disabledGlobalTools = new Set(settings.toolSettings?.disabledGlobalToolNames ?? []);
+  const globalToolAccess = {
+    readDocs: !disabledGlobalTools.has("read_docs"),
+    webReadPage: !disabledGlobalTools.has("web_read_page"),
+    editGlobalMemory: !disabledGlobalTools.has("edit_global_memory"),
+  };
+
   const webReadAccess = params.conversationContext?.currentTurn?.webReadAccess;
-  if (webReadAccess?.enabled) {
+  if (webReadAccess?.enabled && globalToolAccess.webReadPage) {
     webReadPageToolDeps = {
       readProxyEndpoint: ws.readProxyEndpoint || undefined,
       readPageMaxChars: ws.readPageMaxChars,
       timeoutMs: ws.timeoutMs,
+    };
+  }
+
+  // 验证全局记忆文档 ID（一次验证，用于读取和工具注册）
+  const memoryDocId = settings.globalMemory?.docId?.trim() ?? "";
+  let memoryDocIdValid = false;
+  if (memoryDocId) {
+    const validation = await validateGlobalMemoryDocId(memoryDocId);
+    memoryDocIdValid = validation.valid;
+  }
+
+  // 读取全局记忆（优先使用外部传入）
+  let globalMemoryText: string | undefined = params.globalMemory;
+  if (globalMemoryText === undefined && settings.globalMemory?.enabled && memoryDocIdValid) {
+    const mem = await readGlobalMemory(memoryDocId, settings.globalMemory.maxChars);
+    globalMemoryText = mem.content;
+    if (mem.truncated) {
+      globalMemoryText += "\n（记忆内容已截断）";
+    }
+  }
+
+  // 注册 edit_global_memory 工具（只依赖工具未禁用；docId 有效性在 execute 阶段再验证）
+  let globalMemoryToolDeps: AgentWorkbenchRuntimeOptions["globalMemoryToolDeps"] | undefined;
+  if (globalToolAccess.editGlobalMemory !== false) {
+    globalMemoryToolDeps = {
+      docId: memoryDocId,
+      maxEntryChars: 1000,
     };
   }
 
@@ -189,6 +226,8 @@ export async function runAgentTurn(
     webSearchToolDeps,
     webReadPageToolDeps,
     builtinCapabilityAccess,
+    globalToolAccess,
+    globalMemoryToolDeps,
   });
 
   pushAgentDebugEvent("WEB_TOOL_REGISTRATION_SAFE", {
@@ -283,6 +322,7 @@ export async function runAgentTurn(
       conversationContext: params.conversationContext,
       userEnabledSkillNames: [],
       userDisabledSkillNames: settings.skillSettings?.disabledBuiltinSkillNames ?? [],
+      globalMemory: globalMemoryText,
     });
 
     const eventsForTrace = localEvents.length > 0 ? localEvents : loopResult.events;
@@ -318,6 +358,7 @@ export async function runAgentTurn(
         abortSignal: params.abortSignal,
         chatModelSelection: params.chatModelSelection,
         thinkingMode: params.thinkingMode,
+        globalMemory: globalMemoryText,
       });
 
       draft.body = composedBody;

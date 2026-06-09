@@ -15,6 +15,8 @@ export interface PlannerContextInput {
   userEnabledSkillNames: readonly string[];
   userDisabledSkillNames?: readonly string[];
   callCounts?: Record<string, number>;
+  /** 全局记忆内容（已截断处理） */
+  globalMemory?: string;
 }
 
 export interface PlannerContext {
@@ -23,6 +25,8 @@ export interface PlannerContext {
   toolManifest: ToolManifest[];
   skillSections: import("../contracts/skill-contract").SkillPromptSection[];
   observations: SkillObservation[];
+  /** 全局记忆内容（已截断处理） */
+  globalMemory?: string;
 }
 
 export function buildPlannerContext(
@@ -66,5 +70,6 @@ export function buildPlannerContext(
     toolManifest,
     skillSections,
     observations,
+    globalMemory: input.globalMemory,
   };
 }
