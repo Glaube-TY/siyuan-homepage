@@ -3,7 +3,19 @@ import type { DeviceProfilesMap } from "./utils/deviceProfile";
 import { getLocalDeviceId, isDesktopDeviceProfileEnabled } from "./utils/deviceProfile";
 import type { BannerDeviceProfile } from "./homepageSetting/config";
 import { createDefaultButtons, normalizeButtonsList as normalizeButtonsListFromRegistry, type HomepageButtonItem } from "./buttonRegistry";
+import {
+    DEFAULT_STATS_INFO_TEXT,
+    DEFAULT_STATUS_AI_MAX_CHARS,
+    DEFAULT_STATUS_AI_PROMPT,
+    normalizeHomepageStatusTextMode,
+    normalizeStatusAiMaxChars,
+    normalizeStatusAiModelId,
+    normalizeStatusAiPrompt,
+    normalizeStatusAiThinkingEnabled,
+    type HomepageStatusTextMode,
+} from "./status-text-config";
 export type { HomepageButtonItem } from "./buttonRegistry";
+export type { HomepageStatusTextMode } from "./status-text-config";
 
 export type TitleIconType = "emoji" | "image";
 export type TitleIconStyle = "square" | "round" | "circle";
@@ -24,6 +36,12 @@ export interface HomepageConfig {
     customTitle: string;
     tempTitleIconStyle: TitleIconStyle;
     statsInfoText: string;
+    statusTextMode: HomepageStatusTextMode;
+    statusAiPrompt: string;
+    statusAiMaxChars: number;
+    statusAiProviderId: string;
+    statusAiModelId: string;
+    statusAiThinkingEnabled: boolean;
     footerEnabled: boolean;
     footerContent: string;
     mouseIcon: string;
@@ -68,7 +86,13 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDe
     titleIconType: "emoji",
     customTitle: "思源笔记首页",
     tempTitleIconStyle: "square",
-    statsInfoText: "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤",
+    statsInfoText: DEFAULT_STATS_INFO_TEXT,
+    statusTextMode: "custom",
+    statusAiPrompt: DEFAULT_STATUS_AI_PROMPT,
+    statusAiMaxChars: DEFAULT_STATUS_AI_MAX_CHARS,
+    statusAiProviderId: "",
+    statusAiModelId: "",
+    statusAiThinkingEnabled: false,
     footerEnabled: true,
     footerContent: "",
     mouseIcon: "default",
@@ -167,6 +191,12 @@ export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
         customTitle: normalizeString(config.customTitle, DEFAULT_HOMEPAGE_CONFIG.customTitle),
         tempTitleIconStyle: normalizeEnum(config.tempTitleIconStyle, VALID_TITLE_ICON_STYLES, DEFAULT_HOMEPAGE_CONFIG.tempTitleIconStyle),
         statsInfoText: normalizeString(config.statsInfoText, DEFAULT_HOMEPAGE_CONFIG.statsInfoText),
+        statusTextMode: normalizeHomepageStatusTextMode(config.statusTextMode),
+        statusAiPrompt: normalizeStatusAiPrompt(config.statusAiPrompt),
+        statusAiMaxChars: normalizeStatusAiMaxChars(config.statusAiMaxChars),
+        statusAiProviderId: normalizeStatusAiModelId(config.statusAiProviderId),
+        statusAiModelId: normalizeStatusAiModelId(config.statusAiModelId),
+        statusAiThinkingEnabled: normalizeStatusAiThinkingEnabled(config.statusAiThinkingEnabled),
         footerEnabled: config.footerEnabled ?? DEFAULT_HOMEPAGE_CONFIG.footerEnabled,
         footerContent: normalizeString(config.footerContent, DEFAULT_HOMEPAGE_CONFIG.footerContent),
         mouseIcon: normalizeString(config.mouseIcon, DEFAULT_HOMEPAGE_CONFIG.mouseIcon),

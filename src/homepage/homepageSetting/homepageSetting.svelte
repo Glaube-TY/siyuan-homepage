@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, mount } from "svelte";
+    import { onMount, mount, onDestroy } from "svelte";
     import * as advanced from "../../components/tools/advanced";
     import { showMessage } from "siyuan";
 
@@ -26,6 +26,19 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "@/features/kb/services/settings/kb-settings-service";
+    import { buildChatModelOptions, findDefaultChatModelOption } from "@/features/kb/services/settings/chat-model-options";
+    import { buildChatModelKey, type ChatModelOption } from "@/features/kb/types/chat-model-selection";
+    import {
+        DEFAULT_STATUS_AI_MAX_CHARS,
+        DEFAULT_STATUS_AI_PROMPT,
+        normalizeHomepageStatusTextMode,
+        normalizeStatusAiMaxChars,
+        normalizeStatusAiModelId,
+        normalizeStatusAiPrompt,
+        normalizeStatusAiThinkingEnabled,
+        type HomepageStatusTextMode,
+    } from "../status-text-config";
 
     let { plugin, close }: HomepageSettingProps = $props();
 
@@ -57,6 +70,16 @@
 
     let tempStatsInfoText =
         $state("自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤");
+    let tempStatusTextMode = $state<HomepageStatusTextMode>("custom");
+    let tempStatusAiPrompt = $state(DEFAULT_STATUS_AI_PROMPT);
+    let tempStatusAiMaxChars = $state(DEFAULT_STATUS_AI_MAX_CHARS);
+    let tempStatusAiProviderId = $state("");
+    let tempStatusAiModelId = $state("");
+    let tempStatusAiThinkingEnabled = $state(false);
+    let statusAiModelOptions: ChatModelOption[] = $state([]);
+    let statusAiAvailableModelCount = $state(0);
+    let statusAiSelectedModelLabel = $state("");
+    let statusAiDefaultModelOption: ChatModelOption | null = $state(null);
 
     let buttonsList: ButtonItem[] = $state(createDefaultButtons());
 
@@ -160,6 +183,65 @@
         onFallingSpeedChange: (value) => FallingSpeed = value,
     };
 
+    function syncStatusAiModelSummary(options: ChatModelOption[] = statusAiModelOptions): void {
+        statusAiAvailableModelCount = options.length;
+        const selectedKey = buildChatModelKey(tempStatusAiProviderId, tempStatusAiModelId);
+        const selected = selectedKey ? options.find((option) => option.key === selectedKey) : undefined;
+        statusAiSelectedModelLabel = selected?.label || "";
+    }
+
+    function hasStatusAiModelSelection(): boolean {
+        return Boolean(tempStatusAiProviderId.trim() && tempStatusAiModelId.trim());
+    }
+
+    function ensureDefaultStatusAiModelSelected(): boolean {
+        if (hasStatusAiModelSelection()) return false;
+
+        const option = statusAiDefaultModelOption ?? statusAiModelOptions[0];
+        if (!option) return false;
+
+        handleStatusAiModelChange({
+            providerId: option.providerId,
+            modelId: option.modelId,
+        });
+        return true;
+    }
+
+    function handleStatusTextModeChange(value: HomepageStatusTextMode): void {
+        tempStatusTextMode = value;
+        if (value === "ai") {
+            ensureDefaultStatusAiModelSelected();
+        }
+    }
+
+    async function refreshStatusAiModelSummary(): Promise<void> {
+        try {
+            const settings = await getKbSettings();
+            const options = buildChatModelOptions(settings);
+            statusAiModelOptions = options;
+            statusAiDefaultModelOption = findDefaultChatModelOption(settings, options) ?? null;
+            if (tempStatusTextMode === "ai") {
+                ensureDefaultStatusAiModelSelected();
+            }
+            syncStatusAiModelSummary(options);
+        } catch (error) {
+            console.warn("[HomepageSetting] 刷新状态语模型列表失败:", error);
+            statusAiModelOptions = [];
+            statusAiDefaultModelOption = null;
+            syncStatusAiModelSummary([]);
+        }
+    }
+
+    function handleStatusAiModelChange(value: { providerId: string; modelId: string }): void {
+        tempStatusAiProviderId = normalizeStatusAiModelId(value.providerId);
+        tempStatusAiModelId = normalizeStatusAiModelId(value.modelId);
+        syncStatusAiModelSummary();
+    }
+
+    function handleKbSettingsChanged(): void {
+        void refreshStatusAiModelSummary();
+    }
+
     // 设置页面加载时读取配置信息
     onMount(async () => {
         const savedConfig = await loadHomepageSettingConfig(plugin);
@@ -199,6 +281,12 @@
             tempTitleIconStyle = savedConfig.tempTitleIconStyle || "square";
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
             tempStatsInfoText = savedConfig.statsInfoText || "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤";
+            tempStatusTextMode = normalizeHomepageStatusTextMode(savedConfig.statusTextMode);
+            tempStatusAiPrompt = normalizeStatusAiPrompt(savedConfig.statusAiPrompt);
+            tempStatusAiMaxChars = normalizeStatusAiMaxChars(savedConfig.statusAiMaxChars);
+            tempStatusAiProviderId = normalizeStatusAiModelId(savedConfig.statusAiProviderId);
+            tempStatusAiModelId = normalizeStatusAiModelId(savedConfig.statusAiModelId);
+            tempStatusAiThinkingEnabled = normalizeStatusAiThinkingEnabled(savedConfig.statusAiThinkingEnabled);
 
             // 恢复按钮配置
             if (savedConfig.buttonsList) {
@@ -334,7 +422,14 @@
         tempBannerType = bannerType;
         tempBannerHeight = bannerHeight;
 
+        await refreshStatusAiModelSummary();
+        window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
+
         advancedEnabled = plugin.ADVANCED;
+    });
+
+    onDestroy(() => {
+        window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
     });
 
     function handleImageSelect(event: Event) {
@@ -516,6 +611,10 @@
         // 保存布局设置到 widgetLayout.json（与组件顺序存储方式一致）
         await saveWidgetLayoutSettings(plugin, { widgetLayoutNumber, widgetGap });
 
+        if (tempStatusTextMode === "ai") {
+            ensureDefaultStatusAiModelSelected();
+        }
+
         const config = {
             // 全局配置
             autoOpenHomepage: tempAutoOpenHomepage,
@@ -540,6 +639,12 @@
             tempTitleIconStyle: tempTitleIconStyle,
 
             statsInfoText: tempStatsInfoText,
+            statusTextMode: normalizeHomepageStatusTextMode(tempStatusTextMode),
+            statusAiPrompt: normalizeStatusAiPrompt(tempStatusAiPrompt),
+            statusAiMaxChars: normalizeStatusAiMaxChars(tempStatusAiMaxChars),
+            statusAiProviderId: normalizeStatusAiModelId(tempStatusAiProviderId),
+            statusAiModelId: normalizeStatusAiModelId(tempStatusAiModelId),
+            statusAiThinkingEnabled: normalizeStatusAiThinkingEnabled(tempStatusAiThinkingEnabled),
 
             // 按钮配置
             buttonsList: buttonsList.map((item) => ({
@@ -740,6 +845,12 @@
                             tempTitleIconStyle={tempTitleIconStyle}
                             tempCustomTitleText={tempCustomTitle}
                             tempStatsText={tempStatsInfoText}
+                            tempStatusTextMode={tempStatusTextMode}
+                            tempStatusAiPrompt={tempStatusAiPrompt}
+                            tempStatusAiMaxChars={tempStatusAiMaxChars}
+                            statusAiAvailableModelCount={statusAiAvailableModelCount}
+                            statusAiSelectedModelLabel={statusAiSelectedModelLabel}
+                            advancedEnabled={advancedEnabled}
                             onTempShowTitleIconChange={(value) => showIcon = value}
                             onTempTitleIconTypeChange={(value) => titleIconType = value}
                             onTempTitleEmojiChange={(value) => tempTitleIconEmoji = value}
@@ -747,6 +858,9 @@
                             onTempTitleIconStyleChange={(value) => tempTitleIconStyle = value}
                             onTempCustomTitleTextChange={(value) => tempCustomTitle = value}
                             onTempStatsTextChange={(value) => tempStatsInfoText = value}
+                            onTempStatusTextModeChange={handleStatusTextModeChange}
+                            onTempStatusAiPromptChange={(value) => tempStatusAiPrompt = value}
+                            onTempStatusAiMaxCharsChange={(value) => tempStatusAiMaxChars = value}
                         />
                     {/if}
 
@@ -884,8 +998,13 @@
                 <AiKnowledgeBaseSettingsTab
                     aiKbDockEnabled={aiKbDockEnabled}
                     aiKbTabEnabled={aiKbTabEnabled}
+                    statusAiProviderId={tempStatusAiProviderId}
+                    statusAiModelId={tempStatusAiModelId}
+                    statusAiThinkingEnabled={tempStatusAiThinkingEnabled}
                     onAiKbDockEnabledChange={(value) => aiKbDockEnabled = value}
                     onAiKbTabEnabledChange={(value) => aiKbTabEnabled = value}
+                    onStatusAiModelChange={handleStatusAiModelChange}
+                    onStatusAiThinkingEnabledChange={(value) => tempStatusAiThinkingEnabled = value}
                 />
             </div>
         {:else if activeTab === "about"}

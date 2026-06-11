@@ -4,6 +4,12 @@
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
     import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
+    import {
+        MAX_STATUS_AI_MAX_CHARS,
+        MIN_STATUS_AI_MAX_CHARS,
+        normalizeStatusAiMaxChars,
+        type HomepageStatusTextMode,
+    } from '@/homepage/status-text-config';
 
     let iconInputEl: HTMLInputElement | null = $state(null);
     let emojiButtonRef: HTMLButtonElement | null = $state(null);
@@ -16,6 +22,12 @@
         tempTitleIconStyle: string;
         tempCustomTitleText: string;
         tempStatsText: string;
+        tempStatusTextMode: HomepageStatusTextMode;
+        tempStatusAiPrompt: string;
+        tempStatusAiMaxChars: number;
+        statusAiAvailableModelCount?: number;
+        statusAiSelectedModelLabel?: string;
+        advancedEnabled?: boolean;
         onTempShowTitleIconChange: (value: boolean) => void;
         onTempTitleIconTypeChange: (value: string) => void;
         onTempTitleEmojiChange: (value: string) => void;
@@ -23,6 +35,9 @@
         onTempTitleIconStyleChange: (value: string) => void;
         onTempCustomTitleTextChange: (value: string) => void;
         onTempStatsTextChange: (value: string) => void;
+        onTempStatusTextModeChange: (value: HomepageStatusTextMode) => void;
+        onTempStatusAiPromptChange: (value: string) => void;
+        onTempStatusAiMaxCharsChange: (value: number) => void;
     }
 
     let {
@@ -33,14 +48,33 @@
         tempTitleIconStyle,
         tempCustomTitleText,
         tempStatsText,
+        tempStatusTextMode,
+        tempStatusAiPrompt,
+        tempStatusAiMaxChars,
+        statusAiAvailableModelCount = 0,
+        statusAiSelectedModelLabel = "",
+        advancedEnabled = false,
         onTempShowTitleIconChange,
         onTempTitleIconTypeChange,
         onTempTitleEmojiChange,
         onTempTitleImageChange,
         onTempTitleIconStyleChange,
         onTempCustomTitleTextChange,
-        onTempStatsTextChange
+        onTempStatsTextChange,
+        onTempStatusTextModeChange,
+        onTempStatusAiPromptChange,
+        onTempStatusAiMaxCharsChange
     }: Props = $props();
+
+    function selectStatusTextMode(mode: HomepageStatusTextMode) {
+        if (mode === "ai" && !advancedEnabled) return;
+        onTempStatusTextModeChange(mode);
+    }
+
+    function handleStatusAiMaxCharsInput(event: Event) {
+        const value = Number((event.currentTarget as HTMLInputElement).value);
+        onTempStatusAiMaxCharsChange(normalizeStatusAiMaxChars(value));
+    }
 
     function handleEmojiSelect() {
         if (emojiButtonRef) {
@@ -152,20 +186,92 @@
 </SettingSection>
 
 <SettingSection title="状态语">
-    <SettingRow title="自定义状态语" description="支持变量，点击查看可用变量">
-        <a
-            href="https://blog.glaube-ty.top/archives/019d2484-7d4f-7573-89dd-772a2c600e2b"
-            target="_blank"
-            class="help-link"
-        >查看变量</a>
+    <SettingRow title="状态语来源" description="选择主页标题下方状态语的生成方式">
+        <div class="status-mode-switch">
+            <button
+                type="button"
+                class:selected={tempStatusTextMode === "custom"}
+                onclick={() => selectStatusTextMode("custom")}
+            >
+                自定义
+            </button>
+            <button
+                type="button"
+                class:selected={tempStatusTextMode === "ai"}
+                disabled={!advancedEnabled}
+                onclick={() => selectStatusTextMode("ai")}
+            >
+                <span>AI 智能生成</span>
+                <span class="vip-label"><SiyuanIcon name="vip" size={12} />会员专属</span>
+            </button>
+        </div>
     </SettingRow>
-    <textarea
-        class="stats-textarea"
-        rows="4"
-        value={tempStatsText}
-        oninput={(e) => onTempStatsTextChange((e.currentTarget as HTMLTextAreaElement).value)}
-        placeholder="输入自定义状态语句"
-    ></textarea>
+
+    {#if tempStatusTextMode === "custom"}
+        <SettingRow title="自定义状态语" description="支持变量，点击查看可用变量">
+            <a
+                href="https://blog.glaube-ty.top/archives/019d2484-7d4f-7573-89dd-772a2c600e2b"
+                target="_blank"
+                class="help-link"
+            >查看变量</a>
+        </SettingRow>
+        <textarea
+            class="stats-textarea"
+            rows="4"
+            value={tempStatsText}
+            oninput={(e) => onTempStatsTextChange((e.currentTarget as HTMLTextAreaElement).value)}
+            placeholder="输入自定义状态语句"
+        ></textarea>
+    {:else}
+        <SettingRow title="生成提示语" description="控制 AI 状态语的风格和格式">
+            <textarea
+                class="ai-prompt-textarea control-full"
+                rows="4"
+                value={tempStatusAiPrompt}
+                oninput={(e) => onTempStatusAiPromptChange((e.currentTarget as HTMLTextAreaElement).value)}
+                placeholder="例如：简短、温和，像给自己的提醒"
+            ></textarea>
+        </SettingRow>
+        <SettingRow title="返回字符上限" description={`限制最终显示长度，范围 ${MIN_STATUS_AI_MAX_CHARS}-${MAX_STATUS_AI_MAX_CHARS} 个字符`}>
+            <input
+                type="number"
+                class="control-sm"
+                min={MIN_STATUS_AI_MAX_CHARS}
+                max={MAX_STATUS_AI_MAX_CHARS}
+                value={tempStatusAiMaxChars}
+                oninput={handleStatusAiMaxCharsInput}
+                onblur={handleStatusAiMaxCharsInput}
+            />
+        </SettingRow>
+
+        <div class="status-ai-notes">
+            {#if !advancedEnabled}
+                <div class="status-ai-note warning">
+                    <SiyuanIcon name="vip" size={14} />
+                    <span>AI 智能生成状态语是会员专属功能，请在「会员服务」中开通后使用。</span>
+                </div>
+            {:else if statusAiAvailableModelCount <= 0}
+                <div class="status-ai-note warning">
+                    <SiyuanIcon name="warning" size={14} />
+                    <span>尚未配置可用大模型。请先到「AI 知识库设置 → 大模型配置」添加模型，再到「AI 知识库」标签选择状态语模型。</span>
+                </div>
+            {:else if statusAiSelectedModelLabel}
+                <div class="status-ai-note">
+                    <SiyuanIcon name="settings" size={14} />
+                    <span>当前状态语模型：{statusAiSelectedModelLabel}</span>
+                </div>
+            {:else}
+                <div class="status-ai-note">
+                    <SiyuanIcon name="settings" size={14} />
+                    <span>使用的模型请在「AI 知识库」标签中选择。</span>
+                </div>
+            {/if}
+            <div class="status-ai-note">
+                <SiyuanIcon name="overview" size={14} />
+                <span>AI 会使用当前统计数据生成状态语，不会读取正文内容。</span>
+            </div>
+        </div>
+    {/if}
 </SettingSection>
 
 <style>
@@ -209,5 +315,85 @@
         color: var(--b3-theme-on-surface);
         font-size: 14px;
         resize: vertical;
+    }
+    .status-mode-switch {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        width: 100%;
+    }
+    .status-mode-switch button {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: 32px;
+        padding: 0 0.75rem;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        background: var(--b3-theme-surface);
+        color: var(--b3-theme-on-surface);
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.2s ease;
+    }
+    .status-mode-switch button:hover:not(:disabled),
+    .status-mode-switch button.selected {
+        border-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 10%, var(--b3-theme-surface));
+        color: var(--b3-theme-primary);
+    }
+    .status-mode-switch button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+    .vip-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        font-size: 11px;
+        line-height: 1;
+        color: var(--b3-theme-primary);
+    }
+    .ai-prompt-textarea {
+        min-height: 96px;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        background: var(--b3-theme-background);
+        color: var(--b3-theme-on-surface);
+        font-size: 14px;
+        line-height: 1.5;
+        resize: vertical;
+        box-sizing: border-box;
+    }
+    .status-ai-notes {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+    .status-ai-note {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        padding: 0.55rem 0.65rem;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        background: var(--b3-theme-surface);
+        color: var(--b3-theme-on-surface);
+        font-size: 12px;
+        line-height: 1.5;
+    }
+    .status-ai-note :global(svg) {
+        margin-top: 2px;
+        color: var(--b3-theme-primary);
+    }
+    .status-ai-note.warning {
+        border-color: color-mix(in srgb, var(--b3-theme-error) 35%, var(--b3-border-color));
+        background: color-mix(in srgb, var(--b3-theme-error) 8%, var(--b3-theme-surface));
+    }
+    .status-ai-note.warning :global(svg) {
+        color: var(--b3-theme-error);
     }
 </style>

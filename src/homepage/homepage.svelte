@@ -17,6 +17,12 @@
         parseDurationExpression,
     } from "./header/stats-loader";
     import {
+        buildHomepageStatusAiCacheKey,
+        generateHomepageStatusText,
+        loadHomepageStatusFacts,
+        type HomepageStatusAiConfig,
+    } from "./header/status-ai-generator";
+    import {
         handleMoreButtonClick,
         handleButtonClick,
         reRegisterAllShortcuts,
@@ -42,7 +48,18 @@
         resolveButtonsList,
         loadBannerDisplaySettings,
         saveBannerDisplaySettings,
+        type HomepageStatusTextMode,
     } from "./configLoader";
+    import {
+        DEFAULT_STATS_INFO_TEXT,
+        DEFAULT_STATUS_AI_MAX_CHARS,
+        DEFAULT_STATUS_AI_PROMPT,
+        normalizeHomepageStatusTextMode,
+        normalizeStatusAiMaxChars,
+        normalizeStatusAiModelId,
+        normalizeStatusAiPrompt,
+        normalizeStatusAiThinkingEnabled,
+    } from "./status-text-config";
     import {
         getCurrentDeviceInfo,
         isDesktopDeviceProfileEnabled,
@@ -102,8 +119,27 @@
     }
     let tempTitleIconStyle: string = $state("square");
 
-    let statsInfoText =
-        $state("自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤");
+    let statsInfoText = $state(DEFAULT_STATS_INFO_TEXT);
+    let statusTextMode = $state<HomepageStatusTextMode>("custom");
+    let statusAiPrompt = $state(DEFAULT_STATUS_AI_PROMPT);
+    let statusAiMaxChars = $state(DEFAULT_STATUS_AI_MAX_CHARS);
+    let statusAiProviderId = $state("");
+    let statusAiModelId = $state("");
+    let statusAiThinkingEnabled = $state(false);
+    const STATUS_AI_LOADING_TEXT = "AI 状态语生成中...";
+    type HomepageStatusAiRuntimeState =
+        | "idle"
+        | "disabled"
+        | "no_premium"
+        | "no_model"
+        | "generating"
+        | "success"
+        | "failed"
+        | "aborted";
+    let statusAiRuntimeState = $state<HomepageStatusAiRuntimeState>("idle");
+    let statusAiVisibleErrorMessage = $state("");
+    let isRefreshingStatusText = $state(false);
+    let homepageConfigLoaded = $state(false);
 
     let footerEnabled = $state(true);
     let footerContent = $state("");
@@ -384,7 +420,9 @@
 
     // 会员验证成功后重新加载配置
     async function handleAdvancedReady() {
+        invalidateStatusAiCache();
         await updateHomepage();
+        await updateDisplayedStatsInfoText();
 
         // 重应用 advanced 相关副作用
         cleanupFallingEffects();
@@ -401,7 +439,9 @@
 
     // 会员状态不可用时重新加载配置
     async function handleAdvancedUnavailable() {
+        invalidateStatusAiCache();
         await updateHomepage();
+        await updateDisplayedStatsInfoText();
 
         // 清理 advanced 相关副作用
         cleanupFallingEffects();
@@ -418,7 +458,9 @@
     // 处理主页设置保存事件 - 本地热应用配置
     async function handleHomepageSettingsSaved() {
         // 1. 重新读取并应用最新配置
+        invalidateStatusAiCache();
         await updateHomepage();
+        await updateDisplayedStatsInfoText();
 
         // 2. 等待 DOM 更新
         await tick();
@@ -724,6 +766,7 @@
         stopForegroundSyncWatch();
         unregisterAllShortcuts();
         cleanupMouseEffects();
+        abortStatusAiRequest();
 
         // 显式销毁所有 widget 实例，触发各自的 onDestroy
         const container = customContentContainer || document.querySelector(".custom-content");
@@ -771,6 +814,7 @@
     // 更新加载主页配置
     async function updateHomepage() {
         const currentVersion = ++updateHomepageVersion;
+        const previousStatusAiConfigSignature = getStatusAiConfigSignature();
         const config = await loadHomepageConfig(plugin);
 
         // 丢弃过期请求结果
@@ -796,6 +840,16 @@
         tempTitleIconStyle = config.tempTitleIconStyle;
 
         statsInfoText = config.statsInfoText;
+        statusTextMode = normalizeHomepageStatusTextMode(config.statusTextMode);
+        statusAiPrompt = normalizeStatusAiPrompt(config.statusAiPrompt);
+        statusAiMaxChars = normalizeStatusAiMaxChars(config.statusAiMaxChars);
+        statusAiProviderId = normalizeStatusAiModelId(config.statusAiProviderId);
+        statusAiModelId = normalizeStatusAiModelId(config.statusAiModelId);
+        statusAiThinkingEnabled = normalizeStatusAiThinkingEnabled(config.statusAiThinkingEnabled);
+        if (previousStatusAiConfigSignature !== getStatusAiConfigSignature()) {
+            invalidateStatusAiCache();
+        }
+        homepageConfigLoaded = true;
 
         // 页脚配置
         footerEnabled = config.footerEnabled;
@@ -838,16 +892,59 @@
 
     // 格式化状态语言，将变量替换为统计信息（异步处理）
     let formattedStatsInfoText = $state("");
+    let statusAiCacheKey = "";
+    let statusAiCachedText = "";
+    let statusAiAbortController: AbortController | null = null;
 
-    async function updateFormattedStatsInfoText() {
-        const currentVersion = ++updateStatsVersion;
-
-        if (!statsInfoText) {
-            formattedStatsInfoText = "";
-            return;
+    function setStatusAiRuntimeState(state: HomepageStatusAiRuntimeState, message = ""): void {
+        statusAiRuntimeState = state;
+        if (message) {
+            console.debug(`[Homepage] AI 状态语状态: ${statusAiRuntimeState} - ${message}`);
         }
+    }
 
-        let result = statsInfoText;
+    function sanitizeStatusAiDiagnosticMessage(value: unknown): string {
+        const raw = value instanceof Error ? value.message : String(value || "未知错误");
+        return raw
+            .replace(/\s+/g, " ")
+            .replace(/Bearer\s+[^\s]+/gi, "Bearer ***")
+            .replace(/sk-[A-Za-z0-9_-]+/gi, "sk-***")
+            .replace(/(api[-_\s]?key\s*[:=]\s*)[^\s,;]+/gi, "$1***")
+            .replace(/(baseUrl|baseURL|base_url)\s*[:=]\s*[^\s,;]+/gi, "$1=***")
+            .replace(/https?:\/\/[^\s)]+/gi, "[url]")
+            .replace(/[A-Za-z]:\\[^\s)]+/g, "[path]")
+            .replace(/\/(?:Users|home|mnt|var|tmp|src|dist|node_modules)\/[^\s)]+/g, "[path]")
+            .replace(/[A-Za-z0-9_-]{32,}/g, "***")
+            .slice(0, 240);
+    }
+
+    function getHomepageStatusAiFailureText(reason: "not_premium" | "no_model" | "model_error" | "empty_output" | "aborted" | "unknown"): string {
+        if (reason === "not_premium") return "AI 状态语生成失败：未开通会员。";
+        if (reason === "no_model") return "AI 状态语生成失败：未选择可用模型。";
+        if (reason === "aborted") return "AI 状态语生成失败：请求已取消。";
+        if (reason === "empty_output") return "AI 状态语生成失败：模型没有返回可显示内容。";
+        return "AI 状态语生成失败：模型调用失败，请检查大模型配置。";
+    }
+
+    function setVisibleStatusTextError(message: string): void {
+        statusAiVisibleErrorMessage = message;
+        formattedStatsInfoText = message;
+    }
+
+    function getStatusAiConfigSignature(): string {
+        return JSON.stringify(getHomepageStatusAiConfig());
+    }
+
+    function invalidateStatusAiCache(): void {
+        statusAiCacheKey = "";
+        statusAiCachedText = "";
+        abortStatusAiRequest();
+    }
+
+    async function formatCustomStatsInfoText(template: string): Promise<string> {
+        if (!template) return "";
+
+        let result = template;
 
         // 异步加载所有统计数据
         const [
@@ -915,17 +1012,147 @@
             result = result.replace(full, replacement);
         }
 
-        // 丢弃过期请求结果
-        if (currentVersion !== updateStatsVersion) return;
-
-        formattedStatsInfoText = result;
+        return result;
     }
 
-    // 当 statsInfoText 变化时更新格式化文本
-    run(() => {
-        if (statsInfoText !== undefined) {
-            updateFormattedStatsInfoText();
+    function getHomepageStatusAiConfig(): HomepageStatusAiConfig {
+        return {
+            prompt: statusAiPrompt,
+            maxChars: statusAiMaxChars,
+            providerId: statusAiProviderId,
+            modelId: statusAiModelId,
+            thinkingEnabled: statusAiThinkingEnabled,
+        };
+    }
+
+    function abortStatusAiRequest(): void {
+        if (statusAiAbortController) {
+            statusAiAbortController.abort();
+            statusAiAbortController = null;
         }
+    }
+
+    async function updateDisplayedStatsInfoText(options: { forceRefresh?: boolean } = {}) {
+        const currentVersion = ++updateStatsVersion;
+        abortStatusAiRequest();
+
+        if (options.forceRefresh) {
+            statusAiCacheKey = "";
+            statusAiCachedText = "";
+        }
+
+        if (statusTextMode !== "ai") {
+            setStatusAiRuntimeState("disabled");
+            statusAiVisibleErrorMessage = "";
+            const customText = await formatCustomStatsInfoText(statsInfoText);
+            if (currentVersion !== updateStatsVersion) return;
+            formattedStatsInfoText = customText;
+            return;
+        }
+
+        statusAiVisibleErrorMessage = "";
+        formattedStatsInfoText = STATUS_AI_LOADING_TEXT;
+        setStatusAiRuntimeState("generating");
+
+        if (!advanced) {
+            setStatusAiRuntimeState("no_premium");
+            setVisibleStatusTextError(getHomepageStatusAiFailureText("not_premium"));
+            console.warn("[Homepage] AI 状态语未生成：会员状态不可用。");
+            return;
+        }
+
+        const aiConfig = getHomepageStatusAiConfig();
+        if (!aiConfig.providerId || !aiConfig.modelId) {
+            setStatusAiRuntimeState("no_model");
+            setVisibleStatusTextError(getHomepageStatusAiFailureText("no_model"));
+            console.warn("[Homepage] AI 状态语未生成：未选择可用模型。");
+            return;
+        }
+
+        const abortController = new AbortController();
+        statusAiAbortController = abortController;
+
+        try {
+            const facts = await loadHomepageStatusFacts(plugin);
+            if (currentVersion !== updateStatsVersion || abortController.signal.aborted) {
+                return;
+            }
+
+            const cacheKey = buildHomepageStatusAiCacheKey(aiConfig, facts);
+            if (!options.forceRefresh && cacheKey === statusAiCacheKey && statusAiCachedText) {
+                formattedStatsInfoText = statusAiCachedText;
+                setStatusAiRuntimeState("success", "命中缓存");
+                return;
+            }
+
+            const result = await generateHomepageStatusText({
+                plugin,
+                config: aiConfig,
+                facts,
+                abortSignal: abortController.signal,
+            });
+
+            if (currentVersion !== updateStatsVersion || abortController.signal.aborted) {
+                return;
+            }
+
+            if (result.ok) {
+                statusAiCacheKey = result.cacheKey;
+                statusAiCachedText = result.text;
+                formattedStatsInfoText = result.text;
+                setStatusAiRuntimeState("success");
+            } else if (result.reason === "aborted") {
+                setStatusAiRuntimeState("aborted");
+                setVisibleStatusTextError(getHomepageStatusAiFailureText("aborted"));
+            } else if (result.reason !== "aborted") {
+                setStatusAiRuntimeState(result.reason === "no_model" ? "no_model" : result.reason === "not_premium" ? "no_premium" : "failed");
+                setVisibleStatusTextError(getHomepageStatusAiFailureText(result.reason));
+                console.warn(
+                    "[Homepage] AI 状态语生成失败:",
+                    sanitizeStatusAiDiagnosticMessage(result.message),
+                );
+            }
+        } catch (error) {
+            if (!abortController.signal.aborted) {
+                setStatusAiRuntimeState("failed");
+                setVisibleStatusTextError(getHomepageStatusAiFailureText("unknown"));
+                console.warn(
+                    "[Homepage] AI 状态语生成异常:",
+                    sanitizeStatusAiDiagnosticMessage(error),
+                );
+            }
+        } finally {
+            if (statusAiAbortController === abortController) {
+                statusAiAbortController = null;
+            }
+        }
+    }
+
+    async function refreshStatusText(): Promise<void> {
+        if (isRefreshingStatusText) return;
+
+        isRefreshingStatusText = true;
+        try {
+            invalidateStatusAiCache();
+            await updateDisplayedStatsInfoText({ forceRefresh: true });
+        } finally {
+            isRefreshingStatusText = false;
+        }
+    }
+
+    // 当状态语相关配置变化时更新显示文本
+    run(() => {
+        statsInfoText;
+        statusTextMode;
+        statusAiPrompt;
+        statusAiMaxChars;
+        statusAiProviderId;
+        statusAiModelId;
+        statusAiThinkingEnabled;
+        advanced;
+        homepageConfigLoaded;
+        if (!homepageConfigLoaded) return;
+        updateDisplayedStatsInfoText();
     });
 
     // 过滤按钮列表，只显示未选中的按钮
@@ -1028,8 +1255,26 @@
             <h1 class="section-title">{pageTitle}</h1>
         </div>
 
-        <div class="stats-info" style="white-space: pre-line">
-            {formattedStatsInfoText}
+        <div class="stats-info-wrap">
+            <div
+                class="stats-info"
+                class:error={Boolean(statusAiVisibleErrorMessage)}
+                style="white-space: pre-line"
+            >
+                {formattedStatsInfoText}
+            </div>
+
+            <button
+                class="stats-info-refresh"
+                class:is-refreshing={isRefreshingStatusText}
+                type="button"
+                title="刷新状态语"
+                aria-label="刷新状态语"
+                disabled={isRefreshingStatusText || statusAiRuntimeState === "generating"}
+                onclick={() => void refreshStatusText()}
+            >
+                <SiyuanIcon name="refresh" size={14} />
+            </button>
         </div>
 
         <!-- 快捷按钮栏 -->

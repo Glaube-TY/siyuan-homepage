@@ -32,6 +32,7 @@ import countdownTimer from "./widget/countdownTimer/countdownTimer.svelte";
 import conditionDocs from "./widget/conditionDocs/conditionDocs.svelte";
 import fixedAssets from "./widget/fixedAssets/fixedAssets.svelte";
 import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
+import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
 
 const widgetRegistry: Record<string, any> = {
     "latest-docs": latestDocs,
@@ -67,6 +68,7 @@ const widgetRegistry: Record<string, any> = {
     "conditionDocs": conditionDocs,
     "fixedAssets": fixedAssets,
     "enhancedDiary": enhancedDiary,
+    "notebrain": KbPremiumGatePanel,
 };
 
 const widgetNeedsPlugin: Set<string> = new Set([
@@ -100,6 +102,7 @@ const widgetNeedsPlugin: Set<string> = new Set([
     "conditionDocs",
     "fixedAssets",
     "enhancedDiary",
+    "notebrain",
 ]);
 
 export function mountWidgetContent(
@@ -130,6 +133,10 @@ export function mountWidgetContent(
 
     if (widgetNeedsPlugin.has(widgetType)) {
         props.plugin = plugin;
+    }
+
+    if (widgetType === "notebrain") {
+        props.placement = "dock";
     }
 
     return mount(widgetComponent, {

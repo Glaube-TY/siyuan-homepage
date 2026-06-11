@@ -1,5 +1,6 @@
 import type { ButtonItem } from './types';
 import type { DeviceProfilesMap } from '../utils/deviceProfile';
+import type { HomepageStatusTextMode } from '../status-text-config';
 
 export type DocPreviewMode = "preview" | "wysiwyg";
 
@@ -26,6 +27,12 @@ export interface HomepageSettingConfig {
     tempTitleIconStyle: string;
     customTitle: string;
     statsInfoText: string;
+    statusTextMode?: HomepageStatusTextMode;
+    statusAiPrompt?: string;
+    statusAiMaxChars?: number;
+    statusAiProviderId?: string;
+    statusAiModelId?: string;
+    statusAiThinkingEnabled?: boolean;
     buttonsList: ButtonItem[];
     selectedButton: ButtonItem | null;
     widgetLayoutNumber: number;
