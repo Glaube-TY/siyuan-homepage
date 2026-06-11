@@ -90,7 +90,7 @@ export function createListKnowledgeMapTool(deps: ListKnowledgeMapDeps): ToolCont
       const nodeCount = data.returnedDocCount ?? data.returnedNodeCount;
       if (nodeCount > 0) {
         const canContinue = data.hasMore === true && !!data.nextCursor;
-        return `已返回 ${nodeCount} 个节点${canContinue ? "，可使用 cursor 继续" : ""}。`;
+        return `已返回 ${nodeCount} 个节点${canContinue ? "，后续内容可通过 cursor 继续" : ""}。`;
       }
       // 0 nodes with error info
       if ((data as { error?: { code?: string; message?: string; hint?: string } }).error) {

@@ -86,7 +86,7 @@ export async function executeGetDailyWorkspaceOverview(
       carryoverPlansReturned: include.has("carryover") ? Math.min(state.carryoverPlans.length, CARRYOVER_LIMIT) : 0,
       carryoverPlansTruncated: include.has("carryover") ? state.carryoverPlans.length > CARRYOVER_LIMIT : false,
     },
-    note: "只读概览；不会创建日记、补模板、写入任务、迁移任务或修改记录。如某项 truncated=true，可缩小范围或使用对应查询工具继续查看。",
+    note: "只读概览；不会创建日记、补模板、写入任务、迁移任务或修改记录。本结果不包含完整明细；明细查询能力依赖真实参数。",
   };
 
   if (include.has("summary")) {

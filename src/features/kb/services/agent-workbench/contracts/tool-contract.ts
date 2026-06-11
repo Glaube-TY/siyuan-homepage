@@ -6,6 +6,8 @@
  * summarizeResult is optional — for UI/trace summary only.
  */
 
+import type { ZodSchema } from "zod";
+
 export interface ToolSafetyInfo {
   readOnly: boolean;
   canWrite?: boolean;
@@ -75,8 +77,8 @@ export interface ToolContract<TArgs = unknown, TResult = unknown> {
   name: string;
   title: string;
   description: string;
-  inputSchema: import("zod").ZodSchema<TArgs>;
-  outputSchema?: import("zod").ZodSchema<TResult>;
+  inputSchema: ZodSchema<TArgs>;
+  outputSchema?: ZodSchema<TResult>;
   readOnly: boolean;
   safety: ToolSafetyInfo;
   source: ToolSource;

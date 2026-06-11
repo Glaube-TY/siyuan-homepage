@@ -135,7 +135,7 @@ export class MarkdownSkillLoader {
           diagnostics.push({
             entryId: entry.id, filename: entry.filename,
             level: "error", code: "FORBIDDEN_TOKEN",
-            message: `Skill contains forbidden tokens: ${forbiddenTokens.join(", ")}`,
+            message: "Skill 包含固定流程或工具绑定表达，请改成能力边界和通用使用策略。",
           });
           continue;
         }

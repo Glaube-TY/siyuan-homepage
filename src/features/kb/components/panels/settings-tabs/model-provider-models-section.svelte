@@ -1,11 +1,12 @@
 <script lang="ts">
-  import type { KbChatProviderConfig, KbChatModelConfig } from "../../../types/settings";
-  import type { ModelConnectionTestResult } from "../../../services/qa/model-connection-test";
+  import type { KbChatProviderConfig, KbChatModelConfig, ControlPlaneCompatibility } from "../../../types/settings";
+  import type { ModelConnectionTestResult, ControlPlaneCompatibilityTestResult } from "../../../services/qa/model-connection-test";
   import {
     normalizeId,
     hasUsableChatModel,
     getChatModelKey,
   } from "../../../services/settings/chat-provider-config";
+  import { resolveProviderProfile } from "../../../services/qa/provider-profile";
 
   export let provider: KbChatProviderConfig;
   export let refreshMessage: string = "";
@@ -22,11 +23,55 @@
   export let onRemoveModel: (providerId: string, modelIndex: number) => void;
   export let onSelectModel: (providerId: string, modelId: string) => void;
   export let onTestModel: (providerId: string, modelId: string) => void | Promise<void>;
+  export let onTestControlPlane: (providerId: string, modelId: string) => void | Promise<void>;
   export let isCurrentModel: (providerId: string, modelId: string) => boolean;
   export let canUseModel: (provider: KbChatProviderConfig, model: KbChatModelConfig) => boolean;
   export let getSelectModelTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
   export let getTestModelTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
   export let isTestingModel: (providerId: string, modelId: string) => boolean;
+  export let isTestingControlPlane: (providerId: string, modelId: string) => boolean;
+  export let testingControlPlaneKey: string = "";
+  export let getTestControlPlaneTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
+  /** 自动操作测试结果（直接 prop，确保响应式刷新） */
+  export let controlPlaneTestResults: Record<string, ControlPlaneCompatibilityTestResult> = {};
+
+  /**
+   * 获取合并后的 temperature 参数策略（provider profile 合并 model 覆盖）。
+   * 不直接判断 provider.type，避免 UI 层硬编码 provider 特定逻辑。
+   */
+  function getTemperatureParamStrategy(
+    p: KbChatProviderConfig,
+    m: KbChatModelConfig,
+  ): string | undefined {
+    try {
+      const profile = resolveProviderProfile(p.type, {
+        providerControlPlaneCompatibility: p.controlPlaneCompatibility,
+        modelControlPlaneCompatibility: m.controlPlaneCompatibility,
+      });
+      return profile.controlPlaneCompatibility?.temperatureParamStrategy;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * 获取合并后的 controlPlaneCompatibility（provider profile 默认 + provider 配置 + model 覆盖）。
+   * UI 温度提示和显示值都从此读取，不直接读 model/provider 原始字段。
+   */
+  function getResolvedControlPlaneCompatibility(
+    p: KbChatProviderConfig,
+    m: KbChatModelConfig,
+  ): ControlPlaneCompatibility | undefined {
+    try {
+      const profile = resolveProviderProfile(p.type, {
+        providerControlPlaneCompatibility: p.controlPlaneCompatibility,
+        modelControlPlaneCompatibility: m.controlPlaneCompatibility,
+      });
+      return profile.controlPlaneCompatibility;
+    } catch {
+      return undefined;
+    }
+  }
 </script>
 
 <div class="models-section">
@@ -53,6 +98,9 @@
   <div class="models-hint">
     模型更新较快，可点击刷新从服务商拉取当前账号可用模型；也可以手动填写模型 ID。
   </div>
+  <div class="models-hint models-hint-warning">
+    模型列表可刷新，不代表一定能用于自动操作；建议再运行自动操作测试。
+  </div>
   {#if refreshMessage}
     <div class="refresh-message">{refreshMessage}</div>
   {/if}
@@ -74,6 +122,8 @@
   <div class="models-list">
     {#each provider.models as model, modelIndex (modelIndex)}
       {@const modelKey = getChatModelKey(normalizeId(provider.id), normalizeId(model.id))}
+      {@const tempStrategy = getTemperatureParamStrategy(provider, model)}
+      {@const resolvedCp = getResolvedControlPlaneCompatibility(provider, model)}
       <div class="model-item">
         <div class="model-main-fields">
           <div class="model-field">
@@ -107,12 +157,20 @@
           <div class="model-field">
             <label>
               <span>Temperature</span>
+              {#if tempStrategy === "omit"}
+                <span class="temperature-hint">该模型使用服务商默认温度。</span>
+              {:else if tempStrategy === "fixed"}
+                <span class="temperature-hint">该模型固定为 {resolvedCp?.fixedTemperature}</span>
+              {/if}
               <input
                 type="number"
-                value={model.temperature}
+                value={tempStrategy === "fixed"
+                  ? (resolvedCp?.fixedTemperature ?? model.temperature)
+                  : model.temperature}
                 min="0"
                 max="2"
                 step="0.1"
+                readonly={tempStrategy === "fixed" || tempStrategy === "omit"}
                 on:input={(e) =>
                   onUpdateModel(provider.id, modelIndex, {
                     temperature: parseFloat(e.currentTarget.value) || 0,
@@ -122,6 +180,11 @@
             </label>
           </div>
         </div>
+        {#if model.notRecommendedForPlanner}
+          <div class="model-warning-badge">
+            当前模型更适合生成计划，不太适合快速执行自动操作。
+          </div>
+        {/if}
         <div class="model-token-fields">
           <div class="model-field" title="单次响应的最大输出 Token 数，不填则使用服务商默认">
             <label>
@@ -199,6 +262,20 @@
 
           <button
             type="button"
+            class="settings-btn secondary"
+            disabled={
+              Boolean(testingModelKey) ||
+              Boolean(testingControlPlaneKey) ||
+              !canUseModel(provider, model)
+            }
+            title={getTestControlPlaneTitle(provider, model)}
+            on:click={() => onTestControlPlane(provider.id, model.id)}
+          >
+            {isTestingControlPlane(provider.id, model.id) ? "测试中..." : "测试自动操作"}
+          </button>
+
+          <button
+            type="button"
             class="settings-btn danger"
             on:click={() => onRemoveModel(provider.id, modelIndex)}
           >
@@ -216,6 +293,23 @@
             class:error={result.severity ? result.severity === "error" : !result.success}
           >
             {result.message}
+          </div>
+        {/if}
+
+        <!-- 自动操作测试结果 -->
+        {#if isTestingControlPlane(provider.id, model.id)}
+          <div class="test-result testing">
+            正在测试自动操作，请稍候……
+          </div>
+        {:else if controlPlaneTestResults[modelKey]}
+          {@const cpResult = controlPlaneTestResults[modelKey]}
+          <div
+            class="test-result"
+            class:success={cpResult.status === "success"}
+            class:warning={cpResult.status === "reasoning_only"}
+            class:error={cpResult.status === "timeout" || cpResult.status === "invalid_json" || cpResult.status === "error"}
+          >
+            {cpResult.message}
           </div>
         {/if}
       </div>
@@ -289,10 +383,25 @@
     line-height: 1.4;
   }
 
+  .model-warning-badge {
+    margin-top: 4px;
+    padding: 6px 10px;
+    background: var(--b3-theme-warning, #fff3e0);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--b3-theme-warning-text, #e65100);
+    line-height: 1.4;
+  }
+
   .models-hint {
     color: var(--b3-theme-on-surface-light);
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  .models-hint-warning {
+    color: #e6a23c;
+    font-weight: 500;
   }
 
   .models-empty-state {
@@ -380,6 +489,13 @@
     }
   }
 
+  .temperature-hint {
+    font-size: 11px;
+    color: var(--b3-theme-on-surface-light);
+    font-style: italic;
+    margin-top: 2px;
+  }
+
   .model-actions {
     display: flex;
     align-items: center;
@@ -413,6 +529,12 @@
       border: 1px solid #f44336;
       background: rgba(244, 67, 54, 0.1);
       color: #c62828;
+    }
+
+    &.testing {
+      border: 1px solid #2196f3;
+      background: rgba(33, 150, 243, 0.1);
+      color: #1565c0;
     }
   }
 

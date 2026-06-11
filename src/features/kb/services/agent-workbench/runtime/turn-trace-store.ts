@@ -17,6 +17,9 @@ export interface TurnTrace {
     durationMs?: number;
     argsPreview?: Record<string, unknown>;
     outputSummary?: string;
+    message?: string;
+    status?: string;
+    errorCode?: string;
   }>;
 }
 

@@ -38,7 +38,8 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
 };
 
 export const DEFAULT_SKILL_SETTINGS: KbSkillSettings = {
-  disabledBuiltinSkillNames: [],
+  disabledBuiltinSkillNames: ["builtin_doc_content_editing"],
+  initializedDefaultDisabledBuiltinSkillNames: ["builtin_doc_content_editing"],
 };
 
 export const DEFAULT_KB_SETTINGS: KbSettings = {

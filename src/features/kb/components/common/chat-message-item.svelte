@@ -6,6 +6,7 @@
   import { navigateToReference, navigateToDocId } from "../../services/siyuan/reference-navigation";
   import { mdToHtml } from "../../utils/md-to-html";
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
+  import { mapAgentErrorToUserFacing } from "../../services/agent-workbench/runtime/user-facing-agent-error";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   // Props - 由父组件 ChatMessageList 传入
@@ -187,9 +188,18 @@
     list_knowledge_map: "查看知识库结构",
     search_scope: "搜索知识库",
     read_docs: "读取文档正文",
+    read_doc_blocks: "读取文档块",
     web_search: "联网搜索",
     web_read_page: "读取网页",
     edit_global_memory: "编辑全局记忆",
+    create_doc: "创建文档",
+    rename_doc: "重命名文档",
+    delete_doc: "删除文档",
+    replace_doc_content: "替换文档正文",
+    update_block: "更新内容块",
+    insert_block: "插入内容块",
+    delete_block: "删除内容块",
+    move_block: "移动内容块",
   };
 
   const ARG_LABELS: Record<string, string> = {
@@ -203,7 +213,12 @@
     rootDocId: "根文档",
     centerDocId: "中心文档",
     notebookId: "笔记本",
-    cursor: "继续位置",
+    docId: "文档 ID",
+    path: "路径",
+    markdown: "正文",
+    summary: "摘要",
+    title: "标题",
+    blockId: "内容块 ID",
     includeTags: "标签",
     includeLinkedDocs: "关联文档",
     url: "网址",
@@ -299,10 +314,16 @@
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
       if (event.type === "TurnFailed") {
+        // 使用用户可读错误映射，不直接展示内部 message
+        const evRecord = event as unknown as Record<string, unknown>;
+        const userFacing = mapAgentErrorToUserFacing({
+          agentErrorCode: (evRecord.errorCode as string | undefined) ?? (evRecord.status as string | undefined),
+          message: event.message,
+        });
         steps.push({
           key: `failed-${event.stepIndex ?? index}-${event.at}`,
           title: "处理失败",
-          summary: event.message ?? "本轮处理未完成。",
+          summary: `${userFacing.title}：${userFacing.message}`,
           ok: false,
         });
         continue;

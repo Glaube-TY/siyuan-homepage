@@ -31,7 +31,7 @@ export function createFindDiaryDocsTool(
     safety: { readOnly: true },
     source: "builtin",
     inputHint: "period 可选 day/week/month/year；date 查询单个周期；或同时传 startDate/endDate 查询范围。includeMarkdown 默认 false，maxChars 限制预览字数。",
-    boundary: "只读；不创建日记，不补模板，不标记完成，不跳过复盘。需要正文详情时，优先拿 docId 调用 read_docs。",
+    boundary: "只读；不创建日记，不补模板，不标记完成，不跳过复盘。本工具只返回文档定位和元信息，不返回完整正文。",
     plannerVisible: true,
     inputJsonSchemaOverride: {
       type: "object",

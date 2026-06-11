@@ -1,52 +1,20 @@
 /**
  * Composition root: Agent Workbench runtime.
  * Uses per-turn registries with no global state between turns.
+ *
+ * This file only creates registries and calls composition modules.
+ * All tool/skill factory + impl imports live in composition/ modules.
  */
 
 import { ObservationLog } from "./observation-log";
 import { SkillRegistry } from "../registries/skill-registry";
 import { ToolRegistry } from "../registries/tool-registry";
-import { createFinalAnswerTool } from "../tools/system/final-answer.tool";
-import {
-  createListKnowledgeMapTool,
-  type ListKnowledgeMapDeps,
-} from "../tools/siyuan/list-knowledge-map.tool";
-import {
-  createSearchScopeTool,
-  type SearchScopeDeps,
-} from "../tools/siyuan/search-scope.tool";
-import {
-  createReadDocsTool,
-  type ReadDocsDeps,
-} from "../tools/siyuan/read-docs.tool";
-import {
-  createGetDailyWorkspaceOverviewTool,
-  type GetDailyWorkspaceOverviewDeps,
-} from "../tools/siyuan/get-daily-workspace-overview.tool";
-import {
-  createQueryTasksTool,
-  type QueryTasksDeps,
-} from "../tools/siyuan/query-tasks.tool";
-import {
-  createQueryDiaryRecordsTool,
-  type QueryDiaryRecordsDeps,
-} from "../tools/siyuan/query-diary-records.tool";
-import {
-  createFindDiaryDocsTool,
-  type FindDiaryDocsDeps,
-} from "../tools/siyuan/find-diary-docs.tool";
-import { createKnowledgeBaseQaSkill } from "../skills/builtin/knowledge-base-qa.skill";
-import { createScheduleTaskDiarySkill } from "../skills/builtin/schedule-task-diary.skill";
-
-// Tool execution implementations — independent of Skill directory
 import type { SiyuanToolDeps } from "../tools/siyuan/siyuan-tool-deps";
-import { executeListKnowledgeMap } from "../tools/siyuan/impl/list-knowledge-map.impl";
-import { executeSearchScope } from "../tools/siyuan/impl/search-scope.impl";
-import { executeReadDocs } from "../tools/siyuan/impl/read-docs.impl";
-import { executeGetDailyWorkspaceOverview } from "../tools/siyuan/impl/get-daily-workspace-overview.impl";
-import { executeQueryTasks } from "../tools/siyuan/impl/query-tasks.impl";
-import { executeQueryDiaryRecords } from "../tools/siyuan/impl/query-diary-records.impl";
-import { executeFindDiaryDocs } from "../tools/siyuan/impl/find-diary-docs.impl";
+import type { WebSearchProvider } from "../tools/web-search/web-search-provider";
+import { registerBuiltinSkills, type BuiltinCapabilityAccess } from "../composition/register-builtin-skills";
+import { registerSystemTools } from "../composition/register-system-tools";
+import { registerSiyuanTools } from "../composition/register-siyuan-tools";
+import { registerWebTools } from "../composition/register-web-tools";
 
 // User skill loader (uses new agent-workbench contracts directly)
 import { MarkdownSkillLoader } from "../skills/user/markdown-skill-loader";
@@ -61,24 +29,13 @@ import { runSchemaSanity } from "../debug/schema-sanity";
 // Single debug entry point
 import { setupAgentDebug } from "../debug/workbench-debug";
 
-// Web search tools — factory imports only, no side effects
-import { createWebSearchTool } from "../tools/web-search/web-search.tool";
-import { createWebReadPageTool } from "../tools/web-search/web-read-page.tool";
-import type { WebSearchProvider } from "../tools/web-search/web-search-provider";
-
-// Global memory tool
-import { createEditGlobalMemoryTool } from "../tools/system/edit-global-memory.tool";
-
 export interface AgentWorkbenchRuntime {
   skillRegistry: SkillRegistry;
   toolRegistry: ToolRegistry;
   observationLog: ObservationLog;
 }
 
-export interface BuiltinCapabilityAccess {
-  knowledgeBase: boolean;
-  scheduleTaskDiary: boolean;
-}
+export type { BuiltinCapabilityAccess };
 
 export interface AgentWorkbenchRuntimeOptions {
   kbRetrievalToolDeps?: SiyuanToolDeps;
@@ -101,37 +58,15 @@ export interface AgentWorkbenchRuntimeOptions {
     readDocs: boolean;
     webReadPage: boolean;
     editGlobalMemory: boolean;
+    getDocInfo: boolean;
   };
   /** Optional: global memory tool deps. When present, registers edit_global_memory. */
   globalMemoryToolDeps?: {
     docId: string;
     maxEntryChars: number;
   };
-}
-
-function createSiyuanToolDeps(deps: SiyuanToolDeps) {
-  const lkmDeps: ListKnowledgeMapDeps = {
-    executeListKnowledgeMap: (args) => executeListKnowledgeMap(deps, args),
-  };
-  const searchDeps: SearchScopeDeps = {
-    executeSearchScope: (args) => executeSearchScope(deps, args),
-  };
-  const readDeps: ReadDocsDeps = {
-    executeReadDocs: (args) => executeReadDocs(deps, args),
-  };
-  const overviewDeps: GetDailyWorkspaceOverviewDeps = {
-    executeGetDailyWorkspaceOverview: (args) => executeGetDailyWorkspaceOverview(deps, args),
-  };
-  const taskDeps: QueryTasksDeps = {
-    executeQueryTasks: (args) => executeQueryTasks(deps, args),
-  };
-  const recordDeps: QueryDiaryRecordsDeps = {
-    executeQueryDiaryRecords: (args) => executeQueryDiaryRecords(deps, args),
-  };
-  const diaryDocDeps: FindDiaryDocsDeps = {
-    executeFindDiaryDocs: (args) => executeFindDiaryDocs(deps, args),
-  };
-  return { lkmDeps, searchDeps, readDeps, overviewDeps, taskDeps, recordDeps, diaryDocDeps };
+  /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
+  conversationId?: string;
 }
 
 export function createAgentWorkbenchRuntime(
@@ -142,71 +77,30 @@ export function createAgentWorkbenchRuntime(
   const toolRegistry = new ToolRegistry();
 
   // Register built-in skills based on capability access (settings-level visibility gate)
-  if (options.builtinCapabilityAccess?.knowledgeBase !== false) {
-    skillRegistry.ensureSkill(createKnowledgeBaseQaSkill(), "builtin");
-  }
-  if (options.builtinCapabilityAccess?.scheduleTaskDiary !== false) {
-    skillRegistry.ensureSkill(createScheduleTaskDiarySkill(), "builtin");
-  }
+  registerBuiltinSkills(skillRegistry, options.builtinCapabilityAccess);
 
-  // Register final_answer (plannerVisible: false — not in tool manifest)
-  toolRegistry.ensureTool(createFinalAnswerTool());
+  // Register system tools (final_answer, edit_global_memory)
+  registerSystemTools(toolRegistry, {
+    globalMemoryToolDeps: options.globalMemoryToolDeps,
+    globalToolAccess: options.globalToolAccess,
+  });
 
-  // Register siyuan tools
+  // Register Siyuan tools (knowledge base, diary, doc editing)
   if (options.kbRetrievalToolDeps) {
-    const {
-      lkmDeps,
-      searchDeps,
-      readDeps,
-      overviewDeps,
-      taskDeps,
-      recordDeps,
-      diaryDocDeps,
-    } = createSiyuanToolDeps(options.kbRetrievalToolDeps);
-
-    // read_docs is a global read-only tool; register when kbRetrievalToolDeps are present and not disabled
-    if (options.globalToolAccess?.readDocs !== false) {
-      toolRegistry.ensureTool(createReadDocsTool(readDeps));
-    }
-
-    if (options.builtinCapabilityAccess?.knowledgeBase !== false) {
-      toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
-      toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
-    }
-
-    if (options.builtinCapabilityAccess?.scheduleTaskDiary !== false) {
-      toolRegistry.ensureTool(createGetDailyWorkspaceOverviewTool(overviewDeps));
-      toolRegistry.ensureTool(createQueryTasksTool(taskDeps));
-      toolRegistry.ensureTool(createQueryDiaryRecordsTool(recordDeps));
-      toolRegistry.ensureTool(createFindDiaryDocsTool(diaryDocDeps));
-    }
+    registerSiyuanTools(toolRegistry, {
+      kbRetrievalToolDeps: options.kbRetrievalToolDeps,
+      conversationId: options.conversationId,
+      builtinCapabilityAccess: options.builtinCapabilityAccess,
+      globalToolAccess: options.globalToolAccess,
+    });
   }
 
-  // Register web search tool (when web search access is enabled)
-  if (options.webSearchToolDeps) {
-    toolRegistry.ensureTool(createWebSearchTool({
-      getProvider: options.webSearchToolDeps.getProvider,
-      maxResults: options.webSearchToolDeps.maxResults,
-      timeoutMs: options.webSearchToolDeps.timeoutMs,
-    }));
-  }
-
-  // Register web read page tool (when web read access is enabled and not disabled)
-  if (options.webReadPageToolDeps && options.globalToolAccess?.webReadPage !== false) {
-    toolRegistry.ensureTool(createWebReadPageTool({
-      readProxyEndpoint: options.webReadPageToolDeps.readProxyEndpoint,
-      readPageMaxChars: options.webReadPageToolDeps.readPageMaxChars,
-      timeoutMs: options.webReadPageToolDeps.timeoutMs,
-    }));
-  }
-
-  // Register global memory edit tool (when deps present and not disabled)
-  if (options.globalMemoryToolDeps && options.globalToolAccess?.editGlobalMemory !== false) {
-    toolRegistry.ensureTool(createEditGlobalMemoryTool({
-      docId: options.globalMemoryToolDeps.docId,
-      maxEntryChars: options.globalMemoryToolDeps.maxEntryChars,
-    }));
-  }
+  // Register web tools (web_search, web_read_page)
+  registerWebTools(toolRegistry, {
+    webSearchToolDeps: options.webSearchToolDeps,
+    webReadPageToolDeps: options.webReadPageToolDeps,
+    globalToolAccess: options.globalToolAccess,
+  });
 
   // Single debug entry point — no console output by default
   setupAgentDebug();

@@ -56,7 +56,7 @@ export function createWebSearchTool(deps: WebSearchDeps): ToolContract<WebSearch
             fetchedAt: new Date().toISOString(),
             note: results.length === 0
               ? "搜索未返回结果。请尝试更具体的查询词。"
-              : `搜索返回 ${results.length} 个候选。搜索结果只是候选，不代表已读取网页正文；如需详细内容应使用 web_read_page。`,
+              : `搜索返回 ${results.length} 个候选。搜索结果只是候选，不代表已读取网页正文。`,
           },
         };
       } catch (err) {

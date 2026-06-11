@@ -79,7 +79,7 @@ export async function executeFindDiaryDocs(
 
   if (isRangeQuery && includeMarkdown) {
     includeMarkdown = false;
-    warnings.push("范围查询不返回正文预览（includeMarkdown 已强制关闭）。如需正文，请用返回的 docId 调用 read_docs。");
+    warnings.push("范围查询不返回正文预览（includeMarkdown 已强制关闭）。本结果不包含完整正文；正文读取能力依赖真实 docId。");
   }
 
   if (args.startDate && args.endDate) {
@@ -119,7 +119,7 @@ export async function executeFindDiaryDocs(
         docs,
         returned: docs.length,
         totalChecked: seen.size,
-        note: "只读日记文档定位；不会创建日记、补模板、标记完成或跳过复盘。includeMarkdown 默认为 false，正文详情可用 docId 继续调用 read_docs。",
+        note: "只读日记文档定位；不会创建日记、补模板、标记完成或跳过复盘。本结果只用于定位文档；正文不在本结果中展开。",
         warnings: warnings.length > 0 ? warnings : undefined,
       },
     };
@@ -143,7 +143,7 @@ export async function executeFindDiaryDocs(
       docs,
       returned: docs.length,
       totalChecked: docs.length,
-      note: "只读日记文档定位；不会创建日记、补模板、标记完成或跳过复盘。includeMarkdown 默认为 false，正文详情可用 docId 继续调用 read_docs。",
+      note: "只读日记文档定位；不会创建日记、补模板、标记完成或跳过复盘。本结果只用于定位文档；正文不在本结果中展开。",
     },
   };
 }

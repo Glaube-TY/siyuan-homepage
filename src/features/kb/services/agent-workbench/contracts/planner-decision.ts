@@ -5,6 +5,20 @@
 import { z } from "zod";
 import { isForbiddenFlowControlField } from "../shared/flow-control";
 
+/**
+ * 一次性 Planner 决策验证错误。
+ * code 区分格式错误（可 repair）和安全边界错误（必须 fail closed）。
+ */
+export class PlannerDecisionValidationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: "invalid_shape" | "invalid_answer_shape" | "invalid_stop_shape" | "forbidden_field" | "forbidden_flow_control" | "unknown_tool",
+  ) {
+    super(message);
+    this.name = "PlannerDecisionValidationError";
+  }
+}
+
 export const plannerDecisionZodSchema = z.union([
   z.object({
     type: z.literal("tool"),
@@ -14,18 +28,8 @@ export const plannerDecisionZodSchema = z.union([
   z.object({
     type: z.literal("answer"),
     args: z.object({
-      body: z.string().min(1).max(2000),
-      references: z.array(z.object({
-        sourceType: z.enum(["siyuan_doc", "web_page", "file", "mcp_resource", "api_result"]).optional(),
-        docId: z.string().optional(),
-        blockId: z.string().optional(),
-        url: z.string().optional(),
-        fileId: z.string().optional(),
-        resourceId: z.string().optional(),
-        title: z.string().optional(),
-        sourceName: z.string().optional(),
-        provider: z.string().optional(),
-      }).strict()).optional().default([]),
+      body: z.string().min(1).max(20000),
+      references: z.array(z.unknown()).optional().default([]),
       stageSummary: z.object({
         summary: z.string().trim().min(1).max(1500),
       }).strict().optional(),
@@ -53,7 +57,7 @@ export interface PlannerAnswerDecision {
   type: "answer";
   args: {
     body: string;
-    references?: AnswerResourceRef[];
+    references?: unknown[];
     stageSummary?: AnswerStageSummary;
   };
 }
@@ -92,11 +96,11 @@ const STOP_DECISION_KEYS = new Set(["type", "reasonCode", "message"]);
 const ALLOWED_ANSWER_KEYS = new Set(["body", "references", "stageSummary"]);
 
 const FORBIDDEN_DECISION_KEYS = [
-  "path",
   "realPath",
   "realDocId",
   "realBlockId",
   "internalMapping",
+  "internalPath",
   "progress",
   "progress_answer",
   "AssistantProgress",
@@ -112,20 +116,36 @@ const FORBIDDEN_DECISION_KEYS = [
 
 const FORBIDDEN_DECISION_KEY_SET = new Set<string>(FORBIDDEN_DECISION_KEYS);
 
-export function validatePlannerDecision(decision: unknown): PlannerDecision {
+export function validatePlannerDecision(
+  decision: unknown,
+  toolManifest?: readonly { name: string; inputJsonSchema?: unknown }[],
+): PlannerDecision {
   if (!decision || typeof decision !== "object") {
-    throw new Error(
+    throw new PlannerDecisionValidationError(
       `decision must be a JSON object, got ${typeof decision}.`,
+      "invalid_shape",
     );
   }
-  assertNoBlacklistKeysRecursive(decision, "decision");
 
   const d = decision as { type?: unknown } & Record<string, unknown>;
 
   if (d.type === "tool") {
     assertAllowedTopLevelKeys(d, TOOL_DECISION_KEYS, "tool decision");
+
+    const toolName = typeof d.toolName === "string" ? d.toolName : "";
+    const schema = toolManifest?.find((t) => t.name === toolName)?.inputJsonSchema as
+      | { properties?: Record<string, unknown> }
+      | undefined;
+    const allowedArgsKeys = schema?.properties
+      ? new Set(Object.keys(schema.properties))
+      : new Set<string>();
+
+    assertNoBlacklistKeysRecursiveForToolDecision(d, allowedArgsKeys);
     return parseToolDecision(d);
   }
+
+  assertNoBlacklistKeysRecursive(decision, "decision");
+
   if (d.type === "answer") {
     assertAllowedTopLevelKeys(d, ANSWER_DECISION_KEYS, "answer decision");
     return parseAnswerDecision(d);
@@ -134,8 +154,9 @@ export function validatePlannerDecision(decision: unknown): PlannerDecision {
     assertAllowedTopLevelKeys(d, STOP_DECISION_KEYS, "stop decision");
     return parseStopDecision(d);
   }
-  throw new Error(
+  throw new PlannerDecisionValidationError(
     `decision.type must be "tool" | "answer" | "stop" (got ${String(d.type)}).`,
+    "invalid_shape",
   );
 }
 
@@ -146,18 +167,19 @@ function assertAllowedTopLevelKeys(
 ): void {
   for (const key of Object.keys(decision)) {
     if (!allowedKeys.has(key)) {
-      throw new Error(`${label} contains key "${key}" not in whitelist.`);
+      throw new PlannerDecisionValidationError(`${label} contains key "${key}" not in whitelist.`, "forbidden_field");
     }
   }
 }
 
 function parseToolDecision(d: Record<string, unknown>): PlannerToolDecision {
   if (typeof d.toolName !== "string" || !d.toolName) {
-    throw new Error(`tool decision requires a non-empty toolName.`);
+    throw new PlannerDecisionValidationError(`tool decision requires a non-empty toolName.`, "invalid_shape");
   }
   if (d.toolName === "final_answer" || d.toolName === "answer") {
-    throw new Error(
+    throw new PlannerDecisionValidationError(
       `toolName "${d.toolName}" must use decision.type "answer".`,
+      "unknown_tool",
     );
   }
   assertPlainObjectArgs(d.args, "tool args");
@@ -184,8 +206,9 @@ function parseStopDecision(d: Record<string, unknown>): PlannerStopDecision {
     reasonCode !== "need_clarification" &&
     reasonCode !== "cannot_continue"
   ) {
-    throw new Error(
+    throw new PlannerDecisionValidationError(
       `stop decision reasonCode invalid: ${String(reasonCode)}`,
+      "invalid_stop_shape",
     );
   }
   return {
@@ -197,28 +220,29 @@ function parseStopDecision(d: Record<string, unknown>): PlannerStopDecision {
 
 function assertPlainObjectArgs(args: unknown, label: string): asserts args is Record<string, unknown> {
   if (!args || typeof args !== "object" || Array.isArray(args)) {
-    throw new Error(`${label} must be an object.`);
+    throw new PlannerDecisionValidationError(`${label} must be an object.`, "invalid_shape");
   }
 }
 
 function assertAnswerArgsShape(args: unknown): void {
   if (args == null || typeof args !== "object") {
-    throw new Error(`answer args must be an object with body.`);
+    throw new PlannerDecisionValidationError(`answer args must be an object with body.`, "invalid_answer_shape");
   }
   const obj = args as Record<string, unknown>;
   if (typeof obj.body !== "string" || !obj.body.trim()) {
-    throw new Error(`answer args.body must be a non-empty string.`);
+    throw new PlannerDecisionValidationError(`answer args.body must be a non-empty string.`, "invalid_answer_shape");
   }
   for (const key of Object.keys(obj)) {
     if (!ALLOWED_ANSWER_KEYS.has(key)) {
-      throw new Error(`answer args contains key "${key}" not in whitelist.`);
+      throw new PlannerDecisionValidationError(`answer args contains key "${key}" not in whitelist.`, "forbidden_field");
     }
   }
   if ("references" in obj) {
     if (!Array.isArray(obj.references)) {
-      throw new Error(`answer args.references must be an array.`);
+      throw new PlannerDecisionValidationError(`answer args.references must be an array.`, "invalid_answer_shape");
     }
-    assertValidReferences(obj.references);
+    // 不再对 references 条目做硬失败校验；
+    // 无效条目会在 reference-collector / normalizeAnswerReferences 阶段被丢弃。
   }
   if ("stageSummary" in obj) {
     assertValidStageSummary(obj.stageSummary);
@@ -227,50 +251,18 @@ function assertAnswerArgsShape(args: unknown): void {
 
 function assertValidStageSummary(value: unknown): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`answer args.stageSummary must be an object.`);
+    throw new PlannerDecisionValidationError(`answer args.stageSummary must be an object.`, "invalid_answer_shape");
   }
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj);
   if (keys.some((key) => key !== "summary")) {
-    throw new Error(`answer args.stageSummary contains key not in whitelist.`);
+    throw new PlannerDecisionValidationError(`answer args.stageSummary contains key not in whitelist.`, "forbidden_field");
   }
   if (typeof obj.summary !== "string" || !obj.summary.trim()) {
-    throw new Error(`answer args.stageSummary.summary must be a non-empty string.`);
+    throw new PlannerDecisionValidationError(`answer args.stageSummary.summary must be a non-empty string.`, "invalid_answer_shape");
   }
   if (obj.summary.length > 1500) {
-    throw new Error(`answer args.stageSummary.summary must be at most 1500 characters.`);
-  }
-}
-
-const ALLOWED_REF_SOURCE_TYPES = new Set([
-  "siyuan_doc", "web_page", "file", "mcp_resource", "api_result",
-]);
-
-const ALLOWED_REF_KEYS = new Set([
-  "sourceType", "docId", "blockId", "url", "fileId", "resourceId", "title", "sourceName", "provider",
-]);
-
-function assertValidReferences(refs: unknown[]): void {
-  for (let i = 0; i < refs.length; i += 1) {
-    const ref = refs[i];
-    if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
-      throw new Error(`answer args.references[${i}] must be a plain object.`);
-    }
-    const r = ref as Record<string, unknown>;
-    for (const key of Object.keys(r)) {
-      if (!ALLOWED_REF_KEYS.has(key)) {
-        throw new Error(`answer args.references[${i}] contains key "${key}" not in whitelist.`);
-      }
-    }
-    if (r.sourceType !== undefined && !ALLOWED_REF_SOURCE_TYPES.has(r.sourceType as string)) {
-      throw new Error(`answer args.references[${i}].sourceType invalid: ${String(r.sourceType)}`);
-    }
-    for (const strKey of ["docId", "blockId", "url", "fileId", "resourceId", "title", "sourceName", "provider"] as const) {
-      const val = r[strKey];
-      if (val !== undefined && typeof val !== "string") {
-        throw new Error(`answer args.references[${i}].${strKey} must be a string.`);
-      }
-    }
+    throw new PlannerDecisionValidationError(`answer args.stageSummary.summary must be at most 1500 characters.`, "invalid_answer_shape");
   }
 }
 
@@ -283,13 +275,51 @@ function assertNoBlacklistKeysRecursive(value: unknown, path: string): void {
   }
   if (value && typeof value === "object") {
     for (const key of Object.keys(value as Record<string, unknown>)) {
-      if (FORBIDDEN_DECISION_KEY_SET.has(key) || isForbiddenFlowControlField(key)) {
-        throw new Error(`${path} contains forbidden key "${key}".`);
+      if (FORBIDDEN_DECISION_KEY_SET.has(key)) {
+        throw new PlannerDecisionValidationError(`${path} contains forbidden key "${key}".`, "forbidden_field");
+      }
+      if (isForbiddenFlowControlField(key)) {
+        throw new PlannerDecisionValidationError(`${path} contains forbidden key "${key}".`, "forbidden_flow_control");
       }
       assertNoBlacklistKeysRecursive(
         (value as Record<string, unknown>)[key],
         `${path}.${key}`,
       );
     }
+  }
+}
+
+function assertNoBlacklistKeysRecursiveForToolDecision(
+  decision: Record<string, unknown>,
+  allowedArgsKeys: Set<string>,
+): void {
+  for (const key of Object.keys(decision)) {
+    if (key === "args") continue;
+    if (FORBIDDEN_DECISION_KEY_SET.has(key)) {
+      throw new PlannerDecisionValidationError(`decision contains forbidden key "${key}".`, "forbidden_field");
+    }
+    if (isForbiddenFlowControlField(key)) {
+      throw new PlannerDecisionValidationError(`decision contains forbidden key "${key}".`, "forbidden_flow_control");
+    }
+  }
+
+  const args = decision.args;
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new PlannerDecisionValidationError(`tool args must be an object.`, "invalid_shape");
+  }
+
+  for (const key of Object.keys(args as Record<string, unknown>)) {
+    if (!allowedArgsKeys.has(key)) {
+      if (FORBIDDEN_DECISION_KEY_SET.has(key)) {
+        throw new PlannerDecisionValidationError(`decision.args contains forbidden key "${key}".`, "forbidden_field");
+      }
+      if (isForbiddenFlowControlField(key)) {
+        throw new PlannerDecisionValidationError(`decision.args contains forbidden key "${key}".`, "forbidden_flow_control");
+      }
+    }
+    assertNoBlacklistKeysRecursive(
+      (args as Record<string, unknown>)[key],
+      `decision.args.${key}`,
+    );
   }
 }

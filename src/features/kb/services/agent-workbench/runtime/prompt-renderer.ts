@@ -17,6 +17,16 @@ import type { SkillObservation } from "../contracts/skill-contract";
 /* ------------------------------------------------------------------ */
 
 /**
+ * Render the references protocol instructions for the Planner prompt.
+ * This is a global answer protocol — not domain-specific.
+ */
+function renderReferenceProtocolInstructions(): string[] {
+  return [
+    'references 是最终回答实际使用的直接来源 JSON 数组。只能引用本轮 observation 中真实出现的资源 ID，或对话上下文 history references 中 grounded:true 的资源。来源类型应填写工具返回的真实来源类型和 ID。搜索结果只是候选线索，不可引用。未真实出现或未 grounded 的 ID 会被系统丢弃。读过但没有实际使用的来源不要列入 references。没有直接来源时使用 []。不要在正文末尾手写参考文献列表。',
+  ];
+}
+
+/**
  * Emergency safety limit — only triggers if a tool produces abnormally
  * large output. This is an extreme guard, not a normal truncation.
  * Normal output size is controlled by each tool's own limit/maxChars.
@@ -69,10 +79,9 @@ function buildObservationEnvelope(o: SkillObservation): Record<string, unknown> 
 
 /**
  * Build a JSON envelope for system observations (no toolName).
- * These are typically planner_returned_no_action events.
  */
 function buildSystemEnvelope(o: SkillObservation): Record<string, unknown> {
-  return {
+  const envelope: Record<string, unknown> = {
     ok: false,
     kind: o.kind,
     error: {
@@ -80,6 +89,10 @@ function buildSystemEnvelope(o: SkillObservation): Record<string, unknown> {
       message: o.summary ?? "系统事件",
     },
   };
+  if (o.content !== undefined && o.content !== null) {
+    envelope.data = o.content;
+  }
+  return envelope;
 }
 
 /**
@@ -116,52 +129,26 @@ function renderGlobalWebAccessInstructions(ctx: PlannerContext): string[] {
   // Only web_read_page available (web_search not registered, e.g. off mode or enabled=false)
   if (!webSearchAccess && hasWebReadPage) {
     lines.push("# 网页读取说明");
-    lines.push("可以读取用户明确提供、历史 grounded reference 中真实出现的、或本轮 observation 中真实出现的 http/https URL 的网页正文。");
-    lines.push("不能搜索网络，不能猜 URL，不能把网站名/标题/书名当 URL。");
-    lines.push("不能自动跟随链接、递归抓取或整站抓取。");
-    lines.push("只有 web_read_page 实际读取过的网页正文，才能作为 web_page 类型来源写入 references。");
-    lines.push("读过但最终没用的网页不要列入 references。");
-    lines.push("读取失败时如实说明失败原因。");
+    lines.push("可读取用户明确提供或本轮 observation 中真实出现的 http/https URL 的网页正文。不搜索网络，不猜 URL，不自动跟随链接。");
     return lines;
   }
 
   // smart / required modes (webSearchAccess exists)
   if (webSearchAccess) {
-    const hasLocalDiscovery = hasTool(ctx, "list_knowledge_map") || hasTool(ctx, "search_scope");
-    const hasLocalRead = hasTool(ctx, "read_docs");
-
     lines.push(hasWebSearch ? "# 联网搜索说明" : "# 网页读取说明");
     if (webSearchAccess.mode === "smart") {
-      if (hasLocalDiscovery) {
-        lines.push("本轮允许联网；用户显式提供资料和可用本地资料优先。");
-      } else if (hasLocalRead) {
-        lines.push("本轮允许联网；用户显式提供资料优先；已有明确 docId/blockId/cursor 时可读取本地正文。");
-      } else {
-        lines.push("本轮允许联网；用户显式提供资料优先。");
-      }
-      if (hasWebSearch) {
-        lines.push("联网搜索用于补充当前公开信息、外部资料、用户明确要求联网。");
-      }
-      if (hasWebReadPage) {
-        lines.push("可以读取用户明确提供、历史 grounded reference 或本轮 observation 中真实出现的 http/https URL 的网页正文；不能猜 URL，不能自动跟随链接。");
-      }
-      lines.push("是否调用由你自主判断，代码不会按关键词或 URL 自动触发。");
+      lines.push("本轮允许联网；用户显式提供资料优先，联网搜索为补充。是否调用由你自主判断。");
     } else if (webSearchAccess.mode === "required") {
-      const availableWebTools = [
-        hasWebSearch ? "web_search" : "",
-        hasWebReadPage ? "web_read_page" : "",
-      ].filter(Boolean);
-      lines.push(`本轮要求使用联网能力；最终回答前至少调用一次 ${availableWebTools.join(" 或 ")}。`);
+      lines.push("本轮要求使用联网能力；最终回答前必须实际使用已注册的联网工具。");
     }
 
     if (hasWebSearch) {
       lines.push("web_search 返回的是候选链接和摘要，不是正文证据。");
     }
     if (hasWebReadPage) {
-      lines.push("只有 web_read_page 实际读取过的网页正文，才能作为 web_page 类型来源写入 references。");
+      lines.push("只有 web_read_page 实际读取过的网页正文才能作为来源写入 references。");
     }
-    lines.push("读过但最终没用的网页不要列入 references；不编造 URL、网页标题或网页正文；不自动跟随链接、不递归抓取、不整站抓取。");
-    lines.push("联网失败时如实说明失败原因；如果本地和联网都没有可靠来源，要明确说没有可靠来源。");
+    lines.push("读过但最终没用的网页不列入 references；不编造 URL、不自动跟随链接。");
     return lines;
   }
 
@@ -182,9 +169,7 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
   // Global memory
   if (ctx.globalMemory && ctx.globalMemory.length > 0) {
     blocks.push("# 全局记忆");
-    blocks.push("以下内容来自用户可编辑的长期记忆文档，代表用户的长期偏好、稳定约束和常用设置。");
-    blocks.push("可用于回答风格、长期偏好、稳定约束。不能替代当前问题和正文证据。不能把记忆当来源引用。与当前明确指令冲突时，以当前指令为准。不要把临时任务、网页正文、工具结果、阶段摘要、未经确认事实写入长期记忆。全局记忆按条目顺序提供，顺序靠前的内容在整理偏好时更优先参考。如需更新长期记忆，可使用“编辑全局记忆”工具对条目进行新增、更新、删除或移动；遇到冲突时应优先整理为一致内容，而不是重复追加冲突条目。");
-    blocks.push("注意：全局记忆正文不包含条目 ID。若需要编辑、删除、合并或调整记忆条目，应先使用 edit_global_memory 的 list 获取条目 ID，再根据用户意图调用 update/delete/move/create。list 只是查看，不代表已修改。只有本轮出现 edit_global_memory 的 create/update/delete/move 成功结果时，才能声称已经修改或整理全局记忆。如果只是查看了条目，应说“我查看了”，不能说“我整理了”或“已完成修改”。");
+    blocks.push("以下内容来自用户可编辑的长期记忆文档，代表用户的长期偏好和稳定约束。不能替代当前问题、资料正文或工具结果；与当前明确指令冲突时以当前指令为准。如需修改长期记忆，必须通过可用的写入工具完成，不能口头声称已修改。");
     blocks.push(ctx.globalMemory);
     if (ctx.globalMemory.length >= 7900) {
       blocks.push("（记忆内容可能已截断）");
@@ -204,12 +189,7 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
   });
   if (attachedDocObs.length > 0) {
     blocks.push("# 用户本轮已附加文档");
-    const hasReadDocs = hasTool(ctx, "read_docs");
-    if (hasReadDocs) {
-      blocks.push("以下文档由用户通过输入框显式选定，已自动加载正文，作为本轮输入资料直接提供。你可以直接基于这些资料回答；如需更精确的 block 或更多片段，在已有明确 docId/blockId 时可调用 read_docs 读取正文。");
-    } else {
-      blocks.push("以下文档由用户通过输入框显式选定，已自动加载正文，作为本轮输入资料直接提供。你可以直接基于这些资料回答。");
-    }
+    blocks.push("以下文档由用户通过输入框显式选定，已自动加载正文作为本轮输入资料供你直接使用。");
     blocks.push("");
 
     const ATTACHED_DOC_BUDGET = 20000;
@@ -282,57 +262,20 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
   blocks.push("");
   blocks.push("## 控制面 JSON 契约（合法 shape 约束）");
   blocks.push('- tool 只能是：{"type":"tool","toolName":"...","args":{...}}');
-  blocks.push('- answer 只能是：{"type":"answer","args":{"body":"短草稿","references":[]}}');
+  blocks.push('- answer 只能是：{"type":"answer","args":{"body":"最终回答正文","references":[]}}');
   blocks.push('- stop 只能是：{"type":"stop","reasonCode":"...","message":"..."}');
   blocks.push("- body、references、stageSummary 不允许出现在顶层，只能在 answer.args 内。");
   blocks.push("- 不要输出未列入上述契约的 type 或 toolName。");
-  blocks.push("- answer.body 是短草稿/回答意图/要点，建议 1-3 句，保持短文本，不超过 2000 字符，不写 Markdown 长文，不写多级列表。");
+  blocks.push("- answer.body 是最终用户可见回答正文。内容风格、结构、长短、是否使用 Markdown、列表或表格，由你根据用户请求和已获得信息自主决定。");
   blocks.push("");
   blocks.push('工具调用示例：{"type":"tool","toolName":"工具名","args":{...}}');
-  blocks.push('普通最终回答示例：{"type":"answer","args":{"body":"短草稿","references":[]}}');
-  blocks.push('需要阶段摘要时示例：{"type":"answer","args":{"body":"短草稿","references":[],"stageSummary":{"summary":"阶段摘要正文"}}}');
+  blocks.push('answer 示例：{"type":"answer","args":{"body":"最终回答正文","references":[]}}');
+  blocks.push('需要阶段摘要时示例：{"type":"answer","args":{"body":"最终回答正文","references":[],"stageSummary":{"summary":"阶段摘要正文"}}}');
   blocks.push('停止示例：{"type":"stop","reasonCode":"cannot_continue","message":"..."}');
+  blocks.push("如果缺少某个写工具必需参数，不能编造；应使用 answer JSON 简短说明还缺什么信息，等用户补充后再调用。");
   blocks.push("");
-  blocks.push('当回答基于真实资源 ID（docId、blockId、url、fileId、resourceId）时，应在 references 中列出对应来源。');
-  blocks.push("references 是\"最终回答实际使用的直接证据来源清单\"；读过但没用的资料不要列；搜索结果只是候选线索，不可引用；没有直接来源时使用 []。");
-  blocks.push('stageSummary 是可选的历史阶段摘要。默认不要写。只有当上一个阶段摘要之后的对话已经积累了对后续继续对话有帮助的信息时，才在最终回答中输出 stageSummary。摘要应忠实概括这段历史对话的关键信息，不预设固定格式，不编造，不重复已有阶段摘要。简单寒暄、确认、过渡回复、无新增信息时不要输出。');
-  blocks.push('上下文压力提示：conversationContext.stageSummaryStatus.pressureLevel 表示上下文预算压力（none/suggested/recommended/urgent/required），pressureReason 说明原因。这只是预算压力提示，你仍自主判断是否输出 stageSummary；但 pressureLevel 为 required 时，除非最近内容完全无实质信息，否则应在 answer.args 中输出 stageSummary。');
-  blocks.push('stageSummary.summary 建议 300-1000 字，简短阶段可 150-300 字，最多 1500 字。只总结上一个阶段摘要之后的新对话，并覆盖到当前最终回答为止；不要重述已有阶段摘要。');
-  blocks.push('stageSummary 不得记录工具原始输出、工具调用事件、工具结果、工作界面事件、调试信息、完整提示词、内部路径、内部映射、工具返回正文、未经 grounding 的参考资料或代码内部隐藏映射。');
-  blocks.push('思源文档来源优先显式写 sourceType:"siyuan_doc"，并填写真实 docId；blockId 和 title 可选。sourceType 缺省不推荐。');
-  blocks.push("references 只能引用以下两类资源：");
-  blocks.push("  1. 本轮工具 observation 中真实出现过的资源 ID；");
-  blocks.push("  2. 对话上下文 history references 中明确标记 grounded:true 的资源。");
-  blocks.push("未真实出现或未标记 grounded:true 的 ID 会被系统丢弃，不会出现在最终回答的来源列表中。");
-  blocks.push("历史 references 只有 grounded:true 才可信；structure/search candidate 只是线索，不是正文证据。");
-  // Local / web priority — conditional based on actual registered tools
-  const hasWebSearch = hasTool(ctx, "web_search");
-  const hasWebReadPage = hasTool(ctx, "web_read_page");
-  const hasLocalDiscoveryTools = hasTool(ctx, "list_knowledge_map") || hasTool(ctx, "search_scope");
-  const hasLocalReadTool = hasTool(ctx, "read_docs");
-
-  blocks.push("正文证据只能来自读取工具的返回；具体工具能力以‘可用工具’列表为准。");
-  blocks.push("用户显式提供的资料始终优先。");
-  if (hasLocalDiscoveryTools) {
-    blocks.push("可用本地知识库进行定位/检索。");
-  }
-  if (hasLocalReadTool) {
-    blocks.push("已有明确 docId/blockId/cursor 时可读取本地正文。");
-  }
-  if (hasWebSearch) {
-    blocks.push("联网搜索是补充资料来源。");
-  }
-  if (hasWebReadPage && !hasWebSearch) {
-    blocks.push("可读取用户明确提供、历史 grounded reference 或本轮 observation 中真实出现的 http/https URL 的网页正文。");
-  }
-  blocks.push("搜索结果是候选线索，不是正文证据；没有正文证据时，应说明资料不足或缺少可靠来源，不要基于候选线索写确定性结论。");
-  blocks.push("");
-  blocks.push("参考资料显示规则：");
-  blocks.push("- 底部“参考资料”只显示你在最终 answer.references 中显式列出的资源。");
-  blocks.push("- 系统不会自动把 structure_result、search_candidate 或 read_content 追加为参考资料。");
-  blocks.push("- 如果你没写 references，底部参考资料为空。");
-  blocks.push("- 只查看文档树或搜索候选时，除非回答明确引用了某个文档，否则不要写 references。");
-  blocks.push("- 读过文档但回答没有实际使用它，也不要写 references。");
+  blocks.push(...renderReferenceProtocolInstructions());
+  blocks.push('stageSummary 可选，只在上一个阶段摘要之后积累了有价值信息时才输出。summary 建议 300-1000 字，最多 1500 字。只总结上一个摘要之后的新信息并覆盖到当前回答。不得记录工具原始输出、调试信息、内部路径。pressureLevel required 时除非最近内容无实质信息，否则应输出 stageSummary。');
   blocks.push("");
 
   // Global web access instructions (not a Skill — rendered by prompt-renderer based on mode + manifest)
@@ -380,6 +323,12 @@ export function renderPlannerPrompt(ctx: PlannerContext): string {
       blocks.push(`  安全性：${safety}；状态：${avail}`);
     }
   }
+  blocks.push("");
+
+  // 通用工具结果解释规则
+  blocks.push("工具结果解释规则：");
+  blocks.push("- 工具返回的 observation 即为本轮实际结果；以 observation 中描述的成功、失败或用户拒绝为准。");
+  blocks.push("- 涉及写入、删除、整理、修改时，必须以工具返回结果为准；不要声称未完成的操作已经完成，不要无必要地重复执行同一目标操作。");
   blocks.push("");
 
   // Observations — ALL entries, not just the last 10

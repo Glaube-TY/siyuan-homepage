@@ -36,12 +36,8 @@ export interface ExecutionOutcome {
 export interface JsonErrorEnvelope {
   code: string;
   message: string;
-  details?: unknown;
-  hint?: string;
   recoverable?: boolean;
   field?: string;
-  expected?: string;
-  received?: string;
 }
 
 export class ToolExecutor {
@@ -73,15 +69,13 @@ export class ToolExecutor {
     // Validate input (Zod)
     const parsed = tool.inputSchema.safeParse(call.args);
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => ({
-        path: i.path.join("."),
-        message: i.message,
-        code: i.code,
-      }));
+      const firstIssue = parsed.error.issues[0];
+      const field = firstIssue?.path.join(".") ?? "";
+      const message = firstIssue?.message ?? "格式错误";
       return this.fail(call.toolName, {
         code: "invalid_args",
-        message: `参数校验失败：${issues[0]?.message ?? "格式错误"}`,
-        details: { issues },
+        message: `参数校验失败：${message}`,
+        field: field || undefined,
         recoverable: true,
       });
     }
@@ -103,15 +97,12 @@ export class ToolExecutor {
     if (result.ok && tool.outputSchema) {
       const outputParsed = tool.outputSchema.safeParse(result.data);
       if (!outputParsed.success) {
-        const issues = outputParsed.error.issues.map((i) => ({
-          path: i.path.join("."),
-          message: i.message,
-          code: i.code,
-        }));
+        const firstIssue = outputParsed.error.issues[0];
+        const field = firstIssue?.path.join(".") ?? undefined;
         return this.fail(call.toolName, {
           code: "invalid_tool_output",
           message: "工具输出不符合 schema。",
-          details: { issues },
+          field,
           recoverable: false,
         });
       }
@@ -128,12 +119,8 @@ export class ToolExecutor {
     return this.fail(call.toolName, {
       code: result.error?.code ?? "unknown_error",
       message: result.error?.message ?? "工具执行失败。",
-      details: result.error?.details,
-      hint: result.error?.hint,
       recoverable: result.error?.recoverable,
       field: result.error?.field,
-      expected: result.error?.expected,
-      received: result.error?.received,
     });
   }
 
@@ -166,12 +153,8 @@ export class ToolExecutor {
       code: error.code,
       message: error.message,
     };
-    if (error.details !== undefined) errorEnvelope.details = error.details;
-    if (error.hint !== undefined) errorEnvelope.hint = error.hint;
     if (error.recoverable !== undefined) errorEnvelope.recoverable = error.recoverable;
     if (error.field !== undefined) errorEnvelope.field = error.field;
-    if (error.expected !== undefined) errorEnvelope.expected = error.expected;
-    if (error.received !== undefined) errorEnvelope.received = error.received;
 
     const obs: SkillObservation = {
       kind: "tool_failed",

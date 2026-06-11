@@ -20,7 +20,20 @@ const editGlobalMemoryInputSchema = z.object({
   text: z.string().optional().describe("create/update 时的内容"),
   target_id: z.string().optional().describe("move 时参考块 ID（before/after 必填）"),
   position: z.enum(["top", "bottom", "before", "after"]).optional().describe("move 时的位置方向"),
-});
+}).strict();
+
+const editGlobalMemoryInputJsonSchemaOverride = {
+  type: "object",
+  properties: {
+    operation: { type: "string", enum: ["list", "create", "update", "delete", "move"], description: "操作类型" },
+    item_id: { type: "string", description: "update/delete/move 时的段落块 ID" },
+    text: { type: "string", description: "create/update 时的内容" },
+    target_id: { type: "string", description: "move 时参考块 ID（before/after 必填）" },
+    position: { type: "string", enum: ["top", "bottom", "before", "after"], description: "move 时的位置方向" },
+  },
+  additionalProperties: false,
+  required: ["operation"],
+};
 
 type EditGlobalMemoryInput = z.infer<typeof editGlobalMemoryInputSchema>;
 
@@ -67,6 +80,7 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
     boundary:
       "只能编辑配置好的全局记忆文档中的段落条目；update/delete 前会校验 item_id 归属；不接受任意 docId；不自动决定是否需要记住。list 不会修改记忆；只有 create/update/delete/move 成功后才代表记忆已变更。",
     plannerVisible: true,
+    inputJsonSchemaOverride: editGlobalMemoryInputJsonSchemaOverride,
 
     availability() {
       return { available: true };

@@ -42,6 +42,7 @@ import { readGlobalMemory, validateGlobalMemoryDocId } from "../agent-workbench/
 import { buildConversationContext } from "../agent-workbench/runtime/conversation-context-builder";
 import type { BuildConversationContextParams } from "../agent-workbench/runtime/conversation-context-builder";
 import { findCompleteConversationTurn, getCompleteConversationTurns } from "../agent-workbench/runtime/conversation-turns";
+import { mapAgentErrorToUserFacing } from "../agent-workbench/runtime/user-facing-agent-error";
 import { showMessage } from "siyuan";
 import type { KbSessionState } from "../../types/session";
 import type { ContextUsageSnapshot } from "../../types/context-usage";
@@ -260,17 +261,13 @@ function mapChatModeToAgentScopeMode(mode: ChatMode): AgentScopeMode | null {
   }
 }
 
-function formatAgentWorkbenchUserError(errorMsg: string): string {
-  if (errorMsg.includes("AI 调用失败") || errorMsg.includes("LLM") || errorMsg.includes("模型") || errorMsg.includes("网络") || errorMsg.includes("连接")) {
-    return "AI 模型调用失败，请检查模型配置或网络连接后重试。";
+function formatAgentWorkbenchUserError(input: { errorCode?: string; message?: string }): string {
+  const userFacing = mapAgentErrorToUserFacing({ agentErrorCode: input.errorCode, message: input.message });
+  let result = `${userFacing.title}：${userFacing.message}`;
+  if (userFacing.suggestion) {
+    result += ` ${userFacing.suggestion}`;
   }
-  if (errorMsg.includes("检索") || errorMsg.includes("索引") || errorMsg.includes("search") || errorMsg.includes("index")) {
-    return "资料检索失败，请检查索引状态或稍后重试。";
-  }
-  if (errorMsg.includes("scope") || errorMsg.includes("current document") || errorMsg.includes("范围") || errorMsg.includes("未打开")) {
-    return "当前范围不可用，请确认已打开文档或切换提问范围。";
-  }
-  return "本轮问答失败，请稍后重试。";
+  return result;
 }
 
 function isAbortLikeError(err: unknown, abortSignal?: AbortSignal): boolean {
@@ -528,8 +525,9 @@ export async function runAgentWorkbenchModeFlow(
     // Fetch web search settings and global memory for conversation context
     let webSearchSettings: BuildConversationContextParams["webSearchSettings"];
     let globalMemoryText: string | undefined;
+    let kbSettings: Awaited<ReturnType<typeof getKbSettings>> | undefined;
     try {
-      const kbSettings = await getKbSettings();
+      kbSettings = await getKbSettings();
       if (kbSettings?.webSearch) {
         webSearchSettings = {
           enabled: kbSettings.webSearch.enabled,
@@ -643,6 +641,8 @@ export async function runAgentWorkbenchModeFlow(
       chatModelSelection,
       thinkingMode: userThinkingMode,
       globalMemory: globalMemoryText,
+      conversationId: actualUserMessageId,
+      kbSettings,
       onReasoningDelta: (event) => {
         // Only process reasoning when thinkingMode=on
         if (userThinkingMode !== "on") {
@@ -737,24 +737,30 @@ export async function runAgentWorkbenchModeFlow(
       result = agentTurnOutcome.result;
     } else {
       // Agent Workbench 失败：直接呈现安全错误到 assistant message，不 switch 到其他运行时。
+      const displayError = agentTurnOutcome.displayError;
       const safeCode = sanitizeAgentTurnErrorCode(agentTurnOutcome.agentErrorCode);
-      const errMsg = `Agent Workbench 未完成本轮回答：${safeCode}`;
       pushAgentDebugEvent("WORKBENCH_NO_FALLBACK", {
         agentErrorCode: safeCode,
         stopReasonCode: agentTurnOutcome.stopReasonCode,
         scopeMode,
+        displayErrorTitle: displayError?.title,
       }, "warn");
 
       if (isWorkbenchStrictRuntimeTestEnabled()) {
         throw new Error(`Agent Workbench runtime failed: ${safeCode}`);
       }
 
+      // 用户可读错误消息：优先使用 displayError，fallback 到旧格式
+      const errMsg = displayError
+        ? `${displayError.title}：${displayError.message}${displayError.completedStepsSummary ? `\n${displayError.completedStepsSummary}` : ""}`
+        : "本轮未完成：模型没有给出可继续执行的有效内容，本轮已停止。";
+
       result = {
         scope: { type: "whole_kb" },
         scopeSummary: { type: "whole_kb", title: "知识库" },
         answer: errMsg,
         footerReferences: [],
-        warnings: [errMsg],
+        warnings: [],
         events: liveWorkbenchEvents,
       };
     }
@@ -891,7 +897,7 @@ export async function runAgentWorkbenchModeFlow(
     }
 
     const rawErrorMsg = err instanceof Error ? err.message : String(err);
-    pushAgentDebugEvent("MODE_FLOW_FAILED", { error: rawErrorMsg }, "error");
+    pushAgentDebugEvent("MODE_FLOW_FAILED", { error: rawErrorMsg.slice(0, 200) }, "error");
 
     if (setMessages) {
       setMessages((messages) =>
@@ -899,7 +905,9 @@ export async function runAgentWorkbenchModeFlow(
       );
     }
 
-    const userErrorMsg = formatAgentWorkbenchUserError(rawErrorMsg);
+    const userErrorMsg = formatAgentWorkbenchUserError({
+      errorCode: "agent_workbench_unexpected_error",
+    });
 
     addMessage({
       id: createMessageId(),

@@ -125,10 +125,11 @@
     } else {
       disabled.add(name);
     }
+    const existing = settings.skillSettings ?? { disabledBuiltinSkillNames: [] };
     settings = {
       ...settings,
       skillSettings: {
-        ...(settings.skillSettings ?? { disabledBuiltinSkillNames: [] }),
+        ...existing,
         disabledBuiltinSkillNames: [...disabled],
       },
     };
@@ -360,7 +361,6 @@ ${guidance.trim()}`;
                   <span class="skill-badge user">自定义</span>
                 </div>
                 <div class="skill-meta-row">
-                  <span class="skill-id">{entry.id}</span>
                   <span class="skill-meta">优先级 {entry.priority}</span>
                   {#if entry.updatedAt}
                     <span class="skill-meta">更新于 {formatShortDate(entry.updatedAt)}</span>
@@ -428,13 +428,13 @@ ${guidance.trim()}`;
       <div class="editor-body">
         <div class="editor-fields">
           <label class="field-row">
-            <span class="field-label">ID</span>
+            <span class="field-label">保存标识</span>
             {#if isNewSkill}
               <input
                 type="text"
                 class="form-input"
                 bind:value={editingSkill.id}
-                placeholder="小写字母、数字、下划线、连字符"
+                placeholder="用于本地保存，建议使用英文或拼音"
               />
             {:else}
               <input type="text" class="form-input" value={editingSkill.id} disabled />
@@ -640,13 +640,6 @@ ${guidance.trim()}`;
     color: var(--b3-theme-on-surface);
     opacity: 0.8;
     line-height: 1.4;
-  }
-
-  .skill-id {
-    font-size: 12px;
-    color: var(--b3-theme-on-surface);
-    opacity: 0.6;
-    font-family: monospace;
   }
 
   .skill-meta-row {

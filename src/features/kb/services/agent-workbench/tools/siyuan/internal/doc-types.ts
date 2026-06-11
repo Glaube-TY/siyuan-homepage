@@ -15,6 +15,7 @@ export interface SiyuanDocLite {
   box?: string;
   path?: string;
   updated?: string;
+  created?: string;
   titlePath?: string;
   parentTitles?: string[];
 }
@@ -41,8 +42,10 @@ export interface SiyuanDocFull {
 /**
  * 枚举文档参数
  */
+import type { AgentScope } from "../../../scope/types";
+
 export interface ListSiyuanDocsForToolParams {
-  scope: import("../../../scope/types").AgentScope;
+  scope: AgentScope;
   limit?: number;
   query?: string;
   trace?: boolean;

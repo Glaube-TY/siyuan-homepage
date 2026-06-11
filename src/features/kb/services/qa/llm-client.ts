@@ -13,11 +13,58 @@
 import { generateText, streamText, Output } from "ai";
 import type { ZodType } from "zod";
 import { getKbSettings } from "../settings/kb-settings-service";
+import { buildOpenAICompatibleRawJsonRequestBody } from "./openai-compatible-request-body";
 import { createSelectedChatModel, resolveOpenAICompatibleBaseUrlForProvider } from "./model-provider-factory";
+import type { SelectedChatModelInfo } from "./model-provider-factory";
 import type { ChatModelSelection } from "../../types/chat-model-selection";
+import type { ControlPlaneCompatibility } from "../../types/settings";
 import { DEFAULT_TEMPERATURE } from "../../constants/default-settings";
 import { pushAgentDebugEvent, getIsVerboseStreamDebugEnabled } from "../agent-workbench/debug/workbench-debug";
-import { resolveProviderProfile } from "./provider-profile";
+import { resolveProviderProfile, resolveModelTemperatureForRequest } from "./provider-profile";
+import { streamOpenAICompatibleJsonPlanner, type StreamJsonPlannerResultFailure } from "./openai-compatible-stream-json";
+
+// ═══════════════════════════════════════════════════════════════════
+// Control plane error with stable reasonCode
+// ═══════════════════════════════════════════════════════════════════
+
+export class AgentControlPlaneError extends Error {
+  constructor(
+    message: string,
+    public readonly reasonCode: string,
+  ) {
+    super(message);
+    this.name = "AgentControlPlaneError";
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AbortSignal combiner: external signal + timeout
+// ═══════════════════════════════════════════════════════════════════
+
+function combineAbortSignal(
+  externalSignal?: AbortSignal,
+  timeoutMs?: number,
+): { signal: AbortSignal; timer: ReturnType<typeof setTimeout> | null } {
+  if (!timeoutMs && !externalSignal) {
+    return { signal: undefined as unknown as AbortSignal, timer: null };
+  }
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
+
+  if (timeoutMs && timeoutMs > 0) {
+    timer = setTimeout(() => controller.abort(), timeoutMs);
+  }
+
+  return { signal: controller.signal, timer };
+}
 
 export class AiProviderUnavailableError extends Error {
   providerType: string;
@@ -281,16 +328,6 @@ function isProviderUnavailableError(err: unknown): boolean {
   return false;
 }
 
-function sanitizeTemperatureForProvider(
-  providerType: string,
-  temperature: number,
-): number | undefined {
-  if (providerType === "kimi") {
-    return undefined;
-  }
-  return temperature;
-}
-
 /**
  * @internal 仅供 qa/kb-model-call.ts 内部使用，业务层不得直接导入。
  */
@@ -309,6 +346,8 @@ export interface LlmCallOptions {
   providerOptions?: Record<string, Record<string, unknown>>;
   /** 调用目的，用于日志区分 */
   purpose?: "analyze" | "planner" | "compose" | "generic";
+  /** 已解析的 selected model（由 kb-model-call 传入，避免重复 getKbSettings + createSelectedChatModel） */
+  selectedChatModel?: SelectedChatModelInfo;
 }
 
 // ==================== 运行时模型选择上下文 ====================
@@ -347,24 +386,36 @@ export async function callLlm(
   prompt: string,
   options: LlmCallOptions = {}
 ): Promise<LlmResponse> {
-  const settings = await getKbSettings();
-
-  const selected = createSelectedChatModel(
-    settings,
-    options.chatModelSelection ?? activeChatModelSelection
-  );
+  let selected = options.selectedChatModel;
+  if (!selected) {
+    const settings = await getKbSettings();
+    selected = createSelectedChatModel(
+      settings,
+      options.chatModelSelection ?? activeChatModelSelection
+    );
+  }
 
   const startTime = Date.now();
 
-  const rawTemperature =
-    options.temperature ??
-    selected.modelConfig.temperature ??
-    DEFAULT_TEMPERATURE;
+  // 解析合并后的 provider profile 获取 controlPlaneCompatibility
+  let mergedCp: ControlPlaneCompatibility | undefined;
+  try {
+    const profile = resolveProviderProfile(selected.providerConfig.type, {
+      providerControlPlaneCompatibility: selected.providerConfig.controlPlaneCompatibility,
+      modelControlPlaneCompatibility: selected.modelConfig.controlPlaneCompatibility,
+      finalComposeMode: selected.modelConfig.finalComposeMode,
+    });
+    mergedCp = profile.controlPlaneCompatibility;
+  } catch { /* use undefined */ }
 
-  const temperature = sanitizeTemperatureForProvider(
-    selected.providerConfig.type,
-    Number(rawTemperature),
-  );
+  const temperature = resolveModelTemperatureForRequest({
+    providerType: selected.providerConfig.type,
+    modelId: selected.modelConfig.id,
+    modelConfigTemperature: selected.modelConfig.temperature,
+    optionsTemperature: options.temperature,
+    controlPlaneCompatibility: mergedCp,
+    fallbackTemperature: DEFAULT_TEMPERATURE,
+  });
 
   const generateOptions: Parameters<typeof generateText>[0] = {
     model: selected.model,
@@ -603,7 +654,35 @@ function parseLlmJsonObjectFromTextSafe<T>(
   providerType: string,
   modelLabel: string,
   schema?: ZodType<T>,
+  parseMode?: "strict" | "lenient",
 ): ParseLlmJsonObjectResult {
+  // ── Strict mode ──────────────────────────────────────────────
+  // stream_json Planner path: rawText.trim() must directly JSON.parse.
+  // No code fence extraction, no balanced-JSON search, no repair.
+  if (parseMode === "strict") {
+    const text = rawText.trim();
+    try {
+      const parsed = JSON.parse(text);
+      if (schema) {
+        const result = schema.safeParse(parsed);
+        if (result.success) {
+          return { success: true, parsed: result.data, candidateCount: 1, usedCandidateIndex: 0 };
+        }
+        return { success: false, candidateCount: 1, usedCandidateIndex: -1, errorKind: "schema_validation_failed" };
+      }
+      return { success: true, parsed, candidateCount: 1, usedCandidateIndex: 0 };
+    } catch {
+      pushAgentDebugEvent("LLM_JSON_STRICT_PARSE_FAILED_SAFE", {
+        providerType,
+        modelLabel,
+        rawChars: text.length,
+        parseMode: "strict",
+      });
+      return { success: false, candidateCount: 1, usedCandidateIndex: -1, errorKind: "invalid_json" };
+    }
+  }
+
+  // ── Lenient mode (existing) ──────────────────────────────────
   let cleaned = rawText.trim();
 
   const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -747,215 +826,44 @@ function parseLlmJsonObjectFromTextSafe<T>(
   };
 }
 
-const JSON_FALLBACK_MAX_RETRIES = 1;
-const JSON_FALLBACK_RETRY_SUFFIX = "\n\n=== 重试指令 ===\n上次输出不是合法 schema JSON。请重新输出。只能输出一个 JSON object，第一个字符 {，最后一个字符 }，不要 Markdown，不要解释，不要思考过程。";
-
 const CONTROL_PLANE_JSON_MAX_OUTPUT_TOKENS = 800;
-
-interface ControlPlaneJsonObservation {
-  providerType: string;
-  modelLabel: string;
-  controlPlaneJsonMode: "ai_sdk_first" | "raw_first";
-  rawFallbackSuccessCount: number;
-  aiSdkEmptyOrInvalidCount: number;
-  lastUpdatedAt: number;
-}
-
-const CONTROL_PLANE_OBSERVATION_STORAGE_KEY = "kb_cp_json_obs_v1";
-const CONTROL_PLANE_OBSERVATION_TTL_MS = 1000 * 60 * 60 * 4;
-
-function loadControlPlaneObservationFromStorage(): Map<string, ControlPlaneJsonObservation> {
-  const map = new Map<string, ControlPlaneJsonObservation>();
-  try {
-    const raw = sessionStorage.getItem(CONTROL_PLANE_OBSERVATION_STORAGE_KEY);
-    if (!raw) return map;
-    const parsed = JSON.parse(raw) as Record<string, ControlPlaneJsonObservation>;
-    const now = Date.now();
-    for (const [key, obs] of Object.entries(parsed)) {
-      if (now - obs.lastUpdatedAt < CONTROL_PLANE_OBSERVATION_TTL_MS) {
-        map.set(key, obs);
-      }
-    }
-  } catch {
-    // sessionStorage unavailable or corrupt
-  }
-  return map;
-}
-
-function persistControlPlaneObservationToStorage(cache: Map<string, ControlPlaneJsonObservation>): void {
-  try {
-    const obj: Record<string, ControlPlaneJsonObservation> = {};
-    for (const [key, obs] of cache) {
-      obj[key] = obs;
-    }
-    sessionStorage.setItem(CONTROL_PLANE_OBSERVATION_STORAGE_KEY, JSON.stringify(obj));
-  } catch {
-    // sessionStorage unavailable
-  }
-}
-
-const controlPlaneJsonObservationCache = loadControlPlaneObservationFromStorage();
-
-function getControlPlaneJsonObservationKey(providerType: string, modelLabel: string): string {
-  return `${providerType}:${modelLabel}`;
-}
-
-function getControlPlaneJsonObservation(providerType: string, modelLabel: string): ControlPlaneJsonObservation | undefined {
-  return controlPlaneJsonObservationCache.get(getControlPlaneJsonObservationKey(providerType, modelLabel));
-}
-
-function updateControlPlaneJsonObservation(
-  providerType: string,
-  modelLabel: string,
-  event: "raw_success" | "ai_sdk_empty_or_invalid",
-): void {
-  const key = getControlPlaneJsonObservationKey(providerType, modelLabel);
-  const existing = controlPlaneJsonObservationCache.get(key);
-  if (!existing) {
-    const obs: ControlPlaneJsonObservation = {
-      providerType,
-      modelLabel,
-      controlPlaneJsonMode: "raw_first",
-      rawFallbackSuccessCount: event === "raw_success" ? 1 : 0,
-      aiSdkEmptyOrInvalidCount: event === "ai_sdk_empty_or_invalid" ? 1 : 0,
-      lastUpdatedAt: Date.now(),
-    };
-    controlPlaneJsonObservationCache.set(key, obs);
-    pushAgentDebugEvent("CONTROL_PLANE_JSON_OBSERVATION_RECORDED_SAFE", {
-      providerType,
-      modelLabel,
-      mode: obs.controlPlaneJsonMode,
-      reason: event,
-      rawFallbackSuccessCount: obs.rawFallbackSuccessCount,
-      aiSdkEmptyOrInvalidCount: obs.aiSdkEmptyOrInvalidCount,
-    });
-    persistControlPlaneObservationToStorage(controlPlaneJsonObservationCache);
-    return;
-  }
-  if (event === "raw_success") {
-    existing.rawFallbackSuccessCount++;
-  } else {
-    existing.aiSdkEmptyOrInvalidCount++;
-  }
-  existing.controlPlaneJsonMode = "raw_first";
-  existing.lastUpdatedAt = Date.now();
-  pushAgentDebugEvent("CONTROL_PLANE_JSON_OBSERVATION_RECORDED_SAFE", {
-    providerType,
-    modelLabel,
-    mode: existing.controlPlaneJsonMode,
-    reason: event,
-    rawFallbackSuccessCount: existing.rawFallbackSuccessCount,
-    aiSdkEmptyOrInvalidCount: existing.aiSdkEmptyOrInvalidCount,
-  });
-  persistControlPlaneObservationToStorage(controlPlaneJsonObservationCache);
-}
-
-function shouldUseRawFirst(providerType: string, modelLabel: string): boolean {
-  const obs = getControlPlaneJsonObservation(providerType, modelLabel);
-  const result = obs?.controlPlaneJsonMode === "raw_first";
-  if (obs) {
-    pushAgentDebugEvent("CONTROL_PLANE_JSON_MODE_RESOLVED_SAFE", {
-      providerType,
-      modelLabel,
-      mode: obs.controlPlaneJsonMode,
-      rawFirst: result,
-      rawFallbackSuccessCount: obs.rawFallbackSuccessCount,
-      aiSdkEmptyOrInvalidCount: obs.aiSdkEmptyOrInvalidCount,
-    });
-  }
-  return result;
-}
-
-function buildSchemaAwareJsonRetryPrompt(originalPrompt: string): string {
-  return originalPrompt + JSON_FALLBACK_RETRY_SUFFIX;
-}
-
-function safeGetNumber(obj: unknown, key: string): number | undefined {
-  try {
-    const v = (obj as Record<string, unknown>)?.[key];
-    return typeof v === "number" ? v : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function safeGetFinishReason(result: unknown): string | undefined {
-  try {
-    const r = result as Record<string, unknown>;
-    if (typeof r.finishReason === "string") return r.finishReason;
-    if (typeof r.finish_reason === "string") return r.finish_reason;
-    if (Array.isArray(r.content)) {
-      const first = r.content[0] as Record<string, unknown> | undefined;
-      if (first && typeof first.finishReason === "string") return first.finishReason;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function extractResultShape(result: unknown): {
-  textChars: number;
-  finishReason: string | undefined;
-  inputTokens: number | undefined;
-  outputTokens: number | undefined;
-  totalTokens: number | undefined;
-  contentPartCount: number;
-  textPartCount: number;
-  reasoningPartCount: number;
-} {
-  const r = result as Record<string, unknown> | null;
-  if (!r) {
-    return { textChars: 0, finishReason: undefined, inputTokens: undefined, outputTokens: undefined, totalTokens: undefined, contentPartCount: 0, textPartCount: 0, reasoningPartCount: 0 };
-  }
-
-  const text = typeof r.text === "string" ? r.text : "";
-  const finishReason = safeGetFinishReason(r);
-
-  const usage = r.usage as Record<string, unknown> | undefined;
-  const inputTokens = safeGetNumber(usage, "inputTokens") ?? safeGetNumber(usage, "prompt_tokens");
-  const outputTokens = safeGetNumber(usage, "outputTokens") ?? safeGetNumber(usage, "completion_tokens");
-  const totalTokens = safeGetNumber(usage, "totalTokens") ?? safeGetNumber(usage, "total_tokens");
-
-  let contentPartCount = 0;
-  let textPartCount = 0;
-  let reasoningPartCount = 0;
-
-  const content = r.content;
-  if (Array.isArray(content)) {
-    contentPartCount = content.length;
-    for (const part of content) {
-      const p = part as Record<string, unknown>;
-      const type = typeof p.type === "string" ? p.type : "";
-      if (type === "text" || type === "text-delta") textPartCount++;
-      if (type === "reasoning" || type === "reasoning-delta" || type === "thinking") reasoningPartCount++;
-    }
-  }
-
-  return { textChars: text.length, finishReason, inputTokens, outputTokens, totalTokens, contentPartCount, textPartCount, reasoningPartCount };
-}
 
 /**
  * 从 providerOptions 中安全提取 thinking.type 参数。
  *
- * 只接受 "enabled"。off 时 providerOptions 为 undefined，不会出现 disabled。
+ * 接受 "enabled" 和 "disabled"。off 时 kb-model-call 可能对需要显式关闭的 provider 传入 disabled。
  * 本函数只读取 openai/openai-compatible 下的 thinking.type，不把整个 providerOptions 展开到 raw body。
  */
-function extractOpenAICompatibleThinkingTypeFromProviderOptions(
+function extractOpenAICompatibleThinkingParams(
   providerOptions: Record<string, Record<string, unknown>> | undefined,
-): { type: "enabled" } | undefined {
-  if (!providerOptions) return undefined;
+): {
+  thinking?: { type: "enabled" | "disabled" };
+  enableThinking?: boolean;
+} {
+  const result: { thinking?: { type: "enabled" | "disabled" }; enableThinking?: boolean } = {};
+  if (!providerOptions) return result;
   for (const key of ["openai", "openai-compatible"]) {
     const provider = providerOptions[key];
     if (!provider || typeof provider !== "object") continue;
+
+    // 提取 thinking.type
     const thinking = provider["thinking"];
-    if (!thinking || typeof thinking !== "object") continue;
-    const typeVal = (thinking as Record<string, unknown>)["type"];
-    if (typeVal === "enabled") {
-      return { type: "enabled" };
+    if (thinking && typeof thinking === "object") {
+      const typeVal = (thinking as Record<string, unknown>)["type"];
+      if (typeVal === "enabled" || typeVal === "disabled") {
+        result.thinking = { type: typeVal };
+      }
     }
+
+    // 提取 enable_thinking
+    const enableThinking = provider["enable_thinking"];
+    if (typeof enableThinking === "boolean") {
+      result.enableThinking = enableThinking;
+    }
+
+    break; // 找到一个即可
   }
-  return undefined;
+  return result;
 }
 
 async function callOpenAICompatibleRawJsonObjectFallback<T>(
@@ -963,7 +871,6 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   prompt: string,
   schema: ZodType<T>,
   options: LlmCallOptions = {},
-  isRetry: boolean = false,
 ): Promise<T> {
   const providerConfig = selected.providerConfig;
   const modelId = selected.modelConfig.id;
@@ -985,49 +892,72 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   const purpose = options.purpose ?? "generic";
   const maxTokens = options.maxOutputTokens ?? CONTROL_PLANE_JSON_MAX_OUTPUT_TOKENS;
 
+  // Resolve provider profile for timeout + jsonOutputStrategy
+  let profileTimeoutMs: number | undefined;
+  let profileEndpointKind: string | undefined;
+  let jsonOutputStrategy: "raw_prompt" | "response_format_json_object" | undefined;
+  let tokenParamStrategy: "max_tokens" | "max_completion_tokens" | undefined;
+  let mergedCp: ControlPlaneCompatibility | undefined;
+  try {
+    const profile = resolveProviderProfile(providerConfig.type, {
+      providerControlPlaneCompatibility: selected.providerConfig.controlPlaneCompatibility,
+      modelControlPlaneCompatibility: selected.modelConfig.controlPlaneCompatibility,
+      finalComposeMode: selected.modelConfig.finalComposeMode,
+    });
+    profileTimeoutMs = profile.controlPlaneTimeoutMs;
+    profileEndpointKind = profile.endpointKind;
+    jsonOutputStrategy = profile.controlPlaneCompatibility?.jsonOutputStrategy;
+    tokenParamStrategy = profile.controlPlaneCompatibility?.tokenParamStrategy;
+    mergedCp = profile.controlPlaneCompatibility;
+  } catch {
+    // profile 解析失败，使用默认
+  }
+
   pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_START_SAFE", {
     providerType: providerConfig.type,
     modelLabel: modelId,
     purpose,
-    rawPromptMode: isRetry ? "system_user_json_contract_retry" : "system_user_json_contract",
+    rawPromptMode: "system_user_json_contract",
+    jsonOutputStrategy: jsonOutputStrategy ?? "raw_prompt",
   });
 
-  const buildBody = (withResponseFormat: boolean) => {
-    const systemContent = isRetry
-      ? "你是控制面 JSON 输出器，只能输出一个合法 JSON object；第一个字符必须是 {，最后一个字符必须是 }；禁止 Markdown、解释、思考过程、自然语言前后缀。字符串必须是合法 JSON 字符串；换行必须写成 \\n；引号必须转义；不允许未转义的多行字符串；不允许尾逗号；answer.body 应是简洁草稿或要点，不要输出长篇正文。"
-      : "你是控制面 JSON 输出器，只能输出一个合法 JSON object；第一个字符必须是 {，最后一个字符必须是 }；禁止 Markdown、解释、思考过程、自然语言前后缀。";
+  // 在 buildBody 之前提取 thinking 参数，供后续写入 raw body
+  const extractedThinking = extractOpenAICompatibleThinkingParams(options.providerOptions);
 
-    const body: Record<string, unknown> = {
-      model: modelId,
+  const buildBody = () => {
+    const systemContent = "你是控制面 JSON 输出器，只能输出一个合法 JSON object；第一个字符必须是 {，最后一个字符必须是 }；禁止 Markdown、解释、思考过程、自然语言前后缀。";
+
+    const temperature = resolveModelTemperatureForRequest({
+      providerType: providerConfig.type,
+      modelId,
+      modelConfigTemperature: selected.modelConfig.temperature,
+      optionsTemperature: purpose === "planner" ? undefined : options.temperature,
+      controlPlaneCompatibility: mergedCp,
+      fallbackTemperature: DEFAULT_TEMPERATURE,
+    });
+
+    const body = buildOpenAICompatibleRawJsonRequestBody({
+      modelId,
       messages: [
         { role: "system", content: systemContent },
         { role: "user", content: prompt },
       ],
-      max_tokens: maxTokens,
-    };
-
-    if (purpose === "planner") {
-      const sanitized = sanitizeTemperatureForProvider(providerConfig.type, 0);
-      if (sanitized !== undefined) body.temperature = sanitized;
-    } else {
-      const temp = options.temperature ?? selected.modelConfig.temperature ?? DEFAULT_TEMPERATURE;
-      const sanitized = sanitizeTemperatureForProvider(providerConfig.type, Number(temp));
-      if (sanitized !== undefined) body.temperature = sanitized;
-    }
-
-    if (withResponseFormat) body.response_format = { type: "json_object" };
-    // thinking 参数由 kb-model-call.ts 统一放入 providerOptions，
-    // 此处只负责从 providerOptions 提取 thinking.type 到 raw body
-    const extractedThinking = extractOpenAICompatibleThinkingTypeFromProviderOptions(options.providerOptions);
-    if (extractedThinking) {
-      body.thinking = extractedThinking;
-    }
+      maxTokens,
+      temperature,
+      jsonOutputStrategy,
+      thinkingParams: extractedThinking,
+      tokenParamStrategy,
+    });
 
     pushAgentDebugEvent("LLM_JSON_RAW_REQUEST_BODY_FEATURES_SAFE", {
       hasProviderOptions: !!options.providerOptions,
-      hasThinkingParam: !!extractedThinking,
-      thinkingType: extractedThinking?.type ?? null,
+      hasThinkingParam: !!extractedThinking.thinking,
+      thinkingType: extractedThinking.thinking?.type ?? null,
+      hasEnableThinkingParam: typeof extractedThinking.enableThinking === "boolean",
+      enableThinkingValue: extractedThinking.enableThinking ?? null,
       requestMode: purpose,
+      jsonOutputStrategy: jsonOutputStrategy ?? "raw_prompt",
+      tokenParamStrategy,
     });
 
     return body;
@@ -1036,7 +966,27 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
   const doFetch = async (body: Record<string, unknown>): Promise<Response> => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-    return fetch(baseURL, { method: "POST", headers, body: JSON.stringify(body), signal: options.abortSignal });
+    const { signal, timer } = combineAbortSignal(options.abortSignal, profileTimeoutMs);
+    try {
+      const res = await fetch(baseURL, { method: "POST", headers, body: JSON.stringify(body), signal });
+      return res;
+    } catch (fetchErr: any) {
+      if (options.abortSignal?.aborted) {
+        throw new AgentControlPlaneError("用户取消了操作。", "user_aborted");
+      }
+      if (signal?.aborted && (!options.abortSignal || !options.abortSignal.aborted)) {
+        if (profileEndpointKind === "coding_plan") {
+          pushAgentDebugEvent("CONTROL_PLANE_TIMEOUT_DIAG_SAFE", {
+            endpointKind: profileEndpointKind,
+            detail: "Coding Plan 可能不适合作为 Planner JSON 控制面",
+          }, "debug");
+        }
+        throw new AgentControlPlaneError("模型没有在设定时间内返回可继续执行的内容。", "control_plane_timeout");
+      }
+      throw fetchErr;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   };
 
   const extractContent = (data: unknown): { content: string; reasoningChars: number; reasoningCount: number } => {
@@ -1060,45 +1010,45 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
 
   let response: Response;
   try {
-    response = await doFetch(buildBody(true));
+    response = await doFetch(buildBody());
   } catch (fetchErr: any) {
+    if (fetchErr instanceof AgentControlPlaneError) throw fetchErr;
     pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
       providerType: providerConfig.type,
       modelLabel: modelId,
       purpose,
       errorKind: "fetch_failed",
+      errorName: fetchErr?.name,
+      sanitizedMessage: String(fetchErr?.message || fetchErr).slice(0, 120),
     });
-    throw new Error(`OpenAI-compatible raw fallback fetch 失败: ${fetchErr?.message || String(fetchErr)}`);
+    throw new AgentControlPlaneError("模型请求失败。", "control_plane_fetch_failed");
   }
 
-  if (!response.ok && (response.status === 400 || response.status === 422)) {
-    pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_RETRY_NO_RESPONSE_FORMAT_SAFE", {
-      providerType: providerConfig.type,
-      modelLabel: modelId,
-      purpose,
-      status: response.status,
-    });
-    try {
-      response = await doFetch(buildBody(false));
-    } catch (retryErr: any) {
-      pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
-        providerType: providerConfig.type,
-        modelLabel: modelId,
-        purpose,
-        errorKind: "retry_fetch_failed",
-      });
-      throw new Error(`OpenAI-compatible raw fallback retry fetch 失败: ${retryErr?.message || String(retryErr)}`);
-    }
-  }
-
+  // 不再 retry：jsonOutputStrategy 决定一次请求，失败即 fail closed
   if (!response.ok) {
+    const statusCode = response.status;
+    let httpErrorCode: string;
+    if (statusCode === 401) httpErrorCode = "http_401";
+    else if (statusCode === 403) httpErrorCode = "http_403";
+    else if (statusCode === 429) httpErrorCode = "http_429";
+    else if (statusCode >= 500) httpErrorCode = "http_5xx";
+    else httpErrorCode = "http_xxx";
     pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
       providerType: providerConfig.type,
       modelLabel: modelId,
       purpose,
-      errorKind: `http_${response.status}`,
+      errorKind: `http_${statusCode}`,
+      httpStatus: statusCode,
     });
-    throw new Error(`OpenAI-compatible raw fallback HTTP ${response.status}`);
+    const httpMessageMap: Record<string, string> = {
+      "http_401": "连接失败：当前 API Key 未通过鉴权。",
+      "http_403": "连接失败：当前 API Key 没有调用该模型的权限。",
+      "http_429": "请求过于频繁或额度受限，请稍后重试。",
+      "http_5xx": "服务商暂时无法完成请求，请稍后重试。",
+      "http_xxx": "模型请求失败。",
+    };
+    const userSafeMessage = httpMessageMap[httpErrorCode] ?? "模型请求失败。";
+    throw new AgentControlPlaneError(userSafeMessage, httpErrorCode);
   }
 
   let data: unknown;
@@ -1111,10 +1061,22 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
       purpose,
       errorKind: "json_parse_failed",
     });
-    throw new Error("OpenAI-compatible raw fallback: 响应非 JSON");
+    throw new AgentControlPlaneError("模型响应格式不符合要求。", "json_parse_failed");
   }
 
   const { content, reasoningChars, reasoningCount } = extractContent(data);
+
+  // 如果 thinking=disabled 但 provider 仍返回 reasoning，记录 debug（不阻止解析 content）
+  const requestedThinkingDisabled = extractedThinking?.thinking?.type === "disabled";
+  if (requestedThinkingDisabled && reasoningCount > 0 && reasoningChars > 0) {
+    pushAgentDebugEvent("PROVIDER_RETURNED_REASONING_WHEN_DISABLED_SAFE", {
+      providerType: providerConfig.type,
+      modelLabel: modelId,
+      purpose,
+      reasoningChars,
+      reasoningCount,
+    }, "warn");
+  }
 
   pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_RESULT_SAFE", {
     providerType: providerConfig.type,
@@ -1133,7 +1095,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
         purpose,
         errorKind: "reasoning_only_control_plane",
       });
-      throw new Error("OpenAI-compatible raw fallback: 模型只返回 reasoning，无 content");
+      throw new AgentControlPlaneError("模型没有返回可执行内容。", "reasoning_only_control_plane");
     }
     pushAgentDebugEvent("LLM_JSON_RAW_OPENAI_COMPAT_FAILED_SAFE", {
       providerType: providerConfig.type,
@@ -1141,7 +1103,7 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
       purpose,
       errorKind: "empty_content",
     });
-    throw new Error("OpenAI-compatible raw fallback: content 为空");
+    throw new AgentControlPlaneError("模型没有返回可执行内容。", "empty_content");
   }
 
   const parseResult = parseLlmJsonObjectFromTextSafe(content, providerConfig.type, modelId, schema);
@@ -1152,7 +1114,152 @@ async function callOpenAICompatibleRawJsonObjectFallback<T>(
       purpose,
       errorKind: parseResult.errorKind,
     });
-    throw new Error(`OpenAI-compatible raw fallback JSON 解析失败: ${parseResult.errorKind}`);
+    throw new AgentControlPlaneError("模型输出格式不符合自动操作要求。", "invalid_json");
+  }
+
+  return parseResult.parsed as T;
+}
+
+/**
+ * 流式 JSON Planner：通过 SSE 流式接收 content，结束后严格 JSON.parse。
+ * 与 callOpenAICompatibleRawJsonObjectFallback 共用请求体构造逻辑。
+ */
+async function callOpenAICompatibleRawJsonObjectStream<T>(
+  selected: ReturnType<typeof createSelectedChatModel>,
+  prompt: string,
+  schema: ZodType<T>,
+  options: LlmCallOptions = {},
+): Promise<T> {
+  const providerConfig = selected.providerConfig;
+  const modelId = selected.modelConfig.id;
+
+  const apiKey = providerConfig.apiKey;
+  let baseURL = resolveOpenAICompatibleBaseUrlForProvider(providerConfig);
+
+  if (!baseURL) {
+    throw new AgentControlPlaneError("配置错误：服务地址未配置。", "invalid_args");
+  }
+  if (!baseURL.endsWith("/chat/completions")) {
+    if (baseURL.endsWith("/v1")) {
+      baseURL = baseURL + "/chat/completions";
+    } else {
+      baseURL = baseURL + "/v1/chat/completions";
+    }
+  }
+
+  const purpose = options.purpose ?? "generic";
+  const maxTokens = options.maxOutputTokens ?? CONTROL_PLANE_JSON_MAX_OUTPUT_TOKENS;
+
+  // Resolve provider profile
+  let jsonOutputStrategy: "raw_prompt" | "response_format_json_object" | undefined;
+  let tokenParamStrategy: "max_tokens" | "max_completion_tokens" | undefined;
+  let idleTimeoutMs = 30000;
+  let mergedCp: ControlPlaneCompatibility | undefined;
+  try {
+    const profile = resolveProviderProfile(providerConfig.type, {
+      providerControlPlaneCompatibility: selected.providerConfig.controlPlaneCompatibility,
+      modelControlPlaneCompatibility: selected.modelConfig.controlPlaneCompatibility,
+      finalComposeMode: selected.modelConfig.finalComposeMode,
+    });
+    jsonOutputStrategy = profile.controlPlaneCompatibility?.jsonOutputStrategy;
+    tokenParamStrategy = profile.controlPlaneCompatibility?.tokenParamStrategy;
+    idleTimeoutMs = profile.controlPlaneTimeoutMs ?? 30000;
+    // 流式模式下 timeoutMs 语义为 idle timeout，最小 30s，最大 300s
+    idleTimeoutMs = Math.max(30000, Math.min(300000, idleTimeoutMs));
+    mergedCp = profile.controlPlaneCompatibility;
+  } catch {
+    // defaults
+  }
+
+  const temperature = resolveModelTemperatureForRequest({
+    providerType: providerConfig.type,
+    modelId,
+    modelConfigTemperature: selected.modelConfig.temperature,
+    optionsTemperature: purpose === "planner" ? undefined : options.temperature,
+    controlPlaneCompatibility: mergedCp,
+    fallbackTemperature: DEFAULT_TEMPERATURE,
+  });
+
+  const extractedThinking = extractOpenAICompatibleThinkingParams(options.providerOptions);
+
+  const systemContent = "你是控制面 JSON 输出器，只能输出一个合法 JSON object；第一个字符必须是 {，最后一个字符必须是 }；禁止 Markdown、解释、思考过程、自然语言前后缀。";
+
+  const body = buildOpenAICompatibleRawJsonRequestBody({
+    modelId,
+    messages: [
+      { role: "system", content: systemContent },
+      { role: "user", content: prompt },
+    ],
+    maxTokens,
+    temperature,
+    jsonOutputStrategy,
+    thinkingParams: extractedThinking,
+    tokenParamStrategy,
+  });
+
+  pushAgentDebugEvent("LLM_JSON_STREAM_START_SAFE", {
+    providerType: providerConfig.type,
+    modelLabel: modelId,
+    purpose,
+    transport: "stream_json",
+    jsonOutputStrategy: jsonOutputStrategy ?? "raw_prompt",
+    idleTimeoutMs,
+  });
+
+  const result = await streamOpenAICompatibleJsonPlanner({
+    endpoint: baseURL,
+    apiKey,
+    body,
+    idleTimeoutMs,
+    abortSignal: options.abortSignal,
+  });
+
+  if (!result.success) {
+    const failResult = result as StreamJsonPlannerResultFailure;
+    pushAgentDebugEvent("LLM_JSON_STREAM_FAILED_SAFE", {
+      providerType: providerConfig.type,
+      modelLabel: modelId,
+      idleTimeoutMs,
+      timeoutMode: "idle",
+      errorCode: failResult.errorCode,
+      reasoningChars: failResult.reasoningChars,
+      reasoningCount: failResult.reasoningCount,
+      contentCharsSoFar: failResult.contentCharsSoFar,
+      receivedDoneSignal: failResult.receivedDoneSignal,
+      finishReason: failResult.finishReason,
+      malformedLineCount: failResult.malformedLineCount,
+      transport: "stream_json",
+    });
+    throw new AgentControlPlaneError(failResult.message, failResult.errorCode);
+  }
+
+  pushAgentDebugEvent("LLM_JSON_STREAM_RESULT_SAFE", {
+    providerType: providerConfig.type,
+    modelLabel: modelId,
+    contentChars: result.content.length,
+    reasoningChars: result.reasoningChars,
+    reasoningCount: result.reasoningCount,
+    receivedDoneSignal: result.receivedDoneSignal,
+    finishReason: result.finishReason,
+    malformedLineCount: result.malformedLineCount,
+    idleTimeoutMs,
+    timeoutMode: "idle",
+    transport: "stream_json",
+  });
+
+  // JSON parse + schema validation
+  const parseResult = parseLlmJsonObjectFromTextSafe(result.content, providerConfig.type, modelId, schema, "strict");
+  if (!parseResult.success) {
+    pushAgentDebugEvent("LLM_JSON_STREAM_FAILED_SAFE", {
+      providerType: providerConfig.type,
+      modelLabel: modelId,
+      errorCode: parseResult.errorKind,
+      contentChars: result.content.length,
+      idleTimeoutMs,
+      timeoutMode: "idle",
+      transport: "stream_json",
+    });
+    throw new AgentControlPlaneError("模型输出格式不符合自动操作要求。", "invalid_json");
   }
 
   return parseResult.parsed as T;
@@ -1167,224 +1274,107 @@ async function callLlmObjectFallback<T>(
   schema: ZodType<T>,
   options: LlmCallOptions = {},
 ): Promise<T> {
-  const rawTemperature =
-    options.temperature ??
-    selected.modelConfig.temperature ??
-    DEFAULT_TEMPERATURE;
-
-  const temperature = sanitizeTemperatureForProvider(
-    selected.providerConfig.type,
-    Number(rawTemperature),
-  );
-
   const purpose = options.purpose ?? "generic";
-  let lastErrorKind = "unknown";
-  let attemptCount = 0;
 
   const isOpenAICompatibleEarly = isOpenAICompatibleProtocolProvider(selected.providerConfig.type);
   const defaultRawFirst = isOpenAICompatibleEarly && purpose !== "generic";
 
   let profileRawFirst = false;
-  let profileAllowStructuredFallback = true;
+  let plannerTransport: "non_stream_json" | "stream_json" = "non_stream_json";
+  let mergedCp: ControlPlaneCompatibility | undefined;
   try {
     const profile = resolveProviderProfile(selected.providerConfig.type, {
+      providerControlPlaneCompatibility: selected.providerConfig.controlPlaneCompatibility,
+      modelControlPlaneCompatibility: selected.modelConfig.controlPlaneCompatibility,
       finalComposeMode: selected.modelConfig.finalComposeMode,
     });
     profileRawFirst = profile.controlPlaneStrategy === "raw_first";
-    profileAllowStructuredFallback = profile.allowStructuredFallback;
+    plannerTransport = (profile.plannerTransport
+      ?? selected.modelConfig.controlPlaneCompatibility?.plannerTransport
+      ?? selected.providerConfig.controlPlaneCompatibility?.plannerTransport
+      ?? "non_stream_json") as "non_stream_json" | "stream_json";
+    mergedCp = profile.controlPlaneCompatibility;
   } catch {
     // profile 解析失败，使用默认行为
   }
 
-  const useRawFirst = defaultRawFirst || profileRawFirst || shouldUseRawFirst(selected.providerConfig.type, selected.modelConfig.id);
+  const temperature = resolveModelTemperatureForRequest({
+    providerType: selected.providerConfig.type,
+    modelId: selected.modelConfig.id,
+    modelConfigTemperature: selected.modelConfig.temperature,
+    optionsTemperature: options.temperature,
+    controlPlaneCompatibility: mergedCp,
+    fallbackTemperature: DEFAULT_TEMPERATURE,
+  });
 
+  const useRawFirst = defaultRawFirst || profileRawFirst;
+
+  // 只调用一次模型并进行本地严格解析；失败抛出稳定 reasonCode，由 AgentLoop 决定是否作为协议错误 observation 处理。
   if (useRawFirst) {
-    pushAgentDebugEvent("LLM_JSON_CONTROL_PLANE_RAW_FIRST_START_SAFE", {
-      providerType: selected.providerConfig.type,
-      modelLabel: selected.modelConfig.id,
-      purpose,
-      profileRawFirst,
-      profileAllowStructuredFallback,
-    });
-    try {
-      const rawResult = await callOpenAICompatibleRawJsonObjectFallback(selected, prompt, schema, options);
-      pushAgentDebugEvent("LLM_JSON_CONTROL_PLANE_RAW_FIRST_SUCCESS_SAFE", {
-        providerType: selected.providerConfig.type,
-        modelLabel: selected.modelConfig.id,
-        purpose,
-      });
-      return rawResult;
-    } catch (rawErr) {
-      pushAgentDebugEvent("LLM_JSON_CONTROL_PLANE_RAW_FIRST_FAILED_SAFE", {
-        providerType: selected.providerConfig.type,
-        modelLabel: selected.modelConfig.id,
-        purpose,
-        errorMessage: rawErr instanceof Error ? rawErr.message.substring(0, 100) : "unknown",
-      });
-      if (!profileAllowStructuredFallback) {
-        const retryPrompt = buildSchemaAwareJsonRetryPrompt(prompt);
-        pushAgentDebugEvent("CONTROL_PLANE_FAST_JSON_RETRY_SAFE", {
-          providerType: selected.providerConfig.type,
-          modelLabel: selected.modelConfig.id,
-          retryCount: 1,
-          reason: "raw_first_failed,profile_no_structured_fallback",
-          retryPromptMode: "system_user_json_contract_retry",
-        }, "info");
-        try {
-          const retryResult = await callOpenAICompatibleRawJsonObjectFallback(selected, retryPrompt, schema, options, true);
-          pushAgentDebugEvent("CONTROL_PLANE_FAST_JSON_RETRY_SAFE", {
-            providerType: selected.providerConfig.type,
-            modelLabel: selected.modelConfig.id,
-            retryCount: 1,
-            reason: "retry_success",
-            retryPromptMode: "system_user_json_contract_retry",
-          }, "info");
-          return retryResult;
-        } catch (retryErr) {
-          pushAgentDebugEvent("CONTROL_PLANE_STRUCTURED_FALLBACK_SKIPPED_SAFE", {
-            providerType: selected.providerConfig.type,
-            modelLabel: selected.modelConfig.id,
-            reason: "profile_allowStructuredFallback=false,raw_first_and_retry_failed",
-          }, "info");
-          throw new Error(`JSON 解析失败 [${selected.providerLabel} / ${selected.modelLabel}]: raw_first 和 fast retry 均失败`);
-        }
+    // 流式模式：通过 SSE 流式接收 content，结束后严格 JSON.parse
+    if (plannerTransport === "stream_json") {
+      try {
+        return await callOpenAICompatibleRawJsonObjectStream(selected, prompt, schema, options);
+      } catch (streamErr) {
+        if (streamErr instanceof AgentControlPlaneError) throw streamErr;
+        pushAgentDebugEvent("LLM_JSON_FALLBACK_FAILED_SAFE", {
+          errorName: (streamErr as any)?.name ?? "unknown",
+          sanitizedMessage: String((streamErr as any)?.message ?? streamErr).slice(0, 200),
+        }, "warn");
+        throw new AgentControlPlaneError("模型没有返回可继续执行的内容。", "planner_model_call_failed");
       }
     }
-  }
 
-  if (!profileAllowStructuredFallback) {
-    pushAgentDebugEvent("CONTROL_PLANE_STRUCTURED_FALLBACK_SKIPPED_SAFE", {
-      providerType: selected.providerConfig.type,
-      modelLabel: selected.modelConfig.id,
-      reason: "profile_allowStructuredFallback=false",
-    }, "info");
-    throw new Error(`JSON 解析失败 [${selected.providerLabel} / ${selected.modelLabel}]: profile 不允许 structured fallback`);
-  }
-
-  const buildGenerateOptions = (retryPrompt: string): Parameters<typeof generateText>[0] => {
-    const opts: Parameters<typeof generateText>[0] = {
-      model: selected.model,
-      messages: [{ role: "user", content: retryPrompt }],
-      abortSignal: options.abortSignal,
-    };
-    if (temperature !== undefined) {
-      opts.temperature = temperature;
-    }
-    if (selected.modelConfig.maxTokens !== undefined && selected.modelConfig.maxTokens > 0) {
-      opts.maxOutputTokens = selected.modelConfig.maxTokens;
-    }
-    if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
-      opts.maxOutputTokens = options.maxOutputTokens;
-    }
-    // providerOptions 真实传递
-    if (options.providerOptions) {
-      opts.providerOptions = options.providerOptions as typeof opts.providerOptions;
-    }
-    return opts;
-  };
-
-  const attemptParse = async (retryPrompt: string, isRetry: boolean): Promise<T | null> => {
-    attemptCount++;
-    const startTime = Date.now();
-    const result = await generateText(buildGenerateOptions(retryPrompt));
-    const durationMs = Date.now() - startTime;
-    const shape = extractResultShape(result);
-
-    pushAgentDebugEvent("LLM_CALL_TIMING", {
-      purpose: "structured_json_fallback",
-      providerType: selected.providerConfig.type,
-      modelLabel: selected.modelConfig.id,
-      durationMs,
-      supportsStructuredOutputs: false,
-      usedJsonRepair: true,
-      attempt: attemptCount,
-      isRetry,
-    });
-
-    pushAgentDebugEvent("LLM_JSON_FALLBACK_RESULT_SHAPE_SAFE", {
-      providerType: selected.providerConfig.type,
-      modelLabel: selected.modelConfig.id,
-      purpose,
-      attempt: attemptCount,
-      textChars: shape.textChars,
-      finishReason: shape.finishReason,
-      contentPartCount: shape.contentPartCount,
-      textPartCount: shape.textPartCount,
-      reasoningPartCount: shape.reasoningPartCount,
-      outputTokens: shape.outputTokens,
-    });
-
-    const text = typeof result.text === "string" ? result.text : "";
-
-    if (!text || text.trim().length === 0) {
-      lastErrorKind = "empty_text";
-      pushAgentDebugEvent("LLM_JSON_FALLBACK_EMPTY_TEXT_SAFE", {
-        providerType: selected.providerConfig.type,
-        modelLabel: selected.modelConfig.id,
-        purpose,
-        attempt: attemptCount,
-        maxOutputTokens: options.maxOutputTokens,
-      });
-      return null;
-    }
-
-    const parseResult = parseLlmJsonObjectFromTextSafe(
-      text,
-      selected.providerConfig.type,
-      selected.modelConfig.id,
-      schema,
-    );
-
-    if (parseResult.success) {
-      return parseResult.parsed as T;
-    }
-
-    lastErrorKind = parseResult.errorKind ?? "unknown";
-    return null;
-  };
-
-  const initialPrompt = prompt + "\n\n请只输出一个合法 JSON Object，不要 Markdown 代码块，不要解释。";
-  const result = await attemptParse(initialPrompt, false);
-  if (result !== null) {
-    return result;
-  }
-
-  if (attemptCount <= JSON_FALLBACK_MAX_RETRIES) {
-    const retryPrompt = buildSchemaAwareJsonRetryPrompt(prompt);
-    pushAgentDebugEvent("LLM_JSON_FALLBACK_RETRY_SAFE", {
-      providerType: selected.providerConfig.type,
-      modelLabel: selected.modelConfig.id,
-      purpose,
-      attempt: attemptCount,
-      reason: lastErrorKind,
-      retryPromptMode: "schema_aware_original_prompt",
-    });
-    const retryResult = await attemptParse(retryPrompt, true);
-    if (retryResult !== null) {
-      return retryResult;
-    }
-  }
-
-  const isOpenAICompatible = isOpenAICompatibleProtocolProvider(selected.providerConfig.type);
-  if (isOpenAICompatible) {
-    updateControlPlaneJsonObservation(selected.providerConfig.type, selected.modelConfig.id, "ai_sdk_empty_or_invalid");
+    // 非流式模式：现有路径
     try {
-      const rawResult = await callOpenAICompatibleRawJsonObjectFallback(selected, prompt, schema, options);
-      updateControlPlaneJsonObservation(selected.providerConfig.type, selected.modelConfig.id, "raw_success");
-      return rawResult;
+      return await callOpenAICompatibleRawJsonObjectFallback(selected, prompt, schema, options);
     } catch (rawErr) {
-      lastErrorKind = "raw_openai_compat_failed";
+      if (rawErr instanceof AgentControlPlaneError) throw rawErr;
+      pushAgentDebugEvent("LLM_JSON_FALLBACK_FAILED_SAFE", {
+        errorName: (rawErr as any)?.name ?? "unknown",
+        sanitizedMessage: String((rawErr as any)?.message ?? rawErr).slice(0, 200),
+      }, "warn");
+      throw new AgentControlPlaneError("模型没有返回可继续执行的内容。", "planner_model_call_failed");
     }
   }
 
-  pushAgentDebugEvent("LLM_JSON_FALLBACK_TERMINAL_FAILED_SAFE", {
-    providerType: selected.providerConfig.type,
-    modelLabel: selected.modelConfig.id,
-    purpose,
-    attemptCount,
-    lastErrorKind,
-  });
-  throw new Error(`JSON 解析失败 [${selected.providerLabel} / ${selected.modelLabel}]: ${lastErrorKind}`);
+  const generateOptions: Parameters<typeof generateText>[0] = {
+    model: selected.model,
+    messages: [{ role: "user", content: prompt }],
+    abortSignal: options.abortSignal,
+  };
+  if (temperature !== undefined) {
+    generateOptions.temperature = temperature;
+  }
+  if (selected.modelConfig.maxTokens !== undefined && selected.modelConfig.maxTokens > 0) {
+    generateOptions.maxOutputTokens = selected.modelConfig.maxTokens;
+  }
+  if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
+    generateOptions.maxOutputTokens = options.maxOutputTokens;
+  }
+  if (options.providerOptions) {
+    generateOptions.providerOptions = options.providerOptions as typeof generateOptions.providerOptions;
+  }
+
+  const result = await generateText(generateOptions);
+  const text = typeof result.text === "string" ? result.text : "";
+
+  if (!text || text.trim().length === 0) {
+    throw new AgentControlPlaneError("模型没有返回可执行内容。", "empty_content");
+  }
+
+  const parseResult = parseLlmJsonObjectFromTextSafe(
+    text,
+    selected.providerConfig.type,
+    selected.modelConfig.id,
+    schema,
+  );
+
+  if (!parseResult.success) {
+    throw new AgentControlPlaneError("模型输出格式不符合自动操作要求。", "invalid_json");
+  }
+
+  return parseResult.parsed as T;
 }
 
 /**
@@ -1395,27 +1385,38 @@ export async function callLlmObject<T>(
   schema: ZodType<T>,
   options: LlmCallOptions = {}
 ): Promise<T> {
-  const settings = await getKbSettings();
-
-  const selected = createSelectedChatModel(
-    settings,
-    options.chatModelSelection ?? activeChatModelSelection
-  );
+  let selected = options.selectedChatModel;
+  if (!selected) {
+    const settings = await getKbSettings();
+    selected = createSelectedChatModel(
+      settings,
+      options.chatModelSelection ?? activeChatModelSelection
+    );
+  }
 
   if (!providerSupportsStructuredOutputs(selected.providerConfig.type)) {
     return callLlmObjectFallback(selected, prompt, schema, options);
   }
 
-  // 温度优先级：options.temperature > modelConfig.temperature > DEFAULT_TEMPERATURE
-  const rawTemperature =
-    options.temperature ??
-    selected.modelConfig.temperature ??
-    DEFAULT_TEMPERATURE;
+  // 解析合并后的 provider profile 获取 controlPlaneCompatibility
+  let mergedCp: ControlPlaneCompatibility | undefined;
+  try {
+    const p = resolveProviderProfile(selected.providerConfig.type, {
+      providerControlPlaneCompatibility: selected.providerConfig.controlPlaneCompatibility,
+      modelControlPlaneCompatibility: selected.modelConfig.controlPlaneCompatibility,
+      finalComposeMode: selected.modelConfig.finalComposeMode,
+    });
+    mergedCp = p.controlPlaneCompatibility;
+  } catch { /* use undefined */ }
 
-  const temperature = sanitizeTemperatureForProvider(
-    selected.providerConfig.type,
-    Number(rawTemperature),
-  );
+  const temperature = resolveModelTemperatureForRequest({
+    providerType: selected.providerConfig.type,
+    modelId: selected.modelConfig.id,
+    modelConfigTemperature: selected.modelConfig.temperature,
+    optionsTemperature: options.temperature,
+    controlPlaneCompatibility: mergedCp,
+    fallbackTemperature: DEFAULT_TEMPERATURE,
+  });
 
   // 构建 generateText 参数
   const generateOptions: Parameters<typeof generateText>[0] = {
@@ -1630,24 +1631,35 @@ export async function streamLlm(
   options: LlmCallOptions = {},
   abortSignal?: AbortSignal
 ): Promise<void> {
-  const settings = await getKbSettings();
+  let selected = options.selectedChatModel;
+  if (!selected) {
+    const settings = await getKbSettings();
+    // 创建选中的模型，优先使用传入的 selection 或运行时上下文
+    selected = createSelectedChatModel(
+      settings,
+      options.chatModelSelection ?? activeChatModelSelection
+    );
+  }
 
-  // 创建选中的模型，优先使用传入的 selection 或运行时上下文
-  const selected = createSelectedChatModel(
-    settings,
-    options.chatModelSelection ?? activeChatModelSelection
-  );
+  // 解析合并后的 provider profile 获取 controlPlaneCompatibility
+  let mergedCp: ControlPlaneCompatibility | undefined;
+  try {
+    const profile = resolveProviderProfile(selected.providerConfig.type, {
+      providerControlPlaneCompatibility: selected.providerConfig.controlPlaneCompatibility,
+      modelControlPlaneCompatibility: selected.modelConfig.controlPlaneCompatibility,
+      finalComposeMode: selected.modelConfig.finalComposeMode,
+    });
+    mergedCp = profile.controlPlaneCompatibility;
+  } catch { /* use undefined */ }
 
-  // 温度优先级：options.temperature > modelConfig.temperature > DEFAULT_TEMPERATURE
-  const rawTemperature =
-    options.temperature ??
-    selected.modelConfig.temperature ??
-    DEFAULT_TEMPERATURE;
-
-  const temperature = sanitizeTemperatureForProvider(
-    selected.providerConfig.type,
-    Number(rawTemperature),
-  );
+  const temperature = resolveModelTemperatureForRequest({
+    providerType: selected.providerConfig.type,
+    modelId: selected.modelConfig.id,
+    modelConfigTemperature: selected.modelConfig.temperature,
+    optionsTemperature: options.temperature,
+    controlPlaneCompatibility: mergedCp,
+    fallbackTemperature: DEFAULT_TEMPERATURE,
+  });
 
   // 构建 streamText 参数
   const streamOptions: Parameters<typeof streamText>[0] = {

@@ -102,6 +102,9 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
           temperature: 1,
           default: true,
           enabled: true,
+          controlPlaneCompatibility: {
+            temperatureParamStrategy: "omit",
+          },
         },
         {
           id: "kimi-k2.5",
@@ -109,6 +112,9 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
           temperature: 1,
           default: false,
           enabled: true,
+          controlPlaneCompatibility: {
+            temperatureParamStrategy: "omit",
+          },
         },
       ],
     },

@@ -26,7 +26,7 @@
   // ── Provider options ──
   const providerOptions = [
     { value: "anysearch", label: "AnySearch（推荐）" },
-    { value: "custom_json", label: "自定义 JSON" },
+    { value: "custom_json", label: "自定义接口" },
     { value: "tavily", label: "Tavily" },
   ] as const;
 
@@ -166,7 +166,7 @@
       <div class="setting-row">
         <div class="setting-copy">
           <div class="setting-title">搜索端点</div>
-          <div class="setting-desc">自定义搜索 API 端点，需返回 JSON</div>
+          <div class="setting-desc">自定义搜索接口地址，需返回标准格式数据</div>
         </div>
         <div class="setting-control">
           <input type="text" class="b3-text-field fn__block" bind:value={ws.searchEndpoint} placeholder="https://your-proxy.com/search" />

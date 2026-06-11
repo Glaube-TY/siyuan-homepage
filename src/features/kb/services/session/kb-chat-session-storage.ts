@@ -55,6 +55,7 @@ export interface PersistedWorkbenchEvent {
   ok?: boolean;
   outputSummary?: string;
   errorCode?: string;
+  status?: string;
   durationMs?: number;
   message?: string;
 }
@@ -206,7 +207,8 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
         stepIndex: event.stepIndex,
         at: event.at,
         message: truncatePersistedText(event.message, 300),
-        errorCode: truncatePersistedText(event.status, 80),
+        errorCode: truncatePersistedText(event.errorCode, 80),
+        status: truncatePersistedText(event.status, 80),
       };
     case "AssistantFinal":
       return {
@@ -253,7 +255,8 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
         stepIndex,
         at,
         message: event.message,
-        status: event.errorCode,
+        errorCode: event.errorCode,
+        status: event.status ?? event.errorCode,
       };
     case "AssistantFinal":
       return {

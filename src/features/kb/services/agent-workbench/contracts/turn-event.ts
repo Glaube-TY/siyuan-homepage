@@ -44,7 +44,7 @@ export interface NoticeEvent extends AgentWorkbenchEventBase {
 }
 
 export type AgentWorkbenchEvent =
-  | (AgentWorkbenchEventBase & { type: "TurnStarted" | "AssistantMessageStarted" | "AssistantFinal" | "TurnFailed"; message?: string; status?: string })
+  | (AgentWorkbenchEventBase & { type: "TurnStarted" | "AssistantMessageStarted" | "AssistantFinal" | "TurnFailed"; message?: string; status?: string; errorCode?: string })
   | ToolDispatchEvent
   | ToolResultEvent
   | NoticeEvent;

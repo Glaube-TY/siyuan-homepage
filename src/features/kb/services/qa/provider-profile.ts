@@ -1,9 +1,8 @@
 /**
  * Provider Profile
  *
- * 为不同供应商/入口定义控制面策略和超时策略。
- * 不再包含 reasoning 请求参数相关字段；thinkingMode → providerOptions
- * 的唯一转换在 qa/kb-model-call.ts 中完成。
+ * 为不同供应商/入口定义控制面策略和兼容性配置。
+ * 模型适配差异只放在 provider profile 层，不散落到 AgentLoop/Tool/Skill。
  *
  * 职责：
  * - 定义 ProviderProfile 接口
@@ -12,6 +11,7 @@
  * - 所有 provider 差异只放在 provider profile / llm-client
  */
 
+import type { ControlPlaneCompatibility } from "../../types/settings";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 
 export type EndpointKind = "api" | "coding_plan" | "openai_compatible" | "unknown";
@@ -29,6 +29,15 @@ export interface ProviderProfile {
   controlPlaneTimeoutMs: number;
   controlPlaneMaxRetries: number;
   composeModeDefault: "auto" | "stream" | "non_stream";
+  thinkingControl?: {
+    supportsToggle: boolean;
+    defaultMode: "enabled" | "disabled" | "unknown";
+    disableRequiresExplicitParam: boolean;
+  };
+  /** 合并后的控制面兼容性配置（provider 默认 + model 覆盖） */
+  controlPlaneCompatibility?: ControlPlaneCompatibility;
+  /** Planner 调用传输方式 */
+  plannerTransport?: "non_stream_json" | "stream_json";
   note?: string;
   warning?: string;
 }
@@ -43,6 +52,15 @@ interface ProviderProfileDefaults {
   controlPlaneTimeoutMs: number;
   controlPlaneMaxRetries: number;
   composeModeDefault: "auto" | "stream" | "non_stream";
+  thinkingControl?: {
+    supportsToggle: boolean;
+    defaultMode: "enabled" | "disabled" | "unknown";
+    disableRequiresExplicitParam: boolean;
+  };
+  /** provider 级默认的控制面兼容性 */
+  controlPlaneCompatibility?: ControlPlaneCompatibility;
+  /** Planner 调用传输方式 */
+  plannerTransport?: "non_stream_json" | "stream_json";
   note?: string;
   warning?: string;
 }
@@ -52,25 +70,35 @@ const PROVIDER_PROFILE_DEFAULTS: Record<string, ProviderProfileDefaults> = {
     providerFamily: "kimi",
     endpointKind: "api",
     supportsStructuredOutputs: false,
-    supportsJsonMode: false,
-    controlPlaneStrategy: "raw_first",
+    supportsJsonMode: true,
+    controlPlaneStrategy: "json_mode",
     allowStructuredFallback: false,
-    controlPlaneTimeoutMs: 8000,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
-    warning: "Kimi 能力未知，保守默认",
+    controlPlaneCompatibility: {
+      jsonOutputStrategy: "response_format_json_object",
+      temperatureParamStrategy: "omit",
+    },
+    plannerTransport: "stream_json",
+    note: "Kimi API 支持 response_format json_object",
   },
   "kimi-api": {
     providerFamily: "kimi",
     endpointKind: "api",
     supportsStructuredOutputs: false,
-    supportsJsonMode: false,
-    controlPlaneStrategy: "raw_first",
+    supportsJsonMode: true,
+    controlPlaneStrategy: "json_mode",
     allowStructuredFallback: false,
-    controlPlaneTimeoutMs: 8000,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
-    warning: "Kimi API 能力未知，保守默认",
+    controlPlaneCompatibility: {
+      jsonOutputStrategy: "response_format_json_object",
+      temperatureParamStrategy: "omit",
+    },
+    plannerTransport: "stream_json",
+    note: "Kimi API 支持 response_format json_object",
   },
   "kimi-coding": {
     providerFamily: "kimi",
@@ -79,10 +107,15 @@ const PROVIDER_PROFILE_DEFAULTS: Record<string, ProviderProfileDefaults> = {
     supportsJsonMode: false,
     controlPlaneStrategy: "raw_first",
     allowStructuredFallback: false,
-    controlPlaneTimeoutMs: 8000,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
-    warning: "Kimi Coding 能力未知，保守默认",
+    controlPlaneCompatibility: {
+      suitability: "not_recommended",
+      temperatureParamStrategy: "omit",
+    },
+    plannerTransport: "stream_json",
+    warning: "Coding Plan 端点更适合代码任务，不推荐用于自动操作规划。",
   },
   mimo: {
     providerFamily: "mimo",
@@ -91,7 +124,7 @@ const PROVIDER_PROFILE_DEFAULTS: Record<string, ProviderProfileDefaults> = {
     supportsJsonMode: false,
     controlPlaneStrategy: "raw_first",
     allowStructuredFallback: false,
-    controlPlaneTimeoutMs: 8000,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
   },
@@ -102,9 +135,17 @@ const PROVIDER_PROFILE_DEFAULTS: Record<string, ProviderProfileDefaults> = {
     supportsJsonMode: false,
     controlPlaneStrategy: "raw_first",
     allowStructuredFallback: false,
-    controlPlaneTimeoutMs: 8000,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
+    controlPlaneCompatibility: {
+      jsonOutputStrategy: "raw_prompt",
+      thinkingOffStrategy: "openai_thinking_disabled",
+      thinkingOnStrategy: "openai_thinking_enabled",
+      tokenParamStrategy: "max_completion_tokens",
+    },
+    plannerTransport: "stream_json",
+    note: "MiMo API 支持 thinking 参数（OpenAI-compatible 风格）",
   },
   "mimo-coding-plan": {
     providerFamily: "mimo",
@@ -113,33 +154,60 @@ const PROVIDER_PROFILE_DEFAULTS: Record<string, ProviderProfileDefaults> = {
     supportsJsonMode: false,
     controlPlaneStrategy: "raw_first",
     allowStructuredFallback: false,
-    controlPlaneTimeoutMs: 10000,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
+    controlPlaneCompatibility: {
+      suitability: "not_recommended",
+      tokenParamStrategy: "max_completion_tokens",
+      thinkingOffStrategy: "openai_thinking_disabled",
+    },
+    plannerTransport: "stream_json",
+    warning: "Coding Plan 端点更适合长计划或代码任务，不推荐用于自动操作规划。",
   },
   deepseek: {
     providerFamily: "deepseek",
     endpointKind: "api",
-    supportsStructuredOutputs: true,
+    supportsStructuredOutputs: false,
     supportsJsonMode: true,
-    controlPlaneStrategy: "structured_output",
-    allowStructuredFallback: true,
-    controlPlaneTimeoutMs: 6000,
+    controlPlaneStrategy: "json_mode",
+    allowStructuredFallback: false,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
-    warning: "DeepSeek 能力未知，保守默认",
+    thinkingControl: {
+      supportsToggle: true,
+      defaultMode: "enabled",
+      disableRequiresExplicitParam: true,
+    },
+    controlPlaneCompatibility: {
+      thinkingOffStrategy: "openai_thinking_disabled",
+      thinkingOnStrategy: "openai_thinking_enabled",
+      jsonOutputStrategy: "response_format_json_object",
+    },
+    note: "DeepSeek 支持 thinking 开关和 response_format json_object",
   },
   "deepseek-api": {
     providerFamily: "deepseek",
     endpointKind: "api",
     supportsStructuredOutputs: false,
-    supportsJsonMode: false,
-    controlPlaneStrategy: "raw_first",
+    supportsJsonMode: true,
+    controlPlaneStrategy: "json_mode",
     allowStructuredFallback: false,
-    controlPlaneTimeoutMs: 8000,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
-    warning: "DeepSeek API 能力未知，保守默认",
+    thinkingControl: {
+      supportsToggle: true,
+      defaultMode: "enabled",
+      disableRequiresExplicitParam: true,
+    },
+    controlPlaneCompatibility: {
+      thinkingOffStrategy: "openai_thinking_disabled",
+      thinkingOnStrategy: "openai_thinking_enabled",
+      jsonOutputStrategy: "response_format_json_object",
+    },
+    note: "DeepSeek API 支持 thinking 开关和 response_format json_object",
   },
   "openai-compatible": {
     providerFamily: "custom",
@@ -148,9 +216,14 @@ const PROVIDER_PROFILE_DEFAULTS: Record<string, ProviderProfileDefaults> = {
     supportsJsonMode: false,
     controlPlaneStrategy: "raw_first",
     allowStructuredFallback: false,
-    controlPlaneTimeoutMs: 8000,
+    controlPlaneTimeoutMs: 30000,
     controlPlaneMaxRetries: 1,
     composeModeDefault: "auto",
+    controlPlaneCompatibility: {
+      jsonOutputStrategy: "raw_prompt",
+      thinkingOffStrategy: "omit",
+      thinkingOnStrategy: "omit",
+    },
     warning: "自定义接口能力未知，保守默认",
   },
 };
@@ -161,10 +234,46 @@ const LEGACY_PROVIDER_MAP: Record<string, string> = {
   deepseek: "deepseek-api",
 };
 
+/**
+ * 合并两个 ControlPlaneCompatibility，model 覆盖 provider。
+ */
+function mergeControlPlaneCompatibility(
+  providerCp?: ControlPlaneCompatibility,
+  modelCp?: ControlPlaneCompatibility,
+): ControlPlaneCompatibility | undefined {
+  if (!providerCp && !modelCp) return undefined;
+  return {
+    suitability: modelCp?.suitability ?? providerCp?.suitability,
+    jsonOutputStrategy: modelCp?.jsonOutputStrategy ?? providerCp?.jsonOutputStrategy,
+    thinkingOffStrategy: modelCp?.thinkingOffStrategy ?? providerCp?.thinkingOffStrategy,
+    thinkingOnStrategy: modelCp?.thinkingOnStrategy ?? providerCp?.thinkingOnStrategy,
+    timeoutMs: modelCp?.timeoutMs ?? providerCp?.timeoutMs,
+    tokenParamStrategy: modelCp?.tokenParamStrategy ?? providerCp?.tokenParamStrategy,
+    temperatureParamStrategy: modelCp?.temperatureParamStrategy ?? providerCp?.temperatureParamStrategy,
+    fixedTemperature: modelCp?.fixedTemperature ?? providerCp?.fixedTemperature,
+    plannerTransport: modelCp?.plannerTransport ?? providerCp?.plannerTransport,
+  };
+}
+
+/**
+ * 规范化 controlPlaneTimeoutMs：最小 30000，最大 300000。
+ * 用于清理旧配置中遗留的 8000/10000 等历史默认值。
+ */
+function normalizeControlPlaneTimeoutMs(value: unknown, defaultMs = 30000): number {
+  if (typeof value !== "number" || isNaN(value) || value <= 0) return defaultMs;
+  if (value < 30000) return 30000;
+  if (value > 300000) return 300000;
+  return value;
+}
+
 export function resolveProviderProfile(
   providerType: string,
   modelOverrides?: {
     finalComposeMode?: "auto" | "stream" | "non_stream";
+    /** provider 级 controlPlaneCompatibility */
+    providerControlPlaneCompatibility?: ControlPlaneCompatibility;
+    /** model 级 controlPlaneCompatibility（覆盖 provider） */
+    modelControlPlaneCompatibility?: ControlPlaneCompatibility;
   },
 ): ProviderProfile {
   const resolvedType = LEGACY_PROVIDER_MAP[providerType] ?? providerType;
@@ -172,17 +281,39 @@ export function resolveProviderProfile(
 
   const composeModeDefault = modelOverrides?.finalComposeMode ?? defaults.composeModeDefault;
 
+  // 合并 controlPlaneCompatibility：内置默认 → provider 配置 → model 配置
+  const mergedCp = mergeControlPlaneCompatibility(
+    defaults.controlPlaneCompatibility,
+    mergeControlPlaneCompatibility(
+      modelOverrides?.providerControlPlaneCompatibility,
+      modelOverrides?.modelControlPlaneCompatibility,
+    ),
+  );
+
+  // 根据 mergedCp.jsonOutputStrategy 做一致修正
+  let effectiveSupportsJsonMode = defaults.supportsJsonMode;
+  let effectiveControlPlaneStrategy = defaults.controlPlaneStrategy;
+  if (mergedCp?.jsonOutputStrategy === "response_format_json_object") {
+    effectiveSupportsJsonMode = true;
+    effectiveControlPlaneStrategy = "json_mode";
+  } else if (mergedCp?.jsonOutputStrategy === "raw_prompt") {
+    effectiveControlPlaneStrategy = "raw_first";
+  }
+
   const profile: ProviderProfile = {
     providerType: resolvedType,
     providerFamily: defaults.providerFamily,
     endpointKind: defaults.endpointKind,
     supportsStructuredOutputs: defaults.supportsStructuredOutputs,
-    supportsJsonMode: defaults.supportsJsonMode,
-    controlPlaneStrategy: defaults.controlPlaneStrategy,
+    supportsJsonMode: effectiveSupportsJsonMode,
+    controlPlaneStrategy: effectiveControlPlaneStrategy,
     allowStructuredFallback: defaults.allowStructuredFallback,
-    controlPlaneTimeoutMs: defaults.controlPlaneTimeoutMs,
+    controlPlaneTimeoutMs: normalizeControlPlaneTimeoutMs(mergedCp?.timeoutMs, defaults.controlPlaneTimeoutMs),
     controlPlaneMaxRetries: defaults.controlPlaneMaxRetries,
     composeModeDefault,
+    thinkingControl: defaults.thinkingControl,
+    controlPlaneCompatibility: mergedCp,
+    plannerTransport: mergedCp?.plannerTransport ?? defaults.plannerTransport,
     note: defaults.note,
     warning: defaults.warning,
   };
@@ -194,7 +325,40 @@ export function resolveProviderProfile(
     controlPlaneStrategy: profile.controlPlaneStrategy,
     supportsStructuredOutputs: profile.supportsStructuredOutputs,
     controlPlaneTimeoutMs: profile.controlPlaneTimeoutMs,
+    hasControlPlaneCompatibility: !!mergedCp,
   }, "info");
 
   return profile;
+}
+
+/**
+ * 统一温度解析函数 — 所有模型调用路径共用。
+ *
+ * 规则：
+ * 1. controlPlaneCompatibility.temperatureParamStrategy === "fixed" → 返回 fixedTemperature
+ * 2. controlPlaneCompatibility.temperatureParamStrategy === "omit" → 返回 undefined（不发送）
+ * 3. 默认 (default 或未设置) → optionsTemperature ?? modelConfigTemperature ?? fallbackTemperature
+ */
+export function resolveModelTemperatureForRequest(params: {
+  providerType: string;
+  modelId: string;
+  modelConfigTemperature?: number;
+  optionsTemperature?: number;
+  controlPlaneCompatibility?: ControlPlaneCompatibility;
+  fallbackTemperature?: number;
+}): number | undefined {
+  const cp = params.controlPlaneCompatibility;
+
+  // 1. fixed
+  if (cp?.temperatureParamStrategy === "fixed" && cp.fixedTemperature !== undefined) {
+    return cp.fixedTemperature;
+  }
+
+  // 2. omit
+  if (cp?.temperatureParamStrategy === "omit") {
+    return undefined;
+  }
+
+  // 3. default (or unset)
+  return params.optionsTemperature ?? params.modelConfigTemperature ?? params.fallbackTemperature;
 }

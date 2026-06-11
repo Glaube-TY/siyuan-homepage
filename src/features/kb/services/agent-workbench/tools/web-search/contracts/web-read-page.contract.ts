@@ -71,13 +71,7 @@ export const webReadPageInputJsonSchemaOverride = {
       type: "string",
       minLength: 1,
       maxLength: 2048,
-      description: "要读取的网页 URL（http/https）。",
-    },
-    maxChars: {
-      type: "integer",
-      minimum: 2000,
-      maximum: 100000,
-      description: "每块最大字符数（兼容字段，与 chunkChars 等价）。",
+      description: "要读取的网页 URL（http/https）。必须是公开可访问地址；本机、内网、链路本地和云元数据地址会被拒绝。",
     },
     chunkIndex: {
       type: "integer",

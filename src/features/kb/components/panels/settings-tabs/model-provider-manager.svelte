@@ -4,7 +4,7 @@
     getProviderPresetById,
     generateUniqueProviderId,
   } from "../../../constants/model-provider-presets";
-  import { testChatModelConnection, type ModelConnectionTestResult } from "../../../services/qa/model-connection-test";
+  import { testChatModelConnection, testControlPlaneCompatibility, type ModelConnectionTestResult, type ControlPlaneCompatibilityTestResult } from "../../../services/qa/model-connection-test";
   import { discoverProviderModels } from "../../../services/qa/model-list-discovery";
   import {
     normalizeId,
@@ -29,6 +29,10 @@
   // 测试连接状态
   let testingModelKey = "";
   let testResults: Record<string, ModelConnectionTestResult> = {};
+
+  // 自动操作测试状态
+  let testingControlPlaneKey = "";
+  let controlPlaneTestResults: Record<string, ControlPlaneCompatibilityTestResult> = {};
 
   // 刷新模型列表状态
   let refreshingProviderId = "";
@@ -66,9 +70,17 @@
     return testingModelKey === getChatModelKey(normalizeId(providerId), normalizeId(modelId));
   }
 
-  // 获取模型的测试结果
-  function getModelTestResult(providerId: string, modelId: string): ModelConnectionTestResult | undefined {
-    return testResults[getChatModelKey(normalizeId(providerId), normalizeId(modelId))];
+  // 检查是否正在测试自动操作
+  function isTestingControlPlane(providerId: string, modelId: string): boolean {
+    return testingControlPlaneKey === getChatModelKey(normalizeId(providerId), normalizeId(modelId));
+  }
+
+  // 获取"测试自动操作"按钮 title
+  function getTestControlPlaneTitle(provider: KbChatProviderConfig, model: KbChatModelConfig): string {
+    if (isTestingControlPlane(provider.id, model.id)) return "测试中...";
+    if (!normalizeId(model.id)) return "模型 ID 为空，无法测试";
+    if (!canUseModel(provider, model)) return "提供商或模型已禁用，无法测试";
+    return "测试这个模型是否适合自动操作（会消耗少量额度）";
   }
 
   // 获取"测试连接"按钮 title
@@ -444,14 +456,72 @@
     // 内部再次校验模型可用性，与按钮 disabled 逻辑保持一致
     if (!canUseModel(provider, model)) return;
 
+    const startTime = Date.now();
+
+    // 先清理该模型旧结果，避免显示过期信息
+    delete testResults[modelKey];
+    testResults = { ...testResults };
+
     testingModelKey = modelKey;
 
     try {
       const result = await testChatModelConnection(provider, model);
       testResults[modelKey] = result;
       testResults = { ...testResults };
+    } catch (error: any) {
+      // 兜底写入 error result，不允许静默失败
+      testResults[modelKey] = {
+        success: false,
+        severity: "error",
+        message: "测试失败：未能完成连接测试，请稍后重试或检查模型配置。",
+        elapsedMs: Date.now() - startTime,
+      };
+      testResults = { ...testResults };
     } finally {
       testingModelKey = "";
+    }
+  }
+
+  // 测试自动操作
+  async function testControlPlane(providerId: string, modelId: string) {
+    const normalizedProviderId = normalizeId(providerId);
+    const normalizedModelId = normalizeId(modelId);
+
+    if (!normalizedProviderId || !normalizedModelId) return;
+
+    const modelKey = getChatModelKey(normalizedProviderId, normalizedModelId);
+    if (testingControlPlaneKey) return;
+
+    const provider = settings.chatProviders.find((p) => normalizeId(p.id) === normalizedProviderId);
+    if (!provider) return;
+
+    const model = provider.models.find((m) => normalizeId(m.id) === normalizedModelId);
+    if (!model) return;
+
+    if (!canUseModel(provider, model)) return;
+
+    const startTime = Date.now();
+
+    // 先清理该模型旧结果，避免显示过期信息
+    delete controlPlaneTestResults[modelKey];
+    controlPlaneTestResults = { ...controlPlaneTestResults };
+
+    testingControlPlaneKey = modelKey;
+
+    try {
+      const result = await testControlPlaneCompatibility(provider, model);
+      controlPlaneTestResults[modelKey] = result;
+      controlPlaneTestResults = { ...controlPlaneTestResults };
+    } catch (error: any) {
+      // 兜底写入 error result，不允许静默失败
+      controlPlaneTestResults[modelKey] = {
+        status: "error",
+        message: "测试失败：未能完成自动操作测试，请稍后重试或检查模型配置。",
+        elapsedMs: Date.now() - startTime,
+      };
+      controlPlaneTestResults = { ...controlPlaneTestResults };
+    } finally {
+      testingControlPlaneKey = "";
     }
   }
 
@@ -464,6 +534,10 @@
       delete testResults[modelKey];
       testResults = { ...testResults };
     }
+    if (controlPlaneTestResults[modelKey]) {
+      delete controlPlaneTestResults[modelKey];
+      controlPlaneTestResults = { ...controlPlaneTestResults };
+    }
   }
 
   // 清理 provider 下所有测试结果
@@ -471,14 +545,24 @@
     const normalizedProviderId = normalizeId(providerId);
     const prefix = `${normalizedProviderId}::`;
     let hasChange = false;
+    let hasCpChange = false;
     for (const key of Object.keys(testResults)) {
       if (key.startsWith(prefix)) {
         delete testResults[key];
         hasChange = true;
       }
     }
+    for (const key of Object.keys(controlPlaneTestResults)) {
+      if (key.startsWith(prefix)) {
+        delete controlPlaneTestResults[key];
+        hasCpChange = true;
+      }
+    }
     if (hasChange) {
       testResults = { ...testResults };
+    }
+    if (hasCpChange) {
+      controlPlaneTestResults = { ...controlPlaneTestResults };
     }
   }
 
@@ -487,7 +571,7 @@
   }
 
   function requiresBaseUrlForDiscovery(provider: KbChatProviderConfig): boolean {
-    return ["mimo", "mimo-api", "mimo-coding-plan", "openai-compatible"].includes(provider.type);
+    return ["openai-compatible"].includes(provider.type);
   }
 
   function canRefreshModels(provider: KbChatProviderConfig): boolean {
@@ -499,7 +583,7 @@
 
   function getRefreshButtonTitle(provider: KbChatProviderConfig): string {
     if (requiresBaseUrlForDiscovery(provider) && !provider.baseUrl?.trim()) {
-      return ["mimo", "mimo-api", "mimo-coding-plan"].includes(provider.type) ? "MiMo 需要先填写 Base URL" : "请先填写 Base URL";
+      return "请先填写 Base URL";
     }
     if (requiresApiKeyForDiscovery(provider) && !provider.apiKey?.trim()) return "请先填写 API Key";
     return "";
@@ -510,7 +594,7 @@
     if (!canRefreshModels(provider)) return;
     const providerId = normalizeId(provider.id);
     if (requiresBaseUrlForDiscovery(provider) && !provider.baseUrl?.trim()) {
-      refreshMessages = { ...refreshMessages, [providerId]: ["mimo", "mimo-api", "mimo-coding-plan"].includes(provider.type) ? "MiMo 需要先填写 Base URL" : "请先填写 Base URL" };
+      refreshMessages = { ...refreshMessages, [providerId]: "请先填写 Base URL" };
       return;
     }
     if (requiresApiKeyForDiscovery(provider) && !provider.apiKey?.trim()) {
@@ -590,7 +674,7 @@
         return "默认 https://token-plan-cn.xiaomimimo.com/v1，不要填 /chat/completions 完整路径";
       case "deepseek":
       case "deepseek-api":
-        return "默认 https://api.deepseek.com，不要填 /chat/completions 完整路径";
+        return "默认 https://api.deepseek.com/v1，不要填 /chat/completions 完整路径";
       case "openai-compatible":
         return "必填，通常填到 /v1，不要填到 /chat/completions";
       default:
@@ -680,12 +764,17 @@
         onRemoveModel={removeModel}
         onSelectModel={selectModel}
         onTestModel={testModel}
+        onTestControlPlane={testControlPlane}
         isCurrentModel={isCurrentModel}
         canUseModel={canUseModel}
         getSelectModelTitle={getSelectModelTitle}
         getTestModelTitle={getTestModelTitle}
         isTestingModel={isTestingModel}
+        isTestingControlPlane={isTestingControlPlane}
+        testingControlPlaneKey={testingControlPlaneKey}
+        getTestControlPlaneTitle={getTestControlPlaneTitle}
         testResults={testResults}
+        controlPlaneTestResults={controlPlaneTestResults}
       />
     {:else}
       <div class="editor-empty-state">

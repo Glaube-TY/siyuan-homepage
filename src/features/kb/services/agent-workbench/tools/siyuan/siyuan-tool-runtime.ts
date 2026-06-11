@@ -11,15 +11,18 @@ export class SiyuanToolRuntimeState implements SiyuanToolDeps {
   private scope: AgentScope | undefined;
   private settings: Partial<KbSettings> | undefined;
   private loadPluginDataFn: (<T = unknown>(key: string) => Promise<T | null>) | undefined;
+  private savePluginDataFn: (<T = unknown>(key: string, data: T) => Promise<void>) | undefined;
 
   constructor(params: {
     scope: AgentScope;
     settings?: Partial<KbSettings>;
     loadPluginData?: <T = unknown>(key: string) => Promise<T | null>;
+    savePluginData?: <T = unknown>(key: string, data: T) => Promise<void>;
   }) {
     this.scope = params.scope;
     this.settings = params.settings;
     this.loadPluginDataFn = params.loadPluginData;
+    this.savePluginDataFn = params.savePluginData;
   }
 
   setScope(scope: AgentScope): void {
@@ -41,5 +44,10 @@ export class SiyuanToolRuntimeState implements SiyuanToolDeps {
   loadPluginData<T = unknown>(key: string): Promise<T | null> {
     if (!this.loadPluginDataFn) return Promise.resolve(null);
     return this.loadPluginDataFn<T>(key);
+  }
+
+  savePluginData<T = unknown>(key: string, data: T): Promise<void> {
+    if (!this.savePluginDataFn) return Promise.resolve();
+    return this.savePluginDataFn<T>(key, data);
   }
 }

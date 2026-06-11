@@ -13,6 +13,7 @@ import type { WebReadPageInput, WebReadPageOutput, WebChunkMeta } from "./contra
 import { requestViaSiyuanProxy } from "./impl/siyuan-proxy-request";
 import { cleanHtmlToMarkdown } from "./impl/html-to-markdown";
 import { buildReadProxyUrl } from "./impl/proxy-url-utils";
+import { validatePublicHttpUrl } from "./impl/url-safety";
 
 export interface WebReadPageDeps {
   readProxyEndpoint?: string;
@@ -129,8 +130,8 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
     readOnly: true,
     safety: { readOnly: true },
     source: "builtin",
-    inputHint: "url（必填，真实明确的 http/https URL），chunkIndex（可选，从1开始，默认1），chunkChars（可选，默认12000），chunkCount（可选，若提供则优先于chunkChars）。",
-    boundary: "URL 必须是真实明确的 http/https URL；不能把自然语言问题、网站名、书名、标题猜成 URL；不自动搜索 URL；不自动跟随链接、不递归抓取、不整站抓取、不执行 JS、不绕过登录。", 
+    inputHint: "url（必填，真实明确的 http/https URL）。长网页继续读取时使用 chunkIndex（可选，默认1）/ chunkChars（可选，默认12000）/ chunkCount。",
+    boundary: "只读取公开 http/https 网页 URL；拒绝本机、内网、链路本地和云元数据地址。不能把自然语言问题、网站名、书名、标题猜成 URL；不自动搜索 URL；不自动跟随链接、不递归抓取、不整站抓取、不执行 JS、不绕过登录。",  
     plannerVisible: true,
     inputJsonSchemaOverride: webReadPageInputJsonSchemaOverride,
 
@@ -139,8 +140,24 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
     },
 
     async execute(_ctx: ToolRuntimeContext, args: WebReadPageInput): Promise<ToolResult<WebReadPageOutput>> {
+      // 1. URL safety validation — must pass before any network request
+      const safety = validatePublicHttpUrl(args.url);
+      if (safety.ok === false) {
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: "unsafe_url",
+            message: `该 URL 不允许读取：${safety.reason}只支持公开网页地址，不能读取本机、内网或元数据地址。`,
+            recoverable: true,
+            hint: "请提供公开 http/https 网页 URL。",
+          },
+        };
+      }
+      const targetUrl = safety.normalizedUrl;
+
       // Check per-turn failure cache to avoid re-requesting a known bad URL.
-      const cachedFailure = failedPageCache.get(args.url);
+      const cachedFailure = failedPageCache.get(targetUrl);
       if (cachedFailure) {
         return {
           ok: false,
@@ -149,7 +166,7 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
             code: cachedFailure.code,
             message: cachedFailure.message,
             recoverable: true,
-            hint: "该 URL 本轮已经读取失败，可换用明确 URL，或在搜索工具可用时先搜索候选再读取正文；若仍无可靠正文来源，应说明限制。", 
+            hint: "该 URL 本轮已读取失败，可换用明确的 http/https URL；若仍无可靠正文来源，应说明限制。", 
           },
         };
       }
@@ -169,11 +186,11 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
 
       try {
         // Fetch full HTML (use cache if same URL was already read this turn)
-        let cached = pageCache.get(args.url);
+        let cached = pageCache.get(targetUrl);
         if (!cached) {
           let html: string;
           if (deps.readProxyEndpoint) {
-            const proxyUrl = buildReadProxyUrl(deps.readProxyEndpoint, args.url);
+            const proxyUrl = buildReadProxyUrl(deps.readProxyEndpoint, targetUrl);
             const resp = await requestViaSiyuanProxy(proxyUrl, {
               method: "GET",
               headers: [],
@@ -182,7 +199,7 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
             });
             html = typeof resp === "string" ? resp : JSON.stringify(resp);
           } else {
-            const resp = await requestViaSiyuanProxy(args.url, {
+            const resp = await requestViaSiyuanProxy(targetUrl, {
               method: "GET",
               headers: [],
               contentType: "text/html",
@@ -191,14 +208,14 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
             html = typeof resp === "string" ? resp : JSON.stringify(resp);
           }
 
-          const converted = cleanHtmlToMarkdown(html, args.url);
+          const converted = cleanHtmlToMarkdown(html, targetUrl);
           cached = {
             markdown: converted.markdown,
             title: converted.title,
             description: converted.description,
             links: converted.links.slice(0, MAX_LINKS),
           };
-          pageCache.set(args.url, cached);
+          pageCache.set(targetUrl, cached);
         }
 
         const fullMarkdown = cached.markdown;
@@ -247,7 +264,7 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
         return {
           ok: true,
           data: {
-            url: args.url,
+            url: targetUrl,
             title: cached.title,
             description: cached.description,
             text: currentChunkText,
@@ -255,7 +272,7 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
             textChars: currentChunkText.length,
             truncated: totalChunks > 1,
             fetchedAt: new Date().toISOString(),
-            sourceName: new URL(args.url).hostname,
+            sourceName: new URL(targetUrl).hostname,
             links: cached.links,
             fullMarkdownChars: fullChars,
             returnedMarkdownChars: currentChunkText.length,
@@ -272,7 +289,7 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
         const msg = err instanceof Error ? err.message : String(err);
         const code = (err as { code?: string }).code ?? "tool_execution_error";
         // Cache the failure so the same URL is not re-requested within this turn.
-        failedPageCache.set(args.url, { code, message: msg });
+        failedPageCache.set(targetUrl, { code, message: msg });
         return {
           ok: false,
           data: null,
@@ -311,7 +328,7 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
         parts.push(`标题：${data.title}`);
       }
       if (data.hasNextChunk) {
-        parts.push("后面还有块，可继续读取");
+        parts.push("后续块存在，返回值中包含继续读取所需的分页信息");
       }
       return parts.join("，") + "。";
     },

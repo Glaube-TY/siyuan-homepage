@@ -9,6 +9,8 @@ export interface DiscoveredModel {
   unavailableReason?: string;
   isLegacy?: boolean;
   priority?: number;
+  /** 不推荐用于自动操作规划（适合代码任务/思考模型等） */
+  notRecommendedForPlanner?: boolean;
 }
 
 export interface DiscoverModelsResult {
@@ -83,12 +85,19 @@ function buildBearerHeaders(apiKey?: string): Record<string, string> {
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
-const KIMI_MODEL_PRIORITY: Record<string, { priority: number; isLegacy: boolean }> = {
+const KIMI_MODEL_PRIORITY: Record<string, { priority: number; isLegacy: boolean; notRecommendedForPlanner?: boolean }> = {
   "kimi-k2.6": { priority: 1, isLegacy: false },
   "kimi-k2.5": { priority: 2, isLegacy: false },
   "kimi-k2": { priority: 99, isLegacy: true },
-  "kimi-k2-thinking": { priority: 99, isLegacy: true },
+  "kimi-k2-thinking": { priority: 99, isLegacy: true, notRecommendedForPlanner: true },
 };
+
+/**
+ * 判断是否为 Kimi 系列提供商
+ */
+export function isKimiProviderType(type: string): boolean {
+  return type === "kimi" || type === "kimi-api" || type === "kimi-coding";
+}
 
 const PROVIDER_DISCOVERY_NAMES: Record<string, string> = {
   kimi: "Kimi",
@@ -107,7 +116,7 @@ export async function discoverOpenAICompatibleModelsForProvider(
 ): Promise<DiscoverModelsResult> {
   const providerName = PROVIDER_DISCOVERY_NAMES[provider.type] || provider.type;
 
-  if (["mimo", "mimo-api", "mimo-coding-plan", "openai-compatible"].includes(provider.type) && !provider.baseUrl?.trim()) {
+  if (["openai-compatible"].includes(provider.type) && !provider.baseUrl?.trim()) {
     return { success: false, models: [], message: `${providerName} 需要先填写 Base URL` };
   }
 
@@ -155,25 +164,26 @@ export async function discoverOpenAICompatibleModelsForProvider(
   const chatModels: DiscoveredModel[] = raw
     .filter((m: { id: string }) => isLikelyChatModelId(provider.type, m.id))
     .map((m: { id: string }) => {
-      if (provider.type === "kimi") {
+      if (isKimiProviderType(provider.type)) {
         const priorityInfo = KIMI_MODEL_PRIORITY[m.id] ?? { priority: 50, isLegacy: false };
         return {
           id: m.id,
           priority: priorityInfo.priority,
           isLegacy: priorityInfo.isLegacy,
+          notRecommendedForPlanner: priorityInfo.notRecommendedForPlanner,
         };
       }
       return { id: m.id };
     });
 
-  if (provider.type === "kimi") {
+  if (isKimiProviderType(provider.type)) {
     chatModels.sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
   }
 
   const { success, message } = buildChatFilterMessage(rawCount, chatModels.length);
 
   let finalMessage = message;
-  if (provider.type === "kimi") {
+  if (isKimiProviderType(provider.type)) {
     const legacyModels = chatModels.filter((m) => m.isLegacy);
     if (legacyModels.length > 0) {
       finalMessage += `；${legacyModels.length} 个旧版模型标记为 legacy，请优先使用 kimi-k2.6/kimi-k2.5`;

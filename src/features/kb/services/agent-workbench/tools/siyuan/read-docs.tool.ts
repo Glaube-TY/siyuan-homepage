@@ -26,14 +26,14 @@ export function createReadDocsTool(deps: ReadDocsDeps): ToolContract<ReadDocsInp
   return {
     name: "read_docs",
     title: "读取文档",
-    description: "根据 docId、blockId 读取文档/块正文内容。支持分块返回：内部先读取全文，再按 chunkIndex 返回指定块，并告知总块数。若内容较长，可通过 chunkIndex 继续读取后续块。",
+    description: "根据 docId、blockId 读取文档/块正文内容。支持分块返回，按 chunkIndex 返回指定块并告知总块数。内容较长时可通过 chunkIndex 继续读取。",
     inputSchema: readDocsInputSchema,
     outputSchema: readDocsOutputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "builtin",
-    inputHint: "docIds（字符串数组）或 blockIds（字符串数组），至少提供一个。chunkIndex（可选，从1开始，默认1），chunkChars（可选，默认12000），chunkCount（可选，若提供则优先于chunkChars）。maxChars 是 chunkChars 的旧别名。",
-    boundary: "只能读取已经明确给出的真实 docId/blockId/cursor。docId/blockId 必须来自用户显式附加、历史 grounded reference 或本轮工具返回。不能把自然语言问题、任务名称、日期、标题、用户意图猜成 docId。不能用 read_docs 查询任务安排、日记列表、搜索资料或定位资料。不自动继续读，不自动换 ID。失败时区分 resource_not_found、empty_content、container_without_content、invalid_resource_id。",
+    inputHint: "docIds（字符串数组）或 blockIds（字符串数组），至少提供一个。长文继续读取时使用 chunkIndex（可选，默认1）/ chunkChars（可选，默认12000）/ chunkCount。",
+    boundary: "只能读取已经明确给出的真实 docId/blockId/cursor。docId/blockId 必须来自用户显式附加、历史 grounded reference 或本轮工具返回。本工具只读取已明确资源 ID 对应的正文；不负责查询、搜索、定位、推断资源 ID 或生成候选资源。不自动继续读，不自动换 ID。失败时区分 resource_not_found、empty_content、container_without_content、invalid_resource_id。",
 
     plannerVisible: true,
     inputJsonSchemaOverride: readDocsInputJsonSchemaOverride,
@@ -70,7 +70,7 @@ export function createReadDocsTool(deps: ReadDocsDeps): ToolContract<ReadDocsInp
         if (first.chunkCount != null && first.chunkCount > 1) {
           parts.push(`第 ${first.chunkIndex}/${first.chunkCount} 块，当前块 ${first.returnedContentChars ?? first.contentChars} 字符，全文 ${first.fullContentChars} 字符`);
           if (first.hasNextChunk) {
-            parts.push("后面还有块，可继续读取");
+            parts.push("后续块存在，返回值中包含继续读取所需的分页信息");
           }
         }
         if (data.errors && data.errors.length > 0) {

@@ -23,6 +23,8 @@
   } from "../../types/chat-model-selection";
   import type { KbAssistantActionAlignment } from "../../types/settings";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+  import DocContentEditConfirmationModal from "../common/doc-content-edit-confirmation-modal.svelte";
+  import { setDocContentEditConfirmationHandler } from "../../services/doc-content-edit/doc-content-edit-confirmation-bridge";
 
   export let placement: "dock" | "tab" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
@@ -56,6 +58,13 @@
   let chatInputBarRef: ChatInputBar;
 
   let composerAttachedDocIds: string[] = [];
+
+  // 文档内容编辑确认弹窗状态
+  let docContentEditModalOpen = false;
+  let activeDocContentEditConfirmationId: string | null = null;
+  let docContentEditConfirmationResolve:
+    | ((value: { status: "confirmed" | "rejected"; message: string }) => void)
+    | null = null;
 
   function getSelectedContextWindowTokens(): number | undefined {
     const opt = chatModelOptions.find((o) => o.key === selectedChatModelKey);
@@ -253,6 +262,33 @@
     if (deleted) {
       refreshContextUsageSafe("delete_turn");
     }
+  }
+
+  function handleDocContentEditConfirmed(e: CustomEvent<{ status: "success"; message: string }>) {
+    if (docContentEditConfirmationResolve) {
+      docContentEditConfirmationResolve({ status: "confirmed", message: e.detail.message });
+      docContentEditConfirmationResolve = null;
+    }
+    docContentEditModalOpen = false;
+    activeDocContentEditConfirmationId = null;
+  }
+
+  function handleDocContentEditCancelled(e: CustomEvent<{ status: "rejected"; message: string }>) {
+    if (docContentEditConfirmationResolve) {
+      docContentEditConfirmationResolve({ status: "rejected", message: e.detail.message });
+      docContentEditConfirmationResolve = null;
+    }
+    docContentEditModalOpen = false;
+    activeDocContentEditConfirmationId = null;
+  }
+
+  function handleDocContentEditModalClose() {
+    if (docContentEditConfirmationResolve) {
+      docContentEditConfirmationResolve({ status: "rejected", message: "用户已取消操作。" });
+      docContentEditConfirmationResolve = null;
+    }
+    docContentEditModalOpen = false;
+    activeDocContentEditConfirmationId = null;
   }
 
   /**
@@ -963,6 +999,19 @@
       refreshContextUsageSafe("hydrate");
     })();
     window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged as EventListener);
+
+    // 注册文档内容编辑确认桥 handler
+    const unregisterConfirmationHandler = setDocContentEditConfirmationHandler(async (request) => {
+      return new Promise((resolve) => {
+        activeDocContentEditConfirmationId = request.confirmationId;
+        docContentEditModalOpen = true;
+        docContentEditConfirmationResolve = resolve;
+      });
+    });
+
+    return () => {
+      unregisterConfirmationHandler();
+    };
   });
 
   let lastActiveConversationId = "";
@@ -1109,6 +1158,14 @@
     </div>
   </div>
 </div>
+
+<DocContentEditConfirmationModal
+  open={docContentEditModalOpen}
+  confirmationId={activeDocContentEditConfirmationId}
+  on:close={handleDocContentEditModalClose}
+  on:cancel={handleDocContentEditCancelled}
+  on:confirmed={handleDocContentEditConfirmed}
+/>
 
 <style lang="scss">
   .kb-main-panel {

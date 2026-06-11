@@ -3,7 +3,7 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, KbDangerousSkillToolName, GlobalMemorySettings, QuickPromptsSettings } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
@@ -72,9 +72,12 @@ function normalizeAssistantActionAlignment(raw: unknown): KbSettings["assistantA
   return DEFAULT_KB_SETTINGS.assistantActionAlignment;
 }
 
+const DOC_CONTENT_EDITING_SKILL_NAME = "builtin_doc_content_editing";
+
 /**
  * 归一化 Skill 设置
  * - disabledBuiltinSkillNames 只保留合法 string，去重
+ * - 对新增内置 Skill 做一次性默认关闭迁移：旧配置首次加载时自动关闭，用户手动开启后不再重置
  */
 function normalizeSkillSettings(raw: unknown): KbSkillSettings {
   if (!raw || typeof raw !== "object") {
@@ -87,8 +90,25 @@ function normalizeSkillSettings(raw: unknown): KbSkillSettings {
     names = rawNames.filter((n): n is string => typeof n === "string" && n.length > 0);
     names = [...new Set(names)];
   }
+
+  const rawInit = s.initializedDefaultDisabledBuiltinSkillNames;
+  let initialized: string[] = [];
+  if (Array.isArray(rawInit)) {
+    initialized = rawInit.filter((n): n is string => typeof n === "string" && n.length > 0);
+    initialized = [...new Set(initialized)];
+  }
+
+  // 一次性迁移：如果尚未初始化文档内容编辑的默认关闭状态，则自动加入 disabled 并标记已初始化
+  if (!initialized.includes(DOC_CONTENT_EDITING_SKILL_NAME)) {
+    if (!names.includes(DOC_CONTENT_EDITING_SKILL_NAME)) {
+      names.push(DOC_CONTENT_EDITING_SKILL_NAME);
+    }
+    initialized.push(DOC_CONTENT_EDITING_SKILL_NAME);
+  }
+
   return {
     disabledBuiltinSkillNames: names,
+    initializedDefaultDisabledBuiltinSkillNames: initialized,
   };
 }
 
@@ -104,7 +124,7 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
   }
   const s = raw as Record<string, unknown>;
   const rawNames = s.disabledGlobalToolNames;
-  const validNames: KbToolSettings["disabledGlobalToolNames"] = ["read_docs", "web_read_page", "edit_global_memory"];
+  const validNames: KbToolSettings["disabledGlobalToolNames"] = ["read_docs", "web_read_page", "edit_global_memory", "get_doc_info"];
   let names: KbToolSettings["disabledGlobalToolNames"] = [];
   if (Array.isArray(rawNames)) {
     names = rawNames
@@ -114,8 +134,25 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
       );
     names = [...new Set(names)];
   }
+
+  // 新增：归一化已关闭确认的危险 Skill 工具名称
+  const validDangerousToolNames: KbDangerousSkillToolName[] = [
+    "create_doc", "update_block", "insert_block", "delete_block",
+    "move_block", "rename_doc", "delete_doc", "replace_doc_content",
+  ];
+  const rawDangerous = s.disabledDangerousSkillToolConfirmationNames;
+  let dangerousNames: KbDangerousSkillToolName[] = [];
+  if (Array.isArray(rawDangerous)) {
+    dangerousNames = rawDangerous.filter(
+      (n): n is KbDangerousSkillToolName =>
+        typeof n === "string" && validDangerousToolNames.includes(n as KbDangerousSkillToolName)
+    );
+    dangerousNames = [...new Set(dangerousNames)];
+  }
+
   return {
     disabledGlobalToolNames: names,
+    ...(dangerousNames.length > 0 ? { disabledDangerousSkillToolConfirmationNames: dangerousNames } : {}),
   };
 }
 

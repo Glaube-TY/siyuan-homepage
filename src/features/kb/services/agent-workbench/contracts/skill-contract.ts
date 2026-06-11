@@ -1,11 +1,15 @@
 /**
- * Skill Contract — Skill is a Chinese capability manual.
- * It does NOT own tools, bind tools, or decide tool sequences.
+ * Skill Contract — Skill 是中文能力说明与能力策略包。
+ * 可以提供能力域 playbook、推荐工具使用方式、顺序建议和误用禁忌；
+ * 可以点名本能力域内工具并解释差异。
+ * 不拥有工具、不强制流程，代码不得根据 Skill 内容自动串流程。
  */
+
+import type { ToolManifest } from "./tool-contract";
 
 export interface SkillRuntimeContext {
   question: string;
-  toolManifest: readonly import("./tool-contract").ToolManifest[];
+  toolManifest: readonly ToolManifest[];
   enabledSkillNames: readonly string[];
   observations: readonly SkillObservation[];
   userEnabledSkillNames?: readonly string[];
@@ -20,8 +24,7 @@ export interface SkillObservation {
     | "tool_observation"
     | "turn_started"
     | "turn_finished"
-    | "skill_observation"
-    | "planner_returned_no_action";
+    | "skill_observation";
   toolName?: string;
   reasonCode?: string;
   /** One-line summary for UI/trace (not rendered in Planner prompt) */

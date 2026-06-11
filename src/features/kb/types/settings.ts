@@ -5,6 +5,28 @@
 /** 聊天模型提供商类型 */
 export type KbChatProviderType = "kimi" | "kimi-api" | "kimi-coding" | "mimo" | "mimo-api" | "mimo-coding-plan" | "deepseek" | "deepseek-api" | "openai-compatible";
 
+/** 自动操作兼容性配置（控制面 / Planner JSON 决策阶段） */
+export type ControlPlaneCompatibility = {
+  /** 自动操作适配度：普通 / 不推荐 */
+  suitability?: "normal" | "not_recommended";
+  /** JSON 输出策略：raw_prompt（不传 response_format）/ response_format_json_object */
+  jsonOutputStrategy?: "raw_prompt" | "response_format_json_object";
+  /** 关闭思考策略：omit（不传）/ openai_thinking_disabled / enable_thinking_false */
+  thinkingOffStrategy?: "omit" | "openai_thinking_disabled" | "enable_thinking_false";
+  /** 开启思考策略：omit（不传）/ openai_thinking_enabled / enable_thinking_true */
+  thinkingOnStrategy?: "omit" | "openai_thinking_enabled" | "enable_thinking_true";
+  /** 自动操作超时（毫秒） */
+  timeoutMs?: number;
+  /** Token 参数策略：max_tokens / max_completion_tokens */
+  tokenParamStrategy?: "max_tokens" | "max_completion_tokens";
+  /** 温度参数策略 */
+  temperatureParamStrategy?: "default" | "omit" | "fixed";
+  /** fixed 策略时使用的固定温度值 */
+  fixedTemperature?: number;
+  /** Planner 调用传输方式：non_stream_json（非流式）/ stream_json（流式接收 content 后解析 JSON） */
+  plannerTransport?: "non_stream_json" | "stream_json";
+};
+
 /** 单个模型配置 */
 export type KbChatModelConfig = {
   /** 模型 ID */
@@ -23,8 +45,12 @@ export type KbChatModelConfig = {
   enabled?: boolean;
   /** 是否支持视觉 */
   supportVision?: boolean;
+  /** 不推荐用于自动操作规划（适合代码任务/思考模型等） */
+  notRecommendedForPlanner?: boolean;
   /** 用户声明的 final compose 流式策略（覆盖 provider 默认） */
   finalComposeMode?: "auto" | "stream" | "non_stream";
+  /** 自动操作兼容性配置（模型级覆盖） */
+  controlPlaneCompatibility?: ControlPlaneCompatibility;
 };
 
 /** 模型提供商配置 */
@@ -45,6 +71,8 @@ export type KbChatProviderConfig = {
   models: KbChatModelConfig[];
   /** 来源模板 ID（不代表内置，用户配置仍可删除/禁用/编辑） */
   presetId?: string;
+  /** 自动操作兼容性配置（provider 级默认，可被模型级覆盖） */
+  controlPlaneCompatibility?: ControlPlaneCompatibility;
 };
 
 export type KbAssistantActionAlignment = "left" | "center" | "right";
@@ -82,15 +110,30 @@ export type WebSearchSettings = {
 export type KbSkillSettings = {
   /** 被禁用的内置 Skill 名称列表 */
   disabledBuiltinSkillNames: string[];
+  /** 已初始化默认禁用状态的内置 Skill 名称列表（用于一次性迁移） */
+  initializedDefaultDisabledBuiltinSkillNames?: string[];
 };
 
 /** 全局工具名称 */
-export type KbGlobalToolName = "read_docs" | "web_read_page" | "edit_global_memory";
+export type KbGlobalToolName = "read_docs" | "web_read_page" | "edit_global_memory" | "get_doc_info";
+
+/** 内置危险 Skill 工具名称（可跳过执行前确认） */
+export type KbDangerousSkillToolName =
+  | "create_doc"
+  | "update_block"
+  | "insert_block"
+  | "delete_block"
+  | "move_block"
+  | "rename_doc"
+  | "delete_doc"
+  | "replace_doc_content";
 
 /** 全局工具设置 */
 export type KbToolSettings = {
   /** 被禁用的全局工具名称列表 */
   disabledGlobalToolNames: KbGlobalToolName[];
+  /** 已关闭"执行前确认"的危险 Skill 工具名称列表（默认 undefined，表示全部开启确认） */
+  disabledDangerousSkillToolConfirmationNames?: KbDangerousSkillToolName[];
 };
 
 /** 快捷提示语设置 */

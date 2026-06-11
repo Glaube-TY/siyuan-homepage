@@ -30,10 +30,7 @@ const LEGACY_FORBIDDEN_TOKENS_LOWER: ReadonlySet<string> = new Set([
   "remainingsteps",
   "budget",
   "dedup",
-  "final_answer",
-  "read_docs",
   "read_block_context",
-  "plannervisible",
   "internalmapping",
   "realpath",
   "realdocid",
@@ -52,11 +49,8 @@ const FORBIDDEN_PHRASES: readonly string[] = [
   "hidden handles",
   "internal mapping",
   "real path",
-  "planner visible",
   "progress answer",
   "assistant progress",
-  "read docs",
-  "read block context",
 ];
 
 const FORBIDDEN_TOKENS_LOWER: ReadonlySet<string> = new Set([
@@ -148,6 +142,21 @@ export function detectForbiddenTextTokens(text: string): string[] {
   for (const phrase of FORBIDDEN_PHRASES) {
     if (normalized.includes(phrase)) {
       found.push(phrase);
+    }
+  }
+
+  // 4. Flow-binding phrase detection: forbid explicit tool-binding or fixed-step language
+  const FLOW_BINDING_PATTERNS = [
+    "必须先调用",
+    "必须使用",
+    "固定步骤",
+    "看到.*就调用",
+    "如果用户问.*就调用",
+    "不要让.*决定",
+  ];
+  for (const pattern of FLOW_BINDING_PATTERNS) {
+    if (new RegExp(pattern).test(normalized)) {
+      found.push(`flow_binding:${pattern}`);
     }
   }
 

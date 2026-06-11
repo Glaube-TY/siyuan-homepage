@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { KbSettings, KbGlobalToolName } from "../../../types/settings";
+  import type { KbSettings, KbGlobalToolName, KbDangerousSkillToolName } from "../../../types/settings";
   import { globalToolCatalog } from "../../../services/agent-workbench/tools/global-tool-catalog";
+  import { skillToolCatalog, type SkillToolName } from "../../../services/agent-workbench/tools/skill-tool-catalog";
 
   export let settings: KbSettings;
 
@@ -23,6 +24,37 @@
       },
     };
   }
+
+  /** 危险工具确认开关：开启 = 需要确认（不在 disabled 列表中） */
+  function isConfirmationEnabled(name: KbDangerousSkillToolName): boolean {
+    return !(settings.toolSettings?.disabledDangerousSkillToolConfirmationNames ?? []).includes(name);
+  }
+
+  function toggleConfirmation(name: KbDangerousSkillToolName) {
+    const disabled = new Set(settings.toolSettings?.disabledDangerousSkillToolConfirmationNames ?? []);
+    if (disabled.has(name)) {
+      disabled.delete(name);
+    } else {
+      disabled.add(name);
+    }
+    settings = {
+      ...settings,
+      toolSettings: {
+        ...(settings.toolSettings ?? { disabledGlobalToolNames: [] }),
+        disabledGlobalToolNames: settings.toolSettings?.disabledGlobalToolNames ?? [],
+        disabledDangerousSkillToolConfirmationNames: [...disabled],
+      },
+    };
+  }
+
+  const DANGEROUS_TOOL_NAMES: readonly string[] = [
+    "create_doc", "update_block", "insert_block", "delete_block",
+    "move_block", "rename_doc", "delete_doc", "replace_doc_content",
+  ];
+
+  function isDangerousSkillToolName(name: SkillToolName): name is KbDangerousSkillToolName {
+    return DANGEROUS_TOOL_NAMES.includes(name);
+  }
 </script>
 
 <div class="tools-settings-tab">
@@ -40,7 +72,6 @@
                 <span class="tool-title">{tool.title}</span>
               </div>
               <span class="tool-description">{tool.description}</span>
-              <span class="tool-name">{tool.name}</span>
             </div>
             <div class="toggle-wrap">
               <span class="toggle-label">{isToolEnabled(tool.name) ? "已启用" : "已停用"}</span>
@@ -57,6 +88,56 @@
         </div>
       {/each}
     </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">内置工具能力</h2>
+      <p class="section-description">
+        按内置能力分类展示可能使用的工具。这里不控制工具启停，只控制危险操作是否需要执行前确认。
+      </p>
+    </div>
+
+    {#each skillToolCatalog as category}
+      <div class="skill-category">
+        <div class="skill-category-header">
+          <span class="skill-category-title">{category.title}</span>
+          <span class="skill-category-desc">{category.description}</span>
+        </div>
+        <div class="tools-list">
+          {#each category.tools as tool}
+            <div class="tool-card">
+              <div class="tool-main">
+                <div class="tool-info">
+                  <div class="tool-title-row">
+                    <span class="tool-title">{tool.title}</span>
+                    {#if tool.readOnly}
+                      <span class="tag tag-readonly">只读</span>
+                    {:else if tool.requiresConfirmation}
+                      <span class="tag tag-write">会写入</span>
+                    {/if}
+                  </div>
+                  <span class="tool-description">{tool.description}</span>
+                </div>
+                {#if tool.requiresConfirmation && isDangerousSkillToolName(tool.name)}
+                  <div class="toggle-wrap">
+                    <span class="toggle-label">{isConfirmationEnabled(tool.name) ? "执行前确认" : "直接执行"}</span>
+                    <label class="switch">
+                      <input
+                        type="checkbox"
+                        checked={isConfirmationEnabled(tool.name)}
+                        on:change={() => toggleConfirmation(tool.name)}
+                      />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/each}
   </div>
 </div>
 
@@ -148,13 +229,6 @@
     line-height: 1.4;
   }
 
-  .tool-name {
-    font-size: 12px;
-    color: var(--b3-theme-on-surface);
-    opacity: 0.6;
-    font-family: monospace;
-  }
-
   .toggle-wrap {
     display: flex;
     align-items: center;
@@ -216,5 +290,49 @@
   input:disabled + .slider {
     cursor: not-allowed;
     opacity: 0.5;
+  }
+
+  .skill-category {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .skill-category-header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: 4px;
+  }
+
+  .skill-category-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--b3-theme-primary);
+  }
+
+  .skill-category-desc {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.6;
+  }
+
+  .tag {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    line-height: 1.3;
+  }
+
+  .tag-readonly {
+    background: var(--b3-theme-surface-lighter);
+    color: var(--b3-theme-on-surface);
+    opacity: 0.7;
+  }
+
+  .tag-write {
+    background: var(--b3-theme-primary-lightest, rgba(var(--b3-theme-primary-rgb, 64, 128, 255), 0.12));
+    color: var(--b3-theme-primary);
   }
 </style>

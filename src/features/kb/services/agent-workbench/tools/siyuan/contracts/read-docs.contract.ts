@@ -94,7 +94,6 @@ export const readDocsInputJsonSchemaOverride = {
     docIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 256 }, minItems: 1, maxItems: 20, description: "思源文档 ID 列表" },
     blockIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 256 }, minItems: 1, maxItems: 20, description: "思源块 ID 列表" },
     cursor: { type: "string", minLength: 1, maxLength: 240, description: "上次返回的 nextCursor，用于继续读取同一文档" },
-    maxChars: { type: "integer", minimum: 2000, maximum: 100000, description: "每篇文档最大返回字符数（旧别名，等同于 chunkChars）" },
     chunkIndex: { type: "integer", minimum: 1, description: "要读取的块索引，从 1 开始，默认 1" },
     chunkChars: { type: "integer", minimum: 2000, maximum: 30000, description: "每块字符数，默认 12000，范围 2000-30000" },
     chunkCount: { type: "integer", minimum: 1, maximum: 100, description: "若提供，则优先于 chunkChars，按固定数量分块" },

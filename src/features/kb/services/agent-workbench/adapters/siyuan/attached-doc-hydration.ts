@@ -8,10 +8,10 @@
  * - 复用 readSiyuanDocForTool，避免复制读取逻辑
  */
 
-import { readSiyuanDocForTool } from "../tools/siyuan/internal/readers/read-doc-full";
-import { batchQueryResourceMeta } from "../tools/siyuan/impl/read-docs.impl";
-import type { SiyuanDocLite } from "../tools/siyuan/internal/doc-types";
-import { pushAgentDebugEvent } from "../debug/workbench-debug";
+import { readSiyuanDocForTool } from "../../tools/siyuan/internal/readers/read-doc-full";
+import { batchQueryResourceMeta } from "../../tools/siyuan/impl/read-docs.impl";
+import type { SiyuanDocLite } from "../../tools/siyuan/internal/doc-types";
+import { pushAgentDebugEvent } from "../../debug/workbench-debug";
 
 const HYDRATION_MAX_CHARS_PER_DOC = 12000;
 

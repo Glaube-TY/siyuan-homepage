@@ -1,4 +1,3 @@
-import type { AnswerResourceRef } from "../contracts/planner-decision";
 import type { ReferenceItem } from "../../../types/chat";
 import type { ObservationEntry } from "./observation-log";
 import type { ConversationContextSnapshot } from "./conversation-context-builder";
@@ -300,7 +299,7 @@ export function buildReferenceGroundingSet(params: BuildGroundingSetParams): Map
  * - No title-as-ID, no path/realPath/internalMapping, no ref without any resource ID
  */
 export function normalizeAnswerReferences(
-  refs: readonly AnswerResourceRef[] | undefined,
+  refs: readonly unknown[] | undefined,
   groundingMap: Map<string, GroundingEvidence>,
 ): CollectedReference[] {
   const out: CollectedReference[] = [];
@@ -309,11 +308,13 @@ export function normalizeAnswerReferences(
   const sourceTypeCounts: Record<string, number> = {};
 
   for (const raw of refs ?? []) {
-    const docId = readString(raw.docId);
-    const blockId = readString(raw.blockId);
-    const url = readString(raw.url);
+    if (!raw || typeof raw !== "object") continue;
+    const rawRecord = raw as Record<string, unknown>;
+    const docId = readString(rawRecord.docId);
+    const blockId = readString(rawRecord.blockId);
+    const url = readString(rawRecord.url);
     const sourceType = normalizeSourceType(
-      raw.sourceType,
+      rawRecord.sourceType,
       docId || blockId ? "siyuan_doc" : url ? "web_page" : undefined,
     );
     if (!sourceType) continue;
@@ -326,7 +327,7 @@ export function normalizeAnswerReferences(
         pushAgentDebugEvent("REFERENCE_DROPPED_UNGROUNDED", {
           sourceType: "web_page",
           url,
-          title: readString(raw.title) ?? undefined,
+          title: readString(rawRecord.title) ?? undefined,
         }, "info");
         continue;
       }
@@ -343,9 +344,9 @@ export function normalizeAnswerReferences(
       const ref: CollectedReference = {
         sourceType,
         url,
-        title: readString(raw.title) ?? evidence.title,
-        sourceName: readString(raw.sourceName) ?? evidence.sourceName,
-        provider: readString(raw.provider) ?? evidence.provider,
+        title: readString(rawRecord.title) ?? evidence.title,
+        sourceName: readString(rawRecord.sourceName) ?? evidence.sourceName,
+        provider: readString(rawRecord.provider) ?? evidence.provider,
         priority: REASON_PRIORITY.planner_explicit,
         reason: "planner_explicit",
         readLevel: evidence.readLevel,
@@ -366,7 +367,7 @@ export function normalizeAnswerReferences(
         sourceType: "siyuan_doc",
         docId: docId ?? undefined,
         blockId: blockId ?? undefined,
-        title: readString(raw.title) ?? undefined,
+        title: readString(rawRecord.title) ?? undefined,
       }, "info");
       continue;
     }
@@ -387,8 +388,8 @@ export function normalizeAnswerReferences(
       sourceType,
       docId,
       blockId,
-      title: readString(raw.title) ?? evidence.title,
-      provider: readString(raw.provider) ?? evidence.provider,
+      title: readString(rawRecord.title) ?? evidence.title,
+      provider: readString(rawRecord.provider) ?? evidence.provider,
       priority: REASON_PRIORITY.planner_explicit,
       reason: "planner_explicit",
       readLevel: evidence.readLevel,

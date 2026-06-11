@@ -7,6 +7,7 @@
 
 import type { AgentScope, AgentScopeSummary } from "../scope/types";
 import type { ReferenceItem } from "../../../types/chat";
+import type { AgentWorkbenchEvent } from "./turn-event";
 
 /** Agent turn result returned to orchestration. */
 export interface AgentTurnResult {
@@ -15,7 +16,7 @@ export interface AgentTurnResult {
   answer: string;
   footerReferences: ReferenceItem[];
   warnings: string[];
-  events: import("./turn-event").AgentWorkbenchEvent[];
+  events: AgentWorkbenchEvent[];
   /** Planner-provided stage summary for current-session context compression. */
   stageSummary?: {
     summary: string;

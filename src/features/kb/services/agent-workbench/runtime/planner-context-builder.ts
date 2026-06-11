@@ -5,7 +5,7 @@
 import type { ToolRegistry } from "../registries/tool-registry";
 import type { SkillRegistry } from "../registries/skill-registry";
 import type { ToolManifest, ToolRuntimeContext } from "../contracts/tool-contract";
-import type { SkillObservation } from "../contracts/skill-contract";
+import type { SkillObservation, SkillPromptSection } from "../contracts/skill-contract";
 import type { ObservationLog } from "./observation-log";
 import type { ConversationContextSnapshot } from "./conversation-context-builder";
 
@@ -23,7 +23,7 @@ export interface PlannerContext {
   question: string;
   conversationContext?: ConversationContextSnapshot;
   toolManifest: ToolManifest[];
-  skillSections: import("../contracts/skill-contract").SkillPromptSection[];
+  skillSections: SkillPromptSection[];
   observations: SkillObservation[];
   /** 全局记忆内容（已截断处理） */
   globalMemory?: string;

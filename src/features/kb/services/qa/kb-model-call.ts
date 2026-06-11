@@ -5,8 +5,8 @@
  * - 项目内唯一能构造 OpenAI-compatible 请求体的地方
  * - 提供三个对外方法：callModelJson / callModelText / streamModelText
  * - thinkingMode 到请求体参数的转换只在此模块内发生：
- *   - thinkingMode=off：不添加任何思考相关请求参数
- *   - thinkingMode=on：添加 OpenAI-compatible thinking.type="enabled"
+ *   - 根据 profile.controlPlaneCompatibility 的 thinkingOffStrategy/thinkingOnStrategy 决定
+ *   - thinkingMode=off 时绝不发送任何启用思考的参数
  *
  * 其他文件（Planner、Composer、ask-by-mode 等）只能调用本模块的方法，
  * 不得直接拼接 thinking / providerOptions / extraBody / response_format /
@@ -15,9 +15,11 @@
 
 import type { ZodType } from "zod";
 import type { ChatModelSelection } from "../../types/chat-model-selection";
+import type { ControlPlaneCompatibility } from "../../types/settings";
 import type { ThinkingMode } from "../../types/session";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { getKbSettings } from "../settings/kb-settings-service";
+import { resolveProviderProfile } from "./provider-profile";
 
 // 内部 llm-client 函数 — 外部不得直接导入
 import {
@@ -26,6 +28,9 @@ import {
   streamLlm as _streamLlm,
   type LlmCallOptions,
 } from "./llm-client";
+
+// 从 model-provider-factory 直接创建 selected model
+import { createSelectedChatModel, type SelectedChatModelInfo } from "./model-provider-factory";
 
 // ═══════════════════════════════════════════════════════════════════
 // 公开类型
@@ -81,6 +86,8 @@ interface BuildModelCallConfigInput {
   requestedMaxOutputTokens: number;
   purpose: string;
   mode: "json" | "text" | "stream";
+  /** resolved selected model — provider type + controlPlaneCompatibility extracted from it */
+  selectedModel?: SelectedChatModelInfo;
 }
 
 interface BuildModelCallConfigOutput {
@@ -93,10 +100,15 @@ interface BuildModelCallConfigOutput {
     purpose: string;
     mode: "json" | "text" | "stream";
     hasThinkingParam: boolean;
+    thinkingParamType: "enabled" | "disabled" | null;
+    hasThinkingEnableParam: boolean;
+    hasThinkingDisableParam: boolean;
     thinkingType: unknown;
     requestedMaxOutputTokens: number;
     effectiveMaxOutputTokens: number;
     adjustedForThinking: boolean;
+    providerType: string;
+    thinkingParamStrategy: string;
   };
 }
 
@@ -113,13 +125,22 @@ interface BuildModelCallConfigOutput {
  * controlPlaneThinkingEnabled 只是输入框思考开启后的 Planner 子开关；
  * Planner / Composer / Tool 均不知道也不处理该设置。
  *
- * effectiveThinkingMode="on"  → { openai: { thinking: { type: "enabled" } } }，且输出预算不低于 4096
- * effectiveThinkingMode="off" → 不传任何参数，不调整预算
+ * thinking 参数策略由 profile.controlPlaneCompatibility 决定：
+ * - off + omit：不传任何思考参数
+ * - off + openai_thinking_disabled：{ openai: { thinking: { type: "disabled" } } }
+ * - off + enable_thinking_false：{ openai: { enable_thinking: false } }
+ * - on + omit：不传任何思考参数
+ * - on + openai_thinking_enabled：{ openai: { thinking: { type: "enabled" } } }
+ * - on + enable_thinking_true：{ openai: { enable_thinking: true } }
  *
- * 不依赖 provider-profile / model-capabilities 的多风格分支。
+ * off 时绝不发送 enabled / reasoning_effort。
  */
 function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallConfigOutput {
-  const { thinkingMode, controlPlaneThinkingEnabled, requestedMaxOutputTokens, purpose, mode } = input;
+  const { thinkingMode, controlPlaneThinkingEnabled, requestedMaxOutputTokens, purpose, mode, selectedModel } = input;
+
+  const providerType = selectedModel?.providerConfig?.type ?? "openai-compatible";
+  const providerControlPlaneCompatibility = selectedModel?.providerConfig?.controlPlaneCompatibility;
+  const modelControlPlaneCompatibility = selectedModel?.modelConfig?.controlPlaneCompatibility;
 
   const effectiveThinkingMode: ThinkingMode =
     thinkingMode === "off"
@@ -128,9 +149,60 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
         ? (controlPlaneThinkingEnabled ? "on" : "off")
         : "on";
 
+  // 获取 provider profile，合并 controlPlaneCompatibility
+  let resolvedProviderType: string = providerType ?? "openai-compatible";
+  let controlPlaneCompatibility: ControlPlaneCompatibility | undefined;
+  try {
+    const profile = resolveProviderProfile(resolvedProviderType, {
+      providerControlPlaneCompatibility,
+      modelControlPlaneCompatibility,
+    });
+    resolvedProviderType = profile.providerType;
+    controlPlaneCompatibility = profile.controlPlaneCompatibility;
+  } catch {
+    // profile 解析失败，使用默认值
+  }
+
+  // 根据 controlPlaneCompatibility 构造 thinking 参数
   let providerOptions: Record<string, Record<string, unknown>> | undefined;
+  let thinkingParamStrategy = "omit";
+
   if (effectiveThinkingMode === "on") {
-    providerOptions = { openai: { thinking: { type: "enabled" } } };
+    const strategy = controlPlaneCompatibility?.thinkingOnStrategy ?? "omit";
+    thinkingParamStrategy = strategy;
+    if (strategy === "openai_thinking_enabled") {
+      providerOptions = { openai: { thinking: { type: "enabled" } } };
+    } else if (strategy === "enable_thinking_true") {
+      providerOptions = { openai: { enable_thinking: true } };
+    }
+    // omit: 不传任何思考参数
+  } else {
+    // effectiveThinkingMode === "off"
+    const strategy = controlPlaneCompatibility?.thinkingOffStrategy ?? "omit";
+    thinkingParamStrategy = strategy;
+    if (strategy === "openai_thinking_disabled") {
+      providerOptions = { openai: { thinking: { type: "disabled" } } };
+    } else if (strategy === "enable_thinking_false") {
+      providerOptions = { openai: { enable_thinking: false } };
+    }
+    // omit: 不传任何思考参数
+  }
+
+  // 开发期断言：输入框 thinkingMode=off 时 providerOptions 绝不允许 enabled
+  if (thinkingMode === "off" && providerOptions) {
+    const thinkingType = (providerOptions?.openai?.thinking as Record<string, unknown> | undefined)?.type;
+    const enableThinking = providerOptions?.openai?.enable_thinking;
+    if (thinkingType === "enabled" || enableThinking === true) {
+      pushAgentDebugEvent("THINKING_MODE_VIOLATION_SAFE", {
+        inputThinkingMode: thinkingMode,
+        effectiveThinkingMode,
+        purpose,
+        mode,
+        action: "force_clear_providerOptions",
+      }, "error");
+      providerOptions = undefined;
+      thinkingParamStrategy = "force_cleared";
+    }
   }
 
   let effectiveMaxOutputTokens = requestedMaxOutputTokens;
@@ -139,6 +211,8 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
     effectiveMaxOutputTokens = THINKING_MIN_OUTPUT_TOKENS;
     adjustedForThinking = true;
   }
+
+  const thinkingType = (providerOptions?.openai?.thinking as Record<string, unknown> | undefined)?.type ?? null;
 
   return {
     providerOptions,
@@ -150,10 +224,15 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
       purpose,
       mode,
       hasThinkingParam: !!providerOptions,
-      thinkingType: (providerOptions?.openai?.thinking as Record<string, unknown> | undefined)?.type ?? null,
+      thinkingParamType: thinkingType as "enabled" | "disabled" | null,
+      hasThinkingEnableParam: thinkingType === "enabled",
+      hasThinkingDisableParam: thinkingType === "disabled",
+      thinkingType,
       requestedMaxOutputTokens,
       effectiveMaxOutputTokens,
       adjustedForThinking,
+      providerType: resolvedProviderType,
+      thinkingParamStrategy,
     },
   };
 }
@@ -177,12 +256,15 @@ export async function callModelJson<T>(
 ): Promise<T> {
   const kbSettings = await getKbSettings();
 
+  const selectedModel = createSelectedChatModel(kbSettings, options.chatModelSelection);
+
   const config = buildModelCallConfig({
     thinkingMode,
     controlPlaneThinkingEnabled: kbSettings.controlPlaneThinkingEnabled,
     requestedMaxOutputTokens: options.maxOutputTokens ?? DEFAULT_JSON_MAX_OUTPUT_TOKENS,
     purpose: options.purpose ?? "generic",
     mode: "json",
+    selectedModel,
   });
 
   pushAgentDebugEvent("MODEL_REQUEST_FEATURES_SAFE", config.debug, "info");
@@ -191,9 +273,10 @@ export async function callModelJson<T>(
     abortSignal: options.abortSignal,
     purpose: options.purpose ?? "generic",
     maxOutputTokens: config.effectiveMaxOutputTokens,
-    temperature: options.temperature ?? 0.1,
+    temperature: options.temperature,
     chatModelSelection: options.chatModelSelection,
     providerOptions: config.providerOptions,
+    selectedChatModel: selectedModel,
   };
 
   return _callLlmObject(prompt, schema, llmOptions);
@@ -213,12 +296,15 @@ export async function callModelText(
 ): Promise<string> {
   const kbSettings = await getKbSettings();
 
+  const selectedModel = createSelectedChatModel(kbSettings, options.chatModelSelection);
+
   const config = buildModelCallConfig({
     thinkingMode,
     controlPlaneThinkingEnabled: kbSettings.controlPlaneThinkingEnabled,
     requestedMaxOutputTokens: options.maxOutputTokens ?? 2048,
     purpose: options.purpose ?? "generic",
     mode: "text",
+    selectedModel,
   });
 
   pushAgentDebugEvent("MODEL_REQUEST_FEATURES_SAFE", config.debug, "info");
@@ -230,6 +316,7 @@ export async function callModelText(
     temperature: options.temperature,
     chatModelSelection: options.chatModelSelection,
     providerOptions: config.providerOptions,
+    selectedChatModel: selectedModel,
   };
 
   const response = await _callLlm(prompt, llmOptions);
@@ -257,12 +344,15 @@ export async function streamModelText(
 ): Promise<void> {
   const kbSettings = await getKbSettings();
 
+  const selectedModel = createSelectedChatModel(kbSettings, options.chatModelSelection);
+
   const config = buildModelCallConfig({
     thinkingMode,
     controlPlaneThinkingEnabled: kbSettings.controlPlaneThinkingEnabled,
     requestedMaxOutputTokens: options.maxOutputTokens ?? 4096,
     purpose: options.purpose ?? "compose",
     mode: "stream",
+    selectedModel,
   });
 
   pushAgentDebugEvent("MODEL_REQUEST_FEATURES_SAFE", config.debug, "info");
@@ -327,9 +417,10 @@ export async function streamModelText(
     abortSignal: options.abortSignal,
     purpose: options.purpose ?? "compose",
     maxOutputTokens: config.effectiveMaxOutputTokens,
-    temperature: options.temperature ?? 0.3,
+    temperature: options.temperature,
     chatModelSelection: options.chatModelSelection,
     providerOptions: config.providerOptions,
+    selectedChatModel: selectedModel,
   };
 
   await _streamLlm(prompt, wrappedCallbacks, llmOptions, options.abortSignal);

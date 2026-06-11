@@ -8,6 +8,7 @@
 
 import type { PlannerContext } from "./planner-context-builder";
 import { renderPlannerPrompt } from "./prompt-renderer";
+import type { PlannerDecision } from "../contracts/planner-decision";
 
 /* ────────────────────────────────────────────────────────────────── */
 /*  Future provider-native tool-call seam types                       */
@@ -51,7 +52,7 @@ export interface PlannerProviderToolCall {
  *  Future native tool-call providers shall de-serialize model output into
  *  the same tool/answer/stop shape that AgentLoop already expects.
  *  Do NOT introduce a second answer/tool protocol. */
-export type PlannerProviderDecisionResult = import("../contracts/planner-decision").PlannerDecision;
+export type PlannerProviderDecisionResult = PlannerDecision;
 /* ────────────────────────────────────────────────────────────────── */
 
 /**

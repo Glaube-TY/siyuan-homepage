@@ -150,7 +150,7 @@ const MAX_REFERENCES = 10;
 const MAX_COMPRESSED_SUMMARY_CHARS = 8000;
 
 const SNAPSHOT_NOTE =
-  "conversationContext 只包含当前问题、阶段摘要状态、已压缩阶段摘要和未 compacted 的历史问答原文；历史工具 observation、ToolDispatch、ToolResult、workbenchEvents、debug trace、工具返回正文和内部路径均不在此处。需要正文时由 Planner 根据可信资源 ID 自主调用读取工具。";
+  "本上下文只包含当前问题、阶段摘要状态、已压缩阶段摘要和未压缩的历史问答原文；不包含历史工具事件、调试信息、工具返回正文或内部路径。需要正文时，请根据可信资源 ID 决定是否使用读取能力。";
 
 const STAGE_SUMMARY_STATUS_NOTE_UNCOMPRESSED =
   "已有阶段摘要正文暂不展示；如果本轮要输出 stageSummary，只总结 lastSummarizedTurnIndex 之后的新对话，并覆盖到当前最终回答为止；不要重述已有阶段摘要。";

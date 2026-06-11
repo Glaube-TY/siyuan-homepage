@@ -2,7 +2,7 @@
  * Agent turn entry point for the thin Agent Workbench runtime.
  *
  * Uses AgentLoop (thin harness) + ToolRegistry + SkillRegistry.
- * No loop-owned step cap and no business logic in the loop.
+ * No business-specific step flow; AgentLoop only keeps a generic anti-storm safety valve.
  */
 
 import { createAgentWorkbenchRuntime, refreshUserSkills } from "./create-agent-workbench";
@@ -12,7 +12,7 @@ import { ToolExecutor } from "./tool-executor";
 import { PromptJsonPlannerProvider } from "./planner-provider";
 import { callModelJson } from "../../qa/kb-model-call";
 import { getKbSettings } from "../../settings/kb-settings-service";
-import { loadData as loadPluginData } from "../storage/notebrain-plugin-storage";
+import { loadData as loadPluginData, saveData as savePluginData } from "../storage/notebrain-plugin-storage";
 import { resolveAgentScope } from "../scope/resolve-scope";
 import type { AgentScopeMode } from "../scope/types";
 import type { AgentWorkbenchEvent } from "../contracts/turn-event";
@@ -32,10 +32,17 @@ import {
 } from "./reference-collector";
 import type { AgentWorkbenchRuntimeOptions } from "./create-agent-workbench";
 import { streamFinalAnswerFromDraft } from "./final-answer-composer";
-import { hydrateAttachedDocsForTurn } from "./attached-doc-hydration";
+import { resolveSelectedChatConfig } from "../../settings/chat-provider-config";
+import {
+  mapAgentErrorToUserFacing,
+  buildCompletedStepsSummary,
+  type AgentTurnDisplayError,
+} from "./user-facing-agent-error";
+import { hydrateAttachedDocsForTurn } from "../adapters/siyuan/attached-doc-hydration";
 import { readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
 import { BUILTIN_KB_SKILL_NAME } from "../skills/builtin/knowledge-base-qa.skill";
 import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../skills/builtin/schedule-task-diary.skill";
+import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../skills/builtin/doc-content-editing.skill";
 
 // Web search provider factory (imports only factories, no side effects)
 import { createAnySearchProvider } from "../tools/web-search/providers/anysearch.provider";
@@ -88,6 +95,10 @@ export interface RunAgentTurnParams {
   onReasoningDelta?: (event: { type: "reasoning-start" | "reasoning-delta" | "reasoning-end"; delta?: string }) => void;
   /** 全局记忆内容（已截断处理）。若传入则优先使用，不再自行读取设置。 */
   globalMemory?: string;
+  /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
+  conversationId?: string;
+  /** 已读取的 kbSettings，避免内部重复读取 getKbSettings() */
+  kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
 }
 
 export interface AgentTurnOutcome {
@@ -97,6 +108,8 @@ export interface AgentTurnOutcome {
   steps?: number;
   footerReferencesCount?: number;
   stopReasonCode?: string;
+  /** 用户可读错误提示，由 UI 层展示。agentErrorCode 仍保留给 debug。 */
+  displayError?: AgentTurnDisplayError;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -134,6 +147,9 @@ function toTraceEvents(events: AgentWorkbenchEvent[]) {
     durationMs: "durationMs" in e ? (e as { durationMs: number }).durationMs : undefined,
     argsPreview: "argsPreview" in e ? (e as { argsPreview: Record<string, unknown> }).argsPreview : undefined,
     outputSummary: "outputSummary" in e ? (e as { outputSummary: string }).outputSummary : undefined,
+    message: "message" in e ? (e as { message: string }).message : undefined,
+    status: "status" in e ? (e as { status: string }).status : undefined,
+    errorCode: "errorCode" in e ? (e as { errorCode: string }).errorCode : undefined,
   }));
 }
 
@@ -152,12 +168,12 @@ export async function runAgentTurn(
   });
   const scope = resolvedScope.scope;
 
-  const deps = new SiyuanToolRuntimeState({ scope, loadPluginData });
+  const deps = new SiyuanToolRuntimeState({ scope, loadPluginData, savePluginData });
 
   // Build web search deps from conversation context + settings
   let webSearchToolDeps: AgentWorkbenchRuntimeOptions["webSearchToolDeps"] | undefined;
   let webReadPageToolDeps: AgentWorkbenchRuntimeOptions["webReadPageToolDeps"] | undefined;
-  const settings = await getKbSettings();
+  const settings = params.kbSettings ?? await getKbSettings();
   const ws = settings.webSearch;
 
   const webSearchAccess = params.conversationContext?.currentTurn?.webAccess;
@@ -177,6 +193,7 @@ export async function runAgentTurn(
     readDocs: !disabledGlobalTools.has("read_docs"),
     webReadPage: !disabledGlobalTools.has("web_read_page"),
     editGlobalMemory: !disabledGlobalTools.has("edit_global_memory"),
+    getDocInfo: !disabledGlobalTools.has("get_doc_info"),
   };
 
   const webReadAccess = params.conversationContext?.currentTurn?.webReadAccess;
@@ -219,6 +236,7 @@ export async function runAgentTurn(
   const builtinCapabilityAccess = {
     knowledgeBase: !disabledBuiltinSkills.has(BUILTIN_KB_SKILL_NAME),
     scheduleTaskDiary: !disabledBuiltinSkills.has(BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME),
+    docContentEditing: !disabledBuiltinSkills.has(BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME),
   };
 
   const wb = createAgentWorkbenchRuntime({
@@ -228,6 +246,7 @@ export async function runAgentTurn(
     builtinCapabilityAccess,
     globalToolAccess,
     globalMemoryToolDeps,
+    conversationId: params.conversationId,
   });
 
   pushAgentDebugEvent("WEB_TOOL_REGISTRATION_SAFE", {
@@ -339,29 +358,77 @@ export async function runAgentTurn(
     if (loopResult.status === "answer_ready" && loopResult.answerDraft) {
       const draft = loopResult.answerDraft;
 
-      // Always run Composer so evidence constraints are never bypassed,
-      // even when the caller only provided onAnswerFinish (non-streaming).
-      params.onWorkbenchEvent?.({
-        type: "Notice",
-        message: "正在生成回答...",
-        at: Date.now(),
-      });
+      // ── 最终回答交付模式 ──
+      // 只决定如何呈现已到达 answer 阶段的文本，不影响 Planner 决策。
+      // draft_replay: 将已完整生成的 Planner draft 逐段推给 UI（不是模型真流式）
+      // composer_stream: 调用 streamModelText 生成最终回答（真实模型流式输出）
+      // draft_direct: 不调用模型、不 UI 回放，直接返回完整 draft.body
+      type FinalAnswerDeliveryMode = "draft_direct" | "draft_replay" | "composer_stream";
 
-      const composedBody = await streamFinalAnswerFromDraft({
-        question: params.question,
-        observations: wb.observationLog.all(),
-        draftBody: draft.body,
-        onChunk: params.onAnswerChunk,
-        onFinish: params.onAnswerFinish,
-        onWorkbenchEvent: params.onWorkbenchEvent,
-        onReasoningDelta: params.thinkingMode === "on" ? params.onReasoningDelta : undefined,
-        abortSignal: params.abortSignal,
-        chatModelSelection: params.chatModelSelection,
-        thinkingMode: params.thinkingMode,
-        globalMemory: globalMemoryText,
-      });
+      // 从模型配置读取 finalComposeMode（已正式定义在 KbChatModelConfig 中）
+      // 优先使用 params.chatModelSelection，缺失时回退到 settings 选中的模型
+      const { model: selectedModel } = resolveSelectedChatConfig(
+        settings.chatProviders,
+        params.chatModelSelection?.providerId ?? settings.selectedChatProviderId,
+        params.chatModelSelection?.modelId ?? settings.selectedChatModelId,
+      );
+      const composeMode: "auto" | "stream" | "non_stream" = selectedModel?.finalComposeMode ?? "auto";
 
-      draft.body = composedBody;
+      let deliveryMode: FinalAnswerDeliveryMode;
+      if (composeMode === "stream") {
+        deliveryMode = "composer_stream";
+      } else if (composeMode === "non_stream") {
+        deliveryMode = "draft_direct";
+      } else {
+        // "auto": 默认真实模型流式输出（composer_stream），不再走 UI 回放
+        deliveryMode = "composer_stream";
+      }
+
+      if (deliveryMode === "composer_stream") {
+        // 真实模型流式输出 — 调用 streamModelText（不是 UI replay）
+        params.onWorkbenchEvent?.({
+          type: "Notice",
+          message: "正在生成回答...",
+          at: Date.now(),
+        });
+
+        const composedBody = await streamFinalAnswerFromDraft({
+          question: params.question,
+          observations: wb.observationLog.all(),
+          draftBody: draft.body,
+          onChunk: params.onAnswerChunk,
+          onFinish: params.onAnswerFinish,
+          onWorkbenchEvent: params.onWorkbenchEvent,
+          onReasoningDelta: params.thinkingMode === "on" ? params.onReasoningDelta : undefined,
+          abortSignal: params.abortSignal,
+          chatModelSelection: params.chatModelSelection,
+          thinkingMode: params.thinkingMode,
+          globalMemory: globalMemoryText,
+        });
+
+        draft.body = composedBody;
+      } else if ((deliveryMode as FinalAnswerDeliveryMode) === "draft_replay") {
+        // UI 回放（不是模型真流式）：将已完整生成的 Planner draft.body 逐段推给 UI
+        params.onWorkbenchEvent?.({
+          type: "Notice",
+          message: "正在显示回答...",
+          at: Date.now(),
+        });
+
+        const replayResult = await replayAnswerDraftToUi({
+          body: draft.body,
+          abortSignal: params.abortSignal,
+          onChunk: params.onAnswerChunk,
+          onFinish: params.onAnswerFinish,
+        });
+
+        if (!replayResult.completed && replayResult.content.length > 0) {
+          draft.body = replayResult.content;
+        }
+      } else {
+        // draft_direct: 不调用模型、不 UI 回放
+        params.onAnswerFinish?.(draft.body);
+      }
 
       // Grounding flow:
       // 1. fallbackRefs from observation log → used ONLY for groundingSet evidence.
@@ -398,14 +465,52 @@ export async function runAgentTurn(
     }
 
     // stopped_by_planner / fail_closed_no_planner_decision
-    pushAgentDebugEvent("TURN_FAILED", { agentErrorCode: loopResult.status, steps: loopResult.steps }, "warn");
+    const allEvents = eventsForTrace;
+
+    // 从 eventsForTrace 中倒序找到最后一个 TurnFailed 事件，提取其 errorCode 和 message
+    let lastFailedErrorCode: string | undefined;
+    let lastFailedMessage: string | undefined;
+    for (let i = allEvents.length - 1; i >= 0; i--) {
+      const ev = allEvents[i];
+      if (ev.type === "TurnFailed") {
+        const evRecord = ev as unknown as Record<string, unknown>;
+        lastFailedErrorCode = (evRecord.errorCode as string | undefined) ?? (evRecord.status as string | undefined);
+        lastFailedMessage = evRecord.message as string | undefined;
+        break;
+      }
+    }
+
+    const effectiveAgentErrorCode = lastFailedErrorCode ?? loopResult.status;
+    const userFacing = mapAgentErrorToUserFacing({
+      agentErrorCode: effectiveAgentErrorCode,
+      message: lastFailedMessage ?? loopResult.status,
+    });
+    const summary = buildCompletedStepsSummary(allEvents);
+    pushAgentDebugEvent("TURN_FAILED", {
+      agentErrorCode: effectiveAgentErrorCode,
+      loopStatus: loopResult.status,
+      steps: loopResult.steps,
+    }, "warn");
     return {
       ok: false,
-      agentErrorCode: loopResult.status,
+      agentErrorCode: effectiveAgentErrorCode,
       steps: loopResult.steps,
+      displayError: {
+        ...userFacing,
+        completedStepsSummary: summary?.text,
+      },
     };
   } catch (err) {
-    const agentErrorCode = err instanceof Error ? err.message.slice(0, 80) : "agent_workbench_unexpected_error";
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    pushAgentDebugEvent("RUN_AGENT_TURN_EXCEPTION", {
+      errorName: err instanceof Error ? err.name : "unknown",
+      sanitizedMessage: rawMsg.slice(0, 200),
+    }, "error");
+
+    const userFacing = mapAgentErrorToUserFacing({
+      agentErrorCode: "agent_workbench_unexpected_error",
+    });
+    const summary = buildCompletedStepsSummary(localEvents);
     // Save trace even on exception
     saveTurnTrace({
       turnId: `${Date.now()}`,
@@ -418,8 +523,227 @@ export async function runAgentTurn(
     });
     return {
       ok: false,
-      agentErrorCode,
+      agentErrorCode: "agent_workbench_unexpected_error",
       stopReasonCode: "exception",
+      displayError: {
+        ...userFacing,
+        completedStepsSummary: summary?.text,
+      },
     };
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Draft body replay helper (no model call — UI rendering only)
+// ═══════════════════════════════════════════════════════════════════
+
+interface DraftReplayResult {
+  content: string;
+  completed: boolean;
+}
+
+function waitForDraftReplayFrame(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 16));
+}
+
+/**
+ * Split text into lines preserving trailing newline on each line.
+ * splitLinesPreserveEol(text).join("") === text always.
+ */
+function splitLinesPreserveEol(text: string): string[] {
+  const matches = text.match(/[^\n]*(?:\n|$)/g) ?? [];
+  if (text.endsWith("\n") && matches.length > 0) {
+    matches.pop();
+  }
+  return matches;
+}
+
+/**
+ * Find best cut point within [min, max) that preserves punctuation.
+ * Returns the index *after* the separator (i.e., separator is included in the left chunk).
+ * Returns -1 if no good cut found.
+ */
+function findBestMarkdownCut(text: string, min: number, max: number): number {
+  const candidates = ["\n", "。", "！", "？", "；", "，", ",", ".", " "];
+  let best = -1;
+  for (const ch of candidates) {
+    const idx = text.lastIndexOf(ch, max);
+    if (idx >= min && idx > best) {
+      best = idx;
+      if (ch === "\n") return idx + 1;
+    }
+  }
+  if (best > 0) return best + 1;
+  return -1;
+}
+
+/**
+ * Push a paragraph block, splitting long blocks at punctuation boundaries.
+ * All splits use block.slice(start, end) — no trim, no rewrite.
+ */
+function pushMarkdownBlockChunks(block: string, out: string[]): void {
+  if (block.length <= 180) {
+    out.push(block);
+    return;
+  }
+  let start = 0;
+  while (start < block.length) {
+    let end = Math.min(start + 180, block.length);
+    if (end < block.length) {
+      const windowStart = Math.max(start + 80, start);
+      const candidate = findBestMarkdownCut(block, windowStart, end);
+      if (candidate > start) end = candidate;
+    }
+    out.push(block.slice(start, end));
+    start = end;
+  }
+}
+
+/**
+ * 保真 Markdown 切片 — 不 trim、不丢弃分隔符、chunks.join("") === original.
+ *
+ * 策略：
+ * - 使用 splitLinesPreserveEol 保留行尾换行符
+ * - 代码围栏 ```…``` 作为一个完整块
+ * - 表格行（连续以 | 开头的行）作为完整块
+ * - 空行保留（原始换行符）
+ * - 段落按行收集后用 pushMarkdownBlockChunks 切分长块
+ * - 所有切分使用 slice，不 trim
+ */
+function buildMarkdownPreservingChunks(markdown: string): string[] {
+  if (!markdown) return [];
+
+  const lines = splitLinesPreserveEol(markdown);
+  const chunks: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const lineText = line.replace(/\r?\n$/, "");
+
+    // Fenced code block — keep entire block as one chunk
+    if (lineText.trimStart().startsWith("```")) {
+      const start = i;
+      i++;
+      while (i < lines.length) {
+        const currentText = lines[i].replace(/\r?\n$/, "");
+        i++;
+        if (currentText.trimStart().startsWith("```")) break;
+      }
+      chunks.push(lines.slice(start, i).join(""));
+      continue;
+    }
+
+    // Table block — consecutive | lines as one chunk
+    if (/^\s*\|/.test(lineText)) {
+      const start = i;
+      i++;
+      while (i < lines.length) {
+        const currentText = lines[i].replace(/\r?\n$/, "");
+        if (!/^\s*\|/.test(currentText)) break;
+        i++;
+      }
+      chunks.push(lines.slice(start, i).join(""));
+      continue;
+    }
+
+    // Empty line — preserve as-is (it's "\n" or "\r\n")
+    if (lineText.trim().length === 0) {
+      chunks.push(line);
+      i++;
+      continue;
+    }
+
+    // Regular paragraph — collect until empty line / fence / table
+    const start = i;
+    i++;
+    while (i < lines.length) {
+      const currentText = lines[i].replace(/\r?\n$/, "");
+      if (currentText.trim().length === 0) break;
+      if (currentText.trimStart().startsWith("```")) break;
+      if (/^\s*\|/.test(currentText)) break;
+      i++;
+    }
+
+    const block = lines.slice(start, i).join("");
+    pushMarkdownBlockChunks(block, chunks);
+  }
+
+  // Fidelity assertion
+  const joined = chunks.join("");
+  if (joined !== markdown) {
+    pushAgentDebugEvent("DRAFT_REPLAY_CHUNK_MISMATCH", {
+      expectedLen: markdown.length,
+      actualLen: joined.length,
+      chunkCount: chunks.length,
+    }, "warn");
+    return [markdown];
+  }
+
+  return chunks.filter((chunk) => chunk.length > 0);
+}
+
+/**
+ * 将已完整生成的 Planner draft.body 回放到 UI（UI replay，不是模型真实流式输出）。
+ * 不调用大模型。只用于 draft_replay 交付模式。
+ *
+ * 保真要求：正常完成时 body 原文不被改写。
+ */
+async function replayAnswerDraftToUi(params: {
+  body: string;
+  abortSignal?: AbortSignal;
+  onChunk?: (event: { chunk: string; fullContent: string }) => void;
+  onFinish?: (fullContent: string) => void;
+}): Promise<DraftReplayResult> {
+  const body = typeof params.body === "string" ? params.body : "";
+  if (!body) {
+    params.onFinish?.("");
+    return { content: "", completed: true };
+  }
+
+  if (!params.onChunk) {
+    params.onFinish?.(body);
+    return { content: body, completed: true };
+  }
+
+  let chunks = buildMarkdownPreservingChunks(body);
+
+  // Debug warn: if chunker returned a single large chunk with newlines, it may still be broken
+  if (chunks.length === 1 && body.length > 220 && body.includes("\n")) {
+    pushAgentDebugEvent("DRAFT_REPLAY_SINGLE_CHUNK_WARN", {
+      bodyLen: body.length,
+    }, "warn");
+  }
+
+  // Merge adjacent small chunks if there are too many, preserving roundtrip fidelity
+  const MAX_CHUNKS = 120;
+  if (chunks.length > MAX_CHUNKS) {
+    const merged: string[] = [];
+    let pending = "";
+    for (const c of chunks) {
+      if (pending && pending.length + c.length > 200) {
+        merged.push(pending);
+        pending = c;
+      } else {
+        pending += c;
+      }
+    }
+    if (pending) merged.push(pending);
+    const mergedJoined = merged.join("");
+    // Only swap if roundtrip is preserved
+    if (mergedJoined === body) chunks = merged;
+  }
+
+  let fullContent = "";
+  for (const chunk of chunks) {
+    if (params.abortSignal?.aborted) {
+      return { content: fullContent, completed: false };
+    }
+    fullContent += chunk;
+    params.onChunk({ chunk, fullContent });
+    await waitForDraftReplayFrame();
+  }
+
+  params.onFinish?.(body);
+  return { content: body, completed: true };
 }

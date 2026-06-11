@@ -1,6 +1,7 @@
 /**
  * Built-in skill: 日程、任务与日记助手。
- * This is a CHINESE capability manual only — does NOT own / bind / sequence tools.
+ * Skill 是中文能力说明与能力策略包；提供能力域 playbook、推荐工具使用方式、顺序建议和误用禁忌。
+ * 不拥有工具、不强制流程，代码不得根据 Skill 内容自动串流程。
  */
 
 import type { SkillContract, SkillPromptSection, SkillRuntimeContext } from "../../contracts/skill-contract";

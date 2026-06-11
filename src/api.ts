@@ -105,24 +105,57 @@ export async function createDailyNote(notebook: string, app: string): Promise<an
 }
 
 
-export async function renameDoc(notebook: NotebookId, path: string, title: string): Promise<DocumentId> {
+export async function renameDoc(notebook: NotebookId, path: string, title: string): Promise<null> {
     let data = {
-        doc: notebook,
+        notebook: notebook,
         path: path,
         title: title
     };
     let url = '/api/filetree/renameDoc';
-    return request(url, data);
+    const response = await requestRaw(url, data);
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'renameDoc failed');
+    }
+    return null;
+}
+
+export async function renameDocByID(id: DocumentId, title: string): Promise<null> {
+    let data = {
+        id: id,
+        title: title
+    };
+    let url = '/api/filetree/renameDocByID';
+    const response = await requestRaw(url, data);
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'renameDocByID failed');
+    }
+    return null;
 }
 
 
-export async function removeDoc(notebook: NotebookId, path: string) {
+export async function removeDoc(notebook: NotebookId, path: string): Promise<null> {
     let data = {
         notebook: notebook,
         path: path,
     };
     let url = '/api/filetree/removeDoc';
-    return request(url, data);
+    const response = await requestRaw(url, data);
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'removeDoc failed');
+    }
+    return null;
+}
+
+export async function removeDocByID(id: DocumentId): Promise<null> {
+    let data = {
+        id: id,
+    };
+    let url = '/api/filetree/removeDocByID';
+    const response = await requestRaw(url, data);
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'removeDocByID failed');
+    }
+    return null;
 }
 
 
