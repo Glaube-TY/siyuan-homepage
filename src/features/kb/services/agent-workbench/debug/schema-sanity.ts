@@ -27,7 +27,7 @@ const BUILTIN_SIYUAN_TOOL_NAMES = new Set([
 ]);
 
 /**
- * Check all planner-visible tool schemas for structural correctness.
+ * Check all provider-visible tool schemas for structural correctness.
  * Built-in siyuan tools have extra checks (specific field requirements).
  */
 export function checkToolSchemaSanity(manifests: ToolManifest[]): SchemaSanityResult {
@@ -37,7 +37,7 @@ export function checkToolSchemaSanity(manifests: ToolManifest[]): SchemaSanityRe
   for (const tool of manifests) {
     const name = tool.name;
 
-    // ── 1. Every plannerVisible tool must have inputJsonSchema or inputHint ──
+    // ── 1. Every provider-visible tool must have inputJsonSchema or inputHint ──
     if (!tool.inputJsonSchema && !tool.inputHint) {
       errors.push(`Tool "${name}" has no inputJsonSchema nor inputHint.`);
       continue;

@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 
 export const deleteDocInputSchema = z.object({
   docId: z.string().trim().min(1).max(256),
@@ -18,8 +18,8 @@ export const deleteDocOutputSchema = z.object({
 export type DeleteDocOutput = z.infer<typeof deleteDocOutputSchema>;
 
 /**
- * 内部 confirmation 准备结果，不是 Planner 可见工具结果。
- * confirmation 是 Runtime/UI 内部安全闸门，对 Planner 透明。
+ * 内部 confirmation 准备结果，不是 Agent 可见工具结果。
+ * confirmation 是 Runtime/UI 内部安全闸门，对 Agent 透明。
  */
 export interface PreparedDeleteDocConfirmation {
   confirmationId: string;

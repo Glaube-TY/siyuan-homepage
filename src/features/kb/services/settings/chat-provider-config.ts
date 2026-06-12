@@ -1,30 +1,39 @@
-/**
+﻿/**
  * 聊天提供商配置统一纯逻辑模块
  * 提供 provider/model 配置相关的纯函数，不引入 Svelte UI、LLM 调用或思源 API
  */
 
 import type { KbChatProviderConfig, KbChatModelConfig, KbChatProviderType } from "../../types/settings";
-import type { ControlPlaneCompatibility } from "../../types/settings";
+import type { ProviderNativeAgentCompatibility } from "../../types/settings";
 import type { DiscoverModelsResult } from "../qa/model-list-discovery";
 import { isKimiProviderType } from "../qa/model-list-discovery";
 
+const LEGACY_COMPATIBILITY_KEY = ["provider", "Request", "Compatibility"].join("");
+
 /**
- * 校验和清洗 controlPlaneCompatibility，只保留合法枚举和值
+ * 校验和清洗 ProviderNativeAgentCompatibility，只保留合法枚举和值
  */
-function sanitizeControlPlaneCompatibility(raw: unknown): ControlPlaneCompatibility | undefined {
+function sanitizeProviderNativeAgentCompatibility(raw: unknown): ProviderNativeAgentCompatibility | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const obj = raw as Record<string, unknown>;
-  const result: ControlPlaneCompatibility = {};
+  const result: ProviderNativeAgentCompatibility = {};
 
   const suitability = obj.suitability;
   if (suitability === "normal" || suitability === "not_recommended") {
     result.suitability = suitability;
   }
 
-  const jsonOutputStrategy = obj.jsonOutputStrategy;
-  if (jsonOutputStrategy === "raw_prompt" || jsonOutputStrategy === "response_format_json_object") {
-    result.jsonOutputStrategy = jsonOutputStrategy;
-  }
+  const nativeToolCalls = obj.nativeToolCalls;
+  if (typeof nativeToolCalls === "boolean") result.nativeToolCalls = nativeToolCalls;
+
+  const streamingToolCalls = obj.streamingToolCalls;
+  if (typeof streamingToolCalls === "boolean") result.streamingToolCalls = streamingToolCalls;
+
+  const toolResultContinuation = obj.toolResultContinuation;
+  if (typeof toolResultContinuation === "boolean") result.toolResultContinuation = toolResultContinuation;
+
+  const reasoningDelta = obj.reasoningDelta;
+  if (typeof reasoningDelta === "boolean") result.reasoningDelta = reasoningDelta;
 
   const thinkingOffStrategy = obj.thinkingOffStrategy;
   if (thinkingOffStrategy === "omit" || thinkingOffStrategy === "openai_thinking_disabled" || thinkingOffStrategy === "enable_thinking_false") {
@@ -54,11 +63,6 @@ function sanitizeControlPlaneCompatibility(raw: unknown): ControlPlaneCompatibil
   const fixedTemperature = obj.fixedTemperature;
   if (typeof fixedTemperature === "number" && !isNaN(fixedTemperature) && fixedTemperature >= 0 && fixedTemperature <= 2) {
     result.fixedTemperature = fixedTemperature;
-  }
-
-  const plannerTransport = obj.plannerTransport;
-  if (plannerTransport === "non_stream_json" || plannerTransport === "stream_json") {
-    result.plannerTransport = plannerTransport;
   }
 
   // 如果没有任何合法字段，返回 undefined
@@ -202,9 +206,9 @@ export function resolveChatModelSelection(
     selectedModel = providerModels.find((m) => m.default === true && isUsableChatModel(m));
   }
 
-  // 再回退到第一个可用模型（优先不推荐用于自动操作的）
+  // 再回退到第一个可用模型（优先选择适合 Agent 的模型）
   if (!selectedModel) {
-    selectedModel = providerModels.find((m) => isUsableChatModel(m) && !m.notRecommendedForPlanner);
+    selectedModel = providerModels.find((m) => isUsableChatModel(m) && !m.notRecommendedForAgent);
   }
   if (!selectedModel) {
     selectedModel = providerModels.find((m) => isUsableChatModel(m));
@@ -276,7 +280,10 @@ function normalizeProviderModels(
 
     const modelName = String(rawModel.name ?? "").trim() || modelId;
 
-    const controlPlaneCompatibility = sanitizeControlPlaneCompatibility(rawModel.controlPlaneCompatibility);
+    const rawModelRecord = rawModel as Record<string, unknown>;
+    const providerNativeAgentCompatibility = sanitizeProviderNativeAgentCompatibility(
+      rawModel.providerNativeAgentCompatibility ?? rawModelRecord[LEGACY_COMPATIBILITY_KEY],
+    );
 
     existingMap.set(modelId, {
       id: modelId,
@@ -287,8 +294,8 @@ function normalizeProviderModels(
       default: rawModel.default,
       enabled: typeof rawModel.enabled === "boolean" ? rawModel.enabled : true,
       supportVision: rawModel.supportVision,
-      notRecommendedForPlanner: rawModel.notRecommendedForPlanner,
-      controlPlaneCompatibility,
+      notRecommendedForAgent: rawModel.notRecommendedForAgent,
+      providerNativeAgentCompatibility,
       finalComposeMode: sanitizeFinalComposeMode(rawModel.finalComposeMode),
     });
   }
@@ -397,7 +404,10 @@ export function sanitizeChatProviders(
 
     // 不自动补模型，保持空数组
     const presetId = String(provider.presetId ?? "").trim() || undefined;
-    const providerControlPlaneCompatibility = sanitizeControlPlaneCompatibility(provider.controlPlaneCompatibility);
+    const rawProviderRecord = provider as Record<string, unknown>;
+    const providerNativeAgentCompatibility = sanitizeProviderNativeAgentCompatibility(
+      provider.providerNativeAgentCompatibility ?? rawProviderRecord[LEGACY_COMPATIBILITY_KEY],
+    );
 
     const sanitizedProvider: KbChatProviderConfig = {
       id,
@@ -408,7 +418,7 @@ export function sanitizeChatProviders(
       enabled,
       models,
       presetId,
-      controlPlaneCompatibility: providerControlPlaneCompatibility,
+      providerNativeAgentCompatibility: providerNativeAgentCompatibility,
     };
     return sanitizedProvider;
   });
@@ -513,7 +523,7 @@ export function mergeDiscoveredChatModels(
       // Kimi K2 系列模型使用服务商默认温度
       const isKimiK2Model = isKimiProviderType(provider.type) && /^kimi-k2/.test(discoveredId);
       const defaultTemperature = isKimiK2Model ? 1 : 0.3;
-      const defaultControlPlaneCompatibility = isKimiK2Model
+      const defaultProviderNativeAgentCompatibility = isKimiK2Model
         ? { temperatureParamStrategy: "omit" as const }
         : undefined;
       existingMap.set(discoveredId, {
@@ -522,19 +532,19 @@ export function mergeDiscoveredChatModels(
         temperature: defaultTemperature,
         enabled: isAvailable,
         default: false,
-        notRecommendedForPlanner: dm.notRecommendedForPlanner,
-        controlPlaneCompatibility: defaultControlPlaneCompatibility,
+        notRecommendedForAgent: dm.notRecommendedForAgent,
+        providerNativeAgentCompatibility: defaultProviderNativeAgentCompatibility,
       });
       if (!isAvailable && (dm as any).unavailableReason) {
         existingMap.get(discoveredId)!.name = `${dm.name || discoveredId}（不可用）`;
       }
       addedCount++;
     } else {
-      // 已有模型也要同步 discovered 的 priority/isLegacy/notRecommendedForPlanner 等字段
+      // 已有模型也要同步 discovered 的 priority/isLegacy/notRecommendedForAgent 等字段
       const existing = existingMap.get(discoveredId)!;
       let modelUpdated = false;
-      if (dm.notRecommendedForPlanner !== undefined && existing.notRecommendedForPlanner !== dm.notRecommendedForPlanner) {
-        existing.notRecommendedForPlanner = dm.notRecommendedForPlanner;
+      if (dm.notRecommendedForAgent !== undefined && existing.notRecommendedForAgent !== dm.notRecommendedForAgent) {
+        existing.notRecommendedForAgent = dm.notRecommendedForAgent;
         modelUpdated = true;
       }
       if ((dm as any).priority !== undefined) {
@@ -553,9 +563,9 @@ export function mergeDiscoveredChatModels(
           modelUpdated = true;
         }
         // 迁移到 omit 策略（不再固定发送 temperature）
-        if (!existing.controlPlaneCompatibility?.temperatureParamStrategy || existing.controlPlaneCompatibility?.temperatureParamStrategy === "fixed") {
-          existing.controlPlaneCompatibility = {
-            ...existing.controlPlaneCompatibility,
+        if (!existing.providerNativeAgentCompatibility?.temperatureParamStrategy || existing.providerNativeAgentCompatibility?.temperatureParamStrategy === "fixed") {
+          existing.providerNativeAgentCompatibility = {
+            ...existing.providerNativeAgentCompatibility,
             temperatureParamStrategy: "omit",
             fixedTemperature: undefined,
           };
@@ -582,19 +592,19 @@ export function mergeDiscoveredChatModels(
   if (usableDefaults.length === 0) {
     // 没有任何可用 default，先清掉所有 default
     filteredModels.forEach((m) => { m.default = false; });
-    // 优先选择可用于自动操作的模型
-    const firstUsable = filteredModels.find((m) => isUsableChatModel(m) && !m.notRecommendedForPlanner);
+    // 优先选择适合 Agent 的模型
+    const firstUsable = filteredModels.find((m) => isUsableChatModel(m) && !m.notRecommendedForAgent);
     if (firstUsable) {
       firstUsable.default = true;
     } else {
-      // 如果没有可用于自动操作的，选择第一个可用模型并标记 warning
+      // 如果没有适合 Agent 的模型，选择第一个可用模型并标记 warning
       const fallbackUsable = filteredModels.find((m) => isUsableChatModel(m));
       if (fallbackUsable) {
         fallbackUsable.default = true;
       }
     }
   } else if (usableDefaults.length > 1) {
-    // 存在多个可用 default，优先保留可用于自动操作的
+    // 存在多个可用 default，优先保留适合 Agent 的
     let firstFound = false;
     filteredModels.forEach((m) => {
       if (m.default === true && isUsableChatModel(m)) {
@@ -620,18 +630,18 @@ export function mergeDiscoveredChatModels(
   const updatedProvider = { ...provider, models: filteredModels };
   const effectiveDiscoveredCount = discoveredIds.size;
 
-  // 检查是否只有不推荐用于自动操作的模型
-  const hasRecommendedModel = filteredModels.some((m) => isUsableChatModel(m) && !m.notRecommendedForPlanner);
+  // 检查是否只有不推荐用于 Agent 的模型
+  const hasRecommendedModel = filteredModels.some((m) => isUsableChatModel(m) && !m.notRecommendedForAgent);
   let finalMessage = `已发现 ${effectiveDiscoveredCount} 个有效模型，新增 ${addedCount} 个`;
   if (updatedCount > 0) {
     finalMessage += `，更新 ${updatedCount} 个已有模型`;
   }
-  finalMessage += '；请运行测试自动操作确认模型是否适合自动操作';
+  finalMessage += "；请运行 Agent 工具调用兼容性测试确认模型是否适合 Agent 模式";
   if (!hasRecommendedModel && filteredModels.some((m) => isUsableChatModel(m))) {
     if (isKimiProviderType(provider.type)) {
-      finalMessage += "；当前选中的模型更适合普通回答，不太适合快速执行自动操作";
+      finalMessage += "；当前选中的模型更适合普通回答，不太适合 Agent 模式";
     } else {
-      finalMessage += "；当前模型更适合生成计划，不太适合快速执行自动操作";
+      finalMessage += "；当前模型更适合生成计划，不太适合 Agent 模式";
     }
   }
 

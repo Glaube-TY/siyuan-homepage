@@ -1,10 +1,10 @@
-<script lang="ts">
+﻿<script lang="ts">
   import type { KbSettings, KbChatProviderConfig, KbChatModelConfig } from "../../../types/settings";
   import {
     getProviderPresetById,
     generateUniqueProviderId,
   } from "../../../constants/model-provider-presets";
-  import { testChatModelConnection, testControlPlaneCompatibility, type ModelConnectionTestResult, type ControlPlaneCompatibilityTestResult } from "../../../services/qa/model-connection-test";
+  import { testChatModelConnection, testProviderNativeAgentCompatibility, type ModelConnectionTestResult, type ProviderNativeAgentCompatibilityTestResult } from "../../../services/qa/model-connection-test";
   import { discoverProviderModels } from "../../../services/qa/model-list-discovery";
   import {
     normalizeId,
@@ -30,9 +30,9 @@
   let testingModelKey = "";
   let testResults: Record<string, ModelConnectionTestResult> = {};
 
-  // 自动操作测试状态
-  let testingControlPlaneKey = "";
-  let controlPlaneTestResults: Record<string, ControlPlaneCompatibilityTestResult> = {};
+  // Agent 工具调用兼容性测试状态
+  let testingNativeAgentKey = "";
+  let nativeAgentTestResults: Record<string, ProviderNativeAgentCompatibilityTestResult> = {};
 
   // 刷新模型列表状态
   let refreshingProviderId = "";
@@ -70,17 +70,17 @@
     return testingModelKey === getChatModelKey(normalizeId(providerId), normalizeId(modelId));
   }
 
-  // 检查是否正在测试自动操作
-  function isTestingControlPlane(providerId: string, modelId: string): boolean {
-    return testingControlPlaneKey === getChatModelKey(normalizeId(providerId), normalizeId(modelId));
+  // 检查是否正在测试 Agent 工具调用兼容性
+  function isTestingNativeAgent(providerId: string, modelId: string): boolean {
+    return testingNativeAgentKey === getChatModelKey(normalizeId(providerId), normalizeId(modelId));
   }
 
-  // 获取"测试自动操作"按钮 title
-  function getTestControlPlaneTitle(provider: KbChatProviderConfig, model: KbChatModelConfig): string {
-    if (isTestingControlPlane(provider.id, model.id)) return "测试中...";
+  // 获取"测试 Agent"按钮 title
+  function getTestNativeAgentTitle(provider: KbChatProviderConfig, model: KbChatModelConfig): string {
+    if (isTestingNativeAgent(provider.id, model.id)) return "测试中...";
     if (!normalizeId(model.id)) return "模型 ID 为空，无法测试";
     if (!canUseModel(provider, model)) return "提供商或模型已禁用，无法测试";
-    return "测试这个模型是否适合自动操作（会消耗少量额度）";
+    return "测试这个模型是否支持 Agent 原生工具调用（会消耗少量额度）";
   }
 
   // 获取"测试连接"按钮 title
@@ -482,15 +482,15 @@
     }
   }
 
-  // 测试自动操作
-  async function testControlPlane(providerId: string, modelId: string) {
+  // 测试 Agent 工具调用兼容性
+  async function testNativeAgent(providerId: string, modelId: string) {
     const normalizedProviderId = normalizeId(providerId);
     const normalizedModelId = normalizeId(modelId);
 
     if (!normalizedProviderId || !normalizedModelId) return;
 
     const modelKey = getChatModelKey(normalizedProviderId, normalizedModelId);
-    if (testingControlPlaneKey) return;
+    if (testingNativeAgentKey) return;
 
     const provider = settings.chatProviders.find((p) => normalizeId(p.id) === normalizedProviderId);
     if (!provider) return;
@@ -503,25 +503,25 @@
     const startTime = Date.now();
 
     // 先清理该模型旧结果，避免显示过期信息
-    delete controlPlaneTestResults[modelKey];
-    controlPlaneTestResults = { ...controlPlaneTestResults };
+    delete nativeAgentTestResults[modelKey];
+    nativeAgentTestResults = { ...nativeAgentTestResults };
 
-    testingControlPlaneKey = modelKey;
+    testingNativeAgentKey = modelKey;
 
     try {
-      const result = await testControlPlaneCompatibility(provider, model);
-      controlPlaneTestResults[modelKey] = result;
-      controlPlaneTestResults = { ...controlPlaneTestResults };
+      const result = await testProviderNativeAgentCompatibility(provider, model);
+      nativeAgentTestResults[modelKey] = result;
+      nativeAgentTestResults = { ...nativeAgentTestResults };
     } catch (error: any) {
       // 兜底写入 error result，不允许静默失败
-      controlPlaneTestResults[modelKey] = {
+      nativeAgentTestResults[modelKey] = {
         status: "error",
-        message: "测试失败：未能完成自动操作测试，请稍后重试或检查模型配置。",
+        message: "测试失败：未能完成 Agent 工具调用兼容性测试，请稍后重试或检查模型配置。",
         elapsedMs: Date.now() - startTime,
       };
-      controlPlaneTestResults = { ...controlPlaneTestResults };
+      nativeAgentTestResults = { ...nativeAgentTestResults };
     } finally {
-      testingControlPlaneKey = "";
+      testingNativeAgentKey = "";
     }
   }
 
@@ -534,9 +534,9 @@
       delete testResults[modelKey];
       testResults = { ...testResults };
     }
-    if (controlPlaneTestResults[modelKey]) {
-      delete controlPlaneTestResults[modelKey];
-      controlPlaneTestResults = { ...controlPlaneTestResults };
+    if (nativeAgentTestResults[modelKey]) {
+      delete nativeAgentTestResults[modelKey];
+      nativeAgentTestResults = { ...nativeAgentTestResults };
     }
   }
 
@@ -545,24 +545,24 @@
     const normalizedProviderId = normalizeId(providerId);
     const prefix = `${normalizedProviderId}::`;
     let hasChange = false;
-    let hasCpChange = false;
+    let hasAgentChange = false;
     for (const key of Object.keys(testResults)) {
       if (key.startsWith(prefix)) {
         delete testResults[key];
         hasChange = true;
       }
     }
-    for (const key of Object.keys(controlPlaneTestResults)) {
+    for (const key of Object.keys(nativeAgentTestResults)) {
       if (key.startsWith(prefix)) {
-        delete controlPlaneTestResults[key];
-        hasCpChange = true;
+        delete nativeAgentTestResults[key];
+        hasAgentChange = true;
       }
     }
     if (hasChange) {
       testResults = { ...testResults };
     }
-    if (hasCpChange) {
-      controlPlaneTestResults = { ...controlPlaneTestResults };
+    if (hasAgentChange) {
+      nativeAgentTestResults = { ...nativeAgentTestResults };
     }
   }
 
@@ -764,17 +764,17 @@
         onRemoveModel={removeModel}
         onSelectModel={selectModel}
         onTestModel={testModel}
-        onTestControlPlane={testControlPlane}
+        onTestNativeAgent={testNativeAgent}
         isCurrentModel={isCurrentModel}
         canUseModel={canUseModel}
         getSelectModelTitle={getSelectModelTitle}
         getTestModelTitle={getTestModelTitle}
         isTestingModel={isTestingModel}
-        isTestingControlPlane={isTestingControlPlane}
-        testingControlPlaneKey={testingControlPlaneKey}
-        getTestControlPlaneTitle={getTestControlPlaneTitle}
+        isTestingNativeAgent={isTestingNativeAgent}
+        testingNativeAgentKey={testingNativeAgentKey}
+        getTestNativeAgentTitle={getTestNativeAgentTitle}
         testResults={testResults}
-        controlPlaneTestResults={controlPlaneTestResults}
+        nativeAgentTestResults={nativeAgentTestResults}
       />
     {:else}
       <div class="editor-empty-state">

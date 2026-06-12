@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 
 export const renameDocInputSchema = z.object({
   docId: z.string().trim().min(1).max(256),
@@ -15,13 +15,17 @@ export const renameDocOutputSchema = z.object({
     title: z.string().optional(),
     previousTitle: z.string().optional(),
   }).optional(),
+  verification: z.object({
+    status: z.enum(["confirmed_renamed", "still_indexed", "unknown"]),
+    message: z.string().optional(),
+  }).optional(),
 }).strict();
 
 export type RenameDocOutput = z.infer<typeof renameDocOutputSchema>;
 
 /**
- * 内部 confirmation 准备结果，不是 Planner 可见工具结果。
- * confirmation 是 Runtime/UI 内部安全闸门，对 Planner 透明。
+ * 内部 confirmation 准备结果，不是 Agent 可见工具结果。
+ * confirmation 是 Runtime/UI 内部安全闸门，对 Agent 透明。
  */
 export interface PreparedRenameDocConfirmation {
   confirmationId: string;

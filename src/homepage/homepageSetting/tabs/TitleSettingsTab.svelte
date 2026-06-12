@@ -222,6 +222,17 @@
             oninput={(e) => onTempStatsTextChange((e.currentTarget as HTMLTextAreaElement).value)}
             placeholder="输入自定义状态语句"
         ></textarea>
+    {:else if !advancedEnabled}
+        <div class="status-ai-vip-card">
+            <div class="status-ai-vip-title">
+                <SiyuanIcon name="vip" size={16} />
+                <span>AI 智能生成状态语是会员专属功能</span>
+            </div>
+            <p class="status-ai-vip-desc">
+                开通后可根据记录天数、笔记数量和任务情况自动生成主页状态语，并支持自定义风格和长度。你已保存的 AI 状态语设置会保留，重新开通会员后可继续使用。
+            </p>
+            <div class="status-ai-vip-cta">请前往「会员服务」开通后使用</div>
+        </div>
     {:else}
         <SettingRow title="生成提示语" description="控制 AI 状态语的风格和格式">
             <textarea
@@ -245,12 +256,7 @@
         </SettingRow>
 
         <div class="status-ai-notes">
-            {#if !advancedEnabled}
-                <div class="status-ai-note warning">
-                    <SiyuanIcon name="vip" size={14} />
-                    <span>AI 智能生成状态语是会员专属功能，请在「会员服务」中开通后使用。</span>
-                </div>
-            {:else if statusAiAvailableModelCount <= 0}
+            {#if statusAiAvailableModelCount <= 0}
                 <div class="status-ai-note warning">
                     <SiyuanIcon name="warning" size={14} />
                     <span>尚未配置可用大模型。请先到「AI 知识库设置 → 大模型配置」添加模型，再到「AI 知识库」标签选择状态语模型。</span>
@@ -395,5 +401,34 @@
     }
     .status-ai-note.warning :global(svg) {
         color: var(--b3-theme-error);
+    }
+    .status-ai-vip-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        margin-top: 0.75rem;
+        padding: 0.8rem 0.9rem;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 28%, var(--b3-border-color));
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-surface));
+        color: var(--b3-theme-on-surface);
+    }
+    .status-ai-vip-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-weight: 600;
+        color: var(--b3-theme-primary);
+    }
+    .status-ai-vip-desc {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--b3-theme-on-surface);
+    }
+    .status-ai-vip-cta {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--b3-theme-primary);
     }
 </style>

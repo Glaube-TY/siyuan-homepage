@@ -1,4 +1,4 @@
-/**
+﻿/**
  * KB Session Store
  * 知识库会话状态管理
  */
@@ -253,6 +253,7 @@ function createKbSessionStore() {
       stageSummaries: state.stageSummaries ?? [],
       compressedContextSummary: state.compressedContextSummary,
       compressionState: state.compressionState,
+      agentSession: conversation.agentSession,
       updatedAt: Date.now(),
     };
   }
@@ -358,6 +359,39 @@ function createKbSessionStore() {
       schedulePersist();
     },
 
+    // 立即将当前运行中的 assistant 气泡标记为手动停止
+    markLatestAssistantManuallyStopped: () => {
+      update((state) => {
+        const messages = [...state.messages];
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i];
+          if (m.role !== "assistant" || m.isComplete === true) continue;
+
+          if (m.content.trim()) {
+            messages[i] = { ...m, agentStatus: undefined, isComplete: false };
+          } else {
+            messages[i] = {
+              ...m,
+              content: "已手动停止回答。",
+              agentStatus: undefined,
+              isComplete: true,
+              reasoning: m.reasoning?.status === "streaming" ? undefined : m.reasoning,
+            };
+          }
+          break;
+        }
+
+        return {
+          ...state,
+          messages,
+          asking: false,
+          agentStatus: undefined,
+          qaError: "",
+          error: "",
+        };
+      });
+      schedulePersist();
+    },
     // 清空当前对话（保留模式和设置，只清聊天/问答运行态）
     clearConversation: () => {
       update((state) => ({
@@ -667,7 +701,7 @@ function createKbSessionStore() {
     /**
      * 执行上下文压缩（用户手动触发）
      * - 手动常规压缩不调用 LLM；Emergency Compaction 只在发送前硬阈值兜底触发
-     * - 只使用 Planner 阶段摘要做边界 compact
+     * - 只使用 Agent 阶段摘要做边界 compact
      * - 未覆盖对话继续保留原文
      * - 标记旧消息为 compacted（不物理删除）
      * - 保存 compressionState 和 compressedContextSummary

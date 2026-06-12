@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Context Usage Estimation
  *
  * 只做用量统计和 UI 显示，不改变任何业务动作。
@@ -6,7 +6,7 @@
  * 不因为 usageRatio 自动裁剪、压缩或改变工具动作。
  *
  * attached docs 只进入轻量元信息估算，不自动把全文塞入上下文。
- * 文档正文应由 Planner 调 read_docs 获取。
+ * 文档正文应由 Agent 调 read_docs 获取。
  */
 
 import type { ChatMessage } from "./chat";
@@ -45,7 +45,7 @@ export interface ContextCompressionState {
   compressedMessageCount?: number;
   /** Number of complete turns (user+assistant pairs) that have been compacted (optional, for debug) */
   compressedTurnCount?: number;
-  /** Number of Planner stage summaries rendered into compressedContextSummary */
+  /** Number of Agent stage summaries rendered into compressedContextSummary */
   compressedStageSummaryCount?: number;
   /** Latest compressed stage summary index */
   latestCompressedStageIndex?: number;

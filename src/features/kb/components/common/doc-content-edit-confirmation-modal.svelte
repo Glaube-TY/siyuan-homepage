@@ -50,7 +50,7 @@
 
   async function handleConfirm() {
     if (!confirmationId) return;
-    if (confirmation && confirmation.action !== "update_block" && confirmation.action !== "insert_block" && confirmation.action !== "delete_block" && confirmation.action !== "move_block" && confirmation.action !== "create_doc" && confirmation.action !== "rename_doc" && confirmation.action !== "delete_doc" && confirmation.action !== "replace_doc_content") {
+    if (confirmation && confirmation.action !== "update_block" && confirmation.action !== "insert_block" && confirmation.action !== "delete_blocks" && confirmation.action !== "move_block" && confirmation.action !== "create_doc" && confirmation.action !== "rename_doc" && confirmation.action !== "delete_doc" && confirmation.action !== "replace_doc_content") {
       error = "该操作暂未接入执行。";
       return;
     }

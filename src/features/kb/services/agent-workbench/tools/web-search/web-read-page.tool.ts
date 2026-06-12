@@ -1,4 +1,4 @@
-/**
+﻿/**
  * web_read_page Tool — reads a web page and returns cleaned Markdown by chunk.
  * Pure factory function. No side effects at module level.
  */
@@ -132,7 +132,7 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
     source: "builtin",
     inputHint: "url（必填，真实明确的 http/https URL）。长网页继续读取时使用 chunkIndex（可选，默认1）/ chunkChars（可选，默认12000）/ chunkCount。",
     boundary: "只读取公开 http/https 网页 URL；拒绝本机、内网、链路本地和云元数据地址。不能把自然语言问题、网站名、书名、标题猜成 URL；不自动搜索 URL；不自动跟随链接、不递归抓取、不整站抓取、不执行 JS、不绕过登录。",  
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: webReadPageInputJsonSchemaOverride,
 
     availability() {

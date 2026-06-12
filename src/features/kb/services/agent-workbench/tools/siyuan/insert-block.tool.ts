@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   insertBlockInputSchema,
   insertBlockOutputSchema,
@@ -7,7 +7,7 @@ import type { InsertBlockInput, InsertBlockOutput } from "./contracts/insert-blo
 import { insertBlockInputJsonSchemaOverride } from "./contracts/insert-block.contract";
 
 export interface InsertBlockDeps {
-  executeInsertBlock(args: InsertBlockInput): Promise<{ output: InsertBlockOutput }>;
+  executeInsertBlock(args: InsertBlockInput, abortSignal?: AbortSignal): Promise<{ output: InsertBlockOutput }>;
 }
 
 export function createInsertBlockTool(deps: InsertBlockDeps): ToolContract<InsertBlockInput, InsertBlockOutput> {
@@ -23,17 +23,42 @@ export function createInsertBlockTool(deps: InsertBlockDeps): ToolContract<Inser
     source: "builtin",
     inputHint: "referenceBlockId（参考块 ID），position（插入位置：before/after/child），markdown（要插入的 Markdown 内容）",
     boundary: "只能基于明确给出的真实 referenceBlockId 插入内容。不编造 ID。",
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: insertBlockInputJsonSchemaOverride,
 
     availability() {
       return { available: true };
     },
 
-    async execute(_ctx: ToolRuntimeContext, args: InsertBlockInput): Promise<ToolResult<InsertBlockOutput>> {
+    async execute(ctx: ToolRuntimeContext, args: InsertBlockInput): Promise<ToolResult<InsertBlockOutput>> {
       try {
-        const result = await deps.executeInsertBlock(args);
-        return { ok: true, data: result.output };
+        const result = await deps.executeInsertBlock(args, ctx.abortSignal);
+        const data = result.output;
+        if (data.status === "success") {
+          return { ok: true, data };
+        }
+        if (data.status === "rejected") {
+          return {
+            ok: false,
+            data: null,
+            error: {
+              code: "user_rejected",
+              message: data.message || "用户已拒绝操作。",
+              recoverable: false,
+              details: data.target ? { target: data.target } : undefined,
+            },
+          };
+        }
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: "write_operation_failed",
+            message: data.message || "写入操作失败。",
+            recoverable: false,
+            details: data.target ? { target: data.target } : undefined,
+          },
+        };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return {

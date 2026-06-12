@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   readDocBlocksInputSchema,
   readDocBlocksOutputSchema,
@@ -25,7 +25,7 @@ export function createReadDocBlocksTool(deps: ReadDocBlocksDeps): ToolContract<R
     source: "builtin",
     inputHint: "targetId（块或文档 ID），scope（self/children/siblings_window/document_top），before/after（siblings_window 时前后条数，0-20），maxBlocks（最大块数，1-50，默认20），maxChars（最大字符数，1-30000，默认8000）",
     boundary: "只能读取已经明确给出的真实 docId/blockId。不编造 ID。只读，不修改文档或块。",
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: readDocBlocksInputJsonSchemaOverride,
 
     availability() {

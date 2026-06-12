@@ -121,7 +121,7 @@ export async function prepareReplaceDocContentConfirmation(
 }
 
 /**
- * Planner-facing replace_doc_content 执行器。
+ * Agent-facing replace_doc_content 执行器。
  * 内部触发确认弹窗，用户确认后写入，最终返回成功/拒绝/失败结果。
  */
 export async function executeReplaceDocContent(
@@ -180,6 +180,7 @@ export async function executeReplaceDocContent(
     const confirmationRes = await requestDocContentEditConfirmation({
       confirmationId,
       action: "replace_doc_content",
+      abortSignal: deps.abortSignal,
     });
 
     // 4. 用户拒绝

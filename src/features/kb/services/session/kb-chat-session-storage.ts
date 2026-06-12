@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AssistantChatMessage,
   ChatMessage,
   ConversationStageSummary,
@@ -9,12 +9,14 @@ import type {
 } from "../../types/chat";
 import type { AgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
 import type { AgentWorkbenchEvent } from "../agent-workbench/contracts/turn-event";
+import type { AgentMessage } from "../agent-core/messages/agent-message";
+import { sanitizeMessageForStorage } from "../agent-core/session/session-store";
 
 export interface PersistedReferenceItem {
   index: number;
   docId?: string;
   readLevel?: "content" | "structure" | "candidate" | "snippet" | "section" | "document";
-  referenceReason?: "planner_explicit" | "read_content" | "structure_result" | "search_candidate";
+  referenceReason?: "agent_explicit" | "read_content" | "structure_result" | "search_candidate";
   grounded?: boolean;
   docTitle?: string;
   displayTitle?: string;
@@ -33,6 +35,12 @@ export interface PersistedAgentTurnMemory {
   scope?: AgentTurnMemory["scope"];
   actionTraceSummary: {
     toolNames: string[];
+    outcomes?: import("../agent-workbench/memory/agent-turn-memory").AgentTurnActionOutcome[];
+    lastTouchedDocIds?: string[];
+    lastTouchedBlockIds?: string[];
+    lastTouchedTitles?: string[];
+    lastWriteStatus?: "none" | "success" | "failed" | "partial" | "rejected" | "aborted";
+    lastWriteSummary?: string;
   };
   footerReferenceDocIds: string[];
   footerReferenceTitles: string[];
@@ -47,17 +55,27 @@ export interface PersistedAgentTurnMemory {
 }
 
 export interface PersistedWorkbenchEvent {
-  type: "ToolDispatch" | "ToolResult" | "TurnFailed" | "AssistantFinal";
+  type: "tool_start" | "tool_result" | "error" | "assistant_final" | "done" | "notice";
   stepIndex?: number;
   at?: number;
   toolName?: string;
+  toolCallId?: string;
   argsPreview?: Record<string, unknown>;
+  readOnly?: boolean;
   ok?: boolean;
   outputSummary?: string;
   errorCode?: string;
   status?: string;
   durationMs?: number;
   message?: string;
+  safeTargetPreview?: {
+    targetDocIds?: string[];
+    targetBlockIds?: string[];
+    targetTitles?: string[];
+    requestedCount?: number;
+    affectedCount?: number;
+    reasonCode?: string;
+  };
 }
 
 export type PersistedChatMessage =
@@ -93,6 +111,11 @@ export interface PersistedConversation {
   stageSummaries?: ConversationStageSummary[];
   compressionState?: import("../../types/context-usage").ContextCompressionState;
   compressedContextSummary?: string;
+  agentSession?: {
+    id: string;
+    messages: AgentMessage[];
+    updatedAt: number;
+  };
 }
 
 export function isTransientAssistantPlaceholder(message: ChatMessage): boolean {
@@ -113,6 +136,12 @@ function toPersistedAgentTurnMemory(memory: AgentTurnMemory): PersistedAgentTurn
     scope: memory.scope,
     actionTraceSummary: {
       toolNames: memory.actionTraceSummary.toolNames,
+      outcomes: memory.actionTraceSummary.outcomes,
+      lastTouchedDocIds: memory.actionTraceSummary.lastTouchedDocIds,
+      lastTouchedBlockIds: memory.actionTraceSummary.lastTouchedBlockIds,
+      lastTouchedTitles: memory.actionTraceSummary.lastTouchedTitles,
+      lastWriteStatus: memory.actionTraceSummary.lastWriteStatus,
+      lastWriteSummary: memory.actionTraceSummary.lastWriteSummary,
     },
     // Do NOT use Set() here — it breaks index alignment across parallel arrays.
     footerReferenceDocIds: memory.footerReferenceDocIds,
@@ -136,7 +165,13 @@ function fromPersistedAgentTurnMemory(memory: PersistedAgentTurnMemory): AgentTu
     userQuestion: memory.userQuestion,
     scope: memory.scope,
     actionTraceSummary: {
-      toolNames: memory.actionTraceSummary.toolNames,
+      toolNames: memory.actionTraceSummary.toolNames ?? [],
+      outcomes: memory.actionTraceSummary.outcomes,
+      lastTouchedDocIds: memory.actionTraceSummary.lastTouchedDocIds,
+      lastTouchedBlockIds: memory.actionTraceSummary.lastTouchedBlockIds,
+      lastTouchedTitles: memory.actionTraceSummary.lastTouchedTitles,
+      lastWriteStatus: memory.actionTraceSummary.lastWriteStatus,
+      lastWriteSummary: memory.actionTraceSummary.lastWriteSummary,
     },
     footerReferenceDocIds: memory.footerReferenceDocIds,
     footerReferenceTitles: memory.footerReferenceTitles,
@@ -182,37 +217,54 @@ function toPersistedArgsPreview(argsPreview: Record<string, unknown> | undefined
 
 function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkbenchEvent | null {
   switch (event.type) {
-    case "ToolDispatch":
+    case "tool_start":
       return {
-        type: "ToolDispatch",
+        type: "tool_start",
         stepIndex: event.stepIndex,
         at: event.at,
+        toolCallId: event.toolCallId,
         toolName: event.toolName,
         argsPreview: toPersistedArgsPreview(event.argsPreview),
+        readOnly: event.readOnly,
       };
-    case "ToolResult":
+    case "tool_result":
       return {
-        type: "ToolResult",
+        type: "tool_result",
         stepIndex: event.stepIndex,
         at: event.at,
+        toolCallId: event.toolCallId,
         toolName: event.toolName,
-        ok: event.ok,
-        outputSummary: truncatePersistedText(event.outputSummary, 300),
-        errorCode: truncatePersistedText(event.errorCode, 80),
+        ok: event.result.ok,
+        outputSummary: truncatePersistedText(event.result.summary, 300),
+        errorCode: truncatePersistedText(event.result.errorCode ?? event.result.code, 80),
         durationMs: event.durationMs,
+        safeTargetPreview: event.result.safeTargetPreview,
       };
-    case "TurnFailed":
+    case "error":
       return {
-        type: "TurnFailed",
+        type: "error",
         stepIndex: event.stepIndex,
         at: event.at,
         message: truncatePersistedText(event.message, 300),
-        errorCode: truncatePersistedText(event.errorCode, 80),
-        status: truncatePersistedText(event.status, 80),
+        errorCode: truncatePersistedText(event.code, 80),
       };
-    case "AssistantFinal":
+    case "assistant_final":
       return {
-        type: "AssistantFinal",
+        type: "assistant_final",
+        stepIndex: event.stepIndex,
+        at: event.at,
+        message: truncatePersistedText(event.answer, 200),
+      };
+    case "done":
+      return {
+        type: "done",
+        stepIndex: event.stepIndex,
+        at: event.at,
+        status: event.status,
+      };
+    case "notice":
+      return {
+        type: "notice",
         stepIndex: event.stepIndex,
         at: event.at,
         message: truncatePersistedText(event.message, 200),
@@ -226,44 +278,61 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
   const at = event.at ?? Date.now();
   const stepIndex = event.stepIndex ?? 0;
   switch (event.type) {
-    case "ToolDispatch":
+    case "tool_start":
       return {
-        type: "ToolDispatch",
+        type: "tool_start",
         stepIndex,
         at,
-        toolCallId: `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
+        toolCallId: event.toolCallId ?? `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
         toolName: event.toolName ?? "unknown",
         argsPreview: event.argsPreview ?? {},
-        readOnly: true,
+        readOnly: event.readOnly ?? true,
         startedAt: at,
       };
-    case "ToolResult":
+    case "tool_result":
       return {
-        type: "ToolResult",
+        type: "tool_result",
         stepIndex,
         at,
-        toolCallId: `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
+        toolCallId: event.toolCallId ?? `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
         toolName: event.toolName ?? "unknown",
-        ok: event.ok ?? false,
-        outputSummary: event.outputSummary,
-        errorCode: event.errorCode,
+        result: {
+          ok: event.ok ?? false,
+          content: "",
+          summary: event.outputSummary ?? "",
+          errorCode: event.errorCode,
+          safeTargetPreview: event.safeTargetPreview,
+        },
         durationMs: event.durationMs ?? 0,
       };
-    case "TurnFailed":
+    case "error":
       return {
-        type: "TurnFailed",
+        type: "error",
         stepIndex,
         at,
         message: event.message,
-        errorCode: event.errorCode,
-        status: event.status ?? event.errorCode,
+        code: event.errorCode ?? "agent_workbench_runtime_error",
       };
-    case "AssistantFinal":
+    case "assistant_final":
       return {
-        type: "AssistantFinal",
+        type: "assistant_final",
         stepIndex,
         at,
-        message: event.message,
+        answer: event.message ?? "",
+      };
+    case "done":
+      return {
+        type: "done",
+        stepIndex,
+        at,
+        status: (event.status as "answer_ready" | "failed" | "cancelled" | undefined) ?? "failed",
+      };
+    case "notice":
+      return {
+        type: "notice",
+        stepIndex,
+        at,
+        message: event.message ?? "",
       };
     default:
       return null;
@@ -439,6 +508,13 @@ export function toPersistedConversation(session: KbConversationSession): Persist
     stageSummaries: session.stageSummaries ?? [],
     compressionState: session.compressionState,
     compressedContextSummary: session.compressedContextSummary,
+    agentSession: session.agentSession
+      ? {
+          id: session.agentSession.id,
+          messages: session.agentSession.messages.map(sanitizeMessageForStorage),
+          updatedAt: session.agentSession.updatedAt,
+        }
+      : undefined,
   };
 }
 
@@ -455,6 +531,7 @@ export function fromPersistedConversation(
     stageSummaries: persisted.stageSummaries ?? [],
     compressionState: persisted.compressionState,
     compressedContextSummary: persisted.compressedContextSummary,
+    agentSession: persisted.agentSession,
     ...defaults,
   };
 }

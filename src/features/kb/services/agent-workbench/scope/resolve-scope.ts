@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Resolve Agent Workbench Scope
  *
  * 职责：
- * - mode 只负责归一到 AgentScope，后续 Planner/Executor 只接收 AgentScope
+ * - mode 只负责归一到 AgentScope，后续 Agent/Executor 只接收 AgentScope
  * - 不要在 resolver 里做检索、读全文、加载 notebook docs 或全库 docs
  * - 只返回本轮可见范围事实
  */

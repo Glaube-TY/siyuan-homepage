@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   listKnowledgeMapInputSchema,
   listKnowledgeMapOutputSchema,
@@ -33,7 +33,7 @@ export function createListKnowledgeMapTool(deps: ListKnowledgeMapDeps): ToolCont
     source: "builtin",
     inputHint: "view（可选，默认 notebook_roots），notebookId/rootDocId/centerDocId（必须来自工具返回的真实 ID），maxDepth（子树深度，默认2），limit（分页），cursor（继续查看），includeTags/includeLinkedDocs。",
     boundary: "只返回结构/目录信息，不读取正文。0 结果会说明原因：invalid_args / resource_not_found / empty_children / empty_scope。结构范围由聊天框当前知识库范围限定。",
-    plannerVisible: true,
+    providerVisible: true,
 
     // Explicit override: z.preprocess makes auto-conversion unreliable.
     // All ID fields accept optional strings trimmed to 1-256 chars.

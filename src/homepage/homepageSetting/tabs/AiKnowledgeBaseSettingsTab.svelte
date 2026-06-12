@@ -10,6 +10,7 @@
     interface Props {
         aiKbDockEnabled: boolean;
         aiKbTabEnabled: boolean;
+        advancedEnabled?: boolean;
         statusAiProviderId: string;
         statusAiModelId: string;
         statusAiThinkingEnabled: boolean;
@@ -22,6 +23,7 @@
     let {
         aiKbDockEnabled,
         aiKbTabEnabled,
+        advancedEnabled = false,
         statusAiProviderId,
         statusAiModelId,
         statusAiThinkingEnabled,
@@ -35,8 +37,20 @@
     let selectedStatusAiModelKey = $state("");
     let statusAiModelInvalid = $state(false);
     let modelOptionsLoading = $state(false);
+    const statusAiVipFeatures = [
+        "可使用已配置的大模型生成主页状态语",
+        "可单独选择状态语使用的模型",
+        "可开启或关闭状态语思考模式",
+        "可自定义生成风格和返回长度",
+    ];
 
     function syncSelectedModelState(options: ChatModelOption[] = modelOptions): void {
+        if (!advancedEnabled) {
+            selectedStatusAiModelKey = "";
+            statusAiModelInvalid = false;
+            return;
+        }
+
         const currentKey = buildChatModelKey(statusAiProviderId, statusAiModelId);
         const hasCurrentSelection = Boolean(statusAiProviderId.trim() && statusAiModelId.trim());
         const currentOption = hasCurrentSelection
@@ -60,6 +74,13 @@
     }
 
     async function refreshStatusAiModels(): Promise<void> {
+        if (!advancedEnabled) {
+            modelOptionsLoading = false;
+            selectedStatusAiModelKey = "";
+            statusAiModelInvalid = false;
+            return;
+        }
+
         modelOptionsLoading = true;
         try {
             const settings = await getKbSettings();
@@ -67,7 +88,7 @@
             modelOptions = options;
             syncSelectedModelState(options);
 
-            if (!statusAiProviderId.trim() && !statusAiModelId.trim()) {
+            if (advancedEnabled && !statusAiProviderId.trim() && !statusAiModelId.trim()) {
                 const defaultOption = findDefaultChatModelOption(settings, options);
                 if (defaultOption) {
                     selectedStatusAiModelKey = defaultOption.key;
@@ -105,18 +126,30 @@
     }
 
     function handleKbSettingsChanged(): void {
+        if (!advancedEnabled) return;
         void refreshStatusAiModels();
     }
 
     $effect(() => {
+        advancedEnabled;
         statusAiProviderId;
         statusAiModelId;
         modelOptions;
         syncSelectedModelState();
     });
 
-    onMount(() => {
+    $effect(() => {
+        if (!advancedEnabled) {
+            modelOptionsLoading = false;
+            statusAiModelInvalid = false;
+            selectedStatusAiModelKey = "";
+            return;
+        }
+
         void refreshStatusAiModels();
+    });
+
+    onMount(() => {
         window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
     });
 
@@ -157,47 +190,68 @@
 </SettingSection>
 
 <SettingSection title="状态语 AI 生成">
-    <SettingRow title="状态语 AI 模型" description="独立选择主页状态语使用的大模型，不影响聊天问答当前模型">
-        {#if modelOptionsLoading}
-            <span class="model-loading">正在加载模型...</span>
-        {:else if modelOptions.length === 0}
-            <span class="model-empty">尚未配置可用大模型</span>
-        {:else}
-            <select
-                class="control-lg"
-                value={selectedStatusAiModelKey}
-                onchange={handleStatusAiModelSelect}
-            >
-                {#if !selectedStatusAiModelKey}
-                    <option value="">请选择状态语模型</option>
-                {/if}
-                {#each modelOptions as option (option.key)}
-                    <option value={option.key}>{option.label}</option>
+    {#if !advancedEnabled}
+        <div class="status-ai-vip-card">
+            <div class="status-ai-vip-title">
+                <SiyuanIcon name="vip" size={16} />
+                <span>AI 状态语是会员专属功能</span>
+            </div>
+            <p class="status-ai-vip-desc">
+                开通会员后，主页可以根据你的真实统计数据自动生成状态语，例如记录天数、笔记数量、文档数量和任务情况，让每次打开主页都有不同的鼓励与提醒。
+            </p>
+            <ul class="status-ai-vip-list">
+                {#each statusAiVipFeatures as feature}
+                    <li>
+                        <SiyuanIcon name="confirm" size={13} />
+                        <span>{feature}</span>
+                    </li>
                 {/each}
-            </select>
+            </ul>
+            <div class="status-ai-vip-cta">请前往「会员服务」开通后使用</div>
+        </div>
+    {:else}
+        <SettingRow title="状态语 AI 模型" description="独立选择主页状态语使用的大模型，不影响聊天问答当前模型">
+            {#if modelOptionsLoading}
+                <span class="model-loading">正在加载模型...</span>
+            {:else if modelOptions.length === 0}
+                <span class="model-empty">尚未配置可用大模型</span>
+            {:else}
+                <select
+                    class="control-lg"
+                    value={selectedStatusAiModelKey}
+                    onchange={handleStatusAiModelSelect}
+                >
+                    {#if !selectedStatusAiModelKey}
+                        <option value="">请选择状态语模型</option>
+                    {/if}
+                    {#each modelOptions as option (option.key)}
+                        <option value={option.key}>{option.label}</option>
+                    {/each}
+                </select>
+            {/if}
+        </SettingRow>
+
+        {#if modelOptions.length === 0 && !modelOptionsLoading}
+            <div class="status-ai-panel warning">
+                <SiyuanIcon name="warning" size={14} />
+                <span>尚未配置可用大模型，请先打开「AI 知识库设置 → 大模型配置」添加提供商和模型。</span>
+            </div>
+        {:else if statusAiModelInvalid}
+            <div class="status-ai-panel warning">
+                <SiyuanIcon name="warning" size={14} />
+                <span>当前选择不可用，请重新选择。</span>
+            </div>
         {/if}
-    </SettingRow>
 
-    {#if modelOptions.length === 0 && !modelOptionsLoading}
-        <div class="status-ai-panel warning">
-            <SiyuanIcon name="warning" size={14} />
-            <span>尚未配置可用大模型，请先打开「AI 知识库设置 → 大模型配置」添加提供商和模型。</span>
-        </div>
-    {:else if statusAiModelInvalid}
-        <div class="status-ai-panel warning">
-            <SiyuanIcon name="warning" size={14} />
-            <span>当前选择不可用，请重新选择。</span>
-        </div>
+        <SettingRow title="状态语思考模式" description="开启后生成状态语时允许模型使用思考模式，只影响状态语生成">
+            <input
+                class="b3-switch"
+                type="checkbox"
+                checked={statusAiThinkingEnabled}
+                onchange={(e) => onStatusAiThinkingEnabledChange(e.currentTarget.checked)}
+            />
+        </SettingRow>
     {/if}
-
-    <SettingRow title="状态语思考模式" description="开启后生成状态语时允许模型使用思考模式，只影响状态语生成">
-        <input
-            class="b3-switch"
-            type="checkbox"
-            checked={statusAiThinkingEnabled}
-            onchange={(e) => onStatusAiThinkingEnabledChange(e.currentTarget.checked)}
-        />
-    </SettingRow>
 </SettingSection>
 
 <style>
@@ -240,5 +294,58 @@
 
     .status-ai-panel.warning :global(svg) {
         color: var(--b3-theme-error);
+    }
+
+    .status-ai-vip-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        padding: 0.85rem 0.95rem;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 28%, var(--b3-border-color));
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-surface));
+        color: var(--b3-theme-on-surface);
+    }
+
+    .status-ai-vip-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-weight: 600;
+        color: var(--b3-theme-primary);
+    }
+
+    .status-ai-vip-desc {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--b3-theme-on-surface);
+    }
+
+    .status-ai-vip-list {
+        display: grid;
+        gap: 0.35rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
+    .status-ai-vip-list li {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.4rem;
+    }
+
+    .status-ai-vip-list :global(svg) {
+        margin-top: 2px;
+        color: var(--b3-theme-primary);
+    }
+
+    .status-ai-vip-cta {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--b3-theme-primary);
     }
 </style>

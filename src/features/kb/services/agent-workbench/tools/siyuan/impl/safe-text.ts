@@ -1,6 +1,6 @@
 /**
  * Safe text utilities for siyuan tools.
- * Sanitizes titles, snippets, and content for planner visibility.
+ * Sanitizes titles, snippets, and content for agent context visibility.
  */
 
 const SIYUAN_BLOCK_ID_PATTERN = /\d{14}-[a-z0-9]{7}/i;

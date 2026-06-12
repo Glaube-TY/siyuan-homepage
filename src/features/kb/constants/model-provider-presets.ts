@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 模型提供商预设
  * 用于 UI 添加新提供商时的模板
  *
@@ -102,7 +102,7 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
           temperature: 1,
           default: true,
           enabled: true,
-          controlPlaneCompatibility: {
+          providerNativeAgentCompatibility: {
             temperatureParamStrategy: "omit",
           },
         },
@@ -112,7 +112,7 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
           temperature: 1,
           default: false,
           enabled: true,
-          controlPlaneCompatibility: {
+          providerNativeAgentCompatibility: {
             temperatureParamStrategy: "omit",
           },
         },

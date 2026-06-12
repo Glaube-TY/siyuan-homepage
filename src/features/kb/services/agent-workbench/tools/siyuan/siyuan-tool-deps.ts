@@ -12,4 +12,5 @@ export interface SiyuanToolDeps {
   getSettings?(): Partial<KbSettings> | undefined;
   loadPluginData?<T = unknown>(key: string): Promise<T | null>;
   savePluginData?<T = unknown>(key: string, data: T): Promise<void>;
+  abortSignal?: AbortSignal;
 }

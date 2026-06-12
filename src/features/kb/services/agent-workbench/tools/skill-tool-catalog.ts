@@ -1,7 +1,7 @@
 /**
  * Skill 工具目录（只读 UI 元数据）
  *
- * 仅用于设置页 UI 展示，不参与 ToolRegistry / Planner manifest / Runtime 决策。
+ * 仅用于设置页 UI 展示，不参与 ToolRegistry / provider manifest / Runtime 决策。
  * 按内置 Skill 分类展示所有内置工具的中文名称和简介。
  * `name` 字段仅作为内部设置 key 使用，不在 UI 展示。
  */
@@ -24,7 +24,7 @@ export type SkillToolName =
   | "create_doc"
   | "update_block"
   | "insert_block"
-  | "delete_block"
+  | "delete_blocks"
   | "move_block"
   | "rename_doc"
   | "delete_doc"
@@ -144,9 +144,9 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         requiresConfirmation: true,
       },
       {
-        name: "delete_block",
+        name: "delete_blocks",
         title: "删除内容块",
-        description: "删除指定内容块。",
+        description: "删除一个或多个内容块。单块删除传入单元素数组，多块删除传入多个 blockId。",
         readOnly: false,
         canWrite: true,
         requiresConfirmation: true,

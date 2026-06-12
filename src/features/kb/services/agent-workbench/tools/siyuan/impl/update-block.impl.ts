@@ -1,4 +1,4 @@
-import { sql, getBlockKramdown } from "../../../../../../../api";
+﻿import { sql, getBlockKramdown } from "../../../../../../../api";
 import type { UpdateBlockInput, UpdateBlockOutput, PreparedUpdateBlockConfirmation } from "../contracts/update-block.contract";
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
 import { createRenderedSideBySideCompare, toDisplayMarkdownFromKramdown } from "../../../../doc-content-edit/doc-content-edit-diff";
@@ -19,7 +19,7 @@ export interface UpdateBlockImplDeps extends SiyuanToolDeps {
 
 /**
  * 内部确认准备能力：生成 pending confirmation，不实际写入思源文档。
- * 当前不注册为 Planner-facing 工具；confirmation 是 Runtime/UI 内部安全闸门。
+ * 当前不注册为 Agent-facing 工具；confirmation 是 Runtime/UI 内部安全闸门。
  */
 export async function prepareUpdateBlockConfirmation(
   deps: UpdateBlockImplDeps,
@@ -92,7 +92,7 @@ export async function prepareUpdateBlockConfirmation(
     warnings: warnings.length > 0 ? warnings : undefined,
   });
 
-  // 内部准备结果，不作为 Planner observation 使用
+  // 内部准备结果，不作为 Agent observation 使用
   const prepareResult: PreparedUpdateBlockConfirmation = {
     confirmationId: confirmation.id,
     action: "update_block",
@@ -110,7 +110,7 @@ export async function prepareUpdateBlockConfirmation(
 }
 
 /**
- * Planner-facing update_block 执行器。
+ * Agent-facing update_block 执行器。
  * 内部触发确认弹窗，用户确认后写入，最终返回成功/拒绝/失败结果。
  * 不暴露 confirmationId / visualCompare 等内部机制。
  */
@@ -133,6 +133,7 @@ export async function executeUpdateBlock(
     const confirmationRes = await requestDocContentEditConfirmation({
       confirmationId,
       action: "update_block",
+      abortSignal: deps.abortSignal,
     });
 
     // 3. 用户拒绝

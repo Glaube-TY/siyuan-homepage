@@ -36,7 +36,7 @@ export function assessDocContentEditRisk(
       riskLevel = "low";
       break;
     case "rename_doc":
-    case "delete_block":
+    case "delete_blocks":
     case "move_block":
       riskLevel = "medium";
       break;
@@ -91,7 +91,7 @@ function getMissingRequiredTarget(
       break;
     }
     case "update_block":
-    case "delete_block": {
+    case "delete_blocks": {
       if (!target.blockId) {
         missing.push("blockId");
       }

@@ -3,7 +3,7 @@
  *
  * 轻量 helper — 只决定是否需要弹出 UI 确认弹窗。
  * 不影响参数校验、目标存在性校验、执行器二次安全校验。
- * Planner 不感知此策略，Tool schema 不包含相关字段。
+ * Agent 不感知此策略，Tool schema 不包含相关字段。
  */
 
 import type { KbDangerousSkillToolName, KbSettings } from "../../types/settings";

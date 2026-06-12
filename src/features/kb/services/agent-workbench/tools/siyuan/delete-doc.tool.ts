@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   deleteDocInputSchema,
   deleteDocOutputSchema,
@@ -7,7 +7,7 @@ import type { DeleteDocInput, DeleteDocOutput } from "./contracts/delete-doc.con
 import { deleteDocInputJsonSchemaOverride } from "./contracts/delete-doc.contract";
 
 export interface DeleteDocDeps {
-  executeDeleteDoc(args: DeleteDocInput): Promise<{ output: DeleteDocOutput }>;
+  executeDeleteDoc(args: DeleteDocInput, abortSignal?: AbortSignal): Promise<{ output: DeleteDocOutput }>;
 }
 
 export function createDeleteDocTool(deps: DeleteDocDeps): ToolContract<DeleteDocInput, DeleteDocOutput> {
@@ -23,17 +23,42 @@ export function createDeleteDocTool(deps: DeleteDocDeps): ToolContract<DeleteDoc
     source: "builtin",
     inputHint: "docId（目标文档 ID）",
     boundary: "只能删除明确给出的真实 docId 对应文档。不编造 ID。",
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: deleteDocInputJsonSchemaOverride,
 
     availability() {
       return { available: true };
     },
 
-    async execute(_ctx: ToolRuntimeContext, args: DeleteDocInput): Promise<ToolResult<DeleteDocOutput>> {
+    async execute(ctx: ToolRuntimeContext, args: DeleteDocInput): Promise<ToolResult<DeleteDocOutput>> {
       try {
-        const result = await deps.executeDeleteDoc(args);
-        return { ok: true, data: result.output };
+        const result = await deps.executeDeleteDoc(args, ctx.abortSignal);
+        const data = result.output;
+        if (data.status === "success") {
+          return { ok: true, data };
+        }
+        if (data.status === "rejected") {
+          return {
+            ok: false,
+            data: null,
+            error: {
+              code: "user_rejected",
+              message: data.message || "用户已拒绝操作。",
+              recoverable: false,
+              details: data.target ? { target: data.target } : undefined,
+            },
+          };
+        }
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: "write_operation_failed",
+            message: data.message || "写入操作失败。",
+            recoverable: false,
+            details: data.target ? { target: data.target } : undefined,
+          },
+        };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return {
@@ -55,7 +80,7 @@ export function createDeleteDocTool(deps: DeleteDocDeps): ToolContract<DeleteDoc
       }
       const data = result.data;
       if (data.status === "success") {
-        return "文档已删除。";
+        return data.message || "文档已删除。";
       }
       if (data.status === "rejected") {
         return "用户已拒绝操作。";

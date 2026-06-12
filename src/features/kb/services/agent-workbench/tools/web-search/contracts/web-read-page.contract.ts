@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Web read page contract — input/output schemas for web_read_page tool.
  * Pure types and schemas. No side effects. No runtime logic.
  */
@@ -62,7 +62,7 @@ export const webReadPageOutputSchema = z.object({
 
 export type WebReadPageOutput = z.infer<typeof webReadPageOutputSchema>;
 
-// ── JSON Schema override (for Planner) ──
+// ── JSON Schema override (for Agent) ──
 
 export const webReadPageInputJsonSchemaOverride = {
   type: "object" as const,

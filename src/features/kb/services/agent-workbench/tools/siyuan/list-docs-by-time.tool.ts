@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   listDocsByTimeInputSchema,
   listDocsByTimeOutputSchema,
@@ -31,7 +31,7 @@ export function createListDocsByTimeTool(deps: ListDocsByTimeDeps): ToolContract
     source: "builtin",
     inputHint: "sortBy（可选，默认 updated，可选 created），order（可选，默认 desc，可选 asc），limit（可选，默认 20，范围 1-100），startTime/endTime（可选，支持 YYYY-MM-DD 等格式，限定时间范围）。",
     boundary: "只返回文档状态列表（docId、标题、时间），不读取正文。时间范围作用于当前排序字段。范围由聊天框当前知识库范围限定。",
-    plannerVisible: true,
+    providerVisible: true,
 
     inputJsonSchemaOverride: {
       type: "object",

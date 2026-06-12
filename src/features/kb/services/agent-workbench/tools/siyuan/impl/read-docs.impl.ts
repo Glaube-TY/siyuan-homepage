@@ -1,7 +1,7 @@
-/**
+﻿/**
  * read_docs adapter.
  *
- * The adapter only reads resources explicitly passed by the Planner as
+ * The adapter only reads resources explicitly passed by the Agent as
  * docIds, blockIds, or a per-document nextCursor. It does not accept old
  * sourceType/doc reference objects, search for replacements, or continue
  * reading automatically.
@@ -10,7 +10,7 @@
  * - Internal: fetch full Markdown for each doc (no truncation).
  * - External: return only the requested chunk by chunkIndex.
  * - Metadata includes fullContentChars, chunkCount, hasNextChunk, etc.
- * - nextCursor is kept for backward compatibility; Planner should prefer chunkIndex.
+ * - nextCursor is kept for backward compatibility; Agent should prefer chunkIndex.
  */
 
 import { readSiyuanDocForTool } from "../internal/readers/read-doc-full";

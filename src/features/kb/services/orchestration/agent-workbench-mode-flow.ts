@@ -46,6 +46,7 @@ import { mapAgentErrorToUserFacing } from "../agent-workbench/runtime/user-facin
 import { showMessage } from "siyuan";
 import type { KbSessionState } from "../../types/session";
 import type { ContextUsageSnapshot } from "../../types/context-usage";
+import type { AgentMessage } from "../agent-core/messages/agent-message";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -287,7 +288,7 @@ function isAgentWorkbenchDebugLogEnabled(): boolean {
  * - 仅在开发环境生效。
  * - 通过 localStorage "kbAgent.workbenchStrictRuntimeTest" === "1" 开启。
  * - 默认不开启，不影响普通用户。
- * - 仅用于诊断 Agent Workbench 失败路径，不参与 Planner 工具选择，不改变 Tool/Skill 决策。
+ * - 仅用于诊断 Agent Workbench 失败路径，不参与 Agent 工具选择，不改变 Tool/Skill 决策。
  */
 function isWorkbenchStrictRuntimeTestEnabled(): boolean {
   if (typeof window === "undefined" || typeof window.localStorage === "undefined") {
@@ -306,7 +307,7 @@ function isWorkbenchStrictRuntimeTestEnabled(): boolean {
 function sanitizeAgentTurnErrorCode(raw: string | undefined): string {
   if (!raw) return "agent_workbench_runtime_error";
   // 仅保留可见的 safe code；不含 docId / path / 内部 mapping。
-  // Agent Workbench 自身的 safe code 形如 "stopped_by_planner" / "exception"，已经安全。
+  // Agent Workbench 自身的 safe code 形如 "stopped_by_agent" / "exception"，已经安全。
   return String(raw).slice(0, 64);
 }
 
@@ -315,18 +316,18 @@ function mergeWorkbenchEvents(a: AgentWorkbenchEvent[], b: AgentWorkbenchEvent[]
   const out: AgentWorkbenchEvent[] = [];
   for (const event of a) {
     const key =
-      (event.type === "ToolDispatch" || event.type === "ToolResult") && "toolCallId" in event
+      (event.type === "tool_start" || event.type === "tool_result") && "toolCallId" in event
         ? `${event.type}:${event.toolCallId}`
-        : `${event.type}:${event.stepIndex ?? -1}:${event.at}:${(event as any).message ?? ""}`;
+        : `${event.type}:${event.stepIndex ?? -1}:${event.at}:${(event as { message?: string }).message ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(event);
   }
   for (const event of b) {
     const key =
-      (event.type === "ToolDispatch" || event.type === "ToolResult") && "toolCallId" in event
+      (event.type === "tool_start" || event.type === "tool_result") && "toolCallId" in event
         ? `${event.type}:${event.toolCallId}`
-        : `${event.type}:${event.stepIndex ?? -1}:${event.at}:${(event as any).message ?? ""}`;
+        : `${event.type}:${event.stepIndex ?? -1}:${event.at}:${(event as { message?: string }).message ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(event);
@@ -334,7 +335,44 @@ function mergeWorkbenchEvents(a: AgentWorkbenchEvent[], b: AgentWorkbenchEvent[]
   return out;
 }
 
-function appendPlannerStageSummary(params: {
+function getPersistedAgentSessionMessages(state: KbSessionState): AgentMessage[] | undefined {
+  const extended = state as KbSessionState & {
+    activeConversationId?: string;
+    conversations?: Array<{ id: string; agentSession?: { messages?: AgentMessage[] } }>;
+  };
+  const conversation = extended.conversations?.find((item) => item.id === extended.activeConversationId);
+  return conversation?.agentSession?.messages;
+}
+
+function persistAgentSessionMessages(
+  state: KbSessionState,
+  conversationId: string | undefined,
+  messages: AgentMessage[] | undefined,
+): Partial<KbSessionState> {
+  if (!messages) return {};
+  const extended = state as KbSessionState & {
+    activeConversationId?: string;
+    conversations?: Array<Record<string, unknown> & { id: string }>;
+  };
+  const activeId = conversationId ?? extended.activeConversationId;
+  if (!activeId || !Array.isArray(extended.conversations)) return {};
+  return {
+    conversations: extended.conversations.map((conversation) =>
+      conversation.id === activeId
+        ? {
+            ...conversation,
+            agentSession: {
+              id: activeId,
+              messages,
+              updatedAt: Date.now(),
+            },
+          }
+        : conversation,
+    ),
+  } as Partial<KbSessionState>;
+}
+
+function appendAgentStageSummary(params: {
   messages: ChatMessage[];
   existing: readonly ConversationStageSummary[] | undefined;
   result: AgentTurnResult;
@@ -374,7 +412,7 @@ function appendPlannerStageSummary(params: {
     endUserMessageId: endTurn.user.id,
     endAssistantMessageId: endTurn.assistant.id,
     endTurnIndex: endTurn.turnIndex,
-    source: "planner_stage_summary",
+    source: "agent_stage_summary",
     summaryChars: summary.length,
   };
 
@@ -598,7 +636,7 @@ export async function runAgentWorkbenchModeFlow(
       content: "",
       createdAt: Date.now(),
       isComplete: false,
-      agentStatus: "正在分析问题并规划...",
+      agentStatus: "正在分析问题...",
     });
 
     pushAgentDebugEvent("ASSISTANT_RUN_MESSAGE_CREATED", {
@@ -611,7 +649,7 @@ export async function runAgentWorkbenchModeFlow(
       asking: true,
       qaError: "",
       error: "",
-      agentStatus: "正在分析问题并规划...",
+      agentStatus: "正在分析问题...",
     }));
 
     if (isAgentWorkbenchDebugLogEnabled()) {
@@ -641,7 +679,8 @@ export async function runAgentWorkbenchModeFlow(
       chatModelSelection,
       thinkingMode: userThinkingMode,
       globalMemory: globalMemoryText,
-      conversationId: actualUserMessageId,
+      conversationId: params.conversationId ?? actualUserMessageId,
+      agentSessionMessages: getPersistedAgentSessionMessages(stateAfterCompression),
       kbSettings,
       onReasoningDelta: (event) => {
         // Only process reasoning when thinkingMode=on
@@ -686,6 +725,17 @@ export async function runAgentWorkbenchModeFlow(
               })
             );
           }
+        } else if (event.type === "reasoning-reset") {
+          reasoningContent = "";
+          reasoningPartCount = 0;
+          if (setMessages) {
+            setMessages((messages) =>
+              messages.map((m) => {
+                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+                return { ...m, reasoning: undefined };
+              })
+            );
+          }
         }
       },
       onAnswerChunk: ({ fullContent }) => {
@@ -706,13 +756,16 @@ export async function runAgentWorkbenchModeFlow(
             messages.map((m) => {
               if (m.id !== assistantMessageId || m.role !== "assistant") return m;
               if (m.isComplete === true) return m;
+              if (event.type === "assistant_text_reset") {
+                return { ...m, content: "", workbenchEvents: liveWorkbenchEvents };
+              }
               // Clear agentStatus when a tool starts executing or when assistant finalizes;
               // workbenchEvents will show the specific tool details.
-              // Set agentStatus on Notice (e.g. "正在生成最终回答...").
+              // Set agentStatus on notice events.
               const nextAgentStatus =
-                event.type === "ToolDispatch" || event.type === "AssistantFinal"
+                event.type === "tool_start" || event.type === "assistant_final"
                   ? undefined
-                  : event.type === "Notice"
+                  : event.type === "notice"
                     ? event.message
                     : m.agentStatus;
               return { ...m, workbenchEvents: liveWorkbenchEvents, agentStatus: nextAgentStatus };
@@ -763,6 +816,16 @@ export async function runAgentWorkbenchModeFlow(
         warnings: [],
         events: liveWorkbenchEvents,
       };
+    }
+
+    if (agentTurnOutcome.agentSessionMessages) {
+      updateState((state) =>
+        persistAgentSessionMessages(
+          state,
+          params.conversationId ?? actualUserMessageId,
+          agentTurnOutcome.agentSessionMessages,
+        )
+      );
     }
 
     if (isAgentWorkbenchDebugLogEnabled() && result) {
@@ -842,7 +905,7 @@ export async function runAgentWorkbenchModeFlow(
 
       if (result.stageSummary?.summary?.trim()) {
         updateState((state) => {
-          const nextStageSummaries = appendPlannerStageSummary({
+          const nextStageSummaries = appendAgentStageSummary({
             messages: state.messages,
             existing: state.stageSummaries,
             result,

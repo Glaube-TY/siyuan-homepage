@@ -1,6 +1,6 @@
 /**
  * update_block 内部确认执行服务。
- * 仅在用户通过 UI 弹窗确认后调用，不暴露给 Planner。
+ * 仅在用户通过 UI 弹窗确认后调用，不暴露给 Agent。
  * 真实写入统一走 src/api.ts 的 updateBlock wrapper。
  */
 import { updateBlock, getBlockKramdown } from "../../../../api";

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * edit_global_memory Tool
  * 对配置好的全局记忆文档进行段落级管理：list / create / update / delete / move
  */
@@ -79,7 +79,7 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
     inputHint: "operation（list/create/update/delete/move），create/update 时提供 text，delete/update/move 时提供 item_id，move 时提供 position 和 target_id",
     boundary:
       "只能编辑配置好的全局记忆文档中的段落条目；update/delete 前会校验 item_id 归属；不接受任意 docId；不自动决定是否需要记住。list 不会修改记忆；只有 create/update/delete/move 成功后才代表记忆已变更。",
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: editGlobalMemoryInputJsonSchemaOverride,
 
     availability() {

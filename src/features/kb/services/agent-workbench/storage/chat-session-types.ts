@@ -11,6 +11,7 @@
  */
 
 import type { ConversationStageSummary } from "../../../types/chat";
+import type { AgentMessage } from "../../agent-core/messages/agent-message";
 
 export interface ChatSessionIndexEntry {
   id: string;
@@ -51,4 +52,9 @@ export interface ChatSessionData {
   stageSummaries?: ConversationStageSummary[];
   compressionState?: unknown;
   compressedContextSummary?: string;
+  agentSession?: {
+    id: string;
+    messages: AgentMessage[];
+    updatedAt: number;
+  };
 }

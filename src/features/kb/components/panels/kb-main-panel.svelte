@@ -24,7 +24,11 @@
   import type { KbAssistantActionAlignment } from "../../types/settings";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import DocContentEditConfirmationModal from "../common/doc-content-edit-confirmation-modal.svelte";
+  import AgentToolPermissionModal from "../common/agent-tool-permission-modal.svelte";
+  import { openEditDiffPreviewDialog } from "../common/edit-diff-dialog";
   import { setDocContentEditConfirmationHandler } from "../../services/doc-content-edit/doc-content-edit-confirmation-bridge";
+  import { removeDocContentEditConfirmation } from "../../services/doc-content-edit/doc-content-edit-confirmation-store";
+  import { RegisteredConfirmationBridge } from "../../services/agent-core/permissions/confirmation-bridge";
 
   export let placement: "dock" | "tab" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
@@ -36,6 +40,8 @@
   // Quick prompts state
   let quickPromptsEnabled = false;
   let quickPromptsDocId = "";
+  let workbenchDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
+  let reasoningDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
 
   const TAB_CHAT_MODES: ChatMode[] = ["whole_kb"];
   const CURRENT_DOCUMENT_REQUIRED_MODES: ChatMode[] = [
@@ -64,6 +70,21 @@
   let activeDocContentEditConfirmationId: string | null = null;
   let docContentEditConfirmationResolve:
     | ((value: { status: "confirmed" | "rejected"; message: string }) => void)
+    | null = null;
+
+  // Native Agent 权限确认弹窗状态
+  let nativePermissionModalOpen = false;
+  let nativePermissionPreview: {
+    toolName: string;
+    title: string;
+    risk: string;
+    summary?: string;
+    argsPreview: Record<string, unknown>;
+    displayMode?: "summary" | "block_diff" | "arrow_flow";
+    editDiffPreview?: EditDiffPreview;
+  } | null = null;
+  let nativePermissionResolve:
+    | ((decision: { type: "allow" | "deny"; reason?: string }) => void)
     | null = null;
 
   function getSelectedContextWindowTokens(): number | undefined {
@@ -236,10 +257,60 @@
     refreshContextUsageSafe("compression_cleared");
   }
 
+  async function cancelPendingDocContentEditConfirmation(message = "用户已取消操作。"): Promise<void> {
+    const confirmationId = activeDocContentEditConfirmationId;
+
+    if (docContentEditConfirmationResolve) {
+      docContentEditConfirmationResolve({ status: "rejected", message });
+      docContentEditConfirmationResolve = null;
+    }
+
+    if (confirmationId) {
+      try {
+        await removeDocContentEditConfirmation(confirmationId);
+      } catch {
+        // best effort
+      }
+    }
+
+    docContentEditModalOpen = false;
+    activeDocContentEditConfirmationId = null;
+  }
+
   function handleStop() {
     kbSessionStore.stop();
+    void cancelPendingDocContentEditConfirmation("用户已取消操作。");
+    void cancelPendingNativePermission("用户已取消操作。");
+    kbSessionStore.markLatestAssistantManuallyStopped();
     kbSessionStore.syncActiveConversationSnapshot();
     refreshContextUsageSafe("stop");
+  }
+
+  function handleNativePermissionConfirm() {
+    if (nativePermissionResolve) {
+      nativePermissionResolve({ type: "allow" });
+      nativePermissionResolve = null;
+    }
+    nativePermissionModalOpen = false;
+    nativePermissionPreview = null;
+  }
+
+  function handleNativePermissionCancel() {
+    if (nativePermissionResolve) {
+      nativePermissionResolve({ type: "deny", reason: "用户取消了操作。" });
+      nativePermissionResolve = null;
+    }
+    nativePermissionModalOpen = false;
+    nativePermissionPreview = null;
+  }
+
+  function cancelPendingNativePermission(reason = "用户已取消操作。") {
+    if (nativePermissionResolve) {
+      nativePermissionResolve({ type: "deny", reason });
+      nativePermissionResolve = null;
+    }
+    nativePermissionModalOpen = false;
+    nativePermissionPreview = null;
   }
 
   function handleQuoteSelection(e: CustomEvent<{ text: string }>) {
@@ -283,12 +354,7 @@
   }
 
   function handleDocContentEditModalClose() {
-    if (docContentEditConfirmationResolve) {
-      docContentEditConfirmationResolve({ status: "rejected", message: "用户已取消操作。" });
-      docContentEditConfirmationResolve = null;
-    }
-    docContentEditModalOpen = false;
-    activeDocContentEditConfirmationId = null;
+    void cancelPendingDocContentEditConfirmation("用户已取消操作。");
   }
 
   /**
@@ -803,6 +869,7 @@
     const result = await askByMode({
       mode,
       question,
+      conversationId: activeConversationId,
       getState: () => $kbSessionStore,
       updateState: (updater) => {
         // 防御性保护 - 如果会话已切换，不写入当前会话
@@ -911,6 +978,7 @@
     const result = await askByMode({
       mode,
       question,
+      conversationId: activeConversationId,
       existingUserMessageId,
       thinkingMode: effectiveThinkingMode,
       customDocIds,
@@ -983,6 +1051,12 @@
       quickPromptsEnabled = nextSettings.quickPrompts.enabled ?? false;
       quickPromptsDocId = nextSettings.quickPrompts.docId ?? "";
     }
+    if (nextSettings?.workbenchProcessDisplayMode) {
+      workbenchDisplayMode = nextSettings.workbenchProcessDisplayMode;
+    }
+    if (nextSettings?.reasoningProcessDisplayMode) {
+      reasoningDisplayMode = nextSettings.reasoningProcessDisplayMode;
+    }
     void refreshChatModelOptions();
   }
 
@@ -995,6 +1069,8 @@
         webSearchEnabled = settings.webSearch?.enabled ?? false;
         quickPromptsEnabled = settings.quickPrompts?.enabled ?? false;
         quickPromptsDocId = settings.quickPrompts?.docId ?? "";
+        workbenchDisplayMode = settings.workbenchProcessDisplayMode ?? "collapsed";
+        reasoningDisplayMode = settings.reasoningProcessDisplayMode ?? "collapsed";
       } catch { /* ignore */ }
       refreshContextUsageSafe("hydrate");
     })();
@@ -1009,8 +1085,40 @@
       });
     });
 
+    // 注册 Native Agent 权限确认桥 handler（根据 displayMode 路由弹窗）
+    const unregisterNativeBridge = RegisteredConfirmationBridge.setHandler(async (preview) => {
+      return new Promise((resolve) => {
+        const displayMode = preview.displayMode ?? "summary";
+
+        if (displayMode === "block_diff" && preview.editDiffPreview) {
+          // Open block diff dialog via svelteDialog
+          nativePermissionResolve = resolve;
+          openEditDiffPreviewDialog(preview.editDiffPreview).then((result) => {
+            if (nativePermissionResolve === resolve) {
+              nativePermissionResolve = null;
+            }
+            resolve(result);
+          });
+        } else {
+          // Default: summary modal
+          nativePermissionPreview = {
+            toolName: preview.toolName,
+            title: preview.title,
+            risk: preview.risk,
+            summary: preview.summary,
+            argsPreview: preview.argsPreview,
+            displayMode,
+            editDiffPreview: preview.editDiffPreview,
+          };
+          nativePermissionModalOpen = true;
+          nativePermissionResolve = resolve;
+        }
+      });
+    });
+
     return () => {
       unregisterConfirmationHandler();
+      unregisterNativeBridge();
     };
   });
 
@@ -1030,6 +1138,7 @@
 
   onDestroy(() => {
     if (messagesDebounceTimer) clearTimeout(messagesDebounceTimer);
+    cancelPendingNativePermission("组件已销毁。");
     void kbSessionStore.persistConversationsNow();
     window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged as EventListener);
   });
@@ -1116,6 +1225,8 @@
           on:sendSuggestedQuestion={handleSuggestedQuestion}
           {assistantActionAlignment}
           {suggestedQuestions}
+          {workbenchDisplayMode}
+          {reasoningDisplayMode}
           emptyTitle="开始提问"
           emptyDescription={placement === "tab"
             ? "标签页聊天不绑定当前文档，可使用全库问答检索知识库内容"
@@ -1165,6 +1276,17 @@
   on:close={handleDocContentEditModalClose}
   on:cancel={handleDocContentEditCancelled}
   on:confirmed={handleDocContentEditConfirmed}
+/>
+
+<AgentToolPermissionModal
+  open={nativePermissionModalOpen}
+  toolName={nativePermissionPreview?.toolName ?? ""}
+  title={nativePermissionPreview?.title ?? ""}
+  risk={nativePermissionPreview?.risk ?? "medium"}
+  summary={nativePermissionPreview?.summary ?? ""}
+  argsPreview={nativePermissionPreview?.argsPreview ?? {}}
+  on:confirmed={handleNativePermissionConfirm}
+  on:cancel={handleNativePermissionCancel}
 />
 
 <style lang="scss">

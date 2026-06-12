@@ -2,7 +2,7 @@
  * User skill rules: pure validation helpers.
  */
 
-import { FORBIDDEN_FLOW_CONTROL_FIELDS, AUTO_ACTION_PATTERN } from "../../shared/flow-control";
+import { AUTO_ACTION_PATTERN, FORBIDDEN_FLOW_CONTROL_FIELDS } from "../../shared/flow-control";
 
 const SAFE_ID_PATTERN = /^[a-z0-9_-]+$/;
 const SAFE_FILENAME_PATTERN = /^[a-z0-9_-]+\.md$/;
@@ -16,14 +16,11 @@ const FLOW_CONTROL_KEYWORDS_LOWER: ReadonlySet<string> = new Set(
 
 /**
  * Legacy architecture / flow-control tokens that must not appear in user skill
- * text. These are old system concepts that would confuse the Planner if injected
+ * text. These are old system concepts that would confuse the agent if injected
  * as skill guidance. This is a skill text safety check, not a business flow
  * judgment.
- *
- * Single-token entries (matched by word boundary extraction).
  */
 const LEGACY_FORBIDDEN_TOKENS_LOWER: ReadonlySet<string> = new Set([
-  "progress_answer",
   "assistantprogress",
   "maxsteps",
   "remainingstep",
@@ -37,11 +34,6 @@ const LEGACY_FORBIDDEN_TOKENS_LOWER: ReadonlySet<string> = new Set([
   "realblockid",
 ]);
 
-/**
- * Multi-word / hyphenated forbidden phrases.
- * Each entry is a normalized form (lowercased, separators collapsed to single space).
- * Detection normalizes hyphens, underscores, and whitespace to single space before matching.
- */
 const FORBIDDEN_PHRASES: readonly string[] = [
   "agentic rag",
   "run v3",
@@ -49,8 +41,20 @@ const FORBIDDEN_PHRASES: readonly string[] = [
   "hidden handles",
   "internal mapping",
   "real path",
-  "progress answer",
   "assistant progress",
+];
+
+const FLOW_BINDING_PATTERNS: readonly RegExp[] = [
+  /必须先调用/,
+  /必须使用/,
+  /固定步骤/,
+  /看到.*就调用/,
+  /如果用户问.*就调用/,
+  /不要让.*决定/,
+  /\bmust call\b/i,
+  /\bmust use\b/i,
+  /\bfixed steps?\b/i,
+  /\bif the user asks\b.*\bcall\b/i,
 ];
 
 const FORBIDDEN_TOKENS_LOWER: ReadonlySet<string> = new Set([
@@ -59,15 +63,8 @@ const FORBIDDEN_TOKENS_LOWER: ReadonlySet<string> = new Set([
   ...LEGACY_FORBIDDEN_TOKENS_LOWER,
 ]);
 
-/**
- * Word-boundary token pattern: extracts [a-z0-9_] sequences of length > 2.
- */
 const TOKEN_BOUNDARY_PATTERN = /(?:^|[^a-z0-9_])([a-z0-9_]+)(?:[^a-z0-9_]|$)/gi;
 
-/**
- * Normalize separators (hyphens, underscores, multiple whitespace) to single space.
- * Used for phrase detection, not token extraction.
- */
 function normalizePhraseSeparators(text: string): string {
   return text
     .toLowerCase()
@@ -121,7 +118,6 @@ function extractTokens(text: string): string[] {
 export function detectForbiddenTextTokens(text: string): string[] {
   const found: string[] = [];
 
-  // 1. Single-token detection (existing)
   const tokens = extractTokens(text);
   const tokenSet = new Set(tokens);
 
@@ -131,13 +127,10 @@ export function detectForbiddenTextTokens(text: string): string[] {
     }
   }
 
-  // 2. AUTO_*ACTION pattern
   if (AUTO_ACTION_PATTERN.test(text)) {
     found.push("AUTO_*ACTION");
   }
 
-  // 3. Phrase detection: normalize hyphens/underscores/spaces, then check
-  //    if any forbidden phrase appears as a substring.
   const normalized = normalizePhraseSeparators(text);
   for (const phrase of FORBIDDEN_PHRASES) {
     if (normalized.includes(phrase)) {
@@ -145,22 +138,12 @@ export function detectForbiddenTextTokens(text: string): string[] {
     }
   }
 
-  // 4. Flow-binding phrase detection: forbid explicit tool-binding or fixed-step language
-  const FLOW_BINDING_PATTERNS = [
-    "必须先调用",
-    "必须使用",
-    "固定步骤",
-    "看到.*就调用",
-    "如果用户问.*就调用",
-    "不要让.*决定",
-  ];
   for (const pattern of FLOW_BINDING_PATTERNS) {
-    if (new RegExp(pattern).test(normalized)) {
-      found.push(`flow_binding:${pattern}`);
+    if (pattern.test(text) || pattern.test(normalized)) {
+      found.push(`flow_binding:${pattern.source}`);
     }
   }
 
-  // Deduplicate
   return [...new Set(found)];
 }
 

@@ -1,5 +1,5 @@
 import type { ReferenceItem } from "../../../types/chat";
-import type { ObservationEntry } from "./observation-log";
+import type { ToolResultEntry } from "./tool-result-log";
 import type { ConversationContextSnapshot } from "./conversation-context-builder";
 import type { AgentScope } from "../scope/types";
 import { pushAgentDebugEvent } from "../debug/workbench-debug";
@@ -12,7 +12,7 @@ export type ReferenceSourceType =
   | "api_result";
 
 export type ReferenceReason =
-  | "planner_explicit"
+  | "agent_explicit"
   | "read_content"
   | "structure_result"
   | "search_candidate";
@@ -44,14 +44,14 @@ const SOURCE_TYPES = new Set<ReferenceSourceType>([
 ]);
 
 const REASON_PRIORITY: Record<ReferenceReason, number> = {
-  planner_explicit: 1000,
+  agent_explicit: 1000,
   read_content: 100,
   structure_result: 60,
   search_candidate: 50,
 };
 
 const REASON_TO_READ_LEVEL: Record<ReferenceReason, ReadLevel> = {
-  planner_explicit: "content",
+  agent_explicit: "content",
   read_content: "content",
   structure_result: "structure",
   search_candidate: "candidate",
@@ -242,7 +242,7 @@ export function buildReferenceGroundingSet(params: BuildGroundingSetParams): Map
     if (doc.docId) {
       add(doc.docId, {
         readLevel: "content",
-        referenceReason: "planner_explicit",
+        referenceReason: "agent_explicit",
         source: "attached_doc",
         title: doc.title,
       });
@@ -256,7 +256,7 @@ export function buildReferenceGroundingSet(params: BuildGroundingSetParams): Map
         if (params.scope.docId) {
           add(params.scope.docId, {
             readLevel: "content",
-            referenceReason: "planner_explicit",
+            referenceReason: "agent_explicit",
             source: "scope",
           });
         }
@@ -265,7 +265,7 @@ export function buildReferenceGroundingSet(params: BuildGroundingSetParams): Map
         if (params.scope.rootDocId) {
           add(params.scope.rootDocId, {
             readLevel: "content",
-            referenceReason: "planner_explicit",
+            referenceReason: "agent_explicit",
             source: "scope",
           });
         }
@@ -274,7 +274,7 @@ export function buildReferenceGroundingSet(params: BuildGroundingSetParams): Map
         for (const docId of params.scope.docIds) {
           add(docId, {
             readLevel: "content",
-            referenceReason: "planner_explicit",
+            referenceReason: "agent_explicit",
             source: "scope",
           });
         }
@@ -291,7 +291,7 @@ export function buildReferenceGroundingSet(params: BuildGroundingSetParams): Map
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Normalize and ground-check Planner's explicit references.
+ * Normalize and ground-check agent's explicit references.
  *
  * - sourceType missing but has docId/blockId → defaults to siyuan_doc
  * - Must hit groundingMap (docId or blockId must have evidence) at content readLevel
@@ -347,8 +347,8 @@ export function normalizeAnswerReferences(
         title: readString(rawRecord.title) ?? evidence.title,
         sourceName: readString(rawRecord.sourceName) ?? evidence.sourceName,
         provider: readString(rawRecord.provider) ?? evidence.provider,
-        priority: REASON_PRIORITY.planner_explicit,
-        reason: "planner_explicit",
+        priority: REASON_PRIORITY.agent_explicit,
+        reason: "agent_explicit",
         readLevel: evidence.readLevel,
       };
       out.push(ref);
@@ -390,8 +390,8 @@ export function normalizeAnswerReferences(
       blockId,
       title: readString(rawRecord.title) ?? evidence.title,
       provider: readString(rawRecord.provider) ?? evidence.provider,
-      priority: REASON_PRIORITY.planner_explicit,
-      reason: "planner_explicit",
+      priority: REASON_PRIORITY.agent_explicit,
+      reason: "agent_explicit",
       readLevel: evidence.readLevel,
     };
     if (!hasSiyuanTarget(ref)) continue;
@@ -419,7 +419,7 @@ export function normalizeAnswerReferences(
 // ═══════════════════════════════════════════════════════════════════
 
 export function collectObservationReferences(
-  entries: readonly ObservationEntry[],
+  entries: readonly ToolResultEntry[],
 ): CollectedReference[] {
   const refs: CollectedReference[] = [];
   for (const entry of entries) {
@@ -462,12 +462,12 @@ export function collectObservationReferences(
 /**
  * Build footer references from grounded explicit refs ONLY.
  *
- * Only Planner's answer.references enter footerReferences.
+ * Only Agent's answer.references enter footerReferences.
  * fallbackRefs are collected for groundingSet evidence only — they never
  * become footer items. The system does NOT auto-add read_content or any
  * observation result as a reference.
  *
- * If Planner writes no references, footerReferences is empty.
+ * If Agent writes no references, footerReferences is empty.
  */
 export function mergeAnswerReferences(
   explicitRefs: readonly CollectedReference[],

@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   queryTasksInputSchema,
   queryTasksOutputSchema,
@@ -32,7 +32,7 @@ export function createQueryTasksTool(
     source: "builtin",
     inputHint: "scope 可选 all/today/overdue/upcoming/completed/open；date 为参考日期；startDate/endDate 为 YYYY-MM-DD 范围；status、keyword、tags、priority、limit 可选。",
     boundary: "只读；不修改任务完成状态，不创建任务，不迁移任务，不删除任务，不刷新循环任务。",
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

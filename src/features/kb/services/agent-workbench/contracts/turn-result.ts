@@ -17,7 +17,7 @@ export interface AgentTurnResult {
   footerReferences: ReferenceItem[];
   warnings: string[];
   events: AgentWorkbenchEvent[];
-  /** Planner-provided stage summary for current-session context compression. */
+  /** Agent-provided stage summary for current-session context compression. */
   stageSummary?: {
     summary: string;
   };

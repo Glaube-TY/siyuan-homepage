@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { KbAssistantActionAlignment, KbSettings } from "../../../types/settings";
+  import type { KbAssistantActionAlignment, KbProcessDisplayMode, KbSettings } from "../../../types/settings";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   export let settings: KbSettings;
@@ -19,6 +19,20 @@
       ...settings,
       assistantActionAlignment: value,
     };
+  }
+
+  const processModeOptions: Array<{ value: KbProcessDisplayMode; label: string }> = [
+    { value: "collapsed", label: "折叠" },
+    { value: "expanded", label: "展开" },
+    { value: "auto", label: "自动" },
+  ];
+
+  function setWorkbenchProcessMode(value: KbProcessDisplayMode) {
+    settings = { ...settings, workbenchProcessDisplayMode: value };
+  }
+
+  function setReasoningProcessMode(value: KbProcessDisplayMode) {
+    settings = { ...settings, reasoningProcessDisplayMode: value };
   }
 </script>
 
@@ -41,6 +55,44 @@
             title={option.label}
           >
             <SiyuanIcon name={option.icon} size={14} />
+            <span>{option.label}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-copy">
+        <div class="setting-title">处理过程折叠</div>
+        <div class="setting-desc">控制工具执行过程中工作台事件的折叠状态。自动模式下生成时展开，完成后折叠。</div>
+      </div>
+
+      <div class="segmented-control" role="group" aria-label="处理过程折叠">
+        {#each processModeOptions as option}
+          <button
+            type="button"
+            class:active={settings.workbenchProcessDisplayMode === option.value}
+            on:click={() => setWorkbenchProcessMode(option.value)}
+          >
+            <span>{option.label}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-copy">
+        <div class="setting-title">思考过程折叠</div>
+        <div class="setting-desc">控制 AI 推理思考过程的折叠状态。自动模式下生成时展开，完成后折叠。</div>
+      </div>
+
+      <div class="segmented-control" role="group" aria-label="思考过程折叠">
+        {#each processModeOptions as option}
+          <button
+            type="button"
+            class:active={settings.reasoningProcessDisplayMode === option.value}
+            on:click={() => setReasoningProcessMode(option.value)}
+          >
             <span>{option.label}</span>
           </button>
         {/each}

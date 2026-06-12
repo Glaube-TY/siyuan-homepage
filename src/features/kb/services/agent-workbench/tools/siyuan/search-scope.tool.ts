@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   searchScopeInputSchema,
   searchScopeOutputSchema,
@@ -31,7 +31,7 @@ export function createSearchScopeTool(deps: SearchScopeDeps): ToolContract<Searc
     source: "builtin",
     inputHint: "query（必填，搜索关键词），limit（可选，1-50，默认20）。",
     boundary: "只返回候选列表，不读取文档正文。不自动过滤或者修改结果。检索范围由聊天框当前知识库范围限定。",
-    plannerVisible: true,
+    providerVisible: true,
 
     // search_scope has a simple schema; z.toJSONSchema handles it fine
     // but we provide an override for stability around optional+default semantics

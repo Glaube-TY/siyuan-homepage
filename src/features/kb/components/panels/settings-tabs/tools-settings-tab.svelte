@@ -48,7 +48,7 @@
   }
 
   const DANGEROUS_TOOL_NAMES: readonly string[] = [
-    "create_doc", "update_block", "insert_block", "delete_block",
+    "create_doc", "update_block", "insert_block", "delete_blocks",
     "move_block", "rename_doc", "delete_doc", "replace_doc_content",
   ];
 

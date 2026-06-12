@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import type { KbChatProviderConfig, KbChatProviderType } from "../../../types/settings";
 
   export let provider: KbChatProviderConfig;
@@ -6,6 +7,8 @@
   export let getBaseUrlHint: (providerType: KbChatProviderType) => string;
   export let getApiKeyPlaceholder: (providerType: KbChatProviderType) => string;
   export let onUpdateProvider: (providerId: string, patch: Partial<KbChatProviderConfig>) => void;
+
+  let showApiKey = false;
 </script>
 
 <div class="form-section">
@@ -41,15 +44,27 @@
   <div class="form-row">
     <label class="form-label">
       <span>API Key</span>
-      <input
-        type="password"
-        value={provider.apiKey || ""}
-        on:input={(e) =>
-          onUpdateProvider(provider.id, { apiKey: e.currentTarget.value })}
-        class="form-input"
-        placeholder={getApiKeyPlaceholder(provider.type)}
-      />
+      <div class="api-key-input-wrap">
+        <input
+          type={showApiKey ? "text" : "password"}
+          value={provider.apiKey || ""}
+          on:input={(e) =>
+            onUpdateProvider(provider.id, { apiKey: e.currentTarget.value })}
+          class="form-input api-key-input"
+          placeholder={getApiKeyPlaceholder(provider.type)}
+        />
+        <button
+          type="button"
+          class="api-key-visibility-button"
+          title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+          aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+          on:click={() => (showApiKey = !showApiKey)}
+        >
+          <SiyuanIcon name={showApiKey ? "iconEye" : "iconEyeoff"} size={16} />
+        </button>
+      </div>
     </label>
+    <span class="input-hint">API Key 会在本地加密保存，用于避免配置文件中明文暴露。</span>
     {#if provider.type === "openai-compatible"}
     <span class="input-hint">OpenAI 兼容接口的 API Key 可留空；本地或内网服务通常不需要，远程平台通常需要。</span>
     {/if}
@@ -81,6 +96,8 @@
     flex-direction: column;
     gap: 6px;
     align-items: flex-start;
+    width: 100%;
+    min-width: 0;
 
     &.checkbox-row {
       flex-direction: row;
@@ -97,6 +114,7 @@
     color: var(--b3-theme-on-surface);
     cursor: auto;
     width: 100%;
+    min-width: 0;
   }
 
   .form-input {
@@ -108,10 +126,52 @@
     font-size: 14px;
     min-width: 0;
     width: 100%;
+    box-sizing: border-box;
 
     &:focus {
       outline: none;
       border-color: var(--b3-theme-primary);
+    }
+  }
+
+  .api-key-input-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .api-key-input {
+    padding-right: 40px;
+    max-width: 100%;
+  }
+
+  .api-key-visibility-button {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--b3-theme-on-surface-light);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--b3-list-hover);
+      color: var(--b3-theme-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--b3-theme-primary);
+      outline-offset: 1px;
     }
   }
 

@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 
 export const createDocInputSchema = z.object({
   notebookId: z.string().trim().min(1).max(256),
@@ -24,8 +24,8 @@ export const createDocOutputSchema = z.object({
 export type CreateDocOutput = z.infer<typeof createDocOutputSchema>;
 
 /**
- * 内部 confirmation 准备结果，不是 Planner 可见工具结果。
- * confirmation 是 Runtime/UI 内部安全闸门，对 Planner 透明。
+ * 内部 confirmation 准备结果，不是 Agent 可见工具结果。
+ * confirmation 是 Runtime/UI 内部安全闸门，对 Agent 透明。
  */
 export interface PreparedCreateDocConfirmation {
   confirmationId: string;

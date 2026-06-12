@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   findDiaryDocsInputSchema,
   findDiaryDocsOutputSchema,
@@ -32,7 +32,7 @@ export function createFindDiaryDocsTool(
     source: "builtin",
     inputHint: "period 可选 day/week/month/year；date 查询单个周期；或同时传 startDate/endDate 查询范围。includeMarkdown 默认 false，maxChars 限制预览字数。",
     boundary: "只读；不创建日记，不补模板，不标记完成，不跳过复盘。本工具只返回文档定位和元信息，不返回完整正文。",
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

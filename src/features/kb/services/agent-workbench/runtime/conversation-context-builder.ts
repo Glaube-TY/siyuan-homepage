@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Conversation Context Builder
  *
- * Builds the session history JSON visible to Planner. It never includes
+ * Builds the session history JSON visible to Agent. It never includes
  * historical tool observations, workbench events, debug traces, full prompts,
  * internal paths, or tool return bodies.
  */
@@ -13,6 +13,8 @@ import type {
   UserChatMessage,
 } from "../../../types/chat";
 import type { ContextCompressionState } from "../../../types/context-usage";
+import type { ActiveWorkingTarget, AgentTurnActionOutcome, AgentTurnTargetIndex } from "../memory/agent-turn-memory";
+import { outcomePriority } from "../memory/agent-turn-memory";
 import {
   getCompleteConversationTurns,
   isCompletedAssistantMessage,
@@ -28,7 +30,7 @@ export interface ConversationReferenceContext {
   title?: string;
   sourceName?: string;
   provider?: string;
-  referenceReason?: "planner_explicit" | "read_content" | "structure_result" | "search_candidate";
+  referenceReason?: "agent_explicit" | "read_content" | "structure_result" | "search_candidate";
   readLevel?: "content" | "structure" | "candidate";
   grounded?: boolean;
 }
@@ -55,6 +57,15 @@ export interface ConversationTurnContext {
       rootDocId?: string;
       notebookId?: string;
       docIds?: string[];
+    };
+    actions?: {
+      toolNames?: string[];
+      outcomes?: AgentTurnActionOutcome[];
+      lastTouchedDocIds?: string[];
+      lastTouchedBlockIds?: string[];
+      lastTouchedTitles?: string[];
+      lastWriteStatus?: string;
+      lastWriteSummary?: string;
     };
   };
 }
@@ -118,6 +129,8 @@ export interface ConversationContextSnapshot {
     lastCompressedAt?: number;
   };
   recentTurns: ConversationTurnContext[];
+  recentTargetIndex?: AgentTurnTargetIndex[];
+  activeWorkingTarget?: ActiveWorkingTarget;
   note: string;
   /** 全局记忆内容（已截断处理） */
   globalMemory?: string;
@@ -143,14 +156,25 @@ export interface BuildConversationContextParams {
   globalMemory?: string;
 }
 
-const SNAPSHOT_VERSION = 2;
+const SNAPSHOT_VERSION = 3;
 const MAX_USER_TEXT_CHARS = 1000;
 const MAX_ASSISTANT_FINAL_ANSWER_CHARS = 3000;
 const MAX_REFERENCES = 10;
 const MAX_COMPRESSED_SUMMARY_CHARS = 8000;
+const MAX_RECENT_TURNS = 10;
+const MAX_TARGET_INDEX_TURNS = 20;
+const MAX_TARGET_INDEX_CHARS = 5000;
+const MAX_ACTIONS_CHARS = 10000;
+const MAX_ACTIVE_WORKING_TARGET_CHARS = 1000;
+const MAX_USER_TEXT_PREVIEW_CHARS = 80;
+const MAX_ASSISTANT_TEXT_PREVIEW_CHARS = 80;
+const MAX_WRITE_SUMMARY_CHARS = 120;
+const MAX_INDEX_DOC_IDS = 5;
+const MAX_INDEX_BLOCK_IDS = 10;
+const MAX_INDEX_TITLES = 5;
 
 const SNAPSHOT_NOTE =
-  "本上下文只包含当前问题、阶段摘要状态、已压缩阶段摘要和未压缩的历史问答原文；不包含历史工具事件、调试信息、工具返回正文或内部路径。需要正文时，请根据可信资源 ID 决定是否使用读取能力。";
+  "本上下文只包含当前问题、阶段摘要状态、已压缩阶段摘要、未压缩的历史问答原文，以及用于连续对话指代的轻量操作记忆；不包含历史工具 observation、工具返回正文、调试信息、snapshot、confirmationId 或内部路径。需要正文时，请根据可信资源 ID 决定是否使用读取能力。";
 
 const STAGE_SUMMARY_STATUS_NOTE_UNCOMPRESSED =
   "已有阶段摘要正文暂不展示；如果本轮要输出 stageSummary，只总结 lastSummarizedTurnIndex 之后的新对话，并覆盖到当前最终回答为止；不要重述已有阶段摘要。";
@@ -218,7 +242,7 @@ function buildWebReadAccess(
 ): ConversationContextSnapshot["currentTurn"]["webReadAccess"] {
   // web_read_page is a global read-only tool, independent of the off/smart/required search mode
   // and independent of the webSearch.enabled toggle. It is available whenever webSearch settings
-  // exist so that the Planner can read explicit URLs even when web search is turned off.
+  // exist so that the Agent can read explicit URLs even when web search is turned off.
   if (!settings) return undefined;
   return { enabled: true };
 }
@@ -338,10 +362,26 @@ function buildReferences(message: AssistantChatMessage): ConversationReferenceCo
 function buildAssistantContext(message: AssistantChatMessage): NonNullable<ConversationTurnContext["assistant"]> {
   const references = buildReferences(message);
   const scope = buildScope(message.agentMemory);
+  const traceSummary = message.agentMemory?.actionTraceSummary;
+  const actions: NonNullable<ConversationTurnContext["assistant"]>["actions"] | undefined =
+    traceSummary
+      ? {
+          toolNames: traceSummary.toolNames,
+          outcomes: traceSummary.outcomes,
+          lastTouchedDocIds: traceSummary.lastTouchedDocIds,
+          lastTouchedBlockIds: traceSummary.lastTouchedBlockIds,
+          lastTouchedTitles: traceSummary.lastTouchedTitles,
+          lastWriteStatus: traceSummary.lastWriteStatus,
+          lastWriteSummary: traceSummary.lastWriteSummary,
+        }
+      : undefined;
   return {
     finalAnswer: truncateText(message.content, MAX_ASSISTANT_FINAL_ANSWER_CHARS),
     ...(references ? { references } : {}),
     ...(scope ? { scope } : {}),
+    ...(actions && (actions.toolNames?.length || actions.lastTouchedDocIds?.length || actions.lastWriteStatus)
+      ? { actions }
+      : {}),
   };
 }
 
@@ -409,6 +449,149 @@ function buildStageSummaryStatus(
   };
 }
 
+function buildRecentTargetIndex(
+  messages: ChatMessage[],
+  currentUserMessageId?: string,
+): AgentTurnTargetIndex[] | undefined {
+  const entries: AgentTurnTargetIndex[] = [];
+
+  // Walk messages in reverse to find up to MAX_TARGET_INDEX_TURNS completed assistant turns
+  let assistantFound = 0;
+  for (let i = messages.length - 1; i >= 0 && assistantFound < MAX_TARGET_INDEX_TURNS; i--) {
+    const message = messages[i];
+    if (message.role !== "assistant" || !isCompletedAssistantMessage(message)) continue;
+    if (message.compacted) continue;
+
+    const traceSummary = message.agentMemory?.actionTraceSummary;
+    if (!traceSummary) continue;
+
+    // Find the paired user message
+    let userMessage: ChatMessage | undefined;
+    for (let j = i - 1; j >= 0; j--) {
+      if (messages[j].role === "user") {
+        userMessage = messages[j];
+        break;
+      }
+    }
+
+    // Skip if this is the current user message's assistant response
+    if (userMessage?.id === currentUserMessageId) continue;
+
+    const hasTargets = (traceSummary.lastTouchedDocIds?.length ?? 0) > 0
+      || (traceSummary.lastTouchedBlockIds?.length ?? 0) > 0
+      || (traceSummary.lastTouchedTitles?.length ?? 0) > 0
+      || traceSummary.lastWriteStatus;
+
+    // Only include turns with tool targets
+    if (!hasTargets) {
+      assistantFound++;
+      continue;
+    }
+
+    const entry: AgentTurnTargetIndex = {
+      turnId: message.id,
+      userTextPreview: truncateText(userMessage?.content, MAX_USER_TEXT_PREVIEW_CHARS) || undefined,
+      assistantTextPreview: truncateText(message.content, MAX_ASSISTANT_TEXT_PREVIEW_CHARS) || undefined,
+      lastTouchedDocIds: traceSummary.lastTouchedDocIds?.slice(0, MAX_INDEX_DOC_IDS),
+      lastTouchedBlockIds: traceSummary.lastTouchedBlockIds?.slice(0, MAX_INDEX_BLOCK_IDS),
+      lastTouchedTitles: traceSummary.lastTouchedTitles?.slice(0, MAX_INDEX_TITLES),
+      lastWriteStatus: traceSummary.lastWriteStatus,
+      lastWriteSummary: traceSummary.lastWriteSummary
+        ? truncateText(traceSummary.lastWriteSummary, MAX_WRITE_SUMMARY_CHARS)
+        : undefined,
+    };
+
+    entries.push(entry);
+    assistantFound++;
+  }
+
+  if (entries.length === 0) return undefined;
+
+  // Reverse to chronological order
+  entries.reverse();
+
+  // Enforce total char limit on JSON serialized form
+  const totalChars = JSON.stringify(entries).length;
+  if (totalChars > MAX_TARGET_INDEX_CHARS) {
+    // Drop oldest entries (first in chrono order) until under limit
+    while (entries.length > 1 && JSON.stringify(entries).length > MAX_TARGET_INDEX_CHARS) {
+      entries.shift();
+    }
+  }
+
+  return entries.length > 0 ? entries : undefined;
+}
+
+function buildActiveWorkingTarget(
+  messages: ChatMessage[],
+  currentUserMessageId?: string,
+): ActiveWorkingTarget | undefined {
+  // Walk messages in reverse to find the most recent completed assistant turn with tool targets
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "assistant" || !isCompletedAssistantMessage(message)) continue;
+    if (message.compacted) continue;
+
+    // Find the paired user message
+    let userMessage: ChatMessage | undefined;
+    for (let j = i - 1; j >= 0; j--) {
+      if (messages[j].role === "user") {
+        userMessage = messages[j];
+        break;
+      }
+    }
+
+    // Skip if this is the current user message
+    if (userMessage?.id === currentUserMessageId) continue;
+
+    const traceSummary = message.agentMemory?.actionTraceSummary;
+    if (!traceSummary) continue;
+
+    // Determine primary target: prefer write tools over read-only
+    const writeOutcomes = traceSummary.outcomes?.filter((o) => o.writeOperation) ?? [];
+    const primaryOutcome = writeOutcomes.length > 0
+      ? (writeOutcomes.find((o) => !o.ok) ?? writeOutcomes[0])  // failed write first, then any write
+      : traceSummary.outcomes?.[0];                               // first read-only outcome
+
+    if (!primaryOutcome) continue;
+
+    // Extract target from the most relevant outcome's target fields
+    const docId = primaryOutcome.targetDocIds?.[0]
+      ?? traceSummary.lastTouchedDocIds?.[0]
+      ?? message.agentMemory?.scope?.docId;
+
+    const title = primaryOutcome.targetTitles?.[0]
+      ?? traceSummary.lastTouchedTitles?.[0];
+
+    const blockIds = (primaryOutcome.targetBlockIds ?? traceSummary.lastTouchedBlockIds)?.slice(0, 20);
+
+    if (!docId && !title && !blockIds?.length) continue;
+
+    const target: ActiveWorkingTarget = {
+      docId,
+      title,
+      blockIds,
+      lastToolName: primaryOutcome.toolName,
+      lastOperationSummary: primaryOutcome.summary || undefined,
+      lastWriteStatus: traceSummary.lastWriteStatus,
+      updatedAt: Date.now(),
+    };
+
+    // Enforce char limit
+    const jsonLen = JSON.stringify(target).length;
+    if (jsonLen > MAX_ACTIVE_WORKING_TARGET_CHARS) {
+      // Drop blockIds first, then title, to reduce size
+      const slim: ActiveWorkingTarget = { ...target, blockIds: (target.blockIds ?? []).slice(0, 5), title: undefined };
+      if (JSON.stringify(slim).length <= MAX_ACTIVE_WORKING_TARGET_CHARS) return slim;
+      return { docId: target.docId, lastToolName: target.lastToolName, lastWriteStatus: target.lastWriteStatus, updatedAt: target.updatedAt };
+    }
+
+    return target;
+  }
+
+  return undefined;
+}
+
 function buildRecentTurns(
   messages: ChatMessage[],
   currentUserMessageId?: string,
@@ -462,7 +645,7 @@ function buildRecentTurns(
   }
 
   flushPendingUserTurn();
-  return turns;
+  return turns.slice(-MAX_RECENT_TURNS);
 }
 
 export function buildConversationContext(
@@ -478,6 +661,49 @@ export function buildConversationContext(
   const webSearchAccess = buildWebSearchAccess(currentUserMessage, params.webSearchSettings, params.webAccessModeOverride);
   const webReadAccess = buildWebReadAccess(currentUserMessage, params.webSearchSettings, params.webAccessModeOverride);
 
+  const recentTargetIndex = buildRecentTargetIndex(params.messages, params.currentUserMessageId);
+  const activeWorkingTarget = buildActiveWorkingTarget(params.messages, params.currentUserMessageId);
+
+  const recentTurns = buildRecentTurns(params.messages, params.currentUserMessageId);
+
+  // Enforce MAX_ACTIONS_CHARS on actions — newest turns first, highest-priority outcomes first
+  const turnsWithOutcomes = recentTurns
+    .map((turn, idx) => ({ turn, idx, outcomes: (turn.assistant?.actions?.outcomes ?? []) as AgentTurnActionOutcome[] }))
+    .filter((t) => t.outcomes.length > 0);
+
+  // Iterate newest → oldest so newest outcomes get budget priority
+  let totalActionsChars = 0;
+  for (let ti = turnsWithOutcomes.length - 1; ti >= 0; ti--) {
+    const { turn, outcomes } = turnsWithOutcomes[ti];
+
+    // Sort this turn's outcomes by priority (highest first)
+    const sortedOutcomes = [...outcomes].sort((a, b) => {
+      const prioDiff = outcomePriority(b) - outcomePriority(a);
+      if (prioDiff !== 0) return prioDiff;
+      return (b.timestamp ?? 0) - (a.timestamp ?? 0);
+    });
+
+    const keptOutcomes: AgentTurnActionOutcome[] = [];
+    for (const outcome of sortedOutcomes) {
+      const oChars = JSON.stringify(outcome).length;
+      if (totalActionsChars + oChars <= MAX_ACTIONS_CHARS) {
+        keptOutcomes.push(outcome);
+        totalActionsChars += oChars;
+      }
+      // else: budget exhausted for older turns
+    }
+
+    if (turn.assistant?.actions) {
+      // Restore original chronological order within the kept outcomes
+      const keptSet = new Set(keptOutcomes);
+      turn.assistant.actions.outcomes = outcomes.filter((o) => keptSet.has(o));
+      if (turn.assistant.actions.outcomes.length === 0) {
+        turn.assistant.actions.outcomes = undefined;
+        // Keep lightweight fields (lastTouchedDocIds etc.) even when outcomes dropped
+      }
+    }
+  }
+
   return {
     version: SNAPSHOT_VERSION,
     currentTurn: {
@@ -490,7 +716,9 @@ export function buildConversationContext(
     },
     stageSummaryStatus: buildStageSummaryStatus(params.messages, stageSummaries, !!compressed, params.usageRatio ?? 0),
     ...(compressed ? { compressed } : {}),
-    recentTurns: buildRecentTurns(params.messages, params.currentUserMessageId),
+    recentTurns,
+    ...(recentTargetIndex ? { recentTargetIndex } : {}),
+    ...(activeWorkingTarget ? { activeWorkingTarget } : {}),
     note: SNAPSHOT_NOTE,
     ...(params.globalMemory ? { globalMemory: params.globalMemory } : {}),
   };

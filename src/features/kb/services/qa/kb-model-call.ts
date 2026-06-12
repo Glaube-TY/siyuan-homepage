@@ -1,21 +1,19 @@
-/**
+﻿/**
  * KB Model Call — 唯一模型调用接口
  *
  * 职责：
- * - 项目内唯一能构造 OpenAI-compatible 请求体的地方
- * - 提供三个对外方法：callModelJson / callModelText / streamModelText
+ * - 项目内普通文本模型调用的统一入口
+ * - 提供两个对外方法：callModelText / streamModelText
  * - thinkingMode 到请求体参数的转换只在此模块内发生：
- *   - 根据 profile.controlPlaneCompatibility 的 thinkingOffStrategy/thinkingOnStrategy 决定
+ *   - 根据 profile.providerNativeAgentCompatibility 的 thinkingOffStrategy/thinkingOnStrategy 决定
  *   - thinkingMode=off 时绝不发送任何启用思考的参数
  *
- * 其他文件（Planner、Composer、ask-by-mode 等）只能调用本模块的方法，
- * 不得直接拼接 thinking / providerOptions / extraBody / response_format /
- * stream body / raw JSON fallback body。
+ * 普通文本调用只能调用本模块的方法，
+ * 不得直接拼接 thinking / providerOptions / extraBody / response_format。
  */
 
-import type { ZodType } from "zod";
 import type { ChatModelSelection } from "../../types/chat-model-selection";
-import type { ControlPlaneCompatibility } from "../../types/settings";
+import type { ProviderNativeAgentCompatibility } from "../../types/settings";
 import type { ThinkingMode } from "../../types/session";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { getKbSettings } from "../settings/kb-settings-service";
@@ -23,7 +21,6 @@ import { resolveProviderProfile } from "./provider-profile";
 
 // 内部 llm-client 函数 — 外部不得直接导入
 import {
-  callLlmObject as _callLlmObject,
   callLlm as _callLlm,
   streamLlm as _streamLlm,
   type LlmCallOptions,
@@ -49,11 +46,6 @@ export interface ModelCallCommonOptions {
   temperature?: number;
 }
 
-export interface CallModelJsonOptions extends ModelCallCommonOptions {
-  /** 调用目的，用于 debug */
-  purpose?: "planner" | "generic";
-}
-
 export interface CallModelTextOptions extends ModelCallCommonOptions {
   purpose?: "compose" | "generic";
 }
@@ -77,16 +69,15 @@ export interface StreamModelTextOptions extends ModelCallCommonOptions {
 // 内部：ModelCallConfig — thinkingMode + 输出预算 唯一转换点
 // ═══════════════════════════════════════════════════════════════════
 
-const DEFAULT_JSON_MAX_OUTPUT_TOKENS = 800;
 const THINKING_MIN_OUTPUT_TOKENS = 4096;
 
 interface BuildModelCallConfigInput {
   thinkingMode: ThinkingMode;
-  controlPlaneThinkingEnabled: boolean;
+  agentThinkingEnabled: boolean;
   requestedMaxOutputTokens: number;
   purpose: string;
   mode: "json" | "text" | "stream";
-  /** resolved selected model — provider type + controlPlaneCompatibility extracted from it */
+  /** resolved selected model — provider type + native Agent compatibility extracted from it */
   selectedModel?: SelectedChatModelInfo;
 }
 
@@ -96,7 +87,7 @@ interface BuildModelCallConfigOutput {
   debug: {
     inputThinkingMode: ThinkingMode;
     effectiveThinkingMode: ThinkingMode;
-    controlPlaneThinkingEnabled: boolean;
+    agentThinkingEnabled: boolean;
     purpose: string;
     mode: "json" | "text" | "stream";
     hasThinkingParam: boolean;
@@ -117,15 +108,12 @@ interface BuildModelCallConfigOutput {
  *
  * 有效思考模式计算规则（仅属于模型调用配置层，非业务流程控制）：
  * - 输入框 thinkingMode 是本轮总开关；thinkingMode="off" 时 effectiveThinkingMode 永远为 "off"
- * - thinkingMode="on" 且 purpose === "planner"：再看 controlPlaneThinkingEnabled
+ * - thinkingMode="on" 时 effectiveThinkingMode = "on"
  *   - true → effectiveThinkingMode = "on"
  *   - false → effectiveThinkingMode = "off"
- * - thinkingMode="on" 且非 planner：effectiveThinkingMode = "on"
+ * agentThinkingEnabled 只影响 native Agent 主请求；普通文本调用在 thinkingMode=on 时直接请求思考。
  *
- * controlPlaneThinkingEnabled 只是输入框思考开启后的 Planner 子开关；
- * Planner / Composer / Tool 均不知道也不处理该设置。
- *
- * thinking 参数策略由 profile.controlPlaneCompatibility 决定：
+ * thinking 参数策略由 profile.providerNativeAgentCompatibility 决定：
  * - off + omit：不传任何思考参数
  * - off + openai_thinking_disabled：{ openai: { thinking: { type: "disabled" } } }
  * - off + enable_thinking_false：{ openai: { enable_thinking: false } }
@@ -136,39 +124,37 @@ interface BuildModelCallConfigOutput {
  * off 时绝不发送 enabled / reasoning_effort。
  */
 function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallConfigOutput {
-  const { thinkingMode, controlPlaneThinkingEnabled, requestedMaxOutputTokens, purpose, mode, selectedModel } = input;
+  const { thinkingMode, agentThinkingEnabled, requestedMaxOutputTokens, purpose, mode, selectedModel } = input;
 
   const providerType = selectedModel?.providerConfig?.type ?? "openai-compatible";
-  const providerControlPlaneCompatibility = selectedModel?.providerConfig?.controlPlaneCompatibility;
-  const modelControlPlaneCompatibility = selectedModel?.modelConfig?.controlPlaneCompatibility;
+  const providerCompatibility = selectedModel?.providerConfig?.providerNativeAgentCompatibility;
+  const modelCompatibility = selectedModel?.modelConfig?.providerNativeAgentCompatibility;
 
   const effectiveThinkingMode: ThinkingMode =
     thinkingMode === "off"
       ? "off"
-      : purpose === "planner"
-        ? (controlPlaneThinkingEnabled ? "on" : "off")
-        : "on";
+      : "on";
 
-  // 获取 provider profile，合并 controlPlaneCompatibility
+  // 获取 provider profile，合并 native Agent compatibility
   let resolvedProviderType: string = providerType ?? "openai-compatible";
-  let controlPlaneCompatibility: ControlPlaneCompatibility | undefined;
+  let providerCompatibilityMerged: ProviderNativeAgentCompatibility | undefined;
   try {
     const profile = resolveProviderProfile(resolvedProviderType, {
-      providerControlPlaneCompatibility,
-      modelControlPlaneCompatibility,
+      providerNativeAgentCompatibility: providerCompatibility,
+      modelNativeAgentCompatibility: modelCompatibility,
     });
     resolvedProviderType = profile.providerType;
-    controlPlaneCompatibility = profile.controlPlaneCompatibility;
+    providerCompatibilityMerged = profile.providerNativeAgentCompatibility;
   } catch {
     // profile 解析失败，使用默认值
   }
 
-  // 根据 controlPlaneCompatibility 构造 thinking 参数
+  // 根据 native Agent compatibility 构造 thinking 参数
   let providerOptions: Record<string, Record<string, unknown>> | undefined;
   let thinkingParamStrategy = "omit";
 
   if (effectiveThinkingMode === "on") {
-    const strategy = controlPlaneCompatibility?.thinkingOnStrategy ?? "omit";
+    const strategy = providerCompatibilityMerged?.thinkingOnStrategy ?? "omit";
     thinkingParamStrategy = strategy;
     if (strategy === "openai_thinking_enabled") {
       providerOptions = { openai: { thinking: { type: "enabled" } } };
@@ -178,7 +164,7 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
     // omit: 不传任何思考参数
   } else {
     // effectiveThinkingMode === "off"
-    const strategy = controlPlaneCompatibility?.thinkingOffStrategy ?? "omit";
+    const strategy = providerCompatibilityMerged?.thinkingOffStrategy ?? "omit";
     thinkingParamStrategy = strategy;
     if (strategy === "openai_thinking_disabled") {
       providerOptions = { openai: { thinking: { type: "disabled" } } };
@@ -220,7 +206,7 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
     debug: {
       inputThinkingMode: thinkingMode,
       effectiveThinkingMode,
-      controlPlaneThinkingEnabled,
+      agentThinkingEnabled,
       purpose,
       mode,
       hasThinkingParam: !!providerOptions,
@@ -238,52 +224,7 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 公开方法 1：callModelJson — Planner JSON 结构化调用
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * 调用模型获取 JSON 结构化输出。
- * Planner 使用此方法获取决策 JSON。
- *
- * Planner 的 reasoning 不展示、不保存、不进上下文。
- * Debug 只记录 reasoningChars / reasoningCount 安全统计。
- */
-export async function callModelJson<T>(
-  prompt: string,
-  schema: ZodType<T>,
-  thinkingMode: ThinkingMode,
-  options: CallModelJsonOptions = {},
-): Promise<T> {
-  const kbSettings = await getKbSettings();
-
-  const selectedModel = createSelectedChatModel(kbSettings, options.chatModelSelection);
-
-  const config = buildModelCallConfig({
-    thinkingMode,
-    controlPlaneThinkingEnabled: kbSettings.controlPlaneThinkingEnabled,
-    requestedMaxOutputTokens: options.maxOutputTokens ?? DEFAULT_JSON_MAX_OUTPUT_TOKENS,
-    purpose: options.purpose ?? "generic",
-    mode: "json",
-    selectedModel,
-  });
-
-  pushAgentDebugEvent("MODEL_REQUEST_FEATURES_SAFE", config.debug, "info");
-
-  const llmOptions: LlmCallOptions = {
-    abortSignal: options.abortSignal,
-    purpose: options.purpose ?? "generic",
-    maxOutputTokens: config.effectiveMaxOutputTokens,
-    temperature: options.temperature,
-    chatModelSelection: options.chatModelSelection,
-    providerOptions: config.providerOptions,
-    selectedChatModel: selectedModel,
-  };
-
-  return _callLlmObject(prompt, schema, llmOptions);
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 公开方法 2：callModelText — 普通文本调用
+// 公开方法：callModelText — 普通文本调用
 // ═══════════════════════════════════════════════════════════════════
 
 /**
@@ -300,7 +241,7 @@ export async function callModelText(
 
   const config = buildModelCallConfig({
     thinkingMode,
-    controlPlaneThinkingEnabled: kbSettings.controlPlaneThinkingEnabled,
+    agentThinkingEnabled: kbSettings.agentThinkingEnabled,
     requestedMaxOutputTokens: options.maxOutputTokens ?? 2048,
     purpose: options.purpose ?? "generic",
     mode: "text",
@@ -348,7 +289,7 @@ export async function streamModelText(
 
   const config = buildModelCallConfig({
     thinkingMode,
-    controlPlaneThinkingEnabled: kbSettings.controlPlaneThinkingEnabled,
+    agentThinkingEnabled: kbSettings.agentThinkingEnabled,
     requestedMaxOutputTokens: options.maxOutputTokens ?? 4096,
     purpose: options.purpose ?? "compose",
     mode: "stream",

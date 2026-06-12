@@ -1,21 +1,21 @@
-/**
- * ToolExecutor — the SINGLE JSON observation envelope generator.
+﻿/**
+ * ToolExecutor — the SINGLE tool result envelope generator.
  *
  * Tools only return ToolResult (data + optional error).
  * ToolExecutor:
  * 1. Validates args (inputSchema)
  * 2. Executes tool
  * 3. Validates output (outputSchema, if present)
- * 4. Builds a unified JSON observation envelope
- * 5. Pushes to ObservationLog
+ * 4. Builds a unified tool result envelope
+ * 5. Pushes to ToolResultLog
  *
  * No business logic. No tool-specific rendering.
  */
 
 import type { ToolRegistry } from "../registries/tool-registry";
 import type { ToolResult, ToolRuntimeContext } from "../contracts/tool-contract";
-import type { SkillObservation } from "../contracts/skill-contract";
-import type { ObservationLog } from "./observation-log";
+import type { SkillContextEvidence } from "../contracts/skill-contract";
+import type { ToolResultLog } from "./tool-result-log";
 
 export interface ToolCall {
   toolName: string;
@@ -25,11 +25,11 @@ export interface ToolCall {
 export interface ExecutionOutcome {
   ok: boolean;
   toolName: string;
-  observation: SkillObservation;
+  observation: SkillContextEvidence;
 }
 
 /**
- * Unified error envelope for Planner.
+ * Unified error envelope for tool results.
  * Tools return ToolErrorDetail with { code, message, ... };
  * ToolExecutor normalizes into this structure.
  */
@@ -38,12 +38,16 @@ export interface JsonErrorEnvelope {
   message: string;
   recoverable?: boolean;
   field?: string;
+  hint?: string;
+  expected?: string;
+  received?: string;
+  details?: unknown;
 }
 
 export class ToolExecutor {
   constructor(
     private readonly toolRegistry: ToolRegistry,
-    private readonly observationLog: ObservationLog,
+    private readonly observationLog: ToolResultLog,
   ) {}
 
   async execute(call: ToolCall, ctx: ToolRuntimeContext): Promise<ExecutionOutcome> {
@@ -80,6 +84,15 @@ export class ToolExecutor {
       });
     }
 
+    // Check abort before execution
+    if (ctx.abortSignal?.aborted) {
+      return this.fail(call.toolName, {
+        code: "user_aborted",
+        message: "用户取消了操作。",
+        recoverable: false,
+      });
+    }
+
     // Execute
     let result: ToolResult;
     try {
@@ -92,8 +105,17 @@ export class ToolExecutor {
       });
     }
 
+    // Check abort after execution
+    if (ctx.abortSignal?.aborted) {
+      return this.fail(call.toolName, {
+        code: "user_aborted",
+        message: "用户取消了操作。",
+        recoverable: false,
+      });
+    }
+
     // Validate output (outputSchema, if present)
-    // Use parsed data from outputSchema as the canonical Planner-visible data
+    // Use parsed data from outputSchema as the canonical provider-visible data
     if (result.ok && tool.outputSchema) {
       const outputParsed = tool.outputSchema.safeParse(result.data);
       if (!outputParsed.success) {
@@ -106,7 +128,7 @@ export class ToolExecutor {
           recoverable: false,
         });
       }
-      // Use parsed/stripped data as the canonical Planner data
+      // Use parsed/stripped data as the canonical agent data
       result = { ...result, data: outputParsed.data as typeof result.data };
     }
 
@@ -121,6 +143,10 @@ export class ToolExecutor {
       message: result.error?.message ?? "工具执行失败。",
       recoverable: result.error?.recoverable,
       field: result.error?.field,
+      hint: result.error?.hint,
+      expected: result.error?.expected,
+      received: result.error?.received,
+      details: result.error?.details,
     });
   }
 
@@ -131,7 +157,7 @@ export class ToolExecutor {
     result: ToolResult,
     summary?: string,
   ): ExecutionOutcome {
-    const obs: SkillObservation = {
+    const obs: SkillContextEvidence = {
       kind: "tool_executed",
       toolName,
       summary: summary ?? `工具 ${toolName} 执行成功。`,
@@ -155,8 +181,12 @@ export class ToolExecutor {
     };
     if (error.recoverable !== undefined) errorEnvelope.recoverable = error.recoverable;
     if (error.field !== undefined) errorEnvelope.field = error.field;
+    if (error.hint !== undefined) errorEnvelope.hint = error.hint;
+    if (error.expected !== undefined) errorEnvelope.expected = error.expected;
+    if (error.received !== undefined) errorEnvelope.received = error.received;
+    if (error.details !== undefined) errorEnvelope.details = error.details;
 
-    const obs: SkillObservation = {
+    const obs: SkillContextEvidence = {
       kind: "tool_failed",
       toolName,
       summary,

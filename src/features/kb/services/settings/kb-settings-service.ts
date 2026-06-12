@@ -3,7 +3,7 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, KbDangerousSkillToolName, GlobalMemorySettings, QuickPromptsSettings } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, KbDangerousSkillToolName, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
@@ -17,6 +17,12 @@ import {
   sanitizeChatProviders as sanitizeChatProvidersCore,
   resolveSelectedChatConfig as resolveSelectedChatConfigCore,
 } from "./chat-provider-config";
+import {
+  decryptSensitiveSecretsFromStorage,
+  encryptSensitiveSecretsForStorage,
+  normalizeSensitiveSecretsFromRuntime,
+  setKbSensitiveSecretCryptoPlugin,
+} from "./kb-sensitive-secret-crypto";
 
 const SETTINGS_KEY = "kb-settings";
 
@@ -70,6 +76,13 @@ function normalizeAssistantActionAlignment(raw: unknown): KbSettings["assistantA
     return raw;
   }
   return DEFAULT_KB_SETTINGS.assistantActionAlignment;
+}
+
+function normalizeProcessDisplayMode(raw: unknown): KbProcessDisplayMode {
+  if (raw === "collapsed" || raw === "expanded" || raw === "auto") {
+    return raw;
+  }
+  return "collapsed";
 }
 
 const DOC_CONTENT_EDITING_SKILL_NAME = "builtin_doc_content_editing";
@@ -137,7 +150,7 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
 
   // 新增：归一化已关闭确认的危险 Skill 工具名称
   const validDangerousToolNames: KbDangerousSkillToolName[] = [
-    "create_doc", "update_block", "insert_block", "delete_block",
+    "create_doc", "update_block", "insert_block", "delete_blocks",
     "move_block", "rename_doc", "delete_doc", "replace_doc_content",
   ];
   const rawDangerous = s.disabledDangerousSkillToolConfirmationNames;
@@ -307,6 +320,7 @@ let pluginInstance: any = null;
  */
 export function setKbSettingsPlugin(plugin: any) {
   pluginInstance = plugin;
+  setKbSensitiveSecretCryptoPlugin(plugin);
 }
 
 /**
@@ -338,7 +352,10 @@ export async function getKbSettings(): Promise<KbSettings> {
 
   try {
     const savedSettings = await plugin.loadData(SETTINGS_KEY);
-    return mergeKbSettings(savedSettings || {});
+    const runtimeSettings = await decryptSensitiveSecretsFromStorage(
+      (savedSettings || {}) as Record<string, unknown>,
+    );
+    return mergeKbSettings(runtimeSettings as Partial<KbSettings>);
   } catch (e) {
     console.warn("[KB Settings] Failed to load settings, using defaults", e);
     return mergeKbSettings({});
@@ -358,11 +375,20 @@ export async function saveKbSettings(settings: Partial<KbSettings>): Promise<KbS
   try {
     // 先读取现有设置，合并后再保存
     const existingSettings = await plugin.loadData(SETTINGS_KEY);
+    const existingRuntimeSettings = await decryptSensitiveSecretsFromStorage(
+      (existingSettings || {}) as Record<string, unknown>,
+    );
+    const inputRuntimeSettings = await normalizeSensitiveSecretsFromRuntime(
+      settings as Record<string, unknown>,
+    );
     const mergedSettings = mergeKbSettings({
-      ...(existingSettings || {}),
-      ...settings,
+      ...(existingRuntimeSettings as Partial<KbSettings>),
+      ...(inputRuntimeSettings as Partial<KbSettings>),
     });
-    await plugin.saveData(SETTINGS_KEY, mergedSettings);
+    const encryptedSettings = await encryptSensitiveSecretsForStorage(
+      mergedSettings as unknown as Record<string, unknown>,
+    );
+    await plugin.saveData(SETTINGS_KEY, encryptedSettings);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent(KB_SETTINGS_CHANGED_EVENT, { detail: mergedSettings })
@@ -573,9 +599,9 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     textMatchWeight: normalized.textMatchWeight ?? DEFAULT_KB_SETTINGS.textMatchWeight,
     previewMatchWeight: normalized.previewMatchWeight ?? DEFAULT_KB_SETTINGS.previewMatchWeight,
     agentReadMaxCharsPerDoc: normalized.agentReadMaxCharsPerDoc ?? DEFAULT_KB_SETTINGS.agentReadMaxCharsPerDoc,
-    controlPlaneThinkingEnabled: typeof normalized.controlPlaneThinkingEnabled === "boolean"
-      ? normalized.controlPlaneThinkingEnabled
-      : DEFAULT_KB_SETTINGS.controlPlaneThinkingEnabled,
+    agentThinkingEnabled: typeof normalized.agentThinkingEnabled === "boolean"
+      ? normalized.agentThinkingEnabled
+      : DEFAULT_KB_SETTINGS.agentThinkingEnabled,
     chatProviders,
     selectedChatProviderId: finalSelectedProviderId,
     selectedChatModelId: finalSelectedModelId,
@@ -584,6 +610,8 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     toolSettings: normalizeToolSettings(normalized.toolSettings),
     globalMemory: normalizeGlobalMemorySettings(normalized.globalMemory),
     quickPrompts: normalizeQuickPromptsSettings(normalized.quickPrompts),
+    workbenchProcessDisplayMode: normalizeProcessDisplayMode(normalized.workbenchProcessDisplayMode),
+    reasoningProcessDisplayMode: normalizeProcessDisplayMode(normalized.reasoningProcessDisplayMode),
   };
 }
 

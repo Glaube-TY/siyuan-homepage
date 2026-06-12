@@ -1,21 +1,27 @@
-/**
+﻿/**
  * 知识库设置类型
  */
 
 /** 聊天模型提供商类型 */
 export type KbChatProviderType = "kimi" | "kimi-api" | "kimi-coding" | "mimo" | "mimo-api" | "mimo-coding-plan" | "deepseek" | "deepseek-api" | "openai-compatible";
 
-/** 自动操作兼容性配置（控制面 / Planner JSON 决策阶段） */
-export type ControlPlaneCompatibility = {
-  /** 自动操作适配度：普通 / 不推荐 */
+/** Provider/native Agent 请求兼容性配置 */
+export type ProviderNativeAgentCompatibility = {
+  /** Agent 适配度：普通 / 不推荐 */
   suitability?: "normal" | "not_recommended";
-  /** JSON 输出策略：raw_prompt（不传 response_format）/ response_format_json_object */
-  jsonOutputStrategy?: "raw_prompt" | "response_format_json_object";
+  /** 是否支持 provider-native tool calls；false 时不能进入 Agent 模式 */
+  nativeToolCalls?: boolean;
+  /** 是否支持流式工具调用增量 */
+  streamingToolCalls?: boolean;
+  /** 是否支持 role=tool / functionResponse / tool_result 后继续输出普通 assistant 文本 */
+  toolResultContinuation?: boolean;
+  /** 是否支持 reasoning delta */
+  reasoningDelta?: boolean;
   /** 关闭思考策略：omit（不传）/ openai_thinking_disabled / enable_thinking_false */
   thinkingOffStrategy?: "omit" | "openai_thinking_disabled" | "enable_thinking_false";
   /** 开启思考策略：omit（不传）/ openai_thinking_enabled / enable_thinking_true */
   thinkingOnStrategy?: "omit" | "openai_thinking_enabled" | "enable_thinking_true";
-  /** 自动操作超时（毫秒） */
+  /** Agent 请求超时（毫秒） */
   timeoutMs?: number;
   /** Token 参数策略：max_tokens / max_completion_tokens */
   tokenParamStrategy?: "max_tokens" | "max_completion_tokens";
@@ -23,8 +29,6 @@ export type ControlPlaneCompatibility = {
   temperatureParamStrategy?: "default" | "omit" | "fixed";
   /** fixed 策略时使用的固定温度值 */
   fixedTemperature?: number;
-  /** Planner 调用传输方式：non_stream_json（非流式）/ stream_json（流式接收 content 后解析 JSON） */
-  plannerTransport?: "non_stream_json" | "stream_json";
 };
 
 /** 单个模型配置 */
@@ -45,12 +49,12 @@ export type KbChatModelConfig = {
   enabled?: boolean;
   /** 是否支持视觉 */
   supportVision?: boolean;
-  /** 不推荐用于自动操作规划（适合代码任务/思考模型等） */
-  notRecommendedForPlanner?: boolean;
+  /** 不推荐用于 Agent 模式（适合纯回答/代码长思考等） */
+  notRecommendedForAgent?: boolean;
   /** 用户声明的 final compose 流式策略（覆盖 provider 默认） */
   finalComposeMode?: "auto" | "stream" | "non_stream";
-  /** 自动操作兼容性配置（模型级覆盖） */
-  controlPlaneCompatibility?: ControlPlaneCompatibility;
+  /** native Agent 兼容性配置（模型级覆盖） */
+  providerNativeAgentCompatibility?: ProviderNativeAgentCompatibility;
 };
 
 /** 模型提供商配置 */
@@ -71,11 +75,14 @@ export type KbChatProviderConfig = {
   models: KbChatModelConfig[];
   /** 来源模板 ID（不代表内置，用户配置仍可删除/禁用/编辑） */
   presetId?: string;
-  /** 自动操作兼容性配置（provider 级默认，可被模型级覆盖） */
-  controlPlaneCompatibility?: ControlPlaneCompatibility;
+  /** native Agent 兼容性配置（provider 级默认，可被模型级覆盖） */
+  providerNativeAgentCompatibility?: ProviderNativeAgentCompatibility;
 };
 
 export type KbAssistantActionAlignment = "left" | "center" | "right";
+
+/** 处理过程/思考过程显示模式 */
+export type KbProcessDisplayMode = "collapsed" | "expanded" | "auto";
 
 /** 网页搜索提供商类型 */
 export type WebSearchProvider = "anysearch" | "custom_json" | "tavily";
@@ -117,12 +124,12 @@ export type KbSkillSettings = {
 /** 全局工具名称 */
 export type KbGlobalToolName = "read_docs" | "web_read_page" | "edit_global_memory" | "get_doc_info";
 
-/** 内置危险 Skill 工具名称（可跳过执行前确认） */
+/** 内置危险写工具名称 */
 export type KbDangerousSkillToolName =
   | "create_doc"
   | "update_block"
   | "insert_block"
-  | "delete_block"
+  | "delete_blocks"
   | "move_block"
   | "rename_doc"
   | "delete_doc"
@@ -132,7 +139,7 @@ export type KbDangerousSkillToolName =
 export type KbToolSettings = {
   /** 被禁用的全局工具名称列表 */
   disabledGlobalToolNames: KbGlobalToolName[];
-  /** 已关闭"执行前确认"的危险 Skill 工具名称列表（默认 undefined，表示全部开启确认） */
+  /** 保留旧设置迁移用；native Agent 始终通过 ToolPermissionGate 请求确认 */
   disabledDangerousSkillToolConfirmationNames?: KbDangerousSkillToolName[];
 };
 
@@ -174,12 +181,12 @@ export type KbSettings = {
   /** Agent 单次读取每篇文档的默认字符数 */
   agentReadMaxCharsPerDoc: number;
   /**
-   * 控制 Agent 规划 / Planner JSON 决策阶段是否在"输入框思考已开启"时请求模型思考。
+   * 控制 native Agent 主请求是否在"输入框思考已开启"时请求模型思考。
    * 默认关闭。
    * 输入框思考关闭时，该设置无效。
-   * 不影响最终回答 Composer 是否思考。
+   * 不影响工具执行、证据边界或权限确认。
    */
-  controlPlaneThinkingEnabled: boolean;
+  agentThinkingEnabled: boolean;
   /**
    * 聊天模型提供商列表（多提供商配置）
    */
@@ -212,4 +219,8 @@ export type KbSettings = {
    * 快捷提示语设置
    */
   quickPrompts: QuickPromptsSettings;
+  /** 处理过程折叠模式（工作台事件区） */
+  workbenchProcessDisplayMode: KbProcessDisplayMode;
+  /** 思考过程折叠模式 */
+  reasoningProcessDisplayMode: KbProcessDisplayMode;
 };

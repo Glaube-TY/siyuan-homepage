@@ -18,6 +18,8 @@
   // asking 状态，用于控制按钮显示
   export let asking: boolean = false;
   export let assistantActionAlignment: KbAssistantActionAlignment = "left";
+  export let workbenchDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
+  export let reasoningDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
 
   const dispatch = createEventDispatcher<{
     regenerate: void;
@@ -159,15 +161,15 @@
   $: workbenchEvents =
     message.role === "assistant" ? message.workbenchEvents ?? [] : [];
   const VISIBLE_WORKBENCH_EVENT_TYPES = new Set<AgentWorkbenchEvent["type"]>([
-    "ToolDispatch",
-    "ToolResult",
-    "TurnFailed",
+    "tool_call_delta",
+    "permission_required",
+    "permission_resolved",
+    "tool_start",
+    "tool_result",
+    "error",
   ]);
   $: visibleWorkbenchEvents = workbenchEvents.filter((event) =>
-    VISIBLE_WORKBENCH_EVENT_TYPES.has(event.type) &&
-    // final_answer is a system action behind the answer protocol;
-    // never show it as an ordinary tool dispatch/result.
-    !("toolName" in event && event.toolName === "final_answer")
+    VISIBLE_WORKBENCH_EVENT_TYPES.has(event.type)
   );
 
   // 判断 assistant 是否显示运行态状态（content 为空且 agentStatus 非空）
@@ -176,12 +178,51 @@
     !message.content.trim() &&
     !!message.agentStatus;
 
+  function computeWorkbenchExpanded(): boolean {
+    if (workbenchDisplayMode === "expanded") return true;
+    if (workbenchDisplayMode === "auto") {
+      if (isAssistantGenerating) return true;
+      if (workbenchDisplaySteps.some((step) => step.running)) return true;
+      if (!!message.agentStatus) return true;
+      return false;
+    }
+    return false;
+  }
   let workbenchEventsExpanded = false;
   let workbenchEventsMessageId = "";
+  let userToggledWorkbench = false;
 
+  function computeReasoningCollapsed(detail: typeof message.reasoning): boolean {
+    if (reasoningDisplayMode === "expanded") return false;
+    if (reasoningDisplayMode === "auto") return detail?.status !== "streaming";
+    return true;
+  }
+  let userToggledReasoning = false;
+
+  // Reset on new message, then reactively update in auto mode
   $: if (message.id !== workbenchEventsMessageId) {
     workbenchEventsMessageId = message.id;
-    workbenchEventsExpanded = false;
+    userToggledWorkbench = false;
+    userToggledReasoning = false;
+    workbenchEventsExpanded = computeWorkbenchExpanded();
+    reasoningCollapsed = computeReasoningCollapsed(message.reasoning);
+  }
+  // Auto-mode: react to status changes during the same message
+  $: if (!userToggledWorkbench && message.id === workbenchEventsMessageId) {
+    workbenchEventsExpanded = computeWorkbenchExpanded();
+  }
+  $: if (!userToggledReasoning && message.id === workbenchEventsMessageId) {
+    reasoningCollapsed = computeReasoningCollapsed(message.reasoning);
+  }
+
+  function toggleWorkbench() {
+    workbenchEventsExpanded = !workbenchEventsExpanded;
+    userToggledWorkbench = true;
+  }
+
+  function toggleReasoning() {
+    reasoningCollapsed = !reasoningCollapsed;
+    userToggledReasoning = true;
   }
 
   const TOOL_DISPLAY_NAME: Record<string, string> = {
@@ -198,7 +239,6 @@
     replace_doc_content: "替换文档正文",
     update_block: "更新内容块",
     insert_block: "插入内容块",
-    delete_block: "删除内容块",
     move_block: "移动内容块",
   };
 
@@ -242,7 +282,7 @@
   };
 
   function toggleWorkbenchEvents(): void {
-    workbenchEventsExpanded = !workbenchEventsExpanded;
+    toggleWorkbench();
   }
 
   function formatToolDisplayName(toolName: string | undefined): string {
@@ -313,28 +353,86 @@
 
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
-      if (event.type === "TurnFailed") {
+      if (event.type === "error") {
         // 使用用户可读错误映射，不直接展示内部 message
-        const evRecord = event as unknown as Record<string, unknown>;
         const userFacing = mapAgentErrorToUserFacing({
-          agentErrorCode: (evRecord.errorCode as string | undefined) ?? (evRecord.status as string | undefined),
+          agentErrorCode: event.code,
           message: event.message,
         });
         steps.push({
           key: `failed-${event.stepIndex ?? index}-${event.at}`,
-          title: "处理失败",
-          summary: `${userFacing.title}：${userFacing.message}`,
+          title: userFacing.title,
+          summary: userFacing.suggestion
+            ? `${userFacing.title}：${userFacing.message} ${userFacing.suggestion}`
+            : `${userFacing.title}：${userFacing.message}`,
           ok: false,
         });
         continue;
       }
 
-      if (event.type !== "ToolDispatch" && event.type !== "ToolResult") continue;
+      if (event.type === "tool_call_delta") {
+        const tcKey = event.call?.id || `tc-${event.call?.index ?? index}`;
+        const existing = byKey.get(tcKey);
+        if (!existing) {
+          const step: WorkbenchDisplayStep = {
+            key: tcKey,
+            title: "正在准备工具调用…",
+            summary: event.call?.name ? `调用 ${formatToolDisplayName(event.call.name)}` : "正在分析工具参数…",
+            running: true,
+          };
+          byKey.set(tcKey, step);
+          steps.push(step);
+        } else if (existing.running && event.call?.name) {
+          existing.summary = `调用 ${formatToolDisplayName(event.call.name)}`;
+        }
+        continue;
+      }
+
+      if (event.type === "permission_required") {
+        const permKey = event.toolCallId || `perm-${event.stepIndex ?? index}`;
+        const existing = byKey.get(permKey);
+        if (existing) {
+          existing.title = "等待确认";
+          existing.summary = `确认执行 ${formatToolDisplayName(event.preview?.toolName ?? "")}`;
+          existing.running = true;
+        } else {
+          const step: WorkbenchDisplayStep = {
+            key: permKey,
+            title: "等待确认",
+            summary: `确认执行 ${formatToolDisplayName(event.preview?.toolName ?? "")}`,
+            running: true,
+          };
+          byKey.set(permKey, step);
+          steps.push(step);
+        }
+        continue;
+      }
+
+      if (event.type === "permission_resolved") {
+        const permKey = event.toolCallId || `perm-${event.stepIndex ?? index}`;
+        const existing = byKey.get(permKey);
+        if (existing) {
+          existing.title = event.approved ? "已确认" : "已取消";
+          existing.summary = event.approved ? "" : (event.reason ?? "用户取消了操作");
+          existing.running = false;
+          existing.ok = event.approved ? undefined : false;
+        } else {
+          steps.push({
+            key: permKey,
+            title: event.approved ? "已确认" : "已取消",
+            summary: event.approved ? "" : (event.reason ?? "用户取消了操作"),
+            ok: event.approved ? undefined : false,
+          });
+        }
+        continue;
+      }
+
+      if (event.type !== "tool_start" && event.type !== "tool_result") continue;
 
       const key = getStepKey(event, index);
       const existing = byKey.get(key);
 
-      if (event.type === "ToolDispatch") {
+      if (event.type === "tool_start") {
         const step: WorkbenchDisplayStep = existing ?? {
           key,
           toolName: event.toolName,
@@ -360,15 +458,15 @@
         summary: "",
       };
       step.toolName = event.toolName;
-      step.ok = event.ok;
+      step.ok = event.result.ok;
       step.running = false;
       step.durationMs = event.durationMs;
-      if (event.ok) {
+      if (event.result.ok) {
         step.title = formatToolDisplayName(event.toolName);
-        step.summary = formatResultSummary(event.toolName, event.outputSummary);
+        step.summary = formatResultSummary(event.toolName, event.result.summary);
       } else {
         step.title = `${formatToolDisplayName(event.toolName)}失败`;
-        step.summary = event.outputSummary || `失败：${event.errorCode || "未知错误"}`;
+        step.summary = event.result.summary || `失败：${event.result.errorCode || event.result.code || "未知错误"}`;
       }
       if (!existing) {
         byKey.set(key, step);
@@ -552,7 +650,7 @@
             <button
               type="button"
               class="reasoning-toggle"
-              on:click={() => (reasoningCollapsed = !reasoningCollapsed)}
+              on:click={toggleReasoning}
             >
               <span
                 class="reasoning-toggle-icon"

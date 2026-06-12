@@ -195,6 +195,7 @@
     }
 
     function ensureDefaultStatusAiModelSelected(): boolean {
+        if (!advancedEnabled || tempStatusTextMode !== "ai") return false;
         if (hasStatusAiModelSelection()) return false;
 
         const option = statusAiDefaultModelOption ?? statusAiModelOptions[0];
@@ -209,7 +210,7 @@
 
     function handleStatusTextModeChange(value: HomepageStatusTextMode): void {
         tempStatusTextMode = value;
-        if (value === "ai") {
+        if (value === "ai" && advancedEnabled) {
             ensureDefaultStatusAiModelSelected();
         }
     }
@@ -220,7 +221,7 @@
             const options = buildChatModelOptions(settings);
             statusAiModelOptions = options;
             statusAiDefaultModelOption = findDefaultChatModelOption(settings, options) ?? null;
-            if (tempStatusTextMode === "ai") {
+            if (advancedEnabled && tempStatusTextMode === "ai") {
                 ensureDefaultStatusAiModelSelected();
             }
             syncStatusAiModelSummary(options);
@@ -421,11 +422,10 @@
         tempBannerEnabled = bannerEnabled;
         tempBannerType = bannerType;
         tempBannerHeight = bannerHeight;
+        advancedEnabled = plugin.ADVANCED;
 
         await refreshStatusAiModelSummary();
         window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
-
-        advancedEnabled = plugin.ADVANCED;
     });
 
     onDestroy(() => {
@@ -556,6 +556,8 @@
             } else {
                 showMessage("✅激活成功！");
                 activated = true;
+                advancedEnabled = true;
+                void refreshStatusAiModelSummary();
             }
         }
     }
@@ -564,6 +566,7 @@
         const saveVIPConfDataResult = await advanced.saveVIPConfData(plugin, "");
         if (saveVIPConfDataResult) {
             activated = false;
+            advancedEnabled = false;
             advanced.deleteLicense(plugin);
         }
     }
@@ -611,7 +614,7 @@
         // 保存布局设置到 widgetLayout.json（与组件顺序存储方式一致）
         await saveWidgetLayoutSettings(plugin, { widgetLayoutNumber, widgetGap });
 
-        if (tempStatusTextMode === "ai") {
+        if (advancedEnabled && tempStatusTextMode === "ai") {
             ensureDefaultStatusAiModelSelected();
         }
 
@@ -998,6 +1001,7 @@
                 <AiKnowledgeBaseSettingsTab
                     aiKbDockEnabled={aiKbDockEnabled}
                     aiKbTabEnabled={aiKbTabEnabled}
+                    advancedEnabled={advancedEnabled}
                     statusAiProviderId={tempStatusAiProviderId}
                     statusAiModelId={tempStatusAiModelId}
                     statusAiThinkingEnabled={tempStatusAiThinkingEnabled}

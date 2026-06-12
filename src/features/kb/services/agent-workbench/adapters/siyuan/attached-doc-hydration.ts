@@ -1,9 +1,9 @@
-/**
+﻿/**
  * Attached Doc Hydration — 自动加载用户本轮显式附加的文档正文。
  *
  * 职责：
  * - 读取附加文档的完整 Markdown（带预算截断）
- * - 返回结构化结果，供 Planner prompt 和 Composer evidence 使用
+ * - 返回结构化结果，供 agent context 和 Composer evidence 使用
  * - 不写入历史上下文、不持久化、不进入 conversationContext
  * - 复用 readSiyuanDocForTool，避免复制读取逻辑
  */

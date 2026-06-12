@@ -1,7 +1,7 @@
 /**
  * Context Compression Service
  *
- * Regular compression is based only on Planner-provided stage summaries.
+ * Regular compression is based only on agent-provided stage summaries.
  * It does not call LLMs, read tool observations, or derive summary text from
  * assistant answers.
  *
@@ -9,9 +9,9 @@
  * (default 0.9) and normal stage-summary-based compression cannot safely
  * compress, a one-shot LLM call generates emergency stage summaries for
  * uncovered completed turns. This is a system action, not a tool — it does
- * not appear in the tool manifest, does not write ObservationLog, does not
+ * not appear in the tool manifest, does not write ToolResultLog, does not
  * read tool observations, does not write long-term memory, and does not emit
- * ToolDispatch/ToolResult. It only produces in-session stage summaries.
+ * tool_start/tool_result. It only produces in-session stage summaries.
  */
 
 import type { ChatMessage, ConversationStageSummary } from "../types/chat";
@@ -27,7 +27,7 @@ const DEFAULT_AUTO_COMPRESSION_ENABLED = true;
 const DEFAULT_AUTO_COMPRESSION_RATIO = 0.75;
 const DEFAULT_FORCE_COMPRESSION_RATIO = 0.9;
 const DEFAULT_MAX_COMPRESSED_SUMMARY_CHARS = 8000;
-const ARCHIVE_MARKER = "[更早阶段摘要已折叠，不进入 Planner]";
+const ARCHIVE_MARKER = "[更早阶段摘要已折叠]";
 const NO_STAGE_SUMMARY_ERROR = "当前还没有历史摘要，暂时无法压缩。";
 
 export interface CompressionRange {
@@ -92,7 +92,7 @@ function resolvePolicy(partial: Partial<AutoCompressionPolicy> | undefined, stat
 
 function getSortedStageSummaries(stageSummaries: readonly ConversationStageSummary[] | undefined): ConversationStageSummary[] {
   return [...(stageSummaries ?? [])]
-    .filter((item) => (item.source === "planner_stage_summary" || item.source === "emergency_llm_stage_summary") && item.summary.trim().length > 0)
+    .filter((item) => (item.source === "agent_stage_summary" || item.source === "emergency_llm_stage_summary") && item.summary.trim().length > 0)
     .sort((a, b) => a.index - b.index);
 }
 
@@ -515,7 +515,7 @@ const EMERGENCY_COMPRESSION_PROMPT = `你是一个对话阶段摘要生成器。
 
 规则：
 1. 只总结用户消息和助手最终回答中的实质内容
-2. 不得包含工具调用结果、ToolDispatch、ToolResult、workbenchEvents、debug trace、工具返回正文、内部路径
+2. 不得包含工具调用结果、tool_start、tool_result、workbenchEvents、debug trace、工具返回正文、内部路径
 3. summary 必须 150-1500 字，非空
 4. startTurnIndex 必须等于本片段的第一轮轮次
 5. endTurnIndex 必须等于本片段的最后一轮轮次

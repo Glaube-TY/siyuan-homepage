@@ -1,10 +1,13 @@
 /**
- * Agent Workbench: thin generic Agent Harness for siyuan-note.
+ * Agent Workbench: native tool call Agent harness for siyuan-note.
  *
- * - Workbench is a transparent execution platform
- * - Tools are global independent capabilities
- * - Skills are Chinese capability manuals
- * - Planner/Model is the only business decision maker
+ * Architecture:
+ * - NativeToolAgentLoop is the primary Agent loop
+ * - ProviderAdapter.streamChat returns standard tool_calls / functionCall / tool_use
+ * - dispatchToolCalls handles permission gate, tool execution, role=tool backfill
+ * - AgentSession is append-only, persisted per conversation
+ * - Tools are global independent capabilities (NativeTool)
+ * - Skills are Chinese capability manuals (instruction only, no tool ownership)
  */
 
 // contracts
@@ -12,7 +15,7 @@ export type {
   ToolContract,
   ToolManifest,
   ToolResult,
-  ToolObservation,
+  ToolExecutionRecord,
   ToolRuntimeContext,
   ToolAvailability,
   ToolSafetyInfo,
@@ -22,27 +25,16 @@ export type {
 } from "./contracts/tool-contract";
 
 export type {
-  PlannerDecision,
-  PlannerToolDecision,
-  PlannerAnswerDecision,
-  PlannerStopDecision,
-  PlannerStopReasonCode,
-  AnswerResourceRef,
-  AnswerStageSummary,
-} from "./contracts/planner-decision";
-export { validatePlannerDecision } from "./contracts/planner-decision";
-
-export type {
   SkillContract,
   SkillPromptSection,
   SkillRuntimeContext,
-  SkillObservation,
+  SkillContextEvidence,
 } from "./contracts/skill-contract";
 
 export type {
   AgentWorkbenchEvent,
   AgentWorkbenchEventType,
-  ToolDispatchEvent,
+  ToolStartEvent,
   ToolResultEvent,
   NoticeEvent,
 } from "./contracts/turn-event";
@@ -52,10 +44,8 @@ export { ToolRegistry } from "./registries/tool-registry";
 export { SkillRegistry } from "./registries/skill-registry";
 export type { SkillSource } from "./registries/skill-registry";
 
-// runtime
-export { ObservationLog } from "./runtime/observation-log";
-export { buildPlannerContext } from "./runtime/planner-context-builder";
-export type { PlannerContext, PlannerContextInput } from "./runtime/planner-context-builder";
+// runtime — native Agent path only
+export { ToolResultLog } from "./runtime/tool-result-log";
 export { buildConversationContext } from "./runtime/conversation-context-builder";
 export type {
   BuildConversationContextParams,
@@ -65,18 +55,6 @@ export type {
 } from "./runtime/conversation-context-builder";
 export { ToolExecutor } from "./runtime/tool-executor";
 export type { ToolCall, ExecutionOutcome } from "./runtime/tool-executor";
-export { AgentLoop } from "./runtime/agent-loop";
-export type { AgentLoopDeps, AgentLoopInput, AgentLoopResult, AnswerDraft } from "./runtime/agent-loop";
-export { PromptJsonPlannerProvider } from "./runtime/planner-provider";
-export type {
-  PlannerProvider,
-  PlannerProviderInput,
-  PlannerProviderMode,
-  PlannerProviderToolSchema,
-  PlannerProviderMessage,
-  PlannerProviderToolCall,
-  PlannerProviderDecisionResult,
-} from "./runtime/planner-provider";
 export { saveTurnTrace, getLastTurnTrace, getRecentTurnTraces, clearTurnTraces } from "./runtime/turn-trace-store";
 export type { TurnTrace } from "./runtime/turn-trace-store";
 export { createAgentWorkbenchRuntime, refreshUserSkills } from "./runtime/create-agent-workbench";
@@ -89,9 +67,13 @@ export type {
   RunAgentTurnParams,
   AgentTurnOutcome,
 } from "./runtime/run-agent-turn";
-
-// tools
-export { createFinalAnswerTool } from "./tools/system/final-answer.tool";
+export { runNativeAgentLoop } from "./runtime/native-agent-runner";
+export type { RunNativeAgentLoopParams, RunNativeAgentLoopResult } from "./runtime/native-agent-runner";
+export { buildAgentContextInstructions } from "./runtime/agent-context-instruction-builder";
+export type {
+  BuildAgentContextInstructionsParams,
+  AgentContextInstructions,
+} from "./runtime/agent-context-instruction-builder";
 
 // siyuan tools
 export {
@@ -140,6 +122,12 @@ export {
   findDiaryDocsOutputSchema,
 } from "./tools/siyuan/find-diary-docs.tool";
 export type { FindDiaryDocsInput, FindDiaryDocsOutput, FindDiaryDocsDeps } from "./tools/siyuan/find-diary-docs.tool";
+
+export {
+  createReadCandidateDocsTool,
+  readCandidateDocsInputSchema,
+} from "./tools/siyuan/read-candidate-docs.tool";
+export type { ReadCandidateDocsInput, ReadCandidateDocsOutput, ReadCandidateDocsItem, ReadCandidateDocsDeps } from "./tools/siyuan/read-candidate-docs.tool";
 
 // skills
 export { createKnowledgeBaseQaSkill, BUILTIN_KB_SKILL_NAME } from "./skills/builtin/knowledge-base-qa.skill";

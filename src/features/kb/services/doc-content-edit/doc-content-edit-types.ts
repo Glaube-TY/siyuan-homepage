@@ -10,7 +10,7 @@ export type DocContentEditOperation =
   | "replace_doc_content"
   | "update_block"
   | "insert_block"
-  | "delete_block"
+  | "delete_blocks"
   | "move_block";
 
 export type DocContentEditConfirmationAction = DocContentEditOperation;
@@ -87,4 +87,57 @@ export interface DocContentEditConfirmation {
 
 export interface DocContentEditConfirmationStoreState {
   confirmations: DocContentEditConfirmation[];
+}
+
+// ─── Block diff types (new EDIT DIFF engine) ───
+
+export type EditDiffStatus = "unchanged" | "modified" | "added" | "removed";
+
+export type InlineDiffKind = "same" | "removed" | "added";
+
+export interface InlineDiffPart {
+  text: string;
+  kind: InlineDiffKind;
+}
+
+export interface EditPreviewBlock {
+  id?: string;
+  type?: string;
+  subtype?: string;
+  text: string;
+  markdown: string;
+  order: number;
+  depth?: number;
+}
+
+export interface EditBlockDiffEntry {
+  key: string;
+  status: EditDiffStatus;
+  oldBlock?: EditPreviewBlock;
+  newBlock?: EditPreviewBlock;
+  oldParts?: InlineDiffPart[];
+  newParts?: InlineDiffPart[];
+}
+
+export interface EditDiffDisplayOptions {
+  defaultView: "split" | "unified";
+  collapseUnchanged: boolean;
+  contextBlocks: number;
+}
+
+export interface EditDiffPreview {
+  mode: "block_diff";
+  title: string;
+  summary: string;
+  entries: EditBlockDiffEntry[];
+  stats: {
+    addedLines: number;
+    removedLines: number;
+    modifiedBlocks: number;
+    addedBlocks: number;
+    removedBlocks: number;
+  };
+  displayOptions: EditDiffDisplayOptions;
+  truncated?: boolean;
+  noChanges?: boolean;
 }

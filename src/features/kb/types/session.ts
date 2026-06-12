@@ -53,7 +53,7 @@ export type KbSessionState = {
   /**
    * 思考模式开关
    * - 用户手动控制，不是自动模型策略
-   * - 本轮所有 LLM 调用的 reasoning 控制参数（Planner、Composer 等）
+   * - 本轮所有 LLM 调用的 reasoning 控制参数（Agent、Composer 等）
    * - 不影响工具执行、证据边界或业务流程
    */
   thinkingMode?: ThinkingMode;
@@ -61,19 +61,19 @@ export type KbSessionState = {
   /**
    * 上下文用量快照（运行时，不持久化）
    * - 仅用于 UI 显示和 trace 诊断
-   * - 不影响 Planner 决策和工具链路
+   * - 不影响 Agent 决策和工具链路
    */
   contextUsage?: ContextUsageSnapshot;
 
   /**
    * 压缩摘要文本（运行时，从会话层同步）
    * - 用于 runtime context 构建
-   * - 不影响 Planner 决策和工具链路
+   * - 不影响 Agent 决策和工具链路
    */
   compressedContextSummary?: string;
 
   /**
-   * Planner 生成的会话内阶段摘要。
+   * Agent 生成的会话内阶段摘要。
    * 仅用于当前会话上下文预算管理，不写入长期记忆或思源文档。
    */
   stageSummaries?: ConversationStageSummary[];
@@ -81,7 +81,7 @@ export type KbSessionState = {
   /**
    * 压缩状态（运行时，从会话层同步）
    * - 仅用于 UI 显示
-   * - 不影响 Planner 决策和工具链路
+   * - 不影响 Agent 决策和工具链路
    */
   compressionState?: ContextCompressionState;
 };

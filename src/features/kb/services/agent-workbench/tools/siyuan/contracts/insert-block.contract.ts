@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 
 export const insertBlockInputSchema = z.object({
   referenceBlockId: z.string().trim().min(1).max(256),
@@ -23,7 +23,7 @@ export const insertBlockOutputSchema = z.object({
 export type InsertBlockOutput = z.infer<typeof insertBlockOutputSchema>;
 
 /**
- * 内部 confirmation 准备结果，不是 Planner 可见工具结果。
+ * 内部 confirmation 准备结果，不是 Agent 可见工具结果。
  */
 export interface PreparedInsertBlockConfirmation {
   confirmationId: string;

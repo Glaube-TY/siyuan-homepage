@@ -6,7 +6,7 @@
  * All tool/skill factory + impl imports live in composition/ modules.
  */
 
-import { ObservationLog } from "./observation-log";
+import { ToolResultLog } from "./tool-result-log";
 import { SkillRegistry } from "../registries/skill-registry";
 import { ToolRegistry } from "../registries/tool-registry";
 import type { SiyuanToolDeps } from "../tools/siyuan/siyuan-tool-deps";
@@ -32,7 +32,7 @@ import { setupAgentDebug } from "../debug/workbench-debug";
 export interface AgentWorkbenchRuntime {
   skillRegistry: SkillRegistry;
   toolRegistry: ToolRegistry;
-  observationLog: ObservationLog;
+  observationLog: ToolResultLog;
 }
 
 export type { BuiltinCapabilityAccess };
@@ -79,7 +79,7 @@ export function createAgentWorkbenchRuntime(
   // Register built-in skills based on capability access (settings-level visibility gate)
   registerBuiltinSkills(skillRegistry, options.builtinCapabilityAccess);
 
-  // Register system tools (final_answer, edit_global_memory)
+  // Register system tools (edit_global_memory)
   registerSystemTools(toolRegistry, {
     globalMemoryToolDeps: options.globalMemoryToolDeps,
     globalToolAccess: options.globalToolAccess,
@@ -108,13 +108,13 @@ export function createAgentWorkbenchRuntime(
   // Dev-mode schema sanity — stores to debug sink, accessed via __kbAgentDebug("all")
   if (isDevEnv()) {
     const dummyCtx = { question: "", callCounts: {} };
-    runSchemaSanity(toolRegistry.getPlannerManifest(dummyCtx));
+    runSchemaSanity(toolRegistry.getToolManifest(dummyCtx));
   }
 
   return {
     skillRegistry,
     toolRegistry,
-    observationLog: new ObservationLog(),
+    observationLog: new ToolResultLog(),
   };
 }
 

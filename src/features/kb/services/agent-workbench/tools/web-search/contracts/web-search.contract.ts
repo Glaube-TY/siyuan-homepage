@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Web search contract — input/output schemas for web_search tool.
  * Pure types and schemas. No side effects. No runtime logic.
  */
@@ -37,7 +37,7 @@ export const webSearchOutputSchema = z.object({
 
 export type WebSearchOutput = z.infer<typeof webSearchOutputSchema>;
 
-// ── JSON Schema override (for Planner) ──
+// ── JSON Schema override (for Agent) ──
 
 export const webSearchInputJsonSchemaOverride = {
   type: "object" as const,

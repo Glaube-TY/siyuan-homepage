@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Thin ToolContract — a tool is a global independent capability.
  *
  * ToolExecutor is the SINGLE observation envelope generator.
@@ -49,20 +49,20 @@ export interface ToolErrorDetail {
 }
 
 /**
- * Tool observation — JSON envelope for Planner.
+ * Tool execution record — structured result for the agent context.
  * Built by ToolExecutor, NOT by tools.
  *
  * Success: { ok: true, toolName, data: result.data }
  * Failure: { ok: false, toolName, error: { code, message, ... } }
  *
- * `summary` is for UI/trace only — never enters the Planner prompt data.
+ * `summary` is for UI/trace only — never enters the agent prompt context.
  */
-export interface ToolObservation {
+export interface ToolExecutionRecord {
   toolName: string;
   ok: boolean;
   /** One-line summary for UI/trace only */
   summary: string;
-  /** Arbitrary JSON data for Planner — comes from result.data */
+  /** Structured result data for agent context — comes from result.data */
   content?: unknown;
 }
 
@@ -70,6 +70,7 @@ export interface ToolObservation {
 export interface ToolRuntimeContext {
   question: string;
   callCounts: Record<string, number>;
+  abortSignal?: AbortSignal;
 }
 
 /** Tool contract — thin interface */
@@ -84,7 +85,7 @@ export interface ToolContract<TArgs = unknown, TResult = unknown> {
   source: ToolSource;
   inputHint?: string;
   boundary?: string;
-  plannerVisible: boolean;
+  providerVisible: boolean;
 
   /** Hard availability check only — no business judgment */
   availability(ctx: ToolRuntimeContext): ToolAvailability;
@@ -94,13 +95,13 @@ export interface ToolContract<TArgs = unknown, TResult = unknown> {
 
   /**
    * Optional: produce a UI/trace summary line.
-   * NOT used to construct Planner-visible data. ToolExecutor uses result.data
+   * NOT used to construct provider-visible data. ToolExecutor uses result.data
    * directly. If absent, ToolExecutor generates a generic summary.
    */
   summarizeResult?(result: ToolResult<TResult>, ctx: ToolRuntimeContext): string;
 
   /**
-   * Optional: explicit JSON Schema override for planner-visible tool manifest.
+   * Optional: explicit JSON Schema override for provider-visible tool manifest.
    * When present, this is used directly as inputJsonSchema, bypassing auto-conversion
    * from inputSchema. Use this when Zod preprocess/refine cannot express the full
    * parameter contract (e.g. mutual exclusion, oneOf constraints).
@@ -108,12 +109,12 @@ export interface ToolContract<TArgs = unknown, TResult = unknown> {
   inputJsonSchemaOverride?: unknown;
 }
 
-/** Planner-visible tool manifest (no execute/summarize — JSON-compatible only) */
+/** Provider-visible tool manifest (no execute/summarize — JSON-compatible only) */
 export interface ToolManifest {
   name: string;
   title: string;
   description: string;
-  /** Machine-readable JSON Schema for planner. Omitted if conversion fails. */
+  /** Machine-readable JSON Schema for the provider. Omitted if conversion fails. */
   inputJsonSchema?: unknown;
   inputHint?: string;
   readOnly: boolean;

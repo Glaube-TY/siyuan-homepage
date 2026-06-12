@@ -1,6 +1,6 @@
-<script lang="ts">
-  import type { KbChatProviderConfig, KbChatModelConfig, ControlPlaneCompatibility } from "../../../types/settings";
-  import type { ModelConnectionTestResult, ControlPlaneCompatibilityTestResult } from "../../../services/qa/model-connection-test";
+﻿<script lang="ts">
+  import type { KbChatProviderConfig, KbChatModelConfig, ProviderNativeAgentCompatibility } from "../../../types/settings";
+  import type { ModelConnectionTestResult, ProviderNativeAgentCompatibilityTestResult } from "../../../services/qa/model-connection-test";
   import {
     normalizeId,
     hasUsableChatModel,
@@ -23,17 +23,17 @@
   export let onRemoveModel: (providerId: string, modelIndex: number) => void;
   export let onSelectModel: (providerId: string, modelId: string) => void;
   export let onTestModel: (providerId: string, modelId: string) => void | Promise<void>;
-  export let onTestControlPlane: (providerId: string, modelId: string) => void | Promise<void>;
+  export let onTestNativeAgent: (providerId: string, modelId: string) => void | Promise<void>;
   export let isCurrentModel: (providerId: string, modelId: string) => boolean;
   export let canUseModel: (provider: KbChatProviderConfig, model: KbChatModelConfig) => boolean;
   export let getSelectModelTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
   export let getTestModelTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
   export let isTestingModel: (providerId: string, modelId: string) => boolean;
-  export let isTestingControlPlane: (providerId: string, modelId: string) => boolean;
-  export let testingControlPlaneKey: string = "";
-  export let getTestControlPlaneTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
-  /** 自动操作测试结果（直接 prop，确保响应式刷新） */
-  export let controlPlaneTestResults: Record<string, ControlPlaneCompatibilityTestResult> = {};
+  export let isTestingNativeAgent: (providerId: string, modelId: string) => boolean;
+  export let testingNativeAgentKey: string = "";
+  export let getTestNativeAgentTitle: (provider: KbChatProviderConfig, model: KbChatModelConfig) => string;
+  /** Agent 工具调用兼容性测试结果（直接 prop，确保响应式刷新） */
+  export let nativeAgentTestResults: Record<string, ProviderNativeAgentCompatibilityTestResult> = {};
 
   /**
    * 获取合并后的 temperature 参数策略（provider profile 合并 model 覆盖）。
@@ -45,29 +45,29 @@
   ): string | undefined {
     try {
       const profile = resolveProviderProfile(p.type, {
-        providerControlPlaneCompatibility: p.controlPlaneCompatibility,
-        modelControlPlaneCompatibility: m.controlPlaneCompatibility,
+        providerNativeAgentCompatibility: p.providerNativeAgentCompatibility,
+        modelNativeAgentCompatibility: m.providerNativeAgentCompatibility,
       });
-      return profile.controlPlaneCompatibility?.temperatureParamStrategy;
+      return profile.providerNativeAgentCompatibility?.temperatureParamStrategy;
     } catch {
       return undefined;
     }
   }
 
   /**
-   * 获取合并后的 controlPlaneCompatibility（provider profile 默认 + provider 配置 + model 覆盖）。
+   * 获取合并后的 ProviderNativeAgentCompatibility（provider profile 默认 + provider 配置 + model 覆盖）。
    * UI 温度提示和显示值都从此读取，不直接读 model/provider 原始字段。
    */
-  function getResolvedControlPlaneCompatibility(
+  function getResolvedProviderNativeAgentCompatibility(
     p: KbChatProviderConfig,
     m: KbChatModelConfig,
-  ): ControlPlaneCompatibility | undefined {
+  ): ProviderNativeAgentCompatibility | undefined {
     try {
       const profile = resolveProviderProfile(p.type, {
-        providerControlPlaneCompatibility: p.controlPlaneCompatibility,
-        modelControlPlaneCompatibility: m.controlPlaneCompatibility,
+        providerNativeAgentCompatibility: p.providerNativeAgentCompatibility,
+        modelNativeAgentCompatibility: m.providerNativeAgentCompatibility,
       });
-      return profile.controlPlaneCompatibility;
+      return profile.providerNativeAgentCompatibility;
     } catch {
       return undefined;
     }
@@ -99,7 +99,7 @@
     模型更新较快，可点击刷新从服务商拉取当前账号可用模型；也可以手动填写模型 ID。
   </div>
   <div class="models-hint models-hint-warning">
-    模型列表可刷新，不代表一定能用于自动操作；建议再运行自动操作测试。
+    模型列表可刷新，不代表一定能用于 Agent；建议再运行 Agent 工具调用兼容性测试。
   </div>
   {#if refreshMessage}
     <div class="refresh-message">{refreshMessage}</div>
@@ -123,7 +123,7 @@
     {#each provider.models as model, modelIndex (modelIndex)}
       {@const modelKey = getChatModelKey(normalizeId(provider.id), normalizeId(model.id))}
       {@const tempStrategy = getTemperatureParamStrategy(provider, model)}
-      {@const resolvedCp = getResolvedControlPlaneCompatibility(provider, model)}
+      {@const resolvedCp = getResolvedProviderNativeAgentCompatibility(provider, model)}
       <div class="model-item">
         <div class="model-main-fields">
           <div class="model-field">
@@ -180,9 +180,9 @@
             </label>
           </div>
         </div>
-        {#if model.notRecommendedForPlanner}
+        {#if model.notRecommendedForAgent}
           <div class="model-warning-badge">
-            当前模型更适合生成计划，不太适合快速执行自动操作。
+            当前模型更适合纯回答或长思考，不太推荐用于 Agent 模式。
           </div>
         {/if}
         <div class="model-token-fields">
@@ -265,13 +265,13 @@
             class="settings-btn secondary"
             disabled={
               Boolean(testingModelKey) ||
-              Boolean(testingControlPlaneKey) ||
+              Boolean(testingNativeAgentKey) ||
               !canUseModel(provider, model)
             }
-            title={getTestControlPlaneTitle(provider, model)}
-            on:click={() => onTestControlPlane(provider.id, model.id)}
+            title={getTestNativeAgentTitle(provider, model)}
+            on:click={() => onTestNativeAgent(provider.id, model.id)}
           >
-            {isTestingControlPlane(provider.id, model.id) ? "测试中..." : "测试自动操作"}
+            {isTestingNativeAgent(provider.id, model.id) ? "测试中..." : "测试 Agent"}
           </button>
 
           <button
@@ -296,18 +296,18 @@
           </div>
         {/if}
 
-        <!-- 自动操作测试结果 -->
-        {#if isTestingControlPlane(provider.id, model.id)}
+        <!-- Agent 工具调用兼容性测试结果 -->
+        {#if isTestingNativeAgent(provider.id, model.id)}
           <div class="test-result testing">
-            正在测试自动操作，请稍候……
+            正在测试 Agent 工具调用，请稍候……
           </div>
-        {:else if controlPlaneTestResults[modelKey]}
-          {@const cpResult = controlPlaneTestResults[modelKey]}
+        {:else if nativeAgentTestResults[modelKey]}
+          {@const cpResult = nativeAgentTestResults[modelKey]}
           <div
             class="test-result"
             class:success={cpResult.status === "success"}
-            class:warning={cpResult.status === "reasoning_only"}
-            class:error={cpResult.status === "timeout" || cpResult.status === "invalid_json" || cpResult.status === "error"}
+            class:warning={cpResult.status === "no_tool_result_continuation"}
+            class:error={cpResult.status === "timeout" || cpResult.status === "no_tool_call" || cpResult.status === "error"}
           >
             {cpResult.message}
           </div>
@@ -441,7 +441,7 @@
 
   .model-main-fields {
     display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(96px, 0.6fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     min-width: 0;
 

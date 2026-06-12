@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Search Docs For Chat Attachment
  *
  * 职责：
@@ -6,7 +6,7 @@
  * - 使用共享检索核心 (searchKnowledgeBaseCore) 三通道搜索
  * - 只返回轻量元信息，不读取正文
  * - 这是 UI 搜索服务，不写入 Agent Workbench 运行态
- * - 不触发 Planner
+ * - 不触发 Agent
  */
 
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";

@@ -1,7 +1,7 @@
 /**
  * TurnTraceStore — bounded ring buffer for turn traces.
  * Pure data store. No window writes (__kbAgentDebug handles that).
- * Not visible to the planner.
+ * Not visible to the agent prompt.
  */
 
 export interface TurnTrace {

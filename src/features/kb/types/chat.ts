@@ -38,7 +38,7 @@ export type ReferenceItem = {
    */
   readLevel?: "content" | "structure" | "candidate" | "snippet" | "section" | "document";
   /** 引用原因（可选，Agent Core 使用） */
-  referenceReason?: "planner_explicit" | "read_content" | "structure_result" | "search_candidate";
+  referenceReason?: "agent_explicit" | "read_content" | "structure_result" | "search_candidate";
   /** 是否已通过 grounding 校验（Agent Core 使用） */
   grounded?: boolean;
   /** 来源类型：siyuan_doc（默认）或 web_page 等 */
@@ -122,7 +122,7 @@ export type AssistantChatMessage = {
    * 本轮 Workbench 轻量 UI 事件流
    * - 可持久化用于会话复现
    * - 不保存 observation data、prompt、工具正文或 debug trace
-   * - 不进入 conversationContext / Planner prompt
+   * - 不进入 conversationContext / agent context
    */
   workbenchEvents?: import("../services/agent-workbench").AgentWorkbenchEvent[];
   /**
@@ -213,12 +213,18 @@ export type KbConversationSession = {
   updatedAt: number;
   /** 消息列表 */
   messages: ChatMessage[];
-  /** Planner 生成的会话内阶段摘要，仅用于当前会话上下文预算管理 */
+  /** Agent 生成的会话内阶段摘要，仅用于当前会话上下文预算管理 */
   stageSummaries?: ConversationStageSummary[];
   /** 压缩状态（可选，兼容旧会话） */
   compressionState?: import("./context-usage").ContextCompressionState;
   /** 压缩摘要文本（可选） */
   compressedContextSummary?: string;
+  /** Provider-facing native Agent message log; UI messages remain separate. */
+  agentSession?: {
+    id: string;
+    messages: import("../services/agent-core/messages/agent-message").AgentMessage[];
+    updatedAt: number;
+  };
 };
 
 export type ConversationStageSummary = {
@@ -231,6 +237,6 @@ export type ConversationStageSummary = {
   endUserMessageId: string;
   endAssistantMessageId: string;
   endTurnIndex: number;
-  source: "planner_stage_summary" | "emergency_llm_stage_summary";
+  source: "agent_stage_summary" | "emergency_llm_stage_summary";
   summaryChars: number;
 };

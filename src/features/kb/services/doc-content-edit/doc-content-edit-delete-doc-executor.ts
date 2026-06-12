@@ -1,9 +1,9 @@
 /**
  * delete_doc 内部确认执行服务。
- * 仅在用户通过 UI 弹窗确认后调用，不暴露给 Planner。
+ * 仅在用户通过 UI 弹窗确认后调用，不暴露给 Agent。
  * 真实删除统一走 src/api.ts 的 removeDocByID wrapper。
  */
-import { removeDocByID, sql } from "../../../../api";
+import { removeDocByID, sql, flushTransaction } from "../../../../api";
 import {
   getDocContentEditConfirmation,
   removeDocContentEditConfirmation,
@@ -25,6 +25,38 @@ export interface ExecuteConfirmedDeleteDocResult {
 
 function escapeSqlId(id: string): string {
   return id.replace(/'/g, "''");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function queryDocStillExists(docId: string): Promise<boolean | "unknown"> {
+  try {
+    const rows = await sql(`SELECT * FROM blocks WHERE id = '${escapeSqlId(docId)}' AND type = 'd'`);
+    return Array.isArray(rows) && rows.length > 0;
+  } catch {
+    return "unknown";
+  }
+}
+
+async function waitUntilDocDisappearsFromSql(docId: string): Promise<"confirmed_removed" | "still_indexed" | "unknown"> {
+  try {
+    await flushTransaction();
+  } catch {
+    // best effort
+  }
+
+  const delays = [80, 180, 350];
+
+  for (const ms of delays) {
+    await delay(ms);
+    const exists = await queryDocStillExists(docId);
+    if (exists === false) return "confirmed_removed";
+    if (exists === "unknown") return "unknown";
+  }
+
+  return "still_indexed";
 }
 
 export async function executeConfirmedDeleteDoc(
@@ -122,26 +154,28 @@ export async function executeConfirmedDeleteDoc(
     };
   }
 
-  // 7. 执行后校验：确认文档已不存在
-  try {
-    const rowsAfter = await sql(`SELECT * FROM blocks WHERE id = '${escapeSqlId(docId)}' AND type = 'd'`);
-    if (rowsAfter && rowsAfter.length > 0) {
-      await removeDocContentEditConfirmation(confirmationId);
-      return {
-        ok: false,
-        status: "failed",
-        message: "删除后校验失败：文档仍存在。",
-      };
-    }
-  } catch {
-    // 校验查询失败不阻断成功，继续返回 success
+  // 7. 执行后校验：确认文档已不存在（best-effort，不因 SQL 延迟阻断成功）
+  let verification: { status: string; message?: string } | undefined;
+  const verificationResult = await waitUntilDocDisappearsFromSql(docId);
+
+  if (verificationResult === "confirmed_removed") {
+    verification = { status: "confirmed_removed" };
+  } else if (verificationResult === "still_indexed") {
+    verification = { status: "still_indexed", message: "删除请求已完成，索引可能仍在刷新，请稍后确认。" };
+  } else {
+    verification = { status: "unknown", message: "删除请求已完成，后置校验未完成。" };
   }
 
   await removeDocContentEditConfirmation(confirmationId);
+
+  const successMessage = verification?.status === "confirmed_removed"
+    ? "文档已删除。"
+    : (verification?.message ?? "文档已删除。");
+
   return {
     ok: true,
     status: "success",
-    message: "文档已删除。",
+    message: successMessage,
     target: {
       docId,
       title: currentTitle,

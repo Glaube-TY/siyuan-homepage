@@ -94,7 +94,7 @@ export async function prepareRenameDocConfirmation(
 }
 
 /**
- * Planner-facing rename_doc 执行器。
+ * Agent-facing rename_doc 执行器。
  * 内部触发确认弹窗，用户确认后重命名，最终返回成功/拒绝/失败结果。
  */
 export async function executeRenameDoc(
@@ -155,6 +155,7 @@ export async function executeRenameDoc(
     const confirmationRes = await requestDocContentEditConfirmation({
       confirmationId,
       action: "rename_doc",
+      abortSignal: deps.abortSignal,
     });
 
     // 4. 用户拒绝
@@ -179,6 +180,7 @@ export async function executeRenameDoc(
         status: "success",
         message: execRes.message,
         target: execRes.target ?? target,
+        verification: execRes.verification,
       },
     };
   }

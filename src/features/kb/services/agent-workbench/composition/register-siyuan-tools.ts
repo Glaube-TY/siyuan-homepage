@@ -28,8 +28,8 @@ import {
   createInsertBlockTool,
 } from "../tools/siyuan/insert-block.tool";
 import {
-  createDeleteBlockTool,
-} from "../tools/siyuan/delete-block.tool";
+  createDeleteBlocksTool,
+} from "../tools/siyuan/delete-blocks.tool";
 import {
   createMoveBlockTool,
 } from "../tools/siyuan/move-block.tool";
@@ -69,6 +69,10 @@ import {
   createGetDocInfoTool,
   type GetDocInfoDeps,
 } from "../tools/siyuan/get-doc-info.tool";
+import {
+  createReadCandidateDocsTool,
+  type ReadCandidateDocsDeps,
+} from "../tools/siyuan/read-candidate-docs.tool";
 
 // Tool execution implementations
 import { executeListKnowledgeMap } from "../tools/siyuan/impl/list-knowledge-map.impl";
@@ -81,7 +85,7 @@ import { executeFindDiaryDocs } from "../tools/siyuan/impl/find-diary-docs.impl"
 import { executeReadDocBlocks } from "../tools/siyuan/impl/read-doc-blocks.impl";
 import { executeUpdateBlock } from "../tools/siyuan/impl/update-block.impl";
 import { executeInsertBlock } from "../tools/siyuan/impl/insert-block.impl";
-import { executeDeleteBlock } from "../tools/siyuan/impl/delete-block.impl";
+import { executeDeleteBlocks } from "../tools/siyuan/impl/delete-blocks.impl";
 import { executeMoveBlock } from "../tools/siyuan/impl/move-block.impl";
 import { executeCreateDoc } from "../tools/siyuan/impl/create-doc.impl";
 import { executeRenameDoc } from "../tools/siyuan/impl/rename-doc.impl";
@@ -163,6 +167,19 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
     toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
     toolRegistry.ensureTool(createListDocsByTimeTool(listDocsByTimeDeps));
+
+    // read_candidate_docs: combines search + read into one step
+    const readCandidateDeps: ReadCandidateDocsDeps = {
+      executeSearch: async (args) => {
+        const result = await executeSearchScope(deps, { query: args.query, limit: args.limit });
+        return result.safeOutput;
+      },
+      executeRead: async (args) => {
+        const result = await executeReadDocs(deps, { docIds: args.docIds, maxChars: args.maxChars });
+        return result.safeOutput;
+      },
+    };
+    toolRegistry.ensureTool(createReadCandidateDocsTool(readCandidateDeps));
   }
 
   if (options.builtinCapabilityAccess?.scheduleTaskDiary !== false) {
@@ -176,14 +193,14 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createReadDocBlocksTool(readDocBlocksDeps));
     if (options.conversationId) {
       const writeDeps = { ...deps, conversationId: options.conversationId };
-      toolRegistry.ensureTool(createUpdateBlockTool({ executeUpdateBlock: (args) => executeUpdateBlock(writeDeps, args) }));
-      toolRegistry.ensureTool(createInsertBlockTool({ executeInsertBlock: (args) => executeInsertBlock(writeDeps, args) }));
-      toolRegistry.ensureTool(createDeleteBlockTool({ executeDeleteBlock: (args) => executeDeleteBlock(writeDeps, args) }));
-      toolRegistry.ensureTool(createMoveBlockTool({ executeMoveBlock: (args) => executeMoveBlock(writeDeps, args) }));
-      toolRegistry.ensureTool(createCreateDocTool({ executeCreateDoc: (args) => executeCreateDoc(writeDeps, args) }));
-      toolRegistry.ensureTool(createRenameDocTool({ executeRenameDoc: (args) => executeRenameDoc(writeDeps, args) }));
-      toolRegistry.ensureTool(createDeleteDocTool({ executeDeleteDoc: (args) => executeDeleteDoc(writeDeps, args) }));
-      toolRegistry.ensureTool(createReplaceDocContentTool({ executeReplaceDocContent: (args) => executeReplaceDocContent(writeDeps, args) }));
+      toolRegistry.ensureTool(createUpdateBlockTool({ executeUpdateBlock: (args, abortSignal) => executeUpdateBlock({ ...writeDeps, abortSignal }, args) }));
+      toolRegistry.ensureTool(createInsertBlockTool({ executeInsertBlock: (args, abortSignal) => executeInsertBlock({ ...writeDeps, abortSignal }, args) }));
+      toolRegistry.ensureTool(createDeleteBlocksTool({ executeDeleteBlocks: (args, abortSignal) => executeDeleteBlocks({ ...writeDeps, abortSignal }, args) }));
+      toolRegistry.ensureTool(createMoveBlockTool({ executeMoveBlock: (args, abortSignal) => executeMoveBlock({ ...writeDeps, abortSignal }, args) }));
+      toolRegistry.ensureTool(createCreateDocTool({ executeCreateDoc: (args, abortSignal) => executeCreateDoc({ ...writeDeps, abortSignal }, args) }));
+      toolRegistry.ensureTool(createRenameDocTool({ executeRenameDoc: (args, abortSignal) => executeRenameDoc({ ...writeDeps, abortSignal }, args) }));
+      toolRegistry.ensureTool(createDeleteDocTool({ executeDeleteDoc: (args, abortSignal) => executeDeleteDoc({ ...writeDeps, abortSignal }, args) }));
+      toolRegistry.ensureTool(createReplaceDocContentTool({ executeReplaceDocContent: (args, abortSignal) => executeReplaceDocContent({ ...writeDeps, abortSignal }, args) }));
     }
   }
 }

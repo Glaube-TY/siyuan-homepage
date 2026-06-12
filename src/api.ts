@@ -370,6 +370,15 @@ export async function getBlockByID(blockId: string): Promise<Block> {
     return data[0];
 }
 
+export async function flushTransaction(): Promise<null> {
+    const url = '/api/sqlite/flushTransaction';
+    const response = await requestRaw(url, {});
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'flushTransaction failed');
+    }
+    return null;
+}
+
 // **************************************** Search ****************************************
 
 export interface FullTextSearchBlockResult {

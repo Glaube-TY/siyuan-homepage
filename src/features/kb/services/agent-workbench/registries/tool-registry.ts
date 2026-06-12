@@ -13,8 +13,9 @@ import type {
 
 interface RegisteredTool {
   tool: ToolContract;
+  /** Registered tool entry, caches computed JSON Schema for provider manifest */
   registeredAt: number;
-  /** Cached canonicalized JSON Schema for planner. Computed once at registration. */
+  /** Cached canonicalized JSON Schema for provider. Computed once at registration. */
   inputJsonSchema?: unknown;
 }
 
@@ -60,10 +61,10 @@ export class ToolRegistry {
     return Array.from(this.tools.values()).map((e) => e.tool);
   }
 
-  /** Get planner-visible tool manifests (only plannerVisible: true), stable-sorted by name */
-  getPlannerManifest(ctx: ToolRuntimeContext): ToolManifest[] {
+  /** Get provider-visible tool manifests (only providerVisible: true), stable-sorted by name */
+  getToolManifest(ctx: ToolRuntimeContext): ToolManifest[] {
     return this.listTools()
-      .filter((t) => t.plannerVisible)
+      .filter((t) => t.providerVisible)
       .map((t) => this.toManifest(t, ctx))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -109,7 +110,7 @@ function computeAndCanonicalizeSchema(tool: ToolContract): unknown | undefined {
   }
 
   // 3. Normalize / canonicalize
-  return normalizePlannerInputJsonSchema(raw, tool.name);
+  return normalizeProviderInputJsonSchema(raw, tool.name);
 }
 
 /* ────────────────────────────────────────────────────────────────── */
@@ -117,7 +118,7 @@ function computeAndCanonicalizeSchema(tool: ToolContract): unknown | undefined {
 /* ────────────────────────────────────────────────────────────────── */
 
 /**
- * Normalize and validate an input JSON Schema for the Planner/provider manifest.
+ * Normalize and validate an input JSON Schema for the provider tool manifest.
  *
  * Provider-visible tool parameters schema MUST be a strict object schema:
  * - Root `type: "object"` with `properties`
@@ -127,7 +128,7 @@ function computeAndCanonicalizeSchema(tool: ToolContract): unknown | undefined {
  * Failure returns undefined → manifest falls back to inputHint.
  * Workbench does NOT auto-add missing fields — that would hide tool contract drift.
  */
-function normalizePlannerInputJsonSchema(schema: unknown, toolName: string): unknown | undefined {
+function normalizeProviderInputJsonSchema(schema: unknown, toolName: string): unknown | undefined {
   if (!schema || typeof schema !== "object") {
     pushAgentDebugEvent("SCHEMA_NOT_OBJECT", { tool: toolName }, "warn");
     return undefined;

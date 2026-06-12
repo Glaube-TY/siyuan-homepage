@@ -1,4 +1,4 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 
 export const replaceDocContentInputSchema = z.object({
   docId: z.string().trim().min(1).max(256),
@@ -19,7 +19,7 @@ export const replaceDocContentOutputSchema = z.object({
 export type ReplaceDocContentOutput = z.infer<typeof replaceDocContentOutputSchema>;
 
 /**
- * 内部 confirmation 准备结果，不是 Planner 可见工具结果。
+ * 内部 confirmation 准备结果，不是 Agent 可见工具结果。
  */
 export interface PreparedReplaceDocContentConfirmation {
   confirmationId: string;

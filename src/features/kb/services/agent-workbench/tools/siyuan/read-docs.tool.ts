@@ -1,4 +1,4 @@
-import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   readDocsInputSchema,
   readDocsOutputSchema,
@@ -35,7 +35,7 @@ export function createReadDocsTool(deps: ReadDocsDeps): ToolContract<ReadDocsInp
     inputHint: "docIds（字符串数组）或 blockIds（字符串数组），至少提供一个。长文继续读取时使用 chunkIndex（可选，默认1）/ chunkChars（可选，默认12000）/ chunkCount。",
     boundary: "只能读取已经明确给出的真实 docId/blockId/cursor。docId/blockId 必须来自用户显式附加、历史 grounded reference 或本轮工具返回。本工具只读取已明确资源 ID 对应的正文；不负责查询、搜索、定位、推断资源 ID 或生成候选资源。不自动继续读，不自动换 ID。失败时区分 resource_not_found、empty_content、container_without_content、invalid_resource_id。",
 
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: readDocsInputJsonSchemaOverride,
 
     availability() {

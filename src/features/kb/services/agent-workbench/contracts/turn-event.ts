@@ -1,24 +1,56 @@
-/**
- * Agent Workbench event types — standardized event stream for UI.
- */
+import type { AgentToolCall } from "../../agent-core/messages/agent-message";
+import type { ToolExecutionResult } from "../../agent-core/tools/native-tool";
+import type { ToolPermissionPreview } from "../../agent-core/permissions/tool-preview";
 
 export type AgentWorkbenchEventType =
-  | "TurnStarted"
-  | "AssistantMessageStarted"
-  | "ToolDispatch"
-  | "ToolResult"
-  | "AssistantFinal"
-  | "TurnFailed"
-  | "Notice";
+  | "assistant_text_delta"
+  | "assistant_reasoning_delta"
+  | "assistant_reasoning_reset"
+  | "assistant_text_reset"
+  | "tool_call_delta"
+  | "tool_start"
+  | "permission_required"
+  | "permission_resolved"
+  | "tool_result"
+  | "assistant_final"
+  | "notice"
+  | "error"
+  | "done";
 
 export interface AgentWorkbenchEventBase {
   type: AgentWorkbenchEventType;
-  stepIndex?: number;
   at: number;
+  stepIndex?: number;
 }
 
-export interface ToolDispatchEvent extends AgentWorkbenchEventBase {
-  type: "ToolDispatch";
+export interface AssistantTextDeltaEvent extends AgentWorkbenchEventBase {
+  type: "assistant_text_delta";
+  delta: string;
+  fullContent: string;
+}
+
+export interface AssistantReasoningDeltaEvent extends AgentWorkbenchEventBase {
+  type: "assistant_reasoning_delta";
+  delta: string;
+  fullReasoning: string;
+}
+
+export interface AssistantReasoningResetEvent extends AgentWorkbenchEventBase {
+  type: "assistant_reasoning_reset";
+}
+
+export interface AssistantTextResetEvent extends AgentWorkbenchEventBase {
+  type: "assistant_text_reset";
+}
+
+export interface ToolCallDeltaEvent extends AgentWorkbenchEventBase {
+  type: "tool_call_delta";
+  call: Partial<AgentToolCall> & { index: number };
+}
+
+export interface ToolStartEvent extends AgentWorkbenchEventBase {
+  type: "tool_start";
+  stepIndex: number;
   toolCallId: string;
   toolName: string;
   argsPreview: Record<string, unknown>;
@@ -26,25 +58,71 @@ export interface ToolDispatchEvent extends AgentWorkbenchEventBase {
   startedAt: number;
 }
 
+export interface PermissionRequiredEvent extends AgentWorkbenchEventBase {
+  type: "permission_required";
+  stepIndex: number;
+  toolCallId: string;
+  preview: ToolPermissionPreview;
+}
+
+export interface PermissionResolvedEvent extends AgentWorkbenchEventBase {
+  type: "permission_resolved";
+  stepIndex: number;
+  toolCallId: string;
+  approved: boolean;
+  reason?: string;
+}
+
 export interface ToolResultEvent extends AgentWorkbenchEventBase {
-  type: "ToolResult";
+  type: "tool_result";
+  stepIndex: number;
   toolCallId: string;
   toolName: string;
-  ok: boolean;
-  outputSummary?: string;
-  observationPreview?: string;
-  errorCode?: string;
+  result: ToolExecutionResult;
   durationMs: number;
-  truncated?: boolean;
+}
+
+export interface AssistantFinalEvent extends AgentWorkbenchEventBase {
+  type: "assistant_final";
+  answer: string;
 }
 
 export interface NoticeEvent extends AgentWorkbenchEventBase {
-  type: "Notice";
+  type: "notice";
   message: string;
 }
 
+export interface ErrorEvent extends AgentWorkbenchEventBase {
+  type: "error";
+  code: string;
+  message: string;
+}
+
+export interface DoneEvent extends AgentWorkbenchEventBase {
+  type: "done";
+  status: "answer_ready" | "failed" | "cancelled";
+}
+
+export interface SafeTargetPreview {
+  targetDocIds?: string[];
+  targetBlockIds?: string[];
+  targetTitles?: string[];
+  requestedCount?: number;
+  affectedCount?: number;
+  reasonCode?: string;
+}
+
 export type AgentWorkbenchEvent =
-  | (AgentWorkbenchEventBase & { type: "TurnStarted" | "AssistantMessageStarted" | "AssistantFinal" | "TurnFailed"; message?: string; status?: string; errorCode?: string })
-  | ToolDispatchEvent
+  | AssistantTextDeltaEvent
+  | AssistantReasoningDeltaEvent
+  | AssistantReasoningResetEvent
+  | AssistantTextResetEvent
+  | ToolCallDeltaEvent
+  | ToolStartEvent
+  | PermissionRequiredEvent
+  | PermissionResolvedEvent
   | ToolResultEvent
-  | NoticeEvent;
+  | AssistantFinalEvent
+  | NoticeEvent
+  | ErrorEvent
+  | DoneEvent;

@@ -112,7 +112,7 @@ export async function prepareInsertBlockConfirmation(
 }
 
 /**
- * Planner-facing insert_block 执行器。
+ * Agent-facing insert_block 执行器。
  * 内部触发确认弹窗，用户确认后写入，最终返回成功/拒绝/失败结果。
  */
 export async function executeInsertBlock(
@@ -171,6 +171,7 @@ export async function executeInsertBlock(
     const confirmationRes = await requestDocContentEditConfirmation({
       confirmationId,
       action: "insert_block",
+      abortSignal: deps.abortSignal,
     });
 
     if (confirmationRes.status === "rejected") {

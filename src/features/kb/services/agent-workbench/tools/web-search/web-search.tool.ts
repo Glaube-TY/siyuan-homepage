@@ -1,4 +1,4 @@
-/**
+﻿/**
  * web_search Tool — search the web via a configured provider.
  * Pure factory function. No side effects at module level.
  */
@@ -30,7 +30,7 @@ export function createWebSearchTool(deps: WebSearchDeps): ToolContract<WebSearch
     source: "builtin",
     inputHint: "query（必填，搜索关键词），limit（可选，返回条数，1-10，默认5）。",
     boundary: "只返回搜索候选，不读取完整网页正文。搜索结果只是候选，不可作为最终引用依据。",
-    plannerVisible: true,
+    providerVisible: true,
     inputJsonSchemaOverride: webSearchInputJsonSchemaOverride,
 
     availability() {

@@ -1,9 +1,9 @@
 /**
  * rename_doc 内部确认执行服务。
- * 仅在用户通过 UI 弹窗确认后调用，不暴露给 Planner。
+ * 仅在用户通过 UI 弹窗确认后调用，不暴露给 Agent。
  * 真实重命名统一走 src/api.ts 的 renameDocByID wrapper。
  */
-import { renameDocByID, sql } from "../../../../api";
+import { renameDocByID, sql, flushTransaction } from "../../../../api";
 import {
   getDocContentEditConfirmation,
   removeDocContentEditConfirmation,
@@ -22,10 +22,18 @@ export interface ExecuteConfirmedRenameDocResult {
     title?: string;
     previousTitle?: string;
   };
+  verification?: {
+    status: "confirmed_renamed" | "still_indexed" | "unknown";
+    message?: string;
+  };
 }
 
 function escapeSqlId(id: string): string {
   return id.replace(/'/g, "''");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function executeConfirmedRenameDoc(
@@ -125,32 +133,52 @@ export async function executeConfirmedRenameDoc(
     };
   }
 
-  // 8. 执行后校验：确认标题已变更
+  // 8. Best-effort 后置校验：确认标题已变更（不因 SQL 延迟阻断成功）
+  let verification: { status: "confirmed_renamed" | "still_indexed" | "unknown"; message?: string } | undefined;
+
   try {
-    const rowsAfter = await sql(`SELECT * FROM blocks WHERE id = '${escapeSqlId(docId)}' AND type = 'd'`);
-    const blockAfter = rowsAfter[0] as Block | undefined;
-    const actualTitle = blockAfter?.content || blockAfter?.name || "";
-    if (!blockAfter || actualTitle !== title) {
-      await removeDocContentEditConfirmation(confirmationId);
-      return {
-        ok: false,
-        status: "failed",
-        message: "重命名后校验失败：文档标题未成功更新。",
-      };
-    }
+    await flushTransaction();
   } catch {
-    // 校验查询失败不阻断成功，继续返回 success
+    // best effort
+  }
+
+  const delays = [80, 180, 350];
+
+  for (const ms of delays) {
+    await delay(ms);
+    try {
+      const rowsAfter = await sql(`SELECT * FROM blocks WHERE id = '${escapeSqlId(docId)}' AND type = 'd'`);
+      const blockAfter = rowsAfter[0] as Block | undefined;
+      const actualTitle = blockAfter?.content || blockAfter?.name || "";
+      if (actualTitle === title) {
+        verification = { status: "confirmed_renamed" };
+        break;
+      }
+    } catch {
+      // SQL query failure — continue retry
+    }
+  }
+
+  if (!verification) {
+    // renameDocByID 已成功，但 SQL 尚未刷新
+    verification = { status: "still_indexed", message: "文档重命名请求已完成，索引可能仍在刷新，请稍后确认。" };
   }
 
   await removeDocContentEditConfirmation(confirmationId);
+
+  const successMessage = verification.status === "confirmed_renamed"
+    ? "文档已重命名。"
+    : (verification.message ?? "文档已重命名。");
+
   return {
     ok: true,
     status: "success",
-    message: "文档已重命名。",
+    message: successMessage,
     target: {
       docId,
       title,
       previousTitle: currentTitle ?? previousTitle,
     },
+    verification,
   };
 }

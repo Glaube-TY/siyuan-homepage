@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Knowledge Base Search Core
  *
  * 共享只读检索核心，为 Workbench search_scope 和手动文档搜索提供统一检索能力。
@@ -11,8 +11,8 @@
  * - 不读取文档全文，不输出正文片段
  * - 所有 SQL 只读，LIKE 使用 escapeSqlLike + ESCAPE '\\'
  * - 不做自然语言理解、关键词表、特殊词补丁
- * - 不触发 Planner，不写 workspace
- * - search_scope 0 命中后仍由 Planner 决定下一步
+ * - 不触发 Agent，不写 workspace
+ * - search_scope 0 命中后仍由 Agent 决定下一步
  */
 
 import {

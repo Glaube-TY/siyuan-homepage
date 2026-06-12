@@ -184,7 +184,7 @@ export async function prepareMoveBlockConfirmation(
 }
 
 /**
- * Planner-facing move_block 执行器。
+ * Agent-facing move_block 执行器。
  * 内部触发确认弹窗，用户确认后移动，最终返回成功/拒绝/失败结果。
  */
 export async function executeMoveBlock(
@@ -233,6 +233,7 @@ export async function executeMoveBlock(
     const confirmationRes = await requestDocContentEditConfirmation({
       confirmationId,
       action: "move_block",
+      abortSignal: deps.abortSignal,
     });
 
     // 4. 用户拒绝

@@ -1,8 +1,11 @@
 /**
- * Skill Contract — Skill 是中文能力说明与能力策略包。
- * 可以提供能力域 playbook、推荐工具使用方式、顺序建议和误用禁忌；
- * 可以点名本能力域内工具并解释差异。
- * 不拥有工具、不强制流程，代码不得根据 Skill 内容自动串流程。
+ * Skill Contract
+ *
+ * A skill is an instruction package for domain boundaries, terminology,
+ * evidence rules, and general answer preferences.
+ *
+ * A skill must not own tools, execute code, select tools for the model,
+ * prescribe tool order, or force a fixed runtime flow.
  */
 
 import type { ToolManifest } from "./tool-contract";
@@ -11,12 +14,12 @@ export interface SkillRuntimeContext {
   question: string;
   toolManifest: readonly ToolManifest[];
   enabledSkillNames: readonly string[];
-  observations: readonly SkillObservation[];
+  observations: readonly SkillContextEvidence[];
   userEnabledSkillNames?: readonly string[];
   userDisabledSkillNames?: readonly string[];
 }
 
-export interface SkillObservation {
+export interface SkillContextEvidence {
   kind:
     | "tool_executed"
     | "tool_failed"
@@ -27,9 +30,9 @@ export interface SkillObservation {
     | "skill_observation";
   toolName?: string;
   reasonCode?: string;
-  /** One-line summary for UI/trace (not rendered in Planner prompt) */
+  /** One-line summary for UI/trace (not rendered in agent prompt) */
   summary?: string;
-  /** Structured JSON data for Planner — tools define their own shape */
+  /** Structured data for agent context; tools define their own shape */
   content?: unknown;
 }
 
@@ -49,7 +52,7 @@ export interface SkillContract {
   description: string;
   priority: number;
   enabledByDefault: boolean;
-  /** Build the prompt section injected into planner context */
+  /** Build the prompt section injected into agent context */
   buildPromptSection(ctx: SkillRuntimeContext): SkillPromptSection;
 }
 

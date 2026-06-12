@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import type { KbSettings } from "../../../types/settings";
   import type { WebSearchResult } from "../../../services/agent-workbench/tools/web-search/web-search-provider";
   import { createAnySearchProvider } from "../../../services/agent-workbench/tools/web-search/providers/anysearch.provider";
@@ -17,6 +18,8 @@
   let testSearchLoading = false;
   let testSearchResult = "";
   let testSearchError = "";
+  let showAnySearchApiKey = false;
+  let showTavilyApiKey = false;
 
   let testReadUrl = "";
   let testReadLoading = false;
@@ -139,7 +142,24 @@
           <div class="setting-desc">填写后使用 Bearer 认证，留空允许匿名搜索</div>
         </div>
         <div class="setting-control">
-          <input type="password" class="b3-text-field fn__block" bind:value={ws.apiKey} placeholder="留空允许匿名搜索" />
+          <div class="api-key-field">
+            <input
+              type={showAnySearchApiKey ? "text" : "password"}
+              class="b3-text-field fn__block api-key-input"
+              bind:value={ws.apiKey}
+              placeholder="留空允许匿名搜索"
+            />
+            <button
+              type="button"
+              class="api-key-visibility-button"
+              title={showAnySearchApiKey ? "隐藏 API Key" : "显示 API Key"}
+              aria-label={showAnySearchApiKey ? "隐藏 API Key" : "显示 API Key"}
+              on:click={() => (showAnySearchApiKey = !showAnySearchApiKey)}
+            >
+              <SiyuanIcon name={showAnySearchApiKey ? "iconEye" : "iconEyeoff"} size={16} />
+            </button>
+          </div>
+          <div class="secret-storage-hint">联网搜索 API Key 会在本地加密保存。</div>
           <a href="https://anysearch.com" target="_blank" rel="noopener noreferrer" class="link">打开 AnySearch / 申请 API Key</a>
         </div>
       </div>
@@ -179,7 +199,24 @@
           <div class="setting-desc">必填</div>
         </div>
         <div class="setting-control">
-          <input type="password" class="b3-text-field fn__block" bind:value={ws.apiKey} placeholder="必填" />
+          <div class="api-key-field">
+            <input
+              type={showTavilyApiKey ? "text" : "password"}
+              class="b3-text-field fn__block api-key-input"
+              bind:value={ws.apiKey}
+              placeholder="必填"
+            />
+            <button
+              type="button"
+              class="api-key-visibility-button"
+              title={showTavilyApiKey ? "隐藏 API Key" : "显示 API Key"}
+              aria-label={showTavilyApiKey ? "隐藏 API Key" : "显示 API Key"}
+              on:click={() => (showTavilyApiKey = !showTavilyApiKey)}
+            >
+              <SiyuanIcon name={showTavilyApiKey ? "iconEye" : "iconEyeoff"} size={16} />
+            </button>
+          </div>
+          <div class="secret-storage-hint">联网搜索 API Key 会在本地加密保存。</div>
           <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" class="link">申请 Tavily API Key</a>
         </div>
       </div>
@@ -367,6 +404,53 @@
     flex-direction: row;
     align-items: center;
     justify-content: flex-end;
+  }
+
+  .api-key-field {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .api-key-input {
+    padding-right: 40px;
+    box-sizing: border-box;
+  }
+
+  .api-key-visibility-button {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--b3-theme-on-surface-light);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--b3-list-hover);
+      color: var(--b3-theme-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--b3-theme-primary);
+      outline-offset: 1px;
+    }
+  }
+
+  .secret-storage-hint {
+    font-size: 12px;
+    color: var(--b3-theme-on-surface-light);
+    line-height: 1.4;
   }
 
   .test-card {

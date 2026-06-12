@@ -1,12 +1,13 @@
 /**
  * 文档内容编辑内部确认桥。
- * Runtime/UI 内部机制，不暴露给 Planner / Skill / Prompt。
+ * Runtime/UI 内部机制，不暴露给 Agent / Skill / Prompt。
  * 负责把 pending confirmation 桥接到 UI 弹窗，等待用户确认或拒绝。
  */
 
 export interface DocContentEditConfirmationRequest {
   confirmationId: string;
   action: string;
+  abortSignal?: AbortSignal;
 }
 
 export interface DocContentEditConfirmationResponse {
@@ -40,11 +41,32 @@ export function setDocContentEditConfirmationHandler(
 export async function requestDocContentEditConfirmation(
   request: DocContentEditConfirmationRequest,
 ): Promise<DocContentEditConfirmationResponse> {
+  // Immediate abort check
+  if (request.abortSignal?.aborted) {
+    return { status: "rejected", message: "用户已取消操作。" };
+  }
+
   if (!currentHandler) {
     return {
       status: "rejected",
       message: "确认处理程序未就绪，无法执行文档内容编辑操作。",
     };
   }
-  return currentHandler(request);
+
+  // Race the handler against abort signal
+  const handlerPromise = currentHandler(request);
+  if (!request.abortSignal) {
+    return handlerPromise;
+  }
+
+  return new Promise<DocContentEditConfirmationResponse>((resolve) => {
+    const onAbort = () => {
+      resolve({ status: "rejected", message: "用户已取消操作。" });
+    };
+    request.abortSignal!.addEventListener("abort", onAbort, { once: true });
+    handlerPromise.then((result) => {
+      request.abortSignal!.removeEventListener("abort", onAbort);
+      resolve(result);
+    });
+  });
 }

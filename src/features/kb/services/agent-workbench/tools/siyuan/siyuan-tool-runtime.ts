@@ -12,17 +12,20 @@ export class SiyuanToolRuntimeState implements SiyuanToolDeps {
   private settings: Partial<KbSettings> | undefined;
   private loadPluginDataFn: (<T = unknown>(key: string) => Promise<T | null>) | undefined;
   private savePluginDataFn: (<T = unknown>(key: string, data: T) => Promise<void>) | undefined;
+  public abortSignal?: AbortSignal;
 
   constructor(params: {
     scope: AgentScope;
     settings?: Partial<KbSettings>;
     loadPluginData?: <T = unknown>(key: string) => Promise<T | null>;
     savePluginData?: <T = unknown>(key: string, data: T) => Promise<void>;
+    abortSignal?: AbortSignal;
   }) {
     this.scope = params.scope;
     this.settings = params.settings;
     this.loadPluginDataFn = params.loadPluginData;
     this.savePluginDataFn = params.savePluginData;
+    this.abortSignal = params.abortSignal;
   }
 
   setScope(scope: AgentScope): void {

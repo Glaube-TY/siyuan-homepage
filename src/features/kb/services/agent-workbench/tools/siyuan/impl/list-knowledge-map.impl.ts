@@ -1,7 +1,7 @@
 /**
  * list_knowledge_map adapter.
  *
- * Planner-visible params describe structure views only. Reader size, relation,
+ * Provider-visible params describe structure views only. Reader size, relation,
  * and tag limits are internal runtime constants.
  */
 

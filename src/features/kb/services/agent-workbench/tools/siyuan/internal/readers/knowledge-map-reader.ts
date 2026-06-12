@@ -7,7 +7,7 @@
  * - 根据 scope 枚举文档
  * - 按 box 分组，根据 path 解析层级
  * - 构建真实 docId 映射（不生成 opaque identifier）
- * - 返回完整的文档树结构，供 AI planner 判断相关性
+ * - 返回完整的文档树结构，供 AI agent 判断相关性
  * - 不读取正文，只返回标题和层级信息
  */
 
@@ -54,7 +54,7 @@ const BLOCK_ID_HEX_RE = /^[0-9a-f]{14,}$/i;
 const PATH_SEPARATOR_RE = /[\\/]/;
 const SY_EXTENSION_RE = /\.sy$/;
 
-function sanitizeTitleForPlanner(title: string): string {
+function sanitizeTitleForAgent(title: string): string {
   if (SIYUAN_BLOCK_ID_RE.test(title)) return "Untitled";
   if (BLOCK_ID_HEX_RE.test(title)) return "Untitled";
   if (PATH_SEPARATOR_RE.test(title)) return "Untitled";
@@ -184,7 +184,7 @@ function truncateTree(
 
   return {
     docId: node.docId,
-    title: sanitizeTitleForPlanner(node.title),
+    title: sanitizeTitleForAgent(node.title),
     notebookId,
     notebookName,
     depth: node.depth,

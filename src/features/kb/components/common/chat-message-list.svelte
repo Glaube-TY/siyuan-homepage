@@ -9,6 +9,8 @@
 
   export let messages: ChatMessage[] = [];
   export let assistantActionAlignment: KbAssistantActionAlignment = "left";
+  export let workbenchDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
+  export let reasoningDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
 
   export let emptyTitle: string = "开始对话";
   export let emptyDescription: string = "读取当前文档后，即可开始提问";
@@ -318,6 +320,8 @@
               {canRetry}
               {asking}
               {assistantActionAlignment}
+              {workbenchDisplayMode}
+              {reasoningDisplayMode}
               on:regenerate={() => dispatch('regenerate')}
               on:retry={() => dispatch('retry')}
               on:quoteSelection={(e) => dispatch('quoteSelection', e.detail)}

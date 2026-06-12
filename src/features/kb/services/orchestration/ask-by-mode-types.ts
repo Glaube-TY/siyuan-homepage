@@ -19,6 +19,7 @@ import type { ThinkingMode } from "../../types/session";
 export interface AskByModeParams {
   mode: ChatMode;
   question: string;
+  conversationId?: string;
   getState: () => KbSessionState;
   updateState: (updater: (state: KbSessionState) => Partial<KbSessionState>) => void;
   addMessage: (message: ChatMessage) => void;

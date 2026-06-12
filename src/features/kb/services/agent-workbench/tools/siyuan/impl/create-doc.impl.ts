@@ -85,7 +85,7 @@ export async function prepareCreateDocConfirmation(
 }
 
 /**
- * Planner-facing create_doc 执行器。
+ * Agent-facing create_doc 执行器。
  * 内部触发确认弹窗，用户确认后创建，最终返回成功/拒绝/失败结果。
  */
 export async function executeCreateDoc(
@@ -135,6 +135,7 @@ export async function executeCreateDoc(
     const confirmationRes = await requestDocContentEditConfirmation({
       confirmationId,
       action: "create_doc",
+      abortSignal: deps.abortSignal,
     });
 
     // 3. 用户拒绝

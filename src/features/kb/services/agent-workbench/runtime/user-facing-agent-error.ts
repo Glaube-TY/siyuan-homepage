@@ -1,12 +1,9 @@
-/**
+﻿/**
  * 将 Agent Workbench 内部错误码 / 错误消息映射为用户可读提示。
  *
  * 原则：
- * - 内部错误码、provider 原始错误、JSON 解析细节等只进入 debug/trace
+ * - 内部错误码和服务商原始错误只进入 debug/trace
  * - 用户可见错误必须短、清楚、中文
- * - 禁止出现：Planner、JSON、OpenAI-compatible、raw fallback、provider、
- *   endpoint、端点、控制面、API/chat、Coding Plan、reasoning、reasonCode、
- *   fail_closed_no_planner_decision
  */
 
 export interface UserFacingAgentError {
@@ -37,7 +34,7 @@ export function mapAgentErrorToUserFacing(input: {
   const msg = (input.message ?? "").toLowerCase();
 
   // 超时
-  if (code.includes("control_plane_timeout") || code.includes("stream_idle_timeout") || msg.includes("超时")) {
+  if (code.includes("agent_timeout") || code.includes("stream_idle_timeout") || msg.includes("超时")) {
     return {
       title: "模型响应超时",
       message: "模型没有在设定时间内返回可继续执行的内容，本轮已停止。",
@@ -45,20 +42,11 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
-  // 只返回思考，没有可执行内容
-  if (code.includes("reasoning_only") || code.includes("empty_content")) {
+  // 没有可执行内容
+  if (code.includes("empty_content")) {
     return {
       title: "模型没有返回可执行内容",
       message: "模型没有返回可执行内容，本轮已停止。",
-      suggestion: "可以重试，或更换一个更稳定的普通对话模型。",
-    };
-  }
-
-  // 格式错误（JSON 解析失败、不符合 schema 等）
-  if (code.includes("invalid_json") || code.includes("json_parse") || code.includes("不是合法") || code.includes("格式不正确")) {
-    return {
-      title: "模型输出格式不正确",
-      message: "模型输出格式不符合自动操作要求，本轮已停止。",
       suggestion: "可以重试，或更换一个更稳定的普通对话模型。",
     };
   }
@@ -76,16 +64,17 @@ export function mapAgentErrorToUserFacing(input: {
   if (code.includes("content_filtered")) {
     return {
       title: "模型输出被过滤",
-      message: "模型输出因安全策略被过滤，本轮已停止。",
+      message: "模型生成内容时被安全策略拦截，本轮已停止。",
+      suggestion: "可以换用更适合 Agent 的模型后重试，或将需求拆成更明确的小步骤。",
     };
   }
 
-  // 原生工具调用（非当前模式支持）
-  if (code.includes("native_tool_calls")) {
+  // Agent 工具调用不兼容
+  if (code.includes("native_tool_calls") || code.includes("tool_call_not_supported")) {
     return {
-      title: "模型返回了不兼容的内容",
-      message: "模型返回了当前模式不支持的内容，本轮已停止。",
-      suggestion: "可以重试，或换用更稳定的普通对话模型。",
+      title: "模型不支持 Agent 工具调用",
+      message: "当前模型不能完成 Agent 工具调用，本轮已停止。",
+      suggestion: "可以重试，或换用通过 Agent 兼容性测试的模型。",
     };
   }
 
@@ -121,7 +110,7 @@ export function mapAgentErrorToUserFacing(input: {
       suggestion: "可以重试，或检查模型配置。",
     };
   }
-  if (code.includes("network_error") || code.includes("control_plane_fetch_failed")) {
+  if (code.includes("network_error")) {
     return {
       title: "模型请求失败",
       message: "模型请求失败，本轮已停止。",
@@ -147,7 +136,7 @@ export function mapAgentErrorToUserFacing(input: {
   }
 
   // 模型调用失败
-  if (code === "planner_model_call_failed") {
+  if (code === "agent_model_call_failed") {
     return {
       title: "模型未返回可执行内容",
       message: "模型没有返回可继续执行的内容，本轮已停止。",
@@ -156,16 +145,16 @@ export function mapAgentErrorToUserFacing(input: {
   }
 
   // 模型输出格式不正确
-  if (code === "invalid_planner_decision") {
+  if (code === "invalid_agent_decision") {
     return {
       title: "模型输出格式不正确",
-      message: "模型输出格式不符合自动操作要求，本轮已停止。",
+      message: "模型输出格式不符合 Agent 要求，本轮已停止。",
       suggestion: "可以重试，或更换一个更稳定的普通对话模型。",
     };
   }
 
   // 模型主动停止
-  if (code === "planner_stopped") {
+  if (code === "agent_stopped") {
     return {
       title: "模型主动停止",
       message: "模型停止了本轮执行。",
@@ -181,14 +170,6 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
-  // 最终回答格式错误
-  if (code === "final_answer_invalid") {
-    return {
-      title: "最终回答格式错误",
-      message: "最终回答格式不符合要求，本轮已停止。",
-    };
-  }
-
   // 工具调用超限
   if (code === "tool_call_limit_reached") {
     return {
@@ -198,11 +179,61 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
+  // 写入前置条件变化
+  if (code === "write_precondition_changed") {
+    return {
+      title: "目标内容已变化",
+      message: "目标内容在确认前后发生变化，写入操作没有执行。",
+      suggestion: "请重新读取当前内容后再操作。",
+    };
+  }
+
+  // 写入目标不存在
+  if (code === "write_target_not_found") {
+    return {
+      title: "目标不存在",
+      message: "目标内容块不存在，写入操作没有执行。",
+    };
+  }
+
+  // 写入部分完成
+  if (code === "write_partial_failed") {
+    return {
+      title: "写入部分完成",
+      message: "部分写入可能已经完成，请重新读取文档确认当前状态。",
+    };
+  }
+
   // 用户取消
   if (code === "user_aborted") {
     return {
       title: "操作已取消",
-      message: "用户取消了操作。",
+      message: "已手动停止回答。",
+    };
+  }
+
+  // 用户拒绝写入
+  if (code === "user_rejected") {
+    return {
+      title: "操作已取消",
+      message: "用户已拒绝本次写入操作，本轮已停止。",
+    };
+  }
+
+  // 重复写入阻止
+  if (code === "duplicate_write_call_blocked") {
+    return {
+      title: "已阻止重复写入",
+      message: "模型在同一轮中重复提交了相同的写入操作，系统已阻止第二次执行。",
+      suggestion: "请先确认上一次写入结果；如需继续修改，请重新发起明确操作。",
+    };
+  }
+
+  // 写入失败
+  if (code === "write_operation_failed") {
+    return {
+      title: "写入操作失败",
+      message: "文档写入操作未完成。",
     };
   }
 
@@ -224,22 +255,45 @@ export function mapAgentErrorToUserFacing(input: {
 
 /**
  * 从本轮事件中提取已完成工具步骤的短摘要。
- * 只使用 ToolResult ok:true 的事件，不读取工具正文，不调用 LLM。
- * 不依赖具体工具名，使用通用计数。
+ * 区分只读步骤和写入步骤，让用户清楚知道哪些操作已执行。
+ * 不影响 Agent、不进入 observation。
  */
 export function buildCompletedStepsSummary(events: Array<{
   type: string;
   ok?: boolean;
+  result?: { ok?: boolean };
+  toolCallId?: string;
+  readOnly?: boolean;
+  toolName?: string;
 }>): CompletedStepsSummary | undefined {
-  const successCount = events.filter((e) => e.type === "ToolResult" && e.ok === true).length;
-
-  if (successCount === 0) {
-    return undefined;
+  // Build a map: toolCallId -> readOnly from native tool_start events.
+  const readOnlyMap = new Map<string, boolean>();
+  for (const e of events) {
+    if (e.type === "tool_start" && e.toolCallId && typeof e.readOnly === "boolean") {
+      readOnlyMap.set(e.toolCallId, e.readOnly);
+    }
   }
 
-  if (successCount === 1) {
-    return { text: "本轮已完成 1 个工具步骤。" };
+  let readOnlySuccess = 0;
+  let writeSuccess = 0;
+
+  for (const e of events) {
+    const ok = e.ok === true || e.result?.ok === true;
+    if (e.type !== "tool_result" || !ok || !e.toolCallId) continue;
+    const ro = readOnlyMap.get(e.toolCallId);
+    if (ro === false) {
+      writeSuccess++;
+    } else {
+      // readOnly === true or no matching tool_start (fallback to read-only)
+      readOnlySuccess++;
+    }
   }
 
-  return { text: `本轮已完成 ${successCount} 个工具步骤。` };
+  const total = readOnlySuccess + writeSuccess;
+  if (total === 0) return undefined;
+
+  if (writeSuccess > 0) {
+    return { text: `本轮已完成 ${total} 个工具步骤，其中写入操作 ${writeSuccess} 个。` };
+  }
+  return { text: `本轮已完成 ${total} 个只读步骤，没有成功执行写入操作。` };
 }

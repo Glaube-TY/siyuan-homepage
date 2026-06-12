@@ -9,8 +9,8 @@ export interface DiscoveredModel {
   unavailableReason?: string;
   isLegacy?: boolean;
   priority?: number;
-  /** 不推荐用于自动操作规划（适合代码任务/思考模型等） */
-  notRecommendedForPlanner?: boolean;
+  /** 不推荐用于自动代理操作（适合代码任务/思考模型等） */
+  notRecommendedForAgent?: boolean;
 }
 
 export interface DiscoverModelsResult {
@@ -85,11 +85,11 @@ function buildBearerHeaders(apiKey?: string): Record<string, string> {
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
-const KIMI_MODEL_PRIORITY: Record<string, { priority: number; isLegacy: boolean; notRecommendedForPlanner?: boolean }> = {
+const KIMI_MODEL_PRIORITY: Record<string, { priority: number; isLegacy: boolean; notRecommendedForAgent?: boolean }> = {
   "kimi-k2.6": { priority: 1, isLegacy: false },
   "kimi-k2.5": { priority: 2, isLegacy: false },
   "kimi-k2": { priority: 99, isLegacy: true },
-  "kimi-k2-thinking": { priority: 99, isLegacy: true, notRecommendedForPlanner: true },
+  "kimi-k2-thinking": { priority: 99, isLegacy: true, notRecommendedForAgent: true },
 };
 
 /**
@@ -170,7 +170,7 @@ export async function discoverOpenAICompatibleModelsForProvider(
           id: m.id,
           priority: priorityInfo.priority,
           isLegacy: priorityInfo.isLegacy,
-          notRecommendedForPlanner: priorityInfo.notRecommendedForPlanner,
+          notRecommendedForAgent: priorityInfo.notRecommendedForAgent,
         };
       }
       return { id: m.id };

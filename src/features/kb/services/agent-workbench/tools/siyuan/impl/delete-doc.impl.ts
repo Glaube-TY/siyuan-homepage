@@ -93,7 +93,7 @@ export async function prepareDeleteDocConfirmation(
 }
 
 /**
- * Planner-facing delete_doc 执行器。
+ * Agent-facing delete_doc 执行器。
  * 内部触发确认弹窗，用户确认后删除，最终返回成功/拒绝/失败结果。
  */
 export async function executeDeleteDoc(
@@ -153,6 +153,7 @@ export async function executeDeleteDoc(
     const confirmationRes = await requestDocContentEditConfirmation({
       confirmationId,
       action: "delete_doc",
+      abortSignal: deps.abortSignal,
     });
 
     // 4. 用户拒绝

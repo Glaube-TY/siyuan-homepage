@@ -76,6 +76,7 @@ export async function saveKbChatSessionStorage(payload: {
       stageSummaries: persisted.stageSummaries,
       compressionState: persisted.compressionState,
       compressedContextSummary: persisted.compressedContextSummary,
+      agentSession: persisted.agentSession,
     };
 
     await saveChatSession(sessionData);
