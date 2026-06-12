@@ -19,6 +19,14 @@
         <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E4%B8%BB%E9%A1%B5%E6%8F%92%E4%BB%B6.webp" alt="思源主页插件智能工作台宣传图" style="display: block; width: 100%; border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,0.10);">
         <div style="text-align: center; margin-top: 0.75em; color: #52637a; line-height: 1.7;">思源主页插件正在从个性化首页，进化为真正的 AI 智能工作台。</div>
     </div>
+    <div style="margin-top: 1.5em; padding: 0.8em; background: linear-gradient(135deg, #f7fbff 0%, #eef5ff 100%); border: 1px solid rgba(45,140,240,0.16); border-radius: 18px; box-shadow: 0 14px 32px rgba(45,108,255,0.10);">
+        <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E4%B8%BB%E9%A1%B5%E6%8F%92%E4%BB%B6%E7%A4%BA%E4%BE%8B.webp" alt="思源主页插件智能工作台宣传图" style="display: block; width: 100%; border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,0.10);">
+        <div style="text-align: center; margin-top: 0.75em; color: #52637a; line-height: 1.7;">思源主页插件示意图。</div>
+    </div>
+    <div style="margin-top: 1.5em; padding: 0.8em; background: linear-gradient(135deg, #f7fbff 0%, #eef5ff 100%); border: 1px solid rgba(45,140,240,0.16); border-radius: 18px; box-shadow: 0 14px 32px rgba(45,108,255,0.10);">
+        <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E4%B8%BB%E9%A1%B5%E6%8F%92%E4%BB%B6AI%E9%97%AE%E7%AD%94%E7%A4%BA%E6%84%8F%E5%9B%BE.webp" alt="思源主页插件智能工作台宣传图" style="display: block; width: 100%; border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,0.10);">
+        <div style="text-align: center; margin-top: 0.75em; color: #52637a; line-height: 1.7;">思源主页插件AI问答示意图。</div>
+    </div>
     <div style="margin-top: 1.5em; padding: 1.5em; background: linear-gradient(135deg, #f7fbff 0%, #f5f2ff 100%); border: 1px solid rgba(71,108,255,0.18); border-radius: 16px;">
         <h2 style="color: #2d6cdf; margin: 0 0 0.8em;">✨ 4.0：AI 版本的到来</h2>
         <p style="margin: 0.5em 0; color: #333; line-height: 1.9;">过去，主页插件更多是一个漂亮、灵活、功能丰富的思源首页；从 4.0 开始，它将逐步变成一个能理解你资料、陪你整理信息、辅助你行动的个人知识工作台。</p>
