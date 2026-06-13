@@ -46,7 +46,7 @@ export async function buildWorkspaceCarryoverPlans(
             const doc = await getDiaryDocumentForDate(ctx.targetDate);
             if (!doc) continue;
 
-            const contentResult = await loadReviewContent(doc.id, period);
+            const contentResult = await loadReviewContent(doc.id, period, config.headingStructure);
             const field = contentResult.fields.find((f) => f.key === CARRYOVER_FIELD_MAP[period].fieldLabel);
             if (!field || !field.content) continue;
 

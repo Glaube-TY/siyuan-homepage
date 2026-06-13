@@ -3,6 +3,8 @@ import {
     ENHANCED_DIARY_CONFIG_FILE,
     ENHANCED_DIARY_PERIODS,
     type EnhancedDiaryConfig,
+    type EnhancedDiaryDayWorkspaceBaseHeadingLevel,
+    type EnhancedDiaryHeadingStructureConfig,
     type EnhancedDiaryReviewReminderWindow,
     type EnhancedDiaryReviewReminderWindows,
     type EnhancedDiaryWorkspaceCalendarSettings,
@@ -166,6 +168,26 @@ function normalizeReviewReminderWindows(raw: unknown): EnhancedDiaryReviewRemind
     };
 }
 
+const VALID_BASE_HEADING_LEVELS = new Set([2, 3, 4]);
+
+function normalizeDayWorkspaceBaseHeadingLevel(raw: unknown): EnhancedDiaryDayWorkspaceBaseHeadingLevel {
+    if (typeof raw === "number" && VALID_BASE_HEADING_LEVELS.has(raw)) {
+        return raw as EnhancedDiaryDayWorkspaceBaseHeadingLevel;
+    }
+    return 2;
+}
+
+function normalizeHeadingStructure(raw: unknown): EnhancedDiaryHeadingStructureConfig {
+    if (!isRecord(raw)) {
+        return { ...DEFAULT_ENHANCED_DIARY_CONFIG.headingStructure };
+    }
+    return {
+        dayWorkspaceBaseHeadingLevel: normalizeDayWorkspaceBaseHeadingLevel(
+            (raw as Record<string, unknown>).dayWorkspaceBaseHeadingLevel
+        ),
+    };
+}
+
 export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfig {
     if (!isRecord(input)) {
         return {
@@ -180,6 +202,7 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
             },
             recordCategorySuggestions: [...DEFAULT_ENHANCED_DIARY_CONFIG.recordCategorySuggestions],
             reviewReminderWindows: { ...DEFAULT_ENHANCED_DIARY_CONFIG.reviewReminderWindows },
+            headingStructure: { ...DEFAULT_ENHANCED_DIARY_CONFIG.headingStructure },
         };
     }
 
@@ -213,6 +236,9 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
         ),
         reviewReminderWindows: normalizeReviewReminderWindows(
             (input as Record<string, unknown>).reviewReminderWindows
+        ),
+        headingStructure: normalizeHeadingStructure(
+            (input as Record<string, unknown>).headingStructure
         ),
     };
 }

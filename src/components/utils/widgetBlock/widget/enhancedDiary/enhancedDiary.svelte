@@ -470,6 +470,7 @@
             const result = await addNewTaskToDiary({
                 docId,
                 task: input,
+                headingStructure: config?.headingStructure,
             });
 
             if (result.ok) {
@@ -496,6 +497,7 @@
                 docId,
                 categoryTitle,
                 content,
+                headingStructure: config?.headingStructure,
             });
 
             if (result.ok) {
@@ -595,6 +597,7 @@
                     period: menuCard.period,
                     template,
                     context: menuCard.templateContext,
+                    headingStructure: config.headingStructure,
                 });
                 if (result.ok && result.skipped) {
                     if (result.reason === "marker_exists") {
@@ -614,6 +617,9 @@
                         showMessage("模板为空，无法补充", 3000);
                     } else if (result.reason === "append_failed") {
                         showMessage("补充模板失败，请稍后重试", 3000);
+                    } else if (result.reason && result.reason.startsWith("template_incomplete:")) {
+                        const missingList = result.reason.slice("template_incomplete:".length).trim();
+                        showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
                     } else {
                         showMessage("补充模板失败", 3000);
                     }

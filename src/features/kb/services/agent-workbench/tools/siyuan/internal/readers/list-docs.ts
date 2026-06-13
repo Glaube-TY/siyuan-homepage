@@ -31,48 +31,65 @@ function toSiyuanDocLiteFromDocIndexLite(doc: DocIndexLite): SiyuanDocLite {
   };
 }
 
+const BATCH_SIZE = 64;
+
 /**
- * 批量查询文档元数据
+ * 将数组拆分为指定大小的批次
+ */
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/**
+ * 批量查询文档元数据（按 64 分批避免思源截断）
  * @param docIds 文档 ID 列表
- * @returns SiyuanDocLite[]
+ * @returns SiyuanDocLite[] 按原始 docIds 顺序返回
  */
 async function queryDocMetasByIds(docIds: string[]): Promise<SiyuanDocLite[]> {
   if (docIds.length === 0) return [];
 
   const uniqueIds = [...new Set(docIds)];
+  const chunks = chunkArray(uniqueIds, BATCH_SIZE);
 
-  const idList = uniqueIds
-    .map((id) => `'${id.replace(/'/g, "''")}'`)
-    .join(",");
+  const metaMap = new Map<string, SiyuanDocLite>();
 
-  try {
-    const rows = await sqlSelectReadonly<{ id: string; title?: string; box?: string; path?: string; updated?: string }>(
-      `SELECT id, content as title, box, path, updated FROM blocks WHERE id IN (${idList}) AND type = 'd'`,
-      { maxLimit: Math.max(uniqueIds.length, 50), allowedTables: ["blocks"] }
-    );
+  for (const chunk of chunks) {
+    const idList = chunk
+      .map((id) => `'${id.replace(/'/g, "''")}'`)
+      .join(",");
 
-    if (!Array.isArray(rows)) return [];
+    try {
+      const rows = await sqlSelectReadonly<{ id: string; title?: string; box?: string; path?: string; updated?: string }>(
+        `SELECT id, content as title, box, path, updated FROM blocks WHERE id IN (${idList}) AND type = 'd'`,
+        { maxLimit: Math.max(chunk.length, 50), allowedTables: ["blocks"] }
+      );
 
-    const metaMap = new Map<string, SiyuanDocLite>();
-    for (const row of rows) {
-      if (row.id) {
-        metaMap.set(row.id, {
-          docId: row.id,
-          title: row.title || "",
-          box: row.box || "",
-          path: row.path || "",
-          updated: row.updated || "",
-        });
+      if (Array.isArray(rows)) {
+        for (const row of rows) {
+          if (row.id) {
+            metaMap.set(row.id, {
+              docId: row.id,
+              title: row.title || "",
+              box: row.box || "",
+              path: row.path || "",
+              updated: row.updated || "",
+            });
+          }
+        }
       }
+    } catch (e) {
+      pushAgentDebugEvent("DOC_LIST_META_FAILED", {}, "warn");
     }
-
-    return uniqueIds
-      .map((id) => metaMap.get(id))
-      .filter((d): d is SiyuanDocLite => d !== undefined);
-  } catch (e) {
-    pushAgentDebugEvent("DOC_LIST_META_FAILED", {}, "warn");
-    return [];
   }
+
+  // Preserve original uniqueIds ordering
+  return uniqueIds
+    .map((id) => metaMap.get(id))
+    .filter((d): d is SiyuanDocLite => d !== undefined);
 }
 
 /**
@@ -99,22 +116,27 @@ async function enrichDocsWithTitlePaths(docs: SiyuanDocLite[]): Promise<SiyuanDo
   if (allParentIds.size === 0) return docs;
 
   const uniqueParentIds = [...allParentIds];
-  const idList = uniqueParentIds
-    .map((id) => `'${id.replace(/'/g, "''")}'`)
-    .join(",");
 
   let parentTitleMap: Map<string, string>;
   try {
-    const rows = await sqlSelectReadonly<{ id: string; title?: string }>(
-      `SELECT id, content as title FROM blocks WHERE id IN (${idList}) AND type = 'd'`,
-      { maxLimit: Math.max(uniqueParentIds.length, 100), allowedTables: ["blocks"] }
-    );
-
     parentTitleMap = new Map<string, string>();
-    if (Array.isArray(rows)) {
-      for (const row of rows) {
-        if (row.id) {
-          parentTitleMap.set(row.id, row.title || "");
+    const parentChunks = chunkArray(uniqueParentIds, BATCH_SIZE);
+
+    for (const chunk of parentChunks) {
+      const idList = chunk
+        .map((id) => `'${id.replace(/'/g, "''")}'`)
+        .join(",");
+
+      const rows = await sqlSelectReadonly<{ id: string; title?: string }>(
+        `SELECT id, content as title FROM blocks WHERE id IN (${idList}) AND type = 'd'`,
+        { maxLimit: Math.max(chunk.length, 100), allowedTables: ["blocks"] }
+      );
+
+      if (Array.isArray(rows)) {
+        for (const row of rows) {
+          if (row.id) {
+            parentTitleMap.set(row.id, row.title || "");
+          }
         }
       }
     }

@@ -7,7 +7,7 @@
  * Does NOT read document body content.
  */
 
-import { sqlSelectReadonly } from "../../../../siyuan/read-only-kernel";
+import { sqlSelectReadonlyPaged } from "../../../../siyuan/read-only-kernel";
 import { escapeSqlString } from "../../../../siyuan/safe-sql";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
 import type { AgentScope } from "../../../scope/types";
@@ -151,8 +151,9 @@ export async function executeListDocsByTime(
     time_val?: string;
   }
 
-  const rows = await sqlSelectReadonly<TimeRow>(sql, {
-    maxLimit: sqlLimit,
+  const rows = await sqlSelectReadonlyPaged<TimeRow>(sql, {
+    maxRows: sqlLimit,
+    pageSize: 64,
     allowedTables: ["blocks"],
   });
 

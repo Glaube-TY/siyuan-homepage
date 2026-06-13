@@ -8,10 +8,12 @@ import {
 } from "./enhancedDiaryWorkspaceSections";
 import {
     ENHANCED_DIARY_ROOT_HEADINGS,
+    ENHANCED_DIARY_ROOT_HEADING_ALIASES,
     headingTitleStartsWith,
     normalizeHeadingTitle,
     type EnhancedDiaryHeadingLevel,
 } from "./enhancedDiaryMarkdownSections";
+import type { EnhancedDiaryHeadingStructureConfig } from "./enhancedDiaryTypes";
 
 export interface EnhancedDiaryHeadingBlock {
     id: string;
@@ -111,27 +113,36 @@ async function getDocumentHeadingBlocks(docId: string): Promise<EnhancedDiaryHea
 
 function findRootHeadingBlock(
     headings: EnhancedDiaryHeadingBlock[],
-    expectedTitle: string
+    expectedTitle: string,
+    level: EnhancedDiaryHeadingLevel = 1
 ): EnhancedDiaryHeadingBlock | null {
     return headings.find(
-        (heading) => heading.level === 1 && headingTitleMatches(heading, expectedTitle)
+        (heading) => heading.level === level && headingTitleMatches(heading, expectedTitle)
     ) || null;
 }
 
 function findChildHeadingBlock(
     headings: EnhancedDiaryHeadingBlock[],
     parent: EnhancedDiaryHeadingBlock,
-    expectedTitle: string,
-    level: EnhancedDiaryHeadingLevel
+    expectedTitle: string
 ): EnhancedDiaryHeadingBlock | null {
+    const preferredLevel = parent.level + 1;
+    let firstDeeperMatch: EnhancedDiaryHeadingBlock | null = null;
+
     for (const heading of headings) {
         if (heading.index <= parent.index) continue;
         if (heading.level <= parent.level) break;
-        if (heading.level === level && headingTitleMatches(heading, expectedTitle)) {
-            return heading;
+        if (headingTitleMatches(heading, expectedTitle)) {
+            if (heading.level === preferredLevel) {
+                return heading; // exact level match — immediate return
+            }
+            if (!firstDeeperMatch) {
+                firstDeeperMatch = heading; // track first deeper fallback
+            }
         }
     }
-    return null;
+
+    return firstDeeperMatch;
 }
 
 function findNextBoundaryHeading(
@@ -149,13 +160,28 @@ function findNextBoundaryHeading(
 
 export async function findDayWorkspaceHeadingBlock(
     docId: string,
-    sectionKey: EnhancedDiaryDayWorkspaceSectionKey
+    sectionKey: EnhancedDiaryDayWorkspaceSectionKey,
+    _headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): Promise<EnhancedDiaryHeadingBlockLookup> {
     const headings = await getDocumentHeadingBlocks(docId);
     const dayTitle = ENHANCED_DIARY_ROOT_HEADINGS.day;
     const path = ENHANCED_DIARY_DAY_WORKSPACE_SECTION_PATHS[sectionKey];
     const fullPath = [dayTitle, ...path];
-    const root = findRootHeadingBlock(headings, dayTitle);
+
+    // Root heading is always level 1
+    let root = findRootHeadingBlock(headings, dayTitle, 1);
+    if (!root) {
+        // Try aliases
+        const aliases = ENHANCED_DIARY_ROOT_HEADING_ALIASES.day;
+        for (const alias of aliases) {
+            if (alias !== dayTitle) {
+                root = headings.find(
+                    (h) => h.level === 1 && headingTitleMatches(h, alias)
+                ) || null;
+                if (root) break;
+            }
+        }
+    }
 
     if (!root) {
         return {
@@ -168,13 +194,12 @@ export async function findDayWorkspaceHeadingBlock(
 
     let currentParent: EnhancedDiaryHeadingBlock = root;
     for (let i = 0; i < path.length; i++) {
-        const expectedLevel = (i + 2) as EnhancedDiaryHeadingLevel;
-        const child = findChildHeadingBlock(headings, currentParent, path[i], expectedLevel);
+        const child = findChildHeadingBlock(headings, currentParent, path[i]);
         if (!child) {
             return {
                 found: false,
                 headings,
-                missingTitle: `${"#".repeat(expectedLevel)} ${path[i]}`,
+                missingTitle: path[i],
                 path: fullPath,
             };
         }
@@ -191,9 +216,10 @@ export async function findDayWorkspaceHeadingBlock(
 
 export async function findRecordCategoryHeadingBlock(
     docId: string,
-    categoryKey: EnhancedDiaryRecordCategoryKey
+    categoryKey: EnhancedDiaryRecordCategoryKey,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): Promise<EnhancedDiaryHeadingBlockLookup> {
-    const quickRecords = await findDayWorkspaceHeadingBlock(docId, "quickRecords");
+    const quickRecords = await findDayWorkspaceHeadingBlock(docId, "quickRecords", headingStructure);
     const categoryTitle = ENHANCED_DIARY_RECORD_CATEGORY_TITLES[categoryKey];
 
     if (!quickRecords.found || !quickRecords.heading) {
@@ -206,15 +232,14 @@ export async function findRecordCategoryHeadingBlock(
     const category = findChildHeadingBlock(
         quickRecords.headings,
         quickRecords.heading,
-        categoryTitle,
-        3
+        categoryTitle
     );
 
     if (!category) {
         return {
             found: false,
             headings: quickRecords.headings,
-            missingTitle: `### ${categoryTitle}`,
+            missingTitle: categoryTitle,
             path: [...quickRecords.path, categoryTitle],
         };
     }
@@ -264,8 +289,9 @@ export async function appendMarkdownToDaySection(params: {
     docId: string;
     sectionKey: EnhancedDiaryDayWorkspaceSectionKey;
     markdown: string;
+    headingStructure?: EnhancedDiaryHeadingStructureConfig;
 }): Promise<EnhancedDiaryInsertResult> {
-    const lookup = await findDayWorkspaceHeadingBlock(params.docId, params.sectionKey);
+    const lookup = await findDayWorkspaceHeadingBlock(params.docId, params.sectionKey, params.headingStructure);
     return insertMarkdownAtHeadingEnd(params.docId, lookup, params.markdown);
 }
 
@@ -273,18 +299,21 @@ export async function appendMarkdownToRecordCategory(params: {
     docId: string;
     categoryKey: EnhancedDiaryRecordCategoryKey;
     markdown: string;
+    headingStructure?: EnhancedDiaryHeadingStructureConfig;
 }): Promise<EnhancedDiaryInsertResult> {
-    const lookup = await findRecordCategoryHeadingBlock(params.docId, params.categoryKey);
+    const lookup = await findRecordCategoryHeadingBlock(params.docId, params.categoryKey, params.headingStructure);
     return insertMarkdownAtHeadingEnd(params.docId, lookup, params.markdown);
 }
 
 export async function appendMarkdownToRecordCategoryByTitle(params: {
     docId: string;
     categoryTitle: string;
-    markdown: string;
+    content: string;
+    recordTime: string;
+    headingStructure?: EnhancedDiaryHeadingStructureConfig;
 }): Promise<EnhancedDiaryInsertResult> {
     const normalizedTitle = normalizeRecordCategoryTitle(params.categoryTitle);
-    const quickRecords = await findDayWorkspaceHeadingBlock(params.docId, "quickRecords");
+    const quickRecords = await findDayWorkspaceHeadingBlock(params.docId, "quickRecords", params.headingStructure);
 
     if (!quickRecords.found || !quickRecords.heading) {
         return {
@@ -297,13 +326,16 @@ export async function appendMarkdownToRecordCategoryByTitle(params: {
     const category = findChildHeadingBlock(
         quickRecords.headings,
         quickRecords.heading,
-        normalizedTitle,
-        3
+        normalizedTitle
     );
 
     if (!category) {
         const nextBoundary = findNextBoundaryHeading(quickRecords.headings, quickRecords.heading);
-        const categoryMarkdown = `### ${normalizedTitle}\n\n${params.markdown}`;
+        // Derive category level from actual quickRecords heading level
+        const categoryLevel = (quickRecords.heading.level + 1) as EnhancedDiaryHeadingLevel;
+        const recordLevel = (categoryLevel + 1) as EnhancedDiaryHeadingLevel;
+        const recordHash = "#".repeat(recordLevel);
+        const categoryMarkdown = `${"#".repeat(categoryLevel)} ${normalizedTitle}\n\n${recordHash} ${params.recordTime} 记录\n\n${params.content}`;
 
         try {
             if (nextBoundary) {
@@ -318,19 +350,25 @@ export async function appendMarkdownToRecordCategoryByTitle(params: {
         }
     }
 
+    // Compute record level from actual found category level
+    const recordLevel = (category.level + 1) as EnhancedDiaryHeadingLevel;
+    const recordHash = "#".repeat(recordLevel);
+    const recordMarkdown = `${recordHash} ${params.recordTime} 记录\n\n${params.content}`;
+
     return insertMarkdownAtHeadingEnd(params.docId, {
         found: true,
         heading: category,
         headings: quickRecords.headings,
         path: [...quickRecords.path, normalizedTitle],
-    }, params.markdown);
+    }, recordMarkdown);
 }
 
 export async function getDayWorkspaceSectionEndAnchor(params: {
     docId: string;
     sectionKey: EnhancedDiaryDayWorkspaceSectionKey;
+    headingStructure?: EnhancedDiaryHeadingStructureConfig;
 }): Promise<EnhancedDiaryInsertionAnchorResult> {
-    const lookup = await findDayWorkspaceHeadingBlock(params.docId, params.sectionKey);
+    const lookup = await findDayWorkspaceHeadingBlock(params.docId, params.sectionKey, params.headingStructure);
     if (!lookup.found || !lookup.heading) {
         return {
             ok: false,

@@ -7,7 +7,7 @@
  * - 提供 Fast Path Gate 配置和判断函数
  */
 
-import { sql } from "@/api";
+import { sqlSelectReadonlyPaged } from "../siyuan/read-only-kernel";
 
 /**
  * 轻量文档索引类型
@@ -31,11 +31,11 @@ export async function loadAllDocsFromSql(): Promise<DocIndexLite[]> {
     SELECT id as doc_id, content as title, path, box, updated, hash, tag
     FROM blocks
     WHERE type = 'd'
-    ORDER BY updated DESC
+    ORDER BY updated DESC, id DESC
   `;
 
   try {
-    const rows = await sql(sqlStmt);
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: 10000, allowedTables: ["blocks"] });
     if (!Array.isArray(rows)) return [];
 
     return rows.map((r: any) => ({

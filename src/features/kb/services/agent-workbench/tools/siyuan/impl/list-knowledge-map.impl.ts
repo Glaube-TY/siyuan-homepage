@@ -10,7 +10,7 @@ import type { KnowledgeDocResource } from "../internal/knowledge-map-types";
 import {
   getBacklinkReadonly,
   getTagsReadonly,
-  sqlSelectReadonly,
+  sqlSelectReadonlyPaged,
   type ReadonlyTag,
 } from "../../../../siyuan/read-only-kernel";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
@@ -348,6 +348,16 @@ function resolveRowDocId(row: TagBlockRow, allowedDocIds: Set<string>): string |
   return undefined;
 }
 
+const TAG_BATCH_SIZE = 64;
+
+function chunkIds(ids: string[], size: number): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    chunks.push(ids.slice(i, i + size));
+  }
+  return chunks;
+}
+
 async function attachTagsToNodes(
   nodes: KnowledgeMapNode[],
   includeTags: boolean,
@@ -367,35 +377,55 @@ async function attachTagsToNodes(
     const tagDictionary = flattenTagDictionary(await getTagsReadonly({ ignoreMaxListHint: true }));
     const tagSetsByDocId = new Map<string, Set<string>>();
     const rowLimit = Math.min(Math.max(docIds.length * 80, 200), 3000);
-    const idList = docIds.map((id) => `'${escapeSqlLiteral(id)}'`).join(",");
-    const rows = await sqlSelectReadonly<TagBlockRow>(
-      `SELECT id, root_id, content, markdown FROM blocks WHERE root_id IN (${idList}) OR id IN (${idList}) LIMIT ${rowLimit}`,
-      { maxLimit: rowLimit, allowedTables: ["blocks"] },
-    );
     const allowedDocIds = new Set(docIds);
-    for (const row of rows) {
-      const docId = resolveRowDocId(row, allowedDocIds);
-      if (!docId) continue;
-      const matchedTags = extractInlineTagsFromBlock(row);
-      if (matchedTags.length === 0) continue;
-      let docTags = tagSetsByDocId.get(docId);
-      if (!docTags) {
-        docTags = new Set<string>();
-        tagSetsByDocId.set(docId, docTags);
+
+    // Batch docIds by 64 to avoid SiYuan IN clause truncation
+    const batches = chunkIds(docIds, TAG_BATCH_SIZE);
+    let totalRowsFetched = 0;
+    let hitRowLimit = false;
+
+    for (const batch of batches) {
+      if (totalRowsFetched >= rowLimit) {
+        hitRowLimit = true;
+        break;
       }
-      for (const tagName of matchedTags) {
-        const dictionaryEntry = tagDictionary.get(tagName);
-        if (dictionaryEntry?.name) docTags.add(dictionaryEntry.name);
+
+      const remainingRows = rowLimit - totalRowsFetched;
+      const idList = batch.map((id) => `'${escapeSqlLiteral(id)}'`).join(",");
+      const rows = await sqlSelectReadonlyPaged<TagBlockRow>(
+        `SELECT id, root_id, content, markdown FROM blocks WHERE root_id IN (${idList}) OR id IN (${idList})`,
+        { maxRows: remainingRows, pageSize: 64, allowedTables: ["blocks"] },
+      );
+
+      for (const row of rows) {
+        const docId = resolveRowDocId(row, allowedDocIds);
+        if (!docId) continue;
+        const matchedTags = extractInlineTagsFromBlock(row);
+        if (matchedTags.length === 0) continue;
+        let docTags = tagSetsByDocId.get(docId);
+        if (!docTags) {
+          docTags = new Set<string>();
+          tagSetsByDocId.set(docId, docTags);
+        }
+        for (const tagName of matchedTags) {
+          const dictionaryEntry = tagDictionary.get(tagName);
+          if (dictionaryEntry?.name) docTags.add(dictionaryEntry.name);
+        }
+      }
+
+      totalRowsFetched += rows.length;
+      if (rows.length >= remainingRows) {
+        hitRowLimit = true;
       }
     }
 
     let taggedNodeCount = 0;
-    let hasTruncated = rows.length >= rowLimit;
+    let hasTruncated = hitRowLimit;
     for (const node of nodes) {
       const tagList = [...(tagSetsByDocId.get(node.docId) ?? [])];
       if (tagList.length > 0) taggedNodeCount += 1;
       node.tags = tagList.slice(0, safeTagLimit);
-      if (tagList.length > safeTagLimit || rows.length >= rowLimit) {
+      if (tagList.length > safeTagLimit) {
         hasTruncated = true;
       }
     }

@@ -40,6 +40,12 @@ export interface EnhancedDiaryReviewReminderWindows {
     year: EnhancedDiaryReviewReminderWindow;
 }
 
+export type EnhancedDiaryDayWorkspaceBaseHeadingLevel = 2 | 3 | 4;
+
+export interface EnhancedDiaryHeadingStructureConfig {
+    dayWorkspaceBaseHeadingLevel: EnhancedDiaryDayWorkspaceBaseHeadingLevel;
+}
+
 export interface EnhancedDiaryConfig {
     weekReviewDay: EnhancedDiaryWeekday;
     monthReviewRule: EnhancedDiaryMonthRule;
@@ -50,6 +56,7 @@ export interface EnhancedDiaryConfig {
     workspaceSettings: EnhancedDiaryWorkspaceSettings;
     recordCategorySuggestions: string[];
     reviewReminderWindows: EnhancedDiaryReviewReminderWindows;
+    headingStructure: EnhancedDiaryHeadingStructureConfig;
 }
 
 export interface EnhancedDiaryTemplateContext {
@@ -102,7 +109,7 @@ export const ENHANCED_DIARY_SKIP_MARKERS: Record<EnhancedDiaryPeriod, string> = 
     year: "- [x] 已跳过年度总结⏭️",
 };
 
-const DEFAULT_DAY_TEMPLATE = `# 今日日记 {{date}}
+const DEFAULT_DAY_TEMPLATE = `# 今日日记
 
 {{完成标记}}
 
@@ -126,7 +133,7 @@ const DEFAULT_DAY_TEMPLATE = `# 今日日记 {{date}}
 
 ### 明日关注`;
 
-const DEFAULT_WEEK_TEMPLATE = `# 本周复盘 {{week}}
+const DEFAULT_WEEK_TEMPLATE = `# 周复盘
 
 周期：{{周期范围}}
 
@@ -144,7 +151,7 @@ const DEFAULT_WEEK_TEMPLATE = `# 本周复盘 {{week}}
 
 ### 下周计划`;
 
-const DEFAULT_MONTH_TEMPLATE = `# 本月总结 {{month}}
+const DEFAULT_MONTH_TEMPLATE = `# 月复盘
 
 周期：{{周期范围}}
 
@@ -162,7 +169,7 @@ const DEFAULT_MONTH_TEMPLATE = `# 本月总结 {{month}}
 
 ### 下月计划`;
 
-const DEFAULT_YEAR_TEMPLATE = `# 年度总结 {{year}}
+const DEFAULT_YEAR_TEMPLATE = `# 年复盘
 
 周期：{{周期范围}}
 
@@ -208,5 +215,8 @@ export const DEFAULT_ENHANCED_DIARY_CONFIG: EnhancedDiaryConfig = {
         week: { beforeDays: 1, afterDays: 2 },
         month: { beforeDays: 2, afterDays: 2 },
         year: { beforeDays: 7, afterDays: 7 },
+    },
+    headingStructure: {
+        dayWorkspaceBaseHeadingLevel: 2,
     },
 };

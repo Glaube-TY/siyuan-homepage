@@ -1,10 +1,12 @@
-import type { EnhancedDiaryHeadingNode, EnhancedDiaryHeadingLevel, EnhancedDiarySectionLookupResult } from "./enhancedDiaryMarkdownSections";
+import type { EnhancedDiaryHeadingNode, EnhancedDiarySectionLookupResult } from "./enhancedDiaryMarkdownSections";
 import {
     findRootHeading,
-    findDirectChildHeading,
+    findDescendantByTitleInScope,
     getSectionMarkdown,
+    getEnhancedDiaryHeadingPlan,
 } from "./enhancedDiaryMarkdownSections";
 import { normalizeHeadingTitle } from "./enhancedDiaryMarkdownSections";
+import type { EnhancedDiaryHeadingStructureConfig } from "./enhancedDiaryTypes";
 
 export const ENHANCED_DIARY_DAY_WORKSPACE_SECTION_TITLES = {
     overview: "今日概览",
@@ -83,17 +85,23 @@ function toWorkspaceSectionResult(
     };
 }
 
-export function getDayRootSection(markdown: string): EnhancedDiaryWorkspaceSectionResult {
-    const lookupResult = findRootHeading(markdown, "day");
+export function getDayRootSection(
+    markdown: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
+): EnhancedDiaryWorkspaceSectionResult {
+    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day") : undefined;
+    const lookupResult = findRootHeading(markdown, "day", plan);
     return toWorkspaceSectionResult(markdown, lookupResult, ["今日日记"]);
 }
 
 export function getDayWorkspaceSection(
     markdown: string,
-    sectionKey: EnhancedDiaryDayWorkspaceSectionKey
+    sectionKey: EnhancedDiaryDayWorkspaceSectionKey,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): EnhancedDiaryWorkspaceSectionResult {
     const path = ENHANCED_DIARY_DAY_WORKSPACE_SECTION_PATHS[sectionKey];
-    const dayRootLookup = findRootHeading(markdown, "day");
+    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day") : undefined;
+    const dayRootLookup = findRootHeading(markdown, "day", plan);
     const fullPath = ["今日日记", ...path];
 
     if (!dayRootLookup.found || !dayRootLookup.node) {
@@ -107,8 +115,7 @@ export function getDayWorkspaceSection(
 
     let currentNode = dayRootLookup.node;
     for (let i = 0; i < path.length; i++) {
-        const expectedLevel = (i + 2) as EnhancedDiaryHeadingLevel;
-        const childLookup = findDirectChildHeading(currentNode, path[i], expectedLevel);
+        const childLookup = findDescendantByTitleInScope(currentNode, path[i]);
         if (!childLookup.found || !childLookup.node) {
             return {
                 found: false,
@@ -128,33 +135,41 @@ export function getDayWorkspaceSection(
     };
 }
 
-export function getDayWorkspaceSections(markdown: string): EnhancedDiaryDayWorkspaceMap {
-    const dayRoot = getDayRootSection(markdown);
+export function getDayWorkspaceSections(
+    markdown: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
+): EnhancedDiaryDayWorkspaceMap {
+    const dayRoot = getDayRootSection(markdown, headingStructure);
 
     const result: EnhancedDiaryDayWorkspaceMap = {
         dayRoot,
-        overview: getDayWorkspaceSection(markdown, "overview"),
-        newTasks: getDayWorkspaceSection(markdown, "newTasks"),
-        migratedTasks: getDayWorkspaceSection(markdown, "migratedTasks"),
-        quickRecords: getDayWorkspaceSection(markdown, "quickRecords"),
-        projectProgress: getDayWorkspaceSection(markdown, "projectProgress"),
-        taskLog: getDayWorkspaceSection(markdown, "taskLog"),
-        dailyReview: getDayWorkspaceSection(markdown, "dailyReview"),
+        overview: getDayWorkspaceSection(markdown, "overview", headingStructure),
+        newTasks: getDayWorkspaceSection(markdown, "newTasks", headingStructure),
+        migratedTasks: getDayWorkspaceSection(markdown, "migratedTasks", headingStructure),
+        quickRecords: getDayWorkspaceSection(markdown, "quickRecords", headingStructure),
+        projectProgress: getDayWorkspaceSection(markdown, "projectProgress", headingStructure),
+        taskLog: getDayWorkspaceSection(markdown, "taskLog", headingStructure),
+        dailyReview: getDayWorkspaceSection(markdown, "dailyReview", headingStructure),
     };
 
     return result;
 }
 
-export function getQuickRecordsRoot(markdown: string): EnhancedDiaryWorkspaceSectionResult {
-    return getDayWorkspaceSection(markdown, "quickRecords");
+export function getQuickRecordsRoot(
+    markdown: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
+): EnhancedDiaryWorkspaceSectionResult {
+    return getDayWorkspaceSection(markdown, "quickRecords", headingStructure);
 }
 
 export function getRecordCategorySection(
     markdown: string,
-    categoryKey: EnhancedDiaryRecordCategoryKey
+    categoryKey: EnhancedDiaryRecordCategoryKey,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): EnhancedDiaryRecordCategoryResult {
     const categoryTitle = ENHANCED_DIARY_RECORD_CATEGORY_TITLES[categoryKey];
-    const quickRecordsLookup = findRootHeading(markdown, "day");
+    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day") : undefined;
+    const quickRecordsLookup = findRootHeading(markdown, "day", plan);
 
     if (!quickRecordsLookup.found || !quickRecordsLookup.node) {
         return {
@@ -167,7 +182,7 @@ export function getRecordCategorySection(
     }
 
     const quickRecordsNode = quickRecordsLookup.node;
-    const quickRecordsChild = findDirectChildHeading(quickRecordsNode, "快速记录", 2);
+    const quickRecordsChild = findDescendantByTitleInScope(quickRecordsNode, "快速记录");
 
     if (!quickRecordsChild.found || !quickRecordsChild.node) {
         return {
@@ -179,7 +194,7 @@ export function getRecordCategorySection(
         };
     }
 
-    const categoryLookup = findDirectChildHeading(quickRecordsChild.node, categoryTitle, 3);
+    const categoryLookup = findDescendantByTitleInScope(quickRecordsChild.node, categoryTitle);
     const result = toWorkspaceSectionResult(markdown, categoryLookup, ["今日日记", "快速记录", categoryTitle]);
 
     return {
@@ -189,22 +204,25 @@ export function getRecordCategorySection(
 }
 
 export function getRecordCategorySections(
-    markdown: string
+    markdown: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): Record<EnhancedDiaryRecordCategoryKey, EnhancedDiaryRecordCategoryResult> {
     return {
-        uncategorized: getRecordCategorySection(markdown, "uncategorized"),
-        idea: getRecordCategorySection(markdown, "idea"),
-        problem: getRecordCategorySection(markdown, "problem"),
-        decision: getRecordCategorySection(markdown, "decision"),
-        log: getRecordCategorySection(markdown, "log"),
+        uncategorized: getRecordCategorySection(markdown, "uncategorized", headingStructure),
+        idea: getRecordCategorySection(markdown, "idea", headingStructure),
+        problem: getRecordCategorySection(markdown, "problem", headingStructure),
+        decision: getRecordCategorySection(markdown, "decision", headingStructure),
+        log: getRecordCategorySection(markdown, "log", headingStructure),
     };
 }
 
 export function getProjectSection(
     markdown: string,
-    projectName: string
+    projectName: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): EnhancedDiaryWorkspaceSectionResult {
-    const projectProgressLookup = findRootHeading(markdown, "day");
+    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day") : undefined;
+    const projectProgressLookup = findRootHeading(markdown, "day", plan);
 
     if (!projectProgressLookup.found || !projectProgressLookup.node) {
         return {
@@ -216,7 +234,7 @@ export function getProjectSection(
     }
 
     const dayRoot = projectProgressLookup.node;
-    const projectProgressChild = findDirectChildHeading(dayRoot, "项目推进", 2);
+    const projectProgressChild = findDescendantByTitleInScope(dayRoot, "项目推进");
 
     if (!projectProgressChild.found || !projectProgressChild.node) {
         return {
@@ -227,15 +245,13 @@ export function getProjectSection(
         };
     }
 
-    const projectNode = projectProgressChild.node.children.find(
-        (child) => child.level === 3 && normalizeHeadingTitle(child.title) === projectName
-    );
-
-    if (projectNode) {
+    // Find project by exact title match within projectProgress scope
+    const projectLookup = findDescendantByTitleInScope(projectProgressChild.node, projectName);
+    if (projectLookup.found && projectLookup.node) {
         return {
             found: true,
-            node: projectNode,
-            markdown: getSectionMarkdown(markdown, projectNode),
+            node: projectLookup.node,
+            markdown: getSectionMarkdown(markdown, projectLookup.node),
             path: ["今日日记", "项目推进", projectName],
         };
     }
@@ -243,7 +259,7 @@ export function getProjectSection(
     return {
         found: false,
         markdown: "",
-        missingTitle: `### ${projectName}`,
+        missingTitle: projectName,
         path: ["今日日记", "项目推进", projectName],
     };
 }

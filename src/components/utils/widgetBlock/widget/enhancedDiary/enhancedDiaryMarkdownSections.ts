@@ -1,4 +1,7 @@
-import type { EnhancedDiaryPeriod } from "./enhancedDiaryTypes";
+import type {
+    EnhancedDiaryHeadingStructureConfig,
+    EnhancedDiaryPeriod,
+} from "./enhancedDiaryTypes";
 
 export type EnhancedDiaryHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -23,12 +26,73 @@ export interface EnhancedDiaryWorkspaceValidationResult {
     missing: string[];
 }
 
+export interface EnhancedDiaryHeadingPlan {
+    rootHeadingLevel: EnhancedDiaryHeadingLevel;
+    baseLevel: EnhancedDiaryHeadingLevel;
+    subLevel: EnhancedDiaryHeadingLevel;
+    recordLevel: EnhancedDiaryHeadingLevel;
+    rootHeadingTitle: string;
+}
+
+export function getEnhancedDiaryHeadingPlan(
+    headingStructure: EnhancedDiaryHeadingStructureConfig,
+    period: EnhancedDiaryPeriod
+): EnhancedDiaryHeadingPlan {
+    const rootHeadingTitle = ENHANCED_DIARY_ROOT_HEADINGS[period];
+    let baseLevel = headingStructure.dayWorkspaceBaseHeadingLevel as EnhancedDiaryHeadingLevel;
+
+    // Clamp: recordLevel = baseLevel + 2 must not exceed 6
+    if (baseLevel > 4) {
+        baseLevel = 4;
+    }
+
+    const subLevel = (baseLevel + 1) as EnhancedDiaryHeadingLevel;
+    const recordLevel = (baseLevel + 2) as EnhancedDiaryHeadingLevel;
+
+    return {
+        rootHeadingLevel: 1,
+        baseLevel,
+        subLevel,
+        recordLevel,
+        rootHeadingTitle,
+    };
+}
+
+export function getEnhancedDiaryRequiredPaths(
+    plan: EnhancedDiaryHeadingPlan
+): Array<{ path: string[]; label: string }> {
+    const baseHash = "#".repeat(plan.baseLevel);
+    const subHash = "#".repeat(plan.subLevel);
+    return [
+        { path: ["任务管理"], label: `${baseHash} 任务管理` },
+        { path: ["任务管理", "新建任务"], label: `${subHash} 新建任务` },
+        { path: ["任务管理", "迁移任务"], label: `${subHash} 迁移任务` },
+        { path: ["任务管理", "任务动态"], label: `${subHash} 任务动态` },
+        { path: ["快速记录"], label: `${baseHash} 快速记录` },
+        { path: ["今日复盘"], label: `${baseHash} 今日复盘` },
+    ];
+}
+
 export const ENHANCED_DIARY_ROOT_HEADINGS: Record<EnhancedDiaryPeriod, string> = {
     day: "今日日记",
-    week: "本周复盘",
-    month: "本月总结",
-    year: "年度总结",
+    week: "周复盘",
+    month: "月复盘",
+    year: "年复盘",
 };
+
+export const ENHANCED_DIARY_ROOT_HEADING_ALIASES: Record<EnhancedDiaryPeriod, string[]> = {
+    day: ["今日日记"],
+    week: ["周复盘", "本周复盘"],
+    month: ["月复盘", "月度复盘", "本月总结"],
+    year: ["年复盘", "年度复盘", "年度总结"],
+};
+
+export function matchesRootHeading(normalizedTitle: string, period: EnhancedDiaryPeriod): boolean {
+    const aliases = ENHANCED_DIARY_ROOT_HEADING_ALIASES[period];
+    return aliases.some(
+        (alias) => normalizedTitle === alias || normalizedTitle.startsWith(alias + " ")
+    );
+}
 
 export const ENHANCED_DIARY_DAY_REQUIRED_PATHS: Array<{ path: string[]; label: string }> = [
     { path: ["任务管理"], label: "## 任务管理" },
@@ -151,17 +215,22 @@ export function headingTitleStartsWith(node: EnhancedDiaryHeadingNode, expectedT
     return normalized === expectedTitle || normalized.startsWith(expectedTitle + " ");
 }
 
-export function findRootHeading(markdown: string, period: EnhancedDiaryPeriod): EnhancedDiarySectionLookupResult {
+export function findRootHeading(
+    markdown: string,
+    period: EnhancedDiaryPeriod,
+    plan?: EnhancedDiaryHeadingPlan
+): EnhancedDiarySectionLookupResult {
     const roots = parseMarkdownHeadingTree(markdown);
-    const expectedTitle = ENHANCED_DIARY_ROOT_HEADINGS[period];
+    const targetLevel = plan ? plan.rootHeadingLevel : 1;
 
     for (const node of roots) {
-        if (node.level === 1 && headingTitleStartsWith(node, expectedTitle)) {
+        if (node.level === targetLevel && matchesRootHeading(normalizeHeadingTitle(node.title), period)) {
             return { found: true, node };
         }
     }
 
-    return { found: false, missingTitle: `# ${expectedTitle}` };
+    const expectedTitle = plan ? plan.rootHeadingTitle : ENHANCED_DIARY_ROOT_HEADINGS[period];
+    return { found: false, missingTitle: `${"#".repeat(targetLevel)} ${expectedTitle}` };
 }
 
 export function findDirectChildHeading(
@@ -179,14 +248,17 @@ export function findDirectChildHeading(
     return { found: false, missingTitle: expectedTitle };
 }
 
-export function validateDayWorkspaceStructure(markdown: string): EnhancedDiaryWorkspaceValidationResult {
+export function validateDayWorkspaceStructure(
+    markdown: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
+): EnhancedDiaryWorkspaceValidationResult {
     const missing: string[] = [];
-    const roots = parseMarkdownHeadingTree(markdown);
 
+    const roots = parseMarkdownHeadingTree(markdown);
     let rootNode: EnhancedDiaryHeadingNode | null = null;
 
     for (const node of roots) {
-        if (node.level === 1 && headingTitleStartsWith(node, ENHANCED_DIARY_ROOT_HEADINGS.day)) {
+        if (node.level === 1 && matchesRootHeading(normalizeHeadingTitle(node.title), "day")) {
             rootNode = node;
             break;
         }
@@ -197,26 +269,102 @@ export function validateDayWorkspaceStructure(markdown: string): EnhancedDiaryWo
         return { valid: false, missing };
     }
 
-    for (const { path, label } of ENHANCED_DIARY_DAY_REQUIRED_PATHS) {
-        let currentNode = rootNode;
-        let found = true;
+    // Build recommended labels from plan (for display only, not for matching)
+    const plan = headingStructure
+        ? getEnhancedDiaryHeadingPlan(headingStructure, "day")
+        : null;
+    const baseHash = plan ? "#".repeat(plan.baseLevel) : "##";
+    const subHash = plan ? "#".repeat(plan.subLevel) : "###";
 
-        for (let i = 0; i < path.length; i++) {
-            const expectedLevel = (i + 2) as EnhancedDiaryHeadingLevel;
-            const childResult = findDirectChildHeading(currentNode, path[i], expectedLevel);
-            if (!childResult.found || !childResult.node) {
-                found = false;
-                break;
-            }
-            currentNode = childResult.node;
-        }
+    const requiredItems: { path: string[]; recommendedLabel: string }[] = [
+        { path: ["任务管理"], recommendedLabel: `${baseHash} 任务管理` },
+        { path: ["任务管理", "新建任务"], recommendedLabel: `${subHash} 新建任务` },
+        { path: ["任务管理", "迁移任务"], recommendedLabel: `${subHash} 迁移任务` },
+        { path: ["任务管理", "任务动态"], recommendedLabel: `${subHash} 任务动态` },
+        { path: ["快速记录"], recommendedLabel: `${baseHash} 快速记录` },
+        { path: ["今日复盘"], recommendedLabel: `${baseHash} 今日复盘` },
+    ];
 
-        if (!found) {
-            missing.push(label);
+    for (const { path, recommendedLabel } of requiredItems) {
+        const result = findSectionByTitlePath(rootNode, path);
+        if (!result.found) {
+            missing.push(recommendedLabel);
         }
     }
 
     return { valid: missing.length === 0, missing };
+}
+
+/**
+ * Find a direct child of `parent` by title text (ignoring level).
+ * Returns the first match among parent.children.
+ */
+export function findChildByTitle(
+    parent: EnhancedDiaryHeadingNode,
+    title: string
+): EnhancedDiarySectionLookupResult {
+    for (const child of parent.children) {
+        if (headingTitleStartsWith(child, title)) {
+            return { found: true, node: child };
+        }
+    }
+    return { found: false, missingTitle: title };
+}
+
+/**
+ * Find a heading by title text within the scope of `parent`.
+ * Searches parent.children first (direct child, prioritizing parent.level + 1),
+ * then falls back to deeper descendants within parent's scope.
+ */
+export function findDescendantByTitleInScope(
+    parent: EnhancedDiaryHeadingNode,
+    title: string
+): EnhancedDiarySectionLookupResult {
+    const preferredLevel = (parent.level + 1) as EnhancedDiaryHeadingLevel;
+
+    // Pass 1: match direct children at parent.level + 1 (highest priority)
+    for (const child of parent.children) {
+        if (child.level === preferredLevel && headingTitleStartsWith(child, title)) {
+            return { found: true, node: child };
+        }
+    }
+
+    // Pass 2: match any direct child with title match at deeper levels
+    // (handles skipped-level headings, e.g. H3 under H1 when no H2 exists)
+    for (const child of parent.children) {
+        if (child.level > preferredLevel && headingTitleStartsWith(child, title)) {
+            return { found: true, node: child };
+        }
+    }
+
+    // Pass 3: recurse into children's subtrees for nested descendants
+    for (const child of parent.children) {
+        const result = findDescendantByTitleInScope(child, title);
+        if (result.found) {
+            return result;
+        }
+    }
+
+    return { found: false, missingTitle: title };
+}
+
+/**
+ * Walk a title path (e.g. ["任务管理", "新建任务"]) starting from `root`,
+ * using findDescendantByTitleInScope at each step.
+ */
+export function findSectionByTitlePath(
+    root: EnhancedDiaryHeadingNode,
+    path: string[]
+): EnhancedDiarySectionLookupResult {
+    let currentNode = root;
+    for (const title of path) {
+        const result = findDescendantByTitleInScope(currentNode, title);
+        if (!result.found || !result.node) {
+            return { found: false, missingTitle: title };
+        }
+        currentNode = result.node;
+    }
+    return { found: true, node: currentNode };
 }
 
 export function getSectionMarkdown(markdown: string, node: EnhancedDiaryHeadingNode): string {

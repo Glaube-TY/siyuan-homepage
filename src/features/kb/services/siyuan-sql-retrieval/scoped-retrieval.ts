@@ -4,7 +4,7 @@
  * 为 Agent Core listDocsForAgent 提供 notebook/doc_tree 范围内文档枚举
  */
 
-import { sql } from "@/api";
+import { sqlSelectReadonlyPaged } from "../siyuan/read-only-kernel";
 import type { DocIndexLite } from "./doc-title-match";
 
 /**
@@ -23,11 +23,11 @@ async function loadDocsInNotebook(notebookId: string): Promise<Array<{
     FROM blocks
     WHERE box = '${notebookId.replace(/'/g, "''")}'
       AND type = 'd'
-    ORDER BY updated DESC
+    ORDER BY updated DESC, id DESC
   `;
 
   try {
-    const rows = await sql(sqlStmt);
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: 10000, allowedTables: ["blocks"] });
     if (!Array.isArray(rows)) return [];
 
     return rows.map((row: any) => ({
@@ -69,11 +69,11 @@ async function loadDocsInDocTree(
     WHERE box = '${escapedBox}'
       AND type = 'd'
       AND (id = '${escapedRootDocId}' OR path LIKE '%/${escapedRootDocId}/%')
-    ORDER BY updated DESC
+    ORDER BY updated DESC, id DESC
   `;
 
   try {
-    const rows = await sql(sqlStmt);
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: 10000, allowedTables: ["blocks"] });
     if (!Array.isArray(rows)) return [];
 
     return rows.map((row: any) => ({

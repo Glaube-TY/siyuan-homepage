@@ -585,8 +585,18 @@
             period: "day",
             template: state.config.templates.day,
             context: dayCard.templateContext,
+            headingStructure: state.config.headingStructure,
         });
-        showMessage(result.ok ? "今日模板已处理" : "补充模板失败", 3000);
+        if (result.ok && result.skipped) {
+            showMessage("今日模板已存在，无需补充", 3000);
+        } else if (result.ok) {
+            showMessage("今日模板已处理", 3000);
+        } else if (result.reason && result.reason.startsWith("template_incomplete:")) {
+            const missingList = result.reason.slice("template_incomplete:".length).trim();
+            showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
+        } else {
+            showMessage("补充模板失败", 3000);
+        }
         await refresh();
     }
 
@@ -609,7 +619,7 @@
                 showMessage("未能打开或创建今日日记，任务未写入", 4000);
                 return false;
             }
-            const result = await addNewTaskToDiary({ docId: todayDoc.docId, task: input });
+            const result = await addNewTaskToDiary({ docId: todayDoc.docId, task: input, headingStructure: state.config.headingStructure });
             if (result.ok) {
                 showMessage("任务已写入「新建任务」区块", 3000);
                 await refresh();
@@ -945,8 +955,18 @@
             period: card.period,
             template: state.config.templates[card.period],
             context: card.templateContext,
+            headingStructure: state.config.headingStructure,
         });
-        showMessage(result.ok ? "模板已处理" : "补充模板失败", 3000);
+        if (result.ok && result.skipped) {
+            showMessage("模板已存在，无需补充", 3000);
+        } else if (result.ok) {
+            showMessage("模板已处理", 3000);
+        } else if (result.reason && result.reason.startsWith("template_incomplete:")) {
+            const missingList = result.reason.slice("template_incomplete:".length).trim();
+            showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
+        } else {
+            showMessage("补充模板失败", 3000);
+        }
         await refresh();
     }
 
@@ -1051,7 +1071,7 @@
         if (!card.docId) {
             return { fields: [], reason: "no_doc" };
         }
-        return loadReviewContent(card.docId, card.period);
+        return loadReviewContent(card.docId, card.period, state.config.headingStructure);
     }
 
     async function saveReviewContentFromPanel(
@@ -1059,7 +1079,7 @@
         fields: EnhancedDiaryReviewField[]
     ): Promise<boolean> {
         if (!card.docId) return false;
-        const result = await saveReviewContent(card.docId, card.period, fields);
+        const result = await saveReviewContent(card.docId, card.period, fields, state.config.headingStructure);
         if (result.ok) {
             showMessage("复盘内容已保存", 2500);
             await refresh();

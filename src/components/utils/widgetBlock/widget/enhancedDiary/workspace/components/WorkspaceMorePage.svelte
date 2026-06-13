@@ -24,20 +24,19 @@
     }: Props = $props();
 
     const workspaceSections = [
-        "# 今日日记",
-        "## 任务管理",
-        "### 新建任务",
-        "### 迁移任务",
-        "### 任务动态",
-        "## 快速记录",
-        "## 今日复盘",
+        "今日日记",
+        "任务管理",
+        "新建任务",
+        "迁移任务",
+        "任务动态",
+        "快速记录",
+        "今日复盘",
     ];
-
-    const missingSectionSet = $derived(new Set(missingSections));
 
     function sectionStatus(section: string): "missing" | "ok" {
         if (!todayDiaryExists) return "missing";
-        return missingSectionSet.has(section) ? "missing" : "ok";
+        // missingSections contains labels like "## 任务管理" — match by title substring
+        return missingSections.some((s) => s.includes(section)) ? "missing" : "ok";
     }
 
     const missingCount = $derived(todayDiaryExists ? missingSections.length : workspaceSections.length);
@@ -76,7 +75,7 @@
         <div class="diagnostic-head">
             <div>
                 <h3>模板结构检测</h3>
-                <p>检查今日日记是否具备强化日记工作台需要的标题区块。</p>
+                <p>检查今日日记是否具备强化日记工作台需要的标题区块。按标题文字识别，推荐层级以设置页为准。</p>
             </div>
             <span class="diagnostic-status" class:ok={todayDiaryExists && templateValid} class:warn={!todayDiaryExists || !templateValid}>
                 {!todayDiaryExists ? "未创建日记" : templateValid ? "结构完整" : "结构缺失"}
@@ -120,42 +119,43 @@
 
     <section class="template-structure-card">
         <h3>推荐模板结构</h3>
+        <p class="template-structure-note">按标题文字识别，实际层级可自定义（设置页可调整起始层级）。</p>
         <div class="template-structure-grid">
             <div class="template-structure-item">
                 <div class="template-structure-title">日记</div>
                 <div class="template-structure-lines">
-                    <span># 今日日记</span>
-                    <span>## 任务管理</span>
-                    <span class="indent">### 新建任务 / 迁移任务 / 任务动态</span>
-                    <span>## 快速记录</span>
-                    <span>## 今日复盘</span>
+                    <span>今日日记</span>
+                    <span>任务管理</span>
+                    <span class="indent">新建任务 / 迁移任务 / 任务动态</span>
+                    <span>快速记录</span>
+                    <span>今日复盘</span>
                 </div>
             </div>
             <div class="template-structure-item">
                 <div class="template-structure-title">周复盘</div>
                 <div class="template-structure-lines">
-                    <span># 本周复盘</span>
-                    <span>## 周复盘</span>
-                    <span class="indent">### 本周总结 / 任务回顾 / 记录沉淀</span>
-                    <span class="indent">### 问题与风险 / 下周计划</span>
+                    <span>周复盘</span>
+                    <span>周复盘区</span>
+                    <span class="indent">本周总结 / 任务回顾 / 记录沉淀</span>
+                    <span class="indent">问题与风险 / 下周计划</span>
                 </div>
             </div>
             <div class="template-structure-item">
                 <div class="template-structure-title">月总结</div>
                 <div class="template-structure-lines">
-                    <span># 本月总结</span>
-                    <span>## 月度复盘</span>
-                    <span class="indent">### 本月总结 / 关键进展 / 任务回顾</span>
-                    <span class="indent">### 问题与风险 / 下月计划</span>
+                    <span>月复盘</span>
+                    <span>月度复盘</span>
+                    <span class="indent">本月总结 / 关键进展 / 任务回顾</span>
+                    <span class="indent">问题与风险 / 下月计划</span>
                 </div>
             </div>
             <div class="template-structure-item">
                 <div class="template-structure-title">年总结</div>
                 <div class="template-structure-lines">
-                    <span># 年度总结</span>
-                    <span>## 年度复盘</span>
-                    <span class="indent">### 年度总结 / 关键成果 / 重要变化</span>
-                    <span class="indent">### 经验教训 / 明年方向</span>
+                    <span>年复盘</span>
+                    <span>年度复盘</span>
+                    <span class="indent">年度总结 / 关键成果 / 重要变化</span>
+                    <span class="indent">经验教训 / 明年方向</span>
                 </div>
             </div>
         </div>
@@ -449,10 +449,17 @@
     }
 
     .template-structure-card h3 {
-        margin: 0 0 14px;
+        margin: 0 0 4px;
         font-size: 15px;
         font-weight: 700;
         color: var(--b3-theme-on-surface);
+    }
+
+    .template-structure-note {
+        margin: 0 0 14px;
+        font-size: 12px;
+        color: var(--b3-theme-on-surface);
+        opacity: 0.55;
     }
 
     .template-structure-grid {

@@ -5,11 +5,13 @@ import {
     type EnhancedDiaryRecordCategoryKey,
 } from "../enhancedDiaryWorkspaceSections";
 import {
-    findDirectChildHeading,
+    findDescendantByTitleInScope,
     findRootHeading,
     getSectionMarkdown,
+    type EnhancedDiaryHeadingNode,
 } from "../enhancedDiaryMarkdownSections";
-import type { EnhancedDiaryConfig } from "../enhancedDiaryTypes";
+import { findDayWorkspaceHeadingBlock } from "../enhancedDiaryBlockLocator";
+import type { EnhancedDiaryConfig, EnhancedDiaryHeadingStructureConfig } from "../enhancedDiaryTypes";
 import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { formatDiaryDate } from "../enhancedDiaryUtils";
 
@@ -99,19 +101,54 @@ function parseHeadingBlock(block: IResGetChildBlock, index: number): HeadingBloc
 function queryTodayQuickRecordsFromMarkdown(
     docId: string,
     markdown: string,
-    date?: string
+    date?: string,
+    _headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): EnhancedDiaryWorkspaceRecord[] {
     const dayRoot = findRootHeading(markdown, "day");
     if (!dayRoot.found || !dayRoot.node) return [];
 
-    const quickRecords = findDirectChildHeading(dayRoot.node, "快速记录", 2);
+    const quickRecords = findDescendantByTitleInScope(dayRoot.node, "快速记录");
     if (!quickRecords.found || !quickRecords.node) return [];
 
     const records: EnhancedDiaryWorkspaceRecord[] = [];
-    for (const categoryNode of quickRecords.node.children.filter((child) => child.level === 3)) {
-        const category = getCategoryMeta(categoryNode.title);
+    const qrNode = quickRecords.node;
+    const preferredCategoryLevel = qrNode.level + 1;
 
-        for (const recordNode of categoryNode.children.filter((child) => child.level === 4)) {
+    // Collect category nodes: preferred qrNode.level + 1, fallback deeper
+    const categoryNodes: EnhancedDiaryHeadingNode[] = [];
+    for (const child of qrNode.children) {
+        if (child.level === preferredCategoryLevel) {
+            categoryNodes.push(child);
+        }
+    }
+    if (categoryNodes.length === 0) {
+        for (const child of qrNode.children) {
+            if (child.level > preferredCategoryLevel) {
+                categoryNodes.push(child);
+            }
+        }
+    }
+
+    for (const categoryNode of categoryNodes) {
+        const category = getCategoryMeta(categoryNode.title);
+        const preferredRecordLevel = categoryNode.level + 1;
+
+        // Collect record nodes: preferred categoryNode.level + 1, fallback deeper
+        const recordNodes: EnhancedDiaryHeadingNode[] = [];
+        for (const child of categoryNode.children) {
+            if (child.level === preferredRecordLevel) {
+                recordNodes.push(child);
+            }
+        }
+        if (recordNodes.length === 0) {
+            for (const child of categoryNode.children) {
+                if (child.level > preferredRecordLevel) {
+                    recordNodes.push(child);
+                }
+            }
+        }
+
+        for (const recordNode of recordNodes) {
             const content = getSectionMarkdown(markdown, recordNode).trim();
             if (isPlaceholderRecord(content)) continue;
 
@@ -134,51 +171,59 @@ function queryTodayQuickRecordsFromMarkdown(
 export async function queryTodayQuickRecords(
     docId: string,
     markdown: string,
-    date?: string
+    date?: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): Promise<EnhancedDiaryWorkspaceRecord[]> {
     try {
-        const blocks = await getChildBlocks(docId);
-        const records: EnhancedDiaryWorkspaceRecord[] = [];
-        let inDayRoot = false;
-        let inQuickRecords = false;
-        let activeCategory: {
-            key: string;
-            title: string;
-        } | null = null;
+        // Use findDayWorkspaceHeadingBlock to precisely locate quick records section
+        const qrLookup = await findDayWorkspaceHeadingBlock(docId, "quickRecords", headingStructure);
+        if (!qrLookup.found || !qrLookup.heading) {
+            // Fallback to markdown-based parsing
+            return queryTodayQuickRecordsFromMarkdown(docId, markdown, date, undefined);
+        }
 
-        for (let i = 0; i < blocks.length; i++) {
+        const qrBlock = qrLookup.heading;
+        const allHeadings = qrLookup.headings;
+
+        // Determine quick records scope: from qrBlock to next heading at level <= qrBlock.level
+        let qrScopeEnd = Number.MAX_SAFE_INTEGER;
+        for (const h of allHeadings) {
+            if (h.index > qrBlock.index && h.level <= qrBlock.level) {
+                qrScopeEnd = h.index;
+                break;
+            }
+        }
+
+        // Get all blocks for content extraction
+        const blocks = await getChildBlocks(docId);
+        const effectiveEnd = Math.min(qrScopeEnd, blocks.length);
+        const preferredCategoryLevel = qrBlock.level + 1;
+
+        const records: EnhancedDiaryWorkspaceRecord[] = [];
+        let activeCategory: { key: string; title: string; level: number } | null = null;
+        let activeCategoryLevel = 0;
+
+        for (let i = qrBlock.index + 1; i < effectiveEnd; i++) {
             const heading = parseHeadingBlock(blocks[i], i);
             if (!heading) continue;
 
-            if (heading.level === 1) {
-                inDayRoot = heading.title === "今日日记" || heading.title.startsWith("今日日记 ");
-                inQuickRecords = false;
-                activeCategory = null;
+            // Category: preferred qrBlock.level + 1, fallback deeper
+            if (heading.level === preferredCategoryLevel ||
+                (heading.level > preferredCategoryLevel && (!activeCategory || heading.level <= activeCategoryLevel))) {
+                activeCategory = { ...getCategoryMeta(heading.title), level: heading.level };
+                activeCategoryLevel = heading.level;
                 continue;
             }
 
-            if (!inDayRoot) continue;
-
-            if (heading.level === 2) {
-                inQuickRecords = heading.title === "快速记录";
-                activeCategory = null;
-                continue;
-            }
-
-            if (!inQuickRecords) continue;
-
-            if (heading.level === 3) {
-                activeCategory = getCategoryMeta(heading.title);
-                continue;
-            }
-
-            if (heading.level !== 4 || !activeCategory) continue;
+            // Record: deeper than active category
+            if (!activeCategory) continue;
+            if (heading.level <= activeCategoryLevel) continue;
 
             const contentBlockIds: string[] = [];
             const contentLines: string[] = [];
-            for (let j = i + 1; j < blocks.length; j++) {
+            for (let j = i + 1; j < effectiveEnd; j++) {
                 const nextHeading = parseHeadingBlock(blocks[j], j);
-                if (nextHeading && nextHeading.level <= 4) break;
+                if (nextHeading && nextHeading.level <= heading.level) break;
                 if (blocks[j].id) contentBlockIds.push(blocks[j].id);
                 if (blocks[j].markdown) contentLines.push(blocks[j].markdown);
             }
@@ -203,7 +248,7 @@ export async function queryTodayQuickRecords(
         return records;
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceRecordService] query records by blocks failed", err);
-        return queryTodayQuickRecordsFromMarkdown(docId, markdown, date);
+        return queryTodayQuickRecordsFromMarkdown(docId, markdown, date, undefined);
     }
 }
 
@@ -226,6 +271,7 @@ export async function addWorkspaceQuickRecord(
         docId: todayDoc.docId,
         categoryTitle,
         content,
+        headingStructure: config.headingStructure,
     });
 }
 

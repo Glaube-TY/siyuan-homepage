@@ -11,7 +11,6 @@
  * - 返回 BlockSearchHit[]，供上层聚合为文档候选
  */
 
-import { sql } from "@/api";
 import type { BlockSearchHit, SearchScope, SearchExclude } from "./types";
 import {
   clampLimit,
@@ -21,6 +20,7 @@ import {
   buildScopeWhere,
   buildExcludeWhere,
 } from "./sql-utils";
+import { sqlSelectReadonlyPaged } from "../siyuan/read-only-kernel";
 
 export interface SearchBlocksParams {
   query: string;
@@ -61,12 +61,11 @@ export async function searchBlocksKeyword(params: SearchBlocksParams): Promise<B
     select id, root_id, parent_id, box, path, type, subtype, content, tag, created, updated, hash
     from blocks
     where ${whereParts.join(" AND ")}
-    order by updated desc
-    limit ${safeLimit}
+    order by updated desc, id desc
   `;
 
   try {
-    const rows = await sql(sqlStmt);
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks"] });
     return mapRowsToHits(rows, "keyword");
   } catch (e) {
     console.error("[searchBlocksKeyword] SQL error:", e);
@@ -102,12 +101,11 @@ export async function searchBlocksFuzzy(params: SearchBlocksParams): Promise<Blo
     select id, root_id, parent_id, box, path, type, subtype, content, tag, created, updated, hash
     from blocks
     where ${whereParts.join(" AND ")}
-    order by updated desc
-    limit ${safeLimit}
+    order by updated desc, id desc
   `;
 
   try {
-    const rows = await sql(sqlStmt);
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks"] });
     return mapRowsToHits(rows, "fuzzy");
   } catch (e) {
     console.error("[searchBlocksFuzzy] SQL error:", e);
@@ -144,12 +142,11 @@ export async function searchDocsByTitle(params: SearchBlocksParams): Promise<Blo
     select id, root_id, parent_id, box, path, type, subtype, content, tag, created, updated, hash
     from blocks
     where ${whereParts.join(" AND ")}
-    order by updated desc
-    limit ${safeLimit}
+    order by updated desc, id desc
   `;
 
   try {
-    const rows = await sql(sqlStmt);
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks"] });
     return mapRowsToHits(rows, "keyword");
   } catch (e) {
     console.error("[searchDocsByTitle] SQL error:", e);
@@ -185,12 +182,11 @@ export async function searchBlocksByTag(params: SearchBlocksParams): Promise<Blo
     select id, root_id, parent_id, box, path, type, subtype, content, tag, created, updated, hash
     from blocks
     where ${whereParts.join(" AND ")}
-    order by updated desc
-    limit ${safeLimit}
+    order by updated desc, id desc
   `;
 
   try {
-    const rows = await sql(sqlStmt);
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks"] });
     return mapRowsToHits(rows, "keyword");
   } catch (e) {
     console.error("[searchBlocksByTag] SQL error:", e);

@@ -28,13 +28,24 @@ import {
   type GetTagPayload,
   type Tag,
 } from "@/api";
-import { safeSqlSelect, escapeSqlString, type SafeSqlSelectOptions } from "./safe-sql";
+import { safeSqlSelect, safeSqlSelectPaged, escapeSqlString, type SafeSqlSelectOptions, type SafeSqlPagedOptions } from "./safe-sql";
 
 export async function sqlSelectReadonly<T = Record<string, unknown>>(
   stmt: string,
   options?: SafeSqlSelectOptions
 ): Promise<T[]> {
   return safeSqlSelect<T>(stmt, options);
+}
+
+/**
+ * Paged read-only SQL query that bypasses SiYuan's default 64-row truncation.
+ * See safeSqlSelectPaged for pagination strategy.
+ */
+export async function sqlSelectReadonlyPaged<T = Record<string, unknown>>(
+  stmt: string,
+  options?: SafeSqlPagedOptions
+): Promise<T[]> {
+  return safeSqlSelectPaged<T>(stmt, options);
 }
 
 export async function exportMdContentReadonly(id: DocumentId) {
@@ -80,6 +91,68 @@ export async function getBlockByIdReadonly(blockId: string): Promise<Record<stri
 
 export async function fullTextSearchBlockReadonly(query: string, page: number = 0) {
   return fullTextSearchBlock(query, page);
+}
+
+export interface FullTextSearchPagedOptions {
+  /** Maximum number of pages to fetch. Default 5. */
+  maxPages?: number;
+  /** Maximum total block results to collect. Default 200. */
+  maxRows?: number;
+}
+
+/**
+ * Paged full-text search that fetches multiple pages from SiYuan's kernel API.
+ * Bypasses the default single-page (64 results) limit.
+ * Returns all unique blocks across pages, deduplicated by block id.
+ */
+export async function fullTextSearchBlockAllPagesReadonly(
+  query: string,
+  options?: FullTextSearchPagedOptions,
+) {
+  const maxPages = options?.maxPages ?? 5;
+  const maxRows = options?.maxRows ?? 200;
+
+  const seen = new Set<string>();
+  const allBlocks: NonNullable<Awaited<ReturnType<typeof fullTextSearchBlock>>["blocks"]> = [];
+  let totalMatchCount = 0;
+  let totalDocCount = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const result = await fullTextSearchBlock(query, page);
+    if (!result || !result.blocks || result.blocks.length === 0) {
+      break;
+    }
+
+    if (page === 0) {
+      totalMatchCount = result.matchCount ?? 0;
+      totalDocCount = result.docCount ?? 0;
+    }
+
+    let addedThisPage = 0;
+    for (const block of result.blocks) {
+      if (seen.has(block.id)) continue;
+      seen.add(block.id);
+      allBlocks.push(block);
+      addedThisPage++;
+      if (allBlocks.length >= maxRows) break;
+    }
+
+    // Stop if we've collected enough or this page had no new unique blocks.
+    if (allBlocks.length >= maxRows || addedThisPage === 0) {
+      break;
+    }
+
+    // If the page returned fewer than a full page (64), no more results likely.
+    if (result.blocks.length < 64) {
+      break;
+    }
+  }
+
+  return {
+    blocks: allBlocks,
+    matchCount: totalMatchCount,
+    docCount: totalDocCount,
+  };
 }
 
 export async function getBacklinkReadonly(payload: GetBacklinkPayload) {

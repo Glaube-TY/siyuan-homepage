@@ -6,10 +6,12 @@
         DEFAULT_ENHANCED_DIARY_CONFIG,
         ENHANCED_DIARY_PERIODS,
         type EnhancedDiaryConfig,
+        type EnhancedDiaryDayWorkspaceBaseHeadingLevel,
         type EnhancedDiaryMonthRule,
         type EnhancedDiaryPeriod,
         type EnhancedDiaryYearRule,
     } from "../../enhancedDiaryTypes";
+    import { getEnhancedDiaryHeadingPlan, parseMarkdownHeadingTree, findSectionByTitlePath, matchesRootHeading, normalizeHeadingTitle } from "../../enhancedDiaryMarkdownSections";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
@@ -85,6 +87,7 @@
                 month: { ...value.reviewReminderWindows.month },
                 year: { ...value.reviewReminderWindows.year },
             },
+            headingStructure: { ...value.headingStructure },
         };
     }
 
@@ -113,6 +116,32 @@
         return template.includes(text);
     }
 
+    /**
+     * Check if a template markdown contains a section at the given title path.
+     * Uses heading tree parsing for text-based matching.
+     */
+    function templateHasSection(template: string, path: string[], period: EnhancedDiaryPeriod): boolean {
+        const roots = parseMarkdownHeadingTree(template);
+        // Find the period root heading first
+        const periodRoot = roots.find((node) => node.level === 1 && matchesRootHeading(normalizeHeadingTitle(node.title), period));
+        if (!periodRoot) return false;
+        const result = findSectionByTitlePath(periodRoot, path);
+        return result.found;
+    }
+
+    /**
+     * Check if template has a root heading matching the period (level 1, with alias support).
+     */
+    function templateHasRootHeading(template: string, period: EnhancedDiaryPeriod): boolean {
+        const roots = parseMarkdownHeadingTree(template);
+        for (const node of roots) {
+            if (node.level === 1 && matchesRootHeading(normalizeHeadingTitle(node.title), period)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function makeCheck(
         key: string,
         label: string,
@@ -130,6 +159,11 @@
 
     const templateHealthChecks = $derived.by((): TemplateHealthCheck[] => {
         const template = draft.templates[activeTemplatePeriod] || "";
+        const hs = draft.headingStructure;
+        const plan = getEnhancedDiaryHeadingPlan(hs, activeTemplatePeriod);
+        const baseHash = "#".repeat(plan.baseLevel);
+        const subHash = "#".repeat(plan.subLevel);
+
         const checks: TemplateHealthCheck[] = [
             makeCheck(
                 "completion-marker",
@@ -141,49 +175,51 @@
 
         if (activeTemplatePeriod === "day") {
             checks.push(
-                makeCheck("day-root", "今日日记标题", "用于定位日记根结构。", hasText(template, "# 今日日记")),
-                makeCheck("task-mgmt", "任务管理区", "任务相关区块的父级容器。", hasText(template, `## 任务管理`)),
-                makeCheck("new-tasks", "新建任务区", "新建任务会写入这里。", hasText(template, `### 新建任务`)),
-                makeCheck("migrated-tasks", "迁移任务区", "历史任务迁移到今天时会写入这里。", hasText(template, `### 迁移任务`)),
-                makeCheck("quick-records", "快速记录区", "快速记录会按分类写入这里。", hasText(template, `## 快速记录`)),
-                makeCheck("task-log", "任务动态区", "任务新增、迁移、删除等日志可沉淀在这里。", hasText(template, `### 任务动态`), "suggest"),
-                makeCheck("daily-review", "今日复盘区", "日复盘和历史复盘体验依赖这里。", hasText(template, `## 今日复盘`))
+                makeCheck("day-root", "今日日记标题", `用于定位日记根结构。建议层级 ${baseHash === "##" ? "#" : "#"} 今日日记。文档名承担日期，正文根标题只区分周期类型。`, templateHasRootHeading(template, "day"))
+            );
+            checks.push(
+                makeCheck("task-mgmt", "任务管理区", `任务相关区块的父级容器。建议层级 ${baseHash} 任务管理（层级不固定，按标题文字识别）。`, templateHasSection(template, ["任务管理"], activeTemplatePeriod)),
+                makeCheck("new-tasks", "新建任务区", `新建任务会写入这里。建议层级 ${subHash} 新建任务（层级不固定，按标题文字识别）。`, templateHasSection(template, ["任务管理", "新建任务"], activeTemplatePeriod)),
+                makeCheck("migrated-tasks", "迁移任务区", `历史任务迁移到今天时会写入这里。建议层级 ${subHash} 迁移任务（层级不固定，按标题文字识别）。`, templateHasSection(template, ["任务管理", "迁移任务"], activeTemplatePeriod)),
+                makeCheck("quick-records", "快速记录区", `快速记录会按分类写入这里。建议层级 ${baseHash} 快速记录（层级不固定，按标题文字识别）。`, templateHasSection(template, ["快速记录"], activeTemplatePeriod)),
+                makeCheck("task-log", "任务动态区", `任务新增、迁移、删除等日志可沉淀在这里。建议层级 ${subHash} 任务动态（层级不固定，按标题文字识别）。`, templateHasSection(template, ["任务管理", "任务动态"], activeTemplatePeriod), "suggest"),
+                makeCheck("daily-review", "今日复盘区", `日复盘和历史复盘体验依赖这里。建议层级 ${baseHash} 今日复盘（层级不固定，按标题文字识别）。`, templateHasSection(template, ["今日复盘"], activeTemplatePeriod))
             );
         } else if (activeTemplatePeriod === "week") {
             checks.push(
-                makeCheck("week-title", "周复盘标题", "用于定位周复盘根结构。", hasText(template, "# 本周复盘")),
+                makeCheck("week-title", "周复盘标题", `用于定位周复盘根结构。建议层级 # 周复盘。`, templateHasRootHeading(template, "week")),
                 makeCheck("week-variable", "周次变量", "显示当前周次。", hasText(template, "{{week}}"), "suggest"),
                 makeCheck("period-range", "周期范围变量", "建议显示本周起止范围。", hasText(template, "{{周期范围}}"), "suggest"),
-                makeCheck("week-review", "周复盘区", "用于沉淀周复盘内容。", hasText(template, `## 周复盘`)),
-                makeCheck("week-summary", "本周总结区", "用于总结本周。", hasText(template, `### 本周总结`)),
-                makeCheck("week-tasks", "任务回顾区", "用于回顾本周任务。", hasText(template, `### 任务回顾`)),
-                makeCheck("week-records", "记录沉淀区", "用于沉淀重要记录。", hasText(template, `### 记录沉淀`)),
-                makeCheck("week-problems", "问题与风险区", "用于记录遇到的问题。", hasText(template, `### 问题与风险`)),
-                makeCheck("next", "下周计划区", "用于规划下周。", hasText(template, `### 下周计划`))
+                makeCheck("week-review", "周复盘区", `用于沉淀周复盘内容。建议层级 ${baseHash} 周复盘（层级不固定，按标题文字识别）。`, templateHasSection(template, ["周复盘"], activeTemplatePeriod)),
+                makeCheck("week-summary", "本周总结区", `用于总结本周。建议层级 ${subHash} 本周总结（层级不固定，按标题文字识别）。`, templateHasSection(template, ["本周总结"], activeTemplatePeriod)),
+                makeCheck("week-tasks", "任务回顾区", `用于回顾本周任务。建议层级 ${subHash} 任务回顾（层级不固定，按标题文字识别）。`, templateHasSection(template, ["任务回顾"], activeTemplatePeriod)),
+                makeCheck("week-records", "记录沉淀区", `用于沉淀重要记录。建议层级 ${subHash} 记录沉淀（层级不固定，按标题文字识别）。`, templateHasSection(template, ["记录沉淀"], activeTemplatePeriod)),
+                makeCheck("week-problems", "问题与风险区", `用于记录遇到的问题。建议层级 ${subHash} 问题与风险（层级不固定，按标题文字识别）。`, templateHasSection(template, ["问题与风险"], activeTemplatePeriod)),
+                makeCheck("next", "下周计划区", `用于规划下周。建议层级 ${subHash} 下周计划（层级不固定，按标题文字识别）。`, templateHasSection(template, ["下周计划"], activeTemplatePeriod))
             );
         } else if (activeTemplatePeriod === "month") {
             checks.push(
-                makeCheck("month-title", "月总结标题", "用于定位月度总结根结构。", hasText(template, "# 本月总结")),
+                makeCheck("month-title", "月复盘标题", `用于定位月度复盘根结构。建议层级 # 月复盘。`, templateHasRootHeading(template, "month")),
                 makeCheck("month-variable", "月份变量", "显示当前月份。", hasText(template, "{{month}}"), "suggest"),
                 makeCheck("period-range", "周期范围变量", "建议显示本月起止范围。", hasText(template, "{{周期范围}}"), "suggest"),
-                makeCheck("month-review", "月度复盘区", "用于沉淀月度复盘内容。", hasText(template, `## 月度复盘`)),
-                makeCheck("month-summary", "本月总结区", "用于总结本月。", hasText(template, `### 本月总结`)),
-                makeCheck("month-progress", "关键进展区", "用于记录关键进展。", hasText(template, `### 关键进展`)),
-                makeCheck("month-tasks", "任务回顾区", "用于回顾本月任务。", hasText(template, `### 任务回顾`)),
-                makeCheck("month-problems", "问题与风险区", "用于记录遇到的问题。", hasText(template, `### 问题与风险`)),
-                makeCheck("next", "下月计划区", "用于规划下月。", hasText(template, `### 下月计划`))
+                makeCheck("month-review", "月度复盘区", `用于沉淀月度复盘内容。建议层级 ${baseHash} 月度复盘（层级不固定，按标题文字识别）。`, templateHasSection(template, ["月度复盘"], activeTemplatePeriod)),
+                makeCheck("month-summary", "本月总结区", `用于总结本月。建议层级 ${subHash} 本月总结（层级不固定，按标题文字识别）。`, templateHasSection(template, ["本月总结"], activeTemplatePeriod)),
+                makeCheck("month-progress", "关键进展区", `用于记录关键进展。建议层级 ${subHash} 关键进展（层级不固定，按标题文字识别）。`, templateHasSection(template, ["关键进展"], activeTemplatePeriod)),
+                makeCheck("month-tasks", "任务回顾区", `用于回顾本月任务。建议层级 ${subHash} 任务回顾（层级不固定，按标题文字识别）。`, templateHasSection(template, ["任务回顾"], activeTemplatePeriod)),
+                makeCheck("month-problems", "问题与风险区", `用于记录遇到的问题。建议层级 ${subHash} 问题与风险（层级不固定，按标题文字识别）。`, templateHasSection(template, ["问题与风险"], activeTemplatePeriod)),
+                makeCheck("next", "下月计划区", `用于规划下月。建议层级 ${subHash} 下月计划（层级不固定，按标题文字识别）。`, templateHasSection(template, ["下月计划"], activeTemplatePeriod))
             );
         } else {
             checks.push(
-                makeCheck("year-title", "年度总结标题", "用于定位年度总结根结构。", hasText(template, "# 年度总结")),
+                makeCheck("year-title", "年复盘标题", `用于定位年度复盘根结构。建议层级 # 年复盘。`, templateHasRootHeading(template, "year")),
                 makeCheck("year-variable", "年份变量", "显示当前年份。", hasText(template, "{{year}}"), "suggest"),
                 makeCheck("period-range", "周期范围变量", "建议显示年度起止范围。", hasText(template, "{{周期范围}}"), "suggest"),
-                makeCheck("year-review", "年度复盘区", "用于沉淀年度复盘内容。", hasText(template, `## 年度复盘`)),
-                makeCheck("year-summary", "年度总结区", "用于总结年度。", hasText(template, `### 年度总结`)),
-                makeCheck("year-results", "关键成果区", "用于记录关键成果。", hasText(template, `### 关键成果`)),
-                makeCheck("year-changes", "重要变化区", "用于记录重要变化。", hasText(template, `### 重要变化`)),
-                makeCheck("year-lessons", "经验教训区", "用于记录经验教训。", hasText(template, `### 经验教训`)),
-                makeCheck("next", "明年方向区", "用于规划明年方向。", hasText(template, `### 明年方向`))
+                makeCheck("year-review", "年度复盘区", `用于沉淀年度复盘内容。建议层级 ${baseHash} 年度复盘（层级不固定，按标题文字识别）。`, templateHasSection(template, ["年度复盘"], activeTemplatePeriod)),
+                makeCheck("year-summary", "年度总结区", `用于总结年度。建议层级 ${subHash} 年度总结（层级不固定，按标题文字识别）。`, templateHasSection(template, ["年度总结"], activeTemplatePeriod)),
+                makeCheck("year-results", "关键成果区", `用于记录关键成果。建议层级 ${subHash} 关键成果（层级不固定，按标题文字识别）。`, templateHasSection(template, ["关键成果"], activeTemplatePeriod)),
+                makeCheck("year-changes", "重要变化区", `用于记录重要变化。建议层级 ${subHash} 重要变化（层级不固定，按标题文字识别）。`, templateHasSection(template, ["重要变化"], activeTemplatePeriod)),
+                makeCheck("year-lessons", "经验教训区", `用于记录经验教训。建议层级 ${subHash} 经验教训（层级不固定，按标题文字识别）。`, templateHasSection(template, ["经验教训"], activeTemplatePeriod)),
+                makeCheck("next", "明年方向区", `用于规划明年方向。建议层级 ${subHash} 明年方向（层级不固定，按标题文字识别）。`, templateHasSection(template, ["明年方向"], activeTemplatePeriod))
             );
         }
 
@@ -230,17 +266,109 @@
         draft.templates[period] = DEFAULT_ENHANCED_DIARY_CONFIG.templates[period];
     }
 
+    function buildPlanAwareTemplate(period: EnhancedDiaryPeriod): string {
+        const hs = draft.headingStructure;
+        const plan = getEnhancedDiaryHeadingPlan(hs, period);
+        const baseHash = "#".repeat(plan.baseLevel);
+        const subHash = "#".repeat(plan.subLevel);
+
+        if (period === "day") {
+            return `# 今日日记
+
+{{完成标记}}
+
+${baseHash} 任务管理
+
+${subHash} 新建任务
+
+${subHash} 迁移任务
+
+${subHash} 任务动态
+
+${baseHash} 快速记录
+
+${baseHash} 今日复盘
+
+${subHash} 今日总结
+
+${subHash} 情绪状态
+
+${subHash} 收获与问题
+
+${subHash} 明日关注`;
+        }
+
+        if (period === "week") {
+            return `# 周复盘
+
+周期：{{周期范围}}
+
+{{完成标记}}
+
+${baseHash} 周复盘
+
+${subHash} 本周总结
+
+${subHash} 任务回顾
+
+${subHash} 记录沉淀
+
+${subHash} 问题与风险
+
+${subHash} 下周计划`;
+        }
+
+        if (period === "month") {
+            return `# 月复盘
+
+周期：{{周期范围}}
+
+{{完成标记}}
+
+${baseHash} 月度复盘
+
+${subHash} 本月总结
+
+${subHash} 关键进展
+
+${subHash} 任务回顾
+
+${subHash} 问题与风险
+
+${subHash} 下月计划`;
+        }
+
+        // year
+        return `# 年复盘
+
+周期：{{周期范围}}
+
+{{完成标记}}
+
+${baseHash} 年度复盘
+
+${subHash} 年度总结
+
+${subHash} 关键成果
+
+${subHash} 重要变化
+
+${subHash} 经验教训
+
+${subHash} 明年方向`;
+    }
+
     async function copyRecommendedTemplateSnippet(): Promise<void> {
         const current = draft.templates[activeTemplatePeriod] || "";
-        const defaultTemplate = DEFAULT_ENHANCED_DIARY_CONFIG.templates[activeTemplatePeriod] || "";
         const missingChecks = templateHealthChecks.filter((item) => item.status !== "ok");
+        const recommendedTemplate = buildPlanAwareTemplate(activeTemplatePeriod);
         const content = [
             `<!-- ${PERIOD_LABELS[activeTemplatePeriod]} 推荐模板片段，仅供手动参考 -->`,
             missingChecks.length > 0
                 ? `<!-- 当前缺失/建议检查项：${missingChecks.map((item) => item.label).join("、")} -->`
-                : "<!-- 当前模板检查已通过，下面是默认模板备份。 -->",
+                : "<!-- 当前模板检查已通过，下面是基于当前配置的推荐模板。 -->",
             "",
-            defaultTemplate || current,
+            recommendedTemplate || current,
         ].join("\n");
 
         try {
@@ -345,6 +473,26 @@
                 />
             </label>
         </section>
+
+        <section class="setting-card">
+            <div class="setting-card-title">
+                <WorkspaceIcon name="template" size={18} />
+                <span>标题结构</span>
+            </div>
+            <p class="setting-desc">控制工作台区块的标题层级。根标题（如 `# 今日日记`）始终保留，文档名承担日期。修改起始层级后需要同步更新模板内容。注意：此设置仅影响推荐模板生成和健康检查中的建议层级，不限制已有日记的识别——插件按标题文字自动识别区块，不依赖固定层级。</p>
+
+            <label class="input-row">
+                <span>
+                    <strong>工作台标题起始层级</strong>
+                    <small>任务管理、快速记录等一级区块的标题层级。默认 H2，适合大多数主题。H4 适合把 H2/H3 留给更高层结构的主题。</small>
+                </span>
+                <select bind:value={draft.headingStructure.dayWorkspaceBaseHeadingLevel}>
+                    <option value={2}>H2（默认）</option>
+                    <option value={3}>H3</option>
+                    <option value={4}>H4</option>
+                </select>
+            </label>
+        </section>
     {:else if activeSettingsTab === "calendar"}
         <section class="setting-card">
             <div class="setting-card-title">
@@ -393,7 +541,7 @@
                 <WorkspaceIcon name="records" size={18} />
                 <span>快速记录分类候选</span>
             </div>
-            <p class="setting-desc">每行一个分类，仅作为弹窗候选；真实分类仍以日记中"## 快速记录"下的三级标题为准。</p>
+            <p class="setting-desc">每行一个分类，仅作为弹窗候选；真实分类仍以日记中"快速记录"下的子标题为准（按标题文字识别，不依赖固定层级）。</p>
             <textarea
                 class="b3-text-field"
                 bind:value={recordCategorySuggestionsText}
@@ -562,7 +710,7 @@
                 <button type="button" onclick={onOpenToday}>打开今日日记</button>
                 <button type="button" class="primary-btn" onclick={onAppendTemplate}>补充今日模板</button>
             </div>
-            <p class="card-note">补充模板会追加缺失结构，不覆盖已有内容。模板中的系统标题不建议修改，否则写入定位可能失败。</p>
+            <p class="card-note">补充模板会追加缺失结构，不覆盖已有内容。插件按标题文字识别区块，不同层级的同名标题均可识别。</p>
         </section>
     {/if}
 </section>

@@ -7,7 +7,7 @@
  * - 只返回本轮可见范围事实
  */
 
-import { sqlSelectReadonly } from "../../siyuan/read-only-kernel";
+import { sqlSelectReadonly, sqlSelectReadonlyPaged } from "../../siyuan/read-only-kernel";
 import type { AgentScope, ResolveAgentScopeParams, ResolvedAgentScope } from "./types";
 import { summarizeAgentScope } from "./scope-label";
 import { pushAgentDebugEvent } from "../debug/workbench-debug";
@@ -153,9 +153,9 @@ async function resolveCurrentDocNeighborhoodScope(trace?: boolean): Promise<Reso
   const ancestorDocIds = pathParts.slice(0, -1);
 
   // 查询同一 box 下所有文档的轻量元数据
-  const rows = await sqlSelectReadonly<{ id: string; content: string; path: string }>(
-    `SELECT id, content, path FROM blocks WHERE box = '${meta.box.replace(/'/g, "''")}' AND type = 'd'`,
-    { maxLimit: 5000, allowedTables: ["blocks"] },
+  const rows = await sqlSelectReadonlyPaged<{ id: string; content: string; path: string }>(
+    `SELECT id, content, path FROM blocks WHERE box = '${meta.box.replace(/'/g, "''")}' AND type = 'd' ORDER BY updated DESC, id DESC`,
+    { maxRows: 10000, allowedTables: ["blocks"] },
   );
 
   const allDocs = (rows ?? []).map((r) => ({

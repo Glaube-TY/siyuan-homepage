@@ -30,7 +30,7 @@ export type SafeSqlValidationResult =
 const WRITE_KEYWORDS = [
   "INSERT", "UPDATE", "DELETE", "DROP", "ALTER",
   "CREATE", "REPLACE", "TRUNCATE", "ATTACH",
-  "DETACH", "PAgent WorkbenchMA", "VACUUM", "REINDEX",
+  "DETACH", "PRAGMA", "VACUUM", "REINDEX",
 ];
 
 const COMMENT_PATTERNS = ["--", "/*", "*/"];
@@ -156,6 +156,104 @@ export async function safeSqlSelect<T = Record<string, unknown>>(
     console.warn("[safeSqlSelect] SQL execution error:", e);
     return [];
   }
+}
+
+export interface SafeSqlPagedOptions extends SafeSqlSelectOptions {
+  /** Rows per page. Default 64 (matches SiYuan default search result limit). */
+  pageSize?: number;
+  /** Maximum total rows to fetch across all pages. Default 1000. */
+  maxRows?: number;
+  /** Column name used for deduplication. Default "id". */
+  dedupeKey?: string;
+}
+
+/**
+ * Paged SELECT that bypasses SiYuan's default 64-row truncation.
+ *
+ * Strategy:
+ * - Validate the statement as read-only (same as safeSqlSelect).
+ * - If no ORDER BY clause exists, append `ORDER BY updated DESC, id DESC` for stable pagination.
+ * - Strip any existing LIMIT/OFFSET from the validated statement.
+ * - Loop: execute with `LIMIT pageSize OFFSET n`, collect rows, deduplicate by `dedupeKey`.
+ * - Stop when a page returns fewer than `pageSize` rows or `maxRows` is reached.
+ *
+ * This does NOT modify the user's global SiYuan settings.
+ * The caller is responsible for slicing the final result to the desired topN.
+ */
+export async function safeSqlSelectPaged<T = Record<string, unknown>>(
+  stmt: string,
+  options?: SafeSqlPagedOptions,
+): Promise<T[]> {
+  const pageSize = options?.pageSize ?? 64;
+  const maxRows = options?.maxRows ?? 1000;
+  const dedupeKey = options?.dedupeKey ?? "id";
+
+  // Validate as read-only, but we'll rebuild LIMIT/OFFSET ourselves.
+  // First validate without adding a limit (maxLimit=Infinity equivalent).
+  const validation = validateSafeSelectSql(stmt, { ...options, maxLimit: Number.MAX_SAFE_INTEGER, limit: Number.MAX_SAFE_INTEGER });
+  if (!validation.ok) {
+    console.warn("[safeSqlSelectPaged] Validation failed:", (validation as { ok: false; reason: string }).reason);
+    return [];
+  }
+
+  // Work on the validated statement (already has LIMIT appended by validateSafeSelectSql).
+  let baseSql = validation.stmt;
+
+  // Strip existing LIMIT clause so we can add our own per-page.
+  baseSql = baseSql.replace(/\bLIMIT\s+\d+\s*;?\s*$/i, "").trim();
+
+  // Ensure stable ORDER BY for pagination.
+  if (!/\border\s+by\b/i.test(baseSql)) {
+    baseSql += " ORDER BY updated DESC, id DESC";
+  }
+
+  const seen = new Set<string>();
+  const results: T[] = [];
+  let offset = 0;
+
+  while (results.length < maxRows) {
+    const remaining = maxRows - results.length;
+    const pageLimit = Math.min(pageSize, remaining);
+    const pageSql = `${baseSql} LIMIT ${pageLimit} OFFSET ${offset}`;
+
+    let rows: T[];
+    try {
+      rows = (await sql(pageLimit > 0 ? pageSql : baseSql)) as T[];
+    } catch (e) {
+      console.warn("[safeSqlSelectPaged] SQL execution error at offset", offset, ":", e);
+      break;
+    }
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      break;
+    }
+
+    let addedThisPage = 0;
+    for (const row of rows) {
+      const key = (row as Record<string, unknown>)[dedupeKey];
+      const keyStr = key != null ? String(key) : "";
+      if (keyStr && seen.has(keyStr)) {
+        continue;
+      }
+      if (keyStr) {
+        seen.add(keyStr);
+      }
+      results.push(row);
+      addedThisPage++;
+      if (results.length >= maxRows) {
+        break;
+      }
+    }
+
+    // If we got fewer rows than requested or no new unique rows, we've exhausted the result set.
+    if (rows.length < pageLimit || addedThisPage === 0) {
+      break;
+    }
+
+    offset += rows.length;
+  }
+
+  return results;
 }
 
 export { escapeSqlString, escapeSqlLike, clampLimit };

@@ -21,11 +21,9 @@ const FLOW_CONTROL_KEYWORDS_LOWER: ReadonlySet<string> = new Set(
  * judgment.
  */
 const LEGACY_FORBIDDEN_TOKENS_LOWER: ReadonlySet<string> = new Set([
-  "assistantprogress",
   "maxsteps",
   "remainingstep",
   "remainingsteps",
-  "budget",
   "dedup",
   "read_block_context",
   "internalmapping",
@@ -41,7 +39,6 @@ const FORBIDDEN_PHRASES: readonly string[] = [
   "hidden handles",
   "internal mapping",
   "real path",
-  "assistant progress",
 ];
 
 const FLOW_BINDING_PATTERNS: readonly RegExp[] = [

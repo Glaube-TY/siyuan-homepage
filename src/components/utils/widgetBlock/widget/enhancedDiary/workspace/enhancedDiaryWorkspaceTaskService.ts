@@ -357,6 +357,7 @@ export async function deleteWorkspaceTask(
             docId: todayDoc.docId,
             sectionKey: "taskLog",
             markdown: `- 删除任务：${task.taskname}（来源：${buildSourceLink(task)}）`,
+            headingStructure: config.headingStructure,
         });
 
         if (!logResult.ok) {
@@ -412,6 +413,7 @@ export async function migrateWorkspaceTaskToToday(
     const anchor = await getDayWorkspaceSectionEndAnchor({
         docId: todayDoc.docId,
         sectionKey: "migratedTasks",
+        headingStructure: config.headingStructure,
     });
     if (!anchor.ok || !anchor.previousID) {
         return {
@@ -455,6 +457,7 @@ export async function migrateWorkspaceTaskToToday(
             docId: todayDoc.docId,
             sectionKey: "taskLog",
             markdown: `- 迁移任务：${task.taskname}，从 ${task.sourceDate || task.sourceDocTitle || "旧日记"} 迁移到今天`,
+            headingStructure: config.headingStructure,
         });
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceTaskService] append migrate log failed", err);

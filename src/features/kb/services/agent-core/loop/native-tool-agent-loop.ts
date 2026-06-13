@@ -5,7 +5,6 @@ import type { NativeToolRegistry } from "../tools/native-tool-registry";
 import { AgentSession } from "../session/agent-session";
 import { RegisteredConfirmationBridge, type ToolConfirmationBridge } from "../permissions/confirmation-bridge";
 import { dispatchToolCalls } from "./dispatch-tool-calls";
-import { DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN } from "./loop-limits";
 import type { AgentStreamEvent } from "./stream-event";
 import { StormBreaker } from "./storm-breaker";
 
@@ -25,7 +24,6 @@ export interface NativeToolAgentLoopOptions {
   conversationId?: string;
   systemPrompt: string;
   contextInstructions?: string;
-  maxIterations?: number;
   maxToolCalls?: number;
   /** Confirmation bridge — defaults to RegisteredConfirmationBridge (singleton). */
   bridge?: ToolConfirmationBridge;
@@ -45,14 +43,14 @@ export class NativeToolAgentLoop {
   }
 
   async run(question: string): Promise<NativeToolAgentLoopResult> {
-    const maxIterations = this.options.maxIterations ?? DEFAULT_AGENT_MAX_ITERATIONS;
-    const maxToolCalls = this.options.maxToolCalls ?? DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN;
+    const maxToolCalls = this.options.maxToolCalls;
     let steps = 0;
     let totalToolCalls = 0;
+    let iteration = 0;
 
     this.session.append(createUserMessage(question));
 
-    for (let iteration = 0; iteration < maxIterations; iteration++) {
+    while (true) {
       if (this.options.abortSignal?.aborted) {
         this.options.onEvent?.({ type: "done", status: "cancelled" });
         return {
@@ -174,21 +172,8 @@ export class NativeToolAgentLoop {
       });
       steps += dispatch.stepCount;
       this.session.appendMany(dispatch.toolMessages);
+      iteration += 1;
     }
-
-    this.options.onEvent?.({
-      type: "error",
-      code: "iteration_limit_exceeded",
-      message: "The agent reached the iteration limit before producing a final answer.",
-    });
-    return {
-      status: "failed",
-      answer: "",
-      steps,
-      messages: this.session.snapshot(),
-      errorCode: "iteration_limit_exceeded",
-      errorMessage: "The agent reached the iteration limit before producing a final answer.",
-    };
   }
 
   private buildProviderMessages(): AgentMessage[] {

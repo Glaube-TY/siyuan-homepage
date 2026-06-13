@@ -23,7 +23,7 @@ import {
 
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { escapeSqlLike } from "../siyuan-sql-retrieval/sql-utils";
-import { sqlSelectReadonly, fullTextSearchBlockReadonly } from "./read-only-kernel";
+import { sqlSelectReadonlyPaged, fullTextSearchBlockAllPagesReadonly } from "./read-only-kernel";
 
 export type RetrievalChannelName =
   | "siyuan_kernel_search"
@@ -156,7 +156,7 @@ async function searchViaKernelApi(
 ): Promise<KernelSearchHit[]> {
   const hits: KernelSearchHit[] = [];
   try {
-    const result = await fullTextSearchBlockReadonly(query, 0);
+    const result = await fullTextSearchBlockAllPagesReadonly(query, { maxPages: 5, maxRows: limit * 2 });
     if (!result || !result.blocks) return hits;
 
     for (const block of result.blocks) {
@@ -207,9 +207,9 @@ async function searchViaTitleCatalog(
   }
 
   try {
-    const rows = await sqlSelectReadonly<TitleHitRow>(
-      `SELECT id, content, box, path, updated FROM blocks WHERE ${whereClause} ORDER BY updated DESC LIMIT ${limit}`,
-      { maxLimit: limit, allowedTables: ["blocks"] }
+    const rows = await sqlSelectReadonlyPaged<TitleHitRow>(
+      `SELECT id, content, box, path, updated FROM blocks WHERE ${whereClause} ORDER BY updated DESC, id DESC`,
+      { maxRows: limit, allowedTables: ["blocks"] }
     );
     for (const r of rows ?? []) {
       hits.push({
@@ -233,26 +233,31 @@ async function resolveDocTitlesByIds(
   const result = new Map<string, { title: string; box: string; path: string; updated: string }>();
   if (docIds.length === 0) return result;
 
-  const batch = docIds.slice(0, 100);
-  const idPlaceholders = batch
-    .map((id) => `'${id.replace(/'/g, "''")}'`)
-    .join(",");
-  try {
-    const rows = await sqlSelectReadonly<DocMetaRow>(
-      `SELECT id, content, box, path, updated FROM blocks WHERE type = 'd' AND id IN (${idPlaceholders}) LIMIT ${batch.length}`,
-      { maxLimit: batch.length, allowedTables: ["blocks"] }
-    );
-    for (const r of rows ?? []) {
-      result.set(r.id, {
-        title: r.content || "",
-        box: r.box || "",
-        path: r.path || "",
-        updated: r.updated || "",
-      });
+  // Batch by 64 to avoid SiYuan's default query result limit.
+  const BATCH_SIZE = 64;
+  for (let i = 0; i < docIds.length; i += BATCH_SIZE) {
+    const batch = docIds.slice(i, i + BATCH_SIZE);
+    const idPlaceholders = batch
+      .map((id) => `'${id.replace(/'/g, "''")}'`)
+      .join(",");
+    try {
+      const rows = await sqlSelectReadonlyPaged<DocMetaRow>(
+        `SELECT id, content, box, path, updated FROM blocks WHERE type = 'd' AND id IN (${idPlaceholders}) ORDER BY updated DESC, id DESC`,
+        { maxRows: batch.length, allowedTables: ["blocks"] }
+      );
+      for (const r of rows ?? []) {
+        result.set(r.id, {
+          title: r.content || "",
+          box: r.box || "",
+          path: r.path || "",
+          updated: r.updated || "",
+        });
+      }
+    } catch {
+      // title resolution failed for this batch
     }
-  } catch {
-    // title resolution failed
   }
+
   return result;
 }
 

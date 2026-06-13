@@ -189,8 +189,8 @@ import { searchBlocksKeyword, searchBlocksFuzzy } from "../siyuan-sql-retrieval"
 import type { SearchScope } from "../siyuan-sql-retrieval/types";
 import { scoreBlockHits } from "../siyuan-sql-retrieval/block-score";
 import { buildRetrievalQueryVariants } from "../siyuan-sql-retrieval/query-variants";
-import { sql } from "@/api";
 import { buildDocumentCandidates } from "../siyuan-sql-retrieval/document-candidate-builder";
+import { sqlSelectReadonlyPaged } from "../siyuan/read-only-kernel";
 
 /**
  * 从思源 SQL 加载指定 scope 的文档列表
@@ -203,9 +203,9 @@ async function loadDocsFromSql(scope: AnyRetrievalScope): Promise<Array<{ docId:
         SELECT id as docId, content as title, path, box
         FROM blocks
         WHERE type = 'd'
-        ORDER BY updated DESC
+        ORDER BY updated DESC, id DESC
       `;
-      const rows = await sql(sqlStmt);
+      const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: 10000, allowedTables: ["blocks"] });
       if (!Array.isArray(rows)) return [];
       return rows.map((r: any) => ({
         docId: r.docId || "",
@@ -221,9 +221,9 @@ async function loadDocsFromSql(scope: AnyRetrievalScope): Promise<Array<{ docId:
         SELECT id as docId, content as title, path, box
         FROM blocks
         WHERE box = '${escapedBox}' AND type = 'd'
-        ORDER BY updated DESC
+        ORDER BY updated DESC, id DESC
       `;
-      const rows = await sql(sqlStmt);
+      const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: 10000, allowedTables: ["blocks"] });
       if (!Array.isArray(rows)) return [];
       return rows.map((r: any) => ({
         docId: r.docId || "",
@@ -242,9 +242,9 @@ async function loadDocsFromSql(scope: AnyRetrievalScope): Promise<Array<{ docId:
         FROM blocks
         WHERE box = '${escapedBox}' AND type = 'd'
           AND (id = '${escapedRootDocId}' OR path LIKE '%/${escapedRootDocId}/%')
-        ORDER BY updated DESC
+        ORDER BY updated DESC, id DESC
       `;
-      const rows = await sql(sqlStmt);
+      const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: 10000, allowedTables: ["blocks"] });
       if (!Array.isArray(rows)) return [];
       return rows.map((r: any) => ({
         docId: r.docId || "",

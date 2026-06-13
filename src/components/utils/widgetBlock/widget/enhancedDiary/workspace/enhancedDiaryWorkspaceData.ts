@@ -6,6 +6,11 @@ import {
     getDayWorkspaceSections,
 } from "../enhancedDiaryWorkspaceSections";
 import {
+    parseMarkdownHeadingTree,
+    getSectionMarkdown,
+    type EnhancedDiaryHeadingNode,
+} from "../enhancedDiaryMarkdownSections";
+import {
     queryWorkspaceTasks,
     type EnhancedDiaryWorkspaceTask,
 } from "./enhancedDiaryWorkspaceTaskService";
@@ -91,29 +96,37 @@ function parseTodayProjectProgress(markdown?: string): Map<string, string> {
     if (!markdown) return map;
 
     const sections = getDayWorkspaceSections(markdown);
-    if (!sections.projectProgress.found) return map;
+    if (!sections.projectProgress.found || !sections.projectProgress.node) return map;
 
-    const lines = sections.projectProgress.markdown.split("\n");
-    let currentName = "";
-    let buffer: string[] = [];
+    const ppNode = sections.projectProgress.node;
+    const sectionMd = sections.projectProgress.markdown;
+    if (!sectionMd.trim()) return map;
 
-    function flush() {
-        if (!currentName) return;
-        const content = buffer.join("\n").trim();
-        map.set(currentName, content);
-    }
+    const roots = parseMarkdownHeadingTree(sectionMd);
+    // Find project headings: preferred ppNode.level + 1, fallback deeper
+    const preferredLevel = ppNode.level + 1;
+    const projectNodes: EnhancedDiaryHeadingNode[] = [];
 
-    for (const line of lines) {
-        const match = line.match(/^###\s+(.+)$/);
-        if (match) {
-            flush();
-            currentName = match[1].trim();
-            buffer = [];
-        } else if (currentName) {
-            buffer.push(line);
+    // Pass 1: exact preferred level
+    for (const node of roots) {
+        if (node.level === preferredLevel) {
+            projectNodes.push(node);
         }
     }
-    flush();
+
+    // Pass 2: fallback deeper (skip if we already found preferred-level nodes)
+    if (projectNodes.length === 0) {
+        for (const node of roots) {
+            if (node.level > preferredLevel) {
+                projectNodes.push(node);
+            }
+        }
+    }
+
+    for (const node of projectNodes) {
+        const content = getSectionMarkdown(sectionMd, node).trim();
+        map.set(node.title, content);
+    }
 
     return map;
 }
@@ -236,11 +249,11 @@ export async function loadEnhancedDiaryWorkspaceState(
     const config = await loadEnhancedDiaryConfig(plugin);
     const todayDiary = await getDiaryDocumentForDate(date);
     const summary = todayDiary
-        ? buildEnhancedDiaryWorkspaceSummary(todayDiary.content)
+        ? buildEnhancedDiaryWorkspaceSummary(todayDiary.content, config.headingStructure)
         : EMPTY_SUMMARY;
     const tasks = await queryWorkspaceTasks(config, date);
     const records = todayDiary
-        ? await queryTodayQuickRecords(todayDiary.id, todayDiary.content, today)
+        ? await queryTodayQuickRecords(todayDiary.id, todayDiary.content, today, config.headingStructure)
         : [];
     for (const record of records) {
         record.date = today;

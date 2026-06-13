@@ -4,11 +4,14 @@ import {
     renderSprig,
     createDailyNote,
     appendBlock,
+    insertBlock,
     updateBlock,
+    getChildBlocks,
 } from "@/api";
 import { openDocs } from "@/components/tools/openDocs";
 import { renderEnhancedDiaryTemplate, scanDiaryContentForPeriod, getCompletionMarker, getSkipMarker } from "./enhancedDiaryUtils";
-import type { EnhancedDiaryPeriod, EnhancedDiaryTemplateContext } from "./enhancedDiaryTypes";
+import type { EnhancedDiaryPeriod, EnhancedDiaryTemplateContext, EnhancedDiaryHeadingStructureConfig } from "./enhancedDiaryTypes";
+import { validateDayWorkspaceStructure, getEnhancedDiaryHeadingPlan, normalizeHeadingTitle, type EnhancedDiaryWorkspaceValidationResult } from "./enhancedDiaryMarkdownSections";
 
 export interface EnhancedDiaryDocumentInfo {
     id: string;
@@ -169,13 +172,233 @@ export function hasTemplateHeading(content: string, heading: string | null): boo
     return content.includes(heading);
 }
 
+interface DocHeadingBlock {
+    id: string;
+    level: number;
+    title: string;
+    index: number;
+}
+
+function parseDocHeadingBlocks(children: IResGetChildBlock[]): DocHeadingBlock[] {
+    const result: DocHeadingBlock[] = [];
+    for (let i = 0; i < children.length; i++) {
+        const block = children[i];
+        const markdown = (block.markdown || "").trim();
+        const firstLine = markdown.split("\n")[0]?.trim() || "";
+        const markdownMatch = firstLine.match(/^(#{1,6})\s+(.*)$/);
+        const subtypeMatch = block.subtype?.match(/^h([1-6])$/);
+
+        if (block.type !== "h" && !markdownMatch) continue;
+
+        const level = markdownMatch
+            ? markdownMatch[1].length
+            : subtypeMatch
+                ? Number(subtypeMatch[1])
+                : 0;
+        const title = markdownMatch
+            ? normalizeHeadingTitle(markdownMatch[2])
+            : normalizeHeadingTitle(firstLine.replace(/^#+\s*/, ""));
+
+        if (!level || !title) continue;
+
+        result.push({ id: block.id, level, title, index: i });
+    }
+    return result;
+}
+
+function findNextBoundaryBlock(
+    headings: DocHeadingBlock[],
+    target: DocHeadingBlock
+): DocHeadingBlock | null {
+    for (const heading of headings) {
+        if (heading.index <= target.index) continue;
+        if (heading.level <= target.level) {
+            return heading;
+        }
+    }
+    return null;
+}
+
+/**
+ * Find the # 今日日记 root heading block (level 1, title matches "今日日记" or "今日日记 ...").
+ */
+function findDayRootHeadingBlock(headings: DocHeadingBlock[]): DocHeadingBlock | null {
+    return headings.find(
+        (h) => h.level === 1 && (h.title === "今日日记" || h.title.startsWith("今日日记 "))
+    ) || null;
+}
+
+/**
+ * Find a heading block by title within a given index range [startIndex, endIndex).
+ * Prefers headings at `preferredLevel`; falls back to deeper levels if none found at preferred.
+ */
+function findHeadingBlockByTitleInScope(
+    headings: DocHeadingBlock[],
+    expectedTitle: string,
+    startIndex: number,
+    endIndex: number,
+    preferredLevel: number
+): DocHeadingBlock | null {
+    const titleMatches = (h: DocHeadingBlock) =>
+        h.title === expectedTitle || h.title.startsWith(expectedTitle + " ");
+
+    // Pass 1: preferred level
+    for (const h of headings) {
+        if (h.index < startIndex || h.index >= endIndex) continue;
+        if (h.level === preferredLevel && titleMatches(h)) return h;
+    }
+
+    // Pass 2: fallback — deeper level
+    for (const h of headings) {
+        if (h.index < startIndex || h.index >= endIndex) continue;
+        if (h.level > preferredLevel && titleMatches(h)) return h;
+    }
+
+    return null;
+}
+
+/**
+ * Patch missing day workspace sections (base sections + sub-items).
+ * Called when root heading exists but validateDayWorkspaceStructure reports missing items.
+ */
+async function patchDayWorkspaceStructure(
+    docId: string,
+    headingStructure: EnhancedDiaryHeadingStructureConfig | undefined,
+    validation: EnhancedDiaryWorkspaceValidationResult
+): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
+    // Defensive: root heading missing should be handled upstream in appendTemplateToDiary
+    if (validation.missing.some((m) => m.startsWith("# ") && (m === "# 今日日记" || m.startsWith("# 今日日记 ")))) {
+        return { ok: false, reason: "missing_day_root" };
+    }
+
+    // Determine recommended heading levels
+    const plan = headingStructure
+        ? getEnhancedDiaryHeadingPlan(headingStructure, "day")
+        : null;
+    const baseHash = plan ? "#".repeat(plan.baseLevel) : "##";
+    const subHash = plan ? "#".repeat(plan.subLevel) : "###";
+
+    // Required sections grouped by base parent
+    const sectionGroups: Array<{ baseLabel: string; baseTitle: string; subs: string[] }> = [
+        { baseLabel: `${baseHash} 任务管理`, baseTitle: "任务管理", subs: ["新建任务", "迁移任务", "任务动态"] },
+        { baseLabel: `${baseHash} 快速记录`, baseTitle: "快速记录", subs: [] },
+        { baseLabel: `${baseHash} 今日复盘`, baseTitle: "今日复盘", subs: [] },
+    ];
+
+    // Missing base sections → insert full group at day root scope end
+    const missingBaseParts: string[] = [];
+    // Missing sub-items of EXISTING parents → insert under that parent
+    const missingSubItems: Array<{ parentTitle: string; subTitle: string }> = [];
+
+    for (const group of sectionGroups) {
+        if (validation.missing.includes(group.baseLabel)) {
+            missingBaseParts.push(group.baseLabel);
+            for (const sub of group.subs) {
+                missingBaseParts.push(`${subHash} ${sub}`);
+            }
+        } else {
+            for (const sub of group.subs) {
+                const subLabel = `${subHash} ${sub}`;
+                if (validation.missing.includes(subLabel)) {
+                    missingSubItems.push({ parentTitle: group.baseTitle, subTitle: sub });
+                }
+            }
+        }
+    }
+
+    let hasError = false;
+
+    const children = await getChildBlocks(docId);
+    const headingBlocks = parseDocHeadingBlocks(children);
+    const dayRoot = findDayRootHeadingBlock(headingBlocks);
+
+    const dayScopeEnd = dayRoot
+        ? (findNextBoundaryBlock(headingBlocks, dayRoot)?.index ?? children.length)
+        : children.length;
+
+    // Handle missing base sections: insert at day root scope end
+    if (missingBaseParts.length > 0) {
+        const missingMarkdown = missingBaseParts.join("\n\n");
+        try {
+            if (dayRoot && dayScopeEnd < children.length) {
+                await insertBlock("markdown", missingMarkdown, children[dayScopeEnd].id);
+            } else {
+                await appendBlock("markdown", "\n\n" + missingMarkdown, docId);
+            }
+        } catch (err) {
+            console.warn("[enhancedDiaryDoc] patchDayWorkspaceStructure base failed", err);
+            hasError = true;
+        }
+    }
+
+    // Handle missing sub-items under existing parents
+    if (missingSubItems.length > 0) {
+        const parentStartIndex = dayRoot ? dayRoot.index + 1 : 0;
+        const parentEndIndex = dayScopeEnd;
+        // Preferred parent level: dayRoot.level + 1 (e.g. H2 under H1 # 今日日记)
+        const preferredParentLevel = dayRoot ? dayRoot.level + 1 : 2;
+
+        // Group missing sub-items by parent title
+        const groupedByParent = new Map<string, string[]>();
+        for (const sub of missingSubItems) {
+            const list = groupedByParent.get(sub.parentTitle);
+            if (list) {
+                list.push(sub.subTitle);
+            } else {
+                groupedByParent.set(sub.parentTitle, [sub.subTitle]);
+            }
+        }
+
+        for (const [parentTitle, subTitles] of groupedByParent) {
+            const parentBlock = findHeadingBlockByTitleInScope(
+                headingBlocks, parentTitle, parentStartIndex, parentEndIndex, preferredParentLevel
+            );
+            if (!parentBlock) {
+                console.warn("[enhancedDiaryDoc] parent heading not found for sub-items", parentTitle);
+                hasError = true;
+                continue;
+            }
+
+            const subLevel = parentBlock.level + 1;
+            if (subLevel > 6) {
+                console.warn("[enhancedDiaryDoc] parent level too deep for sub-items", parentTitle);
+                hasError = true;
+                continue;
+            }
+
+            // Merge all sub-items for this parent into one markdown block
+            const mergedMarkdown = subTitles
+                .map((st) => `${"#".repeat(subLevel)} ${st}\n\n`)
+                .join("");
+
+            const boundaryBlock = findNextBoundaryBlock(headingBlocks, parentBlock);
+            try {
+                if (boundaryBlock) {
+                    await insertBlock("markdown", mergedMarkdown, boundaryBlock.id);
+                } else {
+                    await appendBlock("markdown", mergedMarkdown, docId);
+                }
+            } catch (err) {
+                console.warn("[enhancedDiaryDoc] insert sub-items failed", err);
+                hasError = true;
+            }
+        }
+    }
+
+    if (hasError) {
+        return { ok: false, reason: "append_failed" };
+    }
+    return { ok: true };
+}
+
 export async function appendTemplateToDiary(params: {
     docId: string;
     period: EnhancedDiaryPeriod;
     template: string;
     context: EnhancedDiaryTemplateContext;
+    headingStructure?: EnhancedDiaryHeadingStructureConfig;
 }): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
-    const { docId, period, template, context } = params;
+    const { docId, period, template, context, headingStructure } = params;
 
     const content = await readDiaryMarkdown(docId);
     const scan = scanDiaryContentForPeriod(content, period);
@@ -186,6 +409,37 @@ export async function appendTemplateToDiary(params: {
     }
 
     const heading = getFirstMarkdownHeading(renderedMarkdown);
+
+    // Day period: validate structure first, regardless of markers/heading state
+    if (period === "day") {
+        const validation = validateDayWorkspaceStructure(content, headingStructure);
+        if (!validation.valid) {
+            // Check if root heading itself is missing
+            const rootMissing = validation.missing.some(
+                (m) => m.startsWith("# ") && (m === "# 今日日记" || m.startsWith("# 今日日记 "))
+            );
+            if (rootMissing) {
+                // Root heading missing — append full rendered template
+                const markdownToAppend = "\n\n" + renderedMarkdown.trim();
+                try {
+                    await appendBlock("markdown", markdownToAppend, docId);
+                    return { ok: true };
+                } catch (err) {
+                    console.warn("[enhancedDiaryDoc] appendTemplateToDiary root missing append failed", err);
+                    return { ok: false, reason: "append_failed" };
+                }
+            }
+            // Root exists but sub-sections missing — patch incrementally
+            return await patchDayWorkspaceStructure(docId, headingStructure, validation);
+        }
+        // Structure is complete — check markers/heading for skip
+        if (scan.hasCompletionMarker || scan.hasSkipMarker) {
+            return { ok: true, skipped: true, reason: "marker_exists" };
+        }
+        return { ok: true, skipped: true, reason: "heading_exists" };
+    }
+
+    // Non-day periods: markers take priority to prevent re-appending full template
     if (scan.hasCompletionMarker || scan.hasSkipMarker) {
         return { ok: true, skipped: true, reason: "marker_exists" };
     }

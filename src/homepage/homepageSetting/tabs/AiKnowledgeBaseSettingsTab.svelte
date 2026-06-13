@@ -158,6 +158,21 @@
     });
 </script>
 
+<a
+    class="tutorial-link-card"
+    href="https://blog.glaube-ty.top/archives/019ebc77-d03e-73df-b6ec-10b18545d4a7"
+    target="_blank"
+    rel="noopener noreferrer"
+>
+    <svg class="tutorial-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M8 1C4.134 1 1 4.134 1 8s3.134 7 7 7 7-3.134 7-7-3.134-7-7-7zm.75 3.5h-1.5v1.5h1.5V4.5zm0 3h-1.5v5h1.5v-5z" fill="currentColor"/>
+    </svg>
+    <span class="tutorial-text">查看 AI 知识库使用教程</span>
+    <svg class="tutorial-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M4 1h9v9M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+</a>
+
 <SettingSection title="AI 知识库">
     <SettingRow
         title="开启侧边栏对话"
@@ -255,6 +270,45 @@
 </SettingSection>
 
 <style>
+    .tutorial-link-card {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 30%, var(--b3-border-color));
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-surface));
+        font-size: 13px;
+        color: var(--b3-theme-primary);
+        text-decoration: none;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+    }
+
+    .tutorial-link-card:hover {
+        background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-surface));
+        border-color: color-mix(in srgb, var(--b3-theme-primary) 50%, var(--b3-border-color));
+    }
+
+    .tutorial-icon {
+        flex-shrink: 0;
+    }
+
+    .tutorial-text {
+        flex: 1;
+        line-height: 1.4;
+    }
+
+    .tutorial-arrow {
+        flex-shrink: 0;
+        opacity: 0.6;
+    }
+
+    .tutorial-link-card:hover .tutorial-arrow {
+        opacity: 1;
+    }
+
     .switch-with-vip {
         display: inline-flex;
         align-items: center;

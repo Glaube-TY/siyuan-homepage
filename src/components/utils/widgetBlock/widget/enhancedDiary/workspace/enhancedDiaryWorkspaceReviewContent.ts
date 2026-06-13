@@ -1,13 +1,15 @@
 import { getChildBlocks, insertBlock, deleteBlock } from "@/api";
 import {
     ENHANCED_DIARY_ROOT_HEADINGS,
+    findDescendantByTitleInScope,
+    matchesRootHeading,
+    normalizeHeadingTitle,
     parseMarkdownHeadingTree,
-    findDirectChildHeading,
     getSectionMarkdown,
     type EnhancedDiaryHeadingNode,
 } from "../enhancedDiaryMarkdownSections";
 import { readDiaryMarkdown } from "../enhancedDiaryDoc";
-import type { EnhancedDiaryPeriod } from "../enhancedDiaryTypes";
+import type { EnhancedDiaryHeadingStructureConfig, EnhancedDiaryPeriod } from "../enhancedDiaryTypes";
 
 export interface EnhancedDiaryReviewField {
     key: string;
@@ -47,30 +49,32 @@ const REVIEW_CONTENT_FIELDS: Record<EnhancedDiaryPeriod, ReviewSectionDef> = {
 
 function findReviewRootNode(
     roots: EnhancedDiaryHeadingNode[],
-    rootTitle: string,
+    period: EnhancedDiaryPeriod,
     reviewTitle: string
 ): EnhancedDiaryHeadingNode | null {
     let periodRoot: EnhancedDiaryHeadingNode | null = null;
+
     for (const node of roots) {
-        if (node.level === 1 && node.title.startsWith(rootTitle)) {
+        if (node.level === 1 && matchesRootHeading(normalizeHeadingTitle(node.title), period)) {
             periodRoot = node;
             break;
         }
     }
     if (!periodRoot) return null;
 
-    const reviewLookup = findDirectChildHeading(periodRoot, reviewTitle, 2);
+    const reviewLookup = findDescendantByTitleInScope(periodRoot, reviewTitle);
     return reviewLookup.found && reviewLookup.node ? reviewLookup.node : null;
 }
 
 export async function loadReviewContent(
     docId: string,
-    period: EnhancedDiaryPeriod
+    period: EnhancedDiaryPeriod,
+    _headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): Promise<{ fields: EnhancedDiaryReviewField[]; reason?: string }> {
     const def = REVIEW_CONTENT_FIELDS[period];
     const markdown = await readDiaryMarkdown(docId);
     const roots = parseMarkdownHeadingTree(markdown);
-    const reviewRoot = findReviewRootNode(roots, def.rootTitle, def.reviewTitle);
+    const reviewRoot = findReviewRootNode(roots, period, def.reviewTitle);
 
     if (!reviewRoot) {
         return {
@@ -86,7 +90,7 @@ export async function loadReviewContent(
 
     const fields: EnhancedDiaryReviewField[] = [];
     for (const fieldTitle of def.fields) {
-        const lookup = findDirectChildHeading(reviewRoot, fieldTitle, 3);
+        const lookup = findDescendantByTitleInScope(reviewRoot, fieldTitle);
         if (lookup.found && lookup.node) {
             fields.push({
                 key: fieldTitle,
@@ -144,9 +148,11 @@ async function insertMarkdownAfterBlock(
 export async function saveReviewContent(
     docId: string,
     period: EnhancedDiaryPeriod,
-    fields: EnhancedDiaryReviewField[]
+    fields: EnhancedDiaryReviewField[],
+    _headingStructure?: EnhancedDiaryHeadingStructureConfig
 ): Promise<{ ok: boolean; reason?: string }> {
     const def = REVIEW_CONTENT_FIELDS[period];
+
     const children = await getChildBlocks(docId);
 
     let periodRootIndex = -1;
@@ -154,7 +160,7 @@ export async function saveReviewContent(
         const level = getHeadingLevel(children[i]);
         if (level === 1) {
             const title = parseHeadingTitle(children[i].markdown);
-            if (title && title.startsWith(def.rootTitle)) {
+            if (title && matchesRootHeading(normalizeHeadingTitle(title), period)) {
                 periodRootIndex = i;
                 break;
             }
@@ -168,10 +174,11 @@ export async function saveReviewContent(
     let reviewRootIndex = -1;
     for (let i = periodRootIndex + 1; i < children.length; i++) {
         const level = getHeadingLevel(children[i]);
-        if (level === 1) break;
-        if (level === 2) {
-            const title = parseHeadingTitle(children[i].markdown);
-            if (title && title === def.reviewTitle) {
+        if (level !== null && level <= 1) break;
+        const title = parseHeadingTitle(children[i].markdown);
+        if (title) {
+            const normalizedReviewTitle = normalizeHeadingTitle(title);
+            if (normalizedReviewTitle === def.reviewTitle || normalizedReviewTitle.startsWith(def.reviewTitle + " ")) {
                 reviewRootIndex = i;
                 break;
             }
@@ -183,12 +190,14 @@ export async function saveReviewContent(
     }
 
     const reviewRootBlock = children[reviewRootIndex];
-    const reviewRootLevel = getHeadingLevel(reviewRootBlock) || 2;
+    const reviewRootLevelVal = getHeadingLevel(reviewRootBlock) || 2;
+    // New fields are created one level deeper than review root
+    const newFieldLevel = reviewRootLevelVal + 1;
 
     let reviewEndIndex = children.length;
     for (let i = reviewRootIndex + 1; i < children.length; i++) {
         const level = getHeadingLevel(children[i]);
-        if (level !== null && level <= reviewRootLevel) {
+        if (level !== null && level <= reviewRootLevelVal) {
             reviewEndIndex = i;
             break;
         }
@@ -196,16 +205,18 @@ export async function saveReviewContent(
 
     const reviewBoundaryNextId = reviewEndIndex < children.length ? children[reviewEndIndex].id : null;
 
+    // Scan for existing fields by title text at any level deeper than review root
     const fieldIndexMap = new Map<string, { blockIndex: number; blockId: string; endIndex: number }>();
     for (let i = reviewRootIndex + 1; i < reviewEndIndex; i++) {
         const level = getHeadingLevel(children[i]);
-        if (level === 3) {
+        if (level !== null && level > reviewRootLevelVal) {
             const title = parseHeadingTitle(children[i].markdown);
-            if (title && def.fields.includes(title)) {
+            if (title && def.fields.includes(title) && !fieldIndexMap.has(title)) {
+                // Found a field heading — compute its scope end
                 let endIdx = reviewEndIndex;
                 for (let j = i + 1; j < reviewEndIndex; j++) {
                     const jLevel = getHeadingLevel(children[j]);
-                    if (jLevel !== null && jLevel <= 3) {
+                    if (jLevel !== null && jLevel <= level) {
                         endIdx = j;
                         break;
                     }
@@ -217,9 +228,37 @@ export async function saveReviewContent(
 
     let hasError = false;
 
+    // Track insertion anchor for new fields so successive inserts maintain order
+    let newFieldInsertAfterId = reviewRootBlock.id;
+    for (let i = reviewEndIndex - 1; i > reviewRootIndex; i--) {
+        newFieldInsertAfterId = children[i].id;
+        break;
+    }
+
+    // Collect missing fields to insert in one merged block for stable ordering
+    const missingFields: { label: string; content: string }[] = [];
+    for (const field of fields) {
+        if (!fieldIndexMap.has(field.label) && field.content.trim()) {
+            missingFields.push({ label: field.label, content: field.content.trim() });
+        }
+    }
+
+    // Insert missing fields as a single merged markdown block
+    if (missingFields.length > 0) {
+        const fieldHash = "#".repeat(newFieldLevel);
+        const mergedMarkdown = missingFields
+            .map((mf) => `${fieldHash} ${mf.label}\n\n${mf.content}`)
+            .join("\n\n");
+        const ok = await insertMarkdownAfterBlock(mergedMarkdown, reviewBoundaryNextId, newFieldInsertAfterId);
+        if (!ok) hasError = true;
+    }
+
     for (const field of fields) {
         const newContent = field.content.trim();
         const existing = fieldIndexMap.get(field.label);
+
+        // Skip missing fields — they were handled above in the merged block
+        if (!existing) continue;
 
         if (existing) {
             const contentBlockIds: string[] = [];
@@ -240,19 +279,6 @@ export async function saveReviewContent(
                 const ok = await insertMarkdownAfterBlock(newContent, fieldBoundaryNextId, existing.blockId);
                 if (!ok) hasError = true;
             }
-        } else {
-            if (!newContent) continue;
-
-            const newSectionMarkdown = `### ${field.label}\n\n${newContent}`;
-
-            let lastBlockId = reviewRootBlock.id;
-            for (let i = reviewEndIndex - 1; i > reviewRootIndex; i--) {
-                lastBlockId = children[i].id;
-                break;
-            }
-
-            const ok = await insertMarkdownAfterBlock(newSectionMarkdown, reviewBoundaryNextId, lastBlockId);
-            if (!ok) hasError = true;
         }
     }
 
