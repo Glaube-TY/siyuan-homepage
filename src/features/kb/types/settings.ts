@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 知识库设置类型
  */
 
@@ -172,11 +172,13 @@ export type KbSettings = {
   assistantActionAlignment: KbAssistantActionAlignment;
   /** 第一次检索最大返回条数 */
   firstPassMaxHits: number;
-  /** 标题路径命中权重 */
+  /** 文档标题命中权重 */
+  docTitleMatchWeight: number;
+  /** 正文标题命中权重 */
   headingMatchWeight: number;
   /** 正文命中权重 */
   textMatchWeight: number;
-  /** 预览命中权重 */
+  /** 内部弱匹配权重，保留兼容，不在设置页暴露 */
   previewMatchWeight: number;
   /** Agent 单次读取每篇文档的默认字符数 */
   agentReadMaxCharsPerDoc: number;

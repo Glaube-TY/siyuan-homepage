@@ -416,6 +416,15 @@ function normalizeNumericSettings(settings: Partial<KbSettings>): Partial<KbSett
     );
   }
 
+  if (normalized.docTitleMatchWeight !== undefined) {
+    normalized.docTitleMatchWeight = normalizeFloatSetting(
+      normalized.docTitleMatchWeight,
+      DEFAULT_KB_SETTINGS.docTitleMatchWeight,
+      0,
+      50
+    );
+  }
+
   if (normalized.headingMatchWeight !== undefined) {
     normalized.headingMatchWeight = normalizeFloatSetting(
       normalized.headingMatchWeight,
@@ -595,6 +604,7 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
   return {
     assistantActionAlignment: normalizeAssistantActionAlignment(normalized.assistantActionAlignment),
     firstPassMaxHits: normalized.firstPassMaxHits ?? DEFAULT_KB_SETTINGS.firstPassMaxHits,
+    docTitleMatchWeight: normalized.docTitleMatchWeight ?? DEFAULT_KB_SETTINGS.docTitleMatchWeight,
     headingMatchWeight: normalized.headingMatchWeight ?? DEFAULT_KB_SETTINGS.headingMatchWeight,
     textMatchWeight: normalized.textMatchWeight ?? DEFAULT_KB_SETTINGS.textMatchWeight,
     previewMatchWeight: normalized.previewMatchWeight ?? DEFAULT_KB_SETTINGS.previewMatchWeight,

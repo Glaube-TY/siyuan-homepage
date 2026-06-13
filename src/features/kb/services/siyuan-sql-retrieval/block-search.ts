@@ -119,8 +119,8 @@ export async function searchBlocksFuzzy(params: SearchBlocksParams): Promise<Blo
 export async function searchDocsByTitle(params: SearchBlocksParams): Promise<BlockSearchHit[]> {
   const { query, scope, exclude, limit } = params;
 
-  const cleaned = normalizeSearchQuery(query);
-  if (!cleaned) {
+  const terms = normalizeSearchTerms(query);
+  if (terms.length === 0) {
     return [];
   }
 
@@ -135,8 +135,11 @@ export async function searchDocsByTitle(params: SearchBlocksParams): Promise<Blo
   whereParts.push(...buildScopeWhere(scope));
   whereParts.push(...buildExcludeWhere(exclude));
 
-  const safeQuery = escapeSqlLike(cleaned);
-  whereParts.push(`content LIKE '%${safeQuery}%' ESCAPE '\\'`);
+  // 多词 AND 条件：每个 term 都要求 content LIKE
+  for (const term of terms) {
+    const safeTerm = escapeSqlLike(term);
+    whereParts.push(`content LIKE '%${safeTerm}%' ESCAPE '\\'`);
+  }
 
   const sqlStmt = `
     select id, root_id, parent_id, box, path, type, subtype, content, tag, created, updated, hash

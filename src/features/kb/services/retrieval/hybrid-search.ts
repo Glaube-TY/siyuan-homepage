@@ -12,6 +12,13 @@
 
 import type { SearchHit } from "../../types/search";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
+import { CHANNEL_WEIGHTS, DOC_SCORE_WEIGHTS } from "../../constants/retrieval-config";
+import { searchBlocksKeyword, searchBlocksFuzzy, searchDocsByTitle } from "../siyuan-sql-retrieval";
+import type { SearchScope, DocumentCandidate } from "../siyuan-sql-retrieval/types";
+import { scoreBlockHits } from "../siyuan-sql-retrieval/block-score";
+import { buildRetrievalQueryVariants } from "../siyuan-sql-retrieval/query-variants";
+import { buildDocumentCandidates } from "../siyuan-sql-retrieval/document-candidate-builder";
+import { sqlSelectReadonlyPaged } from "../siyuan/read-only-kernel";
 
 // ==================== Scope Descriptor ====================
 
@@ -181,16 +188,6 @@ export interface ScopeResolver {
 }
 
 // ==================== Default Implementations ====================
-
-import { CHANNEL_WEIGHTS, DOC_SCORE_WEIGHTS } from "../../constants/retrieval-config";
-
-// 新增：思源 SQL 检索
-import { searchBlocksKeyword, searchBlocksFuzzy } from "../siyuan-sql-retrieval";
-import type { SearchScope } from "../siyuan-sql-retrieval/types";
-import { scoreBlockHits } from "../siyuan-sql-retrieval/block-score";
-import { buildRetrievalQueryVariants } from "../siyuan-sql-retrieval/query-variants";
-import { buildDocumentCandidates } from "../siyuan-sql-retrieval/document-candidate-builder";
-import { sqlSelectReadonlyPaged } from "../siyuan/read-only-kernel";
 
 /**
  * 从思源 SQL 加载指定 scope 的文档列表
@@ -378,25 +375,46 @@ class KeywordChannel implements RetrievalChannel {
     // 使用思源 SQL 关键词检索
     const variants = buildRetrievalQueryVariants(query);
     const primaryQuery = variants[0] || query;
-    const hits = await searchBlocksKeyword({ 
-      query: primaryQuery, 
-      scope: scope || undefined, 
-      limit 
-    });
+    
+    // 并行检索普通 block 和文档标题
+    const [blockHits, docTitleHits] = await Promise.all([
+      searchBlocksKeyword({ 
+        query: primaryQuery, 
+        scope: scope || undefined, 
+        limit 
+      }),
+      searchDocsByTitle({
+        query: primaryQuery,
+        scope: scope || undefined,
+        limit // 文档标题命中是强相关召回，使用传入 limit，由内部 clampLimit 兜底
+      })
+    ]);
+
+    // 按 blockId 去重合并
+    const hitMap = new Map<string, typeof blockHits[0]>();
+    for (const hit of blockHits) {
+      hitMap.set(hit.blockId, hit);
+    }
+    for (const hit of docTitleHits) {
+      if (!hitMap.has(hit.blockId)) {
+        hitMap.set(hit.blockId, hit);
+      }
+    }
+    const hits = Array.from(hitMap.values());
 
     if (hits.length === 0) return [];
 
     // 打分并构建文档候选
     const scoredHits = await scoreBlockHits(hits, { query: primaryQuery });
     
-    // 构建文档候选
-    const candidates = buildDocumentCandidates(scoredHits);
+    // 构建文档候选，使用 limit 作为 maxDocuments 避免被默认值截断
+    const candidates = buildDocumentCandidates(scoredHits, { maxDocuments: limit });
 
     // 转换为 SearchHit 格式
     return this.candidatesToSearchHits(candidates);
   }
 
-  private candidatesToSearchHits(candidates: import("../siyuan-sql-retrieval/types").DocumentCandidate[]): SearchHit[] {
+  private candidatesToSearchHits(candidates: DocumentCandidate[]): SearchHit[] {
     const hits: SearchHit[] = [];
     
     for (const candidate of candidates) {
@@ -424,9 +442,9 @@ class KeywordChannel implements RetrievalChannel {
     return hits.sort((a, b) => b.score - a.score);
   }
 
-  private mapBlockType(type: string): "heading" | "paragraph" | "list" | "code" | "table" | "other" {
-    const typeMap: Record<string, "heading" | "paragraph" | "list" | "code" | "table" | "other"> = {
-      "d": "other",
+  private mapBlockType(type: string): "heading" | "paragraph" | "list" | "code" | "table" | "doc" | "other" {
+    const typeMap: Record<string, "heading" | "paragraph" | "list" | "code" | "table" | "doc" | "other"> = {
+      "d": "doc",
       "h": "heading",
       "p": "paragraph",
       "i": "list",
@@ -476,14 +494,14 @@ class FtsChannel implements RetrievalChannel {
     // 打分并构建文档候选
     const scoredHits = await scoreBlockHits(hits, { query: primaryQuery });
     
-    // 构建文档候选
-    const candidates = buildDocumentCandidates(scoredHits);
+    // 构建文档候选，使用 limit 作为 maxDocuments 避免被默认值截断
+    const candidates = buildDocumentCandidates(scoredHits, { maxDocuments: limit });
 
     // 转换为 SearchHit 格式
     return this.candidatesToSearchHits(candidates);
   }
 
-  private candidatesToSearchHits(candidates: import("../siyuan-sql-retrieval/types").DocumentCandidate[]): SearchHit[] {
+  private candidatesToSearchHits(candidates: DocumentCandidate[]): SearchHit[] {
     const hits: SearchHit[] = [];
     
     for (const candidate of candidates) {
@@ -511,9 +529,9 @@ class FtsChannel implements RetrievalChannel {
     return hits.sort((a, b) => b.score - a.score);
   }
 
-  private mapBlockType(type: string): "heading" | "paragraph" | "list" | "code" | "table" | "other" {
-    const typeMap: Record<string, "heading" | "paragraph" | "list" | "code" | "table" | "other"> = {
-      "d": "other",
+  private mapBlockType(type: string): "heading" | "paragraph" | "list" | "code" | "table" | "doc" | "other" {
+    const typeMap: Record<string, "heading" | "paragraph" | "list" | "code" | "table" | "doc" | "other"> = {
+      "d": "doc",
       "h": "heading",
       "p": "paragraph",
       "i": "list",

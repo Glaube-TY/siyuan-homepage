@@ -7,7 +7,7 @@ export type SearchHitUnit = {
   id: string;
   docId: string;
   box: string;
-  type: "heading" | "paragraph" | "list" | "code" | "table" | "other";
+  type: "heading" | "paragraph" | "list" | "code" | "table" | "doc" | "other";
   title: string;
   path?: string;
   text: string;

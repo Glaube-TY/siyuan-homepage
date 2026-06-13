@@ -24,8 +24,21 @@
     </Form.Wrap>
 
     <Form.Wrap
-      title="标题路径命中权重"
-      description="标题路径包含关键词时的加分权重（范围：0–50，默认 10，设为 0 表示关闭加权）"
+      title="文档标题命中权重"
+      description="文档名包含关键词时的加分权重，关联性最强。（范围：0–50，默认 20，设为 0 表示关闭加权）"
+      direction="column"
+    >
+      <Form.Input
+        type="number"
+        key="docTitleMatchWeight"
+        bind:value={settings.docTitleMatchWeight}
+        fnSize={false}
+      />
+    </Form.Wrap>
+
+    <Form.Wrap
+      title="正文标题命中权重"
+      description="正文标题块包含关键词时的加分权重。（范围：0–50，默认 10，设为 0 表示关闭加权）"
       direction="column"
     >
       <Form.Input
@@ -38,7 +51,7 @@
 
     <Form.Wrap
       title="正文命中权重"
-      description="正文内容包含关键词时的加分权重（范围：0–50，默认 5，设为 0 表示关闭加权）"
+      description="正文段落、列表、表格、代码等内容包含关键词时的加分权重。（范围：0–50，默认 5，设为 0 表示关闭加权）"
       direction="column"
     >
       <Form.Input
@@ -49,18 +62,7 @@
       />
     </Form.Wrap>
 
-    <Form.Wrap
-      title="预览命中权重"
-      description="预览内容包含关键词时的加分权重（范围：0–50，默认 3，设为 0 表示关闭加权）"
-      direction="column"
-    >
-      <Form.Input
-        type="number"
-        key="previewMatchWeight"
-        bind:value={settings.previewMatchWeight}
-        fnSize={false}
-      />
-    </Form.Wrap>
+
   </div>
 
   <!-- 文档读取参数分组 -->

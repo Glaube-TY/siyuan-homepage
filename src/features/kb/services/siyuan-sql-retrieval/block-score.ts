@@ -54,9 +54,10 @@ export const DEFAULT_BLOCK_TYPE_WEIGHTS: Record<string, number> = {
  */
 export async function scoreBlockHit(hit: BlockSearchHit, options: BlockScoreOptions): Promise<BlockSearchHit> {
   const settings = await getKbSettings();
+  const docTitleWeight = Number.isFinite(settings.docTitleMatchWeight) ? settings.docTitleMatchWeight : DEFAULT_KB_SETTINGS.docTitleMatchWeight;
   const headingWeight = Number.isFinite(settings.headingMatchWeight) ? settings.headingMatchWeight : DEFAULT_KB_SETTINGS.headingMatchWeight;
   const textWeight = Number.isFinite(settings.textMatchWeight) ? settings.textMatchWeight : DEFAULT_KB_SETTINGS.textMatchWeight;
-  const previewWeight = Number.isFinite(settings.previewMatchWeight) ? settings.previewMatchWeight : DEFAULT_KB_SETTINGS.previewMatchWeight;
+  const weakMatchWeight = Number.isFinite(settings.previewMatchWeight) ? settings.previewMatchWeight : DEFAULT_KB_SETTINGS.previewMatchWeight;
 
   const cleanedQuery = normalizeSearchQuery(options.query);
   const terms = normalizeSearchTerms(options.query);
@@ -67,13 +68,14 @@ export async function scoreBlockHit(hit: BlockSearchHit, options: BlockScoreOpti
 
   const scoreParts: BlockSearchScoreParts = {};
 
-  // keyword 分：对 query terms 逐个判断是否被 content 包含
+  // keyword 分：对 query terms 逐个判断是否被 content 包含，根据块类型选择权重
   if (terms.length > 0) {
     let keywordScore = 0;
+    const termWeight = hit.type === "d" ? docTitleWeight : hit.type === "h" ? headingWeight : textWeight;
     for (const term of terms) {
       const termLower = term.toLowerCase();
       if (contentLower.includes(termLower)) {
-        keywordScore += textWeight;
+        keywordScore += termWeight;
       }
     }
     if (keywordScore > 0) {
@@ -84,9 +86,10 @@ export async function scoreBlockHit(hit: BlockSearchHit, options: BlockScoreOpti
     }
   }
 
-  // fuzzy 分：完整 query 被 content 包含
+  // fuzzy 分：完整 query 被 content 包含，根据块类型选择权重
   if (cleanedQuery && contentLower.includes(queryLower)) {
-    let fuzzyScore = previewWeight * 2;
+    const fuzzyWeight = hit.type === "d" ? docTitleWeight : hit.type === "h" ? headingWeight : textWeight;
+    let fuzzyScore = fuzzyWeight * 2;
     if (hit.searchMode === "fuzzy") {
       fuzzyScore *= 1.5;
     }
@@ -109,12 +112,12 @@ export async function scoreBlockHit(hit: BlockSearchHit, options: BlockScoreOpti
     }
   }
 
-  // typeWeight：根据块类型取值，使用 headingWeight 作为标题块的权重基准
+  // typeWeight：根据块类型取值，使用对应的权重
   let typeWeight: number;
-  if (hit.type === "h") {
+  if (hit.type === "d") {
+    typeWeight = docTitleWeight;
+  } else if (hit.type === "h") {
     typeWeight = headingWeight;
-  } else if (hit.type === "d") {
-    typeWeight = headingWeight * 1.2;
   } else {
     typeWeight = textWeight;
   }
@@ -123,12 +126,12 @@ export async function scoreBlockHit(hit: BlockSearchHit, options: BlockScoreOpti
   // structureBoost：docId 或 path 前缀命中
   let structureScore = 0;
   if (options.structureBoostDocIds && options.structureBoostDocIds.includes(hit.docId)) {
-    structureScore += previewWeight;
+    structureScore += weakMatchWeight;
   }
   if (options.structureBoostPathPrefixes && options.structureBoostPathPrefixes.length > 0) {
     for (const prefix of options.structureBoostPathPrefixes) {
       if (hit.path.startsWith(prefix)) {
-        structureScore += Math.floor(previewWeight * 0.8);
+        structureScore += Math.floor(weakMatchWeight * 0.8);
         break;
       }
     }

@@ -45,6 +45,7 @@ export const DEFAULT_SKILL_SETTINGS: KbSkillSettings = {
 export const DEFAULT_KB_SETTINGS: KbSettings = {
   assistantActionAlignment: "left",
   firstPassMaxHits: 50,
+  docTitleMatchWeight: 20,
   headingMatchWeight: 10,
   textMatchWeight: 5,
   previewMatchWeight: 3,
