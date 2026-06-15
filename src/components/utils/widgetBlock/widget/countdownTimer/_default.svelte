@@ -229,12 +229,12 @@
                     background: var(--b3-theme-secondary);
                     color: white;
                     box-shadow: 0 2px 8px
-                        rgba(var(--b3-theme-secondary-rgb), 0.3);
+                        color-mix(in srgb, var(--b3-theme-secondary) 30%, transparent);
 
                     &:hover:not(:disabled) {
                         transform: translateY(-1px);
                         box-shadow: 0 4px 12px
-                            rgba(var(--b3-theme-secondary-rgb), 0.4);
+                            color-mix(in srgb, var(--b3-theme-secondary) 40%, transparent);
                     }
 
                     &:disabled {
@@ -247,12 +247,12 @@
                 &.stop-button {
                     background: var(--b3-theme-error);
                     color: white;
-                    box-shadow: 0 2px 8px rgba(var(--b3-theme-error-rgb), 0.3);
+                    box-shadow: 0 2px 8px color-mix(in srgb, var(--b3-theme-error) 30%, transparent);
 
                     &:hover {
                         transform: translateY(-1px);
                         box-shadow: 0 4px 12px
-                            rgba(var(--b3-theme-error-rgb), 0.4);
+                            color-mix(in srgb, var(--b3-theme-error) 40%, transparent);
                     }
                 }
 

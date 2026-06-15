@@ -450,7 +450,7 @@
 
   .compression-separator-text {
     font-size: 11px;
-    color: var(--b3-theme-on-surface-light-3, #999);
+    color: var(--b3-theme-on-surface-light, #999);
     white-space: nowrap;
   }
 
@@ -459,7 +459,7 @@
     border-radius: 8px;
 
     &.is-highlighted {
-      box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest), 0 0 12px var(--b3-theme-primary-lightest);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent), 0 0 12px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
     }
   }
 
@@ -505,7 +505,7 @@
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: var(--b3-theme-on-surface-light-3, #bbb);
+    background: var(--b3-theme-on-surface-light, #bbb);
     transition: all 0.2s ease;
 
     .jump-item:hover & {

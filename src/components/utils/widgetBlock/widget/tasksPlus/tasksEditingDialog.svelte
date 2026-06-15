@@ -359,7 +359,7 @@
             padding: 8px;
             border: 1px solid var(--b3-border-color);
             border-radius: 4px;
-            color: var(--b3-theme-text);
+            color: var(--b3-theme-on-surface);
 
             &:hover {
                 border-color: var(--b3-theme-primary);
@@ -371,7 +371,7 @@
         }
 
         button {
-            color: var(--b3-theme-text);
+            color: var(--b3-theme-on-surface);
         }
 
         .task-name {

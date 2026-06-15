@@ -157,7 +157,7 @@
     }
 
     .setting-row__control :global(.emoji-btn:hover) {
-        background: var(--b3-theme-hover);
+        background: var(--b3-list-hover);
         border-color: var(--b3-theme-primary);
     }
 
@@ -180,7 +180,7 @@
     }
 
     .setting-row__control :global(.file-action-btn:hover) {
-        background: var(--b3-theme-hover);
+        background: var(--b3-list-hover);
         border-color: var(--b3-theme-primary);
     }
 

@@ -10,7 +10,7 @@
 @use './_devices';
 
 
-.settings-container {
+.shp-homepage-settings {
     display: flex;
     // 统一宽度策略：按最宽页面（按钮设置页）适配
     width: min(1180px, calc(100vw - 48px));
@@ -69,7 +69,7 @@
     }
 
     h3 {
-        color: var(--b3-theme-text);
+        color: var(--b3-theme-on-surface);
         margin: 0.5rem;
     }
 
@@ -79,21 +79,21 @@
         box-sizing: border-box;
         width: 100%;
         padding: 0.6rem 0.8rem;
-        border: 1px solid var(--b3-theme-border-color);
+        border: 1px solid var(--b3-border-color);
         border-radius: 6px;
         background-color: var(--b3-theme-background);
-        color: var(--b3-theme-text);
+        color: var(--b3-theme-on-surface);
         font-size: 0.95rem;
         transition: all 0.2s ease-in-out;
 
         &:focus {
             outline: none;
-            border-color: var(--b3-theme-border-color);
+            border-color: var(--b3-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
 
         &:hover {
-            border-color: var(--b3-theme-border-color);
+            border-color: var(--b3-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
     }
@@ -102,22 +102,22 @@
         box-sizing: border-box;
         width: auto;
         padding: 0.6rem 0.8rem;
-        border: 1px solid var(--b3-theme-border-color);
+        border: 1px solid var(--b3-border-color);
         border-radius: 6px;
         background-color: var(--b3-theme-background);
-        color: var(--b3-theme-text);
+        color: var(--b3-theme-on-surface);
         font-size: 0.95rem;
         transition: all 0.2s ease-in-out;
         margin: 0.4rem 0;
 
         &:focus {
             outline: none;
-            border-color: var(--b3-theme-border-color);
+            border-color: var(--b3-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
 
         &:hover {
-            border-color: var(--b3-theme-border-color);
+            border-color: var(--b3-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
 
@@ -153,12 +153,12 @@
 
         &:focus {
             outline: none;
-            border-color: var(--b3-theme-border-color);
+            border-color: var(--b3-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
 
         &:hover {
-            border-color: var(--b3-theme-border-color);
+            border-color: var(--b3-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
     }

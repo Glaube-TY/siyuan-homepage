@@ -8,6 +8,7 @@ import {
   getDocContentEditConfirmation,
   removeDocContentEditConfirmation,
 } from "./doc-content-edit-confirmation-store";
+import { normalizeKramdownForStability } from "./doc-content-edit-diff";
 
 export interface ExecuteConfirmedMoveBlockInput {
   confirmationId: string;
@@ -213,7 +214,7 @@ export async function executeConfirmedMoveBlock(
     try {
       const currentRes = await getBlockKramdown(blockId);
       const currentContent = currentRes?.kramdown ?? "";
-      if (currentContent !== beforeSnapshot) {
+      if (normalizeKramdownForStability(currentContent) !== normalizeKramdownForStability(beforeSnapshot)) {
         await removeDocContentEditConfirmation(confirmationId);
         return {
           ok: false,

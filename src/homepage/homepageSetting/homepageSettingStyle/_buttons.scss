@@ -1,346 +1,349 @@
 // 按钮设置页 - 说明区域
-.button-settings-intro {
-    padding: 0.5rem 0;
+.shp-homepage-settings {
+    .button-settings-intro {
+        padding: 0.5rem 0;
 
-    .intro-text {
-        margin: 0;
-        color: var(--b3-theme-on-surface);
-        font-size: 0.9rem;
-        line-height: 1.5;
-    }
-}
-
-// 按钮编辑器整体布局 - 使用 CSS Grid + Container Query 实现真正的弹性两栏
-.buttons-editor {
-    container-type: inline-size;
-    container-name: buttons-editor;
-    display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-    gap: 1rem;
-    min-height: 350px;
-
-    // 使用 container query 根据容器宽度响应，而不是 viewport
-    @container buttons-editor (max-width: 720px) {
-        grid-template-columns: 1fr;
-    }
-
-    // 左栏：按钮列表
-    .buttons-list-panel {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-        min-width: 0; // 防止 grid item 溢出
-
-        .buttons-list {
-            flex: 1;
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid var(--b3-theme-border-color);
-            border-radius: 6px;
-            background-color: var(--b3-theme-surface);
-            padding: 0.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-
-            .button-list-item {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 0.5rem 0.75rem;
-                border-radius: 4px;
-                background-color: transparent;
-                border: 1px solid transparent;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                text-align: left;
-                min-height: 36px;
-
-                &:hover {
-                    background-color: var(--b3-theme-surface-lighter);
-                }
-
-                &.active {
-                    background-color: var(--b3-theme-primary-lightest);
-                    border-color: var(--b3-theme-primary);
-                }
-
-                .button-name {
-                    font-size: 0.9rem;
-                    color: var(--b3-theme-on-background);
-                    flex: 1;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                    margin-right: 0.5rem;
-                }
-
-                input[type="checkbox"] {
-                    flex-shrink: 0;
-                    margin: 0;
-                }
-            }
-        }
-
-        .add-button {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.4rem;
-            padding: 0.6rem 1rem;
-            border-radius: 4px;
-            border: 1px dashed var(--b3-theme-border-color);
-            background-color: var(--b3-theme-surface);
+        .intro-text {
+            margin: 0;
             color: var(--b3-theme-on-surface);
             font-size: 0.9rem;
-            cursor: pointer;
-            transition: all 0.2s ease;
-
-            &:hover {
-                border-color: var(--b3-theme-primary);
-                color: var(--b3-theme-primary);
-                background-color: var(--b3-theme-primary-lightest);
-            }
-
-            .add-icon {
-                font-size: 1.1rem;
-                font-weight: 500;
-            }
+            line-height: 1.5;
         }
     }
 
-    // 右栏：按钮详情
-    .button-detail-panel {
-        flex: 1;
-        min-width: 0;
-        border: 1px solid var(--b3-theme-border-color);
-        border-radius: 6px;
-        background-color: var(--b3-theme-surface);
-        padding: 1rem;
-        display: flex;
-        flex-direction: column;
-
-        .detail-header {
-            margin-bottom: 1rem;
-            padding-bottom: 0.75rem;
-            border-bottom: 1px solid var(--b3-theme-border-color);
-
-            .detail-title {
-                margin: 0;
-                font-size: 1rem;
-                font-weight: 500;
-                color: var(--b3-theme-on-background);
-            }
-        }
-
-        .core-button-notice {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            p {
-                margin: 0;
-                color: var(--b3-theme-on-surface);
-                font-size: 0.9rem;
-            }
-        }
-
-        .detail-content {
-            flex: 1;
-            min-width: 0;
-
-            // 确保 SettingRow 内的输入框有稳定宽度
-            .setting-row__control {
-                flex: 0 1 min(360px, 55%);
-                min-width: 0;
-
-                input[type="text"],
-                input[type="number"] {
-                    min-width: 0;
-                }
-            }
-
-            // control-full 输入框跟随详情区宽度
-            .control-full {
-                min-width: 0;
-            }
-
-            .shortcut-input {
-                cursor: pointer;
-
-                &.capturing {
-                    outline: 2px solid var(--b3-theme-primary);
-                    border-color: var(--b3-theme-primary);
-                }
-            }
-        }
-
-        .detail-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--b3-theme-border-color);
-
-            .action-btn {
-                display: flex;
-                align-items: center;
-                gap: 0.3rem;
-                padding: 0.5rem 0.75rem;
-                border-radius: 4px;
-                border: 1px solid var(--b3-theme-border-color);
-                background-color: var(--b3-theme-background);
-                color: var(--b3-theme-on-surface);
-                font-size: 0.85rem;
-                cursor: pointer;
-                transition: all 0.2s ease;
-
-                &:hover:not(:disabled) {
-                    background-color: var(--b3-theme-surface-lighter);
-                }
-
-                &:disabled {
-                    opacity: 0.5;
-                    cursor: not-allowed;
-                }
-
-                &.delete {
-                    margin-left: auto;
-                    color: var(--b3-theme-error);
-                    border-color: var(--b3-theme-error-light);
-
-                    &:hover:not(:disabled) {
-                        background-color: var(--b3-theme-error-lightest);
-                    }
-                }
-            }
-        }
-
-        .empty-state {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            p {
-                margin: 0;
-                color: var(--b3-theme-on-surface);
-                font-size: 0.9rem;
-            }
-        }
-    }
-}
-
-// 兼容旧样式（防止其他页面引用出错）
-.buttons-setting {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-
-    .buttons-setting-container {
-        display: flex;
-        align-items: flex-start;
+    // 按钮编辑器整体布局 - 使用 CSS Grid + Container Query 实现真正的弹性两栏
+    .buttons-editor {
+        container-type: inline-size;
+        container-name: buttons-editor;
+        display: grid;
+        grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
         gap: 1rem;
+        min-height: 350px;
 
-        .buttons-list {
-            min-width: 150px;
-            max-width: 250px;
-            padding: 0.5rem;
-            border-radius: 6px;
+        // 使用 container query 根据容器宽度响应，而不是 viewport
+        @container buttons-editor (max-width: 720px) {
+            grid-template-columns: 1fr;
+        }
+
+        // 左栏：按钮列表
+        .buttons-list-panel {
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
-            max-height: 200px;
-            overflow-y: auto;
+            gap: 0.75rem;
+            min-width: 0; // 防止 grid item 溢出
 
-            .button-item {
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-                padding: 0.6rem 0.8rem;
+            .buttons-list {
+                flex: 1;
+                max-height: 300px;
+                overflow-y: auto;
+                border: 1px solid var(--b3-border-color);
                 border-radius: 6px;
-                transition: all 0.3s ease;
-                background-color: transparent;
-                border: 1px solid transparent;
+                background-color: var(--b3-theme-surface);
+                padding: 0.5rem;
+                display: flex;
+                flex-direction: column;
+                gap: 0.25rem;
 
-                &:hover,
-                &.active {
-                    background-color: var(--b3-theme-primary);
-                    border-color: var(--b3-theme-border-color);
-                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-                }
+                .button-list-item {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 0.5rem 0.75rem;
+                    border-radius: 4px;
+                    background-color: transparent;
+                    border: 1px solid transparent;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    text-align: left;
+                    min-height: 36px;
 
-                input[type="checkbox"] {
-                    margin: 0;
-                }
+                    &:hover {
+                        background-color: var(--b3-theme-surface-lighter);
+                    }
 
-                span {
-                    flex-grow: 1;
-                    font-size: 1rem;
+                    &.active {
+                        background-color: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+                        border-color: var(--b3-theme-primary);
+                    }
+
+                    .button-name {
+                        font-size: 0.9rem;
+                        color: var(--b3-theme-on-background);
+                        flex: 1;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                        margin-right: 0.5rem;
+                    }
+
+                    input[type="checkbox"] {
+                        flex-shrink: 0;
+                        margin: 0;
+                    }
                 }
             }
 
             .add-button {
-                align-self: flex-start;
-                padding: 0.6rem 1rem;
-                font-size: 1rem;
-                font-weight: 500;
-                color: #fff;
-                background-color: #4a90e2;
-                border: none;
-                border-radius: 6px;
-                transition: all 0.3s ease;
-                display: inline-flex;
+                display: flex;
                 align-items: center;
+                justify-content: center;
                 gap: 0.4rem;
+                padding: 0.6rem 1rem;
+                border-radius: 4px;
+                border: 1px dashed var(--b3-border-color);
+                background-color: var(--b3-theme-surface);
+                color: var(--b3-theme-on-surface);
+                font-size: 0.9rem;
+                cursor: pointer;
+                transition: all 0.2s ease;
 
                 &:hover {
-                    background-color: #357cd2;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                    border-color: var(--b3-theme-primary);
+                    color: var(--b3-theme-primary);
+                    background-color: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
                 }
 
-                &:focus {
-                    outline: none;
-                    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.5);
+                .add-icon {
+                    font-size: 1.1rem;
+                    font-weight: 500;
                 }
             }
         }
 
-        .button-details {
-            background-color: var(--b3-theme-background);
-            flex-grow: 1;
-            padding: 1rem;
+        // 右栏：按钮详情
+        .button-detail-panel {
+            flex: 1;
+            min-width: 0;
+            border: 1px solid var(--b3-border-color);
             border-radius: 6px;
-            min-width: 0; // 避免布局崩溃
+            background-color: var(--b3-theme-surface);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
 
-            .button-actions {
-                display: flex;
-                gap: 8px;
-                margin-top: 16px;
+            .detail-header {
+                margin-bottom: 1rem;
+                padding-bottom: 0.75rem;
+                border-bottom: 1px solid var(--b3-border-color);
 
-                button.move-up,
-                button.move-down {
-                    width: 36px;
-                    height: 36px;
-                    font-size: 18px;
-                    padding: 0;
-                    text-align: center;
-                    line-height: 1;
-                }
-
-                button:disabled {
-                    opacity: 0.5;
+                .detail-title {
+                    margin: 0;
+                    font-size: 1rem;
+                    font-weight: 500;
+                    color: var(--b3-theme-on-background);
                 }
             }
 
-            input{
-                background-color: var(--b3-theme-surface);
+            .core-button-notice {
+                flex: 1;
+                display: flex;
+                align-items: center;
+                justify-content: center;
 
-                &.capturing {
-                    outline: 2px solid var(--b3-theme-primary);
-                    cursor: text;
+                p {
+                    margin: 0;
+                    color: var(--b3-theme-on-surface);
+                    font-size: 0.9rem;
+                }
+            }
+
+            .detail-content {
+                flex: 1;
+                min-width: 0;
+
+                // 确保 SettingRow 内的输入框有稳定宽度
+                .setting-row__control {
+                    flex: 0 1 min(360px, 55%);
+                    min-width: 0;
+
+                    input[type="text"],
+                    input[type="number"] {
+                        min-width: 0;
+                    }
+                }
+
+                // control-full 输入框跟随详情区宽度
+                .control-full {
+                    min-width: 0;
+                }
+
+                .shortcut-input {
+                    cursor: pointer;
+
+                    &.capturing {
+                        outline: 2px solid var(--b3-theme-primary);
+                        border-color: var(--b3-theme-primary);
+                    }
+                }
+            }
+
+            .detail-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                margin-top: 1rem;
+                padding-top: 1rem;
+                border-top: 1px solid var(--b3-border-color);
+
+                .action-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.3rem;
+                    padding: 0.5rem 0.75rem;
+                    border-radius: 4px;
+                    border: 1px solid var(--b3-border-color);
+                    background-color: var(--b3-theme-background);
+                    color: var(--b3-theme-on-surface);
+                    font-size: 0.85rem;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+
+                    &:hover:not(:disabled) {
+                        background-color: var(--b3-theme-surface-lighter);
+                    }
+
+                    &:disabled {
+                        opacity: 0.5;
+                        cursor: not-allowed;
+                    }
+
+                    &.delete {
+                        margin-left: auto;
+                        color: var(--b3-theme-error);
+                        border-color: color-mix(in srgb, var(--b3-theme-error) 30%, transparent);
+
+                        &:hover:not(:disabled) {
+                            background-color: color-mix(in srgb, var(--b3-theme-error) 10%, transparent);
+                        }
+                    }
+                }
+            }
+
+            .empty-state {
+                flex: 1;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                p {
+                    margin: 0;
+                    color: var(--b3-theme-on-surface);
+                    font-size: 0.9rem;
+                }
+            }
+        }
+    }
+
+
+    // 兼容旧样式（防止其他页面引用出错）
+    .buttons-setting {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+
+        .buttons-setting-container {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+
+            .buttons-list {
+                min-width: 150px;
+                max-width: 250px;
+                padding: 0.5rem;
+                border-radius: 6px;
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+                max-height: 200px;
+                overflow-y: auto;
+
+                .button-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    padding: 0.6rem 0.8rem;
+                    border-radius: 6px;
+                    transition: all 0.3s ease;
+                    background-color: transparent;
+                    border: 1px solid transparent;
+
+                    &:hover,
+                    &.active {
+                        background-color: var(--b3-theme-primary);
+                        border-color: var(--b3-border-color);
+                        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+                    }
+
+                    input[type="checkbox"] {
+                        margin: 0;
+                    }
+
+                    span {
+                        flex-grow: 1;
+                        font-size: 1rem;
+                    }
+                }
+
+                .add-button {
+                    align-self: flex-start;
+                    padding: 0.6rem 1rem;
+                    font-size: 1rem;
+                    font-weight: 500;
+                    color: #fff;
+                    background-color: #4a90e2;
+                    border: none;
+                    border-radius: 6px;
+                    transition: all 0.3s ease;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.4rem;
+
+                    &:hover {
+                        background-color: #357cd2;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                    }
+
+                    &:focus {
+                        outline: none;
+                        box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.5);
+                    }
+                }
+            }
+
+            .button-details {
+                background-color: var(--b3-theme-background);
+                flex-grow: 1;
+                padding: 1rem;
+                border-radius: 6px;
+                min-width: 0; // 避免布局崩溃
+
+                .button-actions {
+                    display: flex;
+                    gap: 8px;
+                    margin-top: 16px;
+
+                    button.move-up,
+                    button.move-down {
+                        width: 36px;
+                        height: 36px;
+                        font-size: 18px;
+                        padding: 0;
+                        text-align: center;
+                        line-height: 1;
+                    }
+
+                    button:disabled {
+                        opacity: 0.5;
+                    }
+                }
+
+                input {
+                    background-color: var(--b3-theme-surface);
+
+                    &.capturing {
+                        outline: 2px solid var(--b3-theme-primary);
+                        cursor: text;
+                    }
                 }
             }
         }

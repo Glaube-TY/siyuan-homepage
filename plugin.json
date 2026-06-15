@@ -2,7 +2,7 @@
   "name": "siyuan-homepage",
   "author": "Glaube-TY",
   "url": "https://github.com/Glaube-TY/siyuan-homepage",
-  "version": "4.0.2",
+  "version": "4.0.3",
   "minAppVersion": "3.6.5",
   "backends": [
     "windows",
@@ -62,6 +62,10 @@
     "heat map",
     "热力图",
     "热搜",
-    "搜索"
+    "搜索",
+    "AI",
+    "智能助手",
+    "agent",
+    "智能体"
   ]
 }

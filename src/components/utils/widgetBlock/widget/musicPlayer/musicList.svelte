@@ -106,7 +106,7 @@
 
             button {
                 width: 100%;
-                color: var(--b3-theme-text);
+                color: var(--b3-theme-on-surface);
                 padding: 0.5rem;
                 background: none;
                 border: none;

@@ -1,7 +1,23 @@
 <script lang="ts">
-  import type { KbSettings, KbGlobalToolName, KbDangerousSkillToolName } from "../../../types/settings";
+  import type { KbSettings, KbGlobalToolName } from "../../../types/settings";
   import { globalToolCatalog } from "../../../services/agent-workbench/tools/global-tool-catalog";
-  import { skillToolCatalog, type SkillToolName } from "../../../services/agent-workbench/tools/skill-tool-catalog";
+  import { skillToolCatalog } from "../../../services/agent-workbench/tools/skill-tool-catalog";
+  import { BUILTIN_KB_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/knowledge-base-qa.skill";
+  import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/schedule-task-diary.skill";
+  import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/doc-content-editing.skill";
+  import type { BuiltinSkillToolCategoryId } from "../../../services/agent-workbench/tools/skill-tool-catalog";
+
+  const CATEGORY_TO_SKILL: Record<BuiltinSkillToolCategoryId, string> = {
+    knowledge_base: BUILTIN_KB_SKILL_NAME,
+    schedule_task_diary: BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME,
+    doc_content_editing: BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME,
+  };
+
+  function isSkillCategoryEnabled(categoryId: BuiltinSkillToolCategoryId): boolean {
+    const skillName = CATEGORY_TO_SKILL[categoryId];
+    if (!skillName) return true;
+    return !(settings.skillSettings?.disabledBuiltinSkillNames ?? []).includes(skillName);
+  }
 
   export let settings: KbSettings;
 
@@ -23,37 +39,6 @@
         disabledGlobalToolNames: [...disabled],
       },
     };
-  }
-
-  /** 危险工具确认开关：开启 = 需要确认（不在 disabled 列表中） */
-  function isConfirmationEnabled(name: KbDangerousSkillToolName): boolean {
-    return !(settings.toolSettings?.disabledDangerousSkillToolConfirmationNames ?? []).includes(name);
-  }
-
-  function toggleConfirmation(name: KbDangerousSkillToolName) {
-    const disabled = new Set(settings.toolSettings?.disabledDangerousSkillToolConfirmationNames ?? []);
-    if (disabled.has(name)) {
-      disabled.delete(name);
-    } else {
-      disabled.add(name);
-    }
-    settings = {
-      ...settings,
-      toolSettings: {
-        ...(settings.toolSettings ?? { disabledGlobalToolNames: [] }),
-        disabledGlobalToolNames: settings.toolSettings?.disabledGlobalToolNames ?? [],
-        disabledDangerousSkillToolConfirmationNames: [...disabled],
-      },
-    };
-  }
-
-  const DANGEROUS_TOOL_NAMES: readonly string[] = [
-    "create_doc", "update_block", "insert_block", "delete_blocks",
-    "move_block", "rename_doc", "delete_doc", "replace_doc_content",
-  ];
-
-  function isDangerousSkillToolName(name: SkillToolName): name is KbDangerousSkillToolName {
-    return DANGEROUS_TOOL_NAMES.includes(name);
   }
 </script>
 
@@ -92,13 +77,13 @@
 
   <div class="section">
     <div class="section-header">
-      <h2 class="section-title">内置工具能力</h2>
+      <h2 class="section-title">Skill 专属工具</h2>
       <p class="section-description">
-        按内置能力分类展示可能使用的工具。这里不控制工具启停，只控制危险操作是否需要执行前确认。
+        这些工具随对应内置 Skill 启用或隐藏；关闭 Skill 后不会注册给 Agent，也不会在这里显示。
       </p>
     </div>
 
-    {#each skillToolCatalog as category}
+    {#each skillToolCatalog.filter(c => isSkillCategoryEnabled(c.id)) as category}
       <div class="skill-category">
         <div class="skill-category-header">
           <span class="skill-category-title">{category.title}</span>
@@ -114,24 +99,13 @@
                     {#if tool.readOnly}
                       <span class="tag tag-readonly">只读</span>
                     {:else if tool.requiresConfirmation}
+                      <span class="tag tag-confirm">需要确认</span>
+                    {:else if tool.canWrite}
                       <span class="tag tag-write">会写入</span>
                     {/if}
                   </div>
                   <span class="tool-description">{tool.description}</span>
                 </div>
-                {#if tool.requiresConfirmation && isDangerousSkillToolName(tool.name)}
-                  <div class="toggle-wrap">
-                    <span class="toggle-label">{isConfirmationEnabled(tool.name) ? "执行前确认" : "直接执行"}</span>
-                    <label class="switch">
-                      <input
-                        type="checkbox"
-                        checked={isConfirmationEnabled(tool.name)}
-                        on:change={() => toggleConfirmation(tool.name)}
-                      />
-                      <span class="slider"></span>
-                    </label>
-                  </div>
-                {/if}
               </div>
             </div>
           {/each}
@@ -332,7 +306,12 @@
   }
 
   .tag-write {
-    background: var(--b3-theme-primary-lightest, rgba(var(--b3-theme-primary-rgb, 64, 128, 255), 0.12));
+    background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
     color: var(--b3-theme-primary);
+  }
+
+  .tag-confirm {
+    background: color-mix(in srgb, var(--b3-theme-warning) 12%, transparent, var(--b3-card-warning-background));
+    color: var(--b3-card-warning-color, var(--b3-theme-on-surface));
   }
 </style>

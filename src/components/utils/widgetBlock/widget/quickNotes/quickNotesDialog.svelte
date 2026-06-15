@@ -89,7 +89,7 @@
             font-size: 16px;
             font-family: "Courier New", Courier, monospace;
             background-color: var(--b3-theme-background);
-            color: var(--b3-theme-text);
+            color: var(--b3-theme-on-surface);
             border: 1px solid var(--b3-border-color);
             border-radius: 8px;
             padding: 1rem;
@@ -109,7 +109,7 @@
                 font-weight: 600;
                 border-radius: 8px;
                 background-color: var(--b3-theme-background);
-                color: var(--b3-theme-text);
+                color: var(--b3-theme-on-surface);
                 border: 1px solid var(--b3-border-color);
 
                 &:hover {

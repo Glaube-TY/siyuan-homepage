@@ -232,12 +232,12 @@
     justify-content: center;
     align-items: center;
     z-index: 9999;
-    background: var(--b3-theme-scrim);
+    background: var(--b3-mask-background);
   }
 
   .confirm-dialog {
     background: var(--b3-theme-surface);
-    border-radius: var(--b3-border-radius-dialog);
+    border-radius: var(--b3-border-radius-b);
     box-shadow: var(--b3-dialog-shadow);
     animation: dialog-enter 0.2s ease;
     display: flex;
@@ -297,7 +297,7 @@
   .confirm-warnings {
     margin-bottom: 12px;
     padding: 8px 12px;
-    background: rgba(var(--b3-theme-error-rgb), 0.08);
+    background: color-mix(in srgb, var(--b3-theme-error) 8%, transparent);
     border-radius: 6px;
   }
 
@@ -368,18 +368,18 @@
   }
 
   .kind-added {
-    background: rgba(var(--b3-theme-success-rgb), 0.12);
+    background: color-mix(in srgb, var(--b3-theme-success) 12%, transparent);
     color: var(--b3-theme-success);
   }
 
   .kind-removed {
-    background: rgba(var(--b3-theme-error-rgb), 0.12);
+    background: color-mix(in srgb, var(--b3-theme-error) 12%, transparent);
     color: var(--b3-theme-error);
   }
 
   .kind-modified {
-    background: rgba(var(--b3-theme-warning-rgb), 0.12);
-    color: var(--b3-theme-warning);
+    background: color-mix(in srgb, var(--b3-card-warning-color, #e6a817) 12%, transparent);
+    color: var(--b3-card-warning-color, #e6a817);
   }
 
   .truncated-hint {

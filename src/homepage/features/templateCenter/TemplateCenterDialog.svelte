@@ -1100,12 +1100,12 @@
         justify-content: center;
         align-items: center;
         z-index: 9999;
-        background: var(--b3-theme-scrim);
+        background: var(--b3-mask-background);
     }
 
     .confirm-dialog {
         background: var(--b3-theme-surface);
-        border-radius: var(--b3-border-radius-dialog);
+        border-radius: var(--b3-border-radius-b);
         width: 440px;
         max-width: 90vw;
         box-shadow: var(--b3-dialog-shadow);

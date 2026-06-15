@@ -189,7 +189,7 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createFindDiaryDocsTool(diaryDocDeps));
   }
 
-  if (options.builtinCapabilityAccess?.docContentEditing !== false) {
+  if (options.builtinCapabilityAccess?.docContentEditing === true) {
     toolRegistry.ensureTool(createReadDocBlocksTool(readDocBlocksDeps));
     if (options.conversationId) {
       const writeDeps = { ...deps, conversationId: options.conversationId };

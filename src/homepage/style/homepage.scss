@@ -16,7 +16,7 @@
     }
 }
 
-.mouse-trail {
+.shp-mouse-trail {
     position: absolute;
     width: 6px;
     height: 6px;
@@ -26,7 +26,7 @@
     box-shadow:
         0 0 15px rgba(255, 255, 255, 0.8),
         0 0 30px rgba(255, 255, 255, 0.6);
-    animation: trail-fall 2.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    animation: shp-trail-fall 2.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
     transform: translateY(0) scale(1);
 
     &::before {
@@ -42,7 +42,7 @@
 }
 
 
-@keyframes trail-fall {
+@keyframes shp-trail-fall {
     0% {
         transform: translateY(0) scale(1);
         opacity: 1;
@@ -60,7 +60,7 @@
     }
 }
 
-.falling-container {
+.shp-falling-container {
     position: fixed;
     top: 0;
     left: 0;
@@ -69,21 +69,21 @@
     pointer-events: none;
     z-index: 9998;
 
-    .falling-flake {
+    .shp-falling-flake {
         position: absolute;
-        animation: fall linear infinite;
+        animation: shp-falling linear infinite;
         animation-duration: calc(15s + var(--animation-delay));
+    }
+}
 
-        @keyframes falling {
-            0% {
-                transform: translate(0, -10vh) rotate(0deg);
-                opacity: 1;
-            }
+@keyframes shp-falling {
+    0% {
+        transform: translate(0, -10vh) rotate(0deg);
+        opacity: 1;
+    }
 
-            100% {
-                transform: translate(var(--wind), 110vh) rotate(var(--rotation));
-                opacity: 0;
-            }
-        }
+    100% {
+        transform: translate(var(--wind), 110vh) rotate(var(--rotation));
+        opacity: 0;
     }
 }

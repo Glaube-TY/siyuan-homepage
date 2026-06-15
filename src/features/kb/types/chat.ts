@@ -57,7 +57,7 @@ export interface AttachedKbDoc {
   title: string;
   box?: string;
   path?: string;
-  source: "manual_search" | "mention" | "current_doc";
+  source: "manual_search" | "current_doc";
   createdAt: number;
 }
 

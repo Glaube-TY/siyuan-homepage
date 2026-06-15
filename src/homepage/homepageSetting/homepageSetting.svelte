@@ -782,7 +782,7 @@
 
 </script>
 
-<div class="settings-container">
+<div class="shp-homepage-settings">
     <!-- 左侧：一级页签 -->
     <div class="main-nav-column">
         <MainTabNav

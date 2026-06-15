@@ -198,7 +198,7 @@
                     }
 
                     .note-content {
-                        color: var(--b3-theme-text);
+                        color: var(--b3-theme-on-surface);
                         font-size: 14px;
                         line-height: 1.5;
                         white-space: pre-wrap;

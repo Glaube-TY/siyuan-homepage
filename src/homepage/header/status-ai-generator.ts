@@ -105,20 +105,14 @@ export function buildHomepageStatusPrompt(
     const normalizedPrompt = normalizeStatusAiPrompt(userPrompt);
     const normalizedMaxChars = normalizeStatusAiMaxChars(maxChars);
 
-    return `你是一个思源笔记主页状态语生成器。请根据下面的真实数据生成一句中文主页状态语。
+    return `你是一个思源笔记主页状态语生成器。请根据下面的真实数据，生成一句适合显示在主页标题下方的中文状态语。
 
-要求：
-- 只输出状态语正文；
-- 不要解释；
-- 不要列项目符号；
-- 不要输出 Markdown；
-- 不要输出 HTML；
-- 不要编造数据；
-- 不超过 ${normalizedMaxChars} 个中文字符；
-- 语气自然、简洁，适合显示在主页标题下方；
-- 不要重复堆砌所有数据，只挑最适合的一两个数据点表达。
+硬性规则：
+- 只输出状态语正文，不要解释、不要列项、不要 Markdown/HTML；
+- 不要编造数据，只使用下方提供的真实数据；
+- 不超过 ${normalizedMaxChars} 个中文字符。
 
-用户风格要求：
+用户指定风格：
 ${normalizedPrompt}
 
 真实数据：

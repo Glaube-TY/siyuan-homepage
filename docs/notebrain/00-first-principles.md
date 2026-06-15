@@ -24,23 +24,33 @@ There is no separate structured planning protocol in the main Agent path.
 
 ## Tools
 
-Tools are independent executable capabilities. A tool owns only:
+Tools are independent executable capabilities. Every tool — whether global or Skill-linked — follows the same contract:
 
 - name, title, description
-- input JSON schema
-- safety metadata
+- input JSON schema with parameter descriptions
+- safety metadata (readOnly, canWrite, requiresConfirmation)
 - execution function
-- result summary
+- structured result (ok, content, summary, errorCode)
 
 Tools do not own conversation flow. Tools return structured results; the runtime wraps them into provider-visible `role=tool` messages.
+
+Tool inputs must be minimal. Every parameter must affect execution, scope, output, or safety. Do not add reason/comment/note parameters that do not participate in execution. Usage guidance belongs in description/inputHint/boundary, not in parameters.
 
 The final response is not a native Agent tool. Final answers are provider assistant messages without tool calls.
 
 ## Skills
 
-Skills are instruction packages. A skill can describe domain boundaries, terminology, evidence rules, and general response preferences.
+Skills are instruction packages. A skill can:
+
+- control whether a related group of tools is registered for the current turn
+- describe domain boundaries, terminology, evidence rules, and general response preferences
+- provide heuristic usage suggestions to help the model use tools more effectively
 
 Skills do not own tools, execute code, choose tools for the model, prescribe tool order, force a fixed flow, or replace runtime permission checks.
+
+When a Skill is disabled, its linked tools are not registered and not shown in the tool settings UI. The Skill's suggestions are advisory, not mandatory sequences.
+
+There is no separate structured planning protocol in the main Agent path. No JSON Planner, final_answer tool, custom JSON Planner, control plane JSON, invalid_json, or stream_json.
 
 ## Provider Compatibility
 

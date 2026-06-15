@@ -24,7 +24,7 @@ export const globalToolCatalog: GlobalToolMeta[] = [
   {
     name: "edit_global_memory",
     title: "编辑全局记忆",
-    description: "管理已配置的记忆文档条目，可新增、修改、删除或调整顺序。",
+    description: "用修改后的完整记忆内容替换当前全局记忆，不暴露记忆文档 ID。",
   },
   {
     name: "get_doc_info",

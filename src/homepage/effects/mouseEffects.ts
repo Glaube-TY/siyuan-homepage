@@ -137,7 +137,7 @@ export function createMouseTrail(
     if (!config.advanced || !config.MouseTrailEnabled) return;
 
     // 非全局模式改用 .falling-container 避免滚动条问题
-    const containerSelector = config.mouseGlobalEnabled ? "body" : ".falling-container";
+    const containerSelector = config.mouseGlobalEnabled ? "body" : ".shp-falling-container";
     const container = document.querySelector(containerSelector);
     if (!container) return;
 
@@ -162,7 +162,7 @@ export function createMouseTrail(
     const y = e.clientY;
 
     const trail = document.createElement("div");
-    trail.className = "mouse-trail";
+    trail.className = "shp-mouse-trail";
     trail.style.cssText = `
         left: ${x}px;
         top: ${y}px;

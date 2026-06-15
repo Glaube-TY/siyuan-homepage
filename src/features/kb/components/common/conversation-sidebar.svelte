@@ -287,7 +287,7 @@
   }
 
   .conversation-item.active {
-    background: var(--b3-theme-primary-lightest, rgba(66, 133, 244, 0.1));
+    background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
     border-left: 3px solid var(--b3-theme-primary, #4285f4);
   }
 

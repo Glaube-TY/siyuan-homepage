@@ -1,83 +1,85 @@
-.custom-content {
-    display: grid;
-    grid-auto-flow: dense;
-    grid-auto-rows: var(--widget-cell-size, 160px);
-    align-items: stretch;
-    flex-grow: 1;
-    height: auto;
-    background-color: var(--b3-theme-background);
+.homepage-container {
+    .custom-content {
+        display: grid;
+        grid-auto-flow: dense;
+        grid-auto-rows: var(--widget-cell-size, 160px);
+        align-items: stretch;
+        flex-grow: 1;
+        height: auto;
+        background-color: var(--b3-theme-background);
 
-    .widget-block {
-        position: relative;
-        overflow: hidden;
-        border-radius: 8px;
-        transition: transform 0.2s ease-in-out;
-        width: 100%;
-        height: 100%;
-        min-width: 0;
-        min-height: 0;
-        box-sizing: border-box;
-        aspect-ratio: auto !important;
-
-        &:hover {
-            transform: translateY(-1px);
-
-            .block-style-button {
-                opacity: 1;
-                visibility: visible;
-                transform: translateY(0);
-            }
-        }
-
-        .block-style-button {
-            position: absolute;
-            top: 10px;
-            right: 8px;
-            background-color: rgba(0, 0, 0, 0);
-            border: none;
-            border-radius: 4px;
-            padding: 4px 6px;
-            font-size: 14px;
-            z-index: 10;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(-10px);
-            transition:
-                opacity 0.3s ease,
-                visibility 0.3s ease,
-                transform 0.3s ease;
+        .widget-block {
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+            transition: transform 0.2s ease-in-out;
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            min-height: 0;
+            box-sizing: border-box;
+            aspect-ratio: auto !important;
 
             &:hover {
-                background-color: var(--b3-theme-primary);
+                transform: translateY(-1px);
+
+                .block-style-button {
+                    opacity: 1;
+                    visibility: visible;
+                    transform: translateY(0);
+                }
             }
-        }
 
-        .block-content-button {
-            @extend .block-style-button;
+            .block-style-button {
+                position: absolute;
+                top: 10px;
+                right: 8px;
+                background-color: rgba(0, 0, 0, 0);
+                border: none;
+                border-radius: 4px;
+                padding: 4px 6px;
+                font-size: 14px;
+                z-index: 10;
+                opacity: 0;
+                visibility: hidden;
+                transform: translateY(-10px);
+                transition:
+                    opacity 0.3s ease,
+                    visibility 0.3s ease,
+                    transform 0.3s ease;
 
-            top: 10px;
-            right: auto;
-            left: 8px;
-            transform: translateY(-10px);
-        }
+                &:hover {
+                    background-color: var(--b3-theme-primary);
+                }
+            }
 
-        .block-update-button {
-            @extend .block-style-button;
+            .block-content-button {
+                @extend .block-style-button;
 
-            top: 10px;
-            right: auto;
-            left: 30px;
-            transform: translateY(-10px);
-        }
+                top: 10px;
+                right: auto;
+                left: 8px;
+                transform: translateY(-10px);
+            }
 
-        .drag-handle {
-            @extend .block-style-button;
+            .block-update-button {
+                @extend .block-style-button;
 
-            top: 10px;
-            right: 30px;
-            left: auto;
-            transform: translateY(-10px);
-            cursor: move;
+                top: 10px;
+                right: auto;
+                left: 30px;
+                transform: translateY(-10px);
+            }
+
+            .drag-handle {
+                @extend .block-style-button;
+
+                top: 10px;
+                right: 30px;
+                left: auto;
+                transform: translateY(-10px);
+                cursor: move;
+            }
         }
     }
 }

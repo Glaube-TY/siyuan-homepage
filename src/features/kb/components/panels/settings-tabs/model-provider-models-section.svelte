@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import type { KbChatProviderConfig, KbChatModelConfig, ProviderNativeAgentCompatibility } from "../../../types/settings";
   import type { ModelConnectionTestResult, ProviderNativeAgentCompatibilityTestResult } from "../../../services/qa/model-connection-test";
   import {
@@ -363,12 +363,12 @@
     line-height: 1.4;
 
     &.success {
-      background: var(--b3-theme-success-light, rgba(76, 175, 80, 0.1));
+      background: color-mix(in srgb, var(--b3-theme-success) 10%, transparent);
       color: var(--b3-theme-success, #2e7d32);
     }
 
     &.error {
-      background: var(--b3-theme-error-light, rgba(244, 67, 54, 0.1));
+      background: color-mix(in srgb, var(--b3-theme-error) 10%, transparent);
       color: var(--b3-theme-error, #c62828);
     }
   }
@@ -376,20 +376,20 @@
   .no-models-warning {
     margin-top: 4px;
     padding: 8px 10px;
-    background: var(--b3-theme-warning, #fff3e0);
+    background: var(--b3-card-warning-background, #fff3e0);
     border-radius: 6px;
     font-size: 12px;
-    color: var(--b3-theme-warning-text, #e65100);
+    color: var(--b3-card-warning-color, #e65100);
     line-height: 1.4;
   }
 
   .model-warning-badge {
     margin-top: 4px;
     padding: 6px 10px;
-    background: var(--b3-theme-warning, #fff3e0);
+    background: var(--b3-card-warning-background, #fff3e0);
     border-radius: 4px;
     font-size: 12px;
-    color: var(--b3-theme-warning-text, #e65100);
+    color: var(--b3-card-warning-color, #e65100);
     line-height: 1.4;
   }
 
@@ -538,7 +538,7 @@
     }
   }
 
-  :global(.settings-btn) {
+  .models-section :global(.settings-btn) {
     padding: 6px 12px;
     border: 1px solid var(--b3-border-color);
     border-radius: 4px;
@@ -585,7 +585,7 @@
     }
   }
 
-  :global(.form-input) {
+  .models-section :global(.form-input) {
     padding: 8px 12px;
     border: 1px solid var(--b3-border-color);
     border-radius: 4px;
@@ -600,23 +600,23 @@
     }
   }
 
-  :global(.checkbox-label) {
+  .models-section :global(.checkbox-label) {
     display: flex;
     align-items: center;
     gap: 8px;
     cursor: pointer;
     font-size: 14px;
     color: var(--b3-theme-on-surface);
+  }
 
-    input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
-      cursor: pointer;
+  .models-section :global(.checkbox-label) :global(input[type="checkbox"]) {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
 
-      &:disabled {
-        cursor: not-allowed;
-        opacity: 0.5;
-      }
-    }
+  .models-section :global(.checkbox-label) :global(input[type="checkbox"]:disabled) {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 </style>

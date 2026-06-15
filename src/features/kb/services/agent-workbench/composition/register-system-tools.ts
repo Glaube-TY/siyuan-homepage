@@ -9,7 +9,7 @@ export interface SystemToolOptions {
   /** When present and not disabled, registers edit_global_memory. */
   globalMemoryToolDeps?: {
     docId: string;
-    maxEntryChars: number;
+    maxMemoryChars: number;
   };
   globalToolAccess?: {
     editGlobalMemory: boolean;
@@ -24,7 +24,7 @@ export function registerSystemTools(
   if (options.globalMemoryToolDeps && options.globalToolAccess?.editGlobalMemory !== false) {
     toolRegistry.ensureTool(createEditGlobalMemoryTool({
       docId: options.globalMemoryToolDeps.docId,
-      maxEntryChars: options.globalMemoryToolDeps.maxEntryChars,
+      maxMemoryChars: options.globalMemoryToolDeps.maxMemoryChars,
     }));
   }
 }

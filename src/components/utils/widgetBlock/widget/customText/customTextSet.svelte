@@ -32,7 +32,7 @@
         max-width: 100%;
         min-height: 150px;
         padding: 0.6rem 0.8rem;
-        border: 1px solid var(--b3-theme-border-color);
+        border: 1px solid var(--b3-border-color);
         border-radius: 6px;
         background-color: var(--b3-theme-background);
         font-size: 0.95rem;
@@ -43,12 +43,12 @@
 
         &:focus {
             outline: none;
-            border-color: var(--b3-theme-border-color);
+            border-color: var(--b3-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
 
         &:hover {
-            border-color: var(--b3-theme-border-color);
+            border-color: var(--b3-border-color);
             box-shadow: 0 1px 3px var(--b3-theme-primary);
         }
     }

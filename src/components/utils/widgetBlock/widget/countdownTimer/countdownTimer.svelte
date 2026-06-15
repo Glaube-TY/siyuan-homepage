@@ -207,7 +207,7 @@
                             outline: none;
                             border-color: var(--b3-theme-primary);
                             box-shadow: 0 0 0 2px
-                                rgba(var(--b3-theme-primary-rgb), 0.1);
+                                color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
                         }
 
                         &::-webkit-inner-spin-button,
@@ -246,12 +246,12 @@
                 font-weight: 600;
                 cursor: pointer;
                 transition: all 0.2s ease;
-                box-shadow: 0 2px 8px rgba(var(--b3-theme-primary-rgb), 0.3);
+                box-shadow: 0 2px 8px color-mix(in srgb, var(--b3-theme-primary) 30%, transparent);
 
                 &:hover:not(:disabled) {
                     transform: translateY(-1px);
                     box-shadow: 0 4px 12px
-                        rgba(var(--b3-theme-primary-rgb), 0.4);
+                        color-mix(in srgb, var(--b3-theme-primary) 40%, transparent);
                 }
 
                 &:active:not(:disabled) {

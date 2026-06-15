@@ -81,10 +81,10 @@ export function createFallingFlake(config: FallingEffectConfig): void {
     // 非全局模式改用 .falling-container 避免滚动条问题
     const container = config.GlobalFallingEffectsEnabled
         ? document.body
-        : document.querySelector(".falling-container");
+        : document.querySelector(".shp-falling-container");
     if (!container) return;
 
-    const activeFlakes = container.querySelectorAll("img.falling-flake").length;
+    const activeFlakes = container.querySelectorAll("img.shp-falling-flake").length;
     if (activeFlakes >= maxFallingElement) return;
 
     const iconSrc =
@@ -97,7 +97,7 @@ export function createFallingFlake(config: FallingEffectConfig): void {
         flake.style.display = "block";
     } else {
         flake = document.createElement("img");
-        flake.className = "falling-flake";
+        flake.className = "shp-falling-flake";
         flake.style.position = "fixed";
         flake.style.zIndex = "9999";
         flake.style.pointerEvents = "none";
@@ -105,7 +105,7 @@ export function createFallingFlake(config: FallingEffectConfig): void {
     }
 
     const duration = getDuration(config.FallingSpeed);
-    flake.style.animation = `falling ${duration}s linear forwards`;
+    flake.style.animation = `shp-falling ${duration}s linear forwards`;
     flake.style.animationTimingFunction = "linear";
     flake.style.animationFillMode = "forwards";
     flake.src = iconSrc;
@@ -181,7 +181,7 @@ export function stopFallingAnimation(): void {
 export function cleanupFallingEffects(): void {
     stopFallingAnimation();
     document
-        .querySelectorAll("img.falling-flake")
+        .querySelectorAll("img.shp-falling-flake")
         .forEach((el) => el.remove());
     fallingFlakesPool.length = 0;
     lastTime = 0;

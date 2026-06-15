@@ -12,7 +12,7 @@
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
-  import { listQuickPromptItems } from "../../services/quick-prompts/quick-prompts-doc";
+  import { listQuickPromptItems, createQuickPromptItem, updateQuickPromptItemInDoc, deleteQuickPromptItemInDoc } from "../../services/quick-prompts/quick-prompts-doc";
   import type { QuickPromptItem } from "../../services/quick-prompts/quick-prompts-doc";
 
   export let value: string = "";
@@ -45,6 +45,12 @@
   let showQuickPrompts = false;
   let quickPromptItems: QuickPromptItem[] = [];
   let quickPromptsLoading = false;
+  let quickPromptManageMode = false;
+  let editingQuickPromptId: string | null = null;
+  let editingQuickPromptText = "";
+  let newQuickPromptText = "";
+  let quickPromptSaving = false;
+  let quickPromptError = "";
 
   // Web access mode helpers
   $: if (!webSearchEnabled) webAccessMode = "off";
@@ -199,15 +205,18 @@
   let docSearchResults: ChatDocSearchResult[] = [];
   let docSearchLoading = false;
   let docSearchDebounceId: ReturnType<typeof setTimeout> | null = null;
-  let mentionActive = false;
-  let mentionQuery = "";
-  let mentionStartPos = 0;
 
   $: inputValue = value;
   $: visibleChatModes = availableModes?.length
     ? CHAT_MODES.filter((mode) => availableModes.includes(mode.id))
     : CHAT_MODES;
   $: modeSelectorLocked = attachedDocs.length > 0;
+  $: attachedDocIdSet = new Set(attachedDocs.map((d) => d.docId));
+  $: visibleDocSearchResults = docSearchResults.filter((r) => !attachedDocIdSet.has(r.docId));
+  $: currentDocAlreadyAttached = (() => {
+    const docId = getCurrentDocumentId();
+    return docId ? attachedDocIdSet.has(docId) : false;
+  })();
 
   let scopeLockTraceEmitted = false;
   $: {
@@ -338,7 +347,6 @@
       value = "";
       attachedDocs = [];
       showDocSearch = false;
-      mentionActive = false;
       docSearchResults = [];
       docSearchQuery = "";
     }
@@ -354,13 +362,6 @@
 
   function handleKeyDown(event: KeyboardEvent) {
     if (event.key === "Escape") {
-      if (mentionActive) {
-        mentionActive = false;
-        mentionQuery = "";
-        docSearchResults = [];
-        event.preventDefault();
-        return;
-      }
       if (showDocSearch) {
         showDocSearch = false;
         docSearchResults = [];
@@ -377,61 +378,6 @@
 
   function handleInput() {
     dispatch("input", inputValue);
-    detectMentionTrigger();
-  }
-
-  function detectMentionTrigger() {
-    if (!textareaElement) return;
-    const cursorPos = textareaElement.selectionStart;
-    const textBefore = inputValue.substring(0, cursorPos);
-    const mentionMatch = textBefore.match(/[#@]([^\s#@]{0,30})$/);
-    if (mentionMatch) {
-      mentionActive = true;
-      mentionQuery = mentionMatch[1];
-      mentionStartPos = cursorPos - mentionMatch[0].length;
-      debouncedDocSearch(mentionQuery);
-    } else {
-      mentionActive = false;
-      mentionQuery = "";
-    }
-  }
-
-  function debouncedDocSearch(query: string) {
-    if (docSearchDebounceId) clearTimeout(docSearchDebounceId);
-    if (!query.trim()) {
-      docSearchResults = [];
-      return;
-    }
-    const queryChars = query.trim().length;
-    pushAgentDebugEvent("MANUAL_DOC_SEARCH_UI_START_SAFE", {
-      queryChars,
-      source: "debouncedDocSearch",
-    }, "debug");
-    docSearchDebounceId = setTimeout(async () => {
-      docSearchLoading = true;
-      try {
-        docSearchResults = await searchDocsForChatAttachment(query);
-        pushAgentDebugEvent("MANUAL_DOC_SEARCH_UI_DONE_SAFE", {
-          queryChars,
-          resultCount: docSearchResults.length,
-        }, "debug");
-        if (docSearchResults.length > 0 && !showDocSearch && !mentionActive) {
-          pushAgentDebugEvent("MANUAL_DOC_SEARCH_UI_RENDER_MISMATCH_SAFE", {
-            resultCount: docSearchResults.length,
-            showDocSearch,
-            mentionActive,
-            docSearchQueryChars: queryChars,
-          }, "warn");
-        }
-      } catch (e) {
-        docSearchResults = [];
-        pushAgentDebugEvent("MANUAL_DOC_SEARCH_UI_ERROR_SAFE", {
-          queryChars,
-          errorCode: "debounced_search_failed",
-        }, "warn");
-      }
-      docSearchLoading = false;
-    }, 300);
   }
 
   function addDocFromSearch(result: ChatDocSearchResult) {
@@ -441,23 +387,13 @@
       title: result.title,
       box: result.box,
       path: result.path,
-      source: mentionActive ? "mention" : "manual_search",
+      source: "manual_search",
       createdAt: Date.now(),
     }];
     pushAgentDebugEvent("MANUAL_DOC_SELECTED_SAFE", {
       selectedDocCount: attachedDocs.length,
       alreadySelectedGuard: true,
     }, "info");
-    if (mentionActive && textareaElement) {
-      const before = inputValue.substring(0, mentionStartPos);
-      const after = inputValue.substring(textareaElement.selectionStart);
-      inputValue = before + "@" + result.title + " " + after;
-      mentionActive = false;
-      mentionQuery = "";
-    }
-    showDocSearch = false;
-    docSearchResults = [];
-    docSearchQuery = "";
   }
 
   async function addCurrentDoc() {
@@ -492,10 +428,6 @@
       hasPath: !!meta.path,
       source: "current_doc",
     }, "info");
-
-    showDocSearch = false;
-    docSearchResults = [];
-    docSearchQuery = "";
   }
 
   function removeDoc(docId: string) {
@@ -538,11 +470,10 @@
           queryChars,
           resultCount: docSearchResults.length,
         }, "debug");
-        if (docSearchResults.length > 0 && !showDocSearch && !mentionActive) {
+        if (docSearchResults.length > 0 && !showDocSearch) {
           pushAgentDebugEvent("MANUAL_DOC_SEARCH_UI_RENDER_MISMATCH_SAFE", {
             resultCount: docSearchResults.length,
             showDocSearch,
-            mentionActive,
             docSearchQueryChars: queryChars,
           }, "warn");
         }
@@ -602,15 +533,17 @@
 
   function toggleQuickPrompts() {
     if (asking) return;
-    showQuickPrompts = !showQuickPrompts;
     if (showQuickPrompts) {
-      showModeMenu = false;
-      showModelMenu = false;
-      showDocSearch = false;
-      showWebAccessMenu = false;
-      closeContextPopover();
-      void loadQuickPrompts();
+      closeQuickPrompts();
+      return;
     }
+    showQuickPrompts = true;
+    showModeMenu = false;
+    showModelMenu = false;
+    showDocSearch = false;
+    showWebAccessMenu = false;
+    closeContextPopover();
+    void loadQuickPrompts();
   }
 
   async function loadQuickPrompts() {
@@ -632,10 +565,123 @@
       inputValue = item.text;
     }
     dispatch("input", inputValue);
-    showQuickPrompts = false;
+    closeQuickPrompts();
     setTimeout(() => {
       textareaElement?.focus();
     }, 0);
+  }
+
+  function closeQuickPrompts() {
+    showQuickPrompts = false;
+    quickPromptManageMode = false;
+    editingQuickPromptId = null;
+    editingQuickPromptText = "";
+    newQuickPromptText = "";
+    quickPromptError = "";
+  }
+
+  function toggleQuickPromptManageMode() {
+    quickPromptManageMode = !quickPromptManageMode;
+    if (!quickPromptManageMode) {
+      editingQuickPromptId = null;
+      editingQuickPromptText = "";
+      newQuickPromptText = "";
+      quickPromptError = "";
+    }
+  }
+
+  function startEditQuickPrompt(item: QuickPromptItem) {
+    editingQuickPromptId = item.id;
+    editingQuickPromptText = item.text;
+    quickPromptError = "";
+  }
+
+  function cancelEditQuickPrompt() {
+    editingQuickPromptId = null;
+    editingQuickPromptText = "";
+    quickPromptError = "";
+  }
+
+  async function saveEditQuickPrompt(item: QuickPromptItem) {
+    if (!quickPromptsDocId || !editingQuickPromptText.trim()) return;
+    quickPromptSaving = true;
+    quickPromptError = "";
+    try {
+      const ok = await updateQuickPromptItemInDoc(quickPromptsDocId, item.id, editingQuickPromptText);
+      if (ok) {
+        editingQuickPromptId = null;
+        editingQuickPromptText = "";
+        await loadQuickPrompts();
+      } else {
+        quickPromptError = "保存失败";
+      }
+    } catch {
+      quickPromptError = "保存失败";
+    }
+    quickPromptSaving = false;
+  }
+
+  async function handleDeleteQuickPrompt(item: QuickPromptItem) {
+    if (!quickPromptsDocId) return;
+    if (!confirm("确定删除这条提示语？")) return;
+    quickPromptSaving = true;
+    quickPromptError = "";
+    try {
+      const ok = await deleteQuickPromptItemInDoc(quickPromptsDocId, item.id);
+      if (ok) {
+        await loadQuickPrompts();
+      } else {
+        quickPromptError = "删除失败";
+      }
+    } catch {
+      quickPromptError = "删除失败";
+    }
+    quickPromptSaving = false;
+  }
+
+  async function handleAddQuickPromptFromInput() {
+    if (!quickPromptsDocId) return;
+    const text = inputValue.trim();
+    if (!text) return;
+    quickPromptSaving = true;
+    quickPromptError = "";
+    try {
+      const newId = await createQuickPromptItem(quickPromptsDocId, text);
+      if (newId) {
+        await loadQuickPrompts();
+      } else {
+        quickPromptError = "新增失败";
+      }
+    } catch {
+      quickPromptError = "新增失败";
+    }
+    quickPromptSaving = false;
+  }
+
+  async function handleAddNewQuickPrompt() {
+    if (!quickPromptsDocId || !newQuickPromptText.trim()) return;
+    quickPromptSaving = true;
+    quickPromptError = "";
+    try {
+      const newId = await createQuickPromptItem(quickPromptsDocId, newQuickPromptText);
+      if (newId) {
+        newQuickPromptText = "";
+        await loadQuickPrompts();
+      } else {
+        quickPromptError = "新增失败";
+      }
+    } catch {
+      quickPromptError = "新增失败";
+    }
+    quickPromptSaving = false;
+  }
+
+  function eventPathContains(event: MouseEvent, selector: string): boolean {
+    const path = event.composedPath();
+    if (path.length > 0) {
+      return path.some((el) => (el as HTMLElement).matches?.(selector));
+    }
+    return (event.target as HTMLElement).closest(selector) !== null;
   }
 
   function handleClickOutside(event: MouseEvent) {
@@ -646,7 +692,8 @@
     if (!target.closest(".model-selector")) {
       showModelMenu = false;
     }
-    if (!target.closest(".doc-search-container") && !target.closest(".doc-search-trigger")) {
+    // 使用 composedPath 判断，防止点击搜索结果后 DOM 被移除导致 closest 失效
+    if (!eventPathContains(event, ".doc-search-container") && !eventPathContains(event, ".doc-search-trigger")) {
       showDocSearch = false;
       docSearchResults = [];
       docSearchQuery = "";
@@ -654,14 +701,11 @@
     if (!target.closest(".web-search-toggle")) {
       showWebAccessMenu = false;
     }
-    if (!target.closest(".mention-popup") && !mentionActive) {
-      docSearchResults = [];
-    }
     if (!target.closest(".context-usage-ring") && !target.closest(".context-usage-popover")) {
       closeContextPopover();
     }
     if (!target.closest(".quick-prompts-toggle") && !target.closest(".quick-prompts-menu")) {
-      showQuickPrompts = false;
+      closeQuickPrompts();
     }
   }
 
@@ -760,7 +804,7 @@
         </div>
       {/if}
 
-      <div class="doc-search-trigger">
+      <div class="doc-search-trigger" role="presentation" on:click|stopPropagation>
         <button
           type="button"
           class="thinking-toggle"
@@ -769,7 +813,10 @@
           disabled={asking}
           title="搜索添加文档进行问答"
         >
-          <span>文档{attachedDocs.length > 0 ? `(${attachedDocs.length})` : ""}</span>
+          <SiyuanIcon name="iconFile" size={14} />
+          {#if attachedDocs.length > 0}
+            <span class="doc-badge">{attachedDocs.length}</span>
+          {/if}
         </button>
       </div>
 
@@ -784,26 +831,116 @@
             title="快捷提示语"
           >
             <SiyuanIcon name="iconQuote" size={14} />
-            <span>提示语</span>
           </button>
           {#if showQuickPrompts}
             <div class="quick-prompts-menu">
+              <div class="quick-prompts-header">
+                <span class="quick-prompts-title">快捷提示语</span>
+                <button
+                  type="button"
+                  class="quick-prompts-manage-btn"
+                  on:click={toggleQuickPromptManageMode}
+                  disabled={quickPromptSaving}
+                >
+                  {quickPromptManageMode ? "完成" : "管理"}
+                </button>
+              </div>
+
+              {#if quickPromptError}
+                <div class="quick-prompts-error">{quickPromptError}</div>
+              {/if}
+
               {#if quickPromptsLoading}
                 <div class="quick-prompts-hint">加载中…</div>
-              {:else if quickPromptItems.length === 0}
+              {:else if quickPromptItems.length === 0 && !quickPromptManageMode}
                 <div class="quick-prompts-hint">暂无提示语</div>
               {:else}
                 <div class="quick-prompts-list">
                   {#each quickPromptItems as item}
+                    {#if quickPromptManageMode && editingQuickPromptId === item.id}
+                      <div class="quick-prompts-edit-row">
+                        <textarea
+                          class="quick-prompts-edit-input"
+                          rows="2"
+                          bind:value={editingQuickPromptText}
+                          disabled={quickPromptSaving}
+                        ></textarea>
+                        <div class="quick-prompts-edit-actions">
+                          <button
+                            type="button"
+                            class="quick-prompts-edit-save"
+                            on:click={() => saveEditQuickPrompt(item)}
+                            disabled={quickPromptSaving || !editingQuickPromptText.trim()}
+                          >保存</button>
+                          <button
+                            type="button"
+                            class="quick-prompts-edit-cancel"
+                            on:click={cancelEditQuickPrompt}
+                            disabled={quickPromptSaving}
+                          >取消</button>
+                        </div>
+                      </div>
+                    {:else}
+                      <div class="quick-prompts-item-row">
+                        <button
+                          type="button"
+                          class="quick-prompts-item"
+                          on:click={() => quickPromptManageMode ? startEditQuickPrompt(item) : handleQuickPromptClick(item)}
+                          title={item.text}
+                        >
+                          <span class="quick-prompts-text">{item.text}</span>
+                        </button>
+                        {#if quickPromptManageMode}
+                          <div class="quick-prompts-item-actions">
+                            <button
+                              type="button"
+                              class="quick-prompts-action-btn"
+                              on:click|stopPropagation={() => startEditQuickPrompt(item)}
+                              disabled={quickPromptSaving}
+                              title="编辑"
+                            >✎</button>
+                            <button
+                              type="button"
+                              class="quick-prompts-action-btn quick-prompts-action-delete"
+                              on:click|stopPropagation={() => handleDeleteQuickPrompt(item)}
+                              disabled={quickPromptSaving}
+                              title="删除"
+                            >×</button>
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+
+              {#if quickPromptManageMode}
+                <div class="quick-prompts-footer">
+                  <button
+                    type="button"
+                    class="quick-prompts-add-input-btn"
+                    on:click={handleAddQuickPromptFromInput}
+                    disabled={quickPromptSaving || !inputValue.trim()}
+                    title="把当前输入框内容保存为提示语"
+                  >
+                    添加当前输入为提示语
+                  </button>
+                  <div class="quick-prompts-new-row">
+                    <input
+                      type="text"
+                      class="quick-prompts-new-input"
+                      placeholder="输入新提示语…"
+                      bind:value={newQuickPromptText}
+                      disabled={quickPromptSaving}
+                      on:keydown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddNewQuickPrompt(); } }}
+                    />
                     <button
                       type="button"
-                      class="quick-prompts-item"
-                      on:click={() => handleQuickPromptClick(item)}
-                      title={item.text}
-                    >
-                      <span class="quick-prompts-text">{item.text}</span>
-                    </button>
-                  {/each}
+                      class="quick-prompts-new-add-btn"
+                      on:click={handleAddNewQuickPrompt}
+                      disabled={quickPromptSaving || !newQuickPromptText.trim()}
+                    >添加</button>
+                  </div>
                 </div>
               {/if}
             </div>
@@ -998,18 +1135,18 @@
 
     <!-- Doc search popover (upward) -->
     {#if showDocSearch}
-      <div class="doc-search-container">
+      <div class="doc-search-container" role="presentation" on:click|stopPropagation>
         <div class="doc-search-popover">
           <div class="doc-quick-add">
             <button
               type="button"
               class="doc-quick-add-btn"
               on:click={addCurrentDoc}
-              disabled={asking}
-              title="将当前打开的文档添加到附件"
+              disabled={asking || currentDocAlreadyAttached}
+              title={currentDocAlreadyAttached ? "当前文档已添加" : "将当前打开的文档添加到附件"}
             >
               <SiyuanIcon name="iconFile" size={12} />
-              <span>添加当前文档</span>
+              <span>{currentDocAlreadyAttached ? "当前文档已添加" : "添加当前文档"}</span>
             </button>
           </div>
           <input
@@ -1021,13 +1158,12 @@
           />
           {#if docSearchLoading}
             <div class="doc-search-hint">搜索中...</div>
-          {:else if docSearchResults.length > 0}
+          {:else if visibleDocSearchResults.length > 0}
             <div class="doc-search-results">
-              {#each docSearchResults as result}
+              {#each visibleDocSearchResults as result (result.docId)}
                 <button
                   type="button"
                   class="doc-search-item"
-                  class:selected={attachedDocs.some((d) => d.docId === result.docId)}
                   on:click={() => addDocFromSearch(result)}
                 >
                   <span class="doc-item-title">{result.title || "无标题"}</span>
@@ -1035,26 +1171,12 @@
                 </button>
               {/each}
             </div>
+          {:else if docSearchQuery.trim() && docSearchResults.length > 0}
+            <div class="doc-search-hint">匹配文档已全部添加</div>
           {:else if docSearchQuery.trim()}
             <div class="doc-search-hint">未找到匹配文档</div>
           {/if}
         </div>
-      </div>
-    {/if}
-
-    <!-- Mention popup -->
-    {#if mentionActive && docSearchResults.length > 0}
-      <div class="mention-popup">
-        {#each docSearchResults as result}
-          <button
-            type="button"
-            class="doc-search-item"
-            on:click={() => addDocFromSearch(result)}
-          >
-            <span class="doc-item-title">{result.title || "无标题"}</span>
-            <span class="doc-item-path">{result.path} <span class="doc-item-source">{result.matchSource === "siyuan_kernel_search" ? "全文搜索" : result.matchSource === "title_catalog_search" ? "标题匹配" : "混合检索"}</span></span>
-          </button>
-        {/each}
       </div>
     {/if}
   </div>
@@ -1221,7 +1343,7 @@
     }
 
     &.warn {
-      color: var(--b3-theme-warning, #e6a817);
+      color: var(--b3-card-warning-color, #e6a817);
       opacity: 0.85;
     }
 
@@ -1281,12 +1403,12 @@
       text-transform: capitalize;
 
       &.warn {
-        background: var(--b3-theme-warning-light, rgba(230, 168, 23, 0.12));
-        color: var(--b3-theme-warning, #e6a817);
+        background: color-mix(in srgb, var(--b3-card-warning-color, #e6a817) 12%, transparent);
+        color: var(--b3-card-warning-color, #e6a817);
       }
 
       &.critical {
-        background: var(--b3-theme-error-light, rgba(217, 65, 65, 0.12));
+        background: color-mix(in srgb, var(--b3-theme-error) 12%, transparent);
         color: var(--b3-theme-error, #d94141);
       }
     }
@@ -1300,7 +1422,7 @@
     }
 
     .popover-grid-label {
-      color: var(--b3-theme-on-surface-light-3, #666);
+      color: var(--b3-theme-on-surface-light, #666);
       white-space: nowrap;
     }
 
@@ -1318,21 +1440,21 @@
 
     .popover-info {
       font-size: 11px;
-      color: var(--b3-theme-on-surface-light-3, #666);
+      color: var(--b3-theme-on-surface-light, #666);
       line-height: 1.4;
       margin-bottom: 6px;
     }
 
     .popover-warning {
       font-size: 11px;
-      color: var(--b3-theme-warning, #d48806);
+      color: var(--b3-card-warning-color, #d48806);
       line-height: 1.4;
       margin-bottom: 6px;
     }
 
     .popover-compression-detail {
       font-size: 11px;
-      color: var(--b3-theme-on-surface-light-3, #666);
+      color: var(--b3-theme-on-surface-light, #666);
       line-height: 1.4;
       margin-bottom: 6px;
     }
@@ -1365,12 +1487,12 @@
       }
 
       &.primary.highlight {
-        color: var(--b3-theme-warning, #e6a817);
-        border-color: var(--b3-theme-warning, #e6a817);
+        color: var(--b3-card-warning-color, #e6a817);
+        border-color: var(--b3-card-warning-color, #e6a817);
       }
 
       &.secondary {
-        color: var(--b3-theme-on-surface-light-3, #666);
+        color: var(--b3-theme-on-surface-light, #666);
         border-color: var(--b3-border-color);
         font-size: 11px;
       }
@@ -1667,7 +1789,7 @@
     font-family: inherit;
     transition: background 0.15s;
     &:hover:not(:disabled) {
-      background: var(--b3-theme-primary-lightest);
+      background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
     }
     &:disabled {
       opacity: 0.5;
@@ -1726,10 +1848,6 @@
     &:hover {
       background: var(--b3-theme-background-light);
     }
-
-    &.selected {
-      background: var(--b3-theme-primary-light);
-    }
   }
 
   .doc-item-title {
@@ -1754,25 +1872,6 @@
     color: var(--b3-theme-primary);
     opacity: 0.8;
     margin-left: 4px;
-  }
-
-  // Mention popup (upward)
-  .mention-popup {
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 8px;
-    z-index: 50;
-    width: min(420px, calc(100vw - 32px));
-    background: var(--b3-theme-background);
-    border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-    padding: 6px;
-    max-height: 280px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
   }
 
   .doc-search-trigger {
@@ -1813,8 +1912,8 @@
 
     &.web-required {
       background: rgba(230, 168, 23, 0.16);
-      border-color: var(--b3-theme-warning, #d48806);
-      color: var(--b3-theme-warning, #d48806);
+      border-color: var(--b3-card-warning-color, #d48806);
+      color: var(--b3-card-warning-color, #d48806);
 
       &:hover {
         background: rgba(230, 168, 23, 0.26);
@@ -1892,5 +1991,189 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .quick-prompts-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 6px 6px;
+    border-bottom: 1px solid var(--b3-border-color);
+    margin-bottom: 4px;
+  }
+
+  .quick-prompts-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+  }
+
+  .quick-prompts-manage-btn {
+    font-size: 12px;
+    color: var(--b3-theme-primary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+
+    &:hover {
+      background: var(--b3-theme-background-light);
+    }
+  }
+
+  .quick-prompts-error {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--b3-theme-error);
+    text-align: center;
+  }
+
+  .quick-prompts-item-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    .quick-prompts-item {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  .quick-prompts-item-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .quick-prompts-action-btn {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--b3-theme-on-surface-light);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--b3-theme-background-light);
+      color: var(--b3-theme-on-surface);
+    }
+  }
+
+  .quick-prompts-action-delete:hover {
+    color: var(--b3-theme-error);
+  }
+
+  .quick-prompts-edit-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .quick-prompts-edit-input {
+    width: 100%;
+    font-size: 13px;
+    padding: 6px 8px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 4px;
+    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-surface);
+    resize: vertical;
+    font-family: inherit;
+  }
+
+  .quick-prompts-edit-actions {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+
+  .quick-prompts-edit-save,
+  .quick-prompts-edit-cancel {
+    font-size: 12px;
+    padding: 3px 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .quick-prompts-edit-save {
+    background: var(--b3-theme-primary);
+    color: var(--b3-theme-on-primary);
+
+    &:hover {
+      opacity: 0.85;
+    }
+  }
+
+  .quick-prompts-edit-cancel {
+    background: var(--b3-theme-background-light);
+    color: var(--b3-theme-on-surface);
+
+    &:hover {
+      background: var(--b3-theme-background);
+    }
+  }
+
+  .quick-prompts-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 0 2px;
+    border-top: 1px solid var(--b3-border-color);
+    margin-top: 4px;
+  }
+
+  .quick-prompts-add-input-btn {
+    font-size: 12px;
+    color: var(--b3-theme-primary);
+    background: transparent;
+    border: 1px dashed var(--b3-border-color);
+    border-radius: 4px;
+    padding: 5px 8px;
+    cursor: pointer;
+    text-align: center;
+
+    &:hover {
+      background: var(--b3-theme-background-light);
+    }
+  }
+
+  .quick-prompts-new-row {
+    display: flex;
+    gap: 4px;
+  }
+
+  .quick-prompts-new-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    padding: 5px 8px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 4px;
+    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-surface);
+    font-family: inherit;
+  }
+
+  .quick-prompts-new-add-btn {
+    font-size: 12px;
+    padding: 5px 10px;
+    background: var(--b3-theme-primary);
+    color: var(--b3-theme-on-primary);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+
+    &:hover {
+      opacity: 0.85;
+    }
   }
 </style>

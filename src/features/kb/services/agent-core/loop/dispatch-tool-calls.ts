@@ -198,6 +198,11 @@ async function executeOne(params: {
   });
   const durationMs = Date.now() - startedAt;
 
+  // Mark successful writes for duplicate guard
+  if (!tool.readOnly && result.ok) {
+    params.stormBreaker.markWriteSuccess(params.call, parsed.args);
+  }
+
   // Emit tool_result for all outcomes
   params.onEvent?.({
     type: "tool_result",

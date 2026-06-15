@@ -10,6 +10,7 @@ export interface BuildNativeToolRegistryForTurnParams {
   question: string;
   conversationId: string;
   abortSignal?: AbortSignal;
+  docContentEditingEnabled?: boolean;
 }
 
 /**
@@ -29,9 +30,11 @@ export function buildNativeToolRegistryForTurn(
     abortSignal: params.abortSignal,
   });
 
-  registerNativeSiyuanWriteTools(registry, {
-    conversationId: params.conversationId,
-  });
+  if (params.docContentEditingEnabled === true) {
+    registerNativeSiyuanWriteTools(registry, {
+      conversationId: params.conversationId,
+    });
+  }
 
   return registry;
 }

@@ -26,6 +26,7 @@
   import DocContentEditConfirmationModal from "../common/doc-content-edit-confirmation-modal.svelte";
   import AgentToolPermissionModal from "../common/agent-tool-permission-modal.svelte";
   import { openEditDiffPreviewDialog } from "../common/edit-diff-dialog";
+  import type { EditDiffPreview } from "../../services/doc-content-edit/doc-content-edit-types";
   import { setDocContentEditConfirmationHandler } from "../../services/doc-content-edit/doc-content-edit-confirmation-bridge";
   import { removeDocContentEditConfirmation } from "../../services/doc-content-edit/doc-content-edit-confirmation-store";
   import { RegisteredConfirmationBridge } from "../../services/agent-core/permissions/confirmation-bridge";
@@ -77,7 +78,7 @@
   let nativePermissionPreview: {
     toolName: string;
     title: string;
-    risk: string;
+    risk: "low" | "medium" | "high";
     summary?: string;
     argsPreview: Record<string, unknown>;
     displayMode?: "summary" | "block_diff" | "arrow_flow";
@@ -1173,7 +1174,6 @@
           title={conversationSidebarOpen ? "关闭会话列表" : "打开会话列表"}
         >
           <span class="btn-icon"><SiyuanIcon name="iconMenu" size={13} /></span>
-          <span class="btn-label">会话</span>
         </button>
         <button
           type="button"
@@ -1183,7 +1183,6 @@
           title="新对话"
         >
           <span class="btn-icon"><SiyuanIcon name="iconAdd" size={13} /></span>
-          <span class="btn-label">新对话</span>
         </button>
         <button
           type="button"
@@ -1192,7 +1191,6 @@
           title="打开 AI 知识库设置"
         >
           <span class="btn-icon"><SiyuanIcon name="iconSettings" size={13} /></span>
-          <span class="btn-label">设置</span>
         </button>
       </div>
       <div class="toolbar-right">
@@ -1356,7 +1354,7 @@
     }
 
     &.active {
-      background: var(--b3-theme-primary-lightest, rgba(66, 133, 244, 0.1));
+      background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
       border-color: var(--b3-theme-primary-light, rgba(66, 133, 244, 0.5));
       color: var(--b3-theme-primary);
     }

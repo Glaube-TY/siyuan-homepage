@@ -578,9 +578,13 @@ export async function runAgentWorkbenchModeFlow(
         const validation = await validateGlobalMemoryDocId(kbSettings.globalMemory.docId);
         if (validation.valid) {
           const mem = await readGlobalMemory(kbSettings.globalMemory.docId, kbSettings.globalMemory.maxChars);
-          globalMemoryText = mem.content;
-          if (mem.truncated) {
-            globalMemoryText += "\n（记忆内容已截断）";
+          if (!mem.readOk) {
+            globalMemoryText = "全局记忆读取失败，本轮不使用全局记忆。";
+          } else {
+            globalMemoryText = mem.content;
+            if (mem.truncated) {
+              globalMemoryText += "\n（记忆内容已截断）";
+            }
           }
         }
       }

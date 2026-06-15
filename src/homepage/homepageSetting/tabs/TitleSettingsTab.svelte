@@ -295,7 +295,7 @@
         transition: all 0.2s ease;
     }
     .emoji-display-btn:hover {
-        background: var(--b3-theme-hover);
+        background: var(--b3-list-hover);
         border-color: var(--b3-theme-primary);
     }
     .icon-preview-small {

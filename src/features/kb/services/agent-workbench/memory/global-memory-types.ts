@@ -9,6 +9,10 @@ export interface GlobalMemoryContent {
   truncated: boolean;
   /** 文档 ID */
   docId: string;
+  /** 是否读取成功（区分真实空文档和读取失败） */
+  readOk: boolean;
+  /** 读取失败时的简短原因 */
+  errorMessage?: string;
 }
 
 /** 单条段落记忆 */

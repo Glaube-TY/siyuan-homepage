@@ -928,43 +928,43 @@
 <style lang="scss">
     @use "./contentSettingStyle/contentSetting.scss" as *;
 
-    // 全局共享布局类 - 供子组件设置页使用
-    :global(.setting-panel) {
+    // 共享布局类 - 限定在插件设置容器内，避免污染思源全局样式
+    .settings-container :global(.setting-panel) {
         display: flex;
         flex-direction: column;
         gap: 1rem;
     }
 
-    :global(.form-row) {
+    .settings-container :global(.form-row) {
         display: flex;
         align-items: center;
         gap: 1rem;
         flex-wrap: wrap;
-
-        & > * {
-            flex-shrink: 0;
-        }
     }
 
-    :global(.form-row-compact) {
+    .settings-container :global(.form-row) > :global(*) {
+        flex-shrink: 0;
+    }
+
+    .settings-container :global(.form-row-compact) {
         display: flex;
         align-items: center;
         gap: 0.75rem;
         flex-wrap: wrap;
-
-        & > * {
-            flex-shrink: 0;
-        }
     }
 
-    :global(.form-inline-group) {
+    .settings-container :global(.form-row-compact) > :global(*) {
+        flex-shrink: 0;
+    }
+
+    .settings-container :global(.form-inline-group) {
         display: flex;
         align-items: center;
         gap: 0.5rem;
         flex-wrap: nowrap;
     }
 
-    :global(.form-grid-2) {
+    .settings-container :global(.form-grid-2) {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         gap: 1rem;
@@ -974,20 +974,20 @@
         }
     }
 
-    :global(.form-grid-auto) {
+    .settings-container :global(.form-grid-auto) {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 1rem;
     }
 
-    :global(.form-field) {
+    .settings-container :global(.form-field) {
         display: flex;
         flex-direction: column;
         gap: 0.375rem;
         min-width: 80px;
     }
 
-    :global(.form-field label) {
+    .settings-container :global(.form-field label) {
         font-size: 13px;
         font-weight: 500;
         color: var(--b3-theme-on-surface);
@@ -995,73 +995,73 @@
         line-height: 1.5;
     }
 
-    :global(.form-field input),
-    :global(.form-field select) {
+    .settings-container :global(.form-field input),
+    .settings-container :global(.form-field select) {
         width: 100%;
         height: 32px;
         box-sizing: border-box;
     }
 
-    :global(.field-xs) {
+    .settings-container :global(.field-xs) {
         width: 60px !important;
         min-width: 60px;
         flex: 0 0 auto !important;
     }
 
-    :global(.field-sm) {
+    .settings-container :global(.field-sm) {
         width: 100px !important;
         min-width: 100px;
         flex: 0 0 auto !important;
     }
 
-    :global(.field-md) {
+    .settings-container :global(.field-md) {
         width: 160px !important;
         min-width: 160px;
         flex: 0 0 auto !important;
     }
 
-    :global(.field-lg) {
+    .settings-container :global(.field-lg) {
         width: 240px !important;
         min-width: 240px;
         flex: 0 0 auto !important;
     }
 
-    :global(.field-grow) {
+    .settings-container :global(.field-grow) {
         flex: 1 1 auto !important;
         min-width: 120px;
     }
 
-    :global(.field-full) {
+    .settings-container :global(.field-full) {
         width: 100% !important;
         flex: 1 1 100% !important;
     }
 
-    :global(.form-field-full) {
+    .settings-container :global(.form-field-full) {
         display: flex;
         flex-direction: column;
         gap: 0.375rem;
         width: 100%;
     }
 
-    :global(.form-field-full label) {
+    .settings-container :global(.form-field-full label) {
         font-size: 13px;
         font-weight: 500;
         color: var(--b3-theme-on-surface);
         line-height: 1.5;
     }
 
-    :global(.form-field-full input),
-    :global(.form-field-full select) {
+    .settings-container :global(.form-field-full input),
+    .settings-container :global(.form-field-full select) {
         width: 100%;
         height: 32px;
         box-sizing: border-box;
     }
 
-    :global(.form-field-full .multi-select-container) {
+    .settings-container :global(.form-field-full .multi-select-container) {
         width: 100%;
     }
 
-    :global(.form-checkbox-row) {
+    .settings-container :global(.form-checkbox-row) {
         display: flex;
         align-items: center;
         gap: 0.5rem;
@@ -1070,12 +1070,12 @@
         margin-top: 1.25rem;
     }
 
-    :global(.form-checkbox-row input[type="checkbox"]) {
+    .settings-container :global(.form-checkbox-row input[type="checkbox"]) {
         width: auto;
         margin: 0;
     }
 
-    :global(.form-checkbox-row label) {
+    .settings-container :global(.form-checkbox-row label) {
         font-size: 13px;
         font-weight: 500;
         color: var(--b3-theme-on-surface);
@@ -1084,62 +1084,62 @@
         line-height: 1.5;
     }
 
-    :global(.form-checkbox-group) {
+    .settings-container :global(.form-checkbox-group) {
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
         padding: 0.5rem 0;
     }
 
-    :global(.form-checkbox-group-inline) {
+    .settings-container :global(.form-checkbox-group-inline) {
         display: flex;
         align-items: center;
         gap: 1rem;
         flex-wrap: wrap;
     }
 
-    :global(.form-checkbox-group-inline .form-checkbox-row) {
+    .settings-container :global(.form-checkbox-group-inline .form-checkbox-row) {
         margin-top: 0;
     }
 
-    :global(.input-xs) {
+    .settings-container :global(.input-xs) {
         width: 50px !important;
         min-width: 50px;
     }
 
-    :global(.input-sm) {
+    .settings-container :global(.input-sm) {
         width: 80px !important;
         min-width: 80px;
     }
 
-    :global(.input-small) {
+    .settings-container :global(.input-small) {
         width: 60px !important;
         min-width: 60px;
     }
 
-    :global(.input-medium) {
+    .settings-container :global(.input-medium) {
         width: 100px !important;
         min-width: 100px;
     }
 
-    :global(.input-large) {
+    .settings-container :global(.input-large) {
         width: 200px !important;
         min-width: 200px;
     }
 
-    :global(.input-emoji) {
+    .settings-container :global(.input-emoji) {
         width: 50px !important;
         min-width: 50px;
         text-align: center;
         font-size: 16px;
     }
 
-    :global(.input-prefix) {
+    .settings-container :global(.input-prefix) {
         width: 80px !important;
         min-width: 80px;
     }
 
-    :global(.emoji-select-btn) {
+    .settings-container :global(.emoji-select-btn) {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1154,12 +1154,12 @@
         transition: all 0.2s ease;
 
         &:hover {
-            background: var(--b3-theme-hover);
+            background: var(--b3-list-hover);
             border-color: var(--b3-theme-primary);
         }
     }
 
-    :global(.emoji-select-btn--compact) {
+    .settings-container :global(.emoji-select-btn--compact) {
         min-width: 48px;
         width: 48px;
         height: 28px;
@@ -1167,13 +1167,13 @@
         font-size: 14px;
     }
 
-    :global(.form-divider) {
+    .settings-container :global(.form-divider) {
         height: 1px;
         background: var(--b3-border-color);
         margin: 0.75rem 0;
     }
 
-    :global(.form-section-title) {
+    .settings-container :global(.form-section-title) {
         font-size: 14px;
         font-weight: 600;
         color: var(--b3-theme-on-surface);
@@ -1182,7 +1182,7 @@
         margin-bottom: 0.5rem;
     }
 
-    :global(.form-help-text) {
+    .settings-container :global(.form-help-text) {
         font-size: 12px;
         color: var(--b3-theme-on-surface-light);
         margin-top: 0.25rem;

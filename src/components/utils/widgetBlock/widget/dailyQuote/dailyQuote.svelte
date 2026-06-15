@@ -173,7 +173,7 @@
             border-radius: 8px;
             position: relative;
             line-height: 1.8;
-            color: var(--b3-theme-text);
+            color: var(--b3-theme-on-surface);
             border: 1px solid var(--b3-border-color);
             background-color: color-mix(
                 in srgb,

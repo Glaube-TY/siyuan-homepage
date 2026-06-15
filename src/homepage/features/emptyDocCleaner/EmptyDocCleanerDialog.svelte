@@ -353,7 +353,7 @@
     }
 
     .doc-name-btn:hover:not(:disabled) {
-        background: var(--b3-theme-hover);
+        background: var(--b3-list-hover);
     }
 
     .doc-name-btn.active {
@@ -418,12 +418,12 @@
         justify-content: center;
         align-items: center;
         z-index: 9999;
-        background: var(--b3-theme-scrim);
+        background: var(--b3-mask-background);
     }
 
     .confirm-dialog {
         background: var(--b3-theme-surface);
-        border-radius: var(--b3-border-radius-dialog);
+        border-radius: var(--b3-border-radius-b);
         width: 400px;
         max-width: 90vw;
         box-shadow: var(--b3-dialog-shadow);

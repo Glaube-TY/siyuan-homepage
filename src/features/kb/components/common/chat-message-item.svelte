@@ -183,7 +183,7 @@
     if (workbenchDisplayMode === "auto") {
       if (isAssistantGenerating) return true;
       if (workbenchDisplaySteps.some((step) => step.running)) return true;
-      if (!!message.agentStatus) return true;
+      if ('agentStatus' in message && !!message.agentStatus) return true;
       return false;
     }
     return false;
@@ -192,10 +192,14 @@
   let workbenchEventsMessageId = "";
   let userToggledWorkbench = false;
 
-  function computeReasoningCollapsed(detail: typeof message.reasoning): boolean {
+  type ReasoningDetail = { content: string; status: "streaming" | "done"; partCount: number; chars: number };
+  function computeReasoningCollapsed(detail: ReasoningDetail | undefined): boolean {
     if (reasoningDisplayMode === "expanded") return false;
     if (reasoningDisplayMode === "auto") return detail?.status !== "streaming";
     return true;
+  }
+  function getReasoning(msg: ChatMessage): ReasoningDetail | undefined {
+    return 'reasoning' in msg ? msg.reasoning : undefined;
   }
   let userToggledReasoning = false;
 
@@ -205,14 +209,14 @@
     userToggledWorkbench = false;
     userToggledReasoning = false;
     workbenchEventsExpanded = computeWorkbenchExpanded();
-    reasoningCollapsed = computeReasoningCollapsed(message.reasoning);
+    reasoningCollapsed = computeReasoningCollapsed(getReasoning(message));
   }
   // Auto-mode: react to status changes during the same message
   $: if (!userToggledWorkbench && message.id === workbenchEventsMessageId) {
     workbenchEventsExpanded = computeWorkbenchExpanded();
   }
   $: if (!userToggledReasoning && message.id === workbenchEventsMessageId) {
-    reasoningCollapsed = computeReasoningCollapsed(message.reasoning);
+    reasoningCollapsed = computeReasoningCollapsed(getReasoning(message));
   }
 
   function toggleWorkbench() {
@@ -1066,7 +1070,7 @@
     }
 
     &.error .bubble {
-      background: var(--b3-theme-error-light);
+      background: color-mix(in srgb, var(--b3-theme-error) 12%, transparent);
       color: var(--b3-theme-error);
 
       &.error-bubble {
@@ -1169,7 +1173,7 @@
 
     &:focus-visible {
       outline: none;
-      box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
     }
   }
 
@@ -1196,14 +1200,14 @@
     transition: all 0.15s ease;
 
     &:hover {
-      background: var(--b3-theme-primary-lightest);
+      background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
       border-color: var(--b3-theme-primary);
       color: var(--b3-theme-primary);
     }
 
     &:focus-visible {
       outline: none;
-      box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
     }
   }
 
@@ -1373,7 +1377,7 @@
 
   .workbench-event.is-error {
     border-left-color: var(--b3-theme-error);
-    background: var(--b3-theme-error-light);
+    background: color-mix(in srgb, var(--b3-theme-error) 12%, transparent);
   }
 
   .workbench-event.is-running {
@@ -1417,8 +1421,8 @@
     margin-top: 8px;
     padding: 6px 10px;
     border-radius: 6px;
-    background: var(--b3-theme-warning-light, rgba(255, 193, 7, 0.1));
-    color: var(--b3-theme-warning, #856404);
+    background: color-mix(in srgb, var(--b3-card-warning-color, #e6a817) 10%, transparent);
+    color: var(--b3-card-warning-color, #856404);
     font-size: 12px;
     line-height: 1.4;
   }
@@ -1512,7 +1516,7 @@
     &:focus,
     &:focus-visible {
       border-color: var(--b3-theme-primary);
-      background: var(--b3-theme-primary-lightest);
+      background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
       color: var(--b3-theme-primary);
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
       text-decoration: none;

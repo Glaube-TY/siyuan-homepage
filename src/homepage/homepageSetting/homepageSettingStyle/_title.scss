@@ -1,97 +1,99 @@
-.titleBlock-setting {
+.shp-homepage-settings {
+    .titleBlock-setting {
 
-    button {
-        display: inline-flex;
-        width: fit-content;
-        align-items: center;
-        justify-content: center;
-        padding: 0.4rem 0.8rem;
-        background-color: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        font-size: 0.95rem;
-        transition: all 0.2s ease;
-
-        &:hover {
-            background-color: var(--b3-theme-hover);
-            border-color: var(--b3-theme-primary);
-            color: var(--b3-theme-primary);
-        }
-
-        &:active {
-            transform: scale(0.98);
-        }
-    }
-
-    // 标题行整体设置容器
-    .icon-and-title-container {
-        display: flex;
-        gap: 1rem;
-        align-items: flex-start;
-        flex-direction: column;
-        margin-top: 0.5rem;
-        margin-right: auto;
-        border-bottom: 1px solid var(--b3-border-color);
-
-        .icon-selection {
+        button {
+            display: inline-flex;
+            width: fit-content;
             align-items: center;
+            justify-content: center;
+            padding: 0.4rem 0.8rem;
+            background-color: var(--b3-theme-background);
+            color: var(--b3-theme-on-surface);
+            border: 1px solid var(--b3-border-color);
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+
+            &:hover {
+                background-color: var(--b3-list-hover);
+                border-color: var(--b3-theme-primary);
+                color: var(--b3-theme-primary);
+            }
+
+            &:active {
+                transform: scale(0.98);
+            }
+        }
+
+        // 标题行整体设置容器
+        .icon-and-title-container {
             display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+            flex-direction: column;
+            margin-top: 0.5rem;
+            margin-right: auto;
+            border-bottom: 1px solid var(--b3-border-color);
+
+            .icon-selection {
+                align-items: center;
+                display: flex;
+
+                select {
+                    height: fit-content;
+                    margin-right: 1rem;
+                }
+            }
+
+            .custom-title-input {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                margin-bottom: 1rem;
+
+                label {
+                    white-space: nowrap;
+                }
+
+                input {
+                    height: fit-content;
+                }
+            }
+
+            img {
+                margin-left: 1rem;
+                max-width: 32px;
+                max-height: 32px;
+                object-fit: contain;
+            }
 
             select {
-                height: fit-content;
-                margin-right: 1rem;
+                margin-left: 1rem;
             }
         }
 
-        .custom-title-input {
-            display: flex;
+
+        // 表情选择按钮样式
+        .emoji-display {
+            display: inline-flex;
             align-items: center;
-            width: 100%;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            font-size: 24px;
+            border: 1px solid var(--b3-border-color);
+            border-radius: 6px;
+            background: var(--b3-theme-surface);
+            transition: background-color 0.2s ease;
+
+            &:hover {
+                background: var(--b3-list-hover);
+            }
+        }
+
+        .stats-info-setting {
+            margin-top: 1rem;
             margin-bottom: 1rem;
-
-            label {
-                white-space: nowrap;
-            }
-
-            input {
-                height: fit-content;
-            }
         }
-
-        img {
-            margin-left: 1rem;
-            max-width: 32px;
-            max-height: 32px;
-            object-fit: contain;
-        }
-
-        select {
-            margin-left: 1rem;
-        }
-    }
-
-
-    // 表情选择按钮样式
-    .emoji-display {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 40px;
-        height: 40px;
-        font-size: 24px;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        background: var(--b3-theme-surface);
-        transition: background-color 0.2s ease;
-
-        &:hover {
-            background: var(--b3-theme-hover);
-        }
-    }
-
-    .stats-info-setting {
-        margin-top: 1rem;
-        margin-bottom: 1rem;
     }
 }

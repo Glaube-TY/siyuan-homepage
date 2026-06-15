@@ -45,12 +45,12 @@ function getChineseToolName(toolName: string): string {
   return CHINESE_TOOL_NAMES[toolName] ?? toolName;
 }
 
-function compactResult(ok: boolean, toolName: string, data: Record<string, unknown>): ToolExecutionResult {
+function compactResult(ok: boolean, toolName: string, data: Record<string, unknown>, failMessage?: string): ToolExecutionResult {
   const cnName = getChineseToolName(toolName);
   return {
     ok,
     content: JSON.stringify({ ok, toolName, data }),
-    summary: ok ? `已执行：${cnName}` : `执行失败：${cnName}`,
+    summary: ok ? `已执行：${cnName}` : `执行失败：${cnName}${failMessage ? `：${failMessage}` : ""}`,
   };
 }
 
@@ -251,13 +251,16 @@ function createNativeUpdateBlockTool(deps: { conversationId: string }): NativeTo
       const blockId = String(args.blockId ?? "").trim();
       const confirmationId = String((args as Record<string, unknown>)._confirmationId ?? "");
       if (!confirmationId) {
-        return compactResult(false, "update_block", { blockId, changed: false, error: "missing confirmationId" });
+        return compactResult(false, "update_block", { blockId, changed: false, error: "missing confirmationId" }, "缺少确认 ID");
       }
       const res = await executeConfirmedUpdateBlock({ confirmationId });
-      return compactResult(res.ok && res.status === "success", "update_block", {
+      const success = res.ok && res.status === "success";
+      return compactResult(success, "update_block", {
         blockId,
-        changed: res.ok && res.status === "success",
-      });
+        changed: success,
+        status: res.status,
+        message: res.message,
+      }, success ? undefined : res.message);
     },
   };
 }
@@ -354,12 +357,15 @@ function createNativeInsertBlockTool(deps: { conversationId: string }): NativeTo
     async execute(args: Record<string, unknown>, _ctx: ToolExecutionContext): Promise<ToolExecutionResult> {
       const confirmationId = String((args as Record<string, unknown>)._confirmationId ?? "");
       if (!confirmationId) {
-        return compactResult(false, "insert_block", { changed: false, error: "missing confirmationId" });
+        return compactResult(false, "insert_block", { changed: false, error: "missing confirmationId" }, "缺少确认 ID");
       }
       const res = await executeConfirmedInsertBlock({ confirmationId });
-      return compactResult(res.ok && res.status === "success", "insert_block", {
-        changed: res.ok && res.status === "success",
-      });
+      const success = res.ok && res.status === "success";
+      return compactResult(success, "insert_block", {
+        changed: success,
+        status: res.status,
+        message: res.message,
+      }, success ? undefined : res.message);
     },
   };
 }
@@ -432,12 +438,15 @@ function createNativeDeleteBlocksTool(deps: { conversationId: string }): NativeT
     async execute(args: Record<string, unknown>, _ctx: ToolExecutionContext): Promise<ToolExecutionResult> {
       const confirmationId = String((args as Record<string, unknown>)._confirmationId ?? "");
       if (!confirmationId) {
-        return compactResult(false, "delete_blocks", { deleted: false, error: "missing confirmationId" });
+        return compactResult(false, "delete_blocks", { deleted: false, error: "missing confirmationId" }, "缺少确认 ID");
       }
       const res = await executeConfirmedDeleteBlocks({ confirmationId });
-      return compactResult(res.ok && res.status === "success", "delete_blocks", {
+      const success = res.ok && res.status === "success";
+      return compactResult(success, "delete_blocks", {
         deletedCount: res.deletedCount ?? 0,
-      });
+        status: res.status,
+        message: res.message,
+      }, success ? undefined : res.message);
     },
   };
 }
@@ -552,13 +561,16 @@ function createNativeReplaceDocContentTool(deps: { conversationId: string }): Na
       const confirmationId = String((args as Record<string, unknown>)._confirmationId ?? "");
       const docId = String(args.docId ?? "").trim();
       if (!confirmationId) {
-        return compactResult(false, "replace_doc_content", { docId, changed: false, error: "missing confirmationId" });
+        return compactResult(false, "replace_doc_content", { docId, changed: false, error: "missing confirmationId" }, "缺少确认 ID");
       }
       const res = await executeConfirmedReplaceDocContent({ confirmationId });
-      return compactResult(res.ok && res.status === "success", "replace_doc_content", {
+      const success = res.ok && res.status === "success";
+      return compactResult(success, "replace_doc_content", {
         docId,
-        changed: res.ok && res.status === "success",
-      });
+        changed: success,
+        status: res.status,
+        message: res.message,
+      }, success ? undefined : res.message);
     },
   };
 }
@@ -615,12 +627,22 @@ function createNativeMoveBlockTool(deps: { conversationId: string }): NativeTool
         operation: "move_block",
         target: { blockId },
       });
+
+      let beforeSnapshot = "";
+      try {
+        const kr = await getBlockKramdown(blockId);
+        beforeSnapshot = kr?.kramdown ?? "";
+      } catch {
+        // Read failure is non-fatal; executor will still check block existence
+      }
+
       const confirmation = await createDocContentEditConfirmation({
         conversationId: deps.conversationId,
         action: "move_block",
         toolName: "move_block",
         toolInput: { blockId, previousID, parentID },
         target: { blockId, previousID, parentID },
+        beforeSnapshot,
         riskLevel: risk.riskLevel,
       });
 
@@ -634,12 +656,16 @@ function createNativeMoveBlockTool(deps: { conversationId: string }): NativeTool
     async execute(args: Record<string, unknown>, _ctx: ToolExecutionContext): Promise<ToolExecutionResult> {
       const confirmationId = String((args as Record<string, unknown>)._confirmationId ?? "");
       if (!confirmationId) {
-        return compactResult(false, "move_block", { moved: false, error: "missing confirmationId" });
+        return compactResult(false, "move_block", { moved: false, error: "missing confirmationId" }, "缺少确认 ID");
       }
       const res = await executeConfirmedMoveBlock({ confirmationId });
-      return compactResult(res.ok && res.status === "success", "move_block", {
-        moved: res.ok && res.status === "success",
-      });
+      const success = res.ok && res.status === "success";
+      return compactResult(success, "move_block", {
+        moved: success,
+        status: res.status,
+        message: res.message,
+        target: res.target,
+      }, success ? undefined : res.message);
     },
   };
 }
@@ -704,12 +730,16 @@ function createNativeCreateDocTool(deps: { conversationId: string }): NativeTool
     async execute(args: Record<string, unknown>, _ctx: ToolExecutionContext): Promise<ToolExecutionResult> {
       const confirmationId = String((args as Record<string, unknown>)._confirmationId ?? "");
       if (!confirmationId) {
-        return compactResult(false, "create_doc", { created: false, error: "missing confirmationId" });
+        return compactResult(false, "create_doc", { created: false, error: "missing confirmationId" }, "缺少确认 ID");
       }
       const res = await executeConfirmedCreateDoc({ confirmationId });
-      return compactResult(res.ok && res.status === "success", "create_doc", {
-        created: res.ok && res.status === "success",
-      });
+      const success = res.ok && res.status === "success";
+      return compactResult(success, "create_doc", {
+        created: success,
+        docId: res.target?.docId,
+        status: res.status,
+        message: res.message,
+      }, success ? undefined : res.message);
     },
   };
 }
@@ -776,12 +806,15 @@ function createNativeRenameDocTool(deps: { conversationId: string }): NativeTool
     async execute(args: Record<string, unknown>, _ctx: ToolExecutionContext): Promise<ToolExecutionResult> {
       const confirmationId = String((args as Record<string, unknown>)._confirmationId ?? "");
       if (!confirmationId) {
-        return compactResult(false, "rename_doc", { renamed: false, error: "missing confirmationId" });
+        return compactResult(false, "rename_doc", { renamed: false, error: "missing confirmationId" }, "缺少确认 ID");
       }
       const res = await executeConfirmedRenameDoc({ confirmationId });
-      return compactResult(res.ok && res.status === "success", "rename_doc", {
-        renamed: res.ok && res.status === "success",
-      });
+      const success = res.ok && res.status === "success";
+      return compactResult(success, "rename_doc", {
+        renamed: success,
+        status: res.status,
+        message: res.message,
+      }, success ? undefined : res.message);
     },
   };
 }
@@ -848,12 +881,15 @@ function createNativeDeleteDocTool(deps: { conversationId: string }): NativeTool
     async execute(args: Record<string, unknown>, _ctx: ToolExecutionContext): Promise<ToolExecutionResult> {
       const confirmationId = String((args as Record<string, unknown>)._confirmationId ?? "");
       if (!confirmationId) {
-        return compactResult(false, "delete_doc", { deleted: false, error: "missing confirmationId" });
+        return compactResult(false, "delete_doc", { deleted: false, error: "missing confirmationId" }, "缺少确认 ID");
       }
       const res = await executeConfirmedDeleteDoc({ confirmationId });
-      return compactResult(res.ok && res.status === "success", "delete_doc", {
-        deleted: res.ok && res.status === "success",
-      });
+      const success = res.ok && res.status === "success";
+      return compactResult(success, "delete_doc", {
+        deleted: success,
+        status: res.status,
+        message: res.message,
+      }, success ? undefined : res.message);
     },
   };
 }

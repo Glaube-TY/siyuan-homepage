@@ -685,7 +685,7 @@
         gap: 1rem;
 
         button {
-            color: var(--b3-theme-text);
+            color: var(--b3-theme-on-surface);
         }
     }
 
@@ -714,10 +714,10 @@
         input[type="number"] {
             width: 50px;
             padding: 0.3rem;
-            border: 1px solid var(--b3-theme-border);
+            border: 1px solid var(--b3-border-color);
             border-radius: 4px;
             background-color: var(--b3-theme-background);
-            color: var(--b3-theme-text);
+            color: var(--b3-theme-on-surface);
 
             &:hover {
                 border-color: var(--b3-theme-primary);
@@ -738,9 +738,9 @@
 
         select {
             padding: 0.3rem;
-            border: 1px solid var(--b3-theme-border);
+            border: 1px solid var(--b3-border-color);
             border-radius: 4px;
-            color: var(--b3-theme-text);
+            color: var(--b3-theme-on-surface);
             background-color: var(--b3-theme-background);
         }
     }

@@ -16,6 +16,7 @@ export type SkillToolName =
   | "list_knowledge_map"
   | "search_scope"
   | "list_docs_by_time"
+  | "read_candidate_docs"
   | "get_daily_workspace_overview"
   | "query_tasks"
   | "query_diary_records"
@@ -73,6 +74,12 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         name: "list_docs_by_time",
         title: "查看文档状态列表",
         description: "按创建时间或更新时间列出当前范围内的文档，也可限定时间段，帮助了解最近新增或修改的笔记。",
+        readOnly: true,
+      },
+      {
+        name: "read_candidate_docs",
+        title: "搜索并读取候选文档",
+        description: "先搜索候选文档并读取相关正文片段，用于需要一步获取候选证据的场景。",
         readOnly: true,
       },
     ],

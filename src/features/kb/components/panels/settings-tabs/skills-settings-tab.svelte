@@ -626,7 +626,7 @@ ${guidance.trim()}`;
 
     &.builtin {
       color: var(--b3-theme-on-surface);
-      background: var(--b3-theme-surface-variant);
+      background: var(--b3-theme-surface-light);
     }
 
     &.user {
@@ -731,7 +731,7 @@ ${guidance.trim()}`;
     transition: all 0.15s;
 
     &:hover {
-      background: var(--b3-theme-surface-variant);
+      background: var(--b3-theme-surface-light);
     }
 
     &.edit {

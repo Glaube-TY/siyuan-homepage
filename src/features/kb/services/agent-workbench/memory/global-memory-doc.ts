@@ -3,7 +3,8 @@
  * 每条记忆对应记忆文档下的一个顶层段落块 type === "p"
  */
 
-import { getChildBlocks, appendBlock, updateBlock, deleteBlock, moveBlock, sql } from "@/api";
+import { getChildBlocks, appendBlock, updateBlock, deleteBlock, moveBlock, sql, getBlockKramdown } from "@/api";
+import { toDisplayMarkdownFromKramdown } from "../../doc-content-edit/doc-content-edit-diff";
 import type { GlobalMemoryContent, GlobalMemoryItem } from "./global-memory-types";
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -49,23 +50,35 @@ export async function listGlobalMemoryItems(docId: string): Promise<GlobalMemory
 }
 
 /**
- * 读取全局记忆文档内容（按段落顺序拼接）
+ * 读取全局记忆文档完整正文（通过 getBlockKramdown + toDisplayMarkdownFromKramdown）。
+ * 不再只读段落块，支持 AI 写入的列表、标题等 Markdown。
  * @param docId 记忆文档 ID
  * @param maxChars 最大读取字符数
  * @returns GlobalMemoryContent
  */
 export async function readGlobalMemory(docId: string, maxChars: number): Promise<GlobalMemoryContent> {
   if (!docId) {
-    return { content: "", truncated: false, docId: "" };
+    return { content: "", truncated: false, docId: "", readOk: true };
   }
-  const items = await listGlobalMemoryItems(docId);
-  if (items.length === 0) {
-    return { content: "", truncated: false, docId };
+  try {
+    const result = await getBlockKramdown(docId);
+    const kramdown = result?.kramdown ?? "";
+    if (!kramdown) {
+      return { content: "", truncated: false, docId, readOk: true };
+    }
+    const fullText = toDisplayMarkdownFromKramdown(kramdown).trim();
+    const truncated = fullText.length > maxChars;
+    const content = truncated ? fullText.slice(0, maxChars) : fullText;
+    return { content, truncated, docId, readOk: true };
+  } catch (err) {
+    return {
+      content: "",
+      truncated: false,
+      docId,
+      readOk: false,
+      errorMessage: `读取全局记忆文档失败：${err instanceof Error ? err.message : String(err)}`,
+    };
   }
-  const fullText = items.map((it) => it.text).join("\n");
-  const truncated = fullText.length > maxChars;
-  const content = truncated ? fullText.slice(0, maxChars) : fullText;
-  return { content, truncated, docId };
 }
 
 /**
@@ -251,4 +264,64 @@ export async function moveGlobalMemoryItem(
   } catch {
     return false;
   }
+}
+
+/**
+ * 标准化全局记忆文本：统一换行、去首尾空白、清理多余空行。
+ * 每一行/段代表一条记忆，不压成单段落。
+ */
+export function normalizeGlobalMemoryText(text: string): string {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim()
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * 全量替换全局记忆文档内容。
+ * 使用 updateBlock 直接替换整个记忆文档正文，而非逐条删除/追加。
+ * @param docId 记忆文档 ID
+ * @param memory 标准化后的完整记忆文本
+ * @returns { ok: boolean; itemCount: number; message: string }
+ */
+export async function replaceGlobalMemoryContent(
+  docId: string,
+  memory: string,
+): Promise<{ ok: boolean; itemCount: number; message: string }> {
+  const id = docId.trim();
+  if (!id) {
+    return { ok: false, itemCount: 0, message: "未配置全局记忆文档 ID。" };
+  }
+
+  const validation = await validateGlobalMemoryDocId(id);
+  if (!validation.valid) {
+    return { ok: false, itemCount: 0, message: "全局记忆文档 ID 无效或不可用。" };
+  }
+
+  const normalized = normalizeGlobalMemoryText(memory);
+
+  try {
+    await updateBlock("markdown", normalized, id);
+  } catch (err) {
+    return {
+      ok: false,
+      itemCount: 0,
+      message: `替换全局记忆文档失败：${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (!normalized) {
+    return { ok: true, itemCount: 0, message: "全局记忆已清空。" };
+  }
+
+  const lineCount = normalized.split("\n").filter((l) => l.trim()).length;
+  return {
+    ok: true,
+    itemCount: lineCount,
+    message: `全局记忆已替换，共 ${lineCount} 条。`,
+  };
 }

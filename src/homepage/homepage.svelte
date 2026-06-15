@@ -1101,16 +1101,18 @@
                 statusAiCachedText = result.text;
                 formattedStatsInfoText = result.text;
                 setStatusAiRuntimeState("success");
-            } else if (result.reason === "aborted") {
-                setStatusAiRuntimeState("aborted");
-                setVisibleStatusTextError(getHomepageStatusAiFailureText("aborted"));
-            } else if (result.reason !== "aborted") {
-                setStatusAiRuntimeState(result.reason === "no_model" ? "no_model" : result.reason === "not_premium" ? "no_premium" : "failed");
-                setVisibleStatusTextError(getHomepageStatusAiFailureText(result.reason));
-                console.warn(
-                    "[Homepage] AI 状态语生成失败:",
-                    sanitizeStatusAiDiagnosticMessage(result.message),
-                );
+            } else if (!result.ok) {
+                if (result.reason === "aborted") {
+                    setStatusAiRuntimeState("aborted");
+                    setVisibleStatusTextError(getHomepageStatusAiFailureText("aborted"));
+                } else {
+                    setStatusAiRuntimeState(result.reason === "no_model" ? "no_model" : result.reason === "not_premium" ? "no_premium" : "failed");
+                    setVisibleStatusTextError(getHomepageStatusAiFailureText(result.reason));
+                    console.warn(
+                        "[Homepage] AI 状态语生成失败:",
+                        sanitizeStatusAiDiagnosticMessage(result.message),
+                    );
+                }
             }
         } catch (error) {
             if (!abortController.signal.aborted) {
@@ -1395,10 +1397,10 @@
     {/if}
 
     <!-- 飘落背景层 -->
-    <div class="falling-container">
+    <div class="shp-falling-container">
         {#each Array(20) as _, i}
             <div
-                class="falling-flake"
+                class="shp-falling-flake"
                 style="--animation-delay: {i * 0.2}s"
             ></div>
         {/each}

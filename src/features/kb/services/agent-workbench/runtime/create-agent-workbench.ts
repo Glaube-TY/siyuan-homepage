@@ -63,7 +63,7 @@ export interface AgentWorkbenchRuntimeOptions {
   /** Optional: global memory tool deps. When present, registers edit_global_memory. */
   globalMemoryToolDeps?: {
     docId: string;
-    maxEntryChars: number;
+    maxMemoryChars: number;
   };
   /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
   conversationId?: string;

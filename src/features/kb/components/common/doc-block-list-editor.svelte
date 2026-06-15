@@ -243,7 +243,7 @@
     opacity: 0.7;
   }
 
-  :global(.b3-button) {
+  .doc-block-list-editor :global(.b3-button) {
     padding: 6px 14px;
     border-radius: 6px;
     font-size: 13px;
@@ -263,7 +263,7 @@
     }
   }
 
-  :global(.b3-button--text) {
+  .doc-block-list-editor :global(.b3-button--text) {
     border: none;
     background: transparent;
     padding: 4px 8px;
@@ -274,7 +274,7 @@
     }
   }
 
-  :global(.b3-text-field) {
+  .doc-block-list-editor :global(.b3-text-field) {
     width: 240px;
   }
 </style>

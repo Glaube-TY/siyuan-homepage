@@ -4,11 +4,11 @@ export const DEFAULT_STATS_INFO_TEXT =
     "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤";
 
 export const DEFAULT_STATUS_AI_PROMPT =
-    "请生成一句简短、自然、有鼓励感的主页状态语。语气温和克制，不要夸张。";
+    "请生成一句简短、自然、有鼓励感的主页状态语。语气风趣幽默，尽量包含所有已知数据。使用表情符号增加趣味性。";
 
-export const DEFAULT_STATUS_AI_MAX_CHARS = 80;
+export const DEFAULT_STATUS_AI_MAX_CHARS = 200;
 export const MIN_STATUS_AI_MAX_CHARS = 20;
-export const MAX_STATUS_AI_MAX_CHARS = 200;
+export const MAX_STATUS_AI_MAX_CHARS = 500;
 
 export function normalizeHomepageStatusTextMode(value: unknown): HomepageStatusTextMode {
     return value === "ai" ? "ai" : "custom";

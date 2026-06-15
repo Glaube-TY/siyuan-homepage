@@ -221,12 +221,18 @@ export async function runAgentTurn(
     let globalMemoryText: string | undefined = params.globalMemory;
     if (globalMemoryText === undefined && settings.globalMemory?.enabled && memoryDocIdValid) {
       const mem = await readGlobalMemory(memoryDocId, settings.globalMemory.maxChars);
-      globalMemoryText = mem.truncated ? `${mem.content}\n（记忆内容已截断）` : mem.content;
+      if (!mem.readOk) {
+        globalMemoryText = "全局记忆读取失败，本轮不使用全局记忆。";
+      } else if (mem.truncated) {
+        globalMemoryText = `${mem.content}\n（记忆内容已截断）`;
+      } else {
+        globalMemoryText = mem.content;
+      }
     }
 
     const globalMemoryToolDeps: AgentWorkbenchRuntimeOptions["globalMemoryToolDeps"] | undefined =
-      globalToolAccess.editGlobalMemory
-        ? { docId: memoryDocId, maxEntryChars: 1000 }
+      settings.globalMemory?.enabled === true && memoryDocIdValid && globalToolAccess.editGlobalMemory
+        ? { docId: memoryDocId, maxMemoryChars: settings.globalMemory?.maxChars ?? 8000 }
         : undefined;
 
     const disabledBuiltinSkills = new Set(settings.skillSettings?.disabledBuiltinSkillNames ?? []);
@@ -349,6 +355,7 @@ export async function runAgentTurn(
       question: params.question,
       conversationId,
       abortSignal: params.abortSignal,
+      docContentEditingEnabled: builtinCapabilityAccess.docContentEditing,
     });
 
     const context = buildAgentContextInstructions({

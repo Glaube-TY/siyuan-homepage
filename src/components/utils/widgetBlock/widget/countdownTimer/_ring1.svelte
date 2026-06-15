@@ -312,7 +312,7 @@
             .progress-ring-progress {
                 transition: stroke-dashoffset 0.5s ease;
                 filter: drop-shadow(
-                    0 0 4px rgba(var(--b3-theme-primary-rgb), 0.3)
+                    0 0 4px color-mix(in srgb, var(--b3-theme-primary) 30%, transparent)
                 );
             }
         }

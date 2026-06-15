@@ -7,6 +7,7 @@
   import {
     validateGlobalMemoryDocId,
     listGlobalMemoryItems,
+    readGlobalMemory,
     createGlobalMemoryItem,
     updateGlobalMemoryItem,
     deleteGlobalMemoryItem,
@@ -25,6 +26,11 @@
 
   let items: GlobalMemoryItem[] = [];
   let loadingItems = false;
+
+  let fullMemoryText = "";
+  let memoryReadFailed = false;
+  $: currentChars = fullMemoryText.length;
+  $: isOverLimit = !memoryReadFailed && currentChars > gm.maxChars;
 
   onMount(async () => {
     if (gm.docId) {
@@ -92,6 +98,14 @@
     loadingItems = true;
     try {
       items = await listGlobalMemoryItems(docId);
+      const memory = await readGlobalMemory(docId, 999999);
+      if (memory.readOk) {
+        fullMemoryText = memory.content;
+        memoryReadFailed = false;
+      } else {
+        fullMemoryText = "";
+        memoryReadFailed = true;
+      }
     } finally {
       loadingItems = false;
     }
@@ -227,6 +241,42 @@
         </button>
       </div>
     </div>
+
+    <div class="setting-row">
+      <div class="setting-copy">
+        <div class="setting-title">全局记忆最大字符数</div>
+        <div class="setting-desc">
+          AI 每轮最多读取的全局记忆字符数，也是 AI 编辑全局记忆时允许写入的最大字符数。值越大，占用上下文越高。
+        </div>
+      </div>
+      <div class="setting-control">
+        <input
+          type="number"
+          class="b3-text-field fn__block"
+          min="500"
+          max="30000"
+          step="500"
+          value={gm.maxChars}
+          on:input={(e) => {
+            const v = parseInt(e.currentTarget.value, 10);
+            if (Number.isFinite(v)) {
+              updateGm({ maxChars: Math.max(500, Math.min(30000, v)) });
+            }
+          }}
+        />
+        {#if memoryReadFailed}
+          <span class="hint hint--error" style="white-space:normal; text-align:right; max-width:240px;">
+            读取全局记忆失败，请检查文档 ID 或稍后重试。
+          </span>
+        {:else if isOverLimit}
+          <span class="hint hint--warning" style="white-space:normal; text-align:right; max-width:240px;">
+            当前全局记忆 {currentChars} 字符，超过上限 {gm.maxChars}。AI 只能读取截断内容，编辑全局记忆工具将拒绝全量替换。请手动整理记忆或调大上限。
+          </span>
+        {:else if docIdValid === true}
+          <span class="hint">当前记忆 {currentChars} 字符</span>
+        {/if}
+      </div>
+    </div>
   </section>
 
   {#if docIdValid === true}
@@ -327,6 +377,13 @@
   .hint--error {
     color: var(--b3-theme-error);
     opacity: 1;
+  }
+
+  .hint--warning {
+    color: var(--b3-card-warning-color, #c76c2a);
+    opacity: 1;
+    font-size: 12px;
+    line-height: 1.4;
   }
 
   .hint--center {
