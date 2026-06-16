@@ -11,6 +11,7 @@
 
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { searchKnowledgeBaseCore, type DocResult } from "./knowledge-base-search-core";
+import { sqlSelectReadonly, fullTextSearchBlockReadonly } from "./read-only-kernel";
 
 export interface ChatDocSearchResult {
   docId: string;
@@ -48,7 +49,6 @@ async function checkSearchHealth(): Promise<HealthCheckResult> {
   let canReadBlocksTable = false;
 
   try {
-    const { sqlSelectReadonly } = await import("./read-only-kernel");
     const docRows = await sqlSelectReadonly<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM blocks WHERE type = 'd'`,
       { maxLimit: 1, allowedTables: ["blocks"] }
@@ -60,7 +60,6 @@ async function checkSearchHealth(): Promise<HealthCheckResult> {
   }
 
   try {
-    const { sqlSelectReadonly } = await import("./read-only-kernel");
     const blockRows = await sqlSelectReadonly<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM blocks`,
       { maxLimit: 1, allowedTables: ["blocks"] }
@@ -71,7 +70,6 @@ async function checkSearchHealth(): Promise<HealthCheckResult> {
   }
 
   try {
-    const { fullTextSearchBlockReadonly } = await import("./read-only-kernel");
     const testResult = await fullTextSearchBlockReadonly("", 0);
     hasKernelSearchApi = testResult !== null;
   } catch {

@@ -139,8 +139,10 @@ export type KbDangerousSkillToolName =
 export type KbToolSettings = {
   /** 被禁用的全局工具名称列表 */
   disabledGlobalToolNames: KbGlobalToolName[];
-  /** 保留旧设置迁移用；native Agent 始终通过 ToolPermissionGate 请求确认 */
+  /** 保留旧设置迁移用；已合并到 disabledWriteToolConfirmationNames */
   disabledDangerousSkillToolConfirmationNames?: KbDangerousSkillToolName[];
+  /** 已被用户设为"可信免确认"的写工具名称列表 */
+  disabledWriteToolConfirmationNames?: string[];
 };
 
 /** 快捷提示语设置 */

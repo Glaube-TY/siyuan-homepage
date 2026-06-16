@@ -17,9 +17,20 @@ export interface ToolPermissionGate {
 /**
  * Default permission gate — for readOnly tools returns allow immediately,
  * for write tools delegates to the bridge.
+ *
+ * `autoAllowedToolNames`: tool names that the user has explicitly trusted
+ * and should skip the confirmation dialog. These tools still go through
+ * preview (to obtain confirmationId) and all safety guards.
  */
 export class DefaultToolPermissionGate implements ToolPermissionGate {
-  constructor(private readonly bridge: ToolConfirmationBridge = new RegisteredConfirmationBridge()) {}
+  private readonly autoAllowedNames: Set<string>;
+
+  constructor(
+    private readonly bridge: ToolConfirmationBridge = new RegisteredConfirmationBridge(),
+    autoAllowedToolNames?: string[],
+  ) {
+    this.autoAllowedNames = new Set(autoAllowedToolNames ?? []);
+  }
 
   async check(params: {
     tool: NativeTool;
@@ -35,6 +46,7 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
       return { decision: { type: "allow" }, preview };
     }
 
+    // Write tools: always run preview to obtain confirmationId
     if (params.tool.preview) {
       try {
         const previewData = await params.tool.preview(params.args);
@@ -46,12 +58,20 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
         if (data?.editDiffPreview) preview.editDiffPreview = data.editDiffPreview as ToolPermissionPreview["editDiffPreview"];
         if (data?.arrowFlow) preview.arrowFlow = data.arrowFlow as ToolPermissionPreview["arrowFlow"];
       } catch (err) {
+        // preview failure on a trusted tool cannot blindly execute
         preview.summary = err instanceof Error
           ? `预览生成失败：${err.message}`
           : "预览生成失败。";
+        return { decision: { type: "deny", reason: "预览生成失败，无法安全执行。" }, preview };
       }
     }
 
+    // User-trusted tools: auto-allow after preview
+    if (this.autoAllowedNames.has(params.tool.name)) {
+      return { decision: { type: "allow" }, preview };
+    }
+
+    // Default: show confirmation dialog
     params.onPermissionRequired?.(preview);
     const decision = await this.bridge.request(preview);
     return { decision, preview };

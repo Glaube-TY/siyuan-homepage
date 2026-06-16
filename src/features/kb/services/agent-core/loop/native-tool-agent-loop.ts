@@ -27,6 +27,8 @@ export interface NativeToolAgentLoopOptions {
   maxToolCalls?: number;
   /** Confirmation bridge — defaults to RegisteredConfirmationBridge (singleton). */
   bridge?: ToolConfirmationBridge;
+  /** Tool names that skip confirmation dialog (still go through preview & safety guards). */
+  autoAllowedToolNames?: string[];
   abortSignal?: AbortSignal;
   onEvent?: (event: AgentStreamEvent) => void;
 }
@@ -167,6 +169,7 @@ export class NativeToolAgentLoop {
         },
         stepOffset: steps,
         bridge: this.bridge,
+        autoAllowedToolNames: this.options.autoAllowedToolNames,
         stormBreaker: this.stormBreaker,
         onEvent: this.options.onEvent,
       });

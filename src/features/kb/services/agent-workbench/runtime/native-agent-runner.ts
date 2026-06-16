@@ -11,6 +11,8 @@ export interface RunNativeAgentLoopParams {
   contextInstructions: string;
   session?: AgentSession;
   conversationId?: string;
+  /** Tool names that skip confirmation dialog (still go through preview & safety guards). */
+  autoAllowedToolNames?: string[];
   abortSignal?: AbortSignal;
   onEvent?: (event: AgentStreamEvent) => void;
   question: string;
@@ -36,6 +38,7 @@ export async function runNativeAgentLoop(
     systemPrompt: params.systemPrompt,
     contextInstructions: params.contextInstructions,
     conversationId: params.conversationId,
+    autoAllowedToolNames: params.autoAllowedToolNames,
     abortSignal: params.abortSignal,
     onEvent: params.onEvent,
   });

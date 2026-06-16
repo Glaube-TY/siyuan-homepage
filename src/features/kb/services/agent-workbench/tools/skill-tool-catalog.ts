@@ -15,12 +15,16 @@ export type BuiltinSkillToolCategoryId =
 export type SkillToolName =
   | "list_knowledge_map"
   | "search_scope"
-  | "list_docs_by_time"
+  | "list_items_by_time"
   | "read_candidate_docs"
   | "get_daily_workspace_overview"
   | "query_tasks"
   | "query_diary_records"
   | "find_diary_docs"
+  | "manage_diary_structure"
+  | "manage_diary_task"
+  | "manage_diary_record"
+  | "manage_diary_review"
   | "read_doc_blocks"
   | "create_doc"
   | "update_block"
@@ -71,9 +75,9 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         readOnly: true,
       },
       {
-        name: "list_docs_by_time",
-        title: "查看文档状态列表",
-        description: "按创建时间或更新时间列出当前范围内的文档，也可限定时间段，帮助了解最近新增或修改的笔记。",
+        name: "list_items_by_time",
+        title: "查看文档与内容块时间列表",
+        description: "按创建时间或更新时间列出当前范围内的文档或内容块，支持 blockTypes 过滤，帮助了解最近新增或修改的笔记。",
         readOnly: true,
       },
       {
@@ -86,8 +90,8 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
   },
   {
     id: "schedule_task_diary",
-    title: "日程、任务与日记助手",
-    description: "围绕任务、日记、快速记录做只读查询。",
+    title: "强化日记助手",
+    description: "围绕任务、日记、快速记录、复盘做查询与受控写入。",
     tools: [
       {
         name: "get_daily_workspace_overview",
@@ -112,6 +116,38 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         title: "定位日记文档",
         description: "按日、周、月、年定位对应的日记、周记、月记或年记文档。",
         readOnly: true,
+      },
+      {
+        name: "manage_diary_structure",
+        title: "管理日记结构",
+        description: "统一管理日记结构：确保今日日记存在、补充日/周/月/年模板。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "manage_diary_task",
+        title: "管理日记任务",
+        description: "统一管理日记任务：新增、迁移、修改状态、更新字段、推迟、删除。blockId/taskId 必须来自 query_tasks 返回。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "manage_diary_record",
+        title: "管理快速记录",
+        description: "统一管理快速记录：新增、修改、删除。recordId/headingBlockId 必须来自 query_diary_records 返回。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "manage_diary_review",
+        title: "管理复盘内容",
+        description: "统一管理复盘：保存复盘字段、标记完成/未完成、跳过/恢复。docId 必须来自 find_diary_docs 返回。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
       },
     ],
   },

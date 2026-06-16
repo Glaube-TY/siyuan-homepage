@@ -62,7 +62,9 @@ Current production path uses OpenAI-compatible chat completions and covers Kimi,
 
 Read-only tools may run without confirmation.
 
-Write tools pass through the runtime permission gate and the existing document-edit confirmation bridge used by the concrete Siyuan write tools. Duplicate write calls with the same tool and arguments in one turn are blocked before execution.
+Write tools must pass through the runtime permission policy. By default, every write tool requires explicit user confirmation before execution.
+
+Users may explicitly mark individual write tools as trusted (no confirmation needed) in the tool settings. Even when a tool is trusted, the runtime still runs preview (to obtain confirmationId and edit diffs), safety checks, duplicate-write guards, and real tool result feedback.
 
 The runtime never claims a write succeeded. The final answer must follow the actual tool result.
 

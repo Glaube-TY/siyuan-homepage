@@ -374,6 +374,8 @@ export async function runAgentTurn(
     let reasoningStarted = false;
     let answerFinished = false;
 
+    const autoAllowedToolNames = settings.toolSettings?.disabledWriteToolConfirmationNames ?? [];
+
     const loopResult = await runNativeAgentLoop({
       provider,
       toolRegistry: nativeToolRegistry,
@@ -381,6 +383,7 @@ export async function runAgentTurn(
       systemPrompt: buildAgentSystemPrompt(),
       contextInstructions: context.contextInstructions,
       conversationId,
+      autoAllowedToolNames,
       abortSignal: params.abortSignal,
       question: params.question,
       onEvent: (event) => {

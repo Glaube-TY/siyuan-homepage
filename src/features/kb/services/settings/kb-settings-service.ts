@@ -148,7 +148,7 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
     names = [...new Set(names)];
   }
 
-  // 新增：归一化已关闭确认的危险 Skill 工具名称
+  // 归一化旧字段 disabledDangerousSkillToolConfirmationNames（迁移用）
   const validDangerousToolNames: KbDangerousSkillToolName[] = [
     "create_doc", "update_block", "insert_block", "delete_blocks",
     "move_block", "rename_doc", "delete_doc", "replace_doc_content",
@@ -163,10 +163,35 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
     dangerousNames = [...new Set(dangerousNames)];
   }
 
-  return {
+  // 归一化 disabledWriteToolConfirmationNames
+  // 合并旧字段 dangerousNames 到新字段
+  const rawWriteConfirmation = s.disabledWriteToolConfirmationNames;
+  let writeConfirmationNames: string[] = [];
+  if (Array.isArray(rawWriteConfirmation)) {
+    writeConfirmationNames = rawWriteConfirmation
+      .filter((n): n is string => typeof n === "string")
+      .map((n) => n.trim())
+      .filter((n) => n.length > 0);
+  }
+  // 合并旧字段
+  for (const name of dangerousNames) {
+    if (!writeConfirmationNames.includes(name)) {
+      writeConfirmationNames.push(name);
+    }
+  }
+  writeConfirmationNames = [...new Set(writeConfirmationNames)];
+
+  const result: KbToolSettings = {
     disabledGlobalToolNames: names,
-    ...(dangerousNames.length > 0 ? { disabledDangerousSkillToolConfirmationNames: dangerousNames } : {}),
   };
+  if (writeConfirmationNames.length > 0) {
+    result.disabledWriteToolConfirmationNames = writeConfirmationNames;
+  }
+  // 保留旧字段存储（下次合并时仍可读取）
+  if (dangerousNames.length > 0) {
+    result.disabledDangerousSkillToolConfirmationNames = dangerousNames;
+  }
+  return result;
 }
 
 /**

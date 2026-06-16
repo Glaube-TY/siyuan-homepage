@@ -1,3 +1,5 @@
+import { sqlSelectReadonly } from "./read-only-kernel";
+
 function getDocumentIdFromActiveTab(): string | null {
   try {
     // 步骤1：获取所有可见的 protyle 候选
@@ -157,7 +159,6 @@ export async function resolveDocMetaForAttachment(docId: string): Promise<DocAtt
   const domTitle = getTitleFromDom(docId);
 
   try {
-    const { sqlSelectReadonly } = await import("./read-only-kernel");
     const escapedDocId = docId.replace(/'/g, "''");
     const rows = await sqlSelectReadonly<{ content?: string; box?: string; path?: string }>(
       `SELECT content, box, path FROM blocks WHERE id = '${escapedDocId}' AND type = 'd'`,

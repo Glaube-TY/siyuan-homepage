@@ -68,6 +68,7 @@ async function executeOne(params: {
   registry: NativeToolRegistry;
   executor: NativeToolExecutor;
   bridge: ToolConfirmationBridge;
+  autoAllowedToolNames?: string[];
   stormBreaker: StormBreaker;
   ctx: ToolExecutionContext;
   stepIndex: number;
@@ -130,7 +131,7 @@ async function executeOne(params: {
 
   // For write tools: call preview, then emit permission_required, then await bridge
   if (!tool.readOnly) {
-    const gate = new DefaultToolPermissionGate(params.bridge);
+    const gate = new DefaultToolPermissionGate(params.bridge, params.autoAllowedToolNames);
     const permission = await gate.check({
       tool,
       args: parsed.args,
@@ -234,6 +235,7 @@ export async function dispatchToolCalls(params: {
   ctx: ToolExecutionContext;
   stepOffset?: number;
   bridge: ToolConfirmationBridge;
+  autoAllowedToolNames?: string[];
   stormBreaker?: StormBreaker;
   onEvent?: (event: AgentStreamEvent) => void;
 }): Promise<DispatchToolCallsResult> {
@@ -264,6 +266,7 @@ export async function dispatchToolCalls(params: {
         registry: params.registry,
         executor,
         bridge: params.bridge,
+        autoAllowedToolNames: params.autoAllowedToolNames,
         stormBreaker,
         ctx: params.ctx,
         stepIndex: (params.stepOffset ?? 0) + cursor + index + 1,
@@ -281,6 +284,7 @@ export async function dispatchToolCalls(params: {
       registry: params.registry,
       executor,
       bridge: params.bridge,
+      autoAllowedToolNames: params.autoAllowedToolNames,
       stormBreaker,
       ctx: params.ctx,
       stepIndex: (params.stepOffset ?? 0) + cursor + 1,

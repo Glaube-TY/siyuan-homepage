@@ -165,7 +165,7 @@ const SAFE_ARG_KEYS = new Set<string>([
 
 /** Tools where targetId is a docId (not a blockId). */
 const DOC_TARGET_TOOLS = new Set([
-  "get_doc_info", "read_docs", "list_docs_by_time", "list_doc_status",
+  "get_doc_info", "read_docs", "list_items_by_time",
   "rename_doc", "delete_doc", "create_doc", "replace_doc_content",
 ]);
 

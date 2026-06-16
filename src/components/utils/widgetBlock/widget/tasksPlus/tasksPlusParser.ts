@@ -85,20 +85,18 @@ export function parseTaskLine(markdown: string): ParsedTasksPlusTask {
     const matches: string[] = Array.from(taskLine.matchAll(TASK_META_TOKEN_RE), (match) => match[0]);
     matches.forEach((match: string) => {
         const trimmed = String(match).trim();
-        const marker = Array.from(trimmed)[0] || "";
-        const value = trimmed.slice(marker.length).trim();
-        if (marker === "??") {
-            parsed.deadline = value;
-        } else if (marker === "?") {
-            parsed.startDate = value;
-        } else if (marker === "?") {
+        if (trimmed.startsWith("📅")) {
+            parsed.deadline = trimmed.replace("📅", "").trim();
+        } else if (trimmed.startsWith("⌛")) {
+            parsed.startDate = trimmed.replace("⌛", "").trim();
+        } else if (trimmed.startsWith("❗")) {
             parsed.priority = trimmed;
-        } else if (marker === "??") {
-            parsed.recurrence = value;
-        } else if (marker === "?") {
-            parsed.reminder = value;
-        } else if (marker === "??") {
-            parsed.location = value;
+        } else if (trimmed.startsWith("🔁")) {
+            parsed.recurrence = trimmed.replace("🔁", "").trim();
+        } else if (trimmed.startsWith("⏰")) {
+            parsed.reminder = trimmed.replace("⏰", "").trim();
+        } else if (trimmed.startsWith("📍")) {
+            parsed.location = trimmed.replace("📍", "").trim();
         }
     });
 

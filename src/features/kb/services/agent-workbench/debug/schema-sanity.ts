@@ -19,6 +19,7 @@ export type { SchemaSanityResult } from "./workbench-debug";
 const BUILTIN_SIYUAN_TOOL_NAMES = new Set([
   "list_knowledge_map",
   "search_scope",
+  "list_items_by_time",
   "read_docs",
   "get_daily_workspace_overview",
   "query_tasks",

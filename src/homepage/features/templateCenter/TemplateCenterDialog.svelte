@@ -16,6 +16,7 @@
         type UserLayoutTemplatePreview,
         type UserLayoutTemplatePreviewItem,
     } from "@/homepage/templates/userLayoutTemplates";
+    import { saveLayout } from "@/components/utils/widgetBlock/utils/layout-handler";
 
     interface Props {
         plugin: any;
@@ -131,7 +132,6 @@
         const container = document.querySelector(".custom-content") as HTMLElement | null;
         if (!container) return;
         try {
-            const { saveLayout } = await import("@/components/utils/widgetBlock/utils/layout-handler");
             await saveLayout(plugin, container);
         } catch (error) {
             console.warn("[TemplateCenter] 保存当前主页布局失败，继续使用已有布局数据:", error);

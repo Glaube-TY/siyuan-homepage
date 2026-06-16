@@ -40,6 +40,29 @@
       },
     };
   }
+
+  /** 写工具是否需要确认（默认需要确认） */
+  function isWriteToolConfirmationEnabled(toolName: string): boolean {
+    return !(settings.toolSettings?.disabledWriteToolConfirmationNames ?? []).includes(toolName);
+  }
+
+  /** 切换写工具确认状态 */
+  function toggleWriteToolConfirmation(toolName: string) {
+    const disabled = new Set(settings.toolSettings?.disabledWriteToolConfirmationNames ?? []);
+    if (disabled.has(toolName)) {
+      disabled.delete(toolName);
+    } else {
+      disabled.add(toolName);
+    }
+    const currentToolSettings = settings.toolSettings ?? { disabledGlobalToolNames: [] };
+    settings = {
+      ...settings,
+      toolSettings: {
+        ...currentToolSettings,
+        disabledWriteToolConfirmationNames: [...disabled],
+      },
+    };
+  }
 </script>
 
 <div class="tools-settings-tab">
@@ -55,6 +78,13 @@
             <div class="tool-info">
               <div class="tool-title-row">
                 <span class="tool-title">{tool.title}</span>
+                {#if tool.readOnly}
+                  <span class="tag tag-readonly">只读</span>
+                {:else if !isWriteToolConfirmationEnabled(tool.name)}
+                  <span class="tag tag-trusted">已信任免确认</span>
+                {:else}
+                  <span class="tag tag-confirm">需要确认</span>
+                {/if}
               </div>
               <span class="tool-description">{tool.description}</span>
             </div>
@@ -70,6 +100,19 @@
               </label>
             </div>
           </div>
+          {#if !tool.readOnly && isToolEnabled(tool.name)}
+            <div class="tool-confirm-row">
+              <span class="tool-confirm-label">执行前确认</span>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  checked={isWriteToolConfirmationEnabled(tool.name)}
+                  on:change={() => toggleWriteToolConfirmation(tool.name)}
+                />
+                <span class="slider"></span>
+              </label>
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
@@ -98,15 +141,28 @@
                     <span class="tool-title">{tool.title}</span>
                     {#if tool.readOnly}
                       <span class="tag tag-readonly">只读</span>
-                    {:else if tool.requiresConfirmation}
+                    {:else if !isWriteToolConfirmationEnabled(tool.name)}
+                      <span class="tag tag-trusted">已信任免确认</span>
+                    {:else}
                       <span class="tag tag-confirm">需要确认</span>
-                    {:else if tool.canWrite}
-                      <span class="tag tag-write">会写入</span>
                     {/if}
                   </div>
                   <span class="tool-description">{tool.description}</span>
                 </div>
               </div>
+              {#if !tool.readOnly}
+                <div class="tool-confirm-row">
+                  <span class="tool-confirm-label">执行前确认</span>
+                  <label class="switch">
+                    <input
+                      type="checkbox"
+                      checked={isWriteToolConfirmationEnabled(tool.name)}
+                      on:change={() => toggleWriteToolConfirmation(tool.name)}
+                    />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -305,13 +361,28 @@
     opacity: 0.7;
   }
 
-  .tag-write {
-    background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+  .tag-confirm {
+    background: var(--b3-theme-primary-lightest);
     color: var(--b3-theme-primary);
   }
 
-  .tag-confirm {
-    background: color-mix(in srgb, var(--b3-theme-warning) 12%, transparent, var(--b3-card-warning-background));
-    color: var(--b3-card-warning-color, var(--b3-theme-on-surface));
+  .tag-trusted {
+    background: var(--b3-theme-success-lightest, #e8f5e9);
+    color: var(--b3-theme-success, #2e7d32);
+  }
+
+  .tool-confirm-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 8px;
+    border-top: 1px solid var(--b3-border-color);
+    gap: 8px;
+  }
+
+  .tool-confirm-label {
+    font-size: 13px;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.8;
   }
 </style>

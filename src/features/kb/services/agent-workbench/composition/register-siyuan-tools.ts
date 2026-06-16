@@ -62,9 +62,9 @@ import {
   type FindDiaryDocsDeps,
 } from "../tools/siyuan/find-diary-docs.tool";
 import {
-  createListDocsByTimeTool,
-  type ListDocsByTimeDeps,
-} from "../tools/siyuan/list-docs-by-time.tool";
+  createListItemsByTimeTool,
+  type ListItemsByTimeDeps,
+} from "../tools/siyuan/list-items-by-time.tool";
 import {
   createGetDocInfoTool,
   type GetDocInfoDeps,
@@ -73,6 +73,22 @@ import {
   createReadCandidateDocsTool,
   type ReadCandidateDocsDeps,
 } from "../tools/siyuan/read-candidate-docs.tool";
+import {
+  createManageDiaryStructureTool,
+  type ManageDiaryStructureDeps,
+} from "../tools/siyuan/manage-diary-structure.tool";
+import {
+  createManageDiaryTaskTool,
+  type ManageDiaryTaskDeps,
+} from "../tools/siyuan/manage-diary-task.tool";
+import {
+  createManageDiaryRecordTool,
+  type ManageDiaryRecordDeps,
+} from "../tools/siyuan/manage-diary-record.tool";
+import {
+  createManageDiaryReviewTool,
+  type ManageDiaryReviewDeps,
+} from "../tools/siyuan/manage-diary-review.tool";
 
 // Tool execution implementations
 import { executeListKnowledgeMap } from "../tools/siyuan/impl/list-knowledge-map.impl";
@@ -91,8 +107,12 @@ import { executeCreateDoc } from "../tools/siyuan/impl/create-doc.impl";
 import { executeRenameDoc } from "../tools/siyuan/impl/rename-doc.impl";
 import { executeDeleteDoc } from "../tools/siyuan/impl/delete-doc.impl";
 import { executeReplaceDocContent } from "../tools/siyuan/impl/replace-doc-content.impl";
-import { executeListDocsByTime } from "../tools/siyuan/impl/list-docs-by-time.impl";
+import { executeListItemsByTime } from "../tools/siyuan/impl/list-items-by-time.impl";
 import { executeGetDocInfo } from "../tools/siyuan/impl/get-doc-info.impl";
+import { executeManageDiaryStructure } from "../tools/siyuan/impl/manage-diary-structure.impl";
+import { executeManageDiaryTask } from "../tools/siyuan/impl/manage-diary-task.impl";
+import { executeManageDiaryRecord } from "../tools/siyuan/impl/manage-diary-record.impl";
+import { executeManageDiaryReview } from "../tools/siyuan/impl/manage-diary-review.impl";
 
 export interface SiyuanToolRegistrationOptions {
   kbRetrievalToolDeps: SiyuanToolDeps;
@@ -133,13 +153,25 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   const readDocBlocksDeps: ReadDocBlocksDeps = {
     executeReadDocBlocks: (args) => executeReadDocBlocks(deps, args),
   };
-  const listDocsByTimeDeps: ListDocsByTimeDeps = {
-    executeListDocsByTime: (args) => executeListDocsByTime(deps, args),
+  const listItemsByTimeDeps: ListItemsByTimeDeps = {
+    executeListItemsByTime: (args) => executeListItemsByTime(deps, args),
   };
   const getDocInfoDeps: GetDocInfoDeps = {
     executeGetDocInfo: (args) => executeGetDocInfo(deps, args),
   };
-  return { lkmDeps, searchDeps, readDeps, overviewDeps, taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps, listDocsByTimeDeps, getDocInfoDeps };
+  const manageDiaryStructureDeps: ManageDiaryStructureDeps = {
+    executeManageDiaryStructure: (args) => executeManageDiaryStructure(deps, args),
+  };
+  const manageDiaryTaskDeps: ManageDiaryTaskDeps = {
+    executeManageDiaryTask: (args) => executeManageDiaryTask(deps, args),
+  };
+  const manageDiaryRecordDeps: ManageDiaryRecordDeps = {
+    executeManageDiaryRecord: (args) => executeManageDiaryRecord(deps, args),
+  };
+  const manageDiaryReviewDeps: ManageDiaryReviewDeps = {
+    executeManageDiaryReview: (args) => executeManageDiaryReview(deps, args),
+  };
+  return { lkmDeps, searchDeps, readDeps, overviewDeps, taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps, listItemsByTimeDeps, getDocInfoDeps, manageDiaryStructureDeps, manageDiaryTaskDeps, manageDiaryRecordDeps, manageDiaryReviewDeps };
 }
 
 export function registerSiyuanTools(
@@ -150,7 +182,10 @@ export function registerSiyuanTools(
   const {
     lkmDeps, searchDeps, readDeps, overviewDeps,
     taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps,
-    listDocsByTimeDeps, getDocInfoDeps,
+    listItemsByTimeDeps, getDocInfoDeps,
+    manageDiaryStructureDeps,
+    manageDiaryTaskDeps,
+    manageDiaryRecordDeps, manageDiaryReviewDeps,
   } = createSiyuanToolDeps(deps);
 
   // read_docs is a global read-only tool
@@ -166,7 +201,7 @@ export function registerSiyuanTools(
   if (options.builtinCapabilityAccess?.knowledgeBase !== false) {
     toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
     toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
-    toolRegistry.ensureTool(createListDocsByTimeTool(listDocsByTimeDeps));
+    toolRegistry.ensureTool(createListItemsByTimeTool(listItemsByTimeDeps));
 
     // read_candidate_docs: combines search + read into one step
     const readCandidateDeps: ReadCandidateDocsDeps = {
@@ -187,6 +222,11 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createQueryTasksTool(taskDeps));
     toolRegistry.ensureTool(createQueryDiaryRecordsTool(recordDeps));
     toolRegistry.ensureTool(createFindDiaryDocsTool(diaryDocDeps));
+    // Write tools: task/diary management
+    toolRegistry.ensureTool(createManageDiaryStructureTool(manageDiaryStructureDeps));
+    toolRegistry.ensureTool(createManageDiaryTaskTool(manageDiaryTaskDeps));
+    toolRegistry.ensureTool(createManageDiaryRecordTool(manageDiaryRecordDeps));
+    toolRegistry.ensureTool(createManageDiaryReviewTool(manageDiaryReviewDeps));
   }
 
   if (options.builtinCapabilityAccess?.docContentEditing === true) {
