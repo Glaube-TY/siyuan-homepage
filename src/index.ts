@@ -314,7 +314,7 @@ export default class PluginHomepage extends Plugin {
         const settings = getSelectionAiToolbarSettingsSnapshot();
         // 先清理旧的 selection-ai item，确保 click 回调来自当前代码版本
         removeSelectionAiToolbarItems(toolbar);
-        if (!settings.enabled || this.isMobileFrontend()) {
+        if (!settings.enabled || this.isMobileFrontend() || !this.ADVANCED) {
             return toolbar;
         }
         toolbar.push(...createSelectionAiToolbarItems({

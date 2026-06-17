@@ -16,6 +16,7 @@
   export let request: SelectionAiRequest;
   export let settings: SelectionAiToolbarSettings;
   export let anchorRect: SelectionAiRect | undefined = undefined;
+  export let advancedEnabled = false;
   export let onClose: (() => void) | undefined = undefined;
 
   let loading = false;
@@ -67,6 +68,12 @@
   }
 
   async function generate(): Promise<void> {
+    if (!advancedEnabled) {
+      loading = false;
+      errorMessage = "编辑器工具栏 AI 是会员专属功能，请在「主页设置」→「会员服务」中开通后使用。";
+      return;
+    }
+
     abortController?.abort();
     abortController = new AbortController();
     loading = true;

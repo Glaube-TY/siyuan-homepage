@@ -125,7 +125,12 @@
         });
     }
 
+    function canUseSelectionAiToolbarSettings(): boolean {
+        return advancedEnabled === true;
+    }
+
     function updateSelectionAiToolbar(patch: Partial<SelectionAiToolbarSettings>): void {
+        if (!canUseSelectionAiToolbarSettings()) return;
         onSelectionAiToolbarChange(normalizeSelectionAiToolbarSettings({
             ...selectionAiToolbar,
             ...patch,
@@ -133,6 +138,7 @@
     }
 
     function handleSelectionAiSkillEnabledChange(skillId: string, checked: boolean): void {
+        if (!canUseSelectionAiToolbarSettings()) return;
         updateSelectionAiToolbar({
             skills: selectionAiToolbar.skills.map((skill) =>
                 skill.id === skillId ? { ...skill, enabled: checked } : skill
@@ -146,18 +152,21 @@
     let isNewSkill = $state(false);
 
     function openAddSkill(): void {
+        if (!canUseSelectionAiToolbarSettings()) return;
         isNewSkill = true;
         editingSkill = null;
         editorOpen = true;
     }
 
     function openEditSkill(skill: SelectionAiSkill): void {
+        if (!canUseSelectionAiToolbarSettings()) return;
         isNewSkill = false;
         editingSkill = skill;
         editorOpen = true;
     }
 
     function handleSkillSave(skill: SelectionAiSkill): void {
+        if (!canUseSelectionAiToolbarSettings()) return;
         const existing = selectionAiToolbar.skills;
         let nextSkills: SelectionAiSkill[];
         if (isNewSkill) {
@@ -171,6 +180,7 @@
     }
 
     async function handleSkillDelete(skillId: string): Promise<void> {
+        if (!canUseSelectionAiToolbarSettings()) return;
         const skill = selectionAiToolbar.skills.find((s) => s.id === skillId);
         if (skill?.builtin) return;
         const confirmed = await confirmDialogBoolean({
@@ -202,6 +212,10 @@
     }
 
     async function initSkillSortables(): Promise<void> {
+        if (!canUseSelectionAiToolbarSettings()) {
+            destroySkillSortables();
+            return;
+        }
         await tick();
         destroySkillSortables();
 
@@ -231,6 +245,7 @@
     }
 
     function handleSkillSortableEnd(): void {
+        if (!canUseSelectionAiToolbarSettings()) return;
         const toolbarIds = readSkillIds(toolbarSkillListEl);
         const menuIds = readSkillIds(menuSkillListEl);
         const disabledIds = readSkillIds(disabledSkillListEl);
@@ -259,6 +274,7 @@
     onDestroy(() => destroySkillSortables());
 
     function toggleSkillPlacement(skillId: string): void {
+        if (!canUseSelectionAiToolbarSettings()) return;
         const nextSkills = selectionAiToolbar.skills.map((s) =>
             s.id === skillId ? { ...s, placement: s.placement === "toolbar" ? "menu" as const : "toolbar" as const } : s
         );
@@ -281,6 +297,15 @@
     $effect(() => {
         advancedEnabled;
         void refreshStatusAiModels();
+    });
+
+    $effect(() => {
+        if (!advancedEnabled) {
+            editorOpen = false;
+            editingSkill = null;
+            isNewSkill = false;
+            destroySkillSortables();
+        }
     });
 
     onMount(() => {
@@ -402,6 +427,26 @@
 </SettingSection>
 
 <SettingSection title="编辑器选区 AI 工具栏">
+    {#if !advancedEnabled}
+        <div class="status-ai-vip-card">
+            <div class="status-ai-vip-title">
+                <SiyuanIcon name="vip" size={16} />
+                <span>编辑器工具栏 AI 是会员专属功能</span>
+            </div>
+            <p class="status-ai-vip-desc">
+                开通会员后，可在思源编辑器中选中文字后直接使用 AI 问答、翻译、解释、润色和自定义技能。
+            </p>
+            <ul class="status-ai-vip-list">
+                {#each ["选中文字后一键 AI 问答", "翻译、解释、润色等内置技能", "支持自定义 AI 技能", "可配置每技能独立模型和参数"] as feature}
+                    <li>
+                        <SiyuanIcon name="confirm" size={13} />
+                        <span>{feature}</span>
+                    </li>
+                {/each}
+            </ul>
+            <div class="status-ai-vip-cta">请前往「会员服务」开通后使用</div>
+        </div>
+    {:else}
     <SettingRow
         title="启用选区 AI 工具栏"
         description="在编辑器正文中划选文字后，在思源原生选区工具栏中显示 AI 操作入口。"
@@ -589,7 +634,7 @@
         {/if}
         {/if}
     </div>
-
+    {/if}
 </SettingSection>
 
 {#if editorOpen}

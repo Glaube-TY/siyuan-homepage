@@ -20,6 +20,7 @@ export function openSelectionAiPopup(options: {
   request: SelectionAiRequest;
   settings: SelectionAiToolbarSettings;
   anchorRect?: SelectionAiRect;
+  advancedEnabled?: boolean;
 }): void {
   destroySelectionAiPopup();
 
@@ -33,6 +34,7 @@ export function openSelectionAiPopup(options: {
       request: options.request,
       settings: options.settings,
       anchorRect: options.anchorRect,
+      advancedEnabled: options.advancedEnabled ?? false,
       onClose: destroySelectionAiPopup,
     },
   } as any);

@@ -12,6 +12,7 @@ const TOOLBAR_ACTION_NAME_PREFIX = "shp-selection-ai-";
 
 export interface SelectionAiPluginHost {
   openKbDock?: () => void | Promise<boolean>;
+  ADVANCED?: boolean;
 }
 
 function getEnabledSkills(settings: SelectionAiToolbarSettings): SelectionAiSkill[] {
@@ -37,6 +38,11 @@ async function handleAskAction(
   context: SelectionAiContext,
   skill?: SelectionAiSkill
 ): Promise<void> {
+  if (plugin.ADVANCED !== true) {
+    showMessage("编辑器工具栏 AI 是会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+    return;
+  }
+
   const opened = await plugin.openKbDock?.();
   if (opened !== true) return;
 
@@ -61,6 +67,11 @@ function runSelectionActionWithContext(options: {
   settings: SelectionAiToolbarSettings;
   anchorRect?: SelectionAiRect;
 }): void {
+  if (options.plugin.ADVANCED !== true) {
+    showMessage("编辑器工具栏 AI 是会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+    return;
+  }
+
   const { skill } = options;
   const context = applySelectionAiSkillTextLimit(options.context, skill);
 
@@ -81,6 +92,7 @@ function runSelectionActionWithContext(options: {
     },
     settings: options.settings,
     anchorRect: options.anchorRect ?? context.selectionRect,
+    advancedEnabled: options.plugin.ADVANCED === true,
   });
 }
 
@@ -89,6 +101,11 @@ export function openSelectionAiMenu(options: {
   protyle: Protyle;
   settings: SelectionAiToolbarSettings;
 }): void {
+  if (options.plugin.ADVANCED !== true) {
+    showMessage("编辑器工具栏 AI 是会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+    return;
+  }
+
   const enabledSkills = getEnabledSkills(options.settings);
   if (enabledSkills.length === 0) {
     showMessage("未启用任何选区 AI 操作", 3000);
