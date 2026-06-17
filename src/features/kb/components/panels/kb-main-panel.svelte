@@ -9,7 +9,7 @@
   import { CHAT_MODES, DEFAULT_CHAT_MODE, getChatModeLabel } from "../../constants/chat-modes";
   import { askByMode } from "../../services/orchestration/ask-by-mode";
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
-  import { getCurrentDocumentId } from "../../services/siyuan/current-doc-service";
+  import { getCurrentDocumentId, resolveDocMetaForAttachment } from "../../services/siyuan/current-doc-service";
   import { showMessage } from "siyuan";
   import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "../../services/settings/kb-settings-service";
   import {
@@ -30,6 +30,12 @@
   import { setDocContentEditConfirmationHandler } from "../../services/doc-content-edit/doc-content-edit-confirmation-bridge";
   import { removeDocContentEditConfirmation } from "../../services/doc-content-edit/doc-content-edit-confirmation-store";
   import { RegisteredConfirmationBridge } from "../../services/agent-core/permissions/confirmation-bridge";
+  import {
+    buildAskDraftFromPayload,
+    setSelectionAskPayloadHandler,
+    type SelectionAskPayload,
+  } from "../../services/selection-ai/selection-ai-chat-bridge";
+  import type { AttachedKbDoc } from "../../types/chat";
 
   export let placement: "dock" | "tab" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
@@ -334,6 +340,47 @@
     if (deleted) {
       refreshContextUsageSafe("delete_turn");
     }
+  }
+
+  async function handleSelectionAskPayload(payload: SelectionAskPayload) {
+    if (asking) {
+      showMessage("当前 AI 回答生成中，请稍后再使用选区问答", 3000);
+      return;
+    }
+
+    kbSessionStore.createConversation();
+    kbSessionStore.setSelectedMode("whole_kb");
+
+    let docs: AttachedKbDoc[] = [];
+    if (payload.docId) {
+      try {
+        const meta = await resolveDocMetaForAttachment(payload.docId);
+        docs = [{
+          docId: meta.docId,
+          title: meta.title,
+          box: meta.box,
+          path: meta.path,
+          source: "current_doc",
+          createdAt: Date.now(),
+        }];
+      } catch {
+        docs = [{
+          docId: payload.docId,
+          title: "当前文档",
+          source: "current_doc",
+          createdAt: Date.now(),
+        }];
+      }
+    }
+
+    composerAttachedDocIds = docs.map((doc) => doc.docId);
+    chatInputBarRef?.setAttachedDocs(docs);
+    kbSessionStore.setDraftQuestion(buildAskDraftFromPayload(payload));
+    refreshContextUsageSafe("selection_ai_ask");
+
+    setTimeout(() => {
+      chatInputBarRef?.focusTextarea();
+    }, 0);
   }
 
   function handleDocContentEditConfirmed(e: CustomEvent<{ status: "success"; message: string }>) {
@@ -1117,9 +1164,12 @@
       });
     });
 
+    const unregisterSelectionAskHandler = setSelectionAskPayloadHandler(placement, handleSelectionAskPayload);
+
     return () => {
       unregisterConfirmationHandler();
       unregisterNativeBridge();
+      unregisterSelectionAskHandler();
     };
   });
 

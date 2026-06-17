@@ -1,6 +1,6 @@
 import { generatePlainText } from "@/services/ai/plain-text-generation";
 import { getKbSettings } from "@/features/kb/services/settings/kb-settings-service";
-import { buildChatModelOptions } from "@/features/kb/services/settings/chat-model-options";
+import { buildChatModelOptions, findDefaultChatModelOption } from "@/features/kb/services/settings/chat-model-options";
 import { buildChatModelKey, type ChatModelSelection } from "@/features/kb/types/chat-model-selection";
 import type { ThinkingMode } from "@/features/kb/types/session";
 import {
@@ -175,18 +175,28 @@ export function buildHomepageStatusAiCacheKey(config: HomepageStatusAiConfig, fa
 async function resolveConfiguredStatusModel(config: HomepageStatusAiConfig): Promise<ChatModelSelection | null> {
     const providerId = normalizeStatusAiModelId(config.providerId);
     const modelId = normalizeStatusAiModelId(config.modelId);
-    if (!providerId || !modelId) return null;
 
     const settings = await getKbSettings();
     const options = buildChatModelOptions(settings);
-    const key = buildChatModelKey(providerId, modelId);
-    const matched = options.find((option) => option.key === key);
-    if (!matched) return null;
+    if (options.length === 0) return null;
 
-    return {
-        providerId: matched.providerId,
-        modelId: matched.modelId,
-    };
+    // 优先使用配置的特定模型
+    if (providerId && modelId) {
+        const key = buildChatModelKey(providerId, modelId);
+        const matched = options.find((option) => option.key === key);
+        if (matched) {
+            return {
+                providerId: matched.providerId,
+                modelId: matched.modelId,
+            };
+        }
+        // 配置了特定模型但找不到，返回 null
+        return null;
+    }
+
+    // 空 provider/model：使用 AI 知识库默认模型
+    const fallback = findDefaultChatModelOption(settings, options);
+    return fallback ? { providerId: fallback.providerId, modelId: fallback.modelId } : null;
 }
 
 export async function generateHomepageStatusText(params: {

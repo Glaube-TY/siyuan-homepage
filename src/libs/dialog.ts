@@ -12,21 +12,25 @@ import { unmount } from "svelte";
 export const inputDialog = (args: {
     title: string, placeholder?: string, defaultText?: string,
     confirm?: (text: string) => void, cancel?: () => void,
-    width?: string, height?: string
+    width?: string, height?: string,
+    destroyCallback?: () => void
 }) => {
     const dialog = new Dialog({
         title: args.title,
         content: `<div class="b3-dialog__content">
-    <div class="ft__breakword"><textarea class="b3-text-field fn__block" style="height: 100%;" placeholder=${args?.placeholder ?? ''}>${args?.defaultText ?? ''}</textarea></div>
+    <div class="ft__breakword"><textarea class="b3-text-field fn__block" style="height: 100%;"></textarea></div>
 </div>
 <div class="b3-dialog__action">
     <button class="b3-button b3-button--cancel">${window.siyuan.languages.cancel}</button><div class="fn__space"></div>
     <button class="b3-button b3-button--text" id="confirmDialogConfirmBtn">${window.siyuan.languages.confirm}</button>
 </div>`,
         width: args.width ?? "520px",
-        height: args.height
+        height: args.height,
+        destroyCallback: args.destroyCallback
     });
     const target: HTMLTextAreaElement = dialog.element.querySelector(".b3-dialog__content>div.ft__breakword>textarea");
+    if (args.placeholder) target.placeholder = args.placeholder;
+    if (args.defaultText) target.value = args.defaultText;
     const btnsElement = dialog.element.querySelectorAll(".b3-button");
     btnsElement[0].addEventListener("click", () => {
         if (args?.cancel) {
@@ -46,15 +50,19 @@ export const inputDialogSync = async (args: {
     title: string, placeholder?: string, defaultText?: string,
     width?: string, height?: string
 }) => {
-    return new Promise<string>((resolve) => {
-        let newargs = {
-            ...args, confirm: (text) => {
-                resolve(text);
-            }, cancel: () => {
-                resolve(null);
-            }
+    return new Promise<string | null>((resolve) => {
+        let settled = false;
+        const settle = (value: string | null) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
         };
-        inputDialog(newargs);
+        inputDialog({
+            ...args,
+            confirm: (text) => settle(text),
+            cancel: () => settle(null),
+            destroyCallback: () => settle(null),
+        });
     });
 }
 
@@ -66,6 +74,7 @@ interface IConfirmDialogArgs {
     cancel?: (ele?: HTMLElement) => void;
     width?: string;
     height?: string;
+    destroyCallback?: () => void;
 }
 
 export const confirmDialog = (args: IConfirmDialogArgs) => {
@@ -82,7 +91,8 @@ export const confirmDialog = (args: IConfirmDialogArgs) => {
     <button class="b3-button b3-button--text" id="confirmDialogConfirmBtn">${window.siyuan.languages.confirm}</button>
 </div>`,
         width: width,
-        height: height
+        height: height,
+        destroyCallback: args.destroyCallback
     });
 
     const target: HTMLElement = dialog.element.querySelector(".b3-dialog__content>div.ft__breakword");
@@ -105,20 +115,64 @@ export const confirmDialog = (args: IConfirmDialogArgs) => {
         }
         dialog.destroy();
     });
+
+    return { dialog, target };
 };
 
 
 export const confirmDialogSync = async (args: IConfirmDialogArgs) => {
     return new Promise<HTMLElement>((resolve) => {
-        let newargs = {
-            ...args, confirm: (ele: HTMLElement) => {
-                resolve(ele);
-            }, cancel: (ele: HTMLElement) => {
-                resolve(ele);
-            }
+        let settled = false;
+        let targetRef: HTMLElement | null = null;
+
+        const settle = (ele?: HTMLElement) => {
+            if (settled) return;
+            settled = true;
+            resolve(ele ?? targetRef ?? document.createElement("div"));
         };
-        confirmDialog(newargs);
+
+        const { target } = confirmDialog({
+            ...args,
+            confirm: (ele?: HTMLElement) => settle(ele),
+            cancel: (ele?: HTMLElement) => settle(ele),
+            destroyCallback: () => settle(),
+        });
+        targetRef = target;
     });
+};
+
+export const confirmDialogBoolean = async (args: IConfirmDialogArgs) => {
+    return new Promise<boolean>((resolve) => {
+        let settled = false;
+        const settle = (value: boolean) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        confirmDialog({
+            ...args,
+            confirm: () => settle(true),
+            cancel: () => settle(false),
+            destroyCallback: () => settle(false),
+        });
+    });
+};
+
+/**
+ * 创建安全的确认弹窗内容元素，避免用户可控文本通过 innerHTML 注入。
+ * @param parts 文本片段数组，字符串会通过 textContent 安全设置
+ * @returns HTMLElement
+ */
+export const safeConfirmContent = (...parts: (string | HTMLElement)[]): HTMLElement => {
+    const wrapper = document.createElement("div");
+    for (const part of parts) {
+        if (typeof part === "string") {
+            wrapper.append(part);
+        } else {
+            wrapper.append(part);
+        }
+    }
+    return wrapper;
 };
 
 

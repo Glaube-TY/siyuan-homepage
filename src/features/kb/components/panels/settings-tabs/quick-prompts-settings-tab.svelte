@@ -14,6 +14,7 @@
   } from "../../../services/quick-prompts/quick-prompts-doc";
   import type { QuickPromptItem } from "../../../services/quick-prompts/quick-prompts-doc";
   import DocBlockListEditor from "../../common/doc-block-list-editor.svelte";
+  import { confirmDialogBoolean } from "@/libs/dialog";
 
   export let settings: KbSettings;
 
@@ -117,7 +118,11 @@
   }
 
   async function handleDelete(itemId: string) {
-    if (!confirm("确定删除这条提示语？")) return;
+    const confirmed = await confirmDialogBoolean({
+      title: "删除提示语",
+      content: "确定删除这条提示语？",
+    });
+    if (!confirmed) return;
     const ok = await deleteQuickPromptItem(itemId);
     if (ok) {
       if (qp.docId) await loadItems(qp.docId);

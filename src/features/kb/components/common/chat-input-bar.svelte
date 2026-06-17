@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from "svelte";
   import { Button } from "siyuan-kit-svelte";
+  import { showMessage } from "siyuan";
   import { CHAT_MODES, type ChatMode, isChatModeAvailable } from "../../constants/chat-modes";
   import type { ChatModelOption, ChatModelSelection } from "../../types/chat-model-selection";
   import type { ThinkingMode } from "../../types/session";
@@ -14,6 +15,7 @@
   import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
   import { listQuickPromptItems, createQuickPromptItem, updateQuickPromptItemInDoc, deleteQuickPromptItemInDoc } from "../../services/quick-prompts/quick-prompts-doc";
   import type { QuickPromptItem } from "../../services/quick-prompts/quick-prompts-doc";
+  import { confirmDialogBoolean } from "@/libs/dialog";
 
   export let value: string = "";
   export let disabled: boolean = false;
@@ -360,6 +362,18 @@
     textareaElement?.focus();
   }
 
+  export function setAttachedDocs(docs: AttachedKbDoc[]) {
+    const seen = new Set<string>();
+    attachedDocs = docs.filter((doc) => {
+      if (!doc.docId || seen.has(doc.docId)) return false;
+      seen.add(doc.docId);
+      return true;
+    });
+    showDocSearch = false;
+    docSearchResults = [];
+    docSearchQuery = "";
+  }
+
   function handleKeyDown(event: KeyboardEvent) {
     if (event.key === "Escape") {
       if (showDocSearch) {
@@ -495,7 +509,7 @@
       selectedMode = mode;
       dispatch("modeChange", mode);
     } else {
-      alert(`「${CHAT_MODES.find(m => m.id === mode)?.label}」功能暂未开放`);
+      showMessage(`「${CHAT_MODES.find(m => m.id === mode)?.label}」功能暂未开放`);
     }
     showModeMenu = false;
     showModelMenu = false;
@@ -623,7 +637,11 @@
 
   async function handleDeleteQuickPrompt(item: QuickPromptItem) {
     if (!quickPromptsDocId) return;
-    if (!confirm("确定删除这条提示语？")) return;
+    const confirmed = await confirmDialogBoolean({
+      title: "删除提示语",
+      content: "确定删除这条提示语？",
+    });
+    if (!confirmed) return;
     quickPromptSaving = true;
     quickPromptError = "";
     try {

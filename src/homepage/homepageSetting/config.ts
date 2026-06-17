@@ -1,6 +1,7 @@
 import type { ButtonItem } from './types';
 import type { DeviceProfilesMap } from '../utils/deviceProfile';
 import type { HomepageStatusTextMode } from '../status-text-config';
+import type { SelectionAiToolbarSettings } from '@/features/kb/services/selection-ai/selection-ai-types';
 
 export type DocPreviewMode = "preview" | "wysiwyg";
 
@@ -59,6 +60,7 @@ export interface HomepageSettingConfig {
     defaultDocPreviewMode?: DocPreviewMode;
     aiKbDockEnabled?: boolean;
     aiKbTabEnabled?: boolean;
+    selectionAiToolbar?: SelectionAiToolbarSettings;
 }
 
 export async function loadHomepageSettingConfig(plugin: any): Promise<HomepageSettingConfig | null> {

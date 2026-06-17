@@ -20,6 +20,7 @@
     import { resolveConfiguredDocIcon } from "@/components/tools/docIcon";
     import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import { confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
 
     interface Props {
         plugin: any;
@@ -326,7 +327,10 @@
     }
 
     async function handleDeleteAsset(asset: FixedAssetRecord): Promise<void> {
-        const confirmed = confirm(`确定删除资产「${asset.name}」吗？`);
+        const confirmed = await confirmDialogBoolean({
+            title: "删除资产",
+            content: safeConfirmContent("确定删除资产「", asset.name, "」吗？"),
+        });
         if (!confirmed) return;
 
         try {

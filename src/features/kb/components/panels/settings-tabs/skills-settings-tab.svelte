@@ -16,6 +16,7 @@
     detectForbiddenTextTokens,
   } from "../../../services/agent-workbench/skills/user/user-skill-rules";
   import { parseUserSkillMarkdown } from "../../../services/agent-workbench/skills/user/user-skill-parser";
+  import { confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
 
   export let settings: KbSettings;
 
@@ -148,7 +149,11 @@
 
   // 删除用户 Skill
   async function removeUserSkill(entry: UserSkillIndexEntry) {
-    if (!confirm(`确定要删除自定义 Skill「${entry.title}」吗？`)) return;
+    const confirmed = await confirmDialogBoolean({
+      title: "删除自定义 Skill",
+      content: safeConfirmContent("确定要删除自定义 Skill「", entry.title, "」吗？"),
+    });
+    if (!confirmed) return;
     await deleteUserSkill(entry.id);
     const index = await loadUserSkillIndex();
     if (index) {

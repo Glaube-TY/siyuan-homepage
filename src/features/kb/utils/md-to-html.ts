@@ -1,22 +1,35 @@
 /**
  * Markdown 转 HTML 工具
- * 参考 siyuan-homepage 的 MD2HTML.ts 实现
+ * 使用思源内置 Lute 引擎，带 DOMPurify 消毒和安全兜底
  */
 
 import DOMPurify from "dompurify";
 
-/**
- * 将 Markdown 转换为安全的 HTML
- * @param markdown Markdown 字符串
- * @returns 安全的 HTML 字符串
- */
-export function mdToHtml(markdown: string): string {
-  if (!markdown) {
-    return "";
-  }
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
-  // @ts-ignore - window.Lute 是思源注入的全局对象
-  const lute = window.Lute.New();
-  const rawHtml = lute.Md2HTML(markdown);
-  return DOMPurify.sanitize(rawHtml);
+export function mdToHtml(markdown: string): string {
+  if (!markdown) return "";
+
+  try {
+    const luteFactory = (window as unknown as {
+      Lute?: { New?: () => { Md2HTML?: (input: string) => string } };
+    }).Lute;
+
+    const lute = luteFactory?.New?.();
+    const rawHtml =
+      typeof lute?.Md2HTML === "function"
+        ? lute.Md2HTML(markdown)
+        : `<p>${escapeHtml(markdown)}</p>`;
+
+    return DOMPurify.sanitize(rawHtml);
+  } catch {
+    return DOMPurify.sanitize(`<p>${escapeHtml(markdown)}</p>`);
+  }
 }

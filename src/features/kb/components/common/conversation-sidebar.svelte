@@ -1,7 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
+  import { showMessage } from "siyuan";
   import type { KbConversationSession } from "../../types/chat";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+  import { inputDialogSync, confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
 
   // Props
   export let conversations: KbConversationSession[] = [];
@@ -58,24 +60,38 @@
   }
 
   // 处理重命名
-  function handleRename(id: string, currentTitle: string) {
+  async function handleRename(id: string, currentTitle: string): Promise<void> {
     if (disabled) return;
-    const newTitle = window.prompt("重命名会话", currentTitle);
-    if (newTitle !== null && newTitle.trim() !== currentTitle) {
-      dispatch("rename", { id, title: newTitle.trim() });
-    }
+
+    const newTitle = await inputDialogSync({
+      title: "重命名会话",
+      placeholder: "请输入新的会话名称",
+      defaultText: currentTitle,
+      width: "420px",
+      height: "220px",
+    });
+
+    const nextTitle = newTitle?.trim();
+    if (!nextTitle || nextTitle === currentTitle) return;
+
+    dispatch("rename", { id, title: nextTitle });
   }
 
   // 处理删除
-  function handleDelete(id: string, title: string) {
+  async function handleDelete(id: string, title: string): Promise<void> {
     if (disabled) return;
     // 至少保留一个会话，由 store 保证，这里只做确认
     if (conversations.length <= 1) {
-      window.alert("至少保留一个会话");
+      showMessage("至少保留一个会话", 3000);
       return;
     }
 
-    const confirmed = window.confirm(`确定要删除会话"${title}"吗？`);
+    const confirmed = await confirmDialogBoolean({
+      title: "删除会话",
+      content: safeConfirmContent("确定要删除会话「", title, "」吗？"),
+      width: "420px",
+    });
+
     if (confirmed) {
       dispatch("delete", id);
     }

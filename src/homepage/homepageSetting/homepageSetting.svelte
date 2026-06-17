@@ -10,7 +10,7 @@
     import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
     import { getLocalDeviceId, isDesktopDeviceProfileEnabled, getCurrentDeviceInfo, updateDeviceProfile, findExistingDeviceByHardware, deduplicateDeviceProfiles } from "../utils/deviceProfile"
     import { loadWidgetLayoutSettings, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
-    import { svelteDialog } from "../../libs/dialog"
+    import { svelteDialog, confirmDialogBoolean, safeConfirmContent } from "../../libs/dialog"
     import HiddenWidgetsDialog from "./HiddenWidgetsDialog.svelte"
     import AboutSection from "./sections/AboutSection.svelte"
     import VipSection from "./sections/VipSection.svelte"
@@ -39,6 +39,12 @@
         normalizeStatusAiThinkingEnabled,
         type HomepageStatusTextMode,
     } from "../status-text-config";
+    import {
+        DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS,
+        normalizeSelectionAiToolbarSettings,
+    } from "@/features/kb/services/selection-ai/selection-ai-defaults";
+    import { setSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
+    import type { SelectionAiToolbarSettings } from "@/features/kb/services/selection-ai/selection-ai-types";
 
     let { plugin, close }: HomepageSettingProps = $props();
 
@@ -103,6 +109,70 @@
     // AI 知识库入口开关
     let aiKbDockEnabled = $state(true);
     let aiKbTabEnabled = $state(true);
+
+    let settingsLoaded = $state(false);
+    let aiKbSettingsSaveTask: Promise<void> = Promise.resolve();
+
+    function queueSaveAiKnowledgeBaseSettings(): Promise<void> {
+        if (!settingsLoaded) return Promise.resolve();
+        aiKbSettingsSaveTask = aiKbSettingsSaveTask
+            .catch(() => undefined)
+            .then(() => saveAiKnowledgeBaseSettings());
+        return aiKbSettingsSaveTask;
+    }
+
+    async function saveAiKnowledgeBaseSettings(): Promise<void> {
+        const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
+        await saveHomepageSettingConfig(plugin, {
+            ...existingConfig,
+            aiKbDockEnabled,
+            aiKbTabEnabled,
+            statusAiProviderId: normalizeStatusAiModelId(tempStatusAiProviderId),
+            statusAiModelId: normalizeStatusAiModelId(tempStatusAiModelId),
+            statusAiThinkingEnabled: normalizeStatusAiThinkingEnabled(tempStatusAiThinkingEnabled),
+            selectionAiToolbar: normalizeSelectionAiToolbarSettings(selectionAiToolbar),
+        } as HomepageSettingConfig);
+        setSelectionAiToolbarSettingsSnapshot(normalizeSelectionAiToolbarSettings(selectionAiToolbar));
+        window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
+    }
+
+    function handleAiKbDockEnabledChange(value: boolean): void {
+        aiKbDockEnabled = value;
+        void queueSaveAiKnowledgeBaseSettings().then(() => {
+            if (!value) showMessage("设置已保存，侧边栏入口将在重启插件或刷新界面后隐藏", 4000);
+        }).catch(() => {
+            showMessage("设置保存失败，请稍后重试", 3000);
+        });
+    }
+
+    function handleAiKbTabEnabledChange(value: boolean): void {
+        aiKbTabEnabled = value;
+        void queueSaveAiKnowledgeBaseSettings().then(() => {
+            if (!value) showMessage("设置已保存，标签页入口将在重启插件或刷新界面后隐藏", 4000);
+        }).catch(() => {
+            showMessage("设置保存失败，请稍后重试", 3000);
+        });
+    }
+
+    function handleStatusAiThinkingEnabledChange(value: boolean): void {
+        tempStatusAiThinkingEnabled = value;
+        saveAiKnowledgeBaseSettingsSafely();
+    }
+
+    function handleSelectionAiToolbarChange(value: SelectionAiToolbarSettings): void {
+        selectionAiToolbar = normalizeSelectionAiToolbarSettings(value);
+        saveAiKnowledgeBaseSettingsSafely();
+    }
+
+    function saveAiKnowledgeBaseSettingsSafely(): void {
+        void queueSaveAiKnowledgeBaseSettings().catch(() => {
+            showMessage("设置保存失败，请稍后重试", 3000);
+        });
+    }
+
+    let selectionAiToolbar = $state<SelectionAiToolbarSettings>(
+        normalizeSelectionAiToolbarSettings(DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS)
+    );
 
     let widgetsSettingsState = $derived<WidgetsSettingsState>({
         widgetLayoutNumber,
@@ -190,29 +260,8 @@
         statusAiSelectedModelLabel = selected?.label || "";
     }
 
-    function hasStatusAiModelSelection(): boolean {
-        return Boolean(tempStatusAiProviderId.trim() && tempStatusAiModelId.trim());
-    }
-
-    function ensureDefaultStatusAiModelSelected(): boolean {
-        if (!advancedEnabled || tempStatusTextMode !== "ai") return false;
-        if (hasStatusAiModelSelection()) return false;
-
-        const option = statusAiDefaultModelOption ?? statusAiModelOptions[0];
-        if (!option) return false;
-
-        handleStatusAiModelChange({
-            providerId: option.providerId,
-            modelId: option.modelId,
-        });
-        return true;
-    }
-
     function handleStatusTextModeChange(value: HomepageStatusTextMode): void {
         tempStatusTextMode = value;
-        if (value === "ai" && advancedEnabled) {
-            ensureDefaultStatusAiModelSelected();
-        }
     }
 
     async function refreshStatusAiModelSummary(): Promise<void> {
@@ -221,12 +270,8 @@
             const options = buildChatModelOptions(settings);
             statusAiModelOptions = options;
             statusAiDefaultModelOption = findDefaultChatModelOption(settings, options) ?? null;
-            if (advancedEnabled && tempStatusTextMode === "ai") {
-                ensureDefaultStatusAiModelSelected();
-            }
             syncStatusAiModelSummary(options);
-        } catch (error) {
-            console.warn("[HomepageSetting] 刷新状态语模型列表失败:", error);
+        } catch {
             statusAiModelOptions = [];
             statusAiDefaultModelOption = null;
             syncStatusAiModelSummary([]);
@@ -237,6 +282,7 @@
         tempStatusAiProviderId = normalizeStatusAiModelId(value.providerId);
         tempStatusAiModelId = normalizeStatusAiModelId(value.modelId);
         syncStatusAiModelSummary();
+        saveAiKnowledgeBaseSettingsSafely();
     }
 
     function handleKbSettingsChanged(): void {
@@ -324,6 +370,7 @@
             // AI 知识库入口开关
             aiKbDockEnabled = savedConfig.aiKbDockEnabled ?? true;
             aiKbTabEnabled = savedConfig.aiKbTabEnabled ?? true;
+            selectionAiToolbar = normalizeSelectionAiToolbarSettings(savedConfig.selectionAiToolbar);
 
             footerEnabled = savedConfig.footerEnabled ?? true;
             footerContent = savedConfig.footerContent || "";
@@ -426,6 +473,7 @@
 
         await refreshStatusAiModelSummary();
         window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
+        settingsLoaded = true;
     });
 
     onDestroy(() => {
@@ -614,10 +662,6 @@
         // 保存布局设置到 widgetLayout.json（与组件顺序存储方式一致）
         await saveWidgetLayoutSettings(plugin, { widgetLayoutNumber, widgetGap });
 
-        if (advancedEnabled && tempStatusTextMode === "ai") {
-            ensureDefaultStatusAiModelSelected();
-        }
-
         const config = {
             // 全局配置
             autoOpenHomepage: tempAutoOpenHomepage,
@@ -676,6 +720,7 @@
             // AI 知识库入口开关
             aiKbDockEnabled: aiKbDockEnabled,
             aiKbTabEnabled: aiKbTabEnabled,
+            selectionAiToolbar: normalizeSelectionAiToolbarSettings(selectionAiToolbar),
 
             // 页脚配置
             footerEnabled: footerEnabled,
@@ -700,20 +745,11 @@
             bannerDeviceProfiles: bannerDeviceProfiles,
         };
 
-        // 检测 AI 知识库入口开关是否变化，变化后需要刷新才能重新注册
-        const aiKbChanged =
-            existingConfig.aiKbDockEnabled !== aiKbDockEnabled ||
-            existingConfig.aiKbTabEnabled !== aiKbTabEnabled;
-
         await saveHomepageSettingConfig(plugin, config);
+        setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
 
         // 派发全局事件通知主页配置已保存
         window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
-
-        if (aiKbChanged) {
-            plugin.triggerHomepageFullReload("ai-kb-entry-settings-changed");
-            return;
-        }
 
         if (close) close();
     }
@@ -733,11 +769,13 @@
         }
 
         // 确认对话框
-        const confirmed = confirm(
-            "确定要移除该设备配置吗？\n\n" +
-            "只会移除该设备的布局配置，不会删除组件内容文件。\n\n" +
-            `设备: ${deviceIdToRemove.slice(0, 8)}...`
-        );
+        const confirmed = await confirmDialogBoolean({
+            title: "移除设备配置",
+            content: safeConfirmContent(
+                "确定要移除该设备配置吗？\n\n只会移除该设备的布局配置，不会删除组件内容文件。\n\n设备: ",
+                deviceIdToRemove.slice(0, 8) + "..."
+            ),
+        });
         if (!confirmed) return;
 
         // 从 homepageSettingConfig 中删除
@@ -998,18 +1036,24 @@
             </div>
         {:else if activeTab === "aiKnowledgeBase"}
             <div class="content-scroll-area full-content">
-                <AiKnowledgeBaseSettingsTab
-                    aiKbDockEnabled={aiKbDockEnabled}
-                    aiKbTabEnabled={aiKbTabEnabled}
-                    advancedEnabled={advancedEnabled}
-                    statusAiProviderId={tempStatusAiProviderId}
-                    statusAiModelId={tempStatusAiModelId}
-                    statusAiThinkingEnabled={tempStatusAiThinkingEnabled}
-                    onAiKbDockEnabledChange={(value) => aiKbDockEnabled = value}
-                    onAiKbTabEnabledChange={(value) => aiKbTabEnabled = value}
-                    onStatusAiModelChange={handleStatusAiModelChange}
-                    onStatusAiThinkingEnabledChange={(value) => tempStatusAiThinkingEnabled = value}
-                />
+                {#if !settingsLoaded}
+                    <div class="ai-kb-settings-loading">正在加载 AI 知识库设置...</div>
+                {:else}
+                    <AiKnowledgeBaseSettingsTab
+                        aiKbDockEnabled={aiKbDockEnabled}
+                        aiKbTabEnabled={aiKbTabEnabled}
+                        advancedEnabled={advancedEnabled}
+                        statusAiProviderId={tempStatusAiProviderId}
+                        statusAiModelId={tempStatusAiModelId}
+                        statusAiThinkingEnabled={tempStatusAiThinkingEnabled}
+                        selectionAiToolbar={selectionAiToolbar}
+                        onAiKbDockEnabledChange={handleAiKbDockEnabledChange}
+                        onAiKbTabEnabledChange={handleAiKbTabEnabledChange}
+                        onStatusAiModelChange={handleStatusAiModelChange}
+                        onStatusAiThinkingEnabledChange={handleStatusAiThinkingEnabledChange}
+                        onSelectionAiToolbarChange={handleSelectionAiToolbarChange}
+                    />
+                {/if}
             </div>
         {:else if activeTab === "about"}
             <div class="content-scroll-area full-content">

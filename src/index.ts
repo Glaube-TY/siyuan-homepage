@@ -5,6 +5,7 @@ import {
     openTab,
     getFrontend,
     Model,
+    type IMenuItem,
 } from "siyuan";
 
 import { svelteDialog } from "@/libs/dialog";
@@ -21,6 +22,13 @@ import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.s
 import { setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
 import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
 import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage";
+import { getSelectionAiToolbarSettingsSnapshot, loadSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
+import { clearSelectionAskPayloadHandler } from "@/features/kb/services/selection-ai/selection-ai-chat-bridge";
+import { destroySelectionAiPopup } from "@/features/kb/services/selection-ai/selection-ai-popup-controller";
+import { destroySelectionAiActionMenu } from "@/features/kb/services/selection-ai/selection-ai-action-menu-controller";
+import { createSelectionAiToolbarItems, removeSelectionAiToolbarItems } from "@/features/kb/services/selection-ai/selection-ai-menu";
+import { initSelectionAiToolbarPointerTracker, destroySelectionAiToolbarPointerTracker } from "@/features/kb/services/selection-ai/selection-ai-toolbar-pointer-tracker";
+import type { SelectionAiToolbarSettings } from "@/features/kb/services/selection-ai/selection-ai-types";
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 
@@ -54,6 +62,7 @@ interface PluginConfig {
     autoOpenHomepage?: boolean;
     aiKbDockEnabled?: boolean;
     aiKbTabEnabled?: boolean;
+    selectionAiToolbar?: SelectionAiToolbarSettings;
 }
 
 export default class PluginHomepage extends Plugin {
@@ -221,6 +230,8 @@ export default class PluginHomepage extends Plugin {
         setKbSettingsPlugin(this);
         setReferenceNavigationPlugin(this);
         setNotebrainPlugin(this);
+        await loadSelectionAiToolbarSettingsSnapshot(this);
+        initSelectionAiToolbarPointerTracker();
         this.registerIcon();
 
         const frontEnd = getFrontend();
@@ -268,6 +279,10 @@ export default class PluginHomepage extends Plugin {
         } catch {
             // 忽略销毁过程中的错误
         }
+        destroySelectionAiPopup();
+        destroySelectionAiActionMenu();
+        destroySelectionAiToolbarPointerTracker();
+        clearSelectionAskPayloadHandler();
 
         // 销毁 dock Sidebar 实例
         if (this.sidebarDockInstance) {
@@ -293,6 +308,20 @@ export default class PluginHomepage extends Plugin {
             this.homepageTabObserver.disconnect();
             this.homepageTabObserver = null;
         }
+    }
+
+    updateProtyleToolbar(toolbar: Array<string | IMenuItem>): Array<string | IMenuItem> {
+        const settings = getSelectionAiToolbarSettingsSnapshot();
+        // 先清理旧的 selection-ai item，确保 click 回调来自当前代码版本
+        removeSelectionAiToolbarItems(toolbar);
+        if (!settings.enabled || this.isMobileFrontend()) {
+            return toolbar;
+        }
+        toolbar.push(...createSelectionAiToolbarItems({
+            plugin: this,
+            settings,
+        }));
+        return toolbar;
     }
 
     async onLayoutReady() {
@@ -374,16 +403,22 @@ export default class PluginHomepage extends Plugin {
             type: KB_CHAT_TAB_TYPE,
             async init() {
                 if (!this.element) {
-                    console.debug('[Homepage] KB chat tab init: element missing');
                     return;
                 }
 
                 self.prepareKbChatContainer(this.element as HTMLElement);
-                if (self.kbChatTabDiv) {
+                if (!self.kbChatTabDiv) return;
+
+                const config: PluginConfig = (await self.loadData("homepageSettingConfig.json")) || {};
+                if (config.aiKbTabEnabled === false) {
+                    self.kbChatTabDiv.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:24px;text-align:center;color:var(--b3-theme-on-surface-light,#666);font-size:13px;">此功能需要开启 AI 知识库标签页，请在主页设置中启用「开启标签页对话」</div>`;
                     this.element.appendChild(self.kbChatTabDiv);
-                    if (!self.kbChatInstance) {
-                        self.createKbChatInstance();
-                    }
+                    return;
+                }
+
+                this.element.appendChild(self.kbChatTabDiv);
+                if (!self.kbChatInstance) {
+                    self.createKbChatInstance();
                 }
             },
         });
@@ -731,35 +766,97 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    public async openKbDock(): Promise<void> {
+    private findKbDockButton(): HTMLElement | null {
+        const root = document.querySelector("#dockRight") ?? document;
+        const selectors = [
+            `.dock__item[data-type="${this.name}${KB_DOCK_TYPE}"]`,
+            `.dock__item[data-type$="${KB_DOCK_TYPE}"]`,
+            `.dock__item[data-type*="${KB_DOCK_TYPE}"]`,
+            `.dock__item[data-title="AI 知识库对话"]`,
+            `.dock__item[aria-label*="AI 知识库对话"]`,
+        ];
+        for (const selector of selectors) {
+            const el = root.querySelector(selector) as HTMLElement | null;
+            if (el) return el;
+        }
+        return null;
+    }
+
+    private isKbDockContainerMounted(): boolean {
+        return !!document.querySelector("[data-kb-dock-container]");
+    }
+
+    private isKbDockChatReady(): boolean {
+        const container = document.querySelector("[data-kb-dock-container]");
+        return !!container?.querySelector(".kb-main-panel");
+    }
+
+    private async waitForKbDockContainerMounted(timeoutMs = 1500): Promise<boolean> {
+        if (this.isKbDockContainerMounted()) return true;
+        const step = 80;
+        let elapsed = 0;
+        while (elapsed < timeoutMs) {
+            await new Promise((r) => setTimeout(r, step));
+            elapsed += step;
+            if (this.isKbDockContainerMounted()) return true;
+        }
+        return false;
+    }
+
+    private async waitForKbDockChatReady(timeoutMs = 1500): Promise<boolean> {
+        if (this.isKbDockChatReady()) return true;
+        const step = 80;
+        let elapsed = 0;
+        while (elapsed < timeoutMs) {
+            await new Promise((r) => setTimeout(r, step));
+            elapsed += step;
+            if (this.isKbDockChatReady()) return true;
+        }
+        return false;
+    }
+
+    public async openKbDock(): Promise<boolean> {
         if (this.isMobileFrontend()) {
             showMessage("移动端请使用 AI 知识库标签页", 3000);
-            return;
+            return false;
         }
 
         const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
         if (config.aiKbDockEnabled === false) {
-            showMessage("AI 知识库侧边栏对话未开启，请在主页设置中启用", 3000);
-            return;
+            showMessage("此功能需要开启 AI 知识库侧边栏，请在主页设置中启用「开启侧边栏对话」", 3000);
+            return false;
+        }
+
+        if (this.isKbDockChatReady()) {
+            return true;
         }
 
         const layout = (window as any).siyuan?.layout;
         layout?.rightDock?.showDock?.(true);
 
-        const selectors = [
-            `.dock__item[data-type="${KB_DOCK_TYPE}"]`,
-            `[data-type="${KB_DOCK_TYPE}"]`,
-        ];
-        const dockButton = selectors
-            .map((selector) => document.querySelector(selector) as HTMLElement | null)
-            .find(Boolean);
-
-        if (dockButton) {
-            dockButton.click();
-            return;
+        const dockButton = this.findKbDockButton();
+        if (!dockButton) {
+            showMessage("未能自动打开 AI 知识库侧边栏，请先点击右侧「AI 知识库对话」按钮后再使用选区问答", 4000);
+            return false;
         }
 
-        showMessage("AI 知识库侧边栏已注册，未找到可点击的侧边栏按钮", 3000);
+        if (!dockButton.classList.contains("dock__item--active")) {
+            dockButton.click();
+        }
+
+        const containerMounted = await this.waitForKbDockContainerMounted();
+        if (!containerMounted) {
+            showMessage("未能自动打开 AI 知识库侧边栏，请先点击右侧「AI 知识库对话」按钮后再使用选区问答", 4000);
+            return false;
+        }
+
+        const chatReady = await this.waitForKbDockChatReady();
+        if (chatReady) {
+            return true;
+        }
+
+        showMessage("AI 知识库侧边栏已打开，但问答面板尚未就绪，请确认已开启高级功能后再使用选区问答", 4000);
+        return false;
     }
 
     private openMobileHomepage() {
@@ -868,15 +965,25 @@ export default class PluginHomepage extends Plugin {
                 kbContainer.setAttribute("data-kb-dock-container", "true");
                 kbContainer.style.height = "100%";
                 kbContainer.style.width = "100%";
-                this.kbDockInstance = mount(KbPremiumGatePanel as any, {
-                    target: kbContainer,
-                    props: {
-                        plugin: this,
-                        placement: "dock",
-                        onOpenSettings: () => this.openKbSettingsDialog(),
-                    },
-                } as any);
-                dock.element.appendChild(kbContainer);
+
+                void (async () => {
+                    const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
+                    if (config.aiKbDockEnabled === false) {
+                        kbContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:24px;text-align:center;color:var(--b3-theme-on-surface-light,#666);font-size:13px;">此功能需要开启 AI 知识库侧边栏，请在主页设置中启用「开启侧边栏对话」</div>`;
+                        dock.element.appendChild(kbContainer);
+                        return;
+                    }
+
+                    this.kbDockInstance = mount(KbPremiumGatePanel as any, {
+                        target: kbContainer,
+                        props: {
+                            plugin: this,
+                            placement: "dock",
+                            onOpenSettings: () => this.openKbSettingsDialog(),
+                        },
+                    } as any);
+                    dock.element.appendChild(kbContainer);
+                })();
             },
             destroy: () => {
                 if (this.kbDockInstance) {
