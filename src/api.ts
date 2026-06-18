@@ -35,6 +35,88 @@ export async function requestRaw(url: string, data: any): Promise<IWebSocketData
     return await fetchSyncPost(url, data);
 }
 
+export interface SiyuanCloudIdentity {
+    userId: string;
+    userName: string;
+    source: "getCloudUser" | "window.siyuan.user" | "none";
+}
+
+function normalizeIdentityValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return "";
+    }
+    return String(value).trim();
+}
+
+function readIdentityFromObject(value: unknown): Pick<SiyuanCloudIdentity, "userId" | "userName"> {
+    if (!value || typeof value !== "object") {
+        return { userId: "", userName: "" };
+    }
+
+    const data = value as Record<string, any>;
+    return {
+        userId: normalizeIdentityValue(data.userId ?? data.id),
+        userName: normalizeIdentityValue(data.userName ?? data.name),
+    };
+}
+
+function readCloudIdentityFromResponse(data: unknown): Pick<SiyuanCloudIdentity, "userId" | "userName"> {
+    const candidates = [
+        data,
+        (data as any)?.user,
+        (data as any)?.cloudUser,
+        (data as any)?.account,
+        (data as any)?.data,
+        (data as any)?.data?.user,
+        (data as any)?.data?.cloudUser,
+    ];
+
+    for (const candidate of candidates) {
+        const identity = readIdentityFromObject(candidate);
+        if (identity.userId) {
+            return identity;
+        }
+    }
+
+    return { userId: "", userName: "" };
+}
+
+function readWindowSiyuanIdentity(): Pick<SiyuanCloudIdentity, "userId" | "userName"> {
+    const user = (window as any)?.siyuan?.user;
+    return readIdentityFromObject(user);
+}
+
+export async function getSiyuanCloudIdentity(): Promise<SiyuanCloudIdentity> {
+    try {
+        const response = await requestRaw("/api/setting/getCloudUser", {});
+        if (response?.code === 0) {
+            const identity = readCloudIdentityFromResponse(response.data);
+            if (identity.userId) {
+                return {
+                    ...identity,
+                    source: "getCloudUser",
+                };
+            }
+        }
+    } catch (error) {
+        console.warn("[Homepage] getCloudUser failed, fallback to window.siyuan.user:", error);
+    }
+
+    const fallbackIdentity = readWindowSiyuanIdentity();
+    if (fallbackIdentity.userId) {
+        return {
+            ...fallbackIdentity,
+            source: "window.siyuan.user",
+        };
+    }
+
+    return {
+        userId: "",
+        userName: "",
+        source: "none",
+    };
+}
+
 
 // **************************************** Noteboook ****************************************
 

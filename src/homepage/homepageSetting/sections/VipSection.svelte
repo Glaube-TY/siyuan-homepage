@@ -5,6 +5,8 @@
         USER_NAME: string;
         USER_ID: string;
         USER_CODE: string;
+        USER_CODE_V2?: string;
+        IDENTITY_SOURCE?: string;
         activated: boolean;
         activationResult: any;
         ActivationCode: string;
@@ -17,6 +19,8 @@
         USER_NAME,
         USER_ID,
         USER_CODE,
+        USER_CODE_V2 = "",
+        IDENTITY_SOURCE = "",
         activated,
         activationResult,
         ActivationCode,
@@ -24,6 +28,27 @@
         onActivate,
         onActivationCodeChange
     }: Props = $props();
+
+    const TUTORIAL_URL = "https://blog.glaube-ty.top/zhu-ye-cha-jian";
+    const MEMBER_GROUP_URL = "https://qm.qq.com/q/4ebO3QB6R2";
+    const MEMBER_GROUP_NUMBER = "391403097";
+
+    function copyText(text: string, successMessage: string): void {
+        if (!text) {
+            showMessage("暂无可复制的会员识别码");
+            return;
+        }
+
+        navigator.clipboard
+            .writeText(text)
+            .then(() => {
+                showMessage(successMessage);
+            })
+            .catch((err) => {
+                console.error("复制失败", err);
+                showMessage("复制失败，请手动选择复制");
+            });
+    }
 </script>
 
 <div class="vip-section">
@@ -36,11 +61,70 @@
         {/if}
     </div>
     {#if activated}
-        <div class="activated">
-            <h2>👑当前用户已激活👑</h2>
-            <label for="">到期时间：{activationResult.userInfo.due}</label>
-            <label for="">剩余天数：{activationResult.userInfo.remainingDays}</label>
-            <button onclick={onDeactivate}>注销激活</button>
+        <div
+            class="activated"
+            class:activated-lifetime={activationResult.userInfo.isLifetime}
+        >
+            <div class="activated-hero">
+                <div class="activated-badge">
+                    {activationResult.userInfo.isLifetime ? "永久会员" : "会员已激活"}
+                </div>
+                <h2>
+                    {activationResult.userInfo.isLifetime ? "尊享永久会员" : "会员服务已启用"}
+                </h2>
+                <p class="activated-desc">
+                    感谢你对主页插件的支持。愿它继续陪你整理灵感、沉淀知识，也欢迎把使用建议反馈给作者。
+                </p>
+                {#if activationResult.userInfo.isLifetime}
+                    <p class="activated-desc lifetime-desc">
+                        你已获得永久会员资格，后续可持续享受会员功能与更新支持。
+                    </p>
+                {/if}
+            </div>
+
+            <div class="activated-stats">
+                <div class="activated-stat">
+                    <span>到期时间</span>
+                    <strong>{activationResult.userInfo.due}</strong>
+                </div>
+                <div class="activated-stat">
+                    <span>剩余天数</span>
+                    <strong>
+                        {activationResult.userInfo.isLifetime ? "永久" : activationResult.userInfo.remainingDays}
+                    </strong>
+                </div>
+            </div>
+
+            <div class="member-actions">
+                <a
+                    class="member-link primary"
+                    href={TUTORIAL_URL}
+                    target="_blank"
+                    rel="noopener noreferrer">查看插件教程</a
+                >
+                <a
+                    class="member-link"
+                    href={MEMBER_GROUP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer">加入主页插件会员群</a
+                >
+            </div>
+
+            <div class="member-group-card">
+                <div>
+                    <span>主页插件会员群</span>
+                    <strong>群号：{MEMBER_GROUP_NUMBER}</strong>
+                </div>
+                <p>群内会同步教程、常见问题和会员相关说明，也欢迎交流你的主页配置思路。</p>
+            </div>
+
+            {#if activationResult.legacyDeprecated}
+                <div class="legacy-license-warning">
+                    ⚠️ 当前使用的是旧版激活码。激活方式已更换，请联系作者换发新版激活码。
+                    旧版激活方式将只兼容到 2026 年 8 月 31 日。
+                </div>
+            {/if}
+            <button class="deactivate-button" onclick={onDeactivate}>注销激活</button>
         </div>
     {:else}
         <div class="vip-activate">
@@ -53,30 +137,27 @@
                 >
             </h3>
             {#if USER_NAME || USER_ID}
-                <label for="">购买时，请将下列标识码附在留言区域：</label>
+                {@const primaryUserCode = USER_CODE_V2 || USER_CODE}
+                <label for="">购买或换发激活码时，请复制下方会员识别码发送给作者。</label>
                 <div class="code-box">
                     <input
                         type="text"
                         class="user-code"
-                        value={USER_CODE}
+                        value={primaryUserCode}
                         readonly
                     />
                     <button
-                        onclick={() => {
-                            navigator.clipboard
-                                .writeText(USER_CODE)
-                                .then(() => {
-                                    showMessage("✅ 用户标识码已复制到剪贴板");
-                                })
-                                .catch((err) => {
-                                    console.error("复制失败", err);
-                                });
-                        }}
+                        onclick={() => copyText(primaryUserCode, "✅ 会员识别码已复制到剪贴板")}
                         class="btn copy-button"
-                        title="复制用户标识码"
-                        aria-label="复制用户标识码">复制</button
+                        title="复制会员识别码"
+                        aria-label="复制会员识别码">复制</button
                     >
                 </div>
+                {#if IDENTITY_SOURCE === "window.siyuan.user"}
+                    <div class="identity-source-warning">
+                        当前使用本地窗口账号信息作为兜底身份来源，如显示异常请重启思源或重新登录。
+                    </div>
+                {/if}
                 <div class="purchase-plan">
                     <h4>💰 订阅方案</h4>
                     <div class="plan-card">
@@ -143,12 +224,12 @@
                             <p>
                                 如果你是学生的话，可以使用学校教育邮箱发送邮件至
                                 <a href="mailto:glaube_ty@qq.com">glaube_ty@qq.com</a>
-                                ，赠送一年会员哦，记得附上标识码~
+                                ，赠送一年会员哦，记得附上会员识别码~
                             </p>
                         </div>
                         <div class="reminder-item">
                             <span class="icon">🎁</span>
-                            <p>若在插件 2.0 版本前打赏过，可将打赏订单号及标识码发送至下方邮箱或联系频道管理员，赠送一年 VIP。</p>
+                            <p>若在插件 2.0 版本前打赏过，可将打赏订单号及会员识别码发送至下方邮箱或联系频道管理员，赠送一年 VIP。</p>
                         </div>
                     </div>
                 </div>

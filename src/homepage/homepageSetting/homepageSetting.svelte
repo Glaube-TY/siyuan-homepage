@@ -211,10 +211,12 @@
     let FallingSpeed = $state("medium");
 
     // VIP设置
-    let USER_NAME: string = $state();
-    let USER_ID: string = $state();
-    let USER_CODE: string = $state();
-    let ActivationCode: string = $state();
+    let USER_NAME: string = $state("");
+    let USER_ID: string = $state("");
+    let USER_CODE: string = $state("");
+    let USER_CODE_V2: string = $state("");
+    let IDENTITY_SOURCE: string = $state("");
+    let ActivationCode: string = $state("");
     let activated: boolean = $state();
     let activationResult: any = $state();
     let advancedEnabled = $state(false);
@@ -571,14 +573,21 @@
         onMoveDownButton: moveDownButton,
     };
 
+    const DELETE_INVALID_LICENSE_CODES = new Set([25, 30, 31, 40, 41, 42, 43, 44]);
+
+    async function refreshVipIdentity(): Promise<void> {
+        const res = await advanced.updateVIP();
+        USER_NAME = res.USER_NAME || "";
+        USER_ID = res.USER_ID || "";
+        USER_CODE_V2 = res.USER_CODE_V2 || "";
+        IDENTITY_SOURCE = res.IDENTITY_SOURCE || "";
+        USER_CODE = USER_CODE_V2;
+    }
+
     async function handleMainTabChange(tab: HomepageSettingMainTab): Promise<void> {
         if (tab === "vip") {
             activeTab = tab;
-            await advanced.updateVIP().then((res) => {
-                USER_NAME = res.USER_NAME;
-                USER_ID = res.USER_ID;
-                USER_CODE = res.ENCRYPTED_USER_CODE;
-            });
+            await refreshVipIdentity();
             activationResult = await advanced.verifyLicense(
                 plugin,
                 USER_NAME,
@@ -587,7 +596,9 @@
             activated = activationResult.valid;
             if (!activated && activationResult.code != 2) {
                 showMessage(activationResult.error);
-                advanced.deleteLicense(plugin);
+                if (DELETE_INVALID_LICENSE_CODES.has(activationResult.code)) {
+                    await advanced.deleteLicense(plugin);
+                }
             }
         } else {
             activeTab = tab;
@@ -595,19 +606,26 @@
     }
 
     async function handleVipActivate(): Promise<void> {
-        const saveVIPConfDataResult = await advanced.saveVIPConfData(plugin, ActivationCode);
-        if (saveVIPConfDataResult) {
-            activationResult = await advanced.verifyLicense(plugin, USER_NAME, USER_ID);
-            if (activationResult.code !== 0) {
-                showMessage(activationResult.error);
-                advanced.deleteLicense(plugin);
-            } else {
-                showMessage("✅激活成功！");
-                activated = true;
-                advancedEnabled = true;
-                void refreshStatusAiModelSummary();
-            }
+        await refreshVipIdentity();
+
+        activationResult = await advanced.activateLicense(
+            plugin,
+            ActivationCode,
+            USER_NAME,
+            USER_ID,
+        );
+
+        if (activationResult.code !== 0) {
+            showMessage(activationResult.error);
+            return;
         }
+
+        showMessage("✅激活成功！");
+        activated = true;
+        advancedEnabled = true;
+        plugin.ADVANCED = true;
+        window.dispatchEvent(new CustomEvent("homepage-advanced-ready"));
+        void refreshStatusAiModelSummary();
     }
 
     async function handleVipDeactivate(): Promise<void> {
@@ -615,7 +633,9 @@
         if (saveVIPConfDataResult) {
             activated = false;
             advancedEnabled = false;
-            advanced.deleteLicense(plugin);
+            plugin.ADVANCED = false;
+            window.dispatchEvent(new CustomEvent("homepage-advanced-unavailable"));
+            await advanced.deleteLicense(plugin);
         }
     }
 
@@ -1026,6 +1046,8 @@
                     USER_NAME={USER_NAME}
                     USER_ID={USER_ID}
                     USER_CODE={USER_CODE}
+                    USER_CODE_V2={USER_CODE_V2}
+                    IDENTITY_SOURCE={IDENTITY_SOURCE}
                     activated={activated}
                     activationResult={activationResult}
                     ActivationCode={ActivationCode}

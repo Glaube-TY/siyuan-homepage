@@ -42,6 +42,8 @@ const DOCK_TYPE = "homepage_dock";
 const KB_CHAT_TAB_TYPE = "kb_chat_tab";
 const KB_CHAT_TAB_ID = "siyuan-homepagekb_chat_tab";
 const KB_DOCK_TYPE = "homepage_kb_dock";
+const COMMAND_KEY_QUICK_NOTES = "quickNotes";
+const COMMAND_KEY_OPEN_HOMEPAGE = "openHomepage";
 
 const HOMEPAGE_ICON_SVG = `<symbol id="iconhomepage" viewBox="0 0 1024 1024">
     <path d="M918.050133 478.344533L512 165.341867 105.949867 478.344533a51.165867 51.165867 0 0 1-62.7712-80.8448L477.184 57.9584 512 25.6l34.833067 32.3584 434.005333 339.541333a51.2 51.2 0 1 1-62.788267 80.8448z" fill="#B02721" p-id="15736"></path><path d="M918.050133 478.344533L512 165.341867 105.949867 478.344533a51.165867 51.165867 0 0 1-62.7712-80.8448L477.184 57.9584 512 25.6l34.833067 32.3584 434.005333 339.541333a51.2 51.2 0 1 1-62.788267 80.8448z" fill="#B02721" p-id="15737"></path><path d="M512 165.341867L119.466667 467.9168V981.333333h785.066666V467.9168z" fill="#E0E1E2" p-id="15738"></path><path d="M1006.933333 810.666667a17.066667 17.066667 0 0 0-17.066666 17.066666v17.066667h-17.066667v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v17.066667h-34.133334a17.066667 17.066667 0 1 0 0 34.133333h34.133334v51.2h-34.133334a17.066667 17.066667 0 1 0 0 34.133334h34.133334v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h17.066667v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-153.6a17.066667 17.066667 0 0 0-17.066667-17.066666z m-34.133333 119.466666v-51.2h17.066667v51.2h-17.066667zM119.466667 878.933333a17.066667 17.066667 0 1 0 0-34.133333H85.333333v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v17.066667H34.133333v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v153.6a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h17.066667v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h34.133334a17.066667 17.066667 0 1 0 0-34.133334H85.333333v-51.2h34.133334z m-68.266667 51.2H34.133333v-51.2h17.066667v51.2z" fill="#E0E1E2" p-id="15739"></path><path d="M256 452.266667h204.8v136.533333H256zM256 691.2h204.8v170.666667H256zM563.2 452.266667h204.8v136.533333H563.2zM563.2 691.2h204.8v290.133333H563.2z" fill="#556080" p-id="15740"></path><path d="M563.2 452.266667h204.8v102.4H563.2zM256 452.266667h204.8v47.189333H256zM375.466667 759.466667v-68.266667h-34.133334v68.266667h-85.333333v34.133333h85.333333v68.266667h34.133334v-68.266667h85.333[... 52 char[... 14 chars omitted ...]
@@ -317,10 +319,17 @@ export default class PluginHomepage extends Plugin {
         if (!settings.enabled || this.isMobileFrontend() || !this.ADVANCED) {
             return toolbar;
         }
-        toolbar.push(...createSelectionAiToolbarItems({
+        const selectionAiToolbarItems = createSelectionAiToolbarItems({
             plugin: this,
             settings,
-        }));
+        });
+        this.ensureOwnKeymapShape(selectionAiToolbarItems
+            .filter((item): item is IMenuItem => typeof item !== "string" && typeof item.name === "string")
+            .map((item) => ({
+                key: item.name,
+                defaultHotkey: typeof item.hotkey === "string" ? item.hotkey : "",
+            })), { createMissing: false });
+        toolbar.push(...selectionAiToolbarItems);
         return toolbar;
     }
 
@@ -563,22 +572,35 @@ export default class PluginHomepage extends Plugin {
             const userId = vipInfo.USER_ID;
             const licenseResult = await advanced.verifyLicense(this, userName, userId);
 
-            if (licenseResult.valid && licenseResult.code === 0) {
+            if (licenseResult.valid && licenseResult.code === 0 && licenseResult.userInfo) {
                 this.ADVANCED = true;
                 window.dispatchEvent(new CustomEvent("homepage-advanced-ready"));
+
+                if (licenseResult.legacyDeprecated) {
+                    showMessage(
+                        "⚠️ 当前使用的是旧版激活码。激活方式已更换，请联系作者换发新版激活码。旧版激活方式将只兼容到 2026 年 8 月 31 日，请尽快联系作者换发新版激活码。",
+                        10000
+                    );
+                }
+
                 const remainingDays = licenseResult.userInfo.remainingDays;
-                if (remainingDays === 7) {
-                    showMessage("您的激活码还有 7 天过期，建议及时更新！");
-                } else if (remainingDays === 3) {
-                    showMessage("您的激活码还有 3 天过期，建议及时更新！");
-                } else if (remainingDays === 1) {
-                    showMessage("您的激活码还有 1 天过期，建议及时更新！");
+                const isLifetime = licenseResult.userInfo.isLifetime === true;
+
+                if (!isLifetime) {
+                    if (remainingDays === 7) {
+                        showMessage("您的激活码还有 7 天过期，建议及时更新！");
+                    } else if (remainingDays === 3) {
+                        showMessage("您的激活码还有 3 天过期，建议及时更新！");
+                    } else if (remainingDays === 1) {
+                        showMessage("您的激活码还有 1 天过期，建议及时更新！");
+                    }
                 }
             } else {
                 this.ADVANCED = false;
                 window.dispatchEvent(new CustomEvent("homepage-advanced-unavailable"));
-                if (licenseResult.code === 5) {
-                    showMessage("❌ 您的激活码已过期！");
+
+                if ([31, 40, 43].includes(licenseResult.code) && licenseResult.error) {
+                    showMessage(licenseResult.error);
                 }
             }
         } catch (error) {
@@ -593,9 +615,103 @@ export default class PluginHomepage extends Plugin {
         this.addIcons(TASK_ICON_SVG);
     }
 
+    private getOwnKeymapNamespace(): Record<string, any> | null {
+        const keymap = (window as any).siyuan?.config?.keymap;
+        if (!keymap || typeof keymap !== "object") {
+            return null;
+        }
+        if (!keymap.plugin || typeof keymap.plugin !== "object") {
+            keymap.plugin = {};
+        }
+        if (!keymap.plugin[this.name] || typeof keymap.plugin[this.name] !== "object") {
+            keymap.plugin[this.name] = {};
+        }
+        return keymap.plugin[this.name];
+    }
+
+    private migrateOwnKeymapEntry(oldKey: string, newKey: string, defaultHotkey = ""): void {
+        try {
+            const ownKeymap = this.getOwnKeymapNamespace();
+            if (!ownKeymap) {
+                return;
+            }
+            const oldEntry = ownKeymap[oldKey];
+            if (!oldEntry || typeof oldEntry !== "object") {
+                return;
+            }
+            const migratedEntry = ownKeymap[newKey];
+            const migratedCustom = typeof oldEntry.custom === "string" ? oldEntry.custom : "";
+            const migratedDefault = typeof oldEntry.default === "string" ? oldEntry.default : defaultHotkey;
+
+            if (!migratedEntry || typeof migratedEntry !== "object") {
+                ownKeymap[newKey] = {
+                    default: migratedDefault,
+                    custom: migratedCustom,
+                };
+            } else {
+                if (typeof migratedEntry.default !== "string") {
+                    migratedEntry.default = migratedDefault;
+                }
+                if (typeof migratedEntry.custom !== "string") {
+                    migratedEntry.custom = migratedCustom;
+                }
+            }
+
+            delete ownKeymap[oldKey];
+        } catch (error) {
+            console.warn("[Homepage] 本插件快捷键迁移检查失败:", error);
+        }
+    }
+
+    private ensureOwnKeymapShape(
+        entries: Array<{ key: string; defaultHotkey?: string }> = [],
+        options: { createMissing?: boolean } = {}
+    ): void {
+        try {
+            const ownKeymap = this.getOwnKeymapNamespace();
+            if (!ownKeymap) {
+                return;
+            }
+
+            const createMissing = options.createMissing !== false;
+
+            for (const entry of entries) {
+                if (!entry.key) {
+                    continue;
+                }
+                const defaultHotkey = typeof entry.defaultHotkey === "string" ? entry.defaultHotkey : "";
+                const current = ownKeymap[entry.key];
+
+                if (!current || typeof current !== "object") {
+                    if (!createMissing) {
+                        continue;
+                    }
+                    ownKeymap[entry.key] = {
+                        default: defaultHotkey,
+                        custom: "",
+                    };
+                    continue;
+                }
+
+                if (typeof current.default !== "string") {
+                    current.default = defaultHotkey;
+                }
+                if (typeof current.custom !== "string") {
+                    current.custom = "";
+                }
+            }
+        } catch (error) {
+            console.warn("[Homepage] 本插件快捷键配置检查失败:", error);
+        }
+    }
+
     private registerCommand() {
+        this.migrateOwnKeymapEntry("快速笔记", COMMAND_KEY_QUICK_NOTES, "⇧⌘Q");
+        this.migrateOwnKeymapEntry("打开主页", COMMAND_KEY_OPEN_HOMEPAGE, "⇧⌘H");
+
         this.addCommand({
-            langKey: "快速笔记",
+            langKey: COMMAND_KEY_QUICK_NOTES,
+            langText: "快速笔记",
             hotkey: "⇧⌘Q",
             callback: async () => {
                 const config = await this.getPluginConfig();
@@ -634,7 +750,8 @@ export default class PluginHomepage extends Plugin {
 
         // 添加快速打开主页的快捷键命令
         this.addCommand({
-            langKey: "打开主页",
+            langKey: COMMAND_KEY_OPEN_HOMEPAGE,
+            langText: "打开主页",
             hotkey: "⇧⌘H",
             callback: () => {
                 // 检查是否为移动端
@@ -646,6 +763,11 @@ export default class PluginHomepage extends Plugin {
                 }
             },
         });
+
+        this.ensureOwnKeymapShape([
+            { key: COMMAND_KEY_QUICK_NOTES, defaultHotkey: "⇧⌘Q" },
+            { key: COMMAND_KEY_OPEN_HOMEPAGE, defaultHotkey: "⇧⌘H" },
+        ]);
     }
 
     private registerTopBar(config: PluginConfig) {
@@ -900,7 +1022,6 @@ export default class PluginHomepage extends Plugin {
                 size: { width: 200, height: 0 },
                 icon: "iconhomepage",
                 title: "主页侧边栏",
-                hotkey: "⌥⌘C",
             },
             data: {
                 text: "这是一个主页侧边栏。"
@@ -934,6 +1055,9 @@ export default class PluginHomepage extends Plugin {
                 dock.element.appendChild(sidebarContainer);
             },
         });
+        this.ensureOwnKeymapShape([
+            { key: this.name + DOCK_TYPE, defaultHotkey: "" },
+        ], { createMissing: false });
     }
 
     private registerKbDock() {
@@ -996,6 +1120,9 @@ export default class PluginHomepage extends Plugin {
                 }
             },
         });
+        this.ensureOwnKeymapShape([
+            { key: this.name + KB_DOCK_TYPE, defaultHotkey: "" },
+        ], { createMissing: false });
     }
 
     // 校验并规范化 docId

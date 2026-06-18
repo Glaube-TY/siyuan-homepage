@@ -11,7 +11,7 @@
             <div class="card-content">
                 <span class="label">插件主页</span>
                 <div class="link-list">
-                    <a href="https://github.com/Glaube-TY/siyuan-homepage" class="link">siyuan-homepage</a>
+                    <a href="https://github.com/Glaube-TY/siyuan-homepage" class="link">项目主页</a>
                 </div>
             </div>
         </div>

@@ -159,7 +159,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
         badge: "迁移优化",
         description: "扫描当前工作空间中的空文档，支持预览、多选和删除前复检。",
         sourceText: "该功能来自作者的独立项目，已迁移并针对当前主页插件优化。",
-        sourceName: "siyuan-empty-doc-cleaner",
+        sourceName: "空文档清理工具",
         sourceUrl: "https://github.com/Glaube-TY/siyuan-empty-doc-cleaner",
         usage: [
             "点击快捷按钮后会打开清理空文档弹窗。",
