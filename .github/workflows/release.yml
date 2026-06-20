@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -11,46 +15,32 @@ jobs:
     steps:
       # Checkout
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      # Install pnpm
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.9
+          run_install: false
 
       # Install Node.js
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: "https://registry.npmjs.org"
-
-        # Install pnpm
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        id: pnpm-install
-        with:
-          version: 8
-          run_install: false
-
-      # Get pnpm store directory
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      # Setup pnpm cache
-      - name: Setup pnpm cache
-        uses: actions/cache@v3
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          cache: pnpm
 
       # Install dependencies
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
-      # Build for production, 这一步会生成一个 package.zip
+      # Build for production. This step creates package.zip.
       - name: Build for production
         run: pnpm build
+
+      - name: Verify package.zip
+        run: test -f package.zip
 
       - name: Release
         uses: ncipollo/release-action@v1
