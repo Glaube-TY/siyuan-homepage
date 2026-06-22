@@ -1,4 +1,4 @@
-export type DatabaseWidgetType = "fixedAssets" | "CYBMOK" | "focus" | "countdown";
+export type DatabaseWidgetType = "fixedAssets" | "CYBMOK" | "focus" | "countdown" | "reviewDocs";
 
 export type DatabaseIdResolveResult = {
     databaseId: string;
@@ -55,6 +55,7 @@ export function getDatabaseIdField(type: DatabaseWidgetType): string {
     if (type === "fixedAssets") return "fixedAssetsDatabaseId";
     if (type === "CYBMOK") return "CYBMOKDatabaseId";
     if (type === "countdown") return "countdownDatabaseId";
+    if (type === "reviewDocs") return "reviewDocsDatabaseId";
     return "focusDatabaseId";
 }
 
@@ -75,7 +76,9 @@ export function readDatabaseIdFromWidgetConfig(
                 ? data.CYBMOKDatabaseId || data.cybmokDatabaseId
                 : type === "countdown"
                     ? data.countdownDatabaseId
-                    : data.focusDatabaseId;
+                    : type === "reviewDocs"
+                        ? data.reviewDocsDatabaseId
+                        : data.focusDatabaseId;
 
     return typeof databaseId === "string" ? databaseId.trim() : "";
 }

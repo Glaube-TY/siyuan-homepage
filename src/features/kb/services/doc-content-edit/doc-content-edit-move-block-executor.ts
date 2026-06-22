@@ -1,9 +1,9 @@
 /**
  * move_block 内部确认执行服务。
  * 仅在用户通过 UI 弹窗确认后调用，不暴露给 Agent。
- * 真实移动统一走 src/api.ts 的 moveBlock wrapper。
+ * 真实移动统一走 src/api.ts 的 moveBlockRaw wrapper（返回完整 IWebSocketData）。
  */
-import { moveBlock, getBlockKramdown, sql } from "../../../../api";
+import { moveBlockRaw, getBlockKramdown, sql } from "../../../../api";
 import {
   getDocContentEditConfirmation,
   removeDocContentEditConfirmation,
@@ -232,10 +232,10 @@ export async function executeConfirmedMoveBlock(
     }
   }
 
-  // 8. 调用 moveBlock 执行真实移动
-  let moveResult: unknown;
+  // 8. 调用 moveBlockRaw 执行真实移动（使用 raw 响应判断，避免 data=null 误判）
+  let rawResponse: import("siyuan").IWebSocketData;
   try {
-    moveResult = await moveBlock(blockId, previousID, parentID);
+    rawResponse = await moveBlockRaw(blockId, previousID, parentID);
   } catch (err) {
     await removeDocContentEditConfirmation(confirmationId);
     const message = err instanceof Error ? err.message : String(err);
@@ -246,12 +246,13 @@ export async function executeConfirmedMoveBlock(
     };
   }
 
-  if (!moveResult) {
+  if (rawResponse.code !== 0) {
     await removeDocContentEditConfirmation(confirmationId);
+    const hint = rawResponse.msg || rawResponse.data || "内核返回非零 code";
     return {
       ok: false,
       status: "failed",
-      message: "块移动失败。",
+      message: `块移动失败：${hint}`,
     };
   }
 

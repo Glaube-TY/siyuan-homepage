@@ -1,0 +1,326 @@
+{
+    "code": 0,
+    "msg": "",
+    "data": [
+        {
+            "id": "20260420145219-bzn4i7v",
+            "name": "书名",
+            "type": "block",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145247-4zc3rgc",
+            "name": "作者介绍",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145247-98txyqv",
+            "name": "书籍简介",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145247-s1scwos",
+            "name": "读完日期",
+            "type": "date",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145247-dxb3s4m",
+            "name": "开始日期",
+            "type": "date",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145247-8dvskem",
+            "name": "阅读状态",
+            "type": "select",
+            "icon": "",
+            "desc": "",
+            "options": [
+                {
+                    "name": "",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "已读",
+                    "color": "",
+                    "desc": ""
+                }
+            ],
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145247-dq290kp",
+            "name": "书籍分类",
+            "type": "select",
+            "icon": "",
+            "desc": "",
+            "options": [
+                {
+                    "name": "",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "经济理财-财经",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "精品小说-社会小说",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "精品小说-科幻小说",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "文学-外国文学",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "政治军事-政治",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "心理-认知与行为",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "科学技术-自然科学",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "经济理财",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "经济理财-商业",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "哲学宗教-东方哲学",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "个人成长-人在职场",
+                    "color": "",
+                    "desc": ""
+                }
+            ],
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-ov52gdu",
+            "name": "我的评分",
+            "type": "select",
+            "icon": "",
+            "desc": "",
+            "options": [
+                {
+                    "name": "",
+                    "color": "",
+                    "desc": ""
+                },
+                {
+                    "name": "⭐",
+                    "color": "",
+                    "desc": ""
+                }
+            ],
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-c8glkr9",
+            "name": "装帧",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-y8ijpwu",
+            "name": "页数",
+            "type": "number",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-zn924gq",
+            "name": "定价",
+            "type": "number",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-jcum8sv",
+            "name": "评分人数",
+            "type": "number",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-buvdy1q",
+            "name": "豆瓣评分",
+            "type": "number",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-ygyv88x",
+            "name": "ISBN",
+            "type": "number",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-6mv4gnh",
+            "name": "丛书",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-2wpb8ds",
+            "name": "出品方",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-pluayhc",
+            "name": "出版年",
+            "type": "date",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-9btizmt",
+            "name": "出版社",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-5izfme2",
+            "name": "译者",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-nn9pz4h",
+            "name": "作者",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-k1hrk93",
+            "name": "原作名",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-g9hw6rc",
+            "name": "副标题",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145248-wibijqd",
+            "name": "封面",
+            "type": "mAsset",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260420145253-yjga2is",
+            "name": "bookID",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260519164113-ukb81ef",
+            "name": "微信读书评分人数",
+            "type": "number",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260519164113-4q27mrn",
+            "name": "微信读书评分",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        }
+    ]
+}

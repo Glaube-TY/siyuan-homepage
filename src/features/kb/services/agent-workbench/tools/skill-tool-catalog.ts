@@ -9,6 +9,7 @@
 export type BuiltinSkillToolCategoryId =
   | "knowledge_base"
   | "schedule_task_diary"
+  | "database_assistant"
   | "doc_content_editing";
 
 /** 内部工具名（仅作为设置 key，UI 不显示） */
@@ -16,7 +17,6 @@ export type SkillToolName =
   | "list_knowledge_map"
   | "search_scope"
   | "list_items_by_time"
-  | "read_candidate_docs"
   | "get_daily_workspace_overview"
   | "query_tasks"
   | "query_diary_records"
@@ -25,6 +25,15 @@ export type SkillToolName =
   | "manage_diary_task"
   | "manage_diary_record"
   | "manage_diary_review"
+  | "list_attribute_views"
+  | "read_attribute_view"
+  | "find_attribute_view_rows"
+  | "update_attribute_view_cell"
+  | "add_attribute_view_rows"
+  | "add_attribute_view_key"
+  | "remove_attribute_view_key"
+  | "remove_attribute_view_rows"
+  | "clear_attribute_view_cell"
   | "read_doc_blocks"
   | "create_doc"
   | "update_block"
@@ -78,12 +87,6 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         name: "list_items_by_time",
         title: "查看文档与内容块时间列表",
         description: "按创建时间或更新时间列出当前范围内的文档或内容块，支持 blockTypes 过滤，帮助了解最近新增或修改的笔记。",
-        readOnly: true,
-      },
-      {
-        name: "read_candidate_docs",
-        title: "搜索并读取候选文档",
-        description: "先搜索候选文档并读取相关正文片段，用于需要一步获取候选证据的场景。",
         readOnly: true,
       },
     ],
@@ -145,6 +148,79 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         name: "manage_diary_review",
         title: "管理复盘内容",
         description: "统一管理复盘：保存复盘字段、标记完成/未完成、跳过/恢复。docId 必须来自 find_diary_docs 返回。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+    ],
+  },
+  {
+    id: "database_assistant",
+    title: "数据库助手",
+    description: "查询和操作思源数据库/属性视图，并执行受控写入。",
+    tools: [
+      {
+        name: "list_attribute_views",
+        title: "查找数据库",
+        description: "搜索和列出数据库候选，帮助获取真实 databaseId。",
+        readOnly: true,
+      },
+      {
+        name: "read_attribute_view",
+        title: "读取数据库",
+        description: "读取数据库字段、视图和有限条目摘要，区分 databaseId、viewId、keyId 和 rowId。",
+        readOnly: true,
+      },
+      {
+        name: "find_attribute_view_rows",
+        title: "查找数据库条目",
+        description: "按关键词或字段条件查找条目，返回真实 rowId 和字段摘要。",
+        readOnly: true,
+      },
+      {
+        name: "update_attribute_view_cell",
+        title: "更新数据库单元格",
+        description: "在确认后用真实 databaseId、rowId 和 keyId 更新单元格。支持单个或批量更新（最多 20 项）。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "add_attribute_view_rows",
+        title: "添加条目到数据库",
+        description: "在确认后将已有块加入数据库，或添加少量脱离块条目。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "add_attribute_view_key",
+        title: "新增数据库字段",
+        description: "在确认后新增一个数据库字段，字段名重复时拒绝。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "remove_attribute_view_key",
+        title: "删除数据库字段",
+        description: "在确认后删除一个数据库字段及其所有值。主字段不允许删除。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "remove_attribute_view_rows",
+        title: "删除数据库条目",
+        description: "在确认后删除一个或多个数据库条目。一次最多删除 20 行。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "clear_attribute_view_cell",
+        title: "清空数据库单元格",
+        description: "在确认后清空指定单元格的值。block 主字段不允许清空。",
         readOnly: false,
         canWrite: true,
         requiresConfirmation: true,

@@ -25,6 +25,12 @@ const BUILTIN_SIYUAN_TOOL_NAMES = new Set([
   "query_tasks",
   "query_diary_records",
   "find_diary_docs",
+  "list_attribute_views",
+  "read_attribute_view",
+  "find_attribute_view_rows",
+  "update_attribute_view_cell",
+  "add_attribute_view_rows",
+  "add_attribute_view_key",
 ]);
 
 /**

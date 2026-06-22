@@ -29,6 +29,7 @@ import { hydrateAttachedDocsForTurn } from "../adapters/siyuan/attached-doc-hydr
 import { readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
 import { BUILTIN_KB_SKILL_NAME } from "../skills/builtin/knowledge-base-qa.skill";
 import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../skills/builtin/schedule-task-diary.skill";
+import { BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "../skills/builtin/database-assistant.skill";
 import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../skills/builtin/doc-content-editing.skill";
 import { createAnySearchProvider } from "../tools/web-search/providers/anysearch.provider";
 import { createCustomJsonProvider } from "../tools/web-search/providers/custom-json.provider";
@@ -239,6 +240,7 @@ export async function runAgentTurn(
     const builtinCapabilityAccess = {
       knowledgeBase: !disabledBuiltinSkills.has(BUILTIN_KB_SKILL_NAME),
       scheduleTaskDiary: !disabledBuiltinSkills.has(BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME),
+      databaseAssistant: !disabledBuiltinSkills.has(BUILTIN_DATABASE_ASSISTANT_SKILL_NAME),
       docContentEditing: !disabledBuiltinSkills.has(BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME),
     };
 

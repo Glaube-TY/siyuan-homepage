@@ -138,6 +138,7 @@
   .value {
     color: var(--b3-theme-on-surface, #333);
     word-break: break-all;
+    white-space: pre-wrap;
   }
 
   .args-section {

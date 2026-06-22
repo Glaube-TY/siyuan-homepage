@@ -70,9 +70,41 @@ import {
   type GetDocInfoDeps,
 } from "../tools/siyuan/get-doc-info.tool";
 import {
-  createReadCandidateDocsTool,
-  type ReadCandidateDocsDeps,
-} from "../tools/siyuan/read-candidate-docs.tool";
+  createListAttributeViewsTool,
+  type ListAttributeViewsDeps,
+} from "../tools/siyuan/list-attribute-views.tool";
+import {
+  createReadAttributeViewTool,
+  type ReadAttributeViewDeps,
+} from "../tools/siyuan/read-attribute-view.tool";
+import {
+  createFindAttributeViewRowsTool,
+  type FindAttributeViewRowsDeps,
+} from "../tools/siyuan/find-attribute-view-rows.tool";
+import {
+  createUpdateAttributeViewCellTool,
+  type UpdateAttributeViewCellDeps,
+} from "../tools/siyuan/update-attribute-view-cell.tool";
+import {
+  createAddAttributeViewRowsTool,
+  type AddAttributeViewRowsDeps,
+} from "../tools/siyuan/add-attribute-view-rows.tool";
+import {
+  createAddAttributeViewKeyTool,
+  type AddAttributeViewKeyDeps,
+} from "../tools/siyuan/add-attribute-view-key.tool";
+import {
+  createRemoveAttributeViewKeyTool,
+  type RemoveAttributeViewKeyDeps,
+} from "../tools/siyuan/remove-attribute-view-key.tool";
+import {
+  createRemoveAttributeViewRowsTool,
+  type RemoveAttributeViewRowsDeps,
+} from "../tools/siyuan/remove-attribute-view-rows.tool";
+import {
+  createClearAttributeViewCellTool,
+  type ClearAttributeViewCellDeps,
+} from "../tools/siyuan/clear-attribute-view-cell.tool";
 import {
   createManageDiaryStructureTool,
   type ManageDiaryStructureDeps,
@@ -109,6 +141,15 @@ import { executeDeleteDoc } from "../tools/siyuan/impl/delete-doc.impl";
 import { executeReplaceDocContent } from "../tools/siyuan/impl/replace-doc-content.impl";
 import { executeListItemsByTime } from "../tools/siyuan/impl/list-items-by-time.impl";
 import { executeGetDocInfo } from "../tools/siyuan/impl/get-doc-info.impl";
+import { executeListAttributeViews } from "../tools/siyuan/impl/list-attribute-views.impl";
+import { executeReadAttributeView } from "../tools/siyuan/impl/read-attribute-view.impl";
+import { executeFindAttributeViewRows } from "../tools/siyuan/impl/find-attribute-view-rows.impl";
+import { executeUpdateAttributeViewCell } from "../tools/siyuan/impl/update-attribute-view-cell.impl";
+import { executeAddAttributeViewRows } from "../tools/siyuan/impl/add-attribute-view-rows.impl";
+import { executeAddAttributeViewKey } from "../tools/siyuan/impl/add-attribute-view-key.impl";
+import { executeRemoveAttributeViewKey } from "../tools/siyuan/impl/remove-attribute-view-key.impl";
+import { executeRemoveAttributeViewRows } from "../tools/siyuan/impl/remove-attribute-view-rows.impl";
+import { executeClearAttributeViewCell } from "../tools/siyuan/impl/clear-attribute-view-cell.impl";
 import { executeManageDiaryStructure } from "../tools/siyuan/impl/manage-diary-structure.impl";
 import { executeManageDiaryTask } from "../tools/siyuan/impl/manage-diary-task.impl";
 import { executeManageDiaryRecord } from "../tools/siyuan/impl/manage-diary-record.impl";
@@ -120,6 +161,7 @@ export interface SiyuanToolRegistrationOptions {
   builtinCapabilityAccess?: {
     knowledgeBase: boolean;
     scheduleTaskDiary: boolean;
+    databaseAssistant: boolean;
     docContentEditing: boolean;
   };
   globalToolAccess?: {
@@ -159,6 +201,33 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   const getDocInfoDeps: GetDocInfoDeps = {
     executeGetDocInfo: (args) => executeGetDocInfo(deps, args),
   };
+  const listAttributeViewsDeps: ListAttributeViewsDeps = {
+    executeListAttributeViews: (args) => executeListAttributeViews(deps, args),
+  };
+  const readAttributeViewDeps: ReadAttributeViewDeps = {
+    executeReadAttributeView: (args) => executeReadAttributeView(deps, args),
+  };
+  const findAttributeViewRowsDeps: FindAttributeViewRowsDeps = {
+    executeFindAttributeViewRows: (args) => executeFindAttributeViewRows(deps, args),
+  };
+  const updateAttributeViewCellDeps: UpdateAttributeViewCellDeps = {
+    executeUpdateAttributeViewCell: (args) => executeUpdateAttributeViewCell(deps, args),
+  };
+  const addAttributeViewRowsDeps: AddAttributeViewRowsDeps = {
+    executeAddAttributeViewRows: (args) => executeAddAttributeViewRows(deps, args),
+  };
+  const addAttributeViewKeyDeps: AddAttributeViewKeyDeps = {
+    executeAddAttributeViewKey: (args) => executeAddAttributeViewKey(deps, args),
+  };
+  const removeAttributeViewKeyDeps: RemoveAttributeViewKeyDeps = {
+    executeRemoveAttributeViewKey: (args) => executeRemoveAttributeViewKey(deps, args),
+  };
+  const removeAttributeViewRowsDeps: RemoveAttributeViewRowsDeps = {
+    executeRemoveAttributeViewRows: (args) => executeRemoveAttributeViewRows(deps, args),
+  };
+  const clearAttributeViewCellDeps: ClearAttributeViewCellDeps = {
+    executeClearAttributeViewCell: (args) => executeClearAttributeViewCell(deps, args),
+  };
   const manageDiaryStructureDeps: ManageDiaryStructureDeps = {
     executeManageDiaryStructure: (args) => executeManageDiaryStructure(deps, args),
   };
@@ -171,7 +240,15 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   const manageDiaryReviewDeps: ManageDiaryReviewDeps = {
     executeManageDiaryReview: (args) => executeManageDiaryReview(deps, args),
   };
-  return { lkmDeps, searchDeps, readDeps, overviewDeps, taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps, listItemsByTimeDeps, getDocInfoDeps, manageDiaryStructureDeps, manageDiaryTaskDeps, manageDiaryRecordDeps, manageDiaryReviewDeps };
+  return {
+    lkmDeps, searchDeps, readDeps, overviewDeps,
+    taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps,
+    listItemsByTimeDeps, getDocInfoDeps,
+    listAttributeViewsDeps, readAttributeViewDeps, findAttributeViewRowsDeps,
+    updateAttributeViewCellDeps, addAttributeViewRowsDeps, addAttributeViewKeyDeps, removeAttributeViewKeyDeps, removeAttributeViewRowsDeps,
+    clearAttributeViewCellDeps,
+    manageDiaryStructureDeps, manageDiaryTaskDeps, manageDiaryRecordDeps, manageDiaryReviewDeps,
+  };
 }
 
 export function registerSiyuanTools(
@@ -183,6 +260,9 @@ export function registerSiyuanTools(
     lkmDeps, searchDeps, readDeps, overviewDeps,
     taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps,
     listItemsByTimeDeps, getDocInfoDeps,
+    listAttributeViewsDeps, readAttributeViewDeps, findAttributeViewRowsDeps,
+    updateAttributeViewCellDeps, addAttributeViewRowsDeps, addAttributeViewKeyDeps, removeAttributeViewKeyDeps, removeAttributeViewRowsDeps,
+    clearAttributeViewCellDeps,
     manageDiaryStructureDeps,
     manageDiaryTaskDeps,
     manageDiaryRecordDeps, manageDiaryReviewDeps,
@@ -202,19 +282,6 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
     toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
     toolRegistry.ensureTool(createListItemsByTimeTool(listItemsByTimeDeps));
-
-    // read_candidate_docs: combines search + read into one step
-    const readCandidateDeps: ReadCandidateDocsDeps = {
-      executeSearch: async (args) => {
-        const result = await executeSearchScope(deps, { query: args.query, limit: args.limit });
-        return result.safeOutput;
-      },
-      executeRead: async (args) => {
-        const result = await executeReadDocs(deps, { docIds: args.docIds, maxChars: args.maxChars });
-        return result.safeOutput;
-      },
-    };
-    toolRegistry.ensureTool(createReadCandidateDocsTool(readCandidateDeps));
   }
 
   if (options.builtinCapabilityAccess?.scheduleTaskDiary !== false) {
@@ -227,6 +294,18 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createManageDiaryTaskTool(manageDiaryTaskDeps));
     toolRegistry.ensureTool(createManageDiaryRecordTool(manageDiaryRecordDeps));
     toolRegistry.ensureTool(createManageDiaryReviewTool(manageDiaryReviewDeps));
+  }
+
+  if (options.builtinCapabilityAccess?.databaseAssistant !== false) {
+    toolRegistry.ensureTool(createListAttributeViewsTool(listAttributeViewsDeps));
+    toolRegistry.ensureTool(createReadAttributeViewTool(readAttributeViewDeps));
+    toolRegistry.ensureTool(createFindAttributeViewRowsTool(findAttributeViewRowsDeps));
+    toolRegistry.ensureTool(createUpdateAttributeViewCellTool(updateAttributeViewCellDeps));
+    toolRegistry.ensureTool(createAddAttributeViewRowsTool(addAttributeViewRowsDeps));
+    toolRegistry.ensureTool(createAddAttributeViewKeyTool(addAttributeViewKeyDeps));
+    toolRegistry.ensureTool(createRemoveAttributeViewKeyTool(removeAttributeViewKeyDeps));
+    toolRegistry.ensureTool(createRemoveAttributeViewRowsTool(removeAttributeViewRowsDeps));
+    toolRegistry.ensureTool(createClearAttributeViewCellTool(clearAttributeViewCellDeps));
   }
 
   if (options.builtinCapabilityAccess?.docContentEditing === true) {

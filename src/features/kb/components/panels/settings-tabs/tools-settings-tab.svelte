@@ -4,12 +4,14 @@
   import { skillToolCatalog } from "../../../services/agent-workbench/tools/skill-tool-catalog";
   import { BUILTIN_KB_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/knowledge-base-qa.skill";
   import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/schedule-task-diary.skill";
+  import { BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/database-assistant.skill";
   import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/doc-content-editing.skill";
   import type { BuiltinSkillToolCategoryId } from "../../../services/agent-workbench/tools/skill-tool-catalog";
 
   const CATEGORY_TO_SKILL: Record<BuiltinSkillToolCategoryId, string> = {
     knowledge_base: BUILTIN_KB_SKILL_NAME,
     schedule_task_diary: BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME,
+    database_assistant: BUILTIN_DATABASE_ASSISTANT_SKILL_NAME,
     doc_content_editing: BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME,
   };
 
@@ -88,31 +90,33 @@
               </div>
               <span class="tool-description">{tool.description}</span>
             </div>
-            <div class="toggle-wrap">
-              <span class="toggle-label">{isToolEnabled(tool.name) ? "已启用" : "已停用"}</span>
-              <label class="switch">
-                <input
-                  type="checkbox"
-                  checked={isToolEnabled(tool.name)}
-                  on:change={() => toggleTool(tool.name)}
-                />
-                <span class="slider"></span>
-              </label>
+            <div class="toggle-group">
+              {#if !tool.readOnly && isToolEnabled(tool.name)}
+                <div class="toggle-item">
+                  <span class="toggle-label">确认</span>
+                  <label class="switch switch-small">
+                    <input
+                      type="checkbox"
+                      checked={isWriteToolConfirmationEnabled(tool.name)}
+                      on:change={() => toggleWriteToolConfirmation(tool.name)}
+                    />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              {/if}
+              <div class="toggle-item">
+                <span class="toggle-label">{isToolEnabled(tool.name) ? "已启用" : "已停用"}</span>
+                <label class="switch">
+                  <input
+                    type="checkbox"
+                    checked={isToolEnabled(tool.name)}
+                    on:change={() => toggleTool(tool.name)}
+                  />
+                  <span class="slider"></span>
+                </label>
+              </div>
             </div>
           </div>
-          {#if !tool.readOnly && isToolEnabled(tool.name)}
-            <div class="tool-confirm-row">
-              <span class="tool-confirm-label">执行前确认</span>
-              <label class="switch">
-                <input
-                  type="checkbox"
-                  checked={isWriteToolConfirmationEnabled(tool.name)}
-                  on:change={() => toggleWriteToolConfirmation(tool.name)}
-                />
-                <span class="slider"></span>
-              </label>
-            </div>
-          {/if}
         </div>
       {/each}
     </div>
@@ -149,20 +153,22 @@
                   </div>
                   <span class="tool-description">{tool.description}</span>
                 </div>
+                {#if !tool.readOnly}
+                  <div class="toggle-group">
+                    <div class="toggle-item">
+                      <span class="toggle-label">确认</span>
+                      <label class="switch switch-small">
+                        <input
+                          type="checkbox"
+                          checked={isWriteToolConfirmationEnabled(tool.name)}
+                          on:change={() => toggleWriteToolConfirmation(tool.name)}
+                        />
+                        <span class="slider"></span>
+                      </label>
+                    </div>
+                  </div>
+                {/if}
               </div>
-              {#if !tool.readOnly}
-                <div class="tool-confirm-row">
-                  <span class="tool-confirm-label">执行前确认</span>
-                  <label class="switch">
-                    <input
-                      type="checkbox"
-                      checked={isWriteToolConfirmationEnabled(tool.name)}
-                      on:change={() => toggleWriteToolConfirmation(tool.name)}
-                    />
-                    <span class="slider"></span>
-                  </label>
-                </div>
-              {/if}
             </div>
           {/each}
         </div>
@@ -257,19 +263,6 @@
     color: var(--b3-theme-on-surface);
     opacity: 0.8;
     line-height: 1.4;
-  }
-
-  .toggle-wrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-
-  .toggle-label {
-    font-size: 13px;
-    color: var(--b3-theme-on-surface);
   }
 
   .switch {
@@ -371,18 +364,39 @@
     color: var(--b3-theme-success, #2e7d32);
   }
 
-  .tool-confirm-row {
+  .toggle-group {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding-top: 8px;
-    border-top: 1px solid var(--b3-border-color);
-    gap: 8px;
+    gap: 12px;
+    flex-shrink: 0;
   }
 
-  .tool-confirm-label {
-    font-size: 13px;
+  .toggle-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .toggle-label {
+    font-size: 12px;
     color: var(--b3-theme-on-surface);
     opacity: 0.8;
+  }
+
+  .switch-small {
+    width: 30px;
+    height: 16px;
+
+    .slider:before {
+      height: 10px;
+      width: 10px;
+      left: 3px;
+      bottom: 3px;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(14px);
+    }
   }
 </style>

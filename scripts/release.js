@@ -1,9 +1,17 @@
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 import { execFileSync } from 'node:child_process';
 
 const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
+const pipedAnswers = process.stdin.isTTY ? null : readFileSync(0, 'utf8').split(/\r?\n/);
+const promptInterface = process.stdin.isTTY
+    ? readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    })
+    : null;
 
 async function readJsonFile(filePath) {
     return JSON.parse(await fs.readFile(filePath, 'utf8'));
@@ -14,15 +22,16 @@ async function writeJsonFile(filePath, jsonData) {
 }
 
 function promptUser(query) {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
+    if (pipedAnswers) {
+        process.stdout.write(query);
+        return Promise.resolve(pipedAnswers.shift() ?? '');
+    }
 
-    return new Promise((resolve) => rl.question(query, (answer) => {
-        rl.close();
-        resolve(answer);
-    }));
+    return new Promise((resolve) => promptInterface.question(query, resolve));
+}
+
+function closePrompt() {
+    promptInterface?.close();
 }
 
 function parseVersion(version) {
@@ -78,6 +87,31 @@ function incrementVersion(version, type) {
     }
 
     return `${next.major}.${next.minor}.${next.patch}`;
+}
+
+function normalizeReleaseNotes(notes, version) {
+    const normalized = String(notes || '')
+        .replace(/\\n/g, '\n')
+        .trim();
+
+    return normalized || `Release v${version}`;
+}
+
+function normalizeReleaseSummary(summary) {
+    return String(summary || '')
+        .replace(/\\n/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function createReleaseLabels(version, summary) {
+    const normalizedSummary = normalizeReleaseSummary(summary);
+    const suffix = normalizedSummary ? ` - ${normalizedSummary}` : '';
+
+    return {
+        commitSubject: `release: v${version}${suffix}`,
+        tagTitle: `v${version}${suffix}`,
+    };
 }
 
 function printCommand(command, args) {
@@ -234,6 +268,16 @@ async function restoreVersionFiles(files, originals) {
             throw new Error(`New version must be greater than ${currentVersion}, got ${newVersion}`);
         }
 
+        console.log('\n[release] Enter this release update summary.');
+        console.log('[release] This will be used in the git commit title, tag title, and GitHub Release title.');
+        console.log('[release] Leave empty to use only the version number.');
+        const releaseSummary = normalizeReleaseSummary(await promptUser('Release summary: '));
+        const releaseLabels = createReleaseLabels(newVersion, releaseSummary);
+
+        console.log('\n[release] Enter this release update notes.');
+        console.log('[release] Tip: use \\n for multiple lines. Leave empty to use a default message.');
+        const releaseNotes = normalizeReleaseNotes(await promptUser('Release notes: '), newVersion);
+
         run('git', ['fetch', 'origin', 'main', '--tags']);
         ensureMainCanPush();
         ensureTagDoesNotExist(newVersion);
@@ -248,6 +292,11 @@ async function restoreVersionFiles(files, originals) {
                 return;
             }
         }
+
+        console.log('\n[release] Release metadata preview:');
+        console.log(`   Commit: ${releaseLabels.commitSubject}`);
+        console.log(`   Tag:    ${releaseLabels.tagTitle}`);
+        console.log(`   Notes:  ${releaseNotes.split('\n')[0]}${releaseNotes.includes('\n') ? ' ...' : ''}`);
 
         const confirmRelease = await promptUser(`\nBuild, commit, tag, and release v${newVersion}? (y/N): `);
         if (confirmRelease.trim().toLowerCase() !== 'y') {
@@ -271,9 +320,9 @@ async function restoreVersionFiles(files, originals) {
             throw new Error('Nothing staged for commit after version update and build.');
         }
 
-        run('git', ['commit', '-m', `release: v${newVersion}`]);
+        run('git', ['commit', '-m', releaseLabels.commitSubject, '-m', releaseNotes]);
         committed = true;
-        run('git', ['tag', `v${newVersion}`]);
+        run('git', ['tag', '-a', `v${newVersion}`, '-m', releaseLabels.tagTitle, '-m', releaseNotes]);
         run('git', ['push', 'origin', 'main']);
         run('git', ['push', 'origin', `v${newVersion}`]);
 
@@ -287,5 +336,7 @@ async function restoreVersionFiles(files, originals) {
         }
         console.error('\n[release] Release failed:', error instanceof Error ? error.message : error);
         process.exitCode = 1;
+    } finally {
+        closePrompt();
     }
 })();

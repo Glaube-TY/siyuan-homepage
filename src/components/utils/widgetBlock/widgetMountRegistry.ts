@@ -31,6 +31,7 @@ import CYBMOK from "./widget/CYBMOK/CYBMOK.svelte";
 import countdownTimer from "./widget/countdownTimer/countdownTimer.svelte";
 import conditionDocs from "./widget/conditionDocs/conditionDocs.svelte";
 import fixedAssets from "./widget/fixedAssets/fixedAssets.svelte";
+import reviewDocs from "./widget/reviewDocs/reviewDocs.svelte";
 import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
 
@@ -67,6 +68,7 @@ const widgetRegistry: Record<string, any> = {
     "countdownTimer": countdownTimer,
     "conditionDocs": conditionDocs,
     "fixedAssets": fixedAssets,
+    "reviewDocs": reviewDocs,
     "enhancedDiary": enhancedDiary,
     "notebrain": KbPremiumGatePanel,
 };
@@ -101,6 +103,7 @@ const widgetNeedsPlugin: Set<string> = new Set([
     "countdownTimer",
     "conditionDocs",
     "fixedAssets",
+    "reviewDocs",
     "enhancedDiary",
     "notebrain",
 ]);

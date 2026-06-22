@@ -34,6 +34,7 @@
     import CountdownTimerSet from "./widget/countdownTimer/countdownTimerSet.svelte";
     import ConditionDocsSet from "./widget/conditionDocs/conditionDocsSet.svelte";
     import FixedAssetsSet from "./widget/fixedAssets/fixedAssetsSet.svelte";
+    import ReviewDocsSet from "./widget/reviewDocs/reviewDocsSet.svelte";
     import EnhancedDiarySet from "./widget/enhancedDiary/enhancedDiarySet.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
@@ -364,6 +365,23 @@
     let fixedAssetsShowYearly: boolean = $state(false);
     let fixedAssetsItemCostPeriod: string = $state("day");
 
+    // 复习文档配置
+    let reviewDocsTitle: string = $state("📚复习文档");
+    let reviewDocsDatabaseId: string = $state("");
+    let reviewDocsLimit: number = $state(20);
+    let reviewDocsDefaultView: string = $state("due");
+    let reviewDocsShowFuture: boolean = $state(true);
+    let reviewDocsFutureDays: number = $state(7);
+    let reviewDocsShowDocs: boolean = $state(true);
+    let reviewDocsShowBlocks: boolean = $state(true);
+    let reviewDocsShowNote: boolean = $state(true);
+    let reviewDocsShowPath: boolean = $state(true);
+    let reviewDocsShowStats: boolean = $state(true);
+    let reviewDocsSortBy: string = $state("dueAsc");
+    let reviewDocsShowFloatDoc: boolean = $state(true);
+    let reviewDocsFloatDocShowTime: number = $state(0.1);
+    let reviewDocsDefaultIntervals: string = $state("0,1,2,4,7,15,30,60");
+
     let advancedEnabled = $state(false);
 
     async function syncCurrentDatabaseWidgetConfig(contentTypeJson: any): Promise<void> {
@@ -383,6 +401,10 @@
             countdown: {
                 type: "countdown",
                 databaseId: countdownDatabaseId,
+            },
+            reviewDocs: {
+                type: "reviewDocs",
+                databaseId: reviewDocsDatabaseId,
             },
         };
         const syncConfig = syncByType[contentTypeJson?.type];
@@ -409,6 +431,7 @@
             CYBMOK: CYBMOKDatabaseId,
             focus: focusDatabaseId,
             countdown: countdownDatabaseId,
+            reviewDocs: reviewDocsDatabaseId,
         };
         const type = selectedContentType as DatabaseWidgetType;
         if (!(type in currentDatabaseIdByType) || currentDatabaseIdByType[type]?.trim()) {
@@ -435,6 +458,8 @@
             focusDatabaseId = result.databaseId;
         } else if (type === "countdown") {
             countdownDatabaseId = result.databaseId;
+        } else if (type === "reviewDocs") {
+            reviewDocsDatabaseId = result.databaseId;
         }
     }
 
@@ -893,6 +918,44 @@
                     parsedData.data?.fixedAssetsShowYearly ?? fixedAssetsShowYearly;
                 fixedAssetsItemCostPeriod =
                     parsedData.data?.fixedAssetsItemCostPeriod || fixedAssetsItemCostPeriod;
+            } else if (parsedData.type === "reviewDocs") {
+                reviewDocsTitle =
+                    parsedData.data?.reviewDocsTitle || reviewDocsTitle;
+                reviewDocsDatabaseId =
+                    parsedData.data?.reviewDocsDatabaseId || reviewDocsDatabaseId;
+                const resolved = await resolveDatabaseIdFromExistingWidgets(
+                    plugin,
+                    "reviewDocs",
+                    currentBlockId,
+                    parsedData,
+                );
+                reviewDocsDatabaseId = resolved.databaseId || reviewDocsDatabaseId;
+                reviewDocsLimit =
+                    parsedData.data?.reviewDocsLimit || reviewDocsLimit;
+                reviewDocsDefaultView =
+                    parsedData.data?.reviewDocsDefaultView || reviewDocsDefaultView;
+                reviewDocsShowFuture =
+                    parsedData.data?.reviewDocsShowFuture ?? reviewDocsShowFuture;
+                reviewDocsFutureDays =
+                    parsedData.data?.reviewDocsFutureDays || reviewDocsFutureDays;
+                reviewDocsShowDocs =
+                    parsedData.data?.reviewDocsShowDocs ?? reviewDocsShowDocs;
+                reviewDocsShowBlocks =
+                    parsedData.data?.reviewDocsShowBlocks ?? reviewDocsShowBlocks;
+                reviewDocsShowNote =
+                    parsedData.data?.reviewDocsShowNote ?? reviewDocsShowNote;
+                reviewDocsShowPath =
+                    parsedData.data?.reviewDocsShowPath ?? reviewDocsShowPath;
+                reviewDocsShowStats =
+                    parsedData.data?.reviewDocsShowStats ?? reviewDocsShowStats;
+                reviewDocsSortBy =
+                    parsedData.data?.reviewDocsSortBy || reviewDocsSortBy;
+                reviewDocsShowFloatDoc =
+                    parsedData.data?.reviewDocsShowFloatDoc ?? reviewDocsShowFloatDoc;
+                reviewDocsFloatDocShowTime =
+                    parsedData.data?.reviewDocsFloatDocShowTime || reviewDocsFloatDocShowTime;
+                reviewDocsDefaultIntervals =
+                    parsedData.data?.reviewDocsDefaultIntervals || reviewDocsDefaultIntervals;
             } else if (parsedData.type === "conditionDocs") {
                 conditionDocsTitle =
                     parsedData.data?.conditionDocsTitle || conditionDocsTitle;
@@ -1220,7 +1283,11 @@
             <!-- 笔记数据 -->
             <div class="content-type-select">
                 <label for="content-type">选择组件：</label>
-                <select id="content-type" bind:value={selectedContentType}>
+                <select
+                    id="content-type"
+                    bind:value={selectedContentType}
+                    onchange={() => void resolveSelectedDatabaseIdIfNeeded()}
+                >
                     <option value="favorites">收藏文档</option>
                     <option value="TaskMan">任务管理</option>
                     <option value="TaskManPlus">任务管理Plus</option>
@@ -1229,6 +1296,7 @@
                     <option value="quick-notes">快速笔记</option>
                     <option value="childDocs">子文档</option>
                     <option value="conditionDocs">条件文档</option>
+                    <option value="reviewDocs">复习文档👑</option>
                     <option value="stikynot">便签👑</option>
                     {#if advancedEnabled || selectedContentType === "enhancedDiary"}
                         <option value="enhancedDiary" disabled={!advancedEnabled}>强化日记👑</option>
@@ -1317,6 +1385,25 @@
                         bind:showConditionDocsFloatDoc
                         bind:conditionDocsFloatDocShowTime
                         bind:conditionDocsTag
+                    />
+                {:else if selectedContentType === "reviewDocs"}
+                    <ReviewDocsSet
+                        {advancedEnabled}
+                        bind:reviewDocsTitle
+                        bind:reviewDocsDatabaseId
+                        bind:reviewDocsLimit
+                        bind:reviewDocsDefaultView
+                        bind:reviewDocsShowFuture
+                        bind:reviewDocsFutureDays
+                        bind:reviewDocsShowDocs
+                        bind:reviewDocsShowBlocks
+                        bind:reviewDocsShowNote
+                        bind:reviewDocsShowPath
+                        bind:reviewDocsShowStats
+                        bind:reviewDocsSortBy
+                        bind:reviewDocsShowFloatDoc
+                        bind:reviewDocsFloatDocShowTime
+                        bind:reviewDocsDefaultIntervals
                     />
                 {:else if selectedContentType === "enhancedDiary"}
                     <EnhancedDiarySet {plugin} bind:draftConfig={enhancedDiaryDraftConfig} />
@@ -1598,6 +1685,11 @@
         <button
             class="confirm-button"
             onclick={async () => {
+                if (selectedContentType === "reviewDocs" && !advancedEnabled) {
+                    showMessage("复习文档为高级会员专属组件，请开通后再配置", 4000);
+                    return;
+                }
+
                 await resolveSelectedDatabaseIdIfNeeded();
 
                 if (focusImageType === "remote") focusLocalImage = null;
@@ -2084,6 +2176,29 @@
                             fixedAssetsShowQuarterly,
                             fixedAssetsShowYearly,
                             fixedAssetsItemCostPeriod,
+                        },
+                    };
+                } else if (selectedContentType === "reviewDocs") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "reviewDocs",
+                        blockId: currentBlockId,
+                        data: {
+                            reviewDocsTitle,
+                            reviewDocsDatabaseId,
+                            reviewDocsLimit,
+                            reviewDocsDefaultView,
+                            reviewDocsShowFuture,
+                            reviewDocsFutureDays,
+                            reviewDocsShowDocs,
+                            reviewDocsShowBlocks,
+                            reviewDocsShowNote,
+                            reviewDocsShowPath,
+                            reviewDocsShowStats,
+                            reviewDocsSortBy,
+                            reviewDocsShowFloatDoc,
+                            reviewDocsFloatDocShowTime,
+                            reviewDocsDefaultIntervals,
                         },
                     };
                 } else if (selectedContentType === "conditionDocs") {

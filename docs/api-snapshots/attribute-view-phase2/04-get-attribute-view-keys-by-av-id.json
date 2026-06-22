@@ -1,0 +1,51 @@
+{
+    "code": 0,
+    "msg": "",
+    "data": [
+        {
+            "id": "20260622132241-xyrhmga",
+            "name": "主键",
+            "type": "block",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260622132241-zx0xqnn",
+            "name": "单选",
+            "type": "select",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260622132338-y1gpl3y",
+            "name": "测试文本",
+            "type": "text",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260622132346-73mku2e",
+            "name": "测试数字",
+            "type": "number",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        },
+        {
+            "id": "20260622132348-qey3bmb",
+            "name": "测试勾选",
+            "type": "checkbox",
+            "icon": "",
+            "desc": "",
+            "numberFormat": "",
+            "template": ""
+        }
+    ]
+}

@@ -1,5 +1,6 @@
 import { createAssistantMessage, createSystemMessage, createUserMessage, type AgentMessage, type AgentToolCall } from "../messages/agent-message";
 import { compactAgentMessages } from "../messages/message-compactor";
+import { filterStaleToolCalls } from "../messages/message-normalizer";
 import type { ProviderAdapter } from "../providers/provider-adapter";
 import type { NativeToolRegistry } from "../tools/native-tool-registry";
 import { AgentSession } from "../session/agent-session";
@@ -70,8 +71,9 @@ export class NativeToolAgentLoop {
       let answer = "";
       let reasoning = "";
       const toolCalls: AgentToolCall[] = [];
-      const hasExecutedTools = totalToolCalls > 0;
       const emittedToolCallDeltas = new Set<string>();
+      let emittedTextLive = false;
+      let emittedReasoningLive = false;
 
       for await (const event of this.options.provider.streamChat({
         messages,
@@ -80,14 +82,12 @@ export class NativeToolAgentLoop {
       })) {
         if (event.type === "text_delta") {
           answer += event.delta;
-          if (hasExecutedTools) {
-            this.options.onEvent?.({ type: "assistant_text_delta", delta: event.delta, fullContent: answer });
-          }
+          emittedTextLive = true;
+          this.options.onEvent?.({ type: "assistant_text_delta", delta: event.delta, fullContent: answer });
         } else if (event.type === "reasoning_delta") {
           reasoning += event.delta;
-          if (hasExecutedTools) {
-            this.options.onEvent?.({ type: "assistant_reasoning_delta", delta: event.delta, fullReasoning: reasoning });
-          }
+          emittedReasoningLive = true;
+          this.options.onEvent?.({ type: "assistant_reasoning_delta", delta: event.delta, fullReasoning: reasoning });
         } else if (event.type === "tool_call_delta") {
           const deltaKey = event.id || `idx-${event.index}`;
           if (!emittedToolCallDeltas.has(deltaKey)) {
@@ -111,20 +111,22 @@ export class NativeToolAgentLoop {
 
       if (toolCalls.length > 0) {
         // Tool-planning iteration: if we streamed reasoning/text live, reset both.
-        if (hasExecutedTools) {
-          this.options.onEvent?.({ type: "assistant_reasoning_reset" });
+        if (emittedTextLive) {
           this.options.onEvent?.({ type: "assistant_text_reset" });
+        }
+        if (emittedReasoningLive) {
+          this.options.onEvent?.({ type: "assistant_reasoning_reset" });
         }
         this.session.append(createAssistantMessage({
           content: answer,
           toolCalls,
         }));
       } else {
-        // Final answer: if first iteration (never executed tools), replay buffered content.
-        if (!hasExecutedTools) {
-          if (reasoning) {
-            this.options.onEvent?.({ type: "assistant_reasoning_delta", delta: reasoning, fullReasoning: reasoning });
-          }
+        // Final answer: if content was not streamed live, do fallback send.
+        if (!emittedReasoningLive && reasoning) {
+          this.options.onEvent?.({ type: "assistant_reasoning_delta", delta: reasoning, fullReasoning: reasoning });
+        }
+        if (!emittedTextLive && answer) {
           this.options.onEvent?.({ type: "assistant_text_delta", delta: answer, fullContent: answer });
         }
         this.session.append(createAssistantMessage({
@@ -184,7 +186,14 @@ export class NativeToolAgentLoop {
       createSystemMessage(this.options.systemPrompt),
       ...(this.options.contextInstructions ? [createSystemMessage(this.options.contextInstructions)] : []),
     ];
-    return compactAgentMessages([...prefix, ...this.session.snapshot()]);
+    const compacted = compactAgentMessages([...prefix, ...this.session.snapshot()]);
+    // Filter historical tool_calls for tools no longer in the current registry.
+    // Prevents the provider from re-attempting deprecated tools like
+    // read_attribute_view_stats or batch_update_attribute_view_cells.
+    const availableNames = new Set(
+      this.options.toolRegistry.listProviderVisible().map((t) => t.name),
+    );
+    return filterStaleToolCalls(compacted, availableNames);
   }
 
   private buildCallCounts(): Record<string, number> {

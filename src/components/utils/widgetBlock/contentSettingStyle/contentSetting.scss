@@ -149,6 +149,51 @@
         max-width: 100%;
     }
 
+    // 限定在插件设置作用域内的输入控件美化样式
+    // 不影响 checkbox/color/b3-switch/全局 select（select 已在 SettingRow 内单独处理）
+    :global(.setting-row__control input[type="text"]),
+    :global(.setting-row__control input[type="number"]),
+    :global(.setting-row__control input[type="date"]),
+    :global(.setting-row__control input[type="search"]),
+    :global(.setting-row__control textarea) {
+        height: 32px;
+        border-radius: 6px;
+        border: 1px solid var(--b3-border-color, #d1d5db);
+        background: var(--b3-theme-surface, var(--b3-theme-background, #fff));
+        color: var(--b3-theme-on-surface, #222);
+        font-size: 13px;
+        padding: 0 8px;
+        box-sizing: border-box;
+        outline: none;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        width: 100%;
+        min-width: 0;
+    }
+
+    :global(.setting-row__control textarea) {
+        height: auto;
+        min-height: 64px;
+        padding: 6px 8px;
+        resize: vertical;
+    }
+
+    :global(.setting-row__control input[type="text"]:hover),
+    :global(.setting-row__control input[type="number"]:hover),
+    :global(.setting-row__control input[type="date"]:hover),
+    :global(.setting-row__control input[type="search"]:hover),
+    :global(.setting-row__control textarea:hover) {
+        border-color: var(--b3-theme-primary, #3578e5);
+    }
+
+    :global(.setting-row__control input[type="text"]:focus),
+    :global(.setting-row__control input[type="number"]:focus),
+    :global(.setting-row__control input[type="date"]:focus),
+    :global(.setting-row__control input[type="search"]:focus),
+    :global(.setting-row__control textarea:focus) {
+        border-color: var(--b3-theme-primary, #3578e5);
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+    }
+
     /* Tab导航栏样式 */
     .tab-nav {
         display: flex;

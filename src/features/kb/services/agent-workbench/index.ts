@@ -123,15 +123,10 @@ export {
 } from "./tools/siyuan/find-diary-docs.tool";
 export type { FindDiaryDocsInput, FindDiaryDocsOutput, FindDiaryDocsDeps } from "./tools/siyuan/find-diary-docs.tool";
 
-export {
-  createReadCandidateDocsTool,
-  readCandidateDocsInputSchema,
-} from "./tools/siyuan/read-candidate-docs.tool";
-export type { ReadCandidateDocsInput, ReadCandidateDocsOutput, ReadCandidateDocsItem, ReadCandidateDocsDeps } from "./tools/siyuan/read-candidate-docs.tool";
-
 // skills
 export { createKnowledgeBaseQaSkill, BUILTIN_KB_SKILL_NAME } from "./skills/builtin/knowledge-base-qa.skill";
 export { createScheduleTaskDiarySkill, BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "./skills/builtin/schedule-task-diary.skill";
+export { createDatabaseAssistantSkill, BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "./skills/builtin/database-assistant.skill";
 
 // debug (dev-only)
 export { checkToolSchemaSanity, runSchemaSanity } from "./debug/schema-sanity";

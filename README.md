@@ -1,160 +1,359 @@
-<div class="sy__outline" style="margin: 0 auto; max-width: 980px;">
-<div style="margin-top: 1.5em; padding: 2.2em 1.5em; text-align: center; background: linear-gradient(135deg, #2d8cf0 0%, #476cff 45%, #8a5cff 100%); border-radius: 18px; box-shadow: 0 16px 40px rgba(45,108,255,0.22); overflow: hidden; position: relative;">
-<div style="position: absolute; width: 220px; height: 220px; border-radius: 999px; background: rgba(255,255,255,0.12); right: -80px; top: -90px;"></div>
-<div style="position: absolute; width: 160px; height: 160px; border-radius: 999px; background: rgba(255,255,255,0.10); left: -70px; bottom: -80px;"></div>
-<div style="position: relative; z-index: 1;">
-<div style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: rgba(255,255,255,0.16); color: rgba(255,255,255,0.95); font-weight: 600; letter-spacing: 0.5px;">v4.0 AI 时代开启</div>
-<div style="color: white; margin: 0.55em 0 0.25em; font-size: 2.55em; font-weight: 800; letter-spacing: 1px;">🏠 思源主页插件</div>
-<div style="color: rgba(255,255,255,0.92); font-size: 1.15em; line-height: 1.8;">从“个性化首页”进化为“AI 知识工作台”</div>
-<div style="color: rgba(255,255,255,0.82); margin-top: 0.35em; line-height: 1.8;">主页插件 4.0 加入 AI 功能，开始理解你的笔记、日记、任务、网页与工作流，让思源主页迎来史诗级变化。</div>
-<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 1.25em;">
-<span style="padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.14); color: white;">AI 知识库问答</span>
-<span style="padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.14); color: white;">编辑器工具栏 AI</span>
-<span style="padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.14); color: white;">主页智能状态语</span>
-<span style="padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.14); color: white;">可拖拽工作台</span>
-<span style="padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.14); color: white;">丰富组件生态</span>
-</div>
-</div>
-</div>
-<div style="margin-top: 1.5em; padding: 0.8em; background: linear-gradient(135deg, #f7fbff 0%, #eef5ff 100%); border: 1px solid rgba(45,140,240,0.16); border-radius: 18px; box-shadow: 0 14px 32px rgba(45,108,255,0.10);">
-<img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E4%B8%BB%E9%A1%B5%E6%8F%92%E4%BB%B6.webp" alt="思源主页插件首页效果预览" style="display: block; width: 100%; border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,0.10);">
-<div style="text-align: center; margin-top: 0.75em; color: #52637a; line-height: 1.7;"></div>
-</div>
-<div style="margin-top: 1.5em; padding: 0.8em; background: linear-gradient(135deg, #f7fbff 0%, #eef5ff 100%); border: 1px solid rgba(45,140,240,0.16); border-radius: 18px; box-shadow: 0 14px 32px rgba(45,108,255,0.10);">
-<img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E4%B8%BB%E9%A1%B5%E6%8F%92%E4%BB%B6%E7%A4%BA%E4%BE%8B.webp" alt="思源主页插件组件工作台示例" style="display: block; width: 100%; border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,0.10);">
-<div style="text-align: center; margin-top: 0.75em; color: #52637a; line-height: 1.7;">主页示例：支持拖拽布局、组件缩放、主题搭配和多种效率模块组合。</div>
-</div>
-<div style="margin-top: 1.5em; padding: 0.8em; background: linear-gradient(135deg, #f7fbff 0%, #eef5ff 100%); border: 1px solid rgba(45,140,240,0.16); border-radius: 18px; box-shadow: 0 14px 32px rgba(45,108,255,0.10);">
-<img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E4%B8%BB%E9%A1%B5%E6%8F%92%E4%BB%B6AI%E9%97%AE%E7%AD%94%E7%A4%BA%E6%84%8F%E5%9B%BE.webp" alt="思源主页插件 AI 知识库问答示例" style="display: block; width: 100%; border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,0.10);">
-<div style="text-align: center; margin-top: 0.75em; color: #52637a; line-height: 1.7;">AI 知识库问答示例：在思源中直接围绕本地文档、任务日记、网页资料和知识结构进行对话。</div>
-</div>
-<div style="margin-top: 1.5em; padding: 0.8em; background: linear-gradient(135deg, #f9fbff 0%, #f3f0ff 100%); border: 1px dashed rgba(71,108,255,0.35); border-radius: 18px; box-shadow: 0 14px 32px rgba(71,108,255,0.08);">
-<img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E7%BC%96%E8%BE%91%E5%99%A8%E5%B7%A5%E5%85%B7%E6%A0%8FAI.webp" alt="思源主页插件 AI 知识库问答示例" style="display: block; width: 100%; border-radius: 14px; box-shadow: 0 10px 26px rgba(0,0,0,0.10);">
-<div style="text-align: center; margin-top: 0.75em; color: #52637a; line-height: 1.7;">编辑器工具栏 AI 示例：选中文字可调用 AI 问答、翻译、解释、润色和自定义技能。</div>
-</div>
-<div style="margin-top: 1.5em; padding: 1.5em; background: linear-gradient(135deg, #f7fbff 0%, #f5f2ff 100%); border: 1px solid rgba(71,108,255,0.18); border-radius: 16px;">
-<div style="color: #2d6cdf; margin: 0 0 0.8em; font-size: 1.55em; font-weight: 800;">✨ 4.0：AI 版本的到来</div>
-<div style="margin: 0.5em 0; color: #333; line-height: 1.9;">过去，主页插件更多是一个漂亮、灵活、功能丰富的思源首页；从 4.0 开始，它将逐步变成一个能理解你资料、陪你整理信息、辅助你行动的个人知识工作台。</div>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 1em;">
-<div style="padding: 1em; border-radius: 14px; background: white; border: 1px solid rgba(45,108,255,0.12); box-shadow: 0 8px 22px rgba(45,108,255,0.06);"><div style="font-weight: 700; color: #2d6cdf; margin-bottom: 0.4em;">AI 知识库问答</div><div style="color: #555; line-height: 1.7;">把思源笔记、网页正文和日常记录变成可询问、可引用、可持续整理的知识入口。</div></div>
-<div style="padding: 1em; border-radius: 14px; background: white; border: 1px solid rgba(45,108,255,0.12); box-shadow: 0 8px 22px rgba(45,108,255,0.06);"><div style="font-weight: 700; color: #2d6cdf; margin-bottom: 0.4em;">编辑器工具栏 AI</div><div style="color: #555; line-height: 1.7;">在编辑器中选中文字即可调用 AI 问答、翻译、解释、润色和自定义技能。</div></div>
-<div style="padding: 1em; border-radius: 14px; background: white; border: 1px solid rgba(45,108,255,0.12); box-shadow: 0 8px 22px rgba(45,108,255,0.06);"><div style="font-weight: 700; color: #2d6cdf; margin-bottom: 0.4em;">主页 AI 状态语</div><div style="color: #555; line-height: 1.7;">根据真实统计数据自动生成主页状态语，让每次打开主页都有新的鼓励与提醒。</div></div>
-<div style="padding: 1em; border-radius: 14px; background: white; border: 1px solid rgba(45,108,255,0.12); box-shadow: 0 8px 22px rgba(45,108,255,0.06);"><div style="font-weight: 700; color: #2d6cdf; margin-bottom: 0.4em;">Agent 工具能力</div><div style="color: #555; line-height: 1.7;">支持知识库检索、文档状态查看、文档信息查看、任务日记查询和安全文档编辑。</div></div>
-<div style="padding: 1em; border-radius: 14px; background: white; border: 1px solid rgba(45,108,255,0.12); box-shadow: 0 8px 22px rgba(45,108,255,0.06);"><div style="font-weight: 700; color: #2d6cdf; margin-bottom: 0.4em;">本地安全增强</div><div style="color: #555; line-height: 1.7;">大模型与联网搜索 API Key 本地加密保存，减少配置文件明文暴露风险。</div></div>
-</div>
-</div>
-<div style="margin-top: 1.5em; padding: 1.5em; background: #f8fafc; border-radius: 16px; border: 1px solid rgba(45,140,240,0.12);">
-<div style="color: #2d8cf0; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">🚀 核心能力总览</div>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px;">
-<div style="padding: 1em; background: white; border-radius: 12px; border: 1px solid #e7eef8;"><div style="font-weight: 700; color: #1e6bff; margin-bottom: 0.45em;">高度自定义主页</div><div style="color: #555; line-height: 1.7;">自定义标题、状态语、头像、横幅、按钮、组件区域、布局尺寸和页面风格，打造属于自己的思源入口。</div></div>
-<div style="padding: 1em; background: white; border-radius: 12px; border: 1px solid #e7eef8;"><div style="font-weight: 700; color: #1e6bff; margin-bottom: 0.45em;">可拖拽组件工作台</div><div style="color: #555; line-height: 1.7;">支持组件拖拽、缩放、空位管理、布局模板和多种组件尺寸，把首页搭成真正的工作台。</div></div>
-<div style="padding: 1em; background: white; border-radius: 12px; border: 1px solid #e7eef8;"><div style="font-weight: 700; color: #1e6bff; margin-bottom: 0.45em;">任务、日记与记录</div><div style="color: #555; line-height: 1.7;">任务管理 Plus、增强日记、快速记录、最近日记、倒计时、纪念日等能力，让每日行动有迹可循。</div></div>
-<div style="padding: 1em; background: white; border-radius: 12px; border: 1px solid #e7eef8;"><div style="font-weight: 700; color: #1e6bff; margin-bottom: 0.45em;">文档与知识入口</div><div style="color: #555; line-height: 1.7;">收藏文档、子文档、最近文档、条件文档、SQL 查询、浮动预览和快速打开，让资料查找更顺手。</div></div>
-<div style="padding: 1em; background: white; border-radius: 12px; border: 1px solid #e7eef8;"><div style="font-weight: 700; color: #1e6bff; margin-bottom: 0.45em;">数据图表与统计</div><div style="color: #555; line-height: 1.7;">统计卡片、创作热力图、可视化图表、数据库图表、固定资产、专注记录等，让数据自己说话。</div></div>
-<div style="padding: 1em; background: white; border-radius: 12px; border: 1px solid #e7eef8;"><div style="font-weight: 700; color: #1e6bff; margin-bottom: 0.45em;">生活化小组件</div><div style="color: #555; line-height: 1.7;">天气、热搜、每日一言、黄历、星座、音乐播放器、轮播图、WebView、便签等，让主页更有温度。</div></div>
-</div>
-<div style="text-align: center; margin-top: 1.2em;"><a href="https://blog.glaube-ty.top/zhu-ye-cha-jian" style="display: inline-flex; align-items: center; padding: 11px 22px; background: linear-gradient(135deg, #2d8cf0, #1e6bff); color: white; border-radius: 999px; text-decoration: none; box-shadow: 0 8px 18px rgba(45,140,240,0.18); border: 1px solid rgba(255,255,255,0.25);">📖 查看详细使用教程</a></div>
-</div>
-<div style="margin-top: 1.5em; padding: 1.5em; background: linear-gradient(135deg, #eef7ff 0%, #f6f1ff 100%); border-radius: 16px; border-left: 5px solid #476cff;">
-<div style="color: #476cff; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">🧠 AI 知识库：不只是聊天，而是理解你的思源</div>
-<div style="margin: 0.5em 0; color: #333; line-height: 1.9;">4.0 新增 AI 知识库能力，支持从侧边栏或标签页进入对话。它可以读取本地文档、查看知识结构、搜索资料、理解网页正文、查询任务日记，并在需要时辅助编辑文档。</div>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 1em;">
-<div style="padding: 0.9em; border-radius: 12px; background: rgba(255,255,255,0.82); border: 1px solid rgba(71,108,255,0.12);"><strong style="color: #476cff;">知识库检索</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">查看文档树、搜索资料、按时间查看最近创建或修改的文档。</div></div>
-<div style="padding: 0.9em; border-radius: 12px; background: rgba(255,255,255,0.82); border: 1px solid rgba(71,108,255,0.12);"><strong style="color: #476cff;">文档信息与正文</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">既能读取正文，也能只查看标题、路径、笔记本、创建时间、更新时间和标签。</div></div>
-<div style="padding: 0.9em; border-radius: 12px; background: rgba(255,255,255,0.82); border: 1px solid rgba(71,108,255,0.12);"><strong style="color: #476cff;">联网搜索</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">支持联网搜索与网页正文读取，适合把外部资料与本地笔记一起分析。</div></div>
-<div style="padding: 0.9em; border-radius: 12px; background: rgba(255,255,255,0.82); border: 1px solid rgba(71,108,255,0.12);"><strong style="color: #476cff;">任务与日记</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">查询任务、快速记录、日记工作台概览，帮你从日常记录中找到线索。</div></div>
-<div style="padding: 0.9em; border-radius: 12px; background: rgba(255,255,255,0.82); border: 1px solid rgba(71,108,255,0.12);"><strong style="color: #476cff;">安全文档编辑</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">支持创建文档、修改块、插入块、删除块、移动块、重命名和替换正文，危险操作可执行前确认。</div></div>
-<div style="padding: 0.9em; border-radius: 12px; background: rgba(255,255,255,0.82); border: 1px solid rgba(71,108,255,0.12);"><strong style="color: #476cff;">会话管理</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">支持多会话、新建、切换、重命名和删除，桌面端也使用统一弹窗交互。</div></div>
-</div>
-</div>
-<div style="margin-top: 1.5em; padding: 1.5em; background: linear-gradient(135deg, #f4f8ff 0%, #fff7fb 100%); border-radius: 16px; border-left: 5px solid #7c5cff;">
-<div style="color: #6f4dff; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">⚡ 编辑器工具栏 AI：选中文字就能处理</div>
-<div style="margin: 0.5em 0; color: #333; line-height: 1.9;">新增编辑器工具栏 AI 功能。在思源编辑器中选中文字后，点击工具栏中的 AI 按钮即可直接调用 AI 技能，不需要复制到外部应用，也不需要手动整理上下文。</div>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 1em;">
-<div style="padding: 0.95em; border-radius: 12px; background: rgba(255,255,255,0.86); border: 1px solid rgba(124,92,255,0.14);"><strong style="color: #6f4dff;">AI 问答</strong><div style="color: #555; margin-top: 0.45em; line-height: 1.7;">选中文字后可一键带入 AI 知识库侧边栏，继续基于当前内容提问。</div></div>
-<div style="padding: 0.95em; border-radius: 12px; background: rgba(255,255,255,0.86); border: 1px solid rgba(124,92,255,0.14);"><strong style="color: #6f4dff;">翻译、解释、润色</strong><div style="color: #555; margin-top: 0.45em; line-height: 1.7;">内置常用处理技能，可在轻量弹窗中查看 AI 结果并复制使用。</div></div>
-<div style="padding: 0.95em; border-radius: 12px; background: rgba(255,255,255,0.86); border: 1px solid rgba(124,92,255,0.14);"><strong style="color: #6f4dff;">自定义技能</strong><div style="color: #555; margin-top: 0.45em; line-height: 1.7;">可添加自己的提示词技能，支持编辑、排序、停用、删除和显示位置管理。</div></div>
-<div style="padding: 0.95em; border-radius: 12px; background: rgba(255,255,255,0.86); border: 1px solid rgba(124,92,255,0.14);"><strong style="color: #6f4dff;">技能级模型参数</strong><div style="color: #555; margin-top: 0.45em; line-height: 1.7;">翻译、解释、润色和自定义技能可分别设置模型、温度、输出长度和流式输出。</div></div>
-<div style="padding: 0.95em; border-radius: 12px; background: rgba(255,255,255,0.86); border: 1px solid rgba(124,92,255,0.14);"><strong style="color: #6f4dff;">文档上下文</strong><div style="color: #555; margin-top: 0.45em; line-height: 1.7;">可选择附带当前文档标题和选区附近上下文，让 AI 更理解当前笔记环境。</div></div>
-<div style="padding: 0.95em; border-radius: 12px; background: rgba(255,255,255,0.86); border: 1px solid rgba(124,92,255,0.14);"><strong style="color: #6f4dff;">单按钮菜单</strong><div style="color: #555; margin-top: 0.45em; line-height: 1.7;">编辑器工具栏保持简洁，只显示一个 AI 按钮，点击后展开常用技能和更多技能。</div></div>
-</div>
-</div>
-<div style="margin-top: 1.5em; padding: 1.5em; background: #f2fff7; border-left: 5px solid #1dbf73; border-radius: 16px;">
-<div style="color: #11a866; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">🌿 主页 AI 状态语</div>
-<div style="margin: 0.5em 0; color: #333; line-height: 1.9;">状态语不再只是固定模板。开启 AI 智能生成后，主页可以根据真实统计数据生成一句新的状态语，例如记录天数、笔记数量、文档数量、任务数量等。每次打开主页，都像得到一句来自自己知识库的回应。</div>
-<div style="margin-top: 0.8em; color: #444; line-height: 1.9;">
-<div>• 可选择自定义模板或 AI 智能生成。</div>
-<div>• AI 状态语可单独选择大模型，不影响聊天问答模型。</div>
-<div>• 支持设置生成风格、返回字符上限和思考模式。</div>
-<div>• 生成失败时会明确提示，不再误显示为自定义内容。</div>
-<div>• 状态语区域支持悬浮刷新按钮，自定义和 AI 状态语都可刷新。</div>
-</div>
-</div>
-<div style="margin-top: 1.5em; padding: 1.5em; background: #fffaf0; border-left: 5px solid #f5a623; border-radius: 16px;">
-<div style="color: #e58b00; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">🔐 本地密钥保护</div>
-<div style="margin: 0.5em 0; color: #333; line-height: 1.9;">4.0 对大模型与联网搜索 API Key 做了本地加密保存，避免配置文件中直接出现明文密钥。设置页中的密钥输入框默认隐藏，可通过眼睛按钮临时查看。</div>
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 1em;">
-<div style="padding: 0.9em; background: white; border-radius: 12px; border: 1px solid rgba(245,166,35,0.2);"><strong style="color: #e58b00;">本地加密保存</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">减少配置文件明文暴露风险。</div></div>
-<div style="padding: 0.9em; background: white; border-radius: 12px; border: 1px solid rgba(245,166,35,0.2);"><strong style="color: #e58b00;">默认密码隐藏</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">输入框默认显示圆点，可手动切换查看。</div></div>
-<div style="padding: 0.9em; background: white; border-radius: 12px; border: 1px solid rgba(245,166,35,0.2);"><strong style="color: #e58b00;">不夸大安全</strong><div style="color: #555; margin-top: 0.4em; line-height: 1.7;">这是本地加密保存，不等同于系统密钥链。</div></div>
-</div>
-</div>
-</div>
-<div style="margin-top: 1.5em; padding: 1.5em; background: #f7faff; border-radius: 16px; border: 1px solid rgba(45,140,240,0.12);">
-<div style="color: #2d8cf0; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">📚 教程与更新</div>
-<div style="margin: 0.5em 0; color: #333; line-height: 1.9;">主页插件功能较多，如果你是第一次使用，建议先查看详细教程；如果你想了解每个版本的变化，可以进入完整更新日志。</div>
-<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 1em;">
-<a href="https://blog.glaube-ty.top/zhu-ye-cha-jian" style="display: inline-flex; align-items: center; padding: 12px 22px; background: linear-gradient(135deg, #2d8cf0, #1e6bff); color: white; border-radius: 999px; text-decoration: none; box-shadow: 0 8px 18px rgba(45,140,240,0.18);">📖 详细使用教程</a>
-<a href="https://blog.glaube-ty.top/archives/019d23a8-9381-70b7-8561-68c22fb1aedf" style="display: inline-flex; align-items: center; padding: 12px 22px; background: linear-gradient(135deg, #2d8cf0, #1e6bff); color: white; border-radius: 999px; text-decoration: none; box-shadow: 0 8px 18px rgba(45,140,240,0.18);">📄 完整更新日志</a>
-</div>
-</div>
-<div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 16px;">
-<div style="color: #ff9f00; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">🌹 支持开发</div>
-<div style="margin: 0.5em 0; color: black; line-height: 1.8;">如果这个插件对你有帮助，欢迎给作者点个赞或打赏一杯咖啡，这将鼓励作者继续更新制作更多有用的插件。</div>
-<div style="margin: 1em 0; text-align: center;"><img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/ReQR.png" alt="赞赏二维码" style="width: 600px; max-width: 100%; border-radius: 12px; margin-bottom: 1em;"></div>
-<div style="text-align: center;"><a href="https://blog.glaube-ty.top/da-shang" style="display: inline-flex; align-items: center; padding: 12px 24px; background: linear-gradient(135deg, #ff9f00, #ffc107); color: white; border-radius: 999px; text-decoration: none; box-shadow: 0 8px 18px rgba(255,159,0,0.16);">💖 特别鸣谢</a></div>
-</div>
-<div style="margin: 1.5em 0; padding: 1.5em; background: #f0f9ff; border-left: 4px solid #2d8cf0; border-radius: 16px;">
-<div style="color: #2d8cf0; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">💬 加入讨论</div>
-<div style="margin: 0.5em 0; color: black; line-height: 1.8;">目前我在开发的插件有主页、读书笔记、空文档清理、彩色图标，所以统一用一个频道了，方便查看管理。欢迎反馈问题、分享布局、交流玩法。</div>
-<div style="margin: 1em 0; text-align: center;"><img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/TCQR.jpg" alt="讨论频道二维码" style="width: 200px; border-radius: 12px; margin-bottom: 1em;"></div>
-<div style="text-align: center;"><a href="https://pd.qq.com/s/2ks4079x0" style="display: inline-flex; align-items: center; padding: 12px 24px; background: linear-gradient(135deg, #2d8cf0 30%, #1e6bff 70%); color: white; border-radius: 999px; text-decoration: none; box-shadow: 0 8px 18px rgba(45,140,240,0.18); gap: 8px;">👥 加入腾讯讨论频道</a></div>
-</div>
-<div style="margin: 1.5em 0; padding: 1.5em; background: #fff9f2; border-left: 4px solid #ffc107; border-radius: 16px;">
-<div style="color: #ff9f00; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">👑 VIP 说明</div>
-<div style="margin: 0.5em 0; color: black; line-height: 1.8;">插件一开始是没有会员功能的，但随着开发内容不断增多，大家的需求也渐渐增加，我一个人开发就有点吃力了。因此我将 2.0 版本后的大部分主要内容增加了 VIP 才能使用。但即便如此，插件也会继续保持开源，源代码在 GitHub 仓库可看见。</div>
-<div style="margin: 0.5em 0; color: black; line-height: 1.8;">有代码基础的朋友可自行修改以激活会员功能，这里给了一个简单粗暴的方法，喜欢折腾的可自行查看：</div>
-<div style="text-align: center; margin: 1em 0;"><a href="https://blog.glaube-ty.top/archives/019d3f22-745d-7175-b19c-ca2ddc4da463" style="display: inline-flex; align-items: center; padding: 12px 24px; background: linear-gradient(135deg, #ff9f00, #ffc107); color: white; border-radius: 999px; text-decoration: none; box-shadow: 0 8px 18px rgba(255,159,0,0.16);">💻 自主激活 VIP 教程</a></div>
-<div style="margin: 0.5em 0; color: black; line-height: 1.8;">通过上述方法激活后，后面的更新则需要再次手动进行激活，不会持久激活。</div>
-<div style="margin: 0.5em 0; color: red; font-weight: 600; line-height: 1.8;">若不愿折腾的人想直接使用全部功能，则欢迎支持我哦！🌹🌹🌹</div>
-<div style="text-align: center; margin-top: 1em;"><a href="https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab" style="display: inline-flex; align-items: center; padding: 12px 24px; background: linear-gradient(135deg, #ff9f00, #ffc107); color: white; border-radius: 999px; text-decoration: none; box-shadow: 0 8px 18px rgba(255,159,0,0.16);">👑 VIP 权益</a></div>
-</div>
-<div style="margin: 1.5em 0; padding: 1.5em; background: #f8f5ff; border-left: 4px solid #8a3ffc; border-radius: 16px;">
-<div style="color: #8a3ffc; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">🔮 参考项目</div>
-<div style="margin: 0.5em 0; color: black; line-height: 1.8;">本插件部分功能参考了以下优秀项目，感谢开源社区提供的灵感与基础能力：</div>
-<div style="margin: 0;">
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/obsidian-tasks-group/obsidian-tasks" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Obsidian Tasks</a><span style="color: #666; display: block; line-height: 1.6;">任务管理 Plus 组件参考了其图标化的任务模式和实现逻辑。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/apache/echarts" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Echarts</a><span style="color: #666; display: block; line-height: 1.6;">本插件中的图表能力主要来自 Echarts。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/nolanlawson/emoji-picker-element" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Emoji Picker Element</a><span style="color: #666; display: block; line-height: 1.6;">本插件中的 Emoji 选择器组件来自 Emoji Picker Element。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/goldfire/howler.js/" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Howler</a><span style="color: #666; display: block; line-height: 1.6;">本插件中的音乐播放功能来自 Howler。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/ccampbell/mousetrap" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Mousetrap</a><span style="color: #666; display: block; line-height: 1.6;">本插件使用 Mousetrap 来处理键盘快捷键。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/slab/quill" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Quill</a><span style="color: #666; display: block; line-height: 1.6;">本插件中的便签组件来自 Quill。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/SortableJS/Sortable" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Sortable</a><span style="color: #666; display: block; line-height: 1.6;">本插件中的组件拖拽布局和技能排序来自 Sortable。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://multiselect.janosh.dev/" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Multiselect</a><span style="color: #666; display: block; line-height: 1.6;">本插件中的多选框来自 Multiselect。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/6tail/tyme4ts" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Tyme</a><span style="color: #666; display: block; line-height: 1.6;">本插件部分日期算法来自 Tyme。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://github.com/AxT-Team/uapi-sdk-typescript" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">UAPI SDK TypeScript</a><span style="color: #666; display: block; line-height: 1.6;">本插件的热搜组件相关功能使用了 UAPI SDK TypeScript。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://floating-ui.com/" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Floating UI</a><span style="color: #666; display: block; line-height: 1.6;">本插件中的浮动预览窗口来自 Floating UI。</span></div>
-<div style="margin: 0.5em 0; padding: 12px; background: #f3f0ff; border-radius: 8px;"><a href="https://swiper.com.cn/" style="color: #8a3ffc; text-decoration: none; font-weight: 600; display: block; margin-bottom: 4px;">Swiper</a><span style="color: #666; display: block; line-height: 1.6;">本插件中的轮播图组件来自 Swiper。</span></div>
-</div>
-</div>
-<div style="margin: 1.5em 0; padding: 1.5em; background: #fff5f5; border-left: 4px solid #ff4d4f; border-radius: 16px;">
-<div style="color: #ff4d4f; margin: 0 0 1em; font-size: 1.55em; font-weight: 800;">⚠️ 免责声明</div>
-<div style="margin: 0.5em 0; color: #666; line-height: 1.8;">
-<div style="margin: 0.5em 0;">• 该插件只用于信息的汇总展示与个人效率辅助，所有插件数据均在本地使用。</div>
-<div style="margin: 0.5em 0;">• AI 功能需要用户自行配置大模型或联网搜索服务，相关服务的费用、稳定性和内容结果由对应服务商决定。</div>
-<div style="margin: 0.5em 0;">• AI 生成内容仅供参考，涉及重要信息、文档编辑或删除等操作时，请务必自行确认。</div>
-<div style="margin: 0.5em 0;">• 本插件数据仅用于个人信息管理，禁止用于商业用途等违规行为。</div>
-<div style="margin: 0.5em 0;">• 开发者对使用本插件造成的任何损失不承担责任。</div>
-</div>
-</div>
-</div>
+# 🏠 思源主页插件
+
+> 从个性化首页，到 AI 知识工作台。
+
+思源主页插件最开始只是为了让思源笔记拥有一个更好看、更顺手、更符合个人习惯的首页。随着功能不断增加，它现在已经不只是一个“主页美化插件”，而是逐渐变成了一个集首页布局、组件工作台、日记任务、数据展示、文档入口和 AI 能力于一体的知识工作台。
+
+从 4.0 开始，主页插件加入了 AI 知识库问答、编辑器工具栏 AI、主页 AI 状态语和本地密钥保护等能力。你可以在思源中直接围绕自己的笔记、日记、任务、网页资料和数据库内容进行对话，也可以在编辑器中选中文字后快速翻译、解释、润色或调用自定义技能。
+
+如果你只是想搭建一个漂亮的思源首页，它可以做到；如果你希望把思源变成一个更主动、更智能的个人知识工作台，它也正在朝这个方向发展。
+
+***
+
+## 效果预览
+
+![思源主页插件组件工作台示例](https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E4%B8%BB%E9%A1%B5%E6%8F%92%E4%BB%B6%E7%A4%BA%E4%BE%8B.webp)
+
+主页支持拖拽布局、组件缩放、主题搭配和多种效率模块组合。你可以把常用文档、任务、日记、天气、热搜、图表、倒计时、WebView 等内容放在一个统一入口里，让每次打开思源都能快速进入自己的工作状态。
+
+***
+
+## 4.0：AI 版本的到来
+
+过去，主页插件更多是一个漂亮、灵活、功能丰富的思源首页；从 4.0 开始，它开始逐步加入 AI 能力，让主页从“信息展示入口”进一步变成“知识工作台”。
+
+4.0 主要新增了这些方向：
+
+- **AI 知识库问答**：围绕思源本地文档、任务日记、网页资料和知识结构进行对话。
+- **编辑器工具栏 AI**：在编辑器中选中文字后，直接调用 AI 问答、翻译、解释、润色和自定义技能。
+- **主页 AI 状态语**：根据真实统计数据生成主页状态语，让每次打开主页都有新的提醒和鼓励。
+- **Agent 工具能力**：支持知识库检索、文档读取、文档信息查看、任务日记查询、数据库操作和安全文档编辑。
+- **本地密钥保护**：大模型与联网搜索 API Key 本地加密保存，减少配置文件明文暴露风险。
+
+![思源主页插件 AI 知识库问答示例](https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E4%B8%BB%E9%A1%B5%E6%8F%92%E4%BB%B6AI%E9%97%AE%E7%AD%94%E7%A4%BA%E6%84%8F%E5%9B%BE.webp)
+
+AI 知识库问答示例：在思源中直接围绕本地文档、任务日记、网页资料和知识结构进行对话。
+
+![编辑器工具栏 AI 示例](https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/%E7%BC%96%E8%BE%91%E5%99%A8%E5%B7%A5%E5%85%B7%E6%A0%8FAI.webp)
+
+编辑器工具栏 AI 示例：选中文字即可调用 AI 问答、翻译、解释、润色和自定义技能。
+
+***
+
+## 核心能力
+
+主页插件可以理解为三个层面的能力：
+
+1. **主页搭建**：自定义标题、状态语、头像、横幅、按钮、组件区域、布局尺寸和页面风格。
+2. **组件工作台**：通过拖拽、缩放和布局模板，把不同组件组合成自己的工作空间。
+3. **AI 知识工作流**：围绕本地文档、网页资料、任务日记、数据库和编辑器选区进行智能处理。
+
+你可以把它当作一个好看的思源首页，也可以把它逐步搭成一个项目主页、读书主页、日记主页、研究工作台或者个人仪表盘。
+
+***
+
+## 当前支持的组件
+
+目前主页插件支持的组件共 **33个**。
+
+| 类型   | 组件        | 说明                              |
+| ---- | --------- | ------------------------------- |
+| 笔记数据 | 收藏文档      | 展示常用或收藏的文档，方便快速打开               |
+| 笔记数据 | 任务管理      | 收集散落在文档中的任务，进行基础汇总管理            |
+| 笔记数据 | 任务管理 Plus | 更高级的任务管理组件，支持更灵活的筛选和排序          |
+| 笔记数据 | 最近文档      | 按时间顺序展示最近编辑或打开过的文档              |
+| 笔记数据 | 最近日记      | 展示最近的日记，可切换列表或日历样式              |
+| 笔记数据 | 快速笔记      | 快速查看和打开指定目录下的笔记                 |
+| 笔记数据 | 子文档       | 展示指定文档下的子文档，适合做项目入口             |
+| 笔记数据 | 条件文档      | 按关键词、标签等条件筛选文档                  |
+| 笔记数据 | 复习文档👑    | 可标记特定的文档、内容块进行未来的复习，支持艾宾浩斯遗忘曲线。 |
+| 笔记数据 | 便签 👑     | 轻量便签组件，适合临时记录和固定提醒              |
+| 笔记数据 | 强化日记 👑   | 更完整的日记工作台，包含任务、记录、回顾、日历等能力      |
+| 信息资讯 | 热搜        | 展示不同平台的热搜信息                     |
+| 信息资讯 | 每日一言      | 展示每日一句，支持自定义内容和外部来源             |
+| 信息资讯 | 新闻资讯 👑   | 展示新闻资讯内容                        |
+| 信息资讯 | 星座运势 👑   | 展示星座运势信息                        |
+| 信息资讯 | 历史上的今天 👑 | 展示历史上的今天相关内容                    |
+| 可视化  | 热力图       | 类似 GitHub 主页的创作热力图，可展示块数或文档活跃情况 |
+| 可视化  | SQL 查询    | 通过 SQL 查询思源数据并展示结果              |
+| 可视化  | 可视化图表     | 支持进度条、词云等可视化展示                  |
+| 可视化  | 数据库图表 👑  | 数据库图表组件，目前仍在开发中                 |
+| 可视化  | 统计卡片 👑   | 以卡片形式展示统计数据                     |
+| 日常工具 | 番茄钟       | 专注计时工具，支持自定义样式和系统级提示            |
+| 日常工具 | 倒数日       | 添加多个倒数日或纪念日事项                   |
+| 日常工具 | 今日天气      | 根据城市信息展示天气                      |
+| 日常工具 | 时钟        | 时钟组件，支持经典、简洁、表盘等样式              |
+| 日常工具 | 音乐播放器 👑  | 音乐播放组件                          |
+| 日常工具 | 黄历 👑     | 展示黄历相关信息                        |
+| 日常工具 | 图片轮播 👑   | 图片轮播展示组件                        |
+| 日常工具 | 赛博木鱼 👑   | 轻量娱乐和放松组件                       |
+| 日常工具 | 倒计时 👑    | 更偏计时器形式的倒计时组件                   |
+| 日常工具 | 固定资产 👑   | 固定资产记录与管理组件                     |
+| 自定义  | 文档编辑器     | 在主页中嵌入指定思源文档块或编辑器区域             |
+| 自定义  | 文字内容      | 添加自定义 Markdown 或文字内容            |
+| 自定义  | 网页浏览器     | 通过 WebView 嵌入网页内容               |
+
+> 注：标注 👑 的组件为会员相关组件；具体可用范围以插件内实际显示为准。
+
+***
+
+## 组件工作台：把主页搭成自己的入口
+
+主页插件的重点不是简单展示几个卡片，而是让你可以按照自己的工作方式重新组织思源入口。
+
+你可以用它搭建：
+
+- **每日工作台**：任务管理、番茄钟、日记、快速笔记、天气、倒数日。
+- **读书工作台**：收藏文档、子文档、条件文档、便签、可视化图表。
+- **研究工作台**：SQL 查询、数据库图表、文档编辑器、WebView、AI 知识库。
+- **个人仪表盘**：热力图、统计卡片、固定资产、天气、历史上的今天。
+- **生活主页**：音乐播放器、图片轮播、每日一言、黄历、星座运势。
+
+你可以根据自己的使用习惯拖拽组件、调整大小、隐藏不用的组件，也可以通过模板快速恢复或切换主页布局。
+
+***
+
+## AI 知识库：不只是聊天，而是理解你的思源
+
+AI 知识库是 4.0 之后最重要的变化之一。
+
+它不是简单地把一个聊天框塞进插件里，而是让 AI 能够围绕思源中的真实内容工作。
+
+目前 AI 知识库支持从侧边栏或标签页进入对话，可以根据需要调用不同工具完成任务。
+
+AI 的回答不再只是凭空生成，而是可以结合你在思源中的真实资料进行处理。
+
+> 该项目没有使用传统的 RAG 方式去建立知识数据库，或使用向量检索进行 RAG 的搭建。
+>
+> 项目直接使用相关的查询工具，并优化了知识图谱类型的工具，直接让 AI 进行问题的理解和调用工具进行知识库问答。
+>
+> 因此是完全基于一种类似 Agentic RAG 的方式进行的。
+
+***
+
+### AI 知识库功能介绍
+
+AI 知识库目前支持丰富的功能设置，如：
+
+- 技能/Skills 设置
+- 智能联网搜索
+- 全局记忆
+- 快捷提示语
+- 主页状态语 AI 智能生成
+- 编辑器工具栏 AI 工具处理
+
+#### 内置技能/skill
+
+插件中内置了一批技能，每个技能包含了可供使用的工具，AI 可以调用这些技能和工具实现不同的任务。
+
+> 插件没有直接将思源笔记内置 API 进行工具封装并暴露给 AI 的方法。而是将特定类型的 API 封装成可供 AI 稳定调用的工具，并将工具按能力分类使用特定的内置 skill 进行统一管理约束行为。
+>
+> 这样做的好处是，AI 通过特定的 skill 去调用工具，可以更好的理解思源笔记的数据结构、笔记结构和各种工具之间的关系，避免一些没有意义无用调用。实现更加智能的 AI 知识库问答。
+
+下面是一些内置的技能及相关的工具实现：
+
+##### 知识库检索
+
+帮助理解知识库范围、证据边界、正文引用和本地来源约束。是知识库问答的核心能力，内置了以下只读工具：
+
+| 工具           | 能力                                                        |
+| :----------- | :-------------------------------------------------------- |
+| 查看知识库结构      | 查看笔记本、文档树、子文档和局部结构，帮助定位资料位置，避免盲目搜索。                       |
+| 搜索知识库        | 按关键词查找候选资料，返回标题、路径、预览和真实文档标识。                             |
+| 查看文档与内容块时间列表 | 按创建时间或更新时间列出当前范围内的文档或内容块，支持 blockTypes 过滤，帮助了解最近新增或修改的笔记。 |
+
+##### 强化日记助手
+
+绕任务、日记、快速记录、复盘和计划承接做查询与受控写入。改能力完全继承于强化日记组件的功能，通过这个 skill 可以实现相关工作台的 AI 自动操作。内置了以下工具：
+
+| 工具        | 能力                                |
+| :-------- | :-------------------------------- |
+| 查看日记工作台概览 | 查看某一天的摘要、任务、快速记录、项目、通知、复盘和计划承接信息。 |
+| 查询任务      | 按日期、状态、关键词、标签或优先级查询任务信息。          |
+| 定位日记文档    | 按日、周、月、年定位对应的日记、周记、月记或年记文档。       |
+| 管理日记结构    | 统一管理日记结构：确保今日日记存在、补充日/周/月/年模板。    |
+| 管理日记任务    | 统一管理日记任务：新增、迁移、修改状态、更新字段、推迟、删除。   |
+| 管理快速记录    | 统一管理快速记录：新增、修改、删除。                |
+| 管理复盘内容    | 统一管理复盘：保存复盘字段、标记完成/未完成、跳过/恢复。     |
+
+##### 数据库助手
+
+查询和分析思源数据库，并在确认后执行相关内容字段的增删改等操作。内置了以下工具：
+
+| 工具       | 能力                                                      |
+| :------- | :------------------------------------------------------ |
+| 查找数据库    | 搜索和列出数据库候选，帮助获取真实databaseld。                            |
+| 读取数据库    | 读取数据库字段、视图和有限条目摘要，区分databaseld、viewld、keyld 和rowld。     |
+| 查找数据库条目  | 按关键词或字段条件查找条目，返回真实rowld 和字段摘要。                          |
+| 更新数据库单元格 | 在确认后用真实databaseld、rowld 和 keyld 更新单元格。支持单个或批量更新（最多20项)。 |
+| 添加条目到数据库 | 在确认后将已有块加入数据库，或添加少量脱离块条目。                               |
+| 新增数据库字段  | 在确认后新增一个数据库字段，字段名重复时拒绝。                                 |
+| 删除数据库字段  | 在确认后删除一个数据库字段及其所有值。主字段不允许删除。                            |
+| 删除数据库条目  | 在确认后删除一个或多个数据库条目。一次最多删除 20行。                            |
+| 清空数据库单元格 | 在确认后清空指定单元格的值。block 主字段不允许清空。                           |
+
+##### 文档编辑
+
+进行有限文档级和块级内容编辑。内置了以下工具：
+
+| 工具     | 能力                        |
+| :----- | :------------------------ |
+| 读取文档块  | 按块查看文档内容、子块、同级邻近块或文档顶层块。  |
+| 创建文档   | 在指定路径下创建新文档。              |
+| 更新块内容  | 替换指定内容块的Markdown 内容。      |
+| 插入内容块  | 在指定块前后或作为子块插入Markdown 内容。 |
+| 删除内容块  | 删除一个或多个内容块                |
+| 移动内容块  | 将指定内容块移动到新的相邻或父级位置。       |
+| 重命名文档  | 修改指定文档标题                  |
+| 删除文档   | 删除指定文档                    |
+| 替换文档正文 | 整体替换指定文档正文内容。             |
+
+***
+
+### 编辑器工具栏 AI：选中文字就能处理
+
+编辑器工具栏 AI 的目标是减少复制粘贴。过去如果你想让 AI 解释、翻译或润色一段文字，通常需要把文字复制到外部 AI 工具里，再把结果复制回来。现在可以直接在思源编辑器中选中文字，点击工具栏中的 AI 按钮处理。
+
+目前支持的能力包括：
+
+- AI 问答
+- 翻译
+- 解释
+- 润色
+- 自定义技能
+- 技能排序
+- 技能停用
+- 技能删除
+- 技能显示位置管理
+- 技能级模型参数设置
+
+你也可以为不同技能配置不同模型、温度、输出长度和流式输出方式。例如，翻译可以使用一个稳定模型，润色可以使用另一个更擅长表达的模型，自定义技能则可以根据具体场景单独设置。
+
+如果你愿意，还可以选择附带当前文档标题和选区附近上下文，让 AI 更理解当前文字所在的笔记环境。
+
+***
+
+### 主页 AI 状态语
+
+状态语不再只是固定模板。开启 AI 智能生成后，主页可以根据真实统计数据生成一句新的状态语，例如记录天数、笔记数量、文档数量、任务数量等。
+
+你可以把它理解为主页上的一句动态提示：它不直接替你工作，但可以让你每次打开主页时，都看到一句和自己当前状态有关的话。
+
+主页 AI 状态语支持：
+
+- 自定义模板
+- AI 智能生成
+- 单独选择大模型
+- 设置生成风格
+- 设置返回字符上限
+- 设置思考模式
+- 悬浮刷新按钮
+- 自定义状态语与 AI 状态语分别刷新
+
+如果生成失败，插件也会明确提示，不会误显示为自定义内容。
+
+***
+
+## 本地密钥保护
+
+4.0 对大模型与联网搜索 API Key 做了本地加密保存，避免配置文件中直接出现明文密钥。设置页中的密钥输入框默认隐藏，可通过眼睛按钮临时查看。
+
+需要说明的是，这里的安全目标是减少配置文件明文暴露风险，它是本地加密保存，不等同于系统密钥链，也不应该被理解为绝对安全。
+
+简单来说：
+
+- API Key 不直接明文暴露在配置文件里。
+- 设置页默认隐藏密钥。
+- 需要查看时可以临时显示。
+- 本地加密是安全增强，不是绝对防护。
+
+***
+
+## 使用教程与更新日志
+
+主页插件功能比较多，如果你是第一次使用，建议先查看详细教程：[📖 详细使用教程](https://blog.glaube-ty.top/zhu-ye-cha-jian)
+
+如果你想了解每个版本具体更新了什么，可以查看完整更新日志：[📄 完整更新日志](https://blog.glaube-ty.top/archives/019d23a8-9381-70b7-8561-68c22fb1aedf)
+
+***
+
+## 相关文章
+
+- [思源主页插件：复习文档组件](https://blog.glaube-ty.top/archives/019eefa2-66fe-74bc-8184-9045dd405d82)
+- [思源主页插件：Ai 知识库](https://blog.glaube-ty.top/archives/019ebc77-d03e-73df-b6ec-10b18545d4a7)
+- [思源主页插件：强化日记工作台](https://blog.glaube-ty.top/archives/019e5f59-4a9c-727b-bd6a-a32c4d604a48)
+- [主页插件任务管理Plus组件设置教程](https://blog.glaube-ty.top/archives/019d2a4b-733a-707a-b226-b305e4aafe35)
+- [主页插件 —— 任务管理 Plus](https://ld246.com/article/1751797033411)
+- [主页插件 —— 实用又美观的信息汇总页面](https://ld246.com/article/1751795938779)
+
+***
+
+## 支持开发
+
+如果这个插件对你有帮助，欢迎给作者点个赞或打赏一杯咖啡。这会鼓励作者继续更新，也能支持后续更多功能的维护和开发。
+
+![赞赏二维码](https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/ReQR.png)
+
+[💖 特别鸣谢](https://blog.glaube-ty.top/da-shang)
+
+***
+
+## 加入讨论
+
+目前我在开发的插件有主页、读书笔记、空文档清理、彩色图标等，所以统一使用一个讨论频道，方便查看和管理反馈。
+
+欢迎在频道中反馈问题、分享布局、交流玩法。
+
+![讨论频道二维码](https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/TCQR.jpg)
+
+[👥 加入腾讯讨论频道](https://pd.qq.com/s/2ks4079x0)
+
+***
+
+## VIP 与开源说明
+
+插件一开始是没有会员功能的，但随着开发内容不断增加，大家的需求也逐渐变多，一个人长期维护会比较吃力。因此，从 2.0 版本之后，部分主要内容加入了 VIP 功能。
+
+即便如此，插件仍然保持开源，源代码可以在 GitHub 仓库中查看。对于有代码基础的朋友，也可以自行研究源码并按自己的方式使用和修改。
+
+相关说明：
+
+[💻 自主激活 VIP 教程](https://blog.glaube-ty.top/archives/019d3f22-745d-7175-b19c-ca2ddc4da463)
+
+通过这种方式处理后，后续更新可能需要再次手动处理，不会持久保留。
+
+如果不想折腾，也欢迎直接支持作者：
+
+[👑 VIP 权益](https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab)
+
+***
+
+## 参考项目
+
+本插件部分功能参考了以下优秀项目，感谢开源社区提供的灵感与基础能力。
+
+| 项目                                                                          | 说明                                       |
+| --------------------------------------------------------------------------- | ---------------------------------------- |
+| [Obsidian Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks)    | 任务管理 Plus 组件参考了其图标化的任务模式和实现逻辑            |
+| [Echarts](https://github.com/apache/echarts)                                | 本插件中的图表能力主要来自 Echarts                    |
+| [Emoji Picker Element](https://github.com/nolanlawson/emoji-picker-element) | 本插件中的 Emoji 选择器组件来自 Emoji Picker Element |
+| [Howler](https://github.com/goldfire/howler.js/)                            | 本插件中的音乐播放功能来自 Howler                     |
+| [Mousetrap](https://github.com/ccampbell/mousetrap)                         | 本插件使用 Mousetrap 来处理键盘快捷键                 |
+| [Quill](https://github.com/slab/quill)                                      | 本插件中的便签组件来自 Quill                        |
+| [Sortable](https://github.com/SortableJS/Sortable)                          | 本插件中的组件拖拽布局和技能排序来自 Sortable              |
+| [Multiselect](https://multiselect.janosh.dev/)                              | 本插件中的多选框来自 Multiselect                   |
+| [Tyme](https://github.com/6tail/tyme4ts)                                    | 本插件部分日期算法来自 Tyme                         |
+| [UAPI SDK TypeScript](https://github.com/AxT-Team/uapi-sdk-typescript)      | 本插件的热搜组件相关功能使用了 UAPI SDK TypeScript      |
+| [Floating UI](https://floating-ui.com/)                                     | 本插件中的浮动预览窗口来自 Floating UI                |
+| [Swiper](https://swiper.com.cn/)                                            | 本插件中的轮播图组件来自 Swiper                      |
+
+***
+
+## 免责声明
+
+- 本插件只用于信息汇总展示与个人效率辅助，所有插件数据均在本地使用。
+- AI 功能需要用户自行配置大模型或联网搜索服务，相关服务的费用、稳定性和内容结果由对应服务商决定。
+- AI 生成内容仅供参考。涉及重要信息、文档编辑、删除数据等操作时，请务必自行确认。
+- 本插件数据仅用于个人信息管理，禁止用于商业用途等违规行为。
+- 开发者对使用本插件造成的任何损失不承担责任。
+

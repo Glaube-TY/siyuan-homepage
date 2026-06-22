@@ -6,6 +6,7 @@
  */
 
 import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "./doc-content-editing.skill";
+import { BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "./database-assistant.skill";
 import { BUILTIN_KB_SKILL_NAME } from "./knowledge-base-qa.skill";
 import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "./schedule-task-diary.skill";
 
@@ -37,6 +38,15 @@ export const builtinSkills: BuiltinSkillSummary[] = [
     description: "围绕任务、日记、快速记录、复盘和计划承接做查询与受控写入。任务写操作统一使用 manage_diary_task。",
     boundary: "查询工具为只读；任务写操作统一使用 manage_diary_task（新增/迁移/修改状态/更新字段/推迟/删除）；快速记录写操作统一使用 manage_diary_record（新增/修改/删除）；复盘写操作统一使用 manage_diary_review（保存字段/标记完成/跳过/恢复）；日记结构写操作统一使用 manage_diary_structure（确保今日日记、补模板）；docId/blockId/taskId/recordId 必须来自工具返回或 grounding 上下文，不编造；不能用 create 冒充 migrate。",
     guidance: "相对时间应参考 runtimeNow；新增任务前先确保今日日记存在；迁移/修改/推迟/删除已有任务前必须先 query_tasks 获取真实 ID；修改/删除已有快速记录前必须先 query_diary_records 获取真实 recordId/headingBlockId/date；保存复盘前确认已有对应复盘根区块；复盘 docId 必须来自 find_diary_docs 或 grounding 上下文；未返回的信息不能当成事实。",
+  },
+  {
+    name: BUILTIN_DATABASE_ASSISTANT_SKILL_NAME,
+    title: "数据库助手",
+    source: "builtin",
+    enabledByDefault: true,
+    description: "查询和操作思源数据库/属性视图，并执行受控写入。",
+    boundary: "只处理思源属性视图/数据库；只读不确认；写工具默认开启执行前确认，用户可在设置中关闭；不删除数据库，不批量替换整库。",
+    guidance: "先查找真实 databaseId，再读取 schema；databaseId、viewId、keyId、rowId、boundBlockId 不得混用或编造；字段名/行标题不能代替 keyId/rowId；boundBlockId 不能直接当 rowId，需用映射工具转换。",
   },
   {
     name: BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME,

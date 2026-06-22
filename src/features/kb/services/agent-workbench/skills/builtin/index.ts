@@ -3,5 +3,6 @@
  */
 export { createKnowledgeBaseQaSkill, BUILTIN_KB_SKILL_NAME } from "./knowledge-base-qa.skill";
 export { createScheduleTaskDiarySkill, BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "./schedule-task-diary.skill";
+export { createDatabaseAssistantSkill, BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "./database-assistant.skill";
 export { createDocContentEditingSkill, BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "./doc-content-editing.skill";
 export { builtinSkills, type BuiltinSkillSummary } from "./skill-catalog";

@@ -16,6 +16,10 @@ import { setBlockAttrs } from "@/api";
 import Homepage from "./homepage/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
+import ReviewDocsDialog from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocsDialog.svelte";
+import { clearReviewTarget } from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
+import { resolveDatabaseIdFromExistingWidgets } from "./components/utils/widgetBlock/widget/sharedDatabaseId";
+import type { ReviewMenuTarget } from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
 import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
 import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.svelte";
@@ -85,6 +89,7 @@ export default class PluginHomepage extends Plugin {
     private docTreeMenuEventBindThis = this.handleDocTreeMenu.bind(this);
     private contentMenuEventBindThis = this.handleContentMenu.bind(this);
     private editorTitleIconMenuEventBindThis = this.handleEditorTitleIconMenu.bind(this);
+    private blockIconMenuEventBindThis = this.handleBlockIconMenu.bind(this);
 
     // 已应用签名状态：用于检测外部同步变化
     private lastAppliedConfigSignature = "";
@@ -239,6 +244,7 @@ export default class PluginHomepage extends Plugin {
 
         this.eventBus.on("open-menu-doctree", this.docTreeMenuEventBindThis);
         this.eventBus.on("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
+        this.eventBus.on("click-blockicon", this.blockIconMenuEventBindThis);
         if (config.taskEditorEnabled ?? true) {
             this.eventBus.on("open-menu-content", this.contentMenuEventBindThis);
         }
@@ -261,6 +267,7 @@ export default class PluginHomepage extends Plugin {
         this.eventBus.off("open-menu-doctree", this.docTreeMenuEventBindThis);
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
         this.eventBus.off("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
+        this.eventBus.off("click-blockicon", this.blockIconMenuEventBindThis);
 
         // 销毁 Homepage 组件实例
         this.destroyHomepageInstance();
@@ -1095,6 +1102,121 @@ export default class PluginHomepage extends Plugin {
         return null;
     }
 
+    private async resolveReviewDocsDatabaseId(): Promise<string> {
+        try {
+            const result = await resolveDatabaseIdFromExistingWidgets(
+                this,
+                "reviewDocs",
+                "",
+                { type: "reviewDocs", data: {} },
+            );
+            return result.databaseId || "";
+        } catch (error) {
+            console.warn("[Homepage] 读取复习文档数据库 ID 失败", error);
+            return "";
+        }
+    }
+
+    private openReviewDocsDialog(target: ReviewMenuTarget, mode: "create" | "edit" = "create"): void {
+        if (!this.ADVANCED) {
+            showMessage("复习文档为高级会员专属功能", 3000);
+            return;
+        }
+
+        const dialog = svelteDialog({
+            title: mode === "edit" ? "编辑复习计划" : "加入复习计划",
+            width: "min(860px, calc(100vw - 32px))",
+            constructor: (containerEl: HTMLElement) => {
+                return mount(ReviewDocsDialog as any, {
+                    target: containerEl,
+                    props: {
+                        plugin: this,
+                        targetId: target.id,
+                        targetType: target.type,
+                        mode,
+                        close: () => dialog.close(),
+                    },
+                });
+            },
+        });
+    }
+
+    private async removeReviewDocsPlan(target: ReviewMenuTarget): Promise<void> {
+        if (!this.ADVANCED) {
+            showMessage("复习文档为高级会员专属功能", 3000);
+            return;
+        }
+
+        try {
+            const databaseId = await this.resolveReviewDocsDatabaseId();
+            const result = await clearReviewTarget({
+                targetId: target.id,
+                targetType: target.type,
+                databaseId,
+            });
+            showMessage(
+                result.logWarning
+                    ? `${result.message}，但日志记录失败：${result.logWarning}`
+                    : result.message,
+                4000,
+            );
+        } catch (error) {
+            console.error("取消复习计划失败", error);
+            showMessage(error instanceof Error ? error.message : "取消复习计划失败", 4000);
+        }
+    }
+
+    private createHomepageReviewMenuItems(target: ReviewMenuTarget): IMenuItem[] {
+        return [
+            {
+                icon: "iconCalendar",
+                label: "加入复习计划",
+                click: () => this.openReviewDocsDialog(target, "create"),
+            },
+            {
+                icon: "iconClose",
+                label: "取消复习计划",
+                click: () => void this.removeReviewDocsPlan(target),
+            },
+        ];
+    }
+
+    private addHomepageReviewSubmenu(menu: any, target: ReviewMenuTarget): void {
+        menu.addItem({
+            icon: "iconhomepage",
+            label: "主页插件",
+            type: "submenu",
+            submenu: this.createHomepageReviewMenuItems(target),
+        });
+    }
+
+    private addHomepageBlockActions(menu: any, blockId: string, options?: { includeTaskEditor?: boolean }): void {
+        this.addHomepageReviewSubmenu(menu, { id: blockId, type: "block" });
+
+        if (options?.includeTaskEditor) {
+            menu.addItem({
+                icon: "iconTask",
+                label: "任务编辑器（主页插件）",
+                click: () => {
+                    const dialog = svelteDialog({
+                        title: "任务编辑器",
+                        constructor: (containerEl: HTMLElement) => {
+                            return mount(TasksEditingDialog as any, {
+                                target: containerEl,
+                                props: {
+                                    blockId: blockId,
+                                    close: () => {
+                                        dialog.close();
+                                    },
+                                },
+                            });
+                        },
+                    });
+                }
+            });
+        }
+    }
+
     // 添加收藏菜单到指定菜单
     private addFavoriteDocumentSubmenu(menu: any, docId: string): void {
         menu.addItem({
@@ -1131,7 +1253,8 @@ export default class PluginHomepage extends Plugin {
                             showMessage("取消收藏失败，请查看控制台日志");
                         }
                     }
-                }
+                },
+                ...this.createHomepageReviewMenuItems({ id: docId, type: "doc" }),
             ]
         });
     }
@@ -1163,30 +1286,37 @@ export default class PluginHomepage extends Plugin {
             console.warn('未找到块元素');
             return;
         }
-        detail.menu.addItem({
-            icon: "iconTask",
-            label: "任务编辑器（主页插件）",
-            click: () => {
-                const blockId = blockElement.getAttribute('data-node-id');
-                if (blockId) {
-                    const dialog = svelteDialog({
-                        title: "任务编辑器",
-                        constructor: (containerEl: HTMLElement) => {
-                            return mount(TasksEditingDialog as any, {
-                                target: containerEl,
-                                props: {
-                                    blockId: blockId,
-                                    close: () => {
-                                        dialog.close();
-                                    },
-                                },
-                            });
-                        },
-                    });
+        const blockId = blockElement.getAttribute('data-node-id');
+        if (blockId) {
+            this.addHomepageBlockActions(detail.menu, blockId, { includeTaskEditor: true });
+        }
+    }
 
-                }
+    private handleBlockIconMenu({ detail }: any) {
+        if (!detail) return;
+
+        let blockId: string | null = null;
+
+        // 优先从 blockElements 数组获取
+        const blockEl = detail.blockElements?.[0];
+        if (blockEl) {
+            blockId = blockEl.dataset?.nodeId || blockEl.getAttribute("data-node-id");
+        }
+
+        // 兜底：从 element 向上查找
+        if (!blockId && detail.element?.closest) {
+            const closest = detail.element.closest("[data-node-id]");
+            blockId = closest?.getAttribute("data-node-id") || null;
+        }
+
+        if (!blockId) {
+            if (import.meta.env.DEV) {
+                console.debug("[Homepage][BlockIconMenu] 无法获取块 ID", detail);
             }
-        });
+            return;
+        }
+
+        this.addHomepageBlockActions(detail.menu, blockId, { includeTaskEditor: true });
     }
 
     private handleEditorTitleIconMenu({ detail }: any) {

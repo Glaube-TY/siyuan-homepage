@@ -371,6 +371,20 @@ export async function moveBlock(id: BlockId, previousID?: PreviousID, parentID?:
     return request(url, data);
 }
 
+/**
+ * moveBlock 专用 raw wrapper，返回完整 IWebSocketData。
+ * /api/block/moveBlock 成功时 data 可能为 null，
+ * 旧 request() 口径会把 code=0+data=null 误判为失败。
+ */
+export async function moveBlockRaw(id: BlockId, previousID?: PreviousID, parentID?: ParentID): Promise<IWebSocketData> {
+    let data = {
+        id: id,
+        previousID: previousID,
+        parentID: parentID
+    };
+    return requestRaw('/api/block/moveBlock', data);
+}
+
 
 export async function foldBlock(id: BlockId) {
     let data = {
@@ -425,6 +439,16 @@ export async function setBlockAttrs(id: BlockId, attrs: { [key: string]: string 
     }
     let url = '/api/attr/setBlockAttrs';
     return request(url, data);
+}
+
+export async function setBlockAttrsChecked(id: BlockId, attrs: { [key: string]: string }): Promise<void> {
+    const response = await requestRaw('/api/attr/setBlockAttrs', {
+        id,
+        attrs,
+    });
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'setBlockAttrs 失败');
+    }
 }
 
 
@@ -835,11 +859,34 @@ export interface AttributeView {
     id: string;
     name: string;
     keyValues: AttributeViewKeyValue[];
+    views?: any[];
+    raw?: any;
 }
 
 export async function getAttributeViewKeysByAvID(avID: string): Promise<any> {
     const res = await request('/api/av/getAttributeViewKeysByAvID', { avID });
     return res || {};
+}
+
+export async function searchAttributeView(keyword: string = "", excludes: string[] = []): Promise<any> {
+    const res = await request('/api/av/searchAttributeView', { keyword, excludes });
+    return res || { results: [] };
+}
+
+export interface RenderAttributeViewPayload {
+    id: string;
+    blockID?: string;
+    viewID?: string;
+    page?: number;
+    pageSize?: number;
+    query?: string;
+    groupPaging?: Record<string, any>;
+    createIfNotExist?: boolean;
+}
+
+export async function renderAttributeView(payload: RenderAttributeViewPayload): Promise<any> {
+    const res = await request('/api/av/renderAttributeView', payload);
+    return res || null;
 }
 
 export async function getAttributeView(id: string): Promise<AttributeView | null> {
@@ -854,6 +901,8 @@ export async function getAttributeView(id: string): Promise<AttributeView | null
         id: av.id || id,
         name: av.name || '',
         keyValues: av.keyValues || [],
+        views: av.views || [],
+        raw: av,
     };
 }
 
@@ -921,6 +970,18 @@ export async function getAttributeViewItemIDsByBoundIDs(
     });
 }
 
+export interface AddAttributeViewBlocksPayload {
+    avID: string;
+    /** Existing SiYuan block ids to attach as database rows. */
+    blockIDs: string[];
+    /** Optional database block id/context required by some SiYuan versions. */
+    blockID?: string;
+    viewID?: string;
+    groupID?: string;
+    previousID?: string;
+    ignoreDefaultFill?: boolean;
+}
+
 // **************************************** Attribute View (Database) - Checked Wrappers ****************************************
 // 与上面 appendAttributeViewDetachedBlocksWithValues / setAttributeViewBlockAttr / addAttributeViewKey 对应
 // 区别：使用 requestRaw 保留完整 IWebSocketData 响应，code !== 0 时直接抛错
@@ -958,15 +1019,21 @@ export async function setAttributeViewBlockAttrChecked(
 export async function setAttributeViewBlockAttrWithCellChecked(params: {
     avID: string;
     keyID: string;
-    rowID: string;
+    /** 真实条目 ID（itemID）。rowID 作为旧别名兼容，内部转换为 itemID。 */
+    itemID?: string;
+    rowID?: string;
     cellID?: string;
     value: any;
 }): Promise<void> {
+    // itemID 优先；若没有 itemID 但传了 rowID，则用 rowID 作为 itemID
+    const resolvedItemId = params.itemID?.trim() || params.rowID?.trim();
+    if (!resolvedItemId) {
+        throw new Error('setAttributeViewBlockAttrWithCellChecked: itemID 和 rowID 均为空，必须提供真实条目 ID。');
+    }
     const payload: any = {
         avID: params.avID,
         keyID: params.keyID,
-        rowID: params.rowID,
-        itemID: params.rowID,
+        itemID: resolvedItemId,
         value: params.value,
     };
     if (params.cellID) {
@@ -997,6 +1064,127 @@ export async function addAttributeViewKeyChecked(
     if (response.code !== 0) {
         throw new Error(response.msg || 'addAttributeViewKey 失败');
     }
+}
+
+export async function removeAttributeViewKeyChecked(
+    avID: string,
+    keyID: string,
+    removeRelationDest: boolean = false
+): Promise<void> {
+    const response = await requestRaw('/api/av/removeAttributeViewKey', {
+        avID,
+        keyID,
+        removeRelationDest,
+    });
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'removeAttributeViewKey 失败');
+    }
+}
+
+export async function addAttributeViewBlocksChecked(params: AddAttributeViewBlocksPayload): Promise<any> {
+    const payload: any = {
+        avID: params.avID,
+        srcs: params.blockIDs.map((id) => ({ id, isDetached: false })),
+        ignoreDefaultFill: params.ignoreDefaultFill ?? false,
+    };
+    if (params.blockID) payload.blockID = params.blockID;
+    if (params.viewID) payload.viewID = params.viewID;
+    if (params.groupID) payload.groupID = params.groupID;
+    if (params.previousID) payload.previousID = params.previousID;
+
+    const response = await requestRaw('/api/av/addAttributeViewBlocks', payload);
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'addAttributeViewBlocks 失败');
+    }
+    return response.data;
+}
+
+// **************************************** Transactions ****************************************
+// endpoint: /api/transactions
+// 用于执行原子操作：insertAttrViewBlock、removeAttrViewBlock、addAttrViewCol、removeAttrViewCol 等
+
+export interface TransactionOperation {
+    action: string;
+    id?: string;
+    avID?: string;
+    blockID?: string;
+    viewID?: string;
+    groupID?: string;
+    previousID?: string;
+    ignoreDefaultFill?: boolean;
+    srcs?: Array<{ itemID?: string; id: string; isDetached: boolean }>;
+    srcIDs?: string[];
+    keyID?: string;
+    name?: string;
+    type?: string;
+    [key: string]: any;
+}
+
+export interface TransactionBatch {
+    doOperations: TransactionOperation[];
+    undoOperations?: TransactionOperation[];
+}
+
+export async function performTransactionsChecked(
+    transactions: TransactionBatch[],
+    options?: { reqId?: string | number; app?: string; session?: string }
+): Promise<void> {
+    const reqId = typeof options?.reqId === "number"
+        ? options.reqId
+        : typeof options?.reqId === "string" && !isNaN(Number(options.reqId))
+            ? Number(options.reqId)
+            : Date.now();
+    const payload = {
+        transactions,
+        reqId,
+        app: options?.app ?? "",
+        session: options?.session ?? "",
+    };
+    const response = await requestRaw('/api/transactions', payload);
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'transactions 执行失败');
+    }
+}
+
+// **************************************** Attribute View ID Mapping ****************************************
+// endpoint: /api/av/getAttributeViewItemIDsByBoundIDs, /api/av/getAttributeViewBoundBlockIDsByItemIDs
+
+export async function getAttributeViewBoundBlockIDsByItemIDs(
+    avID: string,
+    itemIDs: string[]
+): Promise<any> {
+    return request('/api/av/getAttributeViewBoundBlockIDsByItemIDs', {
+        avID,
+        itemIDs,
+    });
+}
+
+export async function getAttributeViewItemIDsByBoundIDsChecked(
+    avID: string,
+    blockIDs: string[]
+): Promise<any> {
+    const response = await requestRaw('/api/av/getAttributeViewItemIDsByBoundIDs', {
+        avID,
+        blockIDs,
+    });
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'getAttributeViewItemIDsByBoundIDs 失败');
+    }
+    return response.data;
+}
+
+export async function getAttributeViewBoundBlockIDsByItemIDsChecked(
+    avID: string,
+    itemIDs: string[]
+): Promise<any> {
+    const response = await requestRaw('/api/av/getAttributeViewBoundBlockIDsByItemIDs', {
+        avID,
+        itemIDs,
+    });
+    if (response.code !== 0) {
+        throw new Error(response.msg || 'getAttributeViewBoundBlockIDsByItemIDs 失败');
+    }
+    return response.data;
 }
 
 
