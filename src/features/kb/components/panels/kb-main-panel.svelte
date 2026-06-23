@@ -1297,7 +1297,7 @@
           compressedContextSummary={$kbSessionStore.compressedContextSummary}
           stageSummaryCount={($kbSessionStore.stageSummaries ?? []).length}
           {availableModes}
-          webSearchEnabled
+          webSearchEnabled={webSearchEnabled}
           {webAccessMode}
           {quickPromptsEnabled}
           {quickPromptsDocId}

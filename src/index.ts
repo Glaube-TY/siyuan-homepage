@@ -55,6 +55,12 @@ const TASK_ICON_SVG = `<symbol id="iconTask" viewBox="0 0 1024 1024">
     <path d="M224.924444 967.111111C153.813333 967.111111 128 929.578667 128 862.620444V242.659556c0-62.421333 18.033778-105.671111 91.448889-105.671112h56.988444s32.711111 10.168889 32.711111 15.246223c0 38.727111 26.936889 79.018667 60.757334 79.018666h277.12c32.199111 0 59.136-40.206222 59.136-78.933333 0-5.077333 36.494222-15.246222 36.494222-15.246222h55.779556c67.726222 0 100.977778 43.278222 100.977777 105.671111v619.875555c0 75.064889-35.456 104.490667-106.510222 104.490667H224.924444z m63.104-420.366222a40.647111 40.647111 0 0 0 0.213334 56.675555l118.385778 118.528 1.607111 2.062223a38.812444 38.812444 0 0 0 55.808 0l251.889777-253.952a39.537778 39.537778 0 0 0-55.594666-56.234667L436.024889 639.544889l-91.776-93.44a40.604444 40.604444 0 0 0-27.875556-11.121778 40.064 40.064 0 0 0-28.344889 11.690667v0.071111z m125.454223-382.321778c-22.101333 0-39.921778-30.392889-40.035556-55.808C373.333333 83.2 391.196444 56.888889 413.482667 56.888889h190.791111c22.215111 0 40.035556 26.296889 40.035555 51.712 0 25.415111-17.820444 55.808-38.855111 55.808l-191.971555 0.014222z" fill="#323233" p-id="14715"></path>
 </symbol>`;
 
+const SPARKLES_ICON_SVG = `<symbol id="iconSparkles" viewBox="0 0 1024 1024">
+    <path d="M448 64l72 240 240 72-240 72-72 240-72-240-240-72 240-72z" fill="currentColor"></path>
+    <path d="M768 576l40 136 136 40-136 40-40 136-40-136-136-40 136-40z" fill="currentColor"></path>
+    <path d="M224 640l28 92 92 28-92 28-28 92-28-92-92-28 92-28z" fill="currentColor"></path>
+</symbol>`;
+
 interface PluginConfig {
     quickNotesEnabled?: boolean;
     quickNotesPosition?: string;
@@ -321,12 +327,7 @@ export default class PluginHomepage extends Plugin {
         const settings = getSelectionAiToolbarSettingsSnapshot();
         // 先清理旧的 selection-ai item，确保 click 回调来自当前代码版本
         removeSelectionAiToolbarItems(toolbar);
-        // 思源会用 updateProtyleToolbar([]) 生成快捷键设置项。
-        // 选区 AI 不提供快捷键，空 toolbar 场景必须保持为空，避免进入插件 keymap。
-        if (toolbar.length === 0) {
-            return toolbar;
-        }
-        if (!settings.enabled || this.isMobileFrontend() || !this.ADVANCED) {
+        if (!settings.enabled || this.isMobileFrontend()) {
             return toolbar;
         }
         const selectionAiToolbarItems = createSelectionAiToolbarItems({
@@ -617,6 +618,7 @@ export default class PluginHomepage extends Plugin {
     private registerIcon() {
         this.addIcons(HOMEPAGE_ICON_SVG);
         this.addIcons(TASK_ICON_SVG);
+        this.addIcons(SPARKLES_ICON_SVG);
     }
 
     private registerCommand() {
