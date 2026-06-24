@@ -82,14 +82,16 @@
   </div>
 {/if}
 
-<style>
+<style lang="scss">
+  @use '../panels/_kb-tokens' as *;
+
   .modal-backdrop {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--b3-mask-background);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -97,11 +99,11 @@
   }
 
   .modal-content {
-    background: var(--b3-theme-background, #fff);
-    border-radius: 8px;
+    background: var(--b3-theme-background);
+    border-radius: $kb-radius-lg;
     width: 90%;
     max-width: 480px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    box-shadow: $kb-shadow-modal;
     overflow: hidden;
   }
 
@@ -109,123 +111,135 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--b3-border-color, #e0e0e0);
+    padding: $kb-space-lg $kb-space-xl;
+    border-bottom: 1px solid var(--b3-border-color);
   }
 
   .modal-header h3 {
     margin: 0;
-    font-size: 16px;
+    font-size: $kb-fs-xxl;
     font-weight: 600;
   }
 
   .risk-badge {
-    font-size: 12px;
-    padding: 2px 8px;
-    border-radius: 4px;
+    font-size: $kb-fs-sm;
+    padding: 2px $kb-space-sm;
+    border-radius: $kb-radius-md;
     font-weight: 500;
   }
 
-  .risk-low { background: #e8f5e9; color: #2e7d32; }
-  .risk-medium { background: #fff3e0; color: #e65100; }
-  .risk-high { background: #ffebee; color: #c62828; }
+  .risk-low { background: color-mix(in srgb, var(--b3-theme-success) 15%, transparent); color: var(--b3-theme-success, #2e7d32); }
+  .risk-medium { background: color-mix(in srgb, var(--b3-card-warning-color, #e6a817) 15%, transparent); color: var(--b3-card-warning-color, #e65100); }
+  .risk-high { background: color-mix(in srgb, var(--b3-theme-error) 15%, transparent); color: var(--b3-theme-error, #c62828); }
 
   .modal-body {
-    padding: 16px 20px;
+    padding: $kb-space-lg $kb-space-xl;
   }
 
   .info-row {
     display: flex;
-    gap: 8px;
-    margin-bottom: 8px;
-    font-size: 14px;
+    gap: $kb-space-sm;
+    margin-bottom: $kb-space-sm;
+    font-size: $kb-fs-lg;
     line-height: 1.5;
   }
 
   .label {
-    color: var(--b3-theme-on-surface-light, #888);
+    color: var(--b3-theme-on-surface-light);
     flex-shrink: 0;
   }
 
   .value {
-    color: var(--b3-theme-on-surface, #333);
+    color: var(--b3-theme-on-surface);
     word-break: break-all;
     white-space: pre-wrap;
   }
 
   .args-section {
-    margin-top: 8px;
+    margin-top: $kb-space-sm;
   }
 
   .sections-block {
-    margin-top: 8px;
+    margin-top: $kb-space-sm;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: $kb-space-xs;
   }
 
   .section-row {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: 13px;
+    font-size: $kb-fs-md;
   }
 
   .section-value {
     margin: 0;
-    padding: 6px 10px;
-    background: var(--b3-theme-surface, #f5f5f5);
-    border-radius: 4px;
-    font-size: 12px;
+    padding: $kb-space-xs $kb-space-sm;
+    background: var(--b3-theme-surface);
+    border-radius: $kb-radius-md;
+    font-size: $kb-fs-sm;
     max-height: 160px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
     line-height: 1.4;
+    border: 1px solid var(--b3-border-color);
   }
 
   .args-preview {
-    margin: 4px 0 0 0;
-    padding: 8px 12px;
-    background: var(--b3-theme-surface, #f5f5f5);
-    border-radius: 4px;
-    font-size: 12px;
+    margin: $kb-space-xs 0 0 0;
+    padding: $kb-space-sm $kb-space-md;
+    background: var(--b3-theme-surface);
+    border-radius: $kb-radius-md;
+    font-size: $kb-fs-sm;
     max-height: 200px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
+    border: 1px solid var(--b3-border-color);
   }
 
   .modal-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    padding: 12px 20px;
-    border-top: 1px solid var(--b3-border-color, #e0e0e0);
+    gap: $kb-space-sm;
+    padding: $kb-space-md $kb-space-xl;
+    border-top: 1px solid var(--b3-border-color);
   }
 
   .btn {
-    padding: 6px 16px;
-    border-radius: 4px;
-    font-size: 14px;
+    padding: 6px $kb-space-lg;
+    border-radius: $kb-radius-md;
+    font-size: $kb-fs-lg;
     cursor: pointer;
-    border: 1px solid var(--b3-border-color, #ccc);
-    background: var(--b3-theme-background, #fff);
-    color: var(--b3-theme-on-surface, #333);
-    transition: all 0.15s;
-  }
+    border: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-surface);
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out,
+      transform $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
 
-  .btn:hover {
-    background: var(--b3-theme-surface, #f0f0f0);
+    &:hover {
+      background: var(--b3-theme-surface);
+      box-shadow: $kb-shadow-card;
+    }
+
+    &:active {
+      transform: scale(0.97);
+    }
   }
 
   .btn-confirm {
-    background: var(--b3-theme-primary, #1a73e8);
+    background: var(--b3-theme-primary);
     color: #fff;
-    border-color: var(--b3-theme-primary, #1a73e8);
-  }
+    border-color: var(--b3-theme-primary);
 
-  .btn-confirm:hover {
-    opacity: 0.9;
+    &:hover {
+      opacity: 0.9;
+      box-shadow: $kb-shadow-raised;
+    }
   }
 </style>

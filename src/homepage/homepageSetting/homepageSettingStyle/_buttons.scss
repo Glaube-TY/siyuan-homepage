@@ -1,4 +1,6 @@
 // 按钮设置页 - 说明区域
+@use './_design-tokens' as *;
+
 .shp-homepage-settings {
     .button-settings-intro {
         padding: 0.5rem 0;
@@ -53,7 +55,7 @@
                     background-color: transparent;
                     border: 1px solid transparent;
                     cursor: pointer;
-                    transition: all 0.2s ease;
+                    transition: background $hs-dur-fast $hs-ease-out, border-color $hs-dur-fast $hs-ease-out, box-shadow $hs-dur-fast $hs-ease-out;
                     text-align: left;
                     min-height: 36px;
 

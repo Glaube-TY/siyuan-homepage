@@ -147,7 +147,11 @@ export function detectForbiddenTextTokens(text: string): string[] {
 export function validateUserSkillTitle(title: string): string | null {
   if (!title) return null;
   if (title.length > 100) return "Title exceeds 100 characters.";
-  if (/[\n\r\x00-\x1f]/.test(title)) return "Title contains control characters.";
+  for (const ch of title) {
+    if (ch === "\n" || ch === "\r" || ch.charCodeAt(0) < 32) {
+      return "Title contains control characters.";
+    }
+  }
 
   const forbidden = detectForbiddenTextTokens(title);
   if (forbidden.length > 0) {

@@ -1,0 +1,40 @@
+// ============================================================
+// KB Settings Design Tokens
+// DIALS: VARIANCE=5  MOTION=3  DENSITY=4
+// Linear-style minimalist for a settings panel — clean,
+// high-contrast, restrained motion, consistent spacing.
+// ============================================================
+
+// ---- Spacing ----
+$kb-space-xs: 4px;
+$kb-space-sm: 8px;
+$kb-space-md: 12px;
+$kb-space-lg: 16px;
+$kb-space-xl: 20px;
+$kb-space-2xl: 24px;
+$kb-space-3xl: 32px;
+
+// ---- Radius ----
+$kb-radius-sm: 4px;
+$kb-radius-md: 6px;
+$kb-radius-lg: 8px;
+$kb-radius-xl: 10px;
+
+// ---- Shadows ----
+$kb-shadow-none: none;
+$kb-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+$kb-shadow-raised: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+$kb-shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.18);
+
+// ---- Transitions ----
+$kb-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+$kb-dur-fast: 150ms;
+$kb-dur-normal: 200ms;
+
+// ---- Font Sizes ----
+$kb-fs-xs: 11px;
+$kb-fs-sm: 12px;
+$kb-fs-md: 13px;
+$kb-fs-lg: 14px;
+$kb-fs-xl: 15px;
+$kb-fs-xxl: 16px;

@@ -52,13 +52,29 @@ export function createScheduleTaskDiarySkill(): SkillContract {
     description: "围绕任务、日记、快速记录、复盘和计划承接做查询与受控写入。任务写操作统一使用 manage_diary_task。",
     priority: 95,
     enabledByDefault: true,
+    intentKeywords: ["日记", "任务", "记录", "复盘", "日程", "待办", "计划"],
+    primaryToolNames: [
+      "get_daily_workspace_overview", "query_tasks", "query_diary_records", "find_diary_docs",
+      "manage_diary_structure", "manage_diary_task", "manage_diary_record", "manage_diary_review",
+    ],
+    helperToolNames: [],
+    avoidToolNames: ["create_doc", "update_block", "read_docs", "siyuan_sql_select"],
+    usageRules: ["写操作必须确认", "blockId/taskId/recordId 必须来自工具返回"],
 
     buildPromptSection(_ctx: SkillRuntimeContext): SkillPromptSection {
       return {
         title: TITLE,
         body: BODY,
         priority: 95,
-        meta: { skillName: BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME, bytesEstimate: BODY.length },
+        meta: {
+          skillName: BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME,
+          bytesEstimate: BODY.length,
+          primaryToolNames: [
+            "get_daily_workspace_overview", "query_tasks", "query_diary_records", "find_diary_docs",
+            "manage_diary_structure", "manage_diary_task", "manage_diary_record", "manage_diary_review",
+          ],
+          helperToolNames: [],
+        },
       };
     },
   };

@@ -37,3 +37,153 @@ export function evaluateNotebrainCommandPermission(
   return { action: settings.commandDefaultAction };
 }
 
+// ── Command risk analysis (heuristic, not a real OS sandbox) ──
+
+export interface CommandRiskResult {
+  level: "low" | "medium" | "high";
+  reasons: string[];
+  hardDeny: boolean;
+  categories: string[];
+}
+
+/** Patterns that indicate system info / privacy reading. */
+const SYSTEM_INFO_PATTERNS = [
+  "systeminfo", "wmic", "ipconfig", "whoami", "hostname",
+  "net user", "net view", "reg query", "set ", "env",
+  "getmac", "tasklist", "ver", "msinfo32",
+];
+
+/** Patterns that indicate strong shell / scripting. */
+const STRONG_SHELL_PATTERNS = [
+  "powershell", "pwsh", "cmd /c", "bash -c", "sh -c",
+  "cmd.exe /c", "cmd /d /s /c", "cmd.exe /d /s /c",
+  "start-process", "invoke-expression", "iex",
+];
+
+/** Patterns that indicate file read/write/delete. */
+const FILE_OPS_PATTERNS = [
+  "type ", "more ", "copy ", "xcopy", "robocopy",
+  "del ", "erase", "rd ", "rmdir", "rm ", "mv ", "cp ",
+  "cat ", "move ", "ren ", "rename", "dir ", "ls ",
+];
+
+/** Patterns that indicate network outbound. */
+const NETWORK_PATTERNS = [
+  "curl", "wget", "invoke-webrequest", "iwr",
+  "invoke-restmethod", "nc ", "netcat", "telnet",
+];
+
+/** Characters that indicate pipe or redirect. */
+const PIPE_REDIRECT_CHARS = ["|", ">", ">>", "<"];
+
+export function analyzeNotebrainCommandRisk(
+  command: string,
+  settings: {
+    strictMode: boolean;
+    allowNetworkAccess: boolean;
+    allowSystemInfoCommands: boolean;
+    allowAbsolutePaths: boolean;
+  },
+): CommandRiskResult {
+  const reasons: string[] = [];
+  const categories: string[] = [];
+  let level: "low" | "medium" | "high" = "low";
+  const lower = command.toLowerCase().replace(/\s+/g, " ");
+  let hasSystemInfo = false;
+  let hasStrongShell = false;
+  let hasDangerousDelete = false;
+  let hasAbsolutePath = false;
+  let hasPipeRedirect = false;
+  let hasNetwork = false;
+
+  // System info / privacy
+  for (const pattern of SYSTEM_INFO_PATTERNS) {
+    if (lower.includes(pattern)) {
+      reasons.push(`会读取本机系统/网络/用户信息（${pattern}）`);
+      categories.push("system_info");
+      hasSystemInfo = true;
+      if (!settings.allowSystemInfoCommands) level = "high";
+      else if (level === "low") level = "medium";
+      break;
+    }
+  }
+
+  // Strong shell
+  for (const pattern of STRONG_SHELL_PATTERNS) {
+    if (lower.includes(pattern)) {
+      reasons.push(`使用强 shell/脚本引擎（${pattern}）`);
+      categories.push("strong_shell");
+      hasStrongShell = true;
+      level = "high";
+      break;
+    }
+  }
+
+  // File operations
+  for (const pattern of FILE_OPS_PATTERNS) {
+    if (lower.includes(pattern)) {
+      reasons.push(`可能修改或删除文件（${pattern.trim()}）`);
+      categories.push("file_ops");
+      if (level !== "high") level = "medium";
+      // Mark dangerous delete verbs
+      if (["del ", "erase", "rd ", "rmdir", "rm "].includes(pattern)) {
+        hasDangerousDelete = true;
+      }
+      break;
+    }
+  }
+
+  // Network
+  for (const pattern of NETWORK_PATTERNS) {
+    if (lower.includes(pattern)) {
+      reasons.push(`会发起外部网络请求（${pattern}）`);
+      categories.push("network");
+      hasNetwork = true;
+      if (!settings.allowNetworkAccess) level = "high";
+      else if (level === "low") level = "medium";
+      break;
+    }
+  }
+
+  // Absolute paths (match anywhere in command, not just start)
+  if (
+    /[a-z]:[\\\/]/i.test(lower) ||
+    /\\\\[^\\\/\s]+[\\\/][^\\\/\s]+/.test(command) ||
+    /\/home\b|\/etc\b|\/users\b|\/root\b|\/tmp\b|\/var\b/.test(lower)
+  ) {
+    reasons.push("包含绝对路径，可能访问 notebrain 工作区外路径");
+    categories.push("absolute_path");
+    hasAbsolutePath = true;
+    if (!settings.allowAbsolutePaths) level = "high";
+  }
+
+  // Parent path
+  if (/\.\./.test(command)) {
+    reasons.push("包含父级路径 (..)，可能逃逸工作区");
+    categories.push("parent_path");
+    level = "high";
+  }
+
+  // Pipe / redirect
+  for (const ch of PIPE_REDIRECT_CHARS) {
+    if (command.includes(ch)) {
+      reasons.push(`包含管道或重定向（${ch}）`);
+      categories.push("pipe_redirect");
+      hasPipeRedirect = true;
+      level = "high";
+      break;
+    }
+  }
+
+  const hardDeny = settings.strictMode && (
+    (hasSystemInfo && !settings.allowSystemInfoCommands) ||
+    (hasAbsolutePath && !settings.allowAbsolutePaths) ||
+    (hasNetwork && !settings.allowNetworkAccess) ||
+    hasStrongShell ||
+    hasDangerousDelete ||
+    hasPipeRedirect
+  );
+
+  return { level, reasons, hardDeny, categories };
+}
+

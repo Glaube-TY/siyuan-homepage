@@ -352,6 +352,8 @@
 </div>
 
 <style lang="scss">
+  @use '../panels/_kb-tokens' as *;
+
   .chat-message-list {
     flex: 1;
     min-height: 0;
@@ -363,8 +365,22 @@
   .chat-scroll-viewport {
     height: 100%;
     overflow-y: auto;
-    padding: 12px;
+    padding: $kb-space-md;
     box-sizing: border-box;
+
+    &::-webkit-scrollbar {
+      width: 5px;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: color-mix(in srgb, var(--b3-theme-on-surface) 18%, transparent);
+      border-radius: 3px;
+      &:hover {
+        background: color-mix(in srgb, var(--b3-theme-on-surface) 30%, transparent);
+      }
+    }
   }
 
   .empty-state {
@@ -379,44 +395,54 @@
 
   .empty-icon {
     font-size: 48px;
-    margin-bottom: 16px;
+    margin-bottom: $kb-space-lg;
     opacity: 0.6;
   }
 
   .empty-title {
-    font-size: 16px;
+    font-size: $kb-fs-xxl;
     font-weight: 500;
-    margin-bottom: 8px;
+    margin-bottom: $kb-space-sm;
   }
 
   .empty-desc {
-    font-size: 13px;
+    font-size: $kb-fs-md;
     opacity: 0.8;
   }
 
-  /* 快捷建议问题样式 */
   .suggested-questions {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 8px;
-    margin-top: 24px;
+    gap: $kb-space-sm;
+    margin-top: $kb-space-2xl;
     max-width: 400px;
   }
 
   .suggested-question-btn {
-    padding: 8px 16px;
+    padding: $kb-space-sm $kb-space-lg;
     background: var(--b3-theme-surface);
     border: 1px solid var(--b3-theme-surface-lighter);
-    border-radius: 16px;
+    border-radius: $kb-radius-xl;
     cursor: pointer;
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out,
+      transform $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
 
     &:hover:not(:disabled) {
       background: var(--b3-theme-background-light);
       border-color: var(--b3-theme-primary);
+      box-shadow: $kb-shadow-card;
+      transform: translateY(-1px);
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0) scale(0.97);
     }
 
     &:disabled {
@@ -428,16 +454,16 @@
   .messages {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    padding: 8px 10px 8px 0;
+    gap: $kb-space-lg;
+    padding: $kb-space-sm 10px $kb-space-sm 0;
     position: relative;
   }
 
   .compression-separator {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 0;
+    gap: $kb-space-sm;
+    padding: $kb-space-xs 0;
 
     &::before,
     &::after {
@@ -449,14 +475,14 @@
   }
 
   .compression-separator-text {
-    font-size: 11px;
-    color: var(--b3-theme-on-surface-light, #999);
+    font-size: $kb-fs-xs;
+    color: var(--b3-theme-on-surface-light);
     white-space: nowrap;
   }
 
   .message-anchor {
-    transition: box-shadow 0.2s ease;
-    border-radius: 8px;
+    transition: box-shadow $kb-dur-normal $kb-ease-out;
+    border-radius: $kb-radius-lg;
 
     &.is-highlighted {
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent), 0 0 12px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
@@ -487,7 +513,7 @@
     border: none;
     cursor: pointer;
     border-radius: 50%;
-    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: all $kb-dur-normal $kb-ease-out;
 
     &:hover {
       width: 22px;
@@ -505,8 +531,9 @@
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: var(--b3-theme-on-surface-light, #bbb);
-    transition: all 0.2s ease;
+    background: var(--b3-theme-on-surface-light);
+    transition: all $kb-dur-normal $kb-ease-out;
+    box-shadow: $kb-shadow-card;
 
     .jump-item:hover & {
       width: 10px;

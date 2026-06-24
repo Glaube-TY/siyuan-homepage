@@ -225,6 +225,8 @@
 {/if}
 
 <style lang="scss">
+  @use '../panels/_kb-tokens' as *;
+
   .confirm-overlay {
     position: fixed;
     inset: 0;
@@ -239,7 +241,7 @@
     background: var(--b3-theme-surface);
     border-radius: var(--b3-border-radius-b);
     box-shadow: var(--b3-dialog-shadow);
-    animation: dialog-enter 0.2s ease;
+    animation: dialog-enter $kb-dur-normal $kb-ease-out;
     display: flex;
     flex-direction: column;
     max-height: 90vh;
@@ -436,10 +438,17 @@
   .confirm-btn {
     padding: 6px 14px;
     border-radius: var(--b3-border-radius);
-    font-size: 13px;
+    font-size: $kb-fs-md;
     cursor: pointer;
     border: 1px solid transparent;
-    transition: background 0.15s, opacity 0.15s;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      opacity $kb-dur-fast $kb-ease-out,
+      transform $kb-dur-fast $kb-ease-out;
+
+    &:active {
+      transform: scale(0.97);
+    }
   }
 
   .confirm-btn-secondary {

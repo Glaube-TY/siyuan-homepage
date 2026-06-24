@@ -13,17 +13,19 @@
 </div>
 
 <style lang="scss">
+  @use '../_kb-tokens' as *;
+
   .model-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: $kb-space-3xl;
   }
 
   .section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: $kb-space-md;
   }
 </style>

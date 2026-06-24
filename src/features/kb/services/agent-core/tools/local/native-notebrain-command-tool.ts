@@ -1,10 +1,11 @@
 import type { NotebrainAgentWorkspaceSettings, RuntimeToolsSettings } from "../../../../types/settings";
 import type { NativeTool } from "../native-tool";
 import { runNotebrainCommand } from "../../../agent-workbench/command/notebrain-command-runner";
-import { evaluateNotebrainCommandPermission } from "../../../agent-workbench/command/notebrain-command-policy";
+import { evaluateNotebrainCommandPermission, analyzeNotebrainCommandRisk } from "../../../agent-workbench/command/notebrain-command-policy";
 import { getNotebrainRuntimeEnvironment } from "../../../agent-workbench/workspace/notebrain-runtime-env";
 import { toProjectDefaultRelativePath } from "../../../agent-workbench/workspace/notebrain-workspace-paths";
 import { stringifyToolResultContent } from "../tool-execution-result";
+import { pushAgentDebugEvent } from "../../../agent-workbench/debug/workbench-debug";
 
 const parameters = {
   type: "object",
@@ -28,7 +29,7 @@ export function createRunNotebrainCommandNativeTool(
   return {
     name: "run_notebrain_command",
     title: "执行 notebrain 本地命令",
-    description: "在 PC/Electron 端 notebrain/projects/default 工作区内执行非交互式命令。每次执行都限制 cwd、timeout 和输出长度，并写入命令日志。",
+    description: "在 PC/Electron 端 notebrain/projects/default 工作区内执行非交互式命令（非系统级沙箱，仅限制 cwd）。主要用于安装/构建/调试外部 Skill。不要主动读取系统配置、网络、用户名、环境变量、注册表或用户目录，除非用户明确要求且确认弹窗已展示风险。",
     parameters,
     readOnly: false,
     parallelSafe: false,
@@ -39,16 +40,43 @@ export function createRunNotebrainCommandNativeTool(
     async preview(args) {
       const command = typeof args.command === "string" ? args.command : "";
       const policy = evaluateNotebrainCommandPermission(settings, command);
+      const risk = analyzeNotebrainCommandRisk(command, {
+        strictMode: settings.commandStrictWorkspaceMode !== false,
+        allowNetworkAccess: settings.allowNetworkAccess === true,
+        allowSystemInfoCommands: settings.allowSystemInfoCommands === true,
+        allowAbsolutePaths: settings.allowAbsolutePaths === true,
+      });
       const cwd = toProjectDefaultRelativePath(args.cwd ?? ".");
+      const riskDisplayLevel = risk.level;
+      const riskLabel = riskDisplayLevel === "high" ? "⚠ 高风险" : riskDisplayLevel === "medium" ? "中风险" : "低风险";
+      const summaryParts = [
+        `命令：${command}`,
+        `cwd：${cwd}`,
+        `风险：${riskLabel}`,
+        ...risk.reasons.map((r) => `- ${r}`),
+        settings.commandStrictWorkspaceMode !== false ? "严格模式：是" : "严格模式：否",
+      ];
       return {
-        permissionAction: policy.action,
-        permissionReason: policy.action === "deny" ? `命令匹配 deny 规则：${policy.matchedRule ?? ""}` : undefined,
+        title: riskDisplayLevel === "high" ? `本地命令执行 ⚠ 高风险` : "本地命令执行",
+        risk: riskDisplayLevel === "high" ? "high" : riskDisplayLevel === "medium" ? "medium" : "low",
+        summary: summaryParts.join("\n"),
+        permissionAction: risk.hardDeny ? "deny" : policy.action,
+        permissionReason: risk.hardDeny
+          ? `严格工作区模式已拒绝高风险命令：${risk.reasons.join("；")}`
+          : policy.action === "deny"
+            ? `命令匹配 deny 规则：${policy.matchedRule ?? ""}`
+            : undefined,
         argsPreview: {
           command,
           cwd,
           timeoutMs: args.timeoutMs ?? settings.defaultCommandTimeoutMs,
           maxOutputChars: args.maxOutputChars ?? settings.maxCommandOutputChars,
           matchedRule: policy.matchedRule,
+          riskLevel: risk.level,
+          riskReasons: risk.reasons,
+          riskCategories: risk.categories,
+          strictWorkspaceMode: settings.commandStrictWorkspaceMode !== false,
+          hardDeny: risk.hardDeny,
         },
       };
     },
@@ -82,6 +110,42 @@ export function createRunNotebrainCommandNativeTool(
           ok: false,
           summary: message,
           errorCode: "permission_denied",
+          content: stringifyToolResultContent({
+            ok: false,
+            toolName: "run_notebrain_command",
+            code: "permission_denied",
+            message,
+          }),
+        };
+      }
+      // Strict workspace mode risk check (hard deny for high-risk commands)
+      const risk = analyzeNotebrainCommandRisk(command, {
+        strictMode: settings.commandStrictWorkspaceMode !== false,
+        allowNetworkAccess: settings.allowNetworkAccess === true,
+        allowSystemInfoCommands: settings.allowSystemInfoCommands === true,
+        allowAbsolutePaths: settings.allowAbsolutePaths === true,
+      });
+      if (risk.hardDeny) {
+        const message = `严格工作区模式已拒绝高风险命令：${risk.reasons.join("；")}`;
+        pushAgentDebugEvent("NOTEBRAIN_COMMAND_RISK", {
+          commandRiskLevel: risk.level,
+          commandRiskReasons: risk.reasons,
+          commandRiskCategories: risk.categories,
+          strictWorkspaceMode: true,
+          hardDeny: true,
+          cwd: toProjectDefaultRelativePath(args.cwd ?? "."),
+          platformLabel: env.platformLabel,
+        }, "warn");
+        return {
+          ok: false,
+          summary: message,
+          errorCode: "permission_denied",
+          data: {
+            commandRiskLevel: risk.level,
+            commandRiskReasons: risk.reasons,
+            commandRiskCategories: risk.categories,
+            strictWorkspaceMode: true,
+          },
           content: stringifyToolResultContent({
             ok: false,
             toolName: "run_notebrain_command",

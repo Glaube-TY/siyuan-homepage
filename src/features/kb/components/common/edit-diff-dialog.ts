@@ -65,7 +65,7 @@ export function openEditDiffPreviewDialog(
       if (confirming) return;
       confirming = true;
       confirmBtn.disabled = true;
-      cancelBtn && (cancelBtn.disabled = true);
+      if (cancelBtn) cancelBtn.disabled = true;
       doResolve({ type: "allow" });
     });
 

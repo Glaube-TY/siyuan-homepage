@@ -1,4 +1,6 @@
 // 设置窗口整体样式
+@use './_cs-tokens' as *;
+
 .settings-container {
     padding: 1.5rem;
     background: var(--b3-theme-background);
@@ -54,13 +56,13 @@
         background-repeat: no-repeat;
         background-position: right 0.75rem center;
         background-size: 16px;
-        transition: all 0.2s ease;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        transition: border-color $cs-dur-fast $cs-ease-out, box-shadow $cs-dur-fast $cs-ease-out;
+        box-shadow: $cs-shadow-card;
         color: var(--b3-theme-on-surface);
 
         &:hover {
             border-color: var(--b3-theme-primary);
-            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1);
+            box-shadow: $cs-shadow-raised;
         }
 
         &:focus {

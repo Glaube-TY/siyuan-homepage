@@ -102,26 +102,28 @@
 </div>
 
 <style lang="scss">
+  @use '../_kb-tokens' as *;
+
   .basic-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: $kb-space-3xl;
   }
 
   .settings-group {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: $kb-space-md;
   }
 
   .group-title {
-    margin: 0 0 8px 0;
-    font-size: 14px;
+    margin: 0 0 $kb-space-sm 0;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-on-surface);
-    padding-bottom: 8px;
+    padding-bottom: $kb-space-sm;
     border-bottom: 1px solid var(--b3-border-color);
   }
 
@@ -129,8 +131,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 12px 0;
+    gap: $kb-space-lg;
+    padding: $kb-space-md 0;
   }
 
   .setting-copy {
@@ -138,15 +140,15 @@
   }
 
   .setting-title {
-    font-size: 14px;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-primary);
     line-height: 1.5;
   }
 
   .setting-desc {
-    margin-top: 4px;
-    font-size: 13px;
+    margin-top: $kb-space-xs;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     line-height: 1.5;
   }
@@ -154,12 +156,13 @@
   .segmented-control {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: $kb-space-xs;
     padding: 3px;
     border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
     background: var(--b3-theme-surface);
     flex-shrink: 0;
+    box-shadow: $kb-shadow-card;
   }
 
   .segmented-control button {
@@ -171,11 +174,15 @@
     height: 30px;
     padding: 0 10px;
     border: none;
-    border-radius: 4px;
+    border-radius: $kb-radius-sm;
     background: transparent;
     color: var(--b3-theme-on-surface);
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     cursor: pointer;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
   }
 
   .segmented-control button:hover {
@@ -185,5 +192,6 @@
   .segmented-control button.active {
     background: var(--b3-theme-primary);
     color: var(--b3-theme-on-primary);
+    box-shadow: $kb-shadow-card;
   }
 </style>

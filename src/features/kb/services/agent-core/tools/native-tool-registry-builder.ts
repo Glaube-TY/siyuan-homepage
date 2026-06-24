@@ -17,6 +17,8 @@ export interface BuildNativeToolRegistryForTurnParams {
   notebrainWorkspaceSettings?: NotebrainAgentWorkspaceSettings;
   mcpSettings?: McpSettings;
   runtimeToolsSettings?: RuntimeToolsSettings;
+  /** When set, only tools in this list are exposed to the provider (strict skill test mode). */
+  providerVisibleAllowList?: string[];
 }
 
 /**
@@ -53,6 +55,11 @@ export async function buildNativeToolRegistryForTurn(
       question: params.question,
       runtimeToolsSettings: params.runtimeToolsSettings,
     });
+  }
+
+  // Apply provider-visible allowList for strict skill test mode
+  if (params.providerVisibleAllowList) {
+    registry.setProviderVisibleAllowList(new Set(params.providerVisibleAllowList));
   }
 
   return registry;

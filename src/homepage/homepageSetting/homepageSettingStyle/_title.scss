@@ -1,3 +1,5 @@
+@use './_design-tokens' as *;
+
 .shp-homepage-settings {
     .titleBlock-setting {
 
@@ -10,18 +12,20 @@
             background-color: var(--b3-theme-background);
             color: var(--b3-theme-on-surface);
             border: 1px solid var(--b3-border-color);
-            border-radius: 6px;
+            border-radius: $hs-radius-md;
             font-size: 0.95rem;
-            transition: all 0.2s ease;
+            transition: background $hs-dur-fast $hs-ease-out, border-color $hs-dur-fast $hs-ease-out, color $hs-dur-fast $hs-ease-out, box-shadow $hs-dur-fast $hs-ease-out;
+            box-shadow: $hs-shadow-none;
 
             &:hover {
                 background-color: var(--b3-list-hover);
                 border-color: var(--b3-theme-primary);
                 color: var(--b3-theme-primary);
+                box-shadow: $hs-shadow-card;
             }
 
             &:active {
-                transform: scale(0.98);
+                transform: scale(0.97);
             }
         }
 
@@ -82,9 +86,9 @@
             height: 40px;
             font-size: 24px;
             border: 1px solid var(--b3-border-color);
-            border-radius: 6px;
+            border-radius: $hs-radius-md;
             background: var(--b3-theme-surface);
-            transition: background-color 0.2s ease;
+            transition: background $hs-dur-normal $hs-ease-out;
 
             &:hover {
                 background: var(--b3-list-hover);

@@ -8,12 +8,20 @@ import { createKnowledgeBaseQaSkill } from "../skills/builtin/knowledge-base-qa.
 import { createScheduleTaskDiarySkill } from "../skills/builtin/schedule-task-diary.skill";
 import { createDatabaseAssistantSkill } from "../skills/builtin/database-assistant.skill";
 import { createDocContentEditingSkill } from "../skills/builtin/doc-content-editing.skill";
+import { createNotebookDocTreeSkill } from "../skills/builtin/notebook-doc-tree.skill";
+import { createTagBookmarkOutlineSkill } from "../skills/builtin/tag-bookmark-outline.skill";
+import { createAssetManagementSkill } from "../skills/builtin/asset-management.skill";
+import { createRiffReviewSkill } from "../skills/builtin/riff-review.skill";
 
 export interface BuiltinCapabilityAccess {
   knowledgeBase: boolean;
   scheduleTaskDiary: boolean;
   databaseAssistant: boolean;
   docContentEditing: boolean;
+  notebookDocTree: boolean;
+  tagBookmarkOutline: boolean;
+  assetManagement: boolean;
+  riffReview: boolean;
 }
 
 export function registerBuiltinSkills(
@@ -31,5 +39,17 @@ export function registerBuiltinSkills(
   }
   if (access?.docContentEditing !== false) {
     skillRegistry.ensureSkill(createDocContentEditingSkill(), "builtin");
+  }
+  if (access?.notebookDocTree !== false) {
+    skillRegistry.ensureSkill(createNotebookDocTreeSkill(), "builtin");
+  }
+  if (access?.tagBookmarkOutline !== false) {
+    skillRegistry.ensureSkill(createTagBookmarkOutlineSkill(), "builtin");
+  }
+  if (access?.assetManagement !== false) {
+    skillRegistry.ensureSkill(createAssetManagementSkill(), "builtin");
+  }
+  if (access?.riffReview !== false) {
+    skillRegistry.ensureSkill(createRiffReviewSkill(), "builtin");
   }
 }

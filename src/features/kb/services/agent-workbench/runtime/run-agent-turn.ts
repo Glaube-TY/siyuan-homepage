@@ -34,6 +34,10 @@ import { setMcpRuntimeSettings } from "../mcp/mcp-client-manager";
 import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../skills/builtin/schedule-task-diary.skill";
 import { BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "../skills/builtin/database-assistant.skill";
 import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../skills/builtin/doc-content-editing.skill";
+import { BUILTIN_NOTEBOOK_DOC_TREE_SKILL_NAME } from "../skills/builtin/notebook-doc-tree.skill";
+import { BUILTIN_TAG_BOOKMARK_OUTLINE_SKILL_NAME } from "../skills/builtin/tag-bookmark-outline.skill";
+import { BUILTIN_ASSET_MANAGEMENT_SKILL_NAME } from "../skills/builtin/asset-management.skill";
+import { BUILTIN_RIFF_REVIEW_SKILL_NAME } from "../skills/builtin/riff-review.skill";
 import { createAnySearchProvider } from "../tools/web-search/providers/anysearch.provider";
 import { createCustomJsonProvider } from "../tools/web-search/providers/custom-json.provider";
 import { createTavilyProvider } from "../tools/web-search/providers/tavily.provider";
@@ -256,6 +260,10 @@ export async function runAgentTurn(
       scheduleTaskDiary: !disabledBuiltinSkills.has(BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME),
       databaseAssistant: !disabledBuiltinSkills.has(BUILTIN_DATABASE_ASSISTANT_SKILL_NAME),
       docContentEditing: !disabledBuiltinSkills.has(BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME),
+      notebookDocTree: !disabledBuiltinSkills.has(BUILTIN_NOTEBOOK_DOC_TREE_SKILL_NAME),
+      tagBookmarkOutline: !disabledBuiltinSkills.has(BUILTIN_TAG_BOOKMARK_OUTLINE_SKILL_NAME),
+      assetManagement: !disabledBuiltinSkills.has(BUILTIN_ASSET_MANAGEMENT_SKILL_NAME),
+      riffReview: !disabledBuiltinSkills.has(BUILTIN_RIFF_REVIEW_SKILL_NAME),
     };
 
     const wb = createAgentWorkbenchRuntime({
@@ -444,6 +452,40 @@ export async function runAgentTurn(
       externalSkillIndexPrompt,
       runtimeToolsSettings: settings.runtimeTools,
     });
+
+    // Record skill routing info for debug
+    const skillRoute = wb.skillRegistry.getLastRoute();
+    if (skillRoute) {
+      pushAgentDebugEvent("SKILL_ROUTE", {
+        primarySkillId: skillRoute.primarySkillName,
+        primarySkillTitle: skillRoute.primarySkillTitle,
+        matchedSkillIds: skillRoute.matchedSkillIds,
+        reason: skillRoute.reason,
+        isTestSkillMode: skillRoute.isTestSkillMode,
+        injectedSkillCount: context.skillSections.length,
+      }, "info");
+
+      // Strict skill test mode: restrict provider-visible tools to primary + helper
+      if (skillRoute.isTestSkillMode && skillRoute.primarySkillName) {
+        const primarySkill = wb.skillRegistry.getRegisteredSkill(skillRoute.primarySkillName);
+
+        if (primarySkill) {
+          const allowedNames = [
+            ...(primarySkill.primaryToolNames ?? []),
+            ...(primarySkill.helperToolNames ?? []),
+          ];
+          const allVisibleTools = nativeToolRegistry.listProviderVisible().map((t) => t.name);
+          const filteredOut = allVisibleTools.filter((n) => !allowedNames.includes(n));
+          nativeToolRegistry.setProviderVisibleAllowList(new Set(allowedNames));
+
+          pushAgentDebugEvent("SKILL_ROUTE_FILTER_APPLIED", {
+            primarySkillId: skillRoute.primarySkillName,
+            allowedToolNames: allowedNames,
+            filteredOutToolNames: filteredOut,
+          }, "info");
+        }
+      }
+    }
 
     const session = new AgentSession(conversationId, params.agentSessionMessages ?? []);
     let reasoningStarted = false;

@@ -20,6 +20,7 @@
     loadExternalSkillIndex,
     rebuildExternalSkillIndex,
     saveExternalSkillIndex,
+    deleteInstalledExternalSkill,
   } from "../../../services/agent-workbench/skills/external/external-skill-index";
   import type { ExternalSkillIndexEntry } from "../../../services/agent-workbench/skills/external/external-skill-types";
   import { confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
@@ -185,13 +186,35 @@
     await refreshExternalSkillList();
   }
 
-  async function uninstallInstalledSkill(entry: ExternalSkillIndexEntry) {
+  async function deleteInstalledSkill(entry: ExternalSkillIndexEntry) {
+    // Only allow deleting non-user installed skills
+    if (entry.sourceType === "user") {
+      externalSkillError = "用户自定义 Skill 不能通过此操作删除，请在「自定义 Skill」区域管理。";
+      return;
+    }
     const confirmed = await confirmDialogBoolean({
-      title: "停用外部 Skill",
-      content: safeConfirmContent("确定要停用外部 Skill「", entry.title || entry.id, "」吗？文件会保留在 notebrain/skills/installed 中。"),
+      title: "删除外部 Skill",
+      content: safeConfirmContent("确定要删除外部 Skill「", entry.title || entry.id, "」吗？会删除该 Skill 在 notebrain/skills/installed 下的本地文件夹，并从 skills/index.json 移除索引；不会删除用户自定义 Skill，不会影响其他 Skill。"),
     });
     if (!confirmed) return;
-    await setInstalledSkillEnabled(entry, false);
+    loadingExternalSkills = true;
+    externalSkillMessage = "";
+    externalSkillError = "";
+    try {
+      const result = await deleteInstalledExternalSkill(entry);
+      // Also remove from settings.disabledSkillIds if present
+      const disabled = new Set(settings.externalSkills?.disabledSkillIds ?? []);
+      if (disabled.has(entry.id)) {
+        disabled.delete(entry.id);
+        patchExternalSkillSettings({ disabledSkillIds: [...disabled].sort() });
+      }
+      externalSkillMessage = `已删除本地文件夹 ${result.deletedRootDir}，并从索引移除 ${result.removedCount} 条记录；启用/停用设置清理请保存设置后持久化。`;
+      await refreshExternalSkillList();
+    } catch (e) {
+      externalSkillError = e instanceof Error ? e.message : "删除外部 Skill 失败。";
+    } finally {
+      loadingExternalSkills = false;
+    }
   }
 
   async function rebuildInstalledSkillIndex() {
@@ -564,8 +587,8 @@ ${guidance.trim()}`;
                     恢复
                   </button>
                 {:else}
-                  <button type="button" class="action-btn danger" on:click={() => uninstallInstalledSkill(entry)}>
-                    停用索引
+                  <button type="button" class="action-btn danger" on:click={() => deleteInstalledSkill(entry)}>
+                    删除
                   </button>
                 {/if}
               </div>
@@ -755,45 +778,47 @@ ${guidance.trim()}`;
 {/if}
 
 <style lang="scss">
+  @use '../_kb-tokens' as *;
+
   .skills-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 32px;
+    gap: $kb-space-3xl;
   }
 
   .section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: $kb-space-md;
   }
 
   .section-header {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: $kb-space-xs;
 
     &.with-actions {
       flex-direction: row;
       align-items: flex-start;
       justify-content: space-between;
-      gap: 12px;
+      gap: $kb-space-md;
     }
   }
 
   .section-title {
     margin: 0;
-    font-size: 14px;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-on-surface);
-    padding-bottom: 8px;
+    padding-bottom: $kb-space-sm;
     border-bottom: 1px solid var(--b3-border-color);
   }
 
   .section-description {
     margin: 0;
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     opacity: 0.7;
   }
@@ -801,22 +826,31 @@ ${guidance.trim()}`;
   .add-skill-btn {
     padding: 6px 14px;
     border: none;
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
     background: var(--b3-theme-primary);
     color: #ffffff;
     cursor: pointer;
-    font-size: 13px;
+    font-size: $kb-fs-md;
     line-height: 1.4;
     font-family: inherit;
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out,
+      transform $kb-dur-fast $kb-ease-out;
     flex-shrink: 0;
+    box-shadow: $kb-shadow-none;
 
     &:hover {
-      filter: brightness(1.1);
+      box-shadow: $kb-shadow-raised;
+      transform: translateY(-1px);
+    }
+
+    &:active {
+      transform: translateY(0);
     }
 
     &:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
     }
   }
@@ -824,7 +858,7 @@ ${guidance.trim()}`;
   .settings-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 10px;
+    gap: $kb-space-sm;
   }
 
   .setting-card {
@@ -832,11 +866,20 @@ ${guidance.trim()}`;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 12px;
+    gap: $kb-space-md;
+    padding: $kb-space-md;
     border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
+    border-radius: $kb-radius-lg;
     background: var(--b3-theme-surface);
+    box-shadow: $kb-shadow-card;
+    transition:
+      box-shadow $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out;
+
+    &:hover {
+      box-shadow: $kb-shadow-raised;
+      border-color: color-mix(in srgb, var(--b3-theme-primary) 20%, var(--b3-border-color));
+    }
 
     &.vertical {
       align-items: stretch;
@@ -848,17 +891,17 @@ ${guidance.trim()}`;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: $kb-space-xs;
   }
 
   .setting-title {
-    font-size: 14px;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-on-surface);
   }
 
   .setting-desc {
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     opacity: 0.7;
     line-height: 1.5;
@@ -868,17 +911,26 @@ ${guidance.trim()}`;
     width: 140px;
     padding: 6px 10px;
     border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
     background: var(--b3-theme-background);
     color: var(--b3-theme-on-surface);
-    font-size: 13px;
+    font-size: $kb-fs-md;
     font-family: inherit;
+    transition:
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
+
+    &:focus {
+      border-color: var(--b3-theme-primary);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 20%, transparent);
+      outline: none;
+    }
   }
 
   .status-message,
   .error-message {
     margin: 0;
-    font-size: 13px;
+    font-size: $kb-fs-md;
     line-height: 1.5;
   }
 
@@ -893,30 +945,39 @@ ${guidance.trim()}`;
   .skills-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: $kb-space-sm;
   }
 
   .skill-card {
     background: var(--b3-theme-surface);
     border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
-    padding: 12px 14px;
+    border-radius: $kb-radius-lg;
+    padding: $kb-space-md;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: $kb-space-sm;
+    box-shadow: $kb-shadow-card;
+    transition:
+      box-shadow $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out;
+
+    &:hover {
+      box-shadow: $kb-shadow-raised;
+      border-color: color-mix(in srgb, var(--b3-theme-primary) 18%, var(--b3-border-color));
+    }
   }
 
   .skill-main {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: $kb-space-md;
   }
 
   .skill-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: $kb-space-xs;
     min-width: 0;
     flex: 1;
   }
@@ -924,20 +985,20 @@ ${guidance.trim()}`;
   .skill-title-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: $kb-space-sm;
     flex-wrap: wrap;
   }
 
   .skill-title {
-    font-size: 14px;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-on-surface);
   }
 
   .skill-badge {
-    font-size: 11px;
+    font-size: $kb-fs-xs;
     padding: 1px 6px;
-    border-radius: 4px;
+    border-radius: $kb-radius-sm;
     font-weight: 500;
 
     &.builtin {
@@ -968,7 +1029,7 @@ ${guidance.trim()}`;
   }
 
   .skill-description {
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     opacity: 0.8;
     line-height: 1.4;
@@ -977,12 +1038,12 @@ ${guidance.trim()}`;
   .skill-meta-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: $kb-space-sm;
     flex-wrap: wrap;
   }
 
   .skill-meta {
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     color: var(--b3-theme-on-surface);
     opacity: 0.7;
   }
@@ -990,13 +1051,13 @@ ${guidance.trim()}`;
   .toggle-wrap {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: $kb-space-sm;
     flex-shrink: 0;
     white-space: nowrap;
   }
 
   .toggle-label {
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
   }
 
@@ -1020,7 +1081,7 @@ ${guidance.trim()}`;
     inset: 0;
     background-color: var(--b3-theme-surface-lighter);
     border-radius: 24px;
-    transition: 0.2s;
+    transition: background $kb-dur-normal $kb-ease-out;
   }
 
   .slider::before {
@@ -1032,7 +1093,8 @@ ${guidance.trim()}`;
     bottom: 3px;
     background-color: white;
     border-radius: 50%;
-    transition: 0.2s;
+    transition: transform $kb-dur-normal $kb-ease-out;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
   }
 
   .switch input:checked + .slider {
@@ -1046,24 +1108,28 @@ ${guidance.trim()}`;
   .skill-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: $kb-space-sm;
     flex-shrink: 0;
   }
 
   .action-btn {
-    padding: 4px 10px;
+    padding: $kb-space-xs 10px;
     border: 1px solid var(--b3-border-color);
-    border-radius: 4px;
+    border-radius: $kb-radius-md;
     background: var(--b3-theme-background);
     color: var(--b3-theme-on-surface);
     cursor: pointer;
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     line-height: 1.4;
     font-family: inherit;
-    transition: all 0.15s;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
 
     &:hover {
       background: var(--b3-theme-surface-light);
+      box-shadow: $kb-shadow-card;
     }
 
     &.edit {
@@ -1082,7 +1148,7 @@ ${guidance.trim()}`;
       border-color: var(--b3-theme-primary);
 
       &:hover {
-        filter: brightness(1.1);
+        box-shadow: $kb-shadow-raised;
       }
     }
 
@@ -1093,27 +1159,27 @@ ${guidance.trim()}`;
 
   .skill-details {
     border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
 
     &[open] {
-      padding-bottom: 8px;
+      padding-bottom: $kb-space-sm;
     }
   }
 
   .details-summary {
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     color: var(--b3-theme-on-surface);
     cursor: pointer;
-    padding: 6px 10px;
+    padding: $kb-space-xs $kb-space-sm;
     user-select: none;
     opacity: 0.8;
   }
 
   .details-body {
-    padding: 0 10px;
+    padding: 0 $kb-space-sm;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: $kb-space-sm;
   }
 
   .detail-block {
@@ -1123,7 +1189,7 @@ ${guidance.trim()}`;
   }
 
   .detail-label {
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     font-weight: 600;
     color: var(--b3-theme-on-surface);
     opacity: 0.9;
@@ -1131,17 +1197,17 @@ ${guidance.trim()}`;
 
   .detail-content {
     margin: 0;
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     line-height: 1.5;
     opacity: 0.85;
   }
 
   .empty-state {
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     opacity: 0.6;
-    padding: 16px 0;
+    padding: $kb-space-lg 0;
   }
 
   // Editor modal
@@ -1153,67 +1219,71 @@ ${guidance.trim()}`;
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    padding: 24px;
+    padding: $kb-space-2xl;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
   }
 
   .skill-editor-panel {
     background: var(--b3-theme-background);
     border: 1px solid var(--b3-border-color);
-    border-radius: 10px;
+    border-radius: $kb-radius-xl;
     width: 100%;
     max-width: 720px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    box-shadow:
+      $kb-shadow-modal,
+      inset 0 1px 0 rgba(255, 255, 255, 0.5);
   }
 
   .editor-header {
-    padding: 14px 18px;
+    padding: $kb-space-lg $kb-space-xl;
     border-bottom: 1px solid var(--b3-border-color);
 
     h3 {
       margin: 0;
-      font-size: 15px;
+      font-size: $kb-fs-xl;
       font-weight: 600;
       color: var(--b3-theme-on-surface);
     }
   }
 
   .editor-body {
-    padding: 16px 18px;
+    padding: $kb-space-lg $kb-space-xl;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: $kb-space-lg;
   }
 
   .editor-fields {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: $kb-space-sm;
   }
 
   .field-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: $kb-space-sm;
 
     &.vertical {
       flex-direction: column;
       align-items: stretch;
-      gap: 6px;
+      gap: $kb-space-xs;
     }
 
     &.inline {
       flex-wrap: wrap;
-      gap: 16px;
+      gap: $kb-space-lg;
     }
   }
 
   .field-label {
-    font-size: 13px;
+    font-size: $kb-fs-md;
     font-weight: 500;
     color: var(--b3-theme-on-surface);
     min-width: 48px;
@@ -1223,17 +1293,17 @@ ${guidance.trim()}`;
   .inline-field {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: $kb-space-xs;
   }
 
   .inline-field.priority-field {
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
+    gap: $kb-space-xs;
   }
 
   .field-hint {
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     color: var(--b3-theme-on-surface);
     opacity: 0.7;
   }
@@ -1242,13 +1312,22 @@ ${guidance.trim()}`;
     flex: 1;
     padding: 6px 10px;
     border: 1px solid var(--b3-border-color);
-    border-radius: 4px;
+    border-radius: $kb-radius-md;
     background: var(--b3-theme-background);
     color: var(--b3-theme-on-surface);
-    font-size: 13px;
+    font-size: $kb-fs-md;
     font-family: inherit;
     line-height: 1.4;
     min-width: 0;
+    transition:
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
+
+    &:focus {
+      border-color: var(--b3-theme-primary);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 20%, transparent);
+      outline: none;
+    }
 
     &:disabled {
       opacity: 0.5;
@@ -1263,39 +1342,48 @@ ${guidance.trim()}`;
 
   .form-textarea {
     width: 100%;
-    padding: 8px 10px;
+    padding: $kb-space-sm 10px;
     border: 1px solid var(--b3-border-color);
-    border-radius: 4px;
+    border-radius: $kb-radius-md;
     background: var(--b3-theme-background);
     color: var(--b3-theme-on-surface);
-    font-size: 13px;
+    font-size: $kb-fs-md;
     font-family: inherit;
     line-height: 1.6;
     resize: vertical;
     min-height: 120px;
+    transition:
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
+
+    &:focus {
+      border-color: var(--b3-theme-primary);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 20%, transparent);
+      outline: none;
+    }
   }
 
   .editor-guidance {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: $kb-space-xs;
   }
 
   .guidance-meta {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: $kb-space-sm;
     flex-wrap: wrap;
   }
 
   .char-count {
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     color: var(--b3-theme-on-surface);
     opacity: 0.7;
   }
 
   .char-hint {
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     color: var(--b3-theme-error);
     opacity: 0.85;
   }
@@ -1305,19 +1393,28 @@ ${guidance.trim()}`;
   }
 
   .editor-error {
-    padding: 8px 12px;
-    border-radius: 4px;
+    padding: $kb-space-sm $kb-space-md;
+    border-radius: $kb-radius-md;
     background: rgba(244, 67, 54, 0.1);
     border: 1px solid #f44336;
     color: #c62828;
-    font-size: 13px;
+    font-size: $kb-fs-md;
   }
 
   .editor-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
-    padding: 12px 18px;
+    gap: $kb-space-sm;
+    padding: $kb-space-md $kb-space-xl;
     border-top: 1px solid var(--b3-border-color);
+  }
+
+  // Dark mode: dim the inner highlight
+  @media (prefers-color-scheme: dark) {
+    .skill-editor-panel {
+      box-shadow:
+        $kb-shadow-modal,
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
   }
 </style>

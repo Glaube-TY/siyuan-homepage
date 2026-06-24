@@ -107,7 +107,13 @@ function normalizeStringArray(raw: unknown): string[] {
   )];
 }
 
-const DOC_CONTENT_EDITING_SKILL_NAME = "builtin_doc_content_editing";
+const DEFAULT_DISABLED_BUILTIN_SKILL_NAMES = [
+  "builtin_doc_content_editing",
+  "builtin_notebook_doc_tree",
+  "builtin_tag_bookmark_outline",
+  "builtin_asset_management",
+  "builtin_riff_review",
+];
 
 /**
  * 归一化 Skill 设置
@@ -133,12 +139,14 @@ function normalizeSkillSettings(raw: unknown): KbSkillSettings {
     initialized = [...new Set(initialized)];
   }
 
-  // 一次性迁移：如果尚未初始化文档内容编辑的默认关闭状态，则自动加入 disabled 并标记已初始化
-  if (!initialized.includes(DOC_CONTENT_EDITING_SKILL_NAME)) {
-    if (!names.includes(DOC_CONTENT_EDITING_SKILL_NAME)) {
-      names.push(DOC_CONTENT_EDITING_SKILL_NAME);
+  // 一次性迁移：新增默认关闭 Skill 首次加载时自动关闭，用户手动开启后不再重置
+  for (const skillName of DEFAULT_DISABLED_BUILTIN_SKILL_NAMES) {
+    if (!initialized.includes(skillName)) {
+      if (!names.includes(skillName)) {
+        names.push(skillName);
+      }
+      initialized.push(skillName);
     }
-    initialized.push(DOC_CONTENT_EDITING_SKILL_NAME);
   }
 
   return {
@@ -306,6 +314,18 @@ function normalizeNotebrainWorkspaceSettings(raw: unknown): NotebrainAgentWorksp
     fileWriteToolsEnabled: typeof s.fileWriteToolsEnabled === "boolean"
       ? s.fileWriteToolsEnabled
       : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.fileWriteToolsEnabled,
+    commandStrictWorkspaceMode: typeof s.commandStrictWorkspaceMode === "boolean"
+      ? s.commandStrictWorkspaceMode
+      : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.commandStrictWorkspaceMode,
+    allowNetworkAccess: typeof s.allowNetworkAccess === "boolean"
+      ? s.allowNetworkAccess
+      : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.allowNetworkAccess,
+    allowSystemInfoCommands: typeof s.allowSystemInfoCommands === "boolean"
+      ? s.allowSystemInfoCommands
+      : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.allowSystemInfoCommands,
+    allowAbsolutePaths: typeof s.allowAbsolutePaths === "boolean"
+      ? s.allowAbsolutePaths
+      : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.allowAbsolutePaths,
   };
 }
 

@@ -680,30 +680,32 @@
 {/if}
 
 <style lang="scss">
+  @use '../_kb-tokens' as *;
+
   .mcp-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 28px;
+    gap: $kb-space-3xl;
   }
 
   .settings-section {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: $kb-space-md;
   }
 
   .section-header {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: $kb-space-xs;
   }
 
   .section-header.with-actions {
     flex-direction: row;
     justify-content: space-between;
-    gap: 12px;
+    gap: $kb-space-md;
     align-items: flex-start;
   }
 

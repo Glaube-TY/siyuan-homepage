@@ -376,20 +376,44 @@ function buildRunNotebrainCommandPreview(tool: NativeTool, args: Record<string, 
   const cwd = typeof args.cwd === "string" && args.cwd.trim() ? args.cwd.trim() : ".";
   const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined;
   const maxOutputChars = typeof args.maxOutputChars === "number" ? args.maxOutputChars : undefined;
+  const riskLevel = typeof args.riskLevel === "string" ? args.riskLevel : (args as any)?.riskLevel;
+  const riskReasons = Array.isArray((args as any)?.riskReasons) ? (args as any).riskReasons as string[] : [];
+  const riskCategories = Array.isArray((args as any)?.riskCategories) ? (args as any).riskCategories as string[] : [];
+  const strictMode = (args as any)?.strictWorkspaceMode !== false;
+  const hardDeny = (args as any)?.hardDeny === true;
+
   const parts = [
-    "将在 notebrain/projects/default 工作区内执行本地命令。",
+    "不是系统级沙箱，仅限制 cwd 为 notebrain/projects/default；命令本身仍可能读取系统信息、环境变量或访问绝对路径。",
     `命令：${command}`,
     `cwd：${cwd}`,
+    strictMode ? "严格模式：开启" : "严格模式：关闭",
   ];
+
+  if (riskLevel) parts.push(`风险等级：${riskLevel === "high" ? "⚠ 高风险" : riskLevel === "medium" ? "中风险" : "低风险"}`);
+  for (const reason of riskReasons) {
+    parts.push(`⚠ ${reason}`);
+  }
+
+  // Category-specific impact statements
+  if (riskCategories.includes("system_info")) parts.push("可能读取系统信息（systeminfo/wmic/ipconfig/whoami 等）");
+  if (riskCategories.includes("absolute_path") || riskCategories.includes("parent_path")) parts.push("可能访问工作区外路径");
+  if (riskCategories.includes("file_ops")) parts.push("可能修改或删除文件");
+  if (riskCategories.includes("network")) parts.push("可能发起外部网络请求");
+
+  if (hardDeny) {
+    parts.push("⛔ 严格模式下已拒绝：不进入确认执行。");
+  }
+
   if (timeoutMs) parts.push(`timeout：${timeoutMs}ms`);
   if (maxOutputChars) parts.push(`输出预览上限：${maxOutputChars} 字符`);
   parts.push("命令不支持交互式 TTY 或后台常驻进程，执行日志会写入 notebrain/logs/commands。");
+
   return {
     toolName: tool.name,
-    title: "执行 notebrain 本地命令",
+    title: `执行本地命令${riskLevel === "high" ? " ⚠ 高风险" : ""}`,
     readOnly: false,
     risk: "high",
-    argsPreview: { command, cwd, timeoutMs, maxOutputChars },
+    argsPreview: { command, cwd, timeoutMs, maxOutputChars, riskLevel, riskReasons, riskCategories, strictMode, hardDeny },
     summary: parts.join("\n"),
   };
 }
@@ -796,6 +820,140 @@ function buildGenericTaskDiaryWritePreview(tool: NativeTool, args: Record<string
   };
 }
 
+const SIYUAN_ACTION_PREVIEW_TITLES: Record<string, string> = {
+  siyuan_block_attr: "块属性管理",
+  siyuan_block_ref: "块引用管理",
+  siyuan_block_state: "块状态修改",
+  siyuan_doc_transform: "文档结构转换",
+  siyuan_database_view: "数据库视图修改",
+  siyuan_notebook_manage: "笔记本管理",
+  siyuan_doc_tree: "文档树管理",
+  siyuan_tag_manage: "标签管理",
+  siyuan_bookmark_manage: "书签管理",
+  siyuan_asset_manage: "资源管理",
+  siyuan_workspace_file: "受限工作区文件操作",
+  siyuan_riff_deck: "闪卡卡包管理",
+  siyuan_riff_card: "闪卡管理",
+};
+
+const HIGH_RISK_SIYUAN_ACTIONS = new Set([
+  "transfer_ref",
+  "swap_ref",
+  "doc_to_heading",
+  "heading_to_doc",
+  "list_item_to_doc",
+  "remove",
+  "remove_unused_batch",
+  "remove_unused_one",
+  "remove_file",
+  "rename_file",
+  "move",
+  "move_by_id",
+  "sort",
+  "delete",
+  "reset",
+  "remove_cards",
+]);
+
+function joinTargetLines(args: Record<string, unknown>): string {
+  const keys = [
+    "id", "ids", "docId", "blockId", "blockIds", "fromID", "toID", "refIDs",
+    "notebook", "path", "targetPath", "fromPaths", "toNotebook", "toPath",
+    "avID", "blockID", "viewID", "keyID", "previousKeyID",
+    "label", "oldLabel", "newLabel", "deckID", "cardID", "cardIDs",
+    "blockIDs", "cardDues", "resetType", "due", "rating", "reviewedCardIDs",
+    "paths", "newName",
+  ];
+  const lines: string[] = [];
+  for (const key of keys) {
+    if (!(key in args)) continue;
+    const value = compactValue(args[key]);
+    if (Array.isArray(value)) {
+      lines.push(`${key}: ${value.join("、")}${Array.isArray(args[key]) && (args[key] as unknown[]).length > value.length ? " ..." : ""}`);
+    } else if (value !== undefined && value !== null && value !== "") {
+      lines.push(`${key}: ${String(value)}`);
+    }
+  }
+  return lines.length > 0 ? lines.join("\n") : "目标由工具参数指定，请确认 ID/路径来自真实工具结果或用户明确输入。";
+}
+
+function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  const action = typeof args.action === "string" ? args.action : "unknown";
+  const title = SIYUAN_ACTION_PREVIEW_TITLES[tool.name] ?? tool.title;
+  const isHighRisk = HIGH_RISK_SIYUAN_ACTIONS.has(action)
+    || tool.name === "siyuan_doc_transform"
+    || (tool.name === "siyuan_notebook_manage" && action === "remove")
+    || (tool.name === "siyuan_workspace_file" && action !== "put_file");
+  const targetLines = joinTargetLines(args);
+  const impactLines: string[] = [];
+
+  if (tool.name === "siyuan_workspace_file") {
+    impactLines.push("仅允许访问白名单工作区目录；路径守卫会拒绝敏感目录和系统路径。");
+  }
+  if (tool.name === "siyuan_block_ref") {
+    impactLines.push("引用迁移会改变块引用关系，请确认 fromID/toID/refIDs 均真实。");
+  }
+  if (tool.name === "siyuan_doc_transform" || tool.name === "siyuan_doc_tree") {
+    impactLines.push("会改变文档树或文档结构，可能影响文档组织。");
+  }
+  if (tool.name === "siyuan_database_view") {
+    impactLines.push("会修改数据库视图结构、排序、布局或分组，建议已先读取 schema/view。");
+  }
+  if (tool.name === "siyuan_asset_manage") {
+    impactLines.push("会修改资源元信息、OCR、索引或删除未使用资源。");
+  }
+  if (tool.name === "siyuan_riff_card") {
+    const riffAction = typeof args.action === "string" ? args.action : "";
+    if (["due_cards", "tree_due_cards", "notebook_due_cards", "list_cards", "tree_cards", "notebook_cards", "cards_by_block_ids"].includes(riffAction)) {
+      impactLines.push("只读查询，不改变任何数据。");
+    } else if (riffAction === "add_cards") {
+      impactLines.push(`添加 ${Array.isArray(args.blockIDs) ? (args.blockIDs as unknown[]).length : "?"} 张闪卡到 Deck${args.deckID ? ` ${String(args.deckID).slice(0, 20)}` : ""}。`);
+    } else if (riffAction === "remove_cards") {
+      impactLines.push(`从 Deck${args.deckID ? ` ${String(args.deckID).slice(0, 20)}` : ""} 移除 ${Array.isArray(args.blockIDs) ? (args.blockIDs as unknown[]).length : "?"} 张闪卡。`);
+    } else if (riffAction === "review") {
+      impactLines.push(`复习闪卡 ${args.cardID ? String(args.cardID).slice(0, 20) : "?"}，评价 ${args.rating ?? "?"}，Deck ${args.deckID ? String(args.deckID).slice(0, 20) : "?"}。`);
+    } else if (riffAction === "skip") {
+      impactLines.push(`跳过闪卡 ${args.cardID ? String(args.cardID).slice(0, 20) : "?"}，Deck ${args.deckID ? String(args.deckID).slice(0, 20) : "?"}。`);
+    } else if (riffAction === "reset") {
+      impactLines.push(`重置闪卡：${args.resetType ?? "?"} ${args.id ?? "?"}，Deck ${args.deckID ? String(args.deckID).slice(0, 20) : "?"}，共 ${Array.isArray(args.blockIDs) ? (args.blockIDs as unknown[]).length : "0"} 张。`);
+    } else if (riffAction === "set_due_time") {
+      const cardDues = Array.isArray(args.cardDues) ? args.cardDues as Record<string, unknown>[] : [];
+      const previewItems = cardDues.slice(0, 3).map((cd) => `${typeof cd.id === "string" ? cd.id.slice(0, 12) : "?"}=${cd.due ?? "?"}`).join("、");
+      impactLines.push(`设到期时间：共 ${cardDues.length} 张卡片${cardDues.length > 0 ? `，前 ${Math.min(3, cardDues.length)} 项：${previewItems}` : ""}。`);
+    }
+    if (!["due_cards", "tree_due_cards", "notebook_due_cards", "list_cards", "tree_cards", "notebook_cards", "cards_by_block_ids"].includes(riffAction)) {
+      impactLines.push("执行后应以工具结果为准，拒绝/取消/失败时不能声称成功。");
+    }
+  } else if (tool.name === "siyuan_riff_deck") {
+    impactLines.push("会改变闪卡卡包结构，执行后应以工具结果为准。");
+  }
+  if (tool.name === "siyuan_tag_manage" || tool.name === "siyuan_bookmark_manage") {
+    impactLines.push("会改变标签/书签组织信息，删除后可能影响资料组织。");
+  }
+  if (impactLines.length === 0) {
+    impactLines.push("该操作会写入思源数据或状态；用户拒绝、取消或失败时不能声称成功。");
+  }
+
+  const argsPreview: Record<string, unknown> = { action };
+  for (const key of ["id", "notebook", "path", "label", "deckID", "cardID", "avID", "viewID"]) {
+    if (args[key] !== undefined) argsPreview[key] = compactValue(args[key]);
+  }
+
+  return {
+    toolName: tool.name,
+    title,
+    readOnly: false,
+    risk: isHighRisk ? "high" : "medium",
+    argsPreview,
+    summary: [`操作：${action}`, `目标：${targetLines.split("\n")[0]}`, `影响：${impactLines[0]}`].join("\n"),
+    sections: [
+      { label: "操作", value: action },
+      { label: "目标", value: targetLines },
+      { label: "影响", value: impactLines.join("\n") },
+    ],
+  };
+}
+
 // ── web_http_post confirmation preview ──
 
 /** Redact sensitive header keys and values for safe display. */
@@ -961,6 +1119,10 @@ export function buildToolPermissionPreview(tool: NativeTool, args: Record<string
   }
   if (TASK_DIARY_WRITE_TOOLS.has(tool.name)) {
     return buildGenericTaskDiaryWritePreview(tool, args);
+  }
+
+  if (tool.name in SIYUAN_ACTION_PREVIEW_TITLES) {
+    return buildSiyuanActionPreview(tool, args);
   }
 
   const argsPreview: Record<string, unknown> = {};

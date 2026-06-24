@@ -364,6 +364,7 @@ const RUNTIME_CAPABILITY_EVENT_LABELS = new Set([
   "SECRET_DECRYPT_FAILURE",
   "SECRET_CIPHER_PRESERVED",
   "SECRET_CLEAR_REQUESTED",
+  "EXTERNAL_SKILL_DELETED",
 ]);
 
 function buildRuntimeCapabilitySummary(): RuntimeCapabilitySummary {

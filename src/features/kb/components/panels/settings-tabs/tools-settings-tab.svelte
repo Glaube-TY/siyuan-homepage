@@ -6,6 +6,10 @@
   import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/schedule-task-diary.skill";
   import { BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/database-assistant.skill";
   import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/doc-content-editing.skill";
+  import { BUILTIN_NOTEBOOK_DOC_TREE_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/notebook-doc-tree.skill";
+  import { BUILTIN_TAG_BOOKMARK_OUTLINE_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/tag-bookmark-outline.skill";
+  import { BUILTIN_ASSET_MANAGEMENT_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/asset-management.skill";
+  import { BUILTIN_RIFF_REVIEW_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/riff-review.skill";
   import type { BuiltinSkillToolCategoryId } from "../../../services/agent-workbench/tools/skill-tool-catalog";
 
   const CATEGORY_TO_SKILL: Record<BuiltinSkillToolCategoryId, string> = {
@@ -13,6 +17,10 @@
     schedule_task_diary: BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME,
     database_assistant: BUILTIN_DATABASE_ASSISTANT_SKILL_NAME,
     doc_content_editing: BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME,
+    notebook_doc_tree: BUILTIN_NOTEBOOK_DOC_TREE_SKILL_NAME,
+    tag_bookmark_outline: BUILTIN_TAG_BOOKMARK_OUTLINE_SKILL_NAME,
+    asset_management: BUILTIN_ASSET_MANAGEMENT_SKILL_NAME,
+    riff_review: BUILTIN_RIFF_REVIEW_SKILL_NAME,
   };
 
   function isSkillCategoryEnabled(categoryId: BuiltinSkillToolCategoryId): boolean {
@@ -178,29 +186,31 @@
 </div>
 
 <style lang="scss">
+  @use '../_kb-tokens' as *;
+
   .tools-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 32px;
+    gap: $kb-space-3xl;
   }
 
   .section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: $kb-space-md;
   }
 
   .section-header {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: $kb-space-xs;
   }
 
   .section-title {
     margin: 0;
-    font-size: 14px;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-on-surface);
     padding-bottom: 8px;

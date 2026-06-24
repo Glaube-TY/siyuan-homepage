@@ -60,6 +60,9 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
         if (data?.argsPreview && typeof data.argsPreview === "object") {
           preview.argsPreview = data.argsPreview as Record<string, unknown>;
         }
+        if (typeof data?.summary === "string") preview.summary = data.summary;
+        if (typeof data?.title === "string") preview.title = data.title;
+        if (typeof data?.risk === "string") preview.risk = data.risk as ToolPermissionPreview["risk"];
         if (data?.permissionAction === "deny") {
           return {
             decision: {

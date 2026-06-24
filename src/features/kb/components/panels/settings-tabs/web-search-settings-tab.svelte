@@ -359,25 +359,28 @@
 </div>
 
 <style lang="scss">
+  @use '../_kb-tokens' as *;
+
   .web-search-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: $kb-space-3xl;
   }
 
   .settings-group {
     display: flex;
     flex-direction: column;
+    gap: $kb-space-sm;
   }
 
   .group-title {
-    margin: 0 0 8px 0;
-    font-size: 14px;
+    margin: 0 0 $kb-space-sm 0;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-on-surface);
-    padding-bottom: 8px;
+    padding-bottom: $kb-space-sm;
     border-bottom: 1px solid var(--b3-border-color);
   }
 

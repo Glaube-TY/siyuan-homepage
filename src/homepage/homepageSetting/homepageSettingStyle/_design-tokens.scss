@@ -1,0 +1,38 @@
+// ============================================================
+// Homepage Settings Design Tokens
+// DIALS: VARIANCE=5  MOTION=3  DENSITY=4
+// Consistent spacing, radius, shadow, transition for settings panels.
+// ============================================================
+
+// ---- Spacing ----
+$hs-space-xs:  4px;
+$hs-space-sm:  8px;
+$hs-space-md:  12px;
+$hs-space-lg:  16px;
+$hs-space-xl:  20px;
+$hs-space-2xl: 24px;
+$hs-space-3xl: 32px;
+
+// ---- Radius ----
+$hs-radius-sm: 4px;
+$hs-radius-md: 6px;
+$hs-radius-lg: 8px;
+$hs-radius-xl: 12px;
+
+// ---- Shadows ----
+$hs-shadow-none:  none;
+$hs-shadow-card:  0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+$hs-shadow-raised: 0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
+$hs-shadow-modal: 0 8px 32px rgba(0,0,0,0.10);
+
+// ---- Transitions ----
+$hs-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+$hs-dur-fast:  150ms;
+$hs-dur-normal: 200ms;
+
+// ---- Font Sizes ----
+$hs-fs-xs:  11px;
+$hs-fs-sm:  12px;
+$hs-fs-md:  13px;
+$hs-fs-lg:  14px;
+$hs-fs-xl:  16px;

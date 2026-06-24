@@ -1201,6 +1201,7 @@
 </div>
 
 <style lang="scss">
+  @use '../panels/_kb-tokens' as *;
   .chat-input-wrapper {
     width: 100%;
     min-width: 0;
@@ -1486,18 +1487,23 @@
     .popover-btn {
       background: none;
       border: 1px solid var(--b3-border-color);
-      border-radius: 4px;
+      border-radius: $kb-radius-md;
       padding: 5px 10px;
-      font-size: 12px;
+      font-size: $kb-fs-sm;
       color: var(--b3-theme-on-surface);
       cursor: pointer;
       line-height: 1.4;
       text-align: center;
       width: 100%;
       box-sizing: border-box;
+      transition:
+        background $kb-dur-fast $kb-ease-out,
+        box-shadow $kb-dur-fast $kb-ease-out;
+      box-shadow: $kb-shadow-none;
 
       &:hover:not(:disabled) {
-        background: var(--b3-theme-surface-light, rgba(0, 0, 0, 0.06));
+        background: var(--b3-theme-surface-light);
+        box-shadow: $kb-shadow-card;
       }
 
       &.primary {
@@ -1530,23 +1536,33 @@
   .mode-button {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: $kb-space-xs;
     padding: 5px 10px;
     background: var(--b3-theme-surface-light);
     border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
     cursor: pointer;
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     white-space: nowrap;
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
 
     &:hover:not(:disabled) {
       background: var(--b3-theme-background-light);
+      border-color: color-mix(in srgb, var(--b3-theme-primary) 20%, var(--b3-border-color));
+      box-shadow: $kb-shadow-card;
+    }
+
+    &:active:not(:disabled) {
+      transform: scale(0.97);
     }
 
     &:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
     }
   }
@@ -1563,19 +1579,26 @@
     padding: 5px 10px;
     background: var(--b3-theme-surface-light);
     border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
     cursor: pointer;
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface-light);
     white-space: nowrap;
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
 
     &:hover:not(:disabled) {
       background: var(--b3-theme-background-light);
     }
 
+    &:active:not(:disabled) {
+      transform: scale(0.97);
+    }
+
     &:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
     }
 
@@ -1583,6 +1606,7 @@
       background: var(--b3-theme-primary-light);
       border-color: var(--b3-theme-primary);
       color: var(--b3-theme-primary);
+      box-shadow: $kb-shadow-card;
     }
   }
 
@@ -1608,8 +1632,8 @@
     min-width: 220px;
     background: var(--b3-theme-background);
     border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-radius: $kb-radius-lg;
+    box-shadow: $kb-shadow-raised;
     z-index: 100;
     padding: 4px;
   }
@@ -1669,23 +1693,33 @@
   .model-button {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: $kb-space-xs;
     padding: 5px 10px;
     background: var(--b3-theme-background);
     border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
     cursor: pointer;
-    font-size: 13px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     white-space: nowrap;
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
 
     &:hover:not(:disabled) {
       background: var(--b3-theme-background-light);
+      border-color: color-mix(in srgb, var(--b3-theme-primary) 20%, var(--b3-border-color));
+      box-shadow: $kb-shadow-card;
+    }
+
+    &:active:not(:disabled) {
+      transform: scale(0.97);
     }
 
     &:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
     }
   }
@@ -1715,8 +1749,8 @@
     overflow-y: auto;
     background: var(--b3-theme-background);
     border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-radius: $kb-radius-lg;
+    box-shadow: $kb-shadow-raised;
     z-index: 20;
     padding: 4px;
   }
@@ -1778,13 +1812,13 @@
   .doc-search-popover {
     background: var(--b3-theme-background);
     border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-    padding: 8px;
+    border-radius: $kb-radius-lg;
+    box-shadow: $kb-shadow-raised;
+    padding: $kb-space-sm;
     max-height: 320px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: $kb-space-xs;
   }
 
   .doc-quick-add {
@@ -1907,15 +1941,24 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    border-radius: 4px;
+    border-radius: $kb-radius-md;
     border: 1px solid var(--b3-border-color);
     background: var(--b3-theme-surface);
     cursor: pointer;
     color: var(--b3-theme-on-surface);
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
 
     &:hover {
       background: var(--b3-list-hover);
+      box-shadow: $kb-shadow-card;
+    }
+
+    &:active {
+      transform: scale(0.95);
     }
 
     &.web-smart {
@@ -1965,9 +2008,9 @@
     overflow-y: auto;
     background: var(--b3-theme-background);
     border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-    padding: 6px;
+    border-radius: $kb-radius-lg;
+    box-shadow: $kb-shadow-raised;
+    padding: $kb-space-xs;
     display: flex;
     flex-direction: column;
     gap: 2px;

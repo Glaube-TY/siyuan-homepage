@@ -867,6 +867,8 @@
 </div>
 
 <style lang="scss">
+  @use '../panels/_kb-tokens' as *;
+
   .chat-message-item {
     display: flex;
     gap: 12px;
@@ -1220,12 +1222,19 @@
     padding: 0;
     background: var(--b3-theme-background);
     border: 1px solid var(--b3-border-color);
-    border-radius: 4px;
+    border-radius: $kb-radius-md;
     cursor: pointer;
-    font-size: 11px;
+    font-size: $kb-fs-xs;
     color: var(--b3-theme-on-surface-light);
     opacity: 0.7;
-    transition: all 0.15s ease;
+    transition:
+      opacity $kb-dur-fast $kb-ease-out,
+      background $kb-dur-fast $kb-ease-out,
+      color $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out,
+      transform $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
     user-select: none;
     -webkit-user-select: none;
 
@@ -1233,6 +1242,12 @@
       opacity: 1;
       background: var(--b3-theme-background-light);
       color: var(--b3-theme-on-surface);
+      box-shadow: $kb-shadow-card;
+      transform: translateY(-1px);
+    }
+
+    &:active {
+      transform: translateY(0) scale(0.95);
     }
 
     &:disabled {

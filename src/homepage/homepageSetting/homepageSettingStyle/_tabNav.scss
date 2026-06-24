@@ -1,4 +1,5 @@
-// 左侧一级页签列样式
+@use './_design-tokens' as *;
+
 .shp-homepage-settings {
     .main-nav-column {
         width: 120px;
@@ -18,15 +19,19 @@
                 background: transparent;
                 color: var(--b3-theme-on-surface);
                 border: none;
-                border-radius: 6px;
+                border-radius: $hs-radius-md;
                 font-weight: 500;
                 font-size: 0.9rem;
                 text-align: left;
-                transition: all 0.2s ease-in-out;
+                transition: background $hs-dur-fast $hs-ease-out, color $hs-dur-fast $hs-ease-out;
                 white-space: nowrap;
 
                 &:hover {
                     background: var(--b3-list-hover);
+                }
+
+                &:active {
+                    transform: scale(0.97);
                 }
 
                 &.active {
@@ -37,7 +42,6 @@
         }
     }
 
-    // 中间二级页签列样式
     .sub-nav-column {
         width: 140px;
         flex-shrink: 0;
@@ -57,15 +61,19 @@
                 background: transparent;
                 color: var(--b3-theme-on-surface);
                 border: none;
-                border-radius: 6px;
+                border-radius: $hs-radius-md;
                 font-weight: 400;
                 font-size: 0.85rem;
                 text-align: left;
-                transition: all 0.2s ease-in-out;
+                transition: background $hs-dur-fast $hs-ease-out, color $hs-dur-fast $hs-ease-out;
                 white-space: nowrap;
 
                 &:hover {
                     background: var(--b3-list-hover);
+                }
+
+                &:active {
+                    transform: scale(0.97);
                 }
 
                 &.active {

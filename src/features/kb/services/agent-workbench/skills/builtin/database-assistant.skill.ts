@@ -23,12 +23,14 @@ const BODY = `身份：你是思源数据库/属性视图助手。
 12. read_attribute_view_stats 已废弃，不可调用；需要统计时使用 read_attribute_view 读取 schema/rows 后自行分析。
 13. batch_update_attribute_view_cells 已合并进 update_attribute_view_cell，批量更新必须使用 update_attribute_view_cell 的 updates[] 参数。
 14. ID 映射工具（get_attribute_view_item_ids_by_bound_ids、get_attribute_view_bound_block_ids_by_item_ids）是内部能力，不是可见工具，不得主动调用。
+15. siyuan_database_extra_read 用于读取视图筛选排序、主键、镜像、映射、当前图片和 unused AV 等辅助信息。
+16. siyuan_database_view 用于修改视图布局、排序、分组或数据库块当前视图，属于结构写入，必须先读取 schema/view。
 
 写入规则：
 1. 写入工具默认开启执行前确认，用户可在工具设置中关闭确认。
 2. 即使确认被关闭，Agent 仍必须先基于真实 databaseId、keyId、rowId/itemID 执行，不能编造 ID。
 3. 用户拒绝、取消、工具失败时，不得声称写入已完成。
-4. 第一版不支持删除数据库、移除数据库块、批量替换整库、修改布局或分组。
+4. 不支持删除数据库、移除数据库块、清理 unused AV、批量替换整库。
 5. 批量写入默认最多 20 行；超过时要求用户缩小范围或分批确认。
 6. 字段类型不同，值结构不同；不确定时先读取 schema 和样例值。
 7. add_attribute_view_key 只支持新增 text、number、date、select、mSelect、checkbox、url、email、phone、template 类型字段；relation、rollup 类型暂不支持新增。
@@ -63,13 +65,33 @@ export function createDatabaseAssistantSkill(): SkillContract {
     description: "查询和操作思源数据库/属性视图，并执行受控写入。",
     priority: 92,
     enabledByDefault: true,
+    intentKeywords: ["数据库", "属性视图", "表格", "字段", "条目", "单元格", "av", "database"],
+    primaryToolNames: [
+      "list_attribute_views", "read_attribute_view", "find_attribute_view_rows",
+      "update_attribute_view_cell", "add_attribute_view_rows", "add_attribute_view_key",
+      "remove_attribute_view_key", "remove_attribute_view_rows", "clear_attribute_view_cell",
+      "siyuan_database_extra_read", "siyuan_database_view",
+    ],
+    helperToolNames: [],
+    avoidToolNames: ["siyuan_sql_select", "create_doc", "read_docs"],
+    usageRules: ["写入前先读取 schema", "写操作必须确认", "不编造 databaseId/keyId/rowId"],
 
     buildPromptSection(_ctx: SkillRuntimeContext): SkillPromptSection {
       return {
         title: TITLE,
         body: BODY,
         priority: 92,
-        meta: { skillName: BUILTIN_DATABASE_ASSISTANT_SKILL_NAME, bytesEstimate: BODY.length },
+        meta: {
+          skillName: BUILTIN_DATABASE_ASSISTANT_SKILL_NAME,
+          bytesEstimate: BODY.length,
+          primaryToolNames: [
+            "list_attribute_views", "read_attribute_view", "find_attribute_view_rows",
+            "update_attribute_view_cell", "add_attribute_view_rows", "add_attribute_view_key",
+            "remove_attribute_view_key", "remove_attribute_view_rows", "clear_attribute_view_cell",
+            "siyuan_database_extra_read", "siyuan_database_view",
+          ],
+          helperToolNames: [],
+        },
       };
     },
   };

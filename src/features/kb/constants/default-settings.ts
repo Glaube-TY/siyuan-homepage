@@ -35,6 +35,10 @@ export const DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS: NotebrainAgentWorkspaceSettin
   commandAskRules: ["*"],
   commandDenyRules: [],
   fileWriteToolsEnabled: true,
+  commandStrictWorkspaceMode: true,
+  allowNetworkAccess: false,
+  allowSystemInfoCommands: false,
+  allowAbsolutePaths: false,
 };
 
 export const DEFAULT_EXTERNAL_SKILL_SETTINGS: ExternalSkillSettings = {
@@ -72,8 +76,20 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
 };
 
 export const DEFAULT_SKILL_SETTINGS: KbSkillSettings = {
-  disabledBuiltinSkillNames: ["builtin_doc_content_editing"],
-  initializedDefaultDisabledBuiltinSkillNames: ["builtin_doc_content_editing"],
+  disabledBuiltinSkillNames: [
+    "builtin_doc_content_editing",
+    "builtin_notebook_doc_tree",
+    "builtin_tag_bookmark_outline",
+    "builtin_asset_management",
+    "builtin_riff_review",
+  ],
+  initializedDefaultDisabledBuiltinSkillNames: [
+    "builtin_doc_content_editing",
+    "builtin_notebook_doc_tree",
+    "builtin_tag_bookmark_outline",
+    "builtin_asset_management",
+    "builtin_riff_review",
+  ],
 };
 
 export const DEFAULT_KB_SETTINGS: KbSettings = {

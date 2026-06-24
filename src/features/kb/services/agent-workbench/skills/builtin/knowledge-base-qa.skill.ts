@@ -6,32 +6,42 @@ import type { SkillContract, SkillPromptSection, SkillRuntimeContext } from "../
 
 const TITLE = "知识库检索与阅读";
 
-const BODY = `身份：你是运行在思源笔记中的知识库检索与阅读助手。
+const BODY = `【知识库检索与阅读】
 
-能力边界：
-1. 本能力域只读知识库，不写入、不删除、不修改。
-2. 知识库范围影响结构查看、候选定位和读取范围；已有真实 docId/blockId 时，读取可不受当前搜索范围限制。
-3. 文档结构、搜索候选、时间线和元信息都是定位线索，不等同于正文证据。
+适用任务：全文检索、知识库结构理解、引用/反链查询、文档路径解析、只读 SQL 结构化查询。
 
-工具使用建议：
-1. 检索前可以先查看知识库结构，获得大致方向，再用关键词搜索缩小范围。
-2. 搜索返回候选后，根据标题和摘要判断相关性，再决定是否读取候选文档正文。
-3. 如果一次搜索未命中，可以调整关键词或换用时间范围查询，不必急于下结论。
-4. 读取文档后发现内容不相关时，应说明限制并请求澄清，或自主判断是否继续定位。
-5. 想看最近新增/修改的文档，用 list_items_by_time 且 itemType="doc"；想定位最近新增/修改的具体段落、标题、列表项等，用 itemType="block"。
-6. blockTypes 常用：p 段落、h 标题、l 列表、i 列表项、b 引述、c 代码块、m 数学块、t 表格、s 超级块。
-7. list_items_by_time 只是时间线/定位线索，不等同于正文证据；需要正文证据时再用 read_docs 读取对应 docId/blockId。
+优先工具（只使用这些工具完成主任务）：
+- read_docs, get_doc_info: 文档全文读取与信息查询（只读）
+- list_knowledge_map: 知识库结构查看（只读）
+- search_scope: 关键词全文搜索定位候选文档（只读）
+- list_items_by_time: 按时间查看文档/块（只读）
+- siyuan_outline: 文档标题结构查看（只读）
+- siyuan_ref: 反链/提及/引用块查询（只读）
+- siyuan_doc_path: hpath/path/id 映射解析（只读）
+- siyuan_search_extra: search_tag/search_template/search_embed_block 等特殊检索（只读）
+- siyuan_block_read: 块信息/kramdown/children/breadcrumb 细粒度读取（只读）
+
+辅助工具（仅在需要时使用，不要优先调用）：
+- siyuan_sql_select: 只读 SQL 查询（仅 SELECT/WITH...SELECT），仅当专用检索工具无法满足时作为高级辅助。不要默认优先用 SQL
+
+避免工具（非本 Skill 职责，非必要不调用）：
+- 所有写工具 family: 本 Skill 只读，不写入/删除/修改
+
+使用规则：
+1. 检索前先看知识库结构，再用关键词搜索缩小范围
+2. 搜索候选不等于正文证据；需要正文时用 read_docs 读取
+3. siyuan_outline 只显示标题结构，不等于正文
+4. 不要默认优先用 SQL；先用专用检索工具
+5. 文档时间和元信息是定位线索，不等同于正文证据
+6. 搜索结果为空不等于知识库没有资料
+7. 工具返回失败时如实说明
 
 证据规则：
-1. 只有当前轮次真实读取到的正文或历史上下文中 grounded:true 的 reference，才能作为详细总结、分析、比较的证据。
-2. 搜索候选为空或一次定位不足，不代表知识库一定没有相关资料；回答时应说明当前证据限制。
-3. docId、blockId、cursor、title 必须来自工具返回或已 grounding 的历史上下文，不编造。
-4. 内容不相关或不足时，应说明限制、请求澄清，或由模型自主判断是否继续定位。
+1. 只有当前轮真实读取的正文或历史上下文 grounded 引用才能作为证据
+2. docId/blockId 必须来自工具返回，不编造
+3. 读过但未用于回答的资料不列 references
 
-引用规则：
-1. references 只能引用本轮工具 observation 中真实出现过的资源 ID。
-2. 读过但未用于回答的资料不要列入 references；没有直接来源时使用空 references。
-3. 只看过结构或候选时，除非回答明确引用了某个真实文档作为来源，否则不要列 references。`;
+测试说明：测试本 Skill 时测试知识库结构查看、关键词搜索、文档读取等主工具。不要调用写工具。`;
 
 export const BUILTIN_KB_SKILL_NAME = "builtin_knowledge_base_qa";
 
@@ -42,13 +52,50 @@ export function createKnowledgeBaseQaSkill(): SkillContract {
     description: "帮助理解知识库范围、证据边界、正文引用和本地来源约束。",
     priority: 100,
     enabledByDefault: true,
+    intentKeywords: ["搜索", "查找", "检索", "阅读", "知识库", "文档", "引用", "反链", "路径", "大纲", "结构"],
+    primaryToolNames: [
+      "read_docs", "get_doc_info",
+      "list_knowledge_map", "search_scope", "list_items_by_time",
+      "siyuan_outline", "siyuan_ref", "siyuan_doc_path",
+      "siyuan_search_extra", "siyuan_block_read",
+    ],
+    helperToolNames: ["siyuan_sql_select"],
+    avoidToolNames: [
+      "create_doc", "rename_doc", "delete_doc", "move_block",
+      "update_block", "insert_block", "delete_blocks", "replace_doc_content",
+    ],
+    usageRules: [
+      "先看结构，再搜索，最后读取正文",
+      "搜索候选≠正文证据",
+      "不要默认优先用 SQL",
+      "不编造 ID/路径",
+    ],
+    examples: [
+      "搜索知识库中关于项目管理的文档",
+      "查看最近一周新增的文档",
+      "阅读文档 xxx 的完整正文",
+      "查看文档 xxx 被哪些文档引用",
+    ],
+    testInstructions: ["测试本 Skill 时测试知识库结构查看、关键词搜索、文档读取等主工具。不要调用写工具。"],
 
-    buildPromptSection(_ctx: SkillRuntimeContext): SkillPromptSection {
+    buildPromptSection(ctx: SkillRuntimeContext): SkillPromptSection {
       return {
         title: TITLE,
         body: BODY,
         priority: 100,
-        meta: { skillName: BUILTIN_KB_SKILL_NAME, bytesEstimate: BODY.length },
+        meta: {
+          skillName: BUILTIN_KB_SKILL_NAME,
+          bytesEstimate: BODY.length,
+          primaryToolNames: [
+            "read_docs", "get_doc_info",
+            "list_knowledge_map", "search_scope", "list_items_by_time",
+            "siyuan_outline", "siyuan_ref", "siyuan_doc_path",
+            "siyuan_search_extra", "siyuan_block_read",
+          ],
+          helperToolNames: ["siyuan_sql_select"],
+          isPrimary: ctx.primarySkillName === BUILTIN_KB_SKILL_NAME,
+          isTestSkillMode: ctx.isTestSkillMode,
+        },
       };
     },
   };

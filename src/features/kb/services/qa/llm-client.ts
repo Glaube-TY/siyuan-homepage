@@ -135,6 +135,7 @@ function collectErrorTextParts(err: unknown, depth = 0, seen: WeakSet<object> | 
         if (key === "name" && typeof v === "string") names.push(v);
         if (key === "originalName" && typeof v === "string") names.push(v);
       } catch {
+        // Ignore inaccessible error properties.
       }
     }
 

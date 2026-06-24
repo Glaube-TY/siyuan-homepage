@@ -22,7 +22,7 @@
     { id: "retrieval", label: "检索与上下文", icon: "iconSearch" },
     { id: "skills", label: "技能", icon: "iconPlugin" },
     { id: "tools", label: "工具", icon: "iconKey" },
-    { id: "agentWorkspace", label: "Agent 工作区", icon: "iconFolder" },
+    { id: "agentWorkspace", label: "沙箱环境", icon: "iconFolder" },
     { id: "mcp", label: "MCP", icon: "iconCloud" },
     { id: "webSearch", label: "联网搜索", icon: "iconLanguage" },
     { id: "memory", label: "记忆", icon: "iconHistory" },
@@ -140,6 +140,8 @@
 </div>
 
 <style lang="scss">
+  @use './_kb-tokens' as *;
+
   .kb-settings-panel {
     width: 100%;
     height: 100%;
@@ -168,33 +170,53 @@
 
   // 左侧导航栏
   .settings-sidebar {
-    width: 160px;
+    width: 172px;
     flex-shrink: 0;
     border-right: 1px solid var(--b3-border-color);
     background: var(--b3-theme-background);
-    padding: 20px 0;
+    padding: $kb-space-lg $kb-space-sm;
+    display: flex;
+    flex-direction: column;
+    gap: $kb-space-xs;
   }
 
   .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 0 12px;
+    gap: 1px;
   }
 
   .sidebar-button {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
+    gap: $kb-space-sm;
+    padding: $kb-space-sm $kb-space-md;
     background: transparent;
     border: none;
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
     color: var(--b3-theme-on-surface-light);
     text-align: left;
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      color $kb-dur-fast $kb-ease-out;
+    position: relative;
+
+    // Left accent bar — invisible by default, visible on active
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 18px;
+      border-radius: 0 2px 2px 0;
+      background: var(--b3-theme-primary);
+      opacity: 0;
+      transition: opacity $kb-dur-normal $kb-ease-out;
+    }
 
     &:hover {
       color: var(--b3-theme-on-surface);
@@ -202,13 +224,17 @@
     }
 
     &.active {
-      color: #ffffff;
-      background: var(--b3-theme-primary);
+      color: var(--b3-theme-primary);
+      background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
       font-weight: 500;
+
+      &::before {
+        opacity: 1;
+      }
 
       .sidebar-icon,
       .sidebar-label {
-        color: #ffffff;
+        color: var(--b3-theme-primary);
       }
     }
   }
@@ -216,12 +242,18 @@
   .sidebar-icon {
     font-size: 16px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
   }
 
   .sidebar-label {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 13px;
   }
 
   // 右侧内容区
@@ -237,19 +269,18 @@
 
   .main-content {
     flex: 1;
-    padding: 20px 28px;
+    padding: $kb-space-xl $kb-space-2xl;
     overflow-y: auto;
     min-height: 0;
     min-width: 0;
   }
 
-  // tab 容器：强制撑满并统一约束
+  // tab 容器
   .tab-container {
     width: 100%;
     min-width: 0;
     min-height: 0;
 
-    // 兜底：确保所有直接子 tab 组件撑满
     :global(> *) {
       width: 100%;
       min-width: 0;
@@ -260,7 +291,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 28px;
+    padding: $kb-space-md $kb-space-2xl;
     border-bottom: 1px solid var(--b3-border-color);
     background: var(--b3-theme-background);
     flex-shrink: 0;
@@ -268,7 +299,7 @@
   }
 
   .header-title {
-    font-size: 16px;
+    font-size: $kb-fs-xxl;
     font-weight: 500;
     color: var(--b3-theme-on-surface);
   }
@@ -276,34 +307,44 @@
   .header-actions {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: $kb-space-md;
   }
 
   .save-btn {
-    padding: 6px 16px;
+    padding: $kb-space-xs 14px;
     border: none;
-    border-radius: 6px;
+    border-radius: $kb-radius-md;
     background: var(--b3-theme-primary);
     color: #ffffff;
     cursor: pointer;
-    font-size: 14px;
-    line-height: 1.4;
+    font-size: 13px;
+    line-height: 1.5;
     font-family: inherit;
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out,
+      transform $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
 
     &:hover:not(:disabled) {
-      background: var(--b3-theme-primary-dark, var(--b3-theme-primary));
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+      background: var(--b3-theme-primary);
+      box-shadow: $kb-shadow-raised;
+      transform: translateY(-1px);
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: $kb-shadow-card;
     }
 
     &:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
     }
   }
 
   .save-message {
-    font-size: 14px;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface-light);
 
     &.success {

@@ -35,6 +35,20 @@ export async function requestRaw(url: string, data: any): Promise<IWebSocketData
     return await fetchSyncPost(url, data);
 }
 
+/**
+ * Checked request wrapper for Notebrain Agent API calls.
+ * Throws Error when response.code !== 0, so callers cannot mistake API failures for success.
+ * Returns response.data when code === 0 (data may be null, which is a valid success result).
+ */
+export async function requestChecked(url: string, data: any, label?: string): Promise<any> {
+    const response: IWebSocketData = await fetchSyncPost(url, data);
+    if (response.code !== 0) {
+        const prefix = label ? `[${label}] ` : "";
+        throw new Error(`${prefix}思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
+    }
+    return response.data;
+}
+
 export interface SiyuanCloudIdentity {
     userId: string;
     userName: string;
@@ -442,13 +456,7 @@ export async function setBlockAttrs(id: BlockId, attrs: { [key: string]: string 
 }
 
 export async function setBlockAttrsChecked(id: BlockId, attrs: { [key: string]: string }): Promise<void> {
-    const response = await requestRaw('/api/attr/setBlockAttrs', {
-        id,
-        attrs,
-    });
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'setBlockAttrs 失败');
-    }
+    await requestChecked('/api/attr/setBlockAttrs', { id, attrs }, 'setBlockAttrs');
 }
 
 
@@ -698,7 +706,7 @@ export async function getImageAsBase64(url: string, timeout: number = 10000): Pr
         try {
             const parsed = new URL(url);
             referer = parsed.origin + "/";
-        } catch (_) {
+        } catch {
             // URL 解析失败，不中断流程
         }
 
@@ -990,13 +998,10 @@ export async function appendAttributeViewDetachedBlocksWithValuesChecked(
     avID: string,
     blocksValues: any[][]
 ): Promise<void> {
-    const response = await requestRaw('/api/av/appendAttributeViewDetachedBlocksWithValues', {
+    await requestChecked('/api/av/appendAttributeViewDetachedBlocksWithValues', {
         avID,
         blocksValues,
-    });
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'appendAttributeViewDetachedBlocksWithValues 失败');
-    }
+    }, 'appendAttributeViewDetachedBlocksWithValues');
 }
 
 export async function setAttributeViewBlockAttrChecked(
@@ -1005,15 +1010,12 @@ export async function setAttributeViewBlockAttrChecked(
     itemID: string,
     value: any
 ): Promise<void> {
-    const response = await requestRaw('/api/av/setAttributeViewBlockAttr', {
+    await requestChecked('/api/av/setAttributeViewBlockAttr', {
         avID,
         keyID,
         itemID,
         value,
-    });
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'setAttributeViewBlockAttr 失败');
-    }
+    }, 'setAttributeViewBlockAttr');
 }
 
 export async function setAttributeViewBlockAttrWithCellChecked(params: {
@@ -1039,10 +1041,7 @@ export async function setAttributeViewBlockAttrWithCellChecked(params: {
     if (params.cellID) {
         payload.cellID = params.cellID;
     }
-    const response = await requestRaw('/api/av/setAttributeViewBlockAttr', payload);
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'setAttributeViewBlockAttrWithCell 失败');
-    }
+    await requestChecked('/api/av/setAttributeViewBlockAttr', payload, 'setAttributeViewBlockAttrWithCell');
 }
 
 export async function addAttributeViewKeyChecked(
@@ -1053,17 +1052,14 @@ export async function addAttributeViewKeyChecked(
     keyIcon: string = "",
     previousKeyID: string = ""
 ): Promise<void> {
-    const response = await requestRaw('/api/av/addAttributeViewKey', {
+    await requestChecked('/api/av/addAttributeViewKey', {
         avID,
         keyID,
         keyName,
         keyType,
         keyIcon,
         previousKeyID,
-    });
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'addAttributeViewKey 失败');
-    }
+    }, 'addAttributeViewKey');
 }
 
 export async function removeAttributeViewKeyChecked(
@@ -1071,14 +1067,11 @@ export async function removeAttributeViewKeyChecked(
     keyID: string,
     removeRelationDest: boolean = false
 ): Promise<void> {
-    const response = await requestRaw('/api/av/removeAttributeViewKey', {
+    await requestChecked('/api/av/removeAttributeViewKey', {
         avID,
         keyID,
         removeRelationDest,
-    });
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'removeAttributeViewKey 失败');
-    }
+    }, 'removeAttributeViewKey');
 }
 
 export async function addAttributeViewBlocksChecked(params: AddAttributeViewBlocksPayload): Promise<any> {
@@ -1092,11 +1085,7 @@ export async function addAttributeViewBlocksChecked(params: AddAttributeViewBloc
     if (params.groupID) payload.groupID = params.groupID;
     if (params.previousID) payload.previousID = params.previousID;
 
-    const response = await requestRaw('/api/av/addAttributeViewBlocks', payload);
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'addAttributeViewBlocks 失败');
-    }
-    return response.data;
+    return requestChecked('/api/av/addAttributeViewBlocks', payload, 'addAttributeViewBlocks');
 }
 
 // **************************************** Transactions ****************************************
@@ -1140,10 +1129,7 @@ export async function performTransactionsChecked(
         app: options?.app ?? "",
         session: options?.session ?? "",
     };
-    const response = await requestRaw('/api/transactions', payload);
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'transactions 执行失败');
-    }
+    await requestChecked('/api/transactions', payload, 'transactions');
 }
 
 // **************************************** Attribute View ID Mapping ****************************************
@@ -1163,28 +1149,20 @@ export async function getAttributeViewItemIDsByBoundIDsChecked(
     avID: string,
     blockIDs: string[]
 ): Promise<any> {
-    const response = await requestRaw('/api/av/getAttributeViewItemIDsByBoundIDs', {
+    return requestChecked('/api/av/getAttributeViewItemIDsByBoundIDs', {
         avID,
         blockIDs,
-    });
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'getAttributeViewItemIDsByBoundIDs 失败');
-    }
-    return response.data;
+    }, 'getAttributeViewItemIDsByBoundIDs');
 }
 
 export async function getAttributeViewBoundBlockIDsByItemIDsChecked(
     avID: string,
     itemIDs: string[]
 ): Promise<any> {
-    const response = await requestRaw('/api/av/getAttributeViewBoundBlockIDsByItemIDs', {
+    return requestChecked('/api/av/getAttributeViewBoundBlockIDsByItemIDs', {
         avID,
         itemIDs,
-    });
-    if (response.code !== 0) {
-        throw new Error(response.msg || 'getAttributeViewBoundBlockIDsByItemIDs 失败');
-    }
-    return response.data;
+    }, 'getAttributeViewBoundBlockIDsByItemIDs');
 }
 
 
@@ -1247,4 +1225,577 @@ export async function batchUpdateTaskListItemMarker(ids: BlockId[], marker: Task
     const data = { ids, marker };
     const res = await request(url, data);
     return res?.code === 0 || false;
+}
+
+// **************************************** Old Wrapper Checked Versions ****************************************
+// Checked versions for legacy wrappers that use request() and swallow API failures.
+// These are used by impl files to ensure API failures are not mistaken for success.
+// Original wrappers are kept unchanged to avoid breaking legacy callers.
+// All functions delegate to requestChecked so that code !== 0 throws with "思源 API 调用失败",
+// which GenericSiyuanTool recognizes as siyuan_api_failed.
+
+export async function foldBlockChecked(id: BlockId): Promise<void> {
+    await requestChecked('/api/block/foldBlock', { id }, 'foldBlock');
+}
+
+export async function unfoldBlockChecked(id: BlockId): Promise<void> {
+    await requestChecked('/api/block/unfoldBlock', { id }, 'unfoldBlock');
+}
+
+export async function updateTaskListItemMarkerChecked(id: BlockId, marker: TaskMarker): Promise<void> {
+    await requestChecked('/api/block/updateTaskListItemMarker', { id, marker }, 'updateTaskListItemMarker');
+}
+
+export async function batchUpdateTaskListItemMarkerChecked(ids: BlockId[], marker: TaskMarker): Promise<void> {
+    await requestChecked('/api/block/batchUpdateTaskListItemMarker', { ids, marker }, 'batchUpdateTaskListItemMarker');
+}
+
+export async function getBlockAttrsChecked(id: BlockId): Promise<{ [key: string]: string }> {
+    return (await requestChecked('/api/attr/getBlockAttrs', { id }, 'getBlockAttrs')) || {};
+}
+
+export async function getBlockKramdownChecked(id: BlockId): Promise<IResGetBlockKramdown> {
+    return await requestChecked('/api/block/getBlockKramdown', { id }, 'getBlockKramdown');
+}
+
+export async function getChildBlocksChecked(id: BlockId): Promise<IResGetChildBlock[]> {
+    return (await requestChecked('/api/block/getChildBlocks', { id }, 'getChildBlocks')) || [];
+}
+
+export async function transferBlockRefChecked(fromID: BlockId, toID: BlockId, refIDs: BlockId[]): Promise<void> {
+    await requestChecked('/api/block/transferBlockRef', { fromID, toID, refIDs }, 'transferBlockRef');
+}
+
+export async function getBacklinkChecked(payload: GetBacklinkPayload): Promise<any> {
+    return await requestChecked('/api/ref/getBacklink', payload, 'getBacklink');
+}
+
+export async function sqlChecked(stmt: string): Promise<any[]> {
+    return (await requestChecked('/api/query/sql', { stmt }, 'sql')) || [];
+}
+
+export async function getTagChecked(
+    sortOrPayload: number | GetTagPayload = {},
+    ignoreMaxListHint: boolean = true,
+    app?: string,
+): Promise<Tag[]> {
+    const data: GetTagPayload = typeof sortOrPayload === "number"
+        ? { sort: sortOrPayload, ignoreMaxListHint, ...(app ? { app } : {}) }
+        : sortOrPayload;
+    return (await requestChecked('/api/tag/getTag', data, 'getTag')) || [];
+}
+
+export async function searchTagChecked(k: string = ""): Promise<SearchTagResponse> {
+    const res = await requestChecked('/api/search/searchTag', { k }, 'searchTag');
+    return {
+        k: typeof res?.k === "string" ? res.k : k,
+        tags: Array.isArray(res?.tags) ? res.tags.filter((item: unknown): item is string => typeof item === "string") : [],
+    };
+}
+
+export async function listDocsByPathChecked(notebook: NotebookId, path: string): Promise<IResListDocsByPath> {
+    return await requestChecked('/api/filetree/listDocsByPath', { notebook, path }, 'listDocsByPath');
+}
+
+export async function moveDocsChecked(fromPaths: string[], toNotebook: NotebookId, toPath: string): Promise<void> {
+    await requestChecked('/api/filetree/moveDocs', { fromPaths, toNotebook, toPath }, 'moveDocs');
+}
+
+export async function lsNotebooksChecked(): Promise<IReslsNotebooks> {
+    return await requestChecked('/api/notebook/lsNotebooks', {}, 'lsNotebooks');
+}
+
+export async function openNotebookChecked(notebook: NotebookId): Promise<void> {
+    await requestChecked('/api/notebook/openNotebook', { notebook }, 'openNotebook');
+}
+
+export async function closeNotebookChecked(notebook: NotebookId): Promise<void> {
+    await requestChecked('/api/notebook/closeNotebook', { notebook }, 'closeNotebook');
+}
+
+export async function renameNotebookChecked(notebook: NotebookId, name: string): Promise<void> {
+    await requestChecked('/api/notebook/renameNotebook', { notebook, name }, 'renameNotebook');
+}
+
+export async function createNotebookChecked(name: string): Promise<Notebook> {
+    return await requestChecked('/api/notebook/createNotebook', { name }, 'createNotebook');
+}
+
+export async function removeNotebookChecked(notebook: NotebookId): Promise<void> {
+    await requestChecked('/api/notebook/removeNotebook', { notebook }, 'removeNotebook');
+}
+
+export async function getNotebookConfChecked(notebook: NotebookId): Promise<IResGetNotebookConf> {
+    return await requestChecked('/api/notebook/getNotebookConf', { notebook }, 'getNotebookConf');
+}
+
+export async function setNotebookConfChecked(notebook: NotebookId, conf: NotebookConf): Promise<NotebookConf> {
+    return await requestChecked('/api/notebook/setNotebookConf', { notebook, conf }, 'setNotebookConf');
+}
+
+export async function getHPathByIDChecked(id: BlockId): Promise<string> {
+    return await requestChecked('/api/filetree/getHPathByID', { id }, 'getHPathByID');
+}
+
+export async function getHPathByPathChecked(notebook: NotebookId, path: string): Promise<string> {
+    return await requestChecked('/api/filetree/getHPathByPath', { notebook, path }, 'getHPathByPath');
+}
+
+export async function getIDsByHPathChecked(notebook: NotebookId, path: string): Promise<BlockId[]> {
+    return (await requestChecked('/api/filetree/getIDsByHPath', { notebook, path }, 'getIDsByHPath')) || [];
+}
+
+export async function getAttributeViewKeysByAvIDChecked(avID: string): Promise<any> {
+    return (await requestChecked('/api/av/getAttributeViewKeysByAvID', { avID }, 'getAttributeViewKeysByAvID')) || {};
+}
+
+export async function putFileChecked(path: string, isDir: boolean, file: any): Promise<void> {
+    const form = new FormData();
+    form.append('path', path);
+    form.append('isDir', isDir.toString());
+    form.append('modTime', Math.floor(Date.now() / 1000).toString());
+    form.append('file', file);
+    await requestChecked('/api/file/putFile', form, 'putFile');
+}
+
+export async function removeFileChecked(path: string): Promise<void> {
+    await requestChecked('/api/file/removeFile', { path }, 'removeFile');
+}
+
+export async function readDirChecked(path: string): Promise<IResReadDir> {
+    return await requestChecked('/api/file/readDir', { path }, 'readDir');
+}
+
+export async function copyFileChecked(params: { path: string; targetPath: string }): Promise<void> {
+    await requestChecked('/api/file/copyFile', params, 'copyFile');
+}
+
+export async function renameFileChecked(path: string, newPath: string): Promise<void> {
+    await requestChecked('/api/file/renameFile', { path, newPath }, 'renameFile');
+}
+
+export async function getUniqueFilenameChecked(path: string): Promise<string> {
+    return await requestChecked('/api/file/getUniqueFilename', { path }, 'getUniqueFilename');
+}
+
+/**
+ * getFile uses fetchPost (not fetchSyncPost), so it doesn't follow standard code response.
+ * We wrap it to give a meaningful error when the response indicates failure.
+ */
+export async function getFileChecked(path: string): Promise<any> {
+    const content = await getFile(path);
+    // null/undefined is failure; empty string, Blob, ArrayBuffer, plain text are all valid success
+    if (content === null || content === undefined) {
+        throw new Error(`getFile 返回 null/undefined，路径: ${path}`);
+    }
+    // If the response has a code field and it's non-zero, treat as failure
+    if (content?.code !== undefined && content.code !== 0) {
+        throw new Error(`[getFile] 思源 API 调用失败：code=${content.code}，msg=${content.msg ?? "(无)"}`);
+    }
+    return content;
+}
+
+// **************************************** Notebrain Agent Built-in Siyuan API wrappers ****************************************
+// These wrappers are intentionally named and scoped. Do not expose a generic /api/* executor to Agent tools.
+
+export type SiyuanApiPayload = Record<string, any>;
+
+export async function getDocOutline(id: string): Promise<any> {
+    return requestChecked('/api/outline/getDocOutline', { id }, 'getDocOutline');
+}
+
+export async function searchTemplate(k: string): Promise<any> {
+    return requestChecked('/api/search/searchTemplate', { k }, 'searchTemplate');
+}
+
+export async function searchWidget(k: string): Promise<any> {
+    return requestChecked('/api/search/searchWidget', { k }, 'searchWidget');
+}
+
+export async function searchRefBlock(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/search/searchRefBlock', params, 'searchRefBlock');
+}
+
+export async function searchEmbedBlock(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/search/searchEmbedBlock', params, 'searchEmbedBlock');
+}
+
+export async function getEmbedBlock(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/search/getEmbedBlock', params, 'getEmbedBlock');
+}
+
+export async function searchAsset(k: string): Promise<any> {
+    return requestChecked('/api/search/searchAsset', { k }, 'searchAsset');
+}
+
+export async function fullTextSearchAssetContent(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/search/fullTextSearchAssetContent', params, 'fullTextSearchAssetContent');
+}
+
+export async function getAssetContent(path: string): Promise<any> {
+    return requestChecked('/api/search/getAssetContent', { path }, 'getAssetContent');
+}
+
+export async function listInvalidBlockRefs(): Promise<any> {
+    return requestChecked('/api/search/listInvalidBlockRefs', {}, 'listInvalidBlockRefs');
+}
+
+export async function getBacklinkDoc(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/ref/getBacklinkDoc', params, 'getBacklinkDoc');
+}
+
+export async function getBackmentionDoc(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/ref/getBackmentionDoc', params, 'getBackmentionDoc');
+}
+
+export async function refreshBacklink(): Promise<any> {
+    return requestChecked('/api/ref/refreshBacklink', {}, 'refreshBacklink');
+}
+
+export async function getBlockInfo(id: string): Promise<any> {
+    return requestChecked('/api/block/getBlockInfo', { id }, 'getBlockInfo');
+}
+
+export async function getBlockDOM(id: string): Promise<any> {
+    return requestChecked('/api/block/getBlockDOM', { id }, 'getBlockDOM');
+}
+
+export async function getBlockDOMs(ids: string[]): Promise<any> {
+    return requestChecked('/api/block/getBlockDOMs', { ids }, 'getBlockDOMs');
+}
+
+export async function getBlockDOMWithEmbed(id: string): Promise<any> {
+    return requestChecked('/api/block/getBlockDOMWithEmbed', { id }, 'getBlockDOMWithEmbed');
+}
+
+export async function getBlockKramdowns(ids: string[]): Promise<any> {
+    return requestChecked('/api/block/getBlockKramdowns', { ids }, 'getBlockKramdowns');
+}
+
+export async function getTailChildBlocks(id: string): Promise<any> {
+    return requestChecked('/api/block/getTailChildBlocks', { id }, 'getTailChildBlocks');
+}
+
+export async function getBlockBreadcrumb(id: string): Promise<any> {
+    return requestChecked('/api/block/getBlockBreadcrumb', { id }, 'getBlockBreadcrumb');
+}
+
+export async function getBlockIndex(id: string): Promise<any> {
+    return requestChecked('/api/block/getBlockIndex', { id }, 'getBlockIndex');
+}
+
+export async function getBlocksIndexes(ids: string[]): Promise<any> {
+    return requestChecked('/api/block/getBlocksIndexes', { ids }, 'getBlocksIndexes');
+}
+
+export async function getRefIDs(id: string): Promise<any> {
+    return requestChecked('/api/block/getRefIDs', { id }, 'getRefIDs');
+}
+
+export async function getBlockDefIDsByRefText(refText: string): Promise<any> {
+    return requestChecked('/api/block/getBlockDefIDsByRefText', { refText }, 'getBlockDefIDsByRefText');
+}
+
+export async function getRefText(id: string): Promise<any> {
+    return requestChecked('/api/block/getRefText', { id }, 'getRefText');
+}
+
+export async function getDOMText(id: string): Promise<any> {
+    return requestChecked('/api/block/getDOMText', { id }, 'getDOMText');
+}
+
+export async function getTreeStat(id: string): Promise<any> {
+    return requestChecked('/api/block/getTreeStat', { id }, 'getTreeStat');
+}
+
+export async function getBlocksWordCount(ids: string[]): Promise<any> {
+    return requestChecked('/api/block/getBlocksWordCount', { ids }, 'getBlocksWordCount');
+}
+
+export async function getContentWordCount(content: string): Promise<any> {
+    return requestChecked('/api/block/getContentWordCount', { content }, 'getContentWordCount');
+}
+
+export async function getRecentUpdatedBlocks(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/block/getRecentUpdatedBlocks', params, 'getRecentUpdatedBlocks');
+}
+
+export async function checkBlockExist(id: string): Promise<any> {
+    return requestChecked('/api/block/checkBlockExist', { id }, 'checkBlockExist');
+}
+
+export async function getBlockSiblingID(id: string): Promise<any> {
+    return requestChecked('/api/block/getBlockSiblingID', { id }, 'getBlockSiblingID');
+}
+
+export async function getBlockRelevantIDs(id: string): Promise<any> {
+    return requestChecked('/api/block/getBlockRelevantIDs', { id }, 'getBlockRelevantIDs');
+}
+
+export async function getBlockTreeInfos(ids: string[]): Promise<any> {
+    return requestChecked('/api/block/getBlockTreeInfos', { ids }, 'getBlockTreeInfos');
+}
+
+export async function checkBlockRef(id: string): Promise<any> {
+    return requestChecked('/api/block/checkBlockRef', { id }, 'checkBlockRef');
+}
+
+export async function swapBlockRef(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/block/swapBlockRef', params, 'swapBlockRef');
+}
+
+export async function batchGetBlockAttrs(ids: string[]): Promise<any> {
+    return requestChecked('/api/attr/batchGetBlockAttrs', { ids }, 'batchGetBlockAttrs');
+}
+
+export async function batchSetBlockAttrs(items: Array<{ id: string; attrs: Record<string, string> }>): Promise<any> {
+    return requestChecked('/api/attr/batchSetBlockAttrs', { items }, 'batchSetBlockAttrs');
+}
+
+export async function setBlockReminder(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/block/setBlockReminder', params, 'setBlockReminder');
+}
+
+export async function setNotebookIcon(notebook: string, icon: string): Promise<any> {
+    return requestChecked('/api/notebook/setNotebookIcon', { notebook, icon }, 'setNotebookIcon');
+}
+
+export async function getPathByID(id: string): Promise<any> {
+    return requestChecked('/api/filetree/getPathByID', { id }, 'getPathByID');
+}
+
+export async function getFullHPathByID(id: string): Promise<any> {
+    return requestChecked('/api/filetree/getFullHPathByID', { id }, 'getFullHPathByID');
+}
+
+export async function getHPathsByPaths(paths: string[]): Promise<any> {
+    return requestChecked('/api/filetree/getHPathsByPaths', { paths }, 'getHPathsByPaths');
+}
+
+export async function duplicateDoc(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/filetree/duplicateDoc', params, 'duplicateDoc');
+}
+
+export async function listDocTree(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/filetree/listDocTree', params, 'listDocTree');
+}
+
+export async function moveDocsByID(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/filetree/moveDocsByID', params, 'moveDocsByID');
+}
+
+export async function changeSort(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/filetree/changeSort', params, 'changeSort');
+}
+
+export async function doc2Heading(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/filetree/doc2Heading', params, 'doc2Heading');
+}
+
+export async function heading2Doc(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/filetree/heading2Doc', params, 'heading2Doc');
+}
+
+export async function li2Doc(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/filetree/li2Doc', params, 'li2Doc');
+}
+
+export async function renameTag(oldLabel: string, newLabel: string): Promise<any> {
+    return requestChecked('/api/tag/renameTag', { oldLabel, newLabel }, 'renameTag');
+}
+
+export async function removeTag(label: string): Promise<any> {
+    return requestChecked('/api/tag/removeTag', { label }, 'removeTag');
+}
+
+export async function getBookmark(): Promise<any> {
+    return requestChecked('/api/bookmark/getBookmark', {}, 'getBookmark');
+}
+
+export async function renameBookmark(oldLabel: string, newLabel: string): Promise<any> {
+    return requestChecked('/api/bookmark/renameBookmark', { oldLabel, newLabel }, 'renameBookmark');
+}
+
+export async function removeBookmark(label: string): Promise<any> {
+    return requestChecked('/api/bookmark/removeBookmark', { label }, 'removeBookmark');
+}
+
+export async function resolveAssetPath(path: string): Promise<any> {
+    return requestChecked('/api/asset/resolveAssetPath', { path }, 'resolveAssetPath');
+}
+
+export async function getFileAnnotation(path: string): Promise<any> {
+    return requestChecked('/api/asset/getFileAnnotation', { path }, 'getFileAnnotation');
+}
+
+export async function setFileAnnotation(path: string, annotation: string): Promise<any> {
+    return requestChecked('/api/asset/setFileAnnotation', { path, annotation }, 'setFileAnnotation');
+}
+
+export async function getUnusedAssets(): Promise<any> {
+    return requestChecked('/api/asset/getUnusedAssets', {}, 'getUnusedAssets');
+}
+
+export async function getMissingAssets(): Promise<any> {
+    return requestChecked('/api/asset/getMissingAssets', {}, 'getMissingAssets');
+}
+
+export async function removeUnusedAsset(path: string): Promise<any> {
+    return requestChecked('/api/asset/removeUnusedAsset', { path }, 'removeUnusedAsset');
+}
+
+export async function getDocImageAssets(id: string): Promise<any> {
+    return requestChecked('/api/asset/getDocImageAssets', { id }, 'getDocImageAssets');
+}
+
+export async function getDocAssets(id: string): Promise<any> {
+    return requestChecked('/api/asset/getDocAssets', { id }, 'getDocAssets');
+}
+
+export async function renameAsset(oldPath: string, newName: string): Promise<any> {
+    return requestChecked('/api/asset/renameAsset', { oldPath, newName }, 'renameAsset');
+}
+
+export async function getImageOCRText(path: string): Promise<any> {
+    return requestChecked('/api/asset/getImageOCRText', { path }, 'getImageOCRText');
+}
+
+export async function setImageOCRText(path: string, text: string): Promise<any> {
+    return requestChecked('/api/asset/setImageOCRText', { path, text }, 'setImageOCRText');
+}
+
+export async function ocrAsset(path: string): Promise<any> {
+    return requestChecked('/api/asset/ocr', { path }, 'ocrAsset');
+}
+
+export async function fullReindexAssetContent(): Promise<any> {
+    return requestChecked('/api/asset/fullReindexAssetContent', {}, 'fullReindexAssetContent');
+}
+
+export async function statAsset(path: string): Promise<any> {
+    return requestChecked('/api/asset/statAsset', { path }, 'statAsset');
+}
+
+export async function copyFile(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/file/copyFile', params, 'copyFile');
+}
+
+export async function renameFile(path: string, newPath: string): Promise<any> {
+    return requestChecked('/api/file/renameFile', { path, newPath }, 'renameFile');
+}
+
+export async function getUniqueFilename(path: string): Promise<any> {
+    return requestChecked('/api/file/getUniqueFilename', { path }, 'getUniqueFilename');
+}
+
+export async function getAttributeViewFilterSort(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/getAttributeViewFilterSort', params, 'getAttributeViewFilterSort');
+}
+
+export async function getAttributeViewKeys(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/getAttributeViewKeys', params, 'getAttributeViewKeys');
+}
+
+export async function getAttributeViewPrimaryKeyValues(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/getAttributeViewPrimaryKeyValues', params, 'getAttributeViewPrimaryKeyValues');
+}
+
+export async function getMirrorDatabaseBlocks(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/getMirrorDatabaseBlocks', params, 'getMirrorDatabaseBlocks');
+}
+
+export async function getCurrentAttrViewImages(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/getCurrentAttrViewImages', params, 'getCurrentAttrViewImages');
+}
+
+export async function getUnusedAttributeViews(): Promise<any> {
+    return requestChecked('/api/av/getUnusedAttributeViews', {}, 'getUnusedAttributeViews');
+}
+
+export async function setDatabaseBlockView(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/setDatabaseBlockView', params, 'setDatabaseBlockView');
+}
+
+export async function sortAttributeViewKey(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/sortAttributeViewKey', params, 'sortAttributeViewKey');
+}
+
+export async function sortAttributeViewViewKey(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/sortAttributeViewViewKey', params, 'sortAttributeViewViewKey');
+}
+
+export async function changeAttrViewLayout(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/changeAttrViewLayout', params, 'changeAttrViewLayout');
+}
+
+export async function setAttrViewGroup(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/av/setAttrViewGroup', params, 'setAttrViewGroup');
+}
+
+export async function createRiffDeck(name: string): Promise<any> {
+    return requestChecked('/api/riff/createRiffDeck', { name }, 'createRiffDeck');
+}
+
+export async function renameRiffDeck(deckID: string, name: string): Promise<any> {
+    return requestChecked('/api/riff/renameRiffDeck', { deckID, name }, 'renameRiffDeck');
+}
+
+export async function removeRiffDeck(deckID: string): Promise<any> {
+    return requestChecked('/api/riff/removeRiffDeck', { deckID }, 'removeRiffDeck');
+}
+
+export async function getRiffDecks(): Promise<any> {
+    return requestChecked('/api/riff/getRiffDecks', {}, 'getRiffDecks');
+}
+
+export async function addRiffCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/addRiffCards', params, 'addRiffCards');
+}
+
+export async function removeRiffCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/removeRiffCards', params, 'removeRiffCards');
+}
+
+export async function getRiffDueCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/getRiffDueCards', params, 'getRiffDueCards');
+}
+
+export async function getTreeRiffDueCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/getTreeRiffDueCards', params, 'getTreeRiffDueCards');
+}
+
+export async function getNotebookRiffDueCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/getNotebookRiffDueCards', params, 'getNotebookRiffDueCards');
+}
+
+export async function reviewRiffCard(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/reviewRiffCard', params, 'reviewRiffCard');
+}
+
+export async function skipReviewRiffCard(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/skipReviewRiffCard', params, 'skipReviewRiffCard');
+}
+
+export async function getRiffCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/getRiffCards', params, 'getRiffCards');
+}
+
+export async function getTreeRiffCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/getTreeRiffCards', params, 'getTreeRiffCards');
+}
+
+export async function getNotebookRiffCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/getNotebookRiffCards', params, 'getNotebookRiffCards');
+}
+
+export async function resetRiffCards(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/resetRiffCards', params, 'resetRiffCards');
+}
+
+export async function batchSetRiffCardsDueTime(params: SiyuanApiPayload): Promise<any> {
+    return requestChecked('/api/riff/batchSetRiffCardsDueTime', params, 'batchSetRiffCardsDueTime');
+}
+
+export async function getRiffCardsByBlockIDs(blockIDs: string[]): Promise<any> {
+    return requestChecked('/api/riff/getRiffCardsByBlockIDs', { blockIDs }, 'getRiffCardsByBlockIDs');
 }

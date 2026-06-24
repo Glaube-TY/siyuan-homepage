@@ -8,7 +8,14 @@ export const NOTEBRAIN_PLUGIN_NAME = "siyuan-homepage";
 export const NOTEBRAIN_WORKSPACE_LOGICAL_ROOT = `data/storage/petal/${NOTEBRAIN_PLUGIN_NAME}/notebrain`;
 export const NOTEBRAIN_PROJECT_DEFAULT_RELATIVE = "projects/default";
 
-const SAFE_SEGMENT_PATTERN = /^[^<>:"|?*\x00-\x1F]+$/;
+const INVALID_SEGMENT_CHARS_PATTERN = /[<>:"|?*]/;
+
+function hasControlCharacter(value: string): boolean {
+  for (const ch of value) {
+    if (ch.charCodeAt(0) < 32) return true;
+  }
+  return false;
+}
 
 export function normalizeNotebrainRelativePath(input: unknown): NotebrainRelativePath {
   const raw = String(input ?? ".").trim().replace(/\\/g, "/");
@@ -23,7 +30,7 @@ export function normalizeNotebrainRelativePath(input: unknown): NotebrainRelativ
     if (segment === "..") {
       throw new Error("Notebrain path cannot contain '..'.");
     }
-    if (!SAFE_SEGMENT_PATTERN.test(segment)) {
+    if (INVALID_SEGMENT_CHARS_PATTERN.test(segment) || hasControlCharacter(segment)) {
       throw new Error(`Invalid Notebrain path segment: ${segment}`);
     }
     parts.push(segment);
@@ -81,4 +88,3 @@ export interface ResolveAbsoluteInsideResult {
   errorCode?: "prerequisite_missing" | "path_escape" | "invalid_path";
   message?: string;
 }
-

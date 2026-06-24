@@ -310,26 +310,28 @@
 </div>
 
 <style lang="scss">
+  @use '../_kb-tokens' as *;
+
   .memory-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: $kb-space-3xl;
   }
 
   .settings-group {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: $kb-space-md;
   }
 
   .group-title {
-    margin: 0 0 8px 0;
-    font-size: 14px;
+    margin: 0 0 $kb-space-sm 0;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-on-surface);
-    padding-bottom: 8px;
+    padding-bottom: $kb-space-sm;
     border-bottom: 1px solid var(--b3-border-color);
   }
 
@@ -337,8 +339,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 12px 0;
+    gap: $kb-space-lg;
+    padding: $kb-space-md 0;
   }
 
   .setting-copy {
@@ -346,15 +348,15 @@
   }
 
   .setting-title {
-    font-size: 14px;
+    font-size: $kb-fs-lg;
     font-weight: 600;
     color: var(--b3-theme-primary);
     line-height: 1.5;
   }
 
   .setting-desc {
-    margin-top: 4px;
-    font-size: 13px;
+    margin-top: $kb-space-xs;
+    font-size: $kb-fs-md;
     color: var(--b3-theme-on-surface);
     line-height: 1.5;
   }
@@ -365,7 +367,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 4px;
+    gap: $kb-space-xs;
   }
 
   .setting-control--switch {
@@ -374,7 +376,7 @@
   }
 
   .hint {
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     color: var(--b3-theme-on-surface);
     opacity: 0.7;
   }
@@ -387,13 +389,13 @@
   .hint--warning {
     color: var(--b3-card-warning-color, #c76c2a);
     opacity: 1;
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     line-height: 1.4;
   }
 
   .hint--center {
     text-align: center;
-    padding: 16px 0;
+    padding: $kb-space-lg 0;
   }
 
   .b3-button {

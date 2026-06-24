@@ -200,43 +200,20 @@
 </script>
 
 <div class="agent-workspace-settings-tab">
-  <section class="settings-section">
-    <div class="section-header">
-      <h2 class="section-title">Notebrain 工作区</h2>
-      <p class="section-description">Agent 文件、Skill、MCP 配置、项目临时文件和日志都会限制在该目录下。</p>
-    </div>
-
-    <div class="info-grid">
-      <div class="info-item">
-        <span class="info-label">逻辑路径</span>
-        <code class="path-value">{NOTEBRAIN_WORKSPACE_LOGICAL_ROOT}</code>
-      </div>
-      <div class="info-item">
-        <span class="info-label">本地路径</span>
-        {#if resolvedRoot}
-          <code class="path-value">{resolvedRoot}</code>
-        {:else}
-          <span class="muted">{resolveMessage || "尚未解析"}</span>
-        {/if}
-      </div>
-      <div class="info-item">
-        <span class="info-label">运行环境</span>
-        <span class="status-row">
-          <span class:status-ok={envStatus.isPcElectron} class:status-warn={!envStatus.isPcElectron} class="status-dot"></span>
-          {envStatus.isPcElectron ? "PC/Electron 可用" : envStatus.message || "当前环境不可执行本地命令"}
-        </span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">日志目录</span>
-        <code class="path-value">logs/commands, logs/tools, logs/skills, logs/mcp</code>
-      </div>
-    </div>
-  </section>
+  <div class="sandbox-status-bar">
+    <span class="status-row">
+      <span class:status-ok={envStatus.isPcElectron} class:status-warn={!envStatus.isPcElectron} class="status-dot"></span>
+      {envStatus.isPcElectron ? "PC/Electron 可用" : envStatus.message || "当前环境不可执行本地命令"}
+    </span>
+    {#if resolvedRoot}
+      <code class="path-value inline">{resolvedRoot}</code>
+    {/if}
+  </div>
+  <p class="sandbox-short-note">限制 AI 的本地命令、文件写入和网络访问。当前不是系统级沙箱，命令仍可能读取系统信息或访问用户有权限的路径。cwd 限制在 {NOTEBRAIN_WORKSPACE_LOGICAL_ROOT}。</p>
 
   <section class="settings-section">
     <div class="section-header">
-      <h2 class="section-title">本地命令执行</h2>
-      <p class="section-description">命令只允许在 notebrain/projects/default 内执行，输出会截断并写入日志。</p>
+      <h2 class="section-title">基础开关</h2>
     </div>
 
     <div class="setting-row">
@@ -264,6 +241,21 @@
           type="checkbox"
           checked={workspace.fileWriteToolsEnabled}
           on:change={(event) => patchWorkspace({ fileWriteToolsEnabled: event.currentTarget.checked })}
+        />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-text">
+        <span class="setting-title">严格工作区模式</span>
+        <span class="setting-desc">拒绝系统信息、绝对路径、父级路径、PowerShell、管道/重定向和危险删除等命令（推荐开启）。</span>
+      </div>
+      <label class="switch">
+        <input
+          type="checkbox"
+          checked={workspace.commandStrictWorkspaceMode !== false}
+          on:change={(event) => patchWorkspace({ commandStrictWorkspaceMode: event.currentTarget.checked })}
         />
         <span class="slider"></span>
       </label>
@@ -351,6 +343,58 @@
           on:input={(event) => patchWorkspace({ commandDenyRules: splitRules(event.currentTarget.value) })}
           placeholder="rm -rf *"
         ></textarea>
+      </label>
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <div class="section-header">
+      <h2 class="section-title">网络与高级权限</h2>
+      <p class="section-description">控制本地命令的网络访问和高级系统能力。默认保守。注意：这不是 OS 级网络隔离，只是启发式风险标记。</p>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-text">
+        <span class="setting-title">允许命令访问网络</span>
+        <span class="setting-desc">开启后允许 curl/wget/iwr 等网络命令。默认关闭；严格模式关闭该权限时，网络命令会被拒绝。</span>
+      </div>
+      <label class="switch">
+        <input
+          type="checkbox"
+          checked={workspace.allowNetworkAccess === true}
+          on:change={(event) => patchWorkspace({ allowNetworkAccess: event.currentTarget.checked })}
+        />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-text">
+        <span class="setting-title">允许系统信息命令</span>
+        <span class="setting-desc">开启后允许 systeminfo/wmic/ipconfig/whoami 等读取系统信息的命令。默认关闭，严格模式下这些命令会被拒绝。</span>
+      </div>
+      <label class="switch">
+        <input
+          type="checkbox"
+          checked={workspace.allowSystemInfoCommands === true}
+          on:change={(event) => patchWorkspace({ allowSystemInfoCommands: event.currentTarget.checked })}
+        />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-text">
+        <span class="setting-title">允许绝对路径</span>
+        <span class="setting-desc">开启后允许命令中包含绝对路径（如 C:\、/home、/etc 等）。默认关闭，严格模式下绝对路径会被拒绝。</span>
+      </div>
+      <label class="switch">
+        <input
+          type="checkbox"
+          checked={workspace.allowAbsolutePaths === true}
+          on:change={(event) => patchWorkspace({ allowAbsolutePaths: event.currentTarget.checked })}
+        />
+        <span class="slider"></span>
       </label>
     </div>
   </section>
@@ -477,12 +521,42 @@
 </div>
 
 <style lang="scss">
+  @use '../_kb-tokens' as *;
+
   .agent-workspace-settings-tab {
     width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 28px;
+    gap: $kb-space-3xl;
+  }
+
+  .sandbox-status-bar {
+    display: flex;
+    align-items: center;
+    gap: $kb-space-md;
+    padding: $kb-space-sm $kb-space-md;
+    border: 1px solid var(--b3-border-color);
+    border-radius: $kb-radius-lg;
+    background: var(--b3-theme-surface);
+    font-size: $kb-fs-md;
+    flex-wrap: wrap;
+    box-shadow: $kb-shadow-card;
+  }
+  .sandbox-status-bar .path-value.inline {
+    font-size: $kb-fs-sm;
+    opacity: 0.7;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sandbox-short-note {
+    margin: 8px 0 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.7;
   }
 
   .settings-section {
@@ -520,24 +594,7 @@
     margin: 0;
   }
 
-  .info-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 10px;
-  }
 
-  .info-item {
-    min-width: 0;
-    padding: 12px;
-    border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
-    background: var(--b3-theme-surface);
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .info-label,
   .field-label {
     font-size: 12px;
     font-weight: 600;

@@ -1349,6 +1349,8 @@
 />
 
 <style lang="scss">
+  @use './_kb-tokens' as *;
+
   .kb-main-panel {
     display: flex;
     flex-direction: row;
@@ -1358,8 +1360,26 @@
     min-height: 0;
     overflow: hidden;
     background: var(--b3-theme-background);
-    /* 确保主面板作为 flex 容器能正确约束子元素 */
     position: relative;
+
+    // Sidebar open/close transition
+    &.has-sidebar {
+      :global(.conversation-sidebar) {
+        // Sidebar slides in from left with spring-like easing
+        animation: sidebar-slide-in 250ms $kb-ease-out both;
+      }
+    }
+  }
+
+  @keyframes sidebar-slide-in {
+    from {
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
   }
 
   .main-content {
@@ -1371,57 +1391,92 @@
     overflow: hidden;
   }
 
+  // ---- Top Toolbar ----
   .top-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 12px;
-    background: var(--b3-theme-surface-light);
-    border-bottom: 1px solid var(--b3-border-color);
-    gap: 8px;
+    padding: $kb-space-xs $kb-space-md;
+    background: var(--b3-theme-background);
+    border-bottom: 1px solid color-mix(in srgb, var(--b3-border-color) 60%, transparent);
+    gap: $kb-space-sm;
     flex-shrink: 0;
-    min-height: 36px;
+    min-height: 38px;
     flex-wrap: wrap;
+    box-shadow: $kb-shadow-card;
+    z-index: 1;
+    position: relative;
   }
 
   .toolbar-left,
   .toolbar-right {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: $kb-space-xs;
     flex-wrap: wrap;
   }
 
+  // ---- Toolbar Button ----
   .toolbar-btn {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
+    gap: $kb-space-xs;
+    padding: $kb-space-xs $kb-space-sm;
     background: transparent;
     border: 1px solid var(--b3-border-color);
-    border-radius: 4px;
+    border-radius: $kb-radius-md;
     cursor: pointer;
-    font-size: 12px;
+    font-size: $kb-fs-sm;
     color: var(--b3-theme-on-surface);
-    transition: all 0.15s ease;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out,
+      transform $kb-dur-fast $kb-ease-out;
+    box-shadow: $kb-shadow-none;
 
     &:hover:not(:disabled) {
       background: var(--b3-theme-background-light);
+      border-color: color-mix(in srgb, var(--b3-theme-primary) 20%, var(--b3-border-color));
+      box-shadow: $kb-shadow-raised;
+      transform: translateY(-1px);
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0) scale(0.97);
+      box-shadow: $kb-shadow-card;
     }
 
     &:disabled {
-      opacity: 0.5;
+      opacity: 0.45;
       cursor: not-allowed;
     }
 
     &.active {
-      background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-      border-color: var(--b3-theme-primary-light, rgba(66, 133, 244, 0.5));
+      background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+      border-color: color-mix(in srgb, var(--b3-theme-primary) 35%, var(--b3-border-color));
       color: var(--b3-theme-primary);
+      box-shadow: $kb-shadow-card;
+
+      // Liquid glass inner highlight
+      box-shadow:
+        $kb-shadow-card,
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
     }
   }
 
-  // 聊天区布局
+  .btn-icon {
+    display: flex;
+    align-items: center;
+    font-size: $kb-fs-sm;
+  }
+
+  .btn-label {
+    font-size: $kb-fs-sm;
+    line-height: 1;
+  }
+
+  // ---- Chat Area Layout ----
   .chat-wrapper {
     display: flex;
     flex: 1;
@@ -1436,22 +1491,76 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      /* 确保 chat-area 能正确传递约束给子元素 */
       position: relative;
+      // Subtle breathing space
+      padding: 0 $kb-space-sm;
 
-      // 输入框作为底部区域，不能被压缩
+      // Input bar as bottom: fixed height, not compressed
       :global(.chat-input-wrapper) {
         flex-shrink: 0;
         width: 100%;
+        // Subtle top separator to separate messages from input
+        border-top: 1px solid color-mix(in srgb, var(--b3-border-color) 50%, transparent);
+        padding-top: $kb-space-xs;
+        margin-top: $kb-space-xs;
       }
     }
   }
 
-  .btn-icon {
-    font-size: 12px;
+  // ---- Custom Scrollbar ----
+  .chat-area {
+    // Webkit scrollbar styling
+    &::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: color-mix(in srgb, var(--b3-theme-on-surface) 18%, transparent);
+      border-radius: 3px;
+
+      &:hover {
+        background: color-mix(in srgb, var(--b3-theme-on-surface) 30%, transparent);
+      }
+    }
   }
 
-  .btn-label {
-    font-size: 12px;
+  // ---- Dark Mode ----
+  @media (prefers-color-scheme: dark) {
+    .kb-main-panel .top-toolbar {
+      box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.20),
+        0 1px 2px rgba(0, 0, 0, 0.12);
+      border-bottom-color: color-mix(in srgb, var(--b3-border-color) 40%, transparent);
+    }
+
+    .kb-main-panel .toolbar-btn {
+      &.active {
+        box-shadow:
+          0 1px 3px rgba(0, 0, 0, 0.20),
+          0 1px 2px rgba(0, 0, 0, 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      &:hover:not(:disabled) {
+        box-shadow:
+          0 4px 12px rgba(0, 0, 0, 0.24),
+          0 1px 3px rgba(0, 0, 0, 0.12);
+      }
+    }
+  }
+
+  // ---- Reduced Motion ----
+  @media (prefers-reduced-motion: reduce) {
+    .kb-main-panel.has-sidebar :global(.conversation-sidebar) {
+      animation: none;
+    }
+
+    .kb-main-panel .toolbar-btn {
+      transition: none;
+    }
   }
 </style>

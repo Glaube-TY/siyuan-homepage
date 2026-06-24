@@ -1,4 +1,5 @@
 import { getFile, putFile, readDir, removeFile } from "@/api";
+import { removeFileChecked } from "@/api";
 import {
   getNotebrainBasename,
   joinNotebrainRelativePath,
@@ -103,6 +104,20 @@ export async function deleteNotebrainPath(relativePath: unknown): Promise<void> 
     throw new Error("Refusing to delete Notebrain workspace root.");
   }
   await removeFile(toNotebrainLogicalPath(normalized));
+}
+
+/**
+ * Delete a file/directory under the Notebrain workspace using the checked API.
+ * Unlike deleteNotebrainPath, this throws on API failure (code !== 0)
+ * and ensures errors are not silently swallowed.
+ * Only used where failure must be explicit (e.g. external Skill deletion).
+ */
+export async function deleteNotebrainPathChecked(relativePath: unknown): Promise<void> {
+  const normalized = normalizeNotebrainRelativePath(relativePath);
+  if (!normalized) {
+    throw new Error("Refusing to delete Notebrain workspace root.");
+  }
+  await removeFileChecked(toNotebrainLogicalPath(normalized));
 }
 
 export async function readNotebrainJson<T>(relativePath: unknown, fallback: T): Promise<T> {

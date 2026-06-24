@@ -121,6 +121,27 @@ import {
   createManageDiaryReviewTool,
   type ManageDiaryReviewDeps,
 } from "../tools/siyuan/manage-diary-review.tool";
+import { createSiyuanOutlineTool, type SiyuanOutlineDeps } from "../tools/siyuan/siyuan-outline.tool";
+import { createSiyuanRefTool, type SiyuanRefDeps } from "../tools/siyuan/siyuan-ref.tool";
+import { createSiyuanSearchExtraTool, type SiyuanSearchExtraDeps } from "../tools/siyuan/siyuan-search-extra.tool";
+import { createSiyuanSqlSelectTool, type SiyuanSqlSelectDeps } from "../tools/siyuan/siyuan-sql-select.tool";
+import { createSiyuanBlockReadTool, type SiyuanBlockReadDeps } from "../tools/siyuan/siyuan-block-read.tool";
+import { createSiyuanBlockAttrTool, type SiyuanBlockAttrDeps } from "../tools/siyuan/siyuan-block-attr.tool";
+import { createSiyuanBlockRefTool, type SiyuanBlockRefDeps } from "../tools/siyuan/siyuan-block-ref.tool";
+import { createSiyuanBlockStateTool, type SiyuanBlockStateDeps } from "../tools/siyuan/siyuan-block-state.tool";
+import { createSiyuanDocTransformTool, type SiyuanDocTransformDeps } from "../tools/siyuan/siyuan-doc-transform.tool";
+import { createSiyuanDatabaseExtraReadTool, type SiyuanDatabaseExtraReadDeps } from "../tools/siyuan/siyuan-database-extra-read.tool";
+import { createSiyuanDatabaseViewTool, type SiyuanDatabaseViewDeps } from "../tools/siyuan/siyuan-database-view.tool";
+import { createSiyuanNotebookManageTool, type SiyuanNotebookManageDeps } from "../tools/siyuan/siyuan-notebook-manage.tool";
+import { createSiyuanDocTreeTool, type SiyuanDocTreeDeps } from "../tools/siyuan/siyuan-doc-tree.tool";
+import { createSiyuanDocPathTool, type SiyuanDocPathDeps } from "../tools/siyuan/siyuan-doc-path.tool";
+import { createSiyuanTagManageTool, type SiyuanTagManageDeps } from "../tools/siyuan/siyuan-tag-manage.tool";
+import { createSiyuanBookmarkManageTool, type SiyuanBookmarkManageDeps } from "../tools/siyuan/siyuan-bookmark-manage.tool";
+import { createSiyuanAssetReadTool, type SiyuanAssetReadDeps } from "../tools/siyuan/siyuan-asset-read.tool";
+import { createSiyuanAssetManageTool, type SiyuanAssetManageDeps } from "../tools/siyuan/siyuan-asset-manage.tool";
+import { createSiyuanWorkspaceFileTool, type SiyuanWorkspaceFileDeps } from "../tools/siyuan/siyuan-workspace-file.tool";
+import { createSiyuanRiffDeckTool, type SiyuanRiffDeckDeps } from "../tools/siyuan/siyuan-riff-deck.tool";
+import { createSiyuanRiffCardTool, type SiyuanRiffCardDeps } from "../tools/siyuan/siyuan-riff-card.tool";
 
 // Tool execution implementations
 import { executeListKnowledgeMap } from "../tools/siyuan/impl/list-knowledge-map.impl";
@@ -154,6 +175,27 @@ import { executeManageDiaryStructure } from "../tools/siyuan/impl/manage-diary-s
 import { executeManageDiaryTask } from "../tools/siyuan/impl/manage-diary-task.impl";
 import { executeManageDiaryRecord } from "../tools/siyuan/impl/manage-diary-record.impl";
 import { executeManageDiaryReview } from "../tools/siyuan/impl/manage-diary-review.impl";
+import { executeSiyuanOutline } from "../tools/siyuan/impl/siyuan-outline.impl";
+import { executeSiyuanRef } from "../tools/siyuan/impl/siyuan-ref.impl";
+import { executeSiyuanSearchExtra } from "../tools/siyuan/impl/siyuan-search-extra.impl";
+import { executeSiyuanSqlSelect } from "../tools/siyuan/impl/siyuan-sql-select.impl";
+import { executeSiyuanBlockRead } from "../tools/siyuan/impl/siyuan-block-read.impl";
+import { executeSiyuanBlockAttr } from "../tools/siyuan/impl/siyuan-block-attr.impl";
+import { executeSiyuanBlockRef } from "../tools/siyuan/impl/siyuan-block-ref.impl";
+import { executeSiyuanBlockState } from "../tools/siyuan/impl/siyuan-block-state.impl";
+import { executeSiyuanDocTransform } from "../tools/siyuan/impl/siyuan-doc-transform.impl";
+import { executeSiyuanDatabaseExtraRead } from "../tools/siyuan/impl/siyuan-database-extra-read.impl";
+import { executeSiyuanDatabaseView } from "../tools/siyuan/impl/siyuan-database-view.impl";
+import { executeSiyuanNotebookManage } from "../tools/siyuan/impl/siyuan-notebook-manage.impl";
+import { executeSiyuanDocTree } from "../tools/siyuan/impl/siyuan-doc-tree.impl";
+import { executeSiyuanDocPath } from "../tools/siyuan/impl/siyuan-doc-path.impl";
+import { executeSiyuanTagManage } from "../tools/siyuan/impl/siyuan-tag-manage.impl";
+import { executeSiyuanBookmarkManage } from "../tools/siyuan/impl/siyuan-bookmark-manage.impl";
+import { executeSiyuanAssetRead } from "../tools/siyuan/impl/siyuan-asset-read.impl";
+import { executeSiyuanAssetManage } from "../tools/siyuan/impl/siyuan-asset-manage.impl";
+import { executeSiyuanWorkspaceFile } from "../tools/siyuan/impl/siyuan-workspace-file.impl";
+import { executeSiyuanRiffDeck } from "../tools/siyuan/impl/siyuan-riff-deck.impl";
+import { executeSiyuanRiffCard } from "../tools/siyuan/impl/siyuan-riff-card.impl";
 
 export interface SiyuanToolRegistrationOptions {
   kbRetrievalToolDeps: SiyuanToolDeps;
@@ -163,6 +205,10 @@ export interface SiyuanToolRegistrationOptions {
     scheduleTaskDiary: boolean;
     databaseAssistant: boolean;
     docContentEditing: boolean;
+    notebookDocTree: boolean;
+    tagBookmarkOutline: boolean;
+    assetManagement: boolean;
+    riffReview: boolean;
   };
   globalToolAccess?: {
     readDocs: boolean;
@@ -240,6 +286,27 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   const manageDiaryReviewDeps: ManageDiaryReviewDeps = {
     executeManageDiaryReview: (args) => executeManageDiaryReview(deps, args),
   };
+  const siyuanOutlineDeps: SiyuanOutlineDeps = { executeSiyuanOutline };
+  const siyuanRefDeps: SiyuanRefDeps = { executeSiyuanRef };
+  const siyuanSearchExtraDeps: SiyuanSearchExtraDeps = { executeSiyuanSearchExtra };
+  const siyuanSqlSelectDeps: SiyuanSqlSelectDeps = { executeSiyuanSqlSelect };
+  const siyuanBlockReadDeps: SiyuanBlockReadDeps = { executeSiyuanBlockRead };
+  const siyuanBlockAttrDeps: SiyuanBlockAttrDeps = { executeSiyuanBlockAttr };
+  const siyuanBlockRefDeps: SiyuanBlockRefDeps = { executeSiyuanBlockRef };
+  const siyuanBlockStateDeps: SiyuanBlockStateDeps = { executeSiyuanBlockState };
+  const siyuanDocTransformDeps: SiyuanDocTransformDeps = { executeSiyuanDocTransform };
+  const siyuanDatabaseExtraReadDeps: SiyuanDatabaseExtraReadDeps = { executeSiyuanDatabaseExtraRead };
+  const siyuanDatabaseViewDeps: SiyuanDatabaseViewDeps = { executeSiyuanDatabaseView };
+  const siyuanNotebookManageDeps: SiyuanNotebookManageDeps = { executeSiyuanNotebookManage };
+  const siyuanDocTreeDeps: SiyuanDocTreeDeps = { executeSiyuanDocTree };
+  const siyuanDocPathDeps: SiyuanDocPathDeps = { executeSiyuanDocPath };
+  const siyuanTagManageDeps: SiyuanTagManageDeps = { executeSiyuanTagManage };
+  const siyuanBookmarkManageDeps: SiyuanBookmarkManageDeps = { executeSiyuanBookmarkManage };
+  const siyuanAssetReadDeps: SiyuanAssetReadDeps = { executeSiyuanAssetRead };
+  const siyuanAssetManageDeps: SiyuanAssetManageDeps = { executeSiyuanAssetManage };
+  const siyuanWorkspaceFileDeps: SiyuanWorkspaceFileDeps = { executeSiyuanWorkspaceFile };
+  const siyuanRiffDeckDeps: SiyuanRiffDeckDeps = { executeSiyuanRiffDeck };
+  const siyuanRiffCardDeps: SiyuanRiffCardDeps = { executeSiyuanRiffCard };
   return {
     lkmDeps, searchDeps, readDeps, overviewDeps,
     taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps,
@@ -248,6 +315,13 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
     updateAttributeViewCellDeps, addAttributeViewRowsDeps, addAttributeViewKeyDeps, removeAttributeViewKeyDeps, removeAttributeViewRowsDeps,
     clearAttributeViewCellDeps,
     manageDiaryStructureDeps, manageDiaryTaskDeps, manageDiaryRecordDeps, manageDiaryReviewDeps,
+    siyuanOutlineDeps, siyuanRefDeps, siyuanSearchExtraDeps, siyuanSqlSelectDeps,
+    siyuanBlockReadDeps, siyuanBlockAttrDeps, siyuanBlockRefDeps, siyuanBlockStateDeps, siyuanDocTransformDeps,
+    siyuanDatabaseExtraReadDeps, siyuanDatabaseViewDeps,
+    siyuanNotebookManageDeps, siyuanDocTreeDeps, siyuanDocPathDeps,
+    siyuanTagManageDeps, siyuanBookmarkManageDeps,
+    siyuanAssetReadDeps, siyuanAssetManageDeps, siyuanWorkspaceFileDeps,
+    siyuanRiffDeckDeps, siyuanRiffCardDeps,
   };
 }
 
@@ -266,6 +340,13 @@ export function registerSiyuanTools(
     manageDiaryStructureDeps,
     manageDiaryTaskDeps,
     manageDiaryRecordDeps, manageDiaryReviewDeps,
+    siyuanOutlineDeps, siyuanRefDeps, siyuanSearchExtraDeps, siyuanSqlSelectDeps,
+    siyuanBlockReadDeps, siyuanBlockAttrDeps, siyuanBlockRefDeps, siyuanBlockStateDeps, siyuanDocTransformDeps,
+    siyuanDatabaseExtraReadDeps, siyuanDatabaseViewDeps,
+    siyuanNotebookManageDeps, siyuanDocTreeDeps, siyuanDocPathDeps,
+    siyuanTagManageDeps, siyuanBookmarkManageDeps,
+    siyuanAssetReadDeps, siyuanAssetManageDeps, siyuanWorkspaceFileDeps,
+    siyuanRiffDeckDeps, siyuanRiffCardDeps,
   } = createSiyuanToolDeps(deps);
 
   // read_docs is a global read-only tool
@@ -282,6 +363,10 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
     toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
     toolRegistry.ensureTool(createListItemsByTimeTool(listItemsByTimeDeps));
+    toolRegistry.ensureTool(createSiyuanOutlineTool(siyuanOutlineDeps));
+    toolRegistry.ensureTool(createSiyuanRefTool(siyuanRefDeps));
+    toolRegistry.ensureTool(createSiyuanSearchExtraTool(siyuanSearchExtraDeps));
+    toolRegistry.ensureTool(createSiyuanSqlSelectTool(siyuanSqlSelectDeps));
   }
 
   if (options.builtinCapabilityAccess?.scheduleTaskDiary !== false) {
@@ -306,10 +391,17 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createRemoveAttributeViewKeyTool(removeAttributeViewKeyDeps));
     toolRegistry.ensureTool(createRemoveAttributeViewRowsTool(removeAttributeViewRowsDeps));
     toolRegistry.ensureTool(createClearAttributeViewCellTool(clearAttributeViewCellDeps));
+    toolRegistry.ensureTool(createSiyuanDatabaseExtraReadTool(siyuanDatabaseExtraReadDeps));
+    toolRegistry.ensureTool(createSiyuanDatabaseViewTool(siyuanDatabaseViewDeps));
   }
 
   if (options.builtinCapabilityAccess?.docContentEditing === true) {
     toolRegistry.ensureTool(createReadDocBlocksTool(readDocBlocksDeps));
+    toolRegistry.ensureTool(createSiyuanBlockReadTool(siyuanBlockReadDeps));
+    toolRegistry.ensureTool(createSiyuanBlockAttrTool(siyuanBlockAttrDeps));
+    toolRegistry.ensureTool(createSiyuanBlockRefTool(siyuanBlockRefDeps));
+    toolRegistry.ensureTool(createSiyuanBlockStateTool(siyuanBlockStateDeps));
+    toolRegistry.ensureTool(createSiyuanDocTransformTool(siyuanDocTransformDeps));
     if (options.conversationId) {
       const writeDeps = { ...deps, conversationId: options.conversationId };
       toolRegistry.ensureTool(createUpdateBlockTool({ executeUpdateBlock: (args, abortSignal) => executeUpdateBlock({ ...writeDeps, abortSignal }, args) }));
@@ -321,5 +413,30 @@ export function registerSiyuanTools(
       toolRegistry.ensureTool(createDeleteDocTool({ executeDeleteDoc: (args, abortSignal) => executeDeleteDoc({ ...writeDeps, abortSignal }, args) }));
       toolRegistry.ensureTool(createReplaceDocContentTool({ executeReplaceDocContent: (args, abortSignal) => executeReplaceDocContent({ ...writeDeps, abortSignal }, args) }));
     }
+  }
+
+  if (options.builtinCapabilityAccess?.notebookDocTree === true) {
+    toolRegistry.ensureTool(createSiyuanNotebookManageTool(siyuanNotebookManageDeps));
+    toolRegistry.ensureTool(createSiyuanDocTreeTool(siyuanDocTreeDeps));
+    toolRegistry.ensureTool(createSiyuanDocPathTool(siyuanDocPathDeps));
+  }
+
+  if (options.builtinCapabilityAccess?.tagBookmarkOutline === true) {
+    toolRegistry.ensureTool(createSiyuanTagManageTool(siyuanTagManageDeps));
+    toolRegistry.ensureTool(createSiyuanBookmarkManageTool(siyuanBookmarkManageDeps));
+    toolRegistry.ensureTool(createSiyuanOutlineTool(siyuanOutlineDeps));
+    toolRegistry.ensureTool(createSiyuanBlockAttrTool(siyuanBlockAttrDeps));
+    toolRegistry.ensureTool(createSiyuanDocPathTool(siyuanDocPathDeps));
+  }
+
+  if (options.builtinCapabilityAccess?.assetManagement === true) {
+    toolRegistry.ensureTool(createSiyuanAssetReadTool(siyuanAssetReadDeps));
+    toolRegistry.ensureTool(createSiyuanAssetManageTool(siyuanAssetManageDeps));
+    toolRegistry.ensureTool(createSiyuanWorkspaceFileTool(siyuanWorkspaceFileDeps));
+  }
+
+  if (options.builtinCapabilityAccess?.riffReview === true) {
+    toolRegistry.ensureTool(createSiyuanRiffDeckTool(siyuanRiffDeckDeps));
+    toolRegistry.ensureTool(createSiyuanRiffCardTool(siyuanRiffCardDeps));
   }
 }

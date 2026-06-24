@@ -3,9 +3,11 @@ import {
   readNotebrainJson,
   readNotebrainTextFile,
   writeNotebrainJson,
+  deleteNotebrainPathChecked,
 } from "../../workspace/notebrain-workspace-fs";
 import {
   joinNotebrainRelativePath,
+  normalizeNotebrainRelativePath,
   slugifyNotebrainId,
 } from "../../workspace/notebrain-workspace-paths";
 import {
@@ -14,6 +16,7 @@ import {
 } from "../../storage/user-skill-store";
 import type { ExternalSkillIndex, ExternalSkillIndexEntry } from "./external-skill-types";
 import { parseExternalSkillMarkdown } from "./external-skill-parser";
+import { pushAgentDebugEvent } from "@/features/kb/services/agent-workbench/debug/workbench-debug";
 
 export const EXTERNAL_SKILL_INDEX_PATH = "skills/index.json";
 
@@ -173,5 +176,102 @@ export function renderExternalSkillIndexPrompt(entries: readonly ExternalSkillIn
     lines.push(`- 其余 ${entries.length - 40} 个 Skill 可通过 skill_list 查看。`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Safely delete an installed external Skill.
+ * Only allows deleting non-user Skills whose normalized rootDir is under skills/installed/.
+ * Never allows deleting the skills/ or skills/installed/ root directories.
+ * Never allows path traversal (.., absolute paths, backslash escape).
+ * Uses normalizeNotebrainRelativePath to normalize rootDir before all safety checks.
+ */
+export async function deleteInstalledExternalSkill(entry: ExternalSkillIndexEntry): Promise<{
+  removedCount: number;
+  deletedRootDir: string;
+  directoryAlreadyMissing: boolean;
+}> {
+  // ── Safety: only non-user installed skills ──
+  if (entry.sourceType === "user") {
+    throw new Error("不能通过此接口删除用户自定义 Skill，请使用用户 Skill 管理功能。");
+  }
+
+  const rawRootDir = entry.rootDir;
+  if (!rawRootDir) {
+    throw new Error("Skill rootDir 为空，无法删除。");
+  }
+
+  // ── Normalize first, then validate ──
+  // normalizeNotebrainRelativePath converts \\ to /, removes . segments, rejects ..
+  let normalizedRootDir: string;
+  try {
+    normalizedRootDir = normalizeNotebrainRelativePath(rawRootDir);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`不能删除该 Skill：rootDir "${rawRootDir}" 路径格式无效（${msg}）。`);
+  }
+
+  if (!normalizedRootDir) {
+    throw new Error("不能删除该 Skill：rootDir 归一化后为空。");
+  }
+
+  // Must be under skills/installed/ (after normalization)
+  if (!normalizedRootDir.startsWith("skills/installed/")) {
+    throw new Error(`不能删除该 Skill：归一化路径 "${normalizedRootDir}" 不在 skills/installed/ 下。`);
+  }
+  // Must not be the root itself (after normalization)
+  if (normalizedRootDir === "skills/installed") {
+    throw new Error("不能删除 skills/installed 根目录。");
+  }
+  // Additional safety: no absolute path escape (already handled by normalize, but defense in depth)
+  if (normalizedRootDir.startsWith("/") || /^[a-zA-Z]:\//.test(normalizedRootDir)) {
+    throw new Error(`不能删除该 Skill：归一化路径 "${normalizedRootDir}" 是绝对路径。`);
+  }
+
+  // ── Delete local directory using normalized path (may already be missing) ──
+  let directoryAlreadyMissing = false;
+  try {
+    await deleteNotebrainPathChecked(normalizedRootDir);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("不存在") || msg.includes("not found") || msg.includes("no such")) {
+      directoryAlreadyMissing = true;
+    } else {
+      throw new Error(`删除本地文件夹失败：${msg}`);
+    }
+  }
+
+  // ── Remove from index using normalized rootDir comparison ──
+  const index = await loadExternalSkillIndex();
+  const beforeCount = index.skills.length;
+  index.skills = index.skills.filter((item) => {
+    // Always remove by ID match
+    if (item.id === entry.id) return false;
+    // Also remove by normalized rootDir match (handles historical path variants)
+    try {
+      const normalizedItemRootDir = normalizeNotebrainRelativePath(item.rootDir);
+      if (normalizedItemRootDir === normalizedRootDir) return false;
+    } catch {
+      // Cannot normalize abnormal rootDir, keep it (don't interrupt deletion)
+      pushAgentDebugEvent("EXTERNAL_SKILL_INDEX_SKIP", {
+        id: item.id,
+        rootDir: item.rootDir,
+        reason: "无法归一化",
+      }, "warn");
+    }
+    return true;
+  });
+  index.updatedAt = Date.now();
+  await saveExternalSkillIndex(index);
+  const removedCount = beforeCount - index.skills.length;
+
+  // ── Debug event (safe, no file content, only normalized path) ──
+  pushAgentDebugEvent("EXTERNAL_SKILL_DELETED", {
+    id: entry.id,
+    rootDir: normalizedRootDir,
+    removedCount,
+    directoryAlreadyMissing,
+  }, "info");
+
+  return { removedCount, deletedRootDir: normalizedRootDir, directoryAlreadyMissing };
 }
 

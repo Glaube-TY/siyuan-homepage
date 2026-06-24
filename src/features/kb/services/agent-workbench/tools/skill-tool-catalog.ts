@@ -10,7 +10,11 @@ export type BuiltinSkillToolCategoryId =
   | "knowledge_base"
   | "schedule_task_diary"
   | "database_assistant"
-  | "doc_content_editing";
+  | "doc_content_editing"
+  | "notebook_doc_tree"
+  | "tag_bookmark_outline"
+  | "asset_management"
+  | "riff_review";
 
 /** 内部工具名（仅作为设置 key，UI 不显示） */
 export type SkillToolName =
@@ -42,7 +46,28 @@ export type SkillToolName =
   | "move_block"
   | "rename_doc"
   | "delete_doc"
-  | "replace_doc_content";
+  | "replace_doc_content"
+  | "siyuan_outline"
+  | "siyuan_ref"
+  | "siyuan_search_extra"
+  | "siyuan_sql_select"
+  | "siyuan_block_read"
+  | "siyuan_block_attr"
+  | "siyuan_block_ref"
+  | "siyuan_block_state"
+  | "siyuan_doc_transform"
+  | "siyuan_database_extra_read"
+  | "siyuan_database_view"
+  | "siyuan_notebook_manage"
+  | "siyuan_doc_tree"
+  | "siyuan_doc_path"
+  | "siyuan_tag_manage"
+  | "siyuan_bookmark_manage"
+  | "siyuan_asset_read"
+  | "siyuan_asset_manage"
+  | "siyuan_workspace_file"
+  | "siyuan_riff_deck"
+  | "siyuan_riff_card";
 
 export interface SkillToolCatalogItem {
   /** 内部工具名（仅作设置 key，UI 不显示） */
@@ -87,6 +112,30 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         name: "list_items_by_time",
         title: "查看文档与内容块时间列表",
         description: "按创建时间或更新时间列出当前范围内的文档或内容块，支持 blockTypes 过滤，帮助了解最近新增或修改的笔记。",
+        readOnly: true,
+      },
+      {
+        name: "siyuan_outline",
+        title: "查看文档大纲",
+        description: "只读查看文档标题结构，不等同于正文证据。",
+        readOnly: true,
+      },
+      {
+        name: "siyuan_ref",
+        title: "查找引用与反链",
+        description: "只读查找反链、提及、引用块或刷新反链索引。",
+        readOnly: true,
+      },
+      {
+        name: "siyuan_search_extra",
+        title: "特殊检索",
+        description: "检索标签、模板、挂件、嵌入块、资源内容和无效引用。",
+        readOnly: true,
+      },
+      {
+        name: "siyuan_sql_select",
+        title: "只读 SQL 查询",
+        description: "执行严格校验的 SELECT/WITH 只读 SQL，自动限制行数。",
         readOnly: true,
       },
     ],
@@ -225,6 +274,20 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         canWrite: true,
         requiresConfirmation: true,
       },
+      {
+        name: "siyuan_database_extra_read",
+        title: "读取数据库辅助信息",
+        description: "读取视图筛选排序、主键、镜像块、映射、当前图片和 unused AV。",
+        readOnly: true,
+      },
+      {
+        name: "siyuan_database_view",
+        title: "修改数据库视图",
+        description: "修改数据库当前视图、字段排序、布局或分组，属于结构写入。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
     ],
   },
   {
@@ -237,6 +300,44 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         title: "读取文档块",
         description: "按块查看文档内容、子块、同级邻近块或文档顶层块。",
         readOnly: true,
+      },
+      {
+        name: "siyuan_block_read",
+        title: "读取块辅助信息",
+        description: "读取块 DOM、Kramdown、子块、面包屑、索引、相关 ID、字数和存在性等信息。",
+        readOnly: true,
+      },
+      {
+        name: "siyuan_block_attr",
+        title: "管理块属性",
+        description: "读取或设置块属性；set/batch_set 写入前需要确认。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_block_ref",
+        title: "管理块引用",
+        description: "读取块引用信息，或在确认后执行引用迁移。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_block_state",
+        title: "修改块状态",
+        description: "折叠/展开块、设置提醒、更新任务 marker。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_doc_transform",
+        title: "转换文档结构",
+        description: "执行文档转标题、标题转文档、列表项转文档等结构转换。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
       },
       {
         name: "create_doc",
@@ -298,6 +399,116 @@ export const skillToolCatalog: SkillToolCatalogCategory[] = [
         name: "replace_doc_content",
         title: "替换文档正文",
         description: "整体替换指定文档正文内容。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+    ],
+  },
+  {
+    id: "notebook_doc_tree",
+    title: "笔记本与文档树管理",
+    description: "管理笔记本和文档树组织，不处理正文内容。",
+    tools: [
+      {
+        name: "siyuan_notebook_manage",
+        title: "管理笔记本",
+        description: "列出、创建、打开、关闭、重命名、配置、设置图标或删除笔记本。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_doc_tree",
+        title: "管理文档树",
+        description: "列出文档树，移动、复制或排序文档树节点。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_doc_path",
+        title: "解析文档路径",
+        description: "只读解析 path、hpath、full hpath 和 docId。",
+        readOnly: true,
+      },
+    ],
+  },
+  {
+    id: "tag_bookmark_outline",
+    title: "标签、书签与大纲",
+    description: "管理标签、书签，并共享只读大纲读取。",
+    tools: [
+      {
+        name: "siyuan_tag_manage",
+        title: "管理标签",
+        description: "列出、搜索、重命名或删除标签。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_bookmark_manage",
+        title: "管理书签",
+        description: "列出、重命名或删除书签。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_outline",
+        title: "查看文档大纲",
+        description: "只读查看文档标题结构，与知识库检索共享。",
+        readOnly: true,
+      },
+    ],
+  },
+  {
+    id: "asset_management",
+    title: "资产管理",
+    description: "管理思源 assets 和受限工作区文件。",
+    tools: [
+      {
+        name: "siyuan_asset_read",
+        title: "读取资源信息",
+        description: "查看文档资源、未使用/缺失资源、标注、OCR、统计和资源文本内容。",
+        readOnly: true,
+      },
+      {
+        name: "siyuan_asset_manage",
+        title: "管理资源",
+        description: "重命名资源、设置标注/OCR、删除未使用资源或重建资源索引。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_workspace_file",
+        title: "操作受限工作区文件",
+        description: "只允许在白名单目录下读写、复制、重命名或删除文件。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+    ],
+  },
+  {
+    id: "riff_review",
+    title: "闪卡复习",
+    description: "管理 Riff deck 和 card 的查询与受控写入。",
+    tools: [
+      {
+        name: "siyuan_riff_deck",
+        title: "管理闪卡卡包",
+        description: "列出、重命名或删除 deck。",
+        readOnly: false,
+        canWrite: true,
+        requiresConfirmation: true,
+      },
+      {
+        name: "siyuan_riff_card",
+        title: "管理闪卡",
+        description: "查询、添加、删除、复习、跳过、重置或设置到期时间。",
         readOnly: false,
         canWrite: true,
         requiresConfirmation: true,

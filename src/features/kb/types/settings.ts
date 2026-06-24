@@ -181,6 +181,14 @@ export type NotebrainAgentWorkspaceSettings = {
   commandDenyRules: string[];
   /** 是否注册 notebrain 文件写入/删除工具（write_notebrain_file、delete_notebrain_path）。不影响 skill_install 内部写入。 */
   fileWriteToolsEnabled: boolean;
+  /** 严格工作区模式：开启后拒绝访问系统信息、绝对路径、管道重定向等高风险命令（默认 true）。 */
+  commandStrictWorkspaceMode: boolean;
+  /** 是否允许命令访问网络。默认 false（保守）。注意：这不是 OS 级网络隔离，只是启发式风险标记。 */
+  allowNetworkAccess: boolean;
+  /** 是否允许读取系统信息的命令（systeminfo/wmic/ipconfig 等）。默认 false。 */
+  allowSystemInfoCommands: boolean;
+  /** 是否允许包含绝对路径的命令。默认 false。 */
+  allowAbsolutePaths: boolean;
 };
 
 export type ExternalSkillSettings = {

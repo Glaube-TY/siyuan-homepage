@@ -8,6 +8,7 @@ import { renderContextInstructions } from "../../agent-core/prompts/context-inst
 import { renderSkillInstructions } from "../../agent-core/prompts/skill-instruction-renderer";
 import type { RuntimeToolsSettings } from "../../../types/settings";
 import { buildRuntimeToolContextInstructions } from "../runtime-tools/runtime-tool-context";
+import { pushAgentDebugEvent } from "../debug/workbench-debug";
 
 export interface BuildAgentContextInstructionsParams {
   toolRegistry: ToolRegistry;
@@ -78,15 +79,30 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
     callCounts: params.observationLog.callCounts(),
     abortSignal: params.abortSignal,
   });
+  const disabledSkillNames = new Set(params.userDisabledSkillNames ?? []);
+  const enabledSkillNames = params.skillRegistry
+    .listSkills()
+    .map((skill) => skill.name)
+    .filter((name) => !disabledSkillNames.has(name));
 
   const skillSections = params.skillRegistry.buildSkillPromptSections({
     question: params.question,
     toolManifest: skillToolManifest,
-    enabledSkillNames: [],
+    enabledSkillNames,
     observations: params.observationLog.getContextEvidence(),
-    userEnabledSkillNames: [],
+    userEnabledSkillNames: enabledSkillNames,
     userDisabledSkillNames: params.userDisabledSkillNames ?? [],
   });
+
+  pushAgentDebugEvent("AGENT_CONTEXT_SKILLS_BUILT", {
+    registeredSkillCount: params.skillRegistry.listSkills().length,
+    enabledSkillCount: enabledSkillNames.length,
+    disabledSkillCount: disabledSkillNames.size,
+    enabledSkillNames,
+    injectedSkillNames: skillSections.map((section) => section.meta?.skillName ?? section.title),
+    toolManifestCount: skillToolManifest.length,
+    toolNames: skillToolManifest.map((tool) => tool.name),
+  }, "info");
 
   const contextInstructions = [
     renderContextInstructions({

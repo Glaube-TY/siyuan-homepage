@@ -51,8 +51,8 @@ async function findSkillEntry(id: string, settings: ExternalSkillSettings): Prom
 export function createSkillListTool(settings: ExternalSkillSettings): ToolContract {
   return {
     name: "skill_list",
-    title: "列出外部 Skill",
-    description: "列出已安装或自定义的外部 Skill 简短索引，不返回全文。需要使用某个 Skill 时再调用 skill_read。",
+    title: "列出外部/用户 Skill",
+    description: "列出已安装的外部 Skill 或用户自定义 Skill 的简短索引，不返回全文。内置 Skill 不在此列——内置 Skill 是否可用请根据当前上下文中的技能路由说明判断，不要用本工具探测。需要使用外部 Skill 时再调用 skill_read。",
     inputSchema: skillListInputSchema,
     readOnly: true,
     safety: { readOnly: true },
@@ -89,7 +89,7 @@ export function createSkillListTool(settings: ExternalSkillSettings): ToolContra
     },
     summarizeResult(result) {
       const total = (result.data as any)?.total ?? 0;
-      return `外部 Skill 索引包含 ${total} 项。`;
+      return `外部 Skill 索引包含 ${total} 项（不包含内置 Skill）。`;
     },
   };
 }

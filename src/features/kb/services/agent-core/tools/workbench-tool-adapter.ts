@@ -28,6 +28,31 @@ const NATIVE_WRITE_TOOL_NAMES = new Set([
   "delete_doc",
 ]);
 
+const READ_ONLY_ACTIONS_BY_TOOL = new Map<string, Set<string>>([
+  ["siyuan_block_attr", new Set(["get", "batch_get"])],
+  ["siyuan_block_ref", new Set(["get_ref_ids", "get_ref_text", "get_def_ids_by_ref_text", "check_ref"])],
+  ["siyuan_notebook_manage", new Set(["list", "get_conf"])],
+  ["siyuan_doc_tree", new Set(["list_children", "list_tree"])],
+  ["siyuan_tag_manage", new Set(["list", "search"])],
+  ["siyuan_bookmark_manage", new Set(["list", "list_blocks"])],
+  ["siyuan_workspace_file", new Set(["read_dir", "get_file", "unique_filename"])],
+  ["siyuan_riff_deck", new Set(["list"])],
+  ["siyuan_riff_card", new Set([
+    "due_cards",
+    "tree_due_cards",
+    "notebook_due_cards",
+    "list_cards",
+    "tree_cards",
+    "notebook_cards",
+    "cards_by_block_ids",
+  ])],
+]);
+
+function isReadOnlyAction(toolName: string, args: Record<string, unknown>): boolean {
+  const action = typeof args.action === "string" ? args.action : "";
+  return READ_ONLY_ACTIONS_BY_TOOL.get(toolName)?.has(action) === true;
+}
+
 export function createNativeToolRegistryFromWorkbench(params: {
   toolRegistry: ToolRegistry;
   observationLog: ToolResultLog;
@@ -74,6 +99,11 @@ export function createNativeToolRegistryFromWorkbench(params: {
         );
         return executionOutcomeToNativeResult(outcome, args);
       },
+      preview: isWriteTool
+        ? async (args) => isReadOnlyAction(contract.name, args)
+          ? { permissionAction: "allow" }
+          : {}
+        : undefined,
     };
 
     nativeRegistry.register(nativeTool);
