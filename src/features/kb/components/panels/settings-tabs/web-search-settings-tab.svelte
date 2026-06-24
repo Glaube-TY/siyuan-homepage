@@ -8,11 +8,15 @@
   import { cleanHtmlToMarkdown } from "../../../services/agent-workbench/tools/web-search/impl/html-to-markdown";
   import { requestViaSiyuanProxy } from "../../../services/agent-workbench/tools/web-search/impl/siyuan-proxy-request";
   import { buildReadProxyUrl } from "../../../services/agent-workbench/tools/web-search/impl/proxy-url-utils";
+  import { getLastSecretDiagnostics, markWebSearchApiKeyCleared } from "../../../services/settings/kb-settings-service";
 
   export let settings: KbSettings;
 
   // ── Local editable copy of webSearch settings ──
   $: ws = settings.webSearch;
+
+  // ── Decrypt failure state ──
+  $: webSearchDecryptFailed = getLastSecretDiagnostics().failedLocations.includes("webSearchApiKey");
 
   let testSearchQuery = "";
   let testSearchLoading = false;
@@ -20,6 +24,13 @@
   let testSearchError = "";
   let showAnySearchApiKey = false;
   let showTavilyApiKey = false;
+  let webSearchClearRequested = false;
+
+  function handleClearWebSearchApiKey() {
+    markWebSearchApiKeyCleared();
+    ws.apiKey = "";
+    webSearchClearRequested = true;
+  }
 
   let testReadUrl = "";
   let testReadLoading = false;
@@ -160,6 +171,21 @@
             </button>
           </div>
           <div class="secret-storage-hint">联网搜索 API Key 会在本地加密保存。</div>
+          {#if webSearchDecryptFailed}
+            <span class="input-hint decrypt-warning">已保存的密钥无法解密，请重新填写。保存前不会自动删除旧密文。</span>
+            <button
+              type="button"
+              class="clear-secret-btn"
+              title="清空已保存的密钥（保存后生效）"
+              on:click={handleClearWebSearchApiKey}
+            >
+              <SiyuanIcon name="iconTrashcan" size={12} />
+              <span>清空已保存密钥</span>
+            </button>
+          {/if}
+          {#if webSearchClearRequested}
+            <span class="input-hint clear-success">已标记清空，保存设置后生效。</span>
+          {/if}
           <a href="https://anysearch.com" target="_blank" rel="noopener noreferrer" class="link">打开 AnySearch / 申请 API Key</a>
         </div>
       </div>
@@ -217,6 +243,21 @@
             </button>
           </div>
           <div class="secret-storage-hint">联网搜索 API Key 会在本地加密保存。</div>
+          {#if webSearchDecryptFailed}
+            <span class="input-hint decrypt-warning">已保存的密钥无法解密，请重新填写。保存前不会自动删除旧密文。</span>
+            <button
+              type="button"
+              class="clear-secret-btn"
+              title="清空已保存的密钥（保存后生效）"
+              on:click={handleClearWebSearchApiKey}
+            >
+              <SiyuanIcon name="iconTrashcan" size={12} />
+              <span>清空已保存密钥</span>
+            </button>
+          {/if}
+          {#if webSearchClearRequested}
+            <span class="input-hint clear-success">已标记清空，保存设置后生效。</span>
+          {/if}
           <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" class="link">申请 Tavily API Key</a>
         </div>
       </div>
@@ -451,6 +492,42 @@
     font-size: 12px;
     color: var(--b3-theme-on-surface-light);
     line-height: 1.4;
+  }
+
+  .decrypt-warning {
+    color: var(--b3-card-warning-color, #e6a817);
+    font-weight: 500;
+    font-size: 12px;
+  }
+
+  .clear-success {
+    color: var(--b3-theme-success, #4caf50);
+    font-weight: 500;
+    font-size: 12px;
+  }
+
+  .clear-secret-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+      color: var(--b3-theme-error, #f44336);
+      border-color: var(--b3-theme-error, #f44336);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--b3-theme-primary);
+      outline-offset: 1px;
+    }
   }
 
   .test-card {

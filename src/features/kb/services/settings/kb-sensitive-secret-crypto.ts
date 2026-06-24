@@ -4,12 +4,24 @@ const SENSITIVE_SECRET_STORAGE_KEY = "kb-sensitive-secret-v1";
 const SENSITIVE_SECRET_BYTES = 32;
 const SENSITIVE_SECRET_IV_BYTES = 12;
 
-const PLAINTEXT_STORAGE_SECRET_WARNING = "检测到未加密的 API Key，将在下次保存时自动迁移为加密存储。";
-const DECRYPT_STORAGE_SECRET_WARNING = "API Key 解密失败，请重新填写。";
-const ENCRYPT_SECRET_FAILURE_MESSAGE = "API Key 加密失败，设置未保存。";
-
 type SecretLocation = "chatProviderApiKey" | "webSearchApiKey";
 type SecretTransform = (value: string, location: SecretLocation) => Promise<string>;
+
+export interface SecretDecryptDiagnostics {
+  hasDecryptFailure: boolean;
+  /** Provider IDs whose apiKey is enc:v1 but could not be decrypted. */
+  failedChatProviderIds: string[];
+  /** Which locations (chatProviderApiKey / webSearchApiKey) had decrypt failures. */
+  failedLocations: SecretLocation[];
+  /** How many apiKey fields are enc:v1 in storage. */
+  encryptedSecretCount: number;
+  /** How many apiKey fields are plaintext (not enc:v1) in storage. */
+  plaintextSecretCount: number;
+  /** Whether kb-sensitive-secret-v1 exists in plugin storage. */
+  secretStoragePresent: boolean;
+  /** Byte length of the stored secret key (0 if absent). */
+  secretStorageValidLength: number;
+}
 
 let cryptoPlugin: any = null;
 
@@ -114,8 +126,7 @@ export async function encryptSecretPlainText(value: string): Promise<string> {
 
     return `${ENCRYPTED_SECRET_PREFIX}${bytesToBase64(iv)}:${bytesToBase64(new Uint8Array(cipherBuffer))}`;
   } catch {
-    console.warn(ENCRYPT_SECRET_FAILURE_MESSAGE);
-    throw new Error(ENCRYPT_SECRET_FAILURE_MESSAGE);
+    throw new Error("API Key 加密失败，设置未保存。");
   }
 }
 
@@ -179,35 +190,90 @@ async function transformSensitiveSecrets<T extends Record<string, unknown>>(
   return cloned as T;
 }
 
+export function createEmptySecretDecryptDiagnostics(): SecretDecryptDiagnostics {
+  return {
+    hasDecryptFailure: false,
+    failedChatProviderIds: [],
+    failedLocations: [],
+    encryptedSecretCount: 0,
+    plaintextSecretCount: 0,
+    secretStoragePresent: false,
+    secretStorageValidLength: 0,
+  };
+}
+
+async function readSecretStorageDiagnostics(): Promise<{ present: boolean; validLength: number }> {
+  try {
+    const plugin = getPlugin();
+    const stored = await plugin.loadData(SENSITIVE_SECRET_STORAGE_KEY);
+    const present = typeof stored === "string" && stored.trim().length > 0;
+    const validLength = present ? base64ToBytes(stored.trim()).length : 0;
+    return { present, validLength };
+  } catch {
+    return { present: false, validLength: 0 };
+  }
+}
+
 export async function decryptSensitiveSecretsFromStorage<T extends Record<string, unknown>>(
   settings: T,
-): Promise<T> {
-  let hasPlaintextStorageSecret = false;
-  let hasDecryptFailure = false;
+): Promise<{ settings: T; diagnostics: SecretDecryptDiagnostics }> {
+  const diagnostics = createEmptySecretDecryptDiagnostics();
+  const secretInfo = await readSecretStorageDiagnostics();
+  diagnostics.secretStoragePresent = secretInfo.present;
+  diagnostics.secretStorageValidLength = secretInfo.validLength;
 
-  const transformed = await transformSensitiveSecrets(settings, async (secret) => {
+  const failedProviderIds: string[] = [];
+  const failedLocations: Set<SecretLocation> = new Set();
+
+  const transformed = await transformSensitiveSecrets(settings, async (secret, location) => {
     if (!secret) return "";
     if (!isEncryptedSecret(secret)) {
-      hasPlaintextStorageSecret = true;
+      diagnostics.plaintextSecretCount += 1;
       return secret;
     }
+
+    diagnostics.encryptedSecretCount += 1;
 
     try {
       return await decryptSecretCipherText(secret);
     } catch {
-      hasDecryptFailure = true;
+      diagnostics.hasDecryptFailure = true;
+      failedLocations.add(location);
       return "";
     }
   });
 
-  if (hasPlaintextStorageSecret) {
-    console.warn(PLAINTEXT_STORAGE_SECRET_WARNING);
-  }
-  if (hasDecryptFailure) {
-    console.warn(DECRYPT_STORAGE_SECRET_WARNING);
+  // Collect failed provider IDs from chatProviders
+  if (Array.isArray(settings.chatProviders)) {
+    for (const rawProvider of settings.chatProviders) {
+      if (!rawProvider || typeof rawProvider !== "object") continue;
+      const provider = rawProvider as Record<string, unknown>;
+      const apiKey = typeof provider.apiKey === "string" ? provider.apiKey : "";
+      if (isEncryptedSecret(apiKey)) {
+        // Check if the decrypted result ended up empty (indicating failure)
+        // Find the corresponding decrypted provider
+        const providerId = typeof provider.id === "string" ? provider.id : "";
+        if (providerId && Array.isArray(transformed.chatProviders)) {
+          const decryptedProvider = (transformed.chatProviders as Record<string, unknown>[]).find(
+            (p) => p && typeof p === "object" && (p as Record<string, unknown>).id === providerId,
+          );
+          if (decryptedProvider && typeof (decryptedProvider as Record<string, unknown>).apiKey === "string") {
+            const decryptedKey = (decryptedProvider as Record<string, unknown>).apiKey as string;
+            if (decryptedKey === "") {
+              failedProviderIds.push(providerId);
+            }
+          } else if (!decryptedProvider) {
+            failedProviderIds.push(providerId);
+          }
+        }
+      }
+    }
   }
 
-  return transformed;
+  diagnostics.failedChatProviderIds = failedProviderIds;
+  diagnostics.failedLocations = [...failedLocations];
+
+  return { settings: transformed, diagnostics };
 }
 
 export async function normalizeSensitiveSecretsFromRuntime<T extends Record<string, unknown>>(

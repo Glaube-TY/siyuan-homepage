@@ -16,6 +16,12 @@
     detectForbiddenTextTokens,
   } from "../../../services/agent-workbench/skills/user/user-skill-rules";
   import { parseUserSkillMarkdown } from "../../../services/agent-workbench/skills/user/user-skill-parser";
+  import {
+    loadExternalSkillIndex,
+    rebuildExternalSkillIndex,
+    saveExternalSkillIndex,
+  } from "../../../services/agent-workbench/skills/external/external-skill-index";
+  import type { ExternalSkillIndexEntry } from "../../../services/agent-workbench/skills/external/external-skill-types";
   import { confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
 
   export let settings: KbSettings;
@@ -23,6 +29,10 @@
   // 用户 Skill 列表
   let userSkills: UserSkillIndexEntry[] = [];
   let loadingUserSkills = false;
+  let installedExternalSkills: ExternalSkillIndexEntry[] = [];
+  let loadingExternalSkills = false;
+  let externalSkillMessage = "";
+  let externalSkillError = "";
 
   // 编辑窗口状态
   let showEditor = false;
@@ -42,6 +52,13 @@
   // 排序后的用户 Skill 列表
   $: sortedUserSkills = [...userSkills].sort((a, b) => {
     if (b.priority !== a.priority) return b.priority - a.priority;
+    if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
+    return (a.title || a.id).localeCompare(b.title || b.id);
+  });
+  $: sortedInstalledExternalSkills = [...installedExternalSkills].sort((a, b) => {
+    if (Number(b.enabled !== false) !== Number(a.enabled !== false)) {
+      return Number(b.enabled !== false) - Number(a.enabled !== false);
+    }
     if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
     return (a.title || a.id).localeCompare(b.title || b.id);
   });
@@ -110,9 +127,92 @@
     }
   }
 
+  async function refreshExternalSkillList() {
+    loadingExternalSkills = true;
+    externalSkillError = "";
+    try {
+      const index = await loadExternalSkillIndex();
+      installedExternalSkills = index.skills;
+    } catch (e) {
+      console.error("[SkillsSettingsTab] Failed to load external skills", e);
+      installedExternalSkills = [];
+      externalSkillError = e instanceof Error ? e.message : "读取外部 Skill 索引失败。";
+    } finally {
+      loadingExternalSkills = false;
+    }
+  }
+
   onMount(() => {
-    refreshUserSkillList();
+    void refreshUserSkillList();
+    void refreshExternalSkillList();
   });
+
+  function patchExternalSkillSettings(patch: Partial<KbSettings["externalSkills"]>) {
+    settings = {
+      ...settings,
+      externalSkills: {
+        ...settings.externalSkills,
+        ...patch,
+      },
+    };
+  }
+
+  function isExternalSkillVisible(entry: ExternalSkillIndexEntry): boolean {
+    return entry.enabled !== false && !(settings.externalSkills?.disabledSkillIds ?? []).includes(entry.id);
+  }
+
+  function toggleExternalSkillVisible(entry: ExternalSkillIndexEntry) {
+    const disabled = new Set(settings.externalSkills?.disabledSkillIds ?? []);
+    if (disabled.has(entry.id)) {
+      disabled.delete(entry.id);
+    } else {
+      disabled.add(entry.id);
+    }
+    patchExternalSkillSettings({ disabledSkillIds: [...disabled].sort() });
+  }
+
+  async function setInstalledSkillEnabled(entry: ExternalSkillIndexEntry, enabled: boolean) {
+    const index = await loadExternalSkillIndex();
+    const next = {
+      ...index,
+      updatedAt: Date.now(),
+      skills: index.skills.map((item) =>
+        item.id === entry.id ? { ...item, enabled, updatedAt: Date.now() } : item
+      ),
+    };
+    await saveExternalSkillIndex(next);
+    externalSkillMessage = enabled ? "外部 Skill 已恢复到索引。" : "外部 Skill 已在索引中停用。";
+    await refreshExternalSkillList();
+  }
+
+  async function uninstallInstalledSkill(entry: ExternalSkillIndexEntry) {
+    const confirmed = await confirmDialogBoolean({
+      title: "停用外部 Skill",
+      content: safeConfirmContent("确定要停用外部 Skill「", entry.title || entry.id, "」吗？文件会保留在 notebrain/skills/installed 中。"),
+    });
+    if (!confirmed) return;
+    await setInstalledSkillEnabled(entry, false);
+  }
+
+  async function rebuildInstalledSkillIndex() {
+    const confirmed = await confirmDialogBoolean({
+      title: "重建外部 Skill 索引",
+      content: "将扫描 notebrain/skills/installed 下的 SKILL.md 并重写 skills/index.json。继续吗？",
+    });
+    if (!confirmed) return;
+    loadingExternalSkills = true;
+    externalSkillMessage = "";
+    externalSkillError = "";
+    try {
+      const index = await rebuildExternalSkillIndex("settings");
+      installedExternalSkills = index.skills;
+      externalSkillMessage = `已重建索引，发现 ${index.skills.length} 个外部 Skill。`;
+    } catch (e) {
+      externalSkillError = e instanceof Error ? e.message : "重建外部 Skill 索引失败。";
+    } finally {
+      loadingExternalSkills = false;
+    }
+  }
 
   // 内置 Skill 启停
   function isBuiltinEnabled(name: string): boolean {
@@ -339,12 +439,149 @@ ${guidance.trim()}`;
     </div>
   </div>
 
+  <!-- 外部 Skill -->
+  <div class="section">
+    <div class="section-header with-actions">
+      <div>
+        <h2 class="section-title">外部 Skill</h2>
+        <p class="section-description">第三方、AI 安装和旧自定义 Skill 都以索引方式暴露；需要使用时由 Agent 按需读取。</p>
+      </div>
+      <button type="button" class="add-skill-btn" on:click={rebuildInstalledSkillIndex} disabled={loadingExternalSkills}>
+        重建索引
+      </button>
+    </div>
+
+    <div class="settings-grid">
+      <label class="setting-card">
+        <span class="setting-main">
+          <span class="setting-title">启用外部 Skill</span>
+          <span class="setting-desc">关闭后 `skill_list` / `skill_read` 等工具不可用，外部 Skill 索引也不会注入。</span>
+        </span>
+        <span class="switch">
+          <input
+            type="checkbox"
+            checked={settings.externalSkills?.enabled}
+            on:change={(event) => patchExternalSkillSettings({ enabled: event.currentTarget.checked })}
+          />
+          <span class="slider"></span>
+        </span>
+      </label>
+
+      <label class="setting-card">
+        <span class="setting-main">
+          <span class="setting-title">允许安装外部 Skill</span>
+          <span class="setting-desc">安装仍会走写操作确认，目标限制在 notebrain/skills/installed。</span>
+        </span>
+        <span class="switch">
+          <input
+            type="checkbox"
+            checked={settings.externalSkills?.autoInstallEnabled}
+            on:change={(event) => patchExternalSkillSettings({ autoInstallEnabled: event.currentTarget.checked })}
+          />
+          <span class="slider"></span>
+        </span>
+      </label>
+
+      <label class="setting-card">
+        <span class="setting-main">
+          <span class="setting-title">兼容旧全文注入</span>
+          <span class="setting-desc">默认关闭。仅当旧自定义 Skill 依赖每轮全文上下文时临时启用。</span>
+        </span>
+        <span class="switch">
+          <input
+            type="checkbox"
+            checked={settings.externalSkills?.legacyUserSkillDirectInject === true}
+            on:change={(event) => patchExternalSkillSettings({ legacyUserSkillDirectInject: event.currentTarget.checked })}
+          />
+          <span class="slider"></span>
+        </span>
+      </label>
+
+      <label class="setting-card vertical">
+        <span class="setting-title">单次读取上限</span>
+        <input
+          type="number"
+          min="2000"
+          max="100000"
+          step="1000"
+          value={settings.externalSkills?.maxSkillReadChars ?? 20000}
+          on:input={(event) => patchExternalSkillSettings({ maxSkillReadChars: Number(event.currentTarget.value) || 20000 })}
+        />
+        <span class="setting-desc">`skill_read` 和 `skill_read_file` 的最大读取字符数。</span>
+      </label>
+    </div>
+
+    {#if externalSkillMessage}
+      <p class="status-message">{externalSkillMessage}</p>
+    {/if}
+    {#if externalSkillError}
+      <p class="error-message">{externalSkillError}</p>
+    {/if}
+
+    {#if loadingExternalSkills}
+      <p class="empty-state">加载中...</p>
+    {:else if installedExternalSkills.length === 0}
+      <p class="empty-state">暂无已安装第三方 Skill。可让 Agent 通过 `skill_install` 安装，或将 Skill 包放入 notebrain/skills/installed 后重建索引。</p>
+    {:else}
+      <div class="skills-list">
+        {#each sortedInstalledExternalSkills as entry (entry.id)}
+          <div class="skill-card">
+            <div class="skill-main">
+              <div class="skill-info">
+                <div class="skill-title-row">
+                  <span class="skill-title">{entry.title || entry.id}</span>
+                  <span class="skill-badge external">{entry.sourceType}</span>
+                  {#if entry.enabled === false}
+                    <span class="skill-badge disabled">索引停用</span>
+                  {/if}
+                  {#if entry.trusted}
+                    <span class="skill-badge trusted">trusted</span>
+                  {/if}
+                </div>
+                <span class="skill-description">{entry.description}</span>
+                <div class="skill-meta-row">
+                  <span class="skill-meta">{entry.rootDir}/{entry.entry}</span>
+                  {#if entry.requiredEnvVars?.length}
+                    <span class="skill-meta">需要环境变量：{entry.requiredEnvVars.join(", ")}</span>
+                  {/if}
+                </div>
+              </div>
+              <div class="skill-actions">
+                <div class="toggle-wrap">
+                  <span class="toggle-label">{isExternalSkillVisible(entry) ? "已启用" : "已停用"}</span>
+                  <label class="switch">
+                    <input
+                      type="checkbox"
+                      checked={isExternalSkillVisible(entry)}
+                      disabled={entry.enabled === false}
+                      on:change={() => toggleExternalSkillVisible(entry)}
+                    />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                {#if entry.enabled === false}
+                  <button type="button" class="action-btn edit" on:click={() => setInstalledSkillEnabled(entry, true)}>
+                    恢复
+                  </button>
+                {:else}
+                  <button type="button" class="action-btn danger" on:click={() => uninstallInstalledSkill(entry)}>
+                    停用索引
+                  </button>
+                {/if}
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
   <!-- 用户自定义 Skill -->
   <div class="section">
     <div class="section-header with-actions">
       <div>
         <h2 class="section-title">自定义 Skill</h2>
-        <p class="section-description">由你编写的能力说明，会注入到上下文。</p>
+        <p class="section-description">由你编写的能力说明会作为外部 Skill 索引暴露；默认不再每轮全文注入上下文。</p>
       </div>
       <button type="button" class="add-skill-btn" on:click={openNewSkillEditor}>
         添加 Skill
@@ -577,6 +814,80 @@ ${guidance.trim()}`;
     &:hover {
       filter: brightness(1.1);
     }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+  }
+
+  .setting-card {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 8px;
+    background: var(--b3-theme-surface);
+
+    &.vertical {
+      align-items: stretch;
+      flex-direction: column;
+    }
+  }
+
+  .setting-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .setting-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+  }
+
+  .setting-desc {
+    font-size: 13px;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.7;
+    line-height: 1.5;
+  }
+
+  .setting-card input[type="number"] {
+    width: 140px;
+    padding: 6px 10px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 6px;
+    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-surface);
+    font-size: 13px;
+    font-family: inherit;
+  }
+
+  .status-message,
+  .error-message {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .status-message {
+    color: var(--b3-theme-success, #2e7d32);
+  }
+
+  .error-message {
+    color: var(--b3-theme-error, #c62828);
   }
 
   .skills-list {
@@ -637,6 +948,22 @@ ${guidance.trim()}`;
     &.user {
       color: #ffffff;
       background: var(--b3-theme-primary);
+    }
+
+    &.external {
+      color: var(--b3-theme-primary);
+      background: var(--b3-theme-primary-lightest);
+    }
+
+    &.trusted {
+      color: var(--b3-theme-success, #2e7d32);
+      background: var(--b3-theme-success-lightest, #e8f5e9);
+    }
+
+    &.disabled {
+      color: var(--b3-theme-on-surface);
+      background: var(--b3-theme-surface-lighter);
+      opacity: 0.75;
     }
   }
 

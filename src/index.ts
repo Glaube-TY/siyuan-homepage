@@ -36,6 +36,13 @@ import type { SelectionAiToolbarSettings } from "@/features/kb/services/selectio
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 
+type HomepageMenuItem = {
+    icon?: string;
+    label: string;
+    click?: () => void;
+    type?: "submenu";
+    submenu?: HomepageMenuItem[];
+};
 
 const STORAGE_NAME = "menu-config";
 const TAB_TYPE = "homepage_tab";
@@ -1168,7 +1175,7 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
-    private createHomepageReviewMenuItems(target: ReviewMenuTarget): IMenuItem[] {
+    private createHomepageReviewMenuItems(target: ReviewMenuTarget): HomepageMenuItem[] {
         return [
             {
                 icon: "iconCalendar",

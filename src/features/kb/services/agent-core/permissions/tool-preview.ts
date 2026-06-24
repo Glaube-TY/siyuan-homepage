@@ -7,6 +7,8 @@ export interface ToolPermissionPreview {
   risk: "low" | "medium" | "high";
   argsPreview: Record<string, unknown>;
   summary?: string;
+  /** Structured detail sections for the confirmation modal (e.g. URL, Headers, Body). */
+  sections?: Array<{ label: string; value: string }>;
   /** UI routing hint: how to display the confirmation dialog */
   displayMode?: "summary" | "block_diff" | "arrow_flow";
   /** Pending confirmation ID (for executeConfirmed path) — never enters session */

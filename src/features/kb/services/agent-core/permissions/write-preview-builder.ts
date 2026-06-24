@@ -1,6 +1,14 @@
 import type { NativeTool } from "../tools/native-tool";
 import type { ToolPermissionPreview } from "./tool-preview";
 
+/** Header keys whose values must be redacted in logs/debug/permission previews. */
+const SENSITIVE_HEADER_KEYS = new Set([
+  "authorization", "cookie", "x-api-key", "x-auth-token", "x-token",
+  "api-key", "apikey", "token", "secret", "x-secret", "password",
+  "access-token", "access_token", "bearer", "credential", "private_key",
+  "x-api-secret", "api_secret",
+]);
+
 const HIGH_RISK_NAMES = new Set([
   "delete_doc",
   "delete_blocks",
@@ -363,6 +371,139 @@ const TASK_DIARY_WRITE_TOOLS = new Set([
   "manage_diary_review",
 ]);
 
+function buildRunNotebrainCommandPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  const command = typeof args.command === "string" ? args.command : "";
+  const cwd = typeof args.cwd === "string" && args.cwd.trim() ? args.cwd.trim() : ".";
+  const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined;
+  const maxOutputChars = typeof args.maxOutputChars === "number" ? args.maxOutputChars : undefined;
+  const parts = [
+    "将在 notebrain/projects/default 工作区内执行本地命令。",
+    `命令：${command}`,
+    `cwd：${cwd}`,
+  ];
+  if (timeoutMs) parts.push(`timeout：${timeoutMs}ms`);
+  if (maxOutputChars) parts.push(`输出预览上限：${maxOutputChars} 字符`);
+  parts.push("命令不支持交互式 TTY 或后台常驻进程，执行日志会写入 notebrain/logs/commands。");
+  return {
+    toolName: tool.name,
+    title: "执行 notebrain 本地命令",
+    readOnly: false,
+    risk: "high",
+    argsPreview: { command, cwd, timeoutMs, maxOutputChars },
+    summary: parts.join("\n"),
+  };
+}
+
+function buildSkillInstallPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  const source = typeof args.source === "string" ? args.source : "";
+  const targetSkillId = typeof args.targetSkillId === "string" ? args.targetSkillId : "(自动生成)";
+  return {
+    toolName: tool.name,
+    title: "安装外部 Skill",
+    readOnly: false,
+    risk: "medium",
+    argsPreview: { source, targetSkillId },
+    summary: [
+      `来源：${source}`,
+      `目标：notebrain/skills/installed/${targetSkillId}`,
+      "将下载/解压 Skill 包、写入 notebrain 工作区并更新 skills/index.json。",
+      "如 Skill 需要 API Key 或环境变量，安装后只提示用户配置，不会自动搜索隐私信息。",
+    ].join("\n"),
+  };
+}
+
+function buildSkillMaintenancePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  const id = typeof args.id === "string" ? args.id : "";
+  const isReindex = tool.name === "skill_reindex";
+  return {
+    toolName: tool.name,
+    title: isReindex ? "重建外部 Skill 索引" : "停用外部 Skill",
+    readOnly: false,
+    risk: "medium",
+    argsPreview: isReindex ? {} : { id },
+    summary: isReindex
+      ? "将扫描 notebrain/skills/installed 下的 SKILL.md，并重写 notebrain/skills/index.json。"
+      : `将把 Skill ${id} 标记为 disabled，不会永久删除文件。`,
+  };
+}
+
+function buildNotebrainFileWritePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  const path = typeof args.path === "string" ? args.path : "";
+  const content = typeof args.content === "string" ? args.content : "";
+  const isDelete = tool.name === "delete_notebrain_path";
+  return {
+    toolName: tool.name,
+    title: isDelete ? "删除 Notebrain 路径" : "写入 Notebrain 文件",
+    readOnly: false,
+    risk: isDelete ? "high" : "medium",
+    argsPreview: isDelete ? { path } : { path, chars: content.length },
+    summary: isDelete
+      ? `将删除 notebrain 工作区内路径：${path}`
+      : `将写入 notebrain 工作区内文件：${path}\n内容长度：${content.length} 字符`,
+  };
+}
+
+function buildMcpToolPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  const meta = (tool as NativeTool & { meta?: Record<string, unknown> }).meta;
+  const serverId = typeof meta?.serverId === "string" ? meta.serverId : "";
+  const originalName = typeof meta?.originalName === "string" ? meta.originalName : tool.name;
+  return {
+    toolName: tool.name,
+    title: "调用 MCP 工具",
+    readOnly: false,
+    risk: tool.riskLevel ?? "medium",
+    argsPreview: {
+      serverId,
+      toolName: originalName,
+      argumentsPreview: compactValue(args),
+    },
+    summary: [
+      `MCP Server：${serverId}`,
+      `MCP 工具：${originalName}`,
+      "外部 MCP annotations 不作为完全可信依据，默认按中风险确认。",
+    ].join("\n"),
+  };
+}
+
+function buildMcpManagementPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  if (tool.name === "mcp_save_server") {
+    const server = args.server && typeof args.server === "object" ? args.server as Record<string, unknown> : {};
+    const id = typeof server.id === "string" ? server.id : "";
+    const transport = typeof server.transport === "string" ? server.transport : "";
+    const title = typeof server.title === "string" ? server.title : id;
+    const endpoint = transport === "stdio"
+      ? (typeof server.command === "string" ? server.command : "")
+      : (typeof server.url === "string" ? server.url : "");
+    return {
+      toolName: tool.name,
+      title: "保存 MCP Server 配置",
+      readOnly: false,
+      risk: "medium",
+      argsPreview: { id, title, transport, endpoint },
+      summary: [
+        `Server：${title || id}`,
+        `传输：${transport}`,
+        endpoint ? `入口：${endpoint}` : "入口：未提供",
+        "将写入 notebrain/mcp/servers.json。保存后仍需要同步 tools/list 才会暴露工具。",
+      ].join("\n"),
+    };
+  }
+
+  const serverId = typeof args.serverId === "string" && args.serverId.trim() ? args.serverId.trim() : "(全部已启用)";
+  return {
+    toolName: tool.name,
+    title: "同步 MCP 工具索引",
+    readOnly: false,
+    risk: "medium",
+    argsPreview: { serverId },
+    summary: [
+      `目标 Server：${serverId}`,
+      "将连接外部 MCP Server，调用 tools/list，并重写 notebrain/mcp/tool-index.json。",
+      "同步工具不会直接调用具体 MCP 工具。",
+    ].join("\n"),
+  };
+}
+
 function buildManageDiaryStructurePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
   const operation = typeof args.operation === "string" ? args.operation : "unknown";
 
@@ -655,7 +796,134 @@ function buildGenericTaskDiaryWritePreview(tool: NativeTool, args: Record<string
   };
 }
 
+// ── web_http_post confirmation preview ──
+
+/** Redact sensitive header keys and values for safe display. */
+function redactHeadersForPreview(headers: Record<string, string> | undefined): Record<string, string> {
+  if (!headers || Object.keys(headers).length === 0) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    out[k] = SENSITIVE_HEADER_KEYS.has(k.toLowerCase()) ? "[REDACTED]" : v;
+  }
+  return out;
+}
+
+/** Recursively redact sensitive keys in a JSON body. */
+function redactJsonBodyForPreview(value: unknown, depth: number = 0): unknown {
+  if (depth > 5) return "[嵌套过深，已省略]";
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return value.length > 200 ? `${value.slice(0, 197)}...` : value;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.slice(0, 10).map((v) => redactJsonBodyForPreview(v, depth + 1));
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_HEADER_KEYS.has(k.toLowerCase())) {
+        out[k] = "[REDACTED]";
+      } else {
+        out[k] = redactJsonBodyForPreview(v, depth + 1);
+      }
+    }
+    return out;
+  }
+  return "[unknown]";
+}
+
+function buildWebHttpPostPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  const url = typeof args.url === "string" ? args.url : "";
+  const headers = args.headers && typeof args.headers === "object" ? args.headers as Record<string, string> : undefined;
+  const jsonBody = args.jsonBody !== undefined ? args.jsonBody : undefined;
+  const textBody = typeof args.textBody === "string" ? args.textBody : undefined;
+  const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined;
+  const responseMode = typeof args.responseMode === "string" ? args.responseMode : "json";
+  const maxChars = typeof args.maxChars === "number" ? args.maxChars : undefined;
+
+  const safeHeaders = redactHeadersForPreview(headers);
+  const bodyType = jsonBody !== undefined ? "jsonBody" : (textBody !== undefined ? "textBody" : "无");
+  let bodyPreview = "";
+  let bodyCharCount = 0;
+
+  if (jsonBody !== undefined) {
+    const redacted = redactJsonBodyForPreview(jsonBody);
+    const raw = JSON.stringify(redacted, null, 2);
+    bodyPreview = raw.length > 500 ? `${raw.slice(0, 497)}...` : raw;
+    bodyCharCount = raw.length;
+  } else if (textBody !== undefined) {
+    bodyPreview = textBody.length > 500 ? `${textBody.slice(0, 497)}...` : textBody;
+    bodyCharCount = textBody.length;
+  }
+
+  let urlDisplay = url;
+  try {
+    const parsed = new URL(url);
+    urlDisplay = `${parsed.protocol}//${parsed.hostname}${parsed.pathname}`;
+    if (parsed.search) urlDisplay += parsed.search;
+  } catch { /* use raw url */ }
+
+  const sections: Array<{ label: string; value: string }> = [
+    { label: "请求方法", value: "POST" },
+    { label: "URL", value: urlDisplay },
+  ];
+
+  if (Object.keys(safeHeaders).length > 0) {
+    sections.push({ label: "Headers（脱敏）", value: JSON.stringify(safeHeaders, null, 2) });
+  }
+
+  sections.push({ label: "Body 类型", value: bodyType });
+  sections.push({ label: "Body 字符数", value: String(bodyCharCount) });
+  if (bodyPreview) {
+    sections.push({ label: "Body 预览（脱敏）", value: bodyPreview });
+  }
+
+  if (timeoutMs) sections.push({ label: "超时", value: `${timeoutMs}ms` });
+  sections.push({ label: "响应模式", value: responseMode });
+  if (maxChars) sections.push({ label: "响应截断", value: `${maxChars} 字符` });
+  sections.push({
+    label: "风险说明",
+    value: "POST 请求会向外部服务器发送数据，可能产生副作用。请确认 URL、headers 和 body 正确无误。",
+  });
+
+  const argsPreview: Record<string, unknown> = {
+    url: urlDisplay,
+    bodyType,
+    bodyCharCount,
+    responseMode,
+  };
+
+  return {
+    toolName: tool.name,
+    title: tool.title,
+    readOnly: false,
+    risk: "medium",
+    argsPreview,
+    summary: `HTTP POST → ${urlDisplay}（${bodyType}，${bodyCharCount} 字符）`,
+    sections,
+  };
+}
+
 export function buildToolPermissionPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+  if (tool.name === "web_http_post") {
+    return buildWebHttpPostPreview(tool, args);
+  }
+  if (tool.name === "run_notebrain_command") {
+    return buildRunNotebrainCommandPreview(tool, args);
+  }
+  if (tool.name === "skill_install") {
+    return buildSkillInstallPreview(tool, args);
+  }
+  if (tool.name === "skill_uninstall" || tool.name === "skill_reindex") {
+    return buildSkillMaintenancePreview(tool, args);
+  }
+  if (tool.name === "write_notebrain_file" || tool.name === "delete_notebrain_path") {
+    return buildNotebrainFileWritePreview(tool, args);
+  }
+  if (tool.name === "mcp_save_server" || tool.name === "mcp_sync_tools") {
+    return buildMcpManagementPreview(tool, args);
+  }
+  if (tool.name.startsWith("mcp__")) {
+    return buildMcpToolPreview(tool, args);
+  }
+
   if (tool.name === "edit_global_memory") {
     return buildEditGlobalMemoryPreview(tool, args);
   }
@@ -712,4 +980,3 @@ export function buildToolPermissionPreview(tool: NativeTool, args: Record<string
     summary: safeParts.length > 0 ? safeParts.join(", ") : undefined,
   };
 }
-

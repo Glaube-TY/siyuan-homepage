@@ -19,7 +19,9 @@ export function stringifyToolResultContent(input: {
     envelope.message = input.message ?? "Tool execution failed.";
     if (input.recoverable !== undefined) envelope.recoverable = input.recoverable;
   }
-  return JSON.stringify(envelope);
+  const json = JSON.stringify(envelope);
+  // Prefix failed results so the model can easily spot them when summarising tool outcomes.
+  return input.ok ? json : `[TOOL_FAILED] ${json}`;
 }
 
 export function createToolExecutionFailure(params: {

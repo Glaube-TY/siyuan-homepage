@@ -19,6 +19,7 @@ import {
   getRecentTurnTraces,
   clearTurnTraces,
 } from "../runtime/turn-trace-store";
+import { getLastSecretDiagnostics } from "../../settings/kb-settings-service";
 
 function isDebugEnabled(): boolean {
   try {
@@ -120,7 +121,13 @@ function safeCloneForDebug(value: unknown, seen: WeakSet<object>, textRedactKeys
   const cloned: Record<string, unknown> = {};
   for (const key of Object.keys(value as object)) {
     const v = (value as Record<string, unknown>)[key];
-    if (typeof v === "string" && (key.toLowerCase().includes("apikey") || key.toLowerCase().includes("secret") || key.toLowerCase().includes("token"))) {
+    if (typeof v === "string" && (
+      key.toLowerCase().includes("apikey") || key.toLowerCase().includes("api_key") ||
+      key.toLowerCase().includes("secret") || key.toLowerCase().includes("token") ||
+      key.toLowerCase().includes("authorization") || key.toLowerCase().includes("credential") ||
+      key.toLowerCase().includes("password") || key.toLowerCase().includes("private_key") ||
+      key.toLowerCase().includes("access_token") || key.toLowerCase().includes("bearer")
+    )) {
       cloned[key] = "[REDACTED]";
     } else if (ID_REDACT_KEYS.has(key)) {
       if (Array.isArray(v)) { cloned[key] = { count: v.length }; }
@@ -222,6 +229,166 @@ export function clearSchemaSanity(): void {
   _schemaSanityResult = null;
 }
 
+// ─── MCP Debug Event Ring Buffer ────────────────────────────────────────────
+
+/** Parameters for pushMcpDebugEvent — time is auto-set. */
+export interface McpDebugEventParams {
+  action: "spawn" | "spawn_error" | "initialize" | "initialize_error" | "tools_list" | "tools_list_error" | "tool_call" | "tool_call_error" | "close";
+  serverId?: string;
+  transport?: string;
+  command?: string;
+  resolvedCommand?: string;
+  argsPreview?: string[];
+  spawnExecutable?: string;
+  spawnArgsPreview?: string[];
+  exitCode?: number | null;
+  stderrPreview?: string;
+  toolsCount?: number;
+  toolName?: string;
+  argumentsPreview?: unknown;
+  rawError?: string;
+  logPath?: string;
+  durationMs?: number;
+  /** Working directory used for stdio spawn. */
+  cwd?: string;
+  /** Notebrain root absolute path resolved for cwd. */
+  notebrainRootAbsolutePath?: string;
+  /** First entry of PATH env (to confirm which npx/node is used). */
+  envPathHead?: string;
+}
+
+export interface McpDebugEvent extends McpDebugEventParams {
+  time: string;
+}
+
+const MAX_MCP_EVENTS = 100;
+let _mcpEvents: McpDebugEvent[] | null = null;
+
+function getMcpEvents(): McpDebugEvent[] {
+  if (!_mcpEvents) _mcpEvents = [];
+  return _mcpEvents;
+}
+
+export function pushMcpDebugEvent(params: McpDebugEventParams): void {
+  const events = getMcpEvents();
+  if (events.length >= MAX_MCP_EVENTS) {
+    events.splice(0, events.length - MAX_MCP_EVENTS + 1);
+  }
+  // Sanitize argumentsPreview — may contain sensitive headers/keys from MCP tool args
+  const safeArgs = params.argumentsPreview !== undefined
+    ? sanitizeDebugPayload(params.argumentsPreview)
+    : undefined;
+  const event: McpDebugEvent = { ...params, argumentsPreview: safeArgs, time: new Date().toISOString() };
+  events.push(event);
+
+  // Only console-print when explicitly enabled
+  if (debugEnabled || isDebugEnabled()) {
+    console.info(`[KB-AGENT | MCP ${event.action}]`, sanitizeDebugPayload(event));
+  }
+}
+
+export function getMcpEventsSnapshot(): McpDebugEvent[] {
+  return getMcpEvents().slice();
+}
+
+export function clearMcpEvents(): void {
+  if (_mcpEvents) _mcpEvents.length = 0;
+}
+
+// ─── Web API Debug Event Ring Buffer ────────────────────────────────────────
+
+/** Parameters for pushWebApiDebugEvent — time is auto-set. */
+export interface WebApiDebugEventParams {
+  method: string;
+  urlHost: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  responseMode?: string;
+  bodyPreview?: string;
+  errorCode?: string;
+}
+
+export interface WebApiDebugEvent extends WebApiDebugEventParams {
+  time: string;
+}
+
+const MAX_WEB_API_EVENTS = 100;
+let _webApiEvents: WebApiDebugEvent[] | null = null;
+
+function getWebApiEvents(): WebApiDebugEvent[] {
+  if (!_webApiEvents) _webApiEvents = [];
+  return _webApiEvents;
+}
+
+export function pushWebApiDebugEvent(params: WebApiDebugEventParams): void {
+  const events = getWebApiEvents();
+  if (events.length >= MAX_WEB_API_EVENTS) {
+    events.splice(0, events.length - MAX_WEB_API_EVENTS + 1);
+  }
+  const event: WebApiDebugEvent = { ...params, time: new Date().toISOString() };
+  events.push(event);
+
+  if (debugEnabled || isDebugEnabled()) {
+    console.info(`[KB-AGENT | WEB_API]`, sanitizeDebugPayload(event));
+  }
+}
+
+export function getWebApiEventsSnapshot(): WebApiDebugEvent[] {
+  return getWebApiEvents().slice();
+}
+
+export function clearWebApiEvents(): void {
+  if (_webApiEvents) _webApiEvents.length = 0;
+}
+
+// ─── Runtime Capability Summary (non-PC filtered/disabled capabilities) ──────
+
+export interface RuntimeCapabilitySummary {
+  /** Whether the current environment is PC/Electron. */
+  isPcElectron: boolean | null;
+  /** Count of lifecycle events tagged as runtime-capability related. */
+  runtimeCapabilityEventCount: number;
+  /** Labels of runtime-capability related events (e.g. MCP_STDIO_TOOLS_FILTERED). */
+  runtimeCapabilityEventLabels: string[];
+  /** Total filtered stdio server count across all MCP_STDIO_TOOLS_FILTERED events. */
+  totalFilteredStdioServers: number;
+  /** Total filtered stdio tool count across all MCP_STDIO_TOOLS_FILTERED events. */
+  totalFilteredStdioTools: number;
+}
+
+const RUNTIME_CAPABILITY_EVENT_LABELS = new Set([
+  "MCP_STDIO_TOOLS_FILTERED",
+  "MCP_SYNC_ALL_STDIO_SKIPPED",
+  "RUNTIME_TOOLS_DETECTION_SKIPPED",
+  "SECRET_DECRYPT_FAILURE",
+  "SECRET_CIPHER_PRESERVED",
+  "SECRET_CLEAR_REQUESTED",
+]);
+
+function buildRuntimeCapabilitySummary(): RuntimeCapabilitySummary {
+  const events = getLifecycleEventsSnapshot();
+  const capabilityEvents = events.filter((e) => RUNTIME_CAPABILITY_EVENT_LABELS.has(e.label));
+  let totalFilteredServers = 0;
+  let totalFilteredTools = 0;
+  for (const e of capabilityEvents) {
+    if (e.label === "MCP_STDIO_TOOLS_FILTERED") {
+      const payload = e.payload as Record<string, unknown> | null;
+      const sc = typeof payload?.filteredServerCount === "number" ? payload.filteredServerCount : 0;
+      const tc = typeof payload?.filteredToolCount === "number" ? payload.filteredToolCount : 0;
+      totalFilteredServers += sc;
+      totalFilteredTools += tc;
+    }
+  }
+  return {
+    isPcElectron: null,
+    runtimeCapabilityEventCount: capabilityEvents.length,
+    runtimeCapabilityEventLabels: [...new Set(capabilityEvents.map((e) => e.label))],
+    totalFilteredStdioServers: totalFilteredServers,
+    totalFilteredStdioTools: totalFilteredTools,
+  };
+}
+
 // ─── Unified Debug Entry Point ───────────────────────────────────────────────
 
 type KbAgentDebugCommand = "all" | "json" | "status" | "clear";
@@ -247,6 +414,8 @@ export function setupAgentDebug(): void {
       clearTurnTraces();
       clearLifecycleEvents();
       clearSchemaSanity();
+      clearMcpEvents();
+      clearWebApiEvents();
       return { cleared: true };
     }
 
@@ -255,9 +424,12 @@ export function setupAgentDebug(): void {
       verboseStreamDebugEnabled: isVerboseStreamDebugEnabled(),
       lifecycleEventCount: getLifecycleEventCount(),
       recentTurnTraceCount: getRecentTurnTraces().length,
+      mcpEventCount: getMcpEventsSnapshot().length,
+      webApiEventCount: getWebApiEventsSnapshot().length,
       hasSchemaSanity: _schemaSanityResult !== null,
       lastTurnStatus: getLastTurnTrace()?.status,
       lastTurnSteps: getLastTurnTrace()?.steps,
+      runtimeCapabilityEventCount: buildRuntimeCapabilitySummary().runtimeCapabilityEventCount,
     };
 
     if (cmd === "status") return status;
@@ -268,6 +440,10 @@ export function setupAgentDebug(): void {
       lastTurnTrace: getLastTurnTrace(),
       recentTurnTraces: getRecentTurnTraces(),
       lifecycleEvents: getLifecycleEventsSnapshot(),
+      mcpEvents: getMcpEventsSnapshot(),
+      webApiEvents: getWebApiEventsSnapshot(),
+      secretDiagnostics: getLastSecretDiagnostics(),
+      runtimeCapability: buildRuntimeCapabilitySummary(),
     };
 
     if (cmd === "json") return JSON.stringify(data, null, 2);

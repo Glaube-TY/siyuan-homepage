@@ -3,7 +3,7 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, KbDangerousSkillToolName, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, KbDangerousSkillToolName, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, NotebrainPermissionAction, RuntimeToolsSettings } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
@@ -12,6 +12,10 @@ import {
   DEFAULT_TOOL_SETTINGS,
   DEFAULT_GLOBAL_MEMORY_SETTINGS,
   DEFAULT_QUICK_PROMPTS_SETTINGS,
+  DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS,
+  DEFAULT_EXTERNAL_SKILL_SETTINGS,
+  DEFAULT_MCP_SETTINGS,
+  DEFAULT_RUNTIME_TOOLS_SETTINGS,
 } from "../../constants/default-settings";
 import {
   sanitizeChatProviders as sanitizeChatProvidersCore,
@@ -22,7 +26,11 @@ import {
   encryptSensitiveSecretsForStorage,
   normalizeSensitiveSecretsFromRuntime,
   setKbSensitiveSecretCryptoPlugin,
+  isEncryptedSecret,
+  type SecretDecryptDiagnostics,
+  createEmptySecretDecryptDiagnostics,
 } from "./kb-sensitive-secret-crypto";
+import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 
 const SETTINGS_KEY = "kb-settings";
 
@@ -85,6 +93,20 @@ function normalizeProcessDisplayMode(raw: unknown): KbProcessDisplayMode {
   return "collapsed";
 }
 
+function normalizePermissionAction(raw: unknown, fallback: NotebrainPermissionAction): NotebrainPermissionAction {
+  return raw === "allow" || raw === "ask" || raw === "deny" ? raw : fallback;
+}
+
+function normalizeStringArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(
+    raw
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0),
+  )];
+}
+
 const DOC_CONTENT_EDITING_SKILL_NAME = "builtin_doc_content_editing";
 
 /**
@@ -137,7 +159,7 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
   }
   const s = raw as Record<string, unknown>;
   const rawNames = s.disabledGlobalToolNames;
-  const validNames: KbToolSettings["disabledGlobalToolNames"] = ["read_docs", "web_read_page", "edit_global_memory", "get_doc_info"];
+  const validNames: KbToolSettings["disabledGlobalToolNames"] = ["read_docs", "web_read_page", "edit_global_memory", "get_doc_info", "web_http_get", "web_http_post"];
   let names: KbToolSettings["disabledGlobalToolNames"] = [];
   if (Array.isArray(rawNames)) {
     names = rawNames
@@ -251,6 +273,124 @@ function normalizeGlobalMemorySettings(raw: unknown): GlobalMemorySettings {
   };
 }
 
+function normalizeNotebrainWorkspaceSettings(raw: unknown): NotebrainAgentWorkspaceSettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS };
+  }
+  const s = raw as Record<string, unknown>;
+  return {
+    commandExecutionEnabled: typeof s.commandExecutionEnabled === "boolean"
+      ? s.commandExecutionEnabled
+      : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.commandExecutionEnabled,
+    defaultCommandTimeoutMs: normalizeIntegerSetting(
+      s.defaultCommandTimeoutMs,
+      DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.defaultCommandTimeoutMs,
+      5000,
+      600000,
+    ),
+    maxCommandOutputChars: normalizeIntegerSetting(
+      s.maxCommandOutputChars,
+      DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.maxCommandOutputChars,
+      2000,
+      100000,
+    ),
+    commandDefaultAction: normalizePermissionAction(
+      s.commandDefaultAction,
+      DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.commandDefaultAction,
+    ),
+    commandAllowRules: normalizeStringArray(s.commandAllowRules),
+    commandAskRules: normalizeStringArray(s.commandAskRules).length > 0
+      ? normalizeStringArray(s.commandAskRules)
+      : [...DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.commandAskRules],
+    commandDenyRules: normalizeStringArray(s.commandDenyRules),
+    fileWriteToolsEnabled: typeof s.fileWriteToolsEnabled === "boolean"
+      ? s.fileWriteToolsEnabled
+      : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.fileWriteToolsEnabled,
+  };
+}
+
+function normalizeExternalSkillSettings(raw: unknown): ExternalSkillSettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_EXTERNAL_SKILL_SETTINGS };
+  }
+  const s = raw as Record<string, unknown>;
+  return {
+    enabled: typeof s.enabled === "boolean" ? s.enabled : DEFAULT_EXTERNAL_SKILL_SETTINGS.enabled,
+    maxSkillReadChars: normalizeIntegerSetting(
+      s.maxSkillReadChars,
+      DEFAULT_EXTERNAL_SKILL_SETTINGS.maxSkillReadChars,
+      2000,
+      100000,
+    ),
+    autoInstallEnabled: typeof s.autoInstallEnabled === "boolean"
+      ? s.autoInstallEnabled
+      : DEFAULT_EXTERNAL_SKILL_SETTINGS.autoInstallEnabled,
+    disabledSkillIds: normalizeStringArray(s.disabledSkillIds),
+    legacyUserSkillDirectInject: typeof s.legacyUserSkillDirectInject === "boolean"
+      ? s.legacyUserSkillDirectInject
+      : DEFAULT_EXTERNAL_SKILL_SETTINGS.legacyUserSkillDirectInject,
+  };
+}
+
+function normalizeMcpSettings(raw: unknown): McpSettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_MCP_SETTINGS };
+  }
+  const s = raw as Record<string, unknown>;
+
+  // Migration: old default maxVisibleToolsPerTurn was 12, new default is 40.
+  // Treat exact-12 as old default and migrate to 40.
+  let maxVisible = DEFAULT_MCP_SETTINGS.maxVisibleToolsPerTurn; // 40
+  const rawVal = s.maxVisibleToolsPerTurn;
+  if (rawVal !== undefined && rawVal !== null) {
+    const parsed = parseInt(String(rawVal), 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      if (parsed === 12) {
+        maxVisible = 40; // Migrate old default
+      } else {
+        maxVisible = Math.min(80, Math.max(1, Math.round(parsed)));
+      }
+    }
+  }
+
+  return {
+    enabled: typeof s.enabled === "boolean" ? s.enabled : DEFAULT_MCP_SETTINGS.enabled,
+    maxVisibleToolsPerTurn: maxVisible,
+    disabledServerIds: normalizeStringArray(s.disabledServerIds),
+    disabledToolNames: normalizeStringArray(s.disabledToolNames),
+    trustedToolNames: normalizeStringArray(s.trustedToolNames),
+  };
+}
+
+function normalizeRuntimeToolsSettings(raw: unknown): RuntimeToolsSettings {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_RUNTIME_TOOLS_SETTINGS };
+  }
+  const s = raw as Record<string, unknown>;
+  const defaults = DEFAULT_RUNTIME_TOOLS_SETTINGS;
+
+  const enabled = typeof s.enabled === "boolean" ? s.enabled : defaults.enabled;
+  const exposeToAgent = typeof s.exposeToAgent === "boolean" ? s.exposeToAgent : defaults.exposeToAgent;
+  const extraPathDirs = normalizeStringArray(s.extraPathDirs);
+
+  // commandOverrides: must be Record<string, string>
+  let commandOverrides: Record<string, string> = {};
+  if (s.commandOverrides && typeof s.commandOverrides === "object" && !Array.isArray(s.commandOverrides)) {
+    for (const [key, value] of Object.entries(s.commandOverrides as Record<string, unknown>)) {
+      if (typeof key === "string" && typeof value === "string" && key.trim() && value.trim()) {
+        commandOverrides[key.trim()] = value.trim();
+      }
+    }
+  }
+
+  // detectedTools: pass through as-is (cached detection data)
+  const detectedTools = s.detectedTools && typeof s.detectedTools === "object"
+    ? s.detectedTools as Record<string, any>
+    : undefined;
+
+  return { enabled, exposeToAgent, extraPathDirs, commandOverrides, detectedTools };
+}
+
 /**
  * 归一化网页搜索设置
  * - 非对象 → 回退默认值
@@ -339,6 +479,28 @@ export const KB_SETTINGS_CHANGED_EVENT = "kb-settings-changed";
 // 插件实例引用，由外部注入
 let pluginInstance: any = null;
 
+// ── Internal explicit-clear state (never persisted) ──
+// Tracks user's explicit intent to clear secrets, so saveKbSettings can
+// distinguish "decrypt-failure → empty" from "user-cleared → empty".
+const explicitClearedProviderIds = new Set<string>();
+const explicitClearedLocations = new Set<"chatProviderApiKey" | "webSearchApiKey">();
+
+/** Mark a chat provider's apiKey as explicitly cleared by the user. */
+export function markProviderApiKeyCleared(providerId: string): void {
+  explicitClearedProviderIds.add(providerId);
+}
+
+/** Mark webSearch apiKey as explicitly cleared by the user. */
+export function markWebSearchApiKeyCleared(): void {
+  explicitClearedLocations.add("webSearchApiKey");
+}
+
+/** Clear all explicit-clear markers (called after save to reset state). */
+export function clearExplicitClearedSecrets(): void {
+  explicitClearedProviderIds.clear();
+  explicitClearedLocations.clear();
+}
+
 /**
  * 注入插件实例
  * 应在插件初始化时调用
@@ -377,12 +539,23 @@ export async function getKbSettings(): Promise<KbSettings> {
 
   try {
     const savedSettings = await plugin.loadData(SETTINGS_KEY);
-    const runtimeSettings = await decryptSensitiveSecretsFromStorage(
+    const { settings: runtimeSettings, diagnostics } = await decryptSensitiveSecretsFromStorage(
       (savedSettings || {}) as Record<string, unknown>,
     );
+    // Store diagnostics for __kbAgentDebug access without leaking key material
+    setLastSecretDiagnostics(diagnostics);
+    if (diagnostics.hasDecryptFailure) {
+      pushAgentDebugEvent("SECRET_DECRYPT_FAILURE", {
+        failedChatProviderIds: diagnostics.failedChatProviderIds,
+        failedLocations: diagnostics.failedLocations,
+        encryptedSecretCount: diagnostics.encryptedSecretCount,
+        secretStoragePresent: diagnostics.secretStoragePresent,
+        secretStorageValidLength: diagnostics.secretStorageValidLength,
+      }, "warn");
+    }
     return mergeKbSettings(runtimeSettings as Partial<KbSettings>);
-  } catch (e) {
-    console.warn("[KB Settings] Failed to load settings, using defaults", e);
+  } catch {
+    setLastSecretDiagnostics({ ...createEmptySecretDecryptDiagnostics(), hasDecryptFailure: true });
     return mergeKbSettings({});
   }
 }
@@ -397,33 +570,125 @@ export async function saveKbSettings(settings: Partial<KbSettings>): Promise<KbS
     throw new Error("Plugin instance not set");
   }
 
-  try {
-    // 先读取现有设置，合并后再保存
-    const existingSettings = await plugin.loadData(SETTINGS_KEY);
-    const existingRuntimeSettings = await decryptSensitiveSecretsFromStorage(
-      (existingSettings || {}) as Record<string, unknown>,
-    );
+  // Read raw existing settings BEFORE decryption — used to protect enc:v1
+  // ciphertext from being accidentally overwritten when decryption fails.
+  const existingRaw = await plugin.loadData(SETTINGS_KEY);
+    const existingRawObj = (existingRaw || {}) as Record<string, unknown>;
+
+    // Build map of raw enc:v1 apiKey values per provider id
+    const rawEncryptedApiKeys = new Map<string, string>();
+    const rawProviders = existingRawObj.chatProviders;
+    if (Array.isArray(rawProviders)) {
+      for (const p of rawProviders) {
+        if (!p || typeof p !== "object") continue;
+        const provider = p as Record<string, unknown>;
+        const pid = typeof provider.id === "string" ? provider.id : "";
+        const apiKey = typeof provider.apiKey === "string" ? provider.apiKey : "";
+        if (pid && isEncryptedSecret(apiKey)) {
+          rawEncryptedApiKeys.set(pid, apiKey);
+        }
+      }
+    }
+    // Also capture webSearch apiKey
+    const rawWebSearch = existingRawObj.webSearch;
+    let rawWebSearchEncKey = "";
+    if (rawWebSearch && typeof rawWebSearch === "object") {
+      const wsKey = (rawWebSearch as Record<string, unknown>).apiKey;
+      if (typeof wsKey === "string" && isEncryptedSecret(wsKey)) {
+        rawWebSearchEncKey = wsKey;
+      }
+    }
+
+    // Decrypt existing settings (may produce empty keys on failure)
+    const { settings: existingRuntimeSettings, diagnostics } = await decryptSensitiveSecretsFromStorage(existingRawObj);
+    setLastSecretDiagnostics(diagnostics);
+
     const inputRuntimeSettings = await normalizeSensitiveSecretsFromRuntime(
       settings as Record<string, unknown>,
     );
-    const mergedSettings = mergeKbSettings({
+    const merged = mergeKbSettings({
       ...(existingRuntimeSettings as Partial<KbSettings>),
       ...(inputRuntimeSettings as Partial<KbSettings>),
     });
+
+    // ── Ciphertext preservation ──
+    // If a provider's apiKey was enc:v1 in raw storage, but became empty after
+    // merge, we need to distinguish:
+    //   a) Decrypt failure → apiKey is empty in runtime → KEEP old enc:v1 ciphertext
+    //   b) User explicitly cleared the key → apiKey is empty intentionally → ALLOW overwrite
+    //
+    // Detection: if diagnostics.failedChatProviderIds includes this provider, it's
+    // a decrypt failure. But if the user explicitly marked this provider for clearing,
+    // we allow the overwrite regardless of decrypt failure.
+    let didPreserveCipher = false;
+    const clearedProviderIds = new Set(explicitClearedProviderIds);
+    const decryptFailedIds = new Set(diagnostics.failedChatProviderIds ?? []);
+    if (Array.isArray(merged.chatProviders)) {
+      merged.chatProviders = merged.chatProviders.map((p) => {
+        const existingEnc = rawEncryptedApiKeys.get(p.id);
+        // Only preserve if: old key was enc:v1, merged key is empty, decrypt failed,
+        // AND user did NOT explicitly clear this provider.
+        if (existingEnc && !p.apiKey && decryptFailedIds.has(p.id) && !clearedProviderIds.has(p.id)) {
+          didPreserveCipher = true;
+          return { ...p, apiKey: existingEnc };
+        }
+        return p;
+      });
+    }
+    // webSearch apiKey preservation
+    // Only preserve the old enc:v1 ciphertext when the decryption actually
+    // failed for webSearch (runtime value became empty due to decrypt failure).
+    // If the user explicitly cleared the key, allow saving empty.
+    const webSearchCleared = explicitClearedLocations.has("webSearchApiKey");
+    const webSearchDecryptFailed = diagnostics.failedLocations.includes("webSearchApiKey");
+    if (merged.webSearch && !(merged.webSearch.apiKey) && rawWebSearchEncKey && webSearchDecryptFailed && !webSearchCleared) {
+      didPreserveCipher = true;
+      merged.webSearch = { ...merged.webSearch, apiKey: rawWebSearchEncKey };
+    }
+
     const encryptedSettings = await encryptSensitiveSecretsForStorage(
-      mergedSettings as unknown as Record<string, unknown>,
+      merged as unknown as Record<string, unknown>,
     );
     await plugin.saveData(SETTINGS_KEY, encryptedSettings);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
-        new CustomEvent(KB_SETTINGS_CHANGED_EVENT, { detail: mergedSettings })
+        new CustomEvent(KB_SETTINGS_CHANGED_EVENT, { detail: merged })
       );
     }
-    return mergedSettings;
-  } catch (e) {
-    console.error("[KB Settings] Failed to save settings", e);
-    throw e;
-  }
+
+    // Log cipher preservation event (safe, no key material)
+    if (didPreserveCipher) {
+      pushAgentDebugEvent("SECRET_CIPHER_PRESERVED", {
+        preservedProviderCount: rawEncryptedApiKeys.size,
+        hadWebSearchEncKey: !!rawWebSearchEncKey,
+        diagnostics: {
+          hasDecryptFailure: diagnostics.hasDecryptFailure,
+          encryptedSecretCount: diagnostics.encryptedSecretCount,
+        },
+      }, "info");
+    }
+
+    // Log explicit secret clear events (safe, no key material)
+    if (clearedProviderIds.size > 0) {
+      for (const pid of clearedProviderIds) {
+        pushAgentDebugEvent("SECRET_CLEAR_REQUESTED", {
+          providerId: pid,
+          location: "chatProviderApiKey",
+          action: "secret_cleared",
+        }, "info");
+      }
+    }
+    if (explicitClearedLocations.has("webSearchApiKey")) {
+      pushAgentDebugEvent("SECRET_CLEAR_REQUESTED", {
+        location: "webSearchApiKey",
+        action: "secret_cleared",
+      }, "info");
+    }
+
+    // Reset explicit-clear markers after save (they are one-shot)
+    clearExplicitClearedSecrets();
+
+    return merged;
 }
 
 /**
@@ -645,6 +910,10 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     toolSettings: normalizeToolSettings(normalized.toolSettings),
     globalMemory: normalizeGlobalMemorySettings(normalized.globalMemory),
     quickPrompts: normalizeQuickPromptsSettings(normalized.quickPrompts),
+    notebrainWorkspace: normalizeNotebrainWorkspaceSettings(normalized.notebrainWorkspace),
+    externalSkills: normalizeExternalSkillSettings(normalized.externalSkills),
+    mcp: normalizeMcpSettings(normalized.mcp),
+    runtimeTools: normalizeRuntimeToolsSettings(normalized.runtimeTools),
     workbenchProcessDisplayMode: normalizeProcessDisplayMode(normalized.workbenchProcessDisplayMode),
     reasoningProcessDisplayMode: normalizeProcessDisplayMode(normalized.reasoningProcessDisplayMode),
   };
@@ -658,4 +927,16 @@ export function getKbSetting<K extends keyof KbSettings>(
   key: K
 ): KbSettings[K] {
   return (settings?.[key] as KbSettings[K]) ?? DEFAULT_KB_SETTINGS[key];
+}
+
+// ─── Secret diagnostics (non-sensitive, safe for debug output) ───
+
+let _lastSecretDiagnostics: SecretDecryptDiagnostics = createEmptySecretDecryptDiagnostics();
+
+export function setLastSecretDiagnostics(d: SecretDecryptDiagnostics): void {
+  _lastSecretDiagnostics = d;
+}
+
+export function getLastSecretDiagnostics(): SecretDecryptDiagnostics {
+  return _lastSecretDiagnostics;
 }

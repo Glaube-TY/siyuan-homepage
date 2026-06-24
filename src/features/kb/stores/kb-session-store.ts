@@ -162,8 +162,12 @@ function createKbSessionStore() {
   /** 持久化 debounce 定时器 */
   let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Hydration 完成标记：防止 hydration 前默认空会话被持久化覆盖存储 */
+  let hydrationCompleted = false;
+
   /** 调度持久化（内部使用） */
   function schedulePersist(): void {
+    if (!hydrationCompleted) return;
     if (persistDebounceTimer) {
       clearTimeout(persistDebounceTimer);
     }
@@ -598,7 +602,8 @@ function createKbSessionStore() {
     hydrateConversations: async () => {
       const restored = await restoreKbChatSessions();
       if (!restored) {
-        // 没有存储数据，保持默认会话
+        // 没有存储数据，保持默认会话，标记 hydration 完成
+        hydrationCompleted = true;
         return;
       }
 
@@ -625,8 +630,17 @@ function createKbSessionStore() {
           let activeId = restored.activeConversationId;
           const activeConv = cleanedConversations.find((c) => c.id === activeId);
           if (!activeConv) {
-            // 使用第一个会话作为默认
-            activeId = cleanedConversations[0].id;
+            // Active 会话不可用：优先恢复 updatedAt 最新的非空会话
+            const nonEmpty = cleanedConversations
+              .filter((c) => c.messages.length > 0)
+              .sort((a, b) => b.updatedAt - a.updatedAt);
+            if (nonEmpty.length > 0) {
+              activeId = nonEmpty[0].id;
+              console.warn(`[KbSessionStore] Active conversation ${restored.activeConversationId} not found, restored most recent non-empty: ${activeId}`);
+            } else {
+              activeId = cleanedConversations[0].id;
+              console.warn(`[KbSessionStore] Active conversation ${restored.activeConversationId} not found, restored first available: ${activeId}`);
+            }
           }
 
           const targetConv = cleanedConversations.find((c) => c.id === activeId)!;
@@ -692,9 +706,13 @@ function createKbSessionStore() {
             console.warn("[KbSessionStore] Failed to resolve reference doc titles:", err);
           }
         }, 100);
+
+        // Hydration 成功完成，允许 schedulePersist 运行
+        hydrationCompleted = true;
       } catch (e) {
         console.warn("[KbSessionStore] Failed to hydrate conversations:", e);
-        // 保持默认会话
+        // 保持默认会话，标记 hydration 完成（允许持久化默认会话）
+        hydrationCompleted = true;
       }
     },
 

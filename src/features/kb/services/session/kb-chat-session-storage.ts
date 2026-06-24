@@ -535,19 +535,3 @@ export function fromPersistedConversation(
     ...defaults,
   };
 }
-
-export async function loadKbChatSessionStorage(): Promise<null> {
-  return null;
-}
-
-export async function saveKbChatSessionStorage(_payload: {
-  activeConversationId: string;
-  conversations: KbConversationSession[];
-  selectedMode?: string;
-}): Promise<void> {
-  return;
-}
-
-export async function restoreKbChatSessions(): Promise<null> {
-  return null;
-}

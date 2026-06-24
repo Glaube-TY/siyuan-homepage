@@ -15,6 +15,14 @@ import { registerBuiltinSkills, type BuiltinCapabilityAccess } from "../composit
 import { registerSystemTools } from "../composition/register-system-tools";
 import { registerSiyuanTools } from "../composition/register-siyuan-tools";
 import { registerWebTools } from "../composition/register-web-tools";
+import { registerLocalTools } from "../composition/register-local-tools";
+import { registerExternalSkillTools } from "../composition/register-external-skill-tools";
+import { registerMcpManagementTools } from "../composition/register-mcp-tools";
+import {
+  DEFAULT_EXTERNAL_SKILL_SETTINGS,
+  DEFAULT_MCP_SETTINGS,
+} from "../../../constants/default-settings";
+import type { ExternalSkillSettings, McpSettings, NotebrainAgentWorkspaceSettings, RuntimeToolsSettings } from "../../../types/settings";
 
 // User skill loader (uses new agent-workbench contracts directly)
 import { MarkdownSkillLoader } from "../skills/user/markdown-skill-loader";
@@ -53,12 +61,14 @@ export interface AgentWorkbenchRuntimeOptions {
   };
   /** Built-in capability visibility from settings. Not a business controller — just composition-root gate. */
   builtinCapabilityAccess?: BuiltinCapabilityAccess;
-  /** Global tool visibility from settings. Controls whether read_docs / web_read_page / edit_global_memory are registered. */
+  /** Global tool visibility from settings. Controls whether read_docs / web_read_page / edit_global_memory / web_http_get / web_http_post are registered. */
   globalToolAccess?: {
     readDocs: boolean;
     webReadPage: boolean;
     editGlobalMemory: boolean;
     getDocInfo: boolean;
+    webHttpGet: boolean;
+    webHttpPost: boolean;
   };
   /** Optional: global memory tool deps. When present, registers edit_global_memory. */
   globalMemoryToolDeps?: {
@@ -67,6 +77,10 @@ export interface AgentWorkbenchRuntimeOptions {
   };
   /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
   conversationId?: string;
+  externalSkillSettings?: ExternalSkillSettings;
+  mcpSettings?: McpSettings;
+  notebrainWorkspaceSettings?: NotebrainAgentWorkspaceSettings;
+  runtimeToolsSettings?: RuntimeToolsSettings;
 }
 
 export function createAgentWorkbenchRuntime(
@@ -101,6 +115,17 @@ export function createAgentWorkbenchRuntime(
     webReadPageToolDeps: options.webReadPageToolDeps,
     globalToolAccess: options.globalToolAccess,
   });
+
+  registerLocalTools(toolRegistry, options.notebrainWorkspaceSettings);
+  registerExternalSkillTools(
+    toolRegistry,
+    options.externalSkillSettings ?? DEFAULT_EXTERNAL_SKILL_SETTINGS,
+  );
+  // ponytail: MCP management tools only registered when mcp.enabled=true
+  const effectiveMcpSettings = options.mcpSettings ?? DEFAULT_MCP_SETTINGS;
+  if (effectiveMcpSettings.enabled) {
+    registerMcpManagementTools(toolRegistry, effectiveMcpSettings, options.runtimeToolsSettings);
+  }
 
   // Single debug entry point — no console output by default
   setupAgentDebug();

@@ -57,6 +57,21 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
         if (typeof data?.confirmationId === "string") preview.confirmationId = data.confirmationId;
         if (data?.editDiffPreview) preview.editDiffPreview = data.editDiffPreview as ToolPermissionPreview["editDiffPreview"];
         if (data?.arrowFlow) preview.arrowFlow = data.arrowFlow as ToolPermissionPreview["arrowFlow"];
+        if (data?.argsPreview && typeof data.argsPreview === "object") {
+          preview.argsPreview = data.argsPreview as Record<string, unknown>;
+        }
+        if (data?.permissionAction === "deny") {
+          return {
+            decision: {
+              type: "deny",
+              reason: typeof data.permissionReason === "string" ? data.permissionReason : "工具权限策略拒绝执行。",
+            },
+            preview,
+          };
+        }
+        if (data?.permissionAction === "allow") {
+          return { decision: { type: "allow" }, preview };
+        }
       } catch (err) {
         // preview failure on a trusted tool cannot blindly execute
         preview.summary = err instanceof Error
@@ -64,6 +79,12 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
           : "预览生成失败。";
         return { decision: { type: "deny", reason: "预览生成失败，无法安全执行。" }, preview };
       }
+    }
+
+    // Tool-level trusted (e.g. MCP trusted): auto-allow after preview
+    // Preview still ran above to obtain confirmationId, edit diffs, safety checks.
+    if (params.tool.safety?.requiresConfirmation === false) {
+      return { decision: { type: "allow" }, preview };
     }
 
     // User-trusted tools: auto-allow after preview

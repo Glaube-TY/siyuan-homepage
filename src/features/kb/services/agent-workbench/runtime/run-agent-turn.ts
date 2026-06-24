@@ -12,6 +12,7 @@ import type { ChatModelSelection } from "../../../types/chat-model-selection";
 import type { ThinkingMode } from "../../../types/session";
 import { saveTurnTrace } from "./turn-trace-store";
 import { pushAgentDebugEvent } from "../debug/workbench-debug";
+import { getNotebrainRuntimeEnvironment } from "../workspace/notebrain-runtime-env";
 import type { ConversationContextSnapshot } from "./conversation-context-builder";
 import {
   buildReferenceGroundingSet,
@@ -20,6 +21,7 @@ import {
 } from "./reference-collector";
 import type { AgentWorkbenchRuntimeOptions } from "./create-agent-workbench";
 import { resolveSelectedChatConfig } from "../../settings/chat-provider-config";
+import { getLastSecretDiagnostics } from "../../settings/kb-settings-service";
 import {
   mapAgentErrorToUserFacing,
   buildCompletedStepsSummary,
@@ -28,6 +30,7 @@ import {
 import { hydrateAttachedDocsForTurn } from "../adapters/siyuan/attached-doc-hydration";
 import { readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
 import { BUILTIN_KB_SKILL_NAME } from "../skills/builtin/knowledge-base-qa.skill";
+import { setMcpRuntimeSettings } from "../mcp/mcp-client-manager";
 import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../skills/builtin/schedule-task-diary.skill";
 import { BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "../skills/builtin/database-assistant.skill";
 import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../skills/builtin/doc-content-editing.skill";
@@ -39,6 +42,10 @@ import { buildAgentSystemPrompt } from "../../agent-core/prompts/system-prefix";
 import { createProviderAdapterForKbModel } from "../../agent-core/providers/agent-provider-factory";
 import { normalizeProviderError } from "../../agent-core/providers/provider-error";
 import { buildNativeToolRegistryForTurn } from "../../agent-core/tools/native-tool-registry-builder";
+import {
+  listAllExternalSkillEntries,
+  renderExternalSkillIndexPrompt,
+} from "../skills/external/external-skill-index";
 import type { AgentStreamEvent } from "../../agent-core/loop/stream-event";
 import { AgentSession } from "../../agent-core/session/agent-session";
 import type { AgentMessage } from "../../agent-core/messages/agent-message";
@@ -180,6 +187,11 @@ export async function runAgentTurn(
     const settings = params.kbSettings ?? await getKbSettings();
     const ws = settings.webSearch;
 
+    // Inject runtime tools settings for MCP command resolution
+    if (settings.runtimeTools) {
+      setMcpRuntimeSettings(settings.runtimeTools);
+    }
+
     let webSearchToolDeps: AgentWorkbenchRuntimeOptions["webSearchToolDeps"] | undefined;
     let webReadPageToolDeps: AgentWorkbenchRuntimeOptions["webReadPageToolDeps"] | undefined;
 
@@ -201,6 +213,8 @@ export async function runAgentTurn(
       webReadPage: !disabledGlobalTools.has("web_read_page"),
       editGlobalMemory: !disabledGlobalTools.has("edit_global_memory"),
       getDocInfo: !disabledGlobalTools.has("get_doc_info"),
+      webHttpGet: !disabledGlobalTools.has("web_http_get"),
+      webHttpPost: !disabledGlobalTools.has("web_http_post"),
     };
 
     const webReadAccess = params.conversationContext?.currentTurn?.webReadAccess;
@@ -252,6 +266,10 @@ export async function runAgentTurn(
       globalToolAccess,
       globalMemoryToolDeps,
       conversationId,
+      externalSkillSettings: settings.externalSkills,
+      mcpSettings: settings.mcp,
+      notebrainWorkspaceSettings: settings.notebrainWorkspace,
+      runtimeToolsSettings: settings.runtimeTools,
     });
 
     pushAgentDebugEvent("WEB_TOOL_REGISTRATION_SAFE", {
@@ -261,12 +279,36 @@ export async function runAgentTurn(
       settingsEnabled: ws.enabled,
     }, "info");
 
-    try {
-      await refreshUserSkills(wb.skillRegistry);
-    } catch (err) {
-      pushAgentDebugEvent("USER_SKILL_LOAD_FAILED", {
-        error: err instanceof Error ? err.message.slice(0, 80) : String(err),
-      }, "warn");
+    const runtimeEnv = getNotebrainRuntimeEnvironment();
+    pushAgentDebugEvent("RUNTIME_ENVIRONMENT", {
+      isPcElectron: runtimeEnv.isPcElectron,
+      platformLabel: runtimeEnv.platformLabel,
+      hasNodeRequire: runtimeEnv.hasNodeRequire,
+      unsupportedCapabilities: runtimeEnv.unsupportedCapabilities,
+    }, "info");
+
+    if (settings.externalSkills?.legacyUserSkillDirectInject === true) {
+      try {
+        await refreshUserSkills(wb.skillRegistry);
+      } catch (err) {
+        pushAgentDebugEvent("USER_SKILL_LOAD_FAILED", {
+          error: err instanceof Error ? err.message.slice(0, 80) : String(err),
+        }, "warn");
+      }
+    }
+
+    let externalSkillIndexPrompt = "";
+    if (settings.externalSkills?.enabled !== false) {
+      try {
+        const entries = await listAllExternalSkillEntries({
+          disabledSkillIds: settings.externalSkills?.disabledSkillIds ?? [],
+        });
+        externalSkillIndexPrompt = renderExternalSkillIndexPrompt(entries);
+      } catch (err) {
+        pushAgentDebugEvent("EXTERNAL_SKILL_INDEX_PROMPT_FAILED", {
+          error: err instanceof Error ? err.message.slice(0, 80) : String(err),
+        }, "warn");
+      }
     }
 
     const attachedDocIds = params.attachedDocs?.map((doc) => doc.docId).filter(Boolean) ?? [];
@@ -327,6 +369,32 @@ export async function runAgentTurn(
       return buildFailureOutcome({ code, message: "当前没有可用于 Agent 的模型配置。", events: localEvents });
     }
 
+    // Pre-flight: if provider needs an API key but it's empty due to decrypt failure,
+    // return a clear user-facing error instead of sending empty key → 401.
+    if (!selected.provider.apiKey) {
+      const secretDiag = getLastSecretDiagnostics();
+      const providerNeedsKey = selected.provider.type !== "openai-compatible"
+        || (selected.provider.baseUrl && !selected.provider.baseUrl.includes("127.0.0.1") && !selected.provider.baseUrl.includes("localhost"));
+      if (providerNeedsKey && secretDiag.hasDecryptFailure
+        && secretDiag.failedChatProviderIds.includes(selected.provider.id)) {
+        const code = "api_key_decrypt_failed";
+        const message = "模型 API Key 解密失败，请到大模型配置重新填写。";
+        emitNativeEvent({ type: "error", code, message });
+        pushAgentDebugEvent("AGENT_PREFLIGHT_API_KEY_DECRYPT_FAILED", {
+          providerId: selected.provider.id,
+          providerType: selected.provider.type,
+        }, "error");
+        saveTurnTrace({
+          turnId: `${Date.now()}`,
+          finishedAt: Date.now(),
+          status: "failed",
+          steps: 0,
+          events: toTraceEvents(localEvents),
+        });
+        return buildFailureOutcome({ code, message, events: localEvents });
+      }
+    }
+
     const provider = createProviderAdapterForKbModel({
       provider: selected.provider,
       model: selected.model,
@@ -351,13 +419,16 @@ export async function runAgentTurn(
       });
     }
 
-    const nativeToolRegistry = buildNativeToolRegistryForTurn({
+    const nativeToolRegistry = await buildNativeToolRegistryForTurn({
       toolRegistry: wb.toolRegistry,
       observationLog: wb.observationLog,
       question: params.question,
       conversationId,
       abortSignal: params.abortSignal,
       docContentEditingEnabled: builtinCapabilityAccess.docContentEditing,
+      notebrainWorkspaceSettings: settings.notebrainWorkspace,
+      mcpSettings: settings.mcp,
+      runtimeToolsSettings: settings.runtimeTools,
     });
 
     const context = buildAgentContextInstructions({
@@ -370,13 +441,18 @@ export async function runAgentTurn(
       conversationContext: params.conversationContext,
       globalMemory: globalMemoryText,
       attachedDocs: params.attachedDocs,
+      externalSkillIndexPrompt,
+      runtimeToolsSettings: settings.runtimeTools,
     });
 
     const session = new AgentSession(conversationId, params.agentSessionMessages ?? []);
     let reasoningStarted = false;
     let answerFinished = false;
 
-    const autoAllowedToolNames = settings.toolSettings?.disabledWriteToolConfirmationNames ?? [];
+    const autoAllowedToolNames = [
+      ...(settings.toolSettings?.disabledWriteToolConfirmationNames ?? []),
+      ...(settings.mcp?.trustedToolNames ?? []),
+    ];
 
     const loopResult = await runNativeAgentLoop({
       provider,

@@ -3,6 +3,9 @@ import type { ToolRegistry } from "../../agent-workbench/registries/tool-registr
 import { createNativeToolRegistryFromWorkbench } from "./workbench-tool-adapter";
 import { registerNativeSiyuanWriteTools } from "./siyuan/native-siyuan-write-tools";
 import type { NativeToolRegistry } from "./native-tool-registry";
+import { registerNativeLocalTools } from "./local/register-native-local-tools";
+import type { NotebrainAgentWorkspaceSettings, McpSettings, RuntimeToolsSettings } from "../../../types/settings";
+import { registerNativeMcpTools } from "./mcp/register-native-mcp-tools";
 
 export interface BuildNativeToolRegistryForTurnParams {
   toolRegistry: ToolRegistry;
@@ -11,6 +14,9 @@ export interface BuildNativeToolRegistryForTurnParams {
   conversationId: string;
   abortSignal?: AbortSignal;
   docContentEditingEnabled?: boolean;
+  notebrainWorkspaceSettings?: NotebrainAgentWorkspaceSettings;
+  mcpSettings?: McpSettings;
+  runtimeToolsSettings?: RuntimeToolsSettings;
 }
 
 /**
@@ -20,9 +26,9 @@ export interface BuildNativeToolRegistryForTurnParams {
  * Siyuan write operations are registered as native tools so every dangerous
  * operation goes through the native permission gate before execution.
  */
-export function buildNativeToolRegistryForTurn(
+export async function buildNativeToolRegistryForTurn(
   params: BuildNativeToolRegistryForTurnParams,
-): NativeToolRegistry {
+): Promise<NativeToolRegistry> {
   const registry = createNativeToolRegistryFromWorkbench({
     toolRegistry: params.toolRegistry,
     observationLog: params.observationLog,
@@ -33,6 +39,19 @@ export function buildNativeToolRegistryForTurn(
   if (params.docContentEditingEnabled === true) {
     registerNativeSiyuanWriteTools(registry, {
       conversationId: params.conversationId,
+    });
+  }
+
+  if (params.notebrainWorkspaceSettings) {
+    registerNativeLocalTools(registry, params.notebrainWorkspaceSettings, params.runtimeToolsSettings);
+  }
+
+  if (params.mcpSettings) {
+    await registerNativeMcpTools({
+      registry,
+      settings: params.mcpSettings,
+      question: params.question,
+      runtimeToolsSettings: params.runtimeToolsSettings,
     });
   }
 

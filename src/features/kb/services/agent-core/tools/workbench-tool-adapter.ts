@@ -43,6 +43,8 @@ export function createNativeToolRegistryFromWorkbench(params: {
   });
 
   for (const manifest of manifests) {
+    if (manifest.availability.available !== true) continue;
+
     // Skip write tools — they are registered natively via native-siyuan-write-tools
     if (NATIVE_WRITE_TOOL_NAMES.has(manifest.name)) continue;
 
@@ -79,4 +81,3 @@ export function createNativeToolRegistryFromWorkbench(params: {
 
   return nativeRegistry;
 }
-

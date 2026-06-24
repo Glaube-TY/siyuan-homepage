@@ -1,14 +1,24 @@
 <script lang="ts">
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import type { KbChatProviderConfig, KbChatProviderType } from "../../../types/settings";
+  import { markProviderApiKeyCleared } from "../../../services/settings/kb-settings-service";
 
   export let provider: KbChatProviderConfig;
   export let shouldShowApiKeyField: (provider: KbChatProviderConfig) => boolean;
   export let getBaseUrlHint: (providerType: KbChatProviderType) => string;
   export let getApiKeyPlaceholder: (providerType: KbChatProviderType) => string;
   export let onUpdateProvider: (providerId: string, patch: Partial<KbChatProviderConfig>) => void;
+  /** Whether the saved apiKey for this provider failed decryption. */
+  export let decryptFailed = false;
 
   let showApiKey = false;
+  let clearRequested = false;
+
+  function handleClearApiKey() {
+    markProviderApiKeyCleared(provider.id);
+    onUpdateProvider(provider.id, { apiKey: "" });
+    clearRequested = true;
+  }
 </script>
 
 <div class="form-section">
@@ -51,6 +61,7 @@
           on:input={(e) =>
             onUpdateProvider(provider.id, { apiKey: e.currentTarget.value })}
           class="form-input api-key-input"
+          class:api-key-decrypt-failed={decryptFailed}
           placeholder={getApiKeyPlaceholder(provider.type)}
         />
         <button
@@ -65,6 +76,21 @@
       </div>
     </label>
     <span class="input-hint">API Key 会在本地加密保存，用于避免配置文件中明文暴露。</span>
+    {#if decryptFailed}
+      <span class="input-hint decrypt-warning">已保存的密钥无法解密，请重新填写。保存前不会自动删除旧密文。</span>
+      <button
+        type="button"
+        class="clear-secret-btn"
+        title="清空已保存的密钥（保存后生效）"
+        on:click={handleClearApiKey}
+      >
+        <SiyuanIcon name="iconTrashcan" size={12} />
+        <span>清空已保存密钥</span>
+      </button>
+    {/if}
+    {#if clearRequested}
+      <span class="input-hint clear-success">已标记清空，保存设置后生效。</span>
+    {/if}
     {#if provider.type === "openai-compatible"}
     <span class="input-hint">OpenAI 兼容接口的 API Key 可留空；本地或内网服务通常不需要，远程平台通常需要。</span>
     {/if}
@@ -180,6 +206,44 @@
     color: var(--b3-theme-on-surface-light);
     text-align: left;
     width: 100%;
+  }
+
+  .decrypt-warning {
+    color: var(--b3-card-warning-color, #e6a817);
+    font-weight: 500;
+  }
+
+  .clear-success {
+    color: var(--b3-theme-success, #4caf50);
+    font-weight: 500;
+  }
+
+  .clear-secret-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+      color: var(--b3-theme-error, #f44336);
+      border-color: var(--b3-theme-error, #f44336);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--b3-theme-primary);
+      outline-offset: 1px;
+    }
+  }
+
+  .api-key-decrypt-failed {
+    border-color: var(--b3-card-warning-color, #e6a817);
   }
 
   .checkbox-label {

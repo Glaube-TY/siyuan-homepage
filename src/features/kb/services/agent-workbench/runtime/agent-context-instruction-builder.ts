@@ -6,6 +6,8 @@ import type { ToolManifest } from "../contracts/tool-contract";
 import type { SkillPromptSection, SkillContextEvidence } from "../contracts/skill-contract";
 import { renderContextInstructions } from "../../agent-core/prompts/context-instruction-renderer";
 import { renderSkillInstructions } from "../../agent-core/prompts/skill-instruction-renderer";
+import type { RuntimeToolsSettings } from "../../../types/settings";
+import { buildRuntimeToolContextInstructions } from "../runtime-tools/runtime-tool-context";
 
 export interface BuildAgentContextInstructionsParams {
   toolRegistry: ToolRegistry;
@@ -17,6 +19,8 @@ export interface BuildAgentContextInstructionsParams {
   conversationContext?: ConversationContextSnapshot;
   globalMemory?: string;
   attachedDocs?: readonly { docId: string; title?: string }[];
+  externalSkillIndexPrompt?: string;
+  runtimeToolsSettings?: RuntimeToolsSettings;
 }
 
 export interface AgentContextInstructions {
@@ -91,7 +95,9 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
       attachedDocs: params.attachedDocs,
     }),
     renderAttachedDocObservationContext(params.observationLog.getContextEvidence()),
+    params.externalSkillIndexPrompt ?? "",
     renderSkillInstructions(skillSections),
+    params.runtimeToolsSettings ? buildRuntimeToolContextInstructions(params.runtimeToolsSettings) : "",
   ]
     .filter((block) => block.trim().length > 0)
     .join("\n\n");

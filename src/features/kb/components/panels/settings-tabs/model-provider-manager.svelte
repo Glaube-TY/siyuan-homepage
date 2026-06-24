@@ -14,6 +14,7 @@
     getChatModelKey,
     sanitizeChatProviders,
   } from "../../../services/settings/chat-provider-config";
+  import { getLastSecretDiagnostics } from "../../../services/settings/kb-settings-service";
   import ModelProviderList from "./model-provider-list.svelte";
   import ModelProviderModelsSection from "./model-provider-models-section.svelte";
   import ModelProviderEditorForm from "./model-provider-editor-form.svelte";
@@ -716,6 +717,12 @@
     editingProviderId,
     settings.selectedChatProviderId
   );
+
+  // Check if the currently editing provider's apiKey failed decryption
+  $: failedProviderIds = new Set(getLastSecretDiagnostics().failedChatProviderIds ?? []);
+  $: editingProviderDecryptFailed = editingProvider
+    ? failedProviderIds.has(normalizeId(editingProvider.id))
+    : false;
 </script>
 
 <div class="provider-manager">
@@ -747,6 +754,7 @@
         getBaseUrlHint={getBaseUrlHint}
         getApiKeyPlaceholder={getApiKeyPlaceholder}
         onUpdateProvider={updateProvider}
+        decryptFailed={editingProviderDecryptFailed}
       />
 
       <!-- 模型列表 -->

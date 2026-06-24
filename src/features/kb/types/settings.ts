@@ -122,7 +122,7 @@ export type KbSkillSettings = {
 };
 
 /** 全局工具名称 */
-export type KbGlobalToolName = "read_docs" | "web_read_page" | "edit_global_memory" | "get_doc_info";
+export type KbGlobalToolName = "read_docs" | "web_read_page" | "edit_global_memory" | "get_doc_info" | "web_http_get" | "web_http_post";
 
 /** 内置危险写工具名称 */
 export type KbDangerousSkillToolName =
@@ -167,6 +167,49 @@ export type GlobalMemorySettings = {
   allowAiUpdate: boolean;
   /** 最后更新时间 */
   updatedAt?: number;
+};
+
+export type NotebrainPermissionAction = "allow" | "ask" | "deny";
+
+export type NotebrainAgentWorkspaceSettings = {
+  commandExecutionEnabled: boolean;
+  defaultCommandTimeoutMs: number;
+  maxCommandOutputChars: number;
+  commandDefaultAction: NotebrainPermissionAction;
+  commandAllowRules: string[];
+  commandAskRules: string[];
+  commandDenyRules: string[];
+  /** 是否注册 notebrain 文件写入/删除工具（write_notebrain_file、delete_notebrain_path）。不影响 skill_install 内部写入。 */
+  fileWriteToolsEnabled: boolean;
+};
+
+export type ExternalSkillSettings = {
+  enabled: boolean;
+  maxSkillReadChars: number;
+  autoInstallEnabled: boolean;
+  disabledSkillIds: string[];
+  legacyUserSkillDirectInject?: boolean;
+};
+
+export type McpSettings = {
+  enabled: boolean;
+  maxVisibleToolsPerTurn: number;
+  disabledServerIds: string[];
+  disabledToolNames: string[];
+  trustedToolNames: string[];
+};
+
+export type RuntimeToolsSettings = {
+  /** Master switch — when false, detection still runs but results are not exposed to Agent. */
+  enabled: boolean;
+  /** Whether to include runtime tool status in Agent context instructions. */
+  exposeToAgent: boolean;
+  /** Additional directories to prepend to PATH for command lookup. */
+  extraPathDirs: string[];
+  /** User-specified command overrides, e.g. { "npx": "C:\\APP\\nodejs\\npx.cmd" }. */
+  commandOverrides: Record<string, string>;
+  /** Cached detection results (persisted for quick UI display; refreshed on demand). */
+  detectedTools?: Record<string, any>;
 };
 
 export type KbSettings = {
@@ -223,6 +266,14 @@ export type KbSettings = {
    * 快捷提示语设置
    */
   quickPrompts: QuickPromptsSettings;
+  /** Notebrain Agent 工作区与本地命令设置 */
+  notebrainWorkspace: NotebrainAgentWorkspaceSettings;
+  /** 外部 Skill 设置 */
+  externalSkills: ExternalSkillSettings;
+  /** MCP Client 设置 */
+  mcp: McpSettings;
+  /** 本机运行时工具设置 */
+  runtimeTools: RuntimeToolsSettings;
   /** 处理过程折叠模式（工作台事件区） */
   workbenchProcessDisplayMode: KbProcessDisplayMode;
   /** 思考过程折叠模式 */

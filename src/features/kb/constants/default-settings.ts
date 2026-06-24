@@ -2,7 +2,7 @@
  * 知识库默认设置
  */
 
-import type { KbSettings, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode } from "../types/settings";
+import type { KbSettings, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, RuntimeToolsSettings } from "../types/settings";
 
 /** 默认温度参数 */
 export const DEFAULT_TEMPERATURE = 0.3;
@@ -24,6 +24,40 @@ export const DEFAULT_GLOBAL_MEMORY_SETTINGS: GlobalMemorySettings = {
 export const DEFAULT_QUICK_PROMPTS_SETTINGS: QuickPromptsSettings = {
   enabled: false,
   docId: "",
+};
+
+export const DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS: NotebrainAgentWorkspaceSettings = {
+  commandExecutionEnabled: false,
+  defaultCommandTimeoutMs: 120000,
+  maxCommandOutputChars: 20000,
+  commandDefaultAction: "ask",
+  commandAllowRules: [],
+  commandAskRules: ["*"],
+  commandDenyRules: [],
+  fileWriteToolsEnabled: true,
+};
+
+export const DEFAULT_EXTERNAL_SKILL_SETTINGS: ExternalSkillSettings = {
+  enabled: true,
+  maxSkillReadChars: 20000,
+  autoInstallEnabled: true,
+  disabledSkillIds: [],
+  legacyUserSkillDirectInject: false,
+};
+
+export const DEFAULT_MCP_SETTINGS: McpSettings = {
+  enabled: false,
+  maxVisibleToolsPerTurn: 40,
+  disabledServerIds: [],
+  disabledToolNames: [],
+  trustedToolNames: [],
+};
+
+export const DEFAULT_RUNTIME_TOOLS_SETTINGS: RuntimeToolsSettings = {
+  enabled: true,
+  exposeToAgent: true,
+  extraPathDirs: [],
+  commandOverrides: {},
 };
 
 /** 默认网页搜索设置 */
@@ -67,6 +101,14 @@ export const DEFAULT_KB_SETTINGS: KbSettings = {
   globalMemory: DEFAULT_GLOBAL_MEMORY_SETTINGS,
   /** 快捷提示语设置 */
   quickPrompts: DEFAULT_QUICK_PROMPTS_SETTINGS,
+  /** Notebrain Agent 工作区与本地命令设置 */
+  notebrainWorkspace: DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS,
+  /** 外部 Skill 设置 */
+  externalSkills: DEFAULT_EXTERNAL_SKILL_SETTINGS,
+  /** MCP Client 设置 */
+  mcp: DEFAULT_MCP_SETTINGS,
+  /** 本机运行时工具设置 */
+  runtimeTools: DEFAULT_RUNTIME_TOOLS_SETTINGS,
   /** 处理过程折叠模式 */
   workbenchProcessDisplayMode: "collapsed" as KbProcessDisplayMode,
   /** 思考过程折叠模式 */

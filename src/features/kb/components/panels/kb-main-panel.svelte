@@ -1108,6 +1108,12 @@
     void refreshChatModelOptions();
   }
 
+  function handleBeforeUnload() {
+    // 同步 flush：清除 debounce 定时器，立即持久化当前会话
+    // sendBeacon 不可用（需要 JSON body），改为同步触发
+    void kbSessionStore.persistConversationsNow();
+  }
+
   onMount(() => {
     void (async () => {
       await kbSessionStore.hydrateConversations();
@@ -1123,6 +1129,9 @@
       refreshContextUsageSafe("hydrate");
     })();
     window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged as EventListener);
+
+    // 页面卸载前立即 flush 当前会话持久化
+    window.addEventListener("beforeunload", handleBeforeUnload);
 
     // 注册文档内容编辑确认桥 handler
     const unregisterConfirmationHandler = setDocContentEditConfirmationHandler(async (request) => {
@@ -1170,6 +1179,7 @@
       unregisterConfirmationHandler();
       unregisterNativeBridge();
       unregisterSelectionAskHandler();
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   });
 
@@ -1333,6 +1343,7 @@
   risk={nativePermissionPreview?.risk ?? "medium"}
   summary={nativePermissionPreview?.summary ?? ""}
   argsPreview={nativePermissionPreview?.argsPreview ?? {}}
+  sections={nativePermissionPreview?.sections ?? []}
   on:confirmed={handleNativePermissionConfirm}
   on:cancel={handleNativePermissionCancel}
 />

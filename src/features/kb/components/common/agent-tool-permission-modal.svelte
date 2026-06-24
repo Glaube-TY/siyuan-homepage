@@ -5,6 +5,8 @@
   export let risk: "low" | "medium" | "high" = "medium";
   export let summary = "";
   export let argsPreview: Record<string, unknown> = {};
+  /** Structured sections for detailed preview (e.g. URL, Headers, Body). */
+  export let sections: Array<{ label: string; value: string }> = [];
 
   import { createEventDispatcher } from "svelte";
   const dispatch = createEventDispatcher();
@@ -54,7 +56,17 @@
             <span class="value">{summary}</span>
           </div>
         {/if}
-        {#if Object.keys(argsPreview).length > 0}
+        {#if sections.length > 0}
+          <div class="sections-block">
+            {#each sections as section}
+              <div class="section-row">
+                <span class="label">{section.label}：</span>
+                <pre class="section-value">{section.value}</pre>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        {#if Object.keys(argsPreview).length > 0 && sections.length === 0}
           <div class="args-section">
             <span class="label">参数：</span>
             <pre class="args-preview">{argsStr}</pre>
@@ -143,6 +155,33 @@
 
   .args-section {
     margin-top: 8px;
+  }
+
+  .sections-block {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .section-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+  }
+
+  .section-value {
+    margin: 0;
+    padding: 6px 10px;
+    background: var(--b3-theme-surface, #f5f5f5);
+    border-radius: 4px;
+    font-size: 12px;
+    max-height: 160px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.4;
   }
 
   .args-preview {
