@@ -72,13 +72,20 @@
         onConfirm: (contentTypeJson: string) => void;
         // 当前区块 ID
         currentBlockId?: string;
+        // 移动端添加组件时用于预选组件类型，不改变保存结构
+        initialContentType?: string;
+        initialActiveTab?: string;
+        forceInitialContentType?: boolean;
     }
 
     let {
         plugin,
         onClose,
         onConfirm,
-        currentBlockId = ""
+        currentBlockId = "",
+        initialContentType = "",
+        initialActiveTab = "",
+        forceInitialContentType = false
     }: Props = $props();
 
     let activeTab = $state("note");
@@ -425,6 +432,52 @@
         }
     }
 
+    function resolveActiveTabForContentType(contentType: string): string {
+        if (
+            [
+                "latest-docs",
+                "favorites",
+                "recent-journals",
+                "TaskMan",
+                "TaskManPlus",
+                "quick-notes",
+                "childDocs",
+                "conditionDocs",
+                "reviewDocs",
+                "stikynot",
+                "enhancedDiary",
+            ].includes(contentType)
+        ) {
+            return "note";
+        }
+        if (["HOT", "dailyQuote", "News", "constellation", "historyDays"].includes(contentType)) {
+            return "info";
+        }
+        if (["heatmap", "sql", "visualChart", "databaseChart", "statisticalCard"].includes(contentType)) {
+            return "visualization";
+        }
+        if (
+            [
+                "focus",
+                "countdown",
+                "weather",
+                "timedate",
+                "musicPlayer",
+                "almanac",
+                "PicCaro",
+                "CYBMOK",
+                "countdownTimer",
+                "fixedAssets",
+            ].includes(contentType)
+        ) {
+            return "tool";
+        }
+        if (["custom-protyle", "custom-text", "custom-web"].includes(contentType)) {
+            return "custom";
+        }
+        return "note";
+    }
+
     async function resolveSelectedDatabaseIdIfNeeded(): Promise<void> {
         const currentDatabaseIdByType: Record<string, string> = {
             fixedAssets: fixedAssetsDatabaseId,
@@ -470,7 +523,7 @@
 
         notebooks = await getNotebooks(plugin);
 
-        if (settingData) {
+        if (settingData && !forceInitialContentType) {
             let parsedData: any;
 
             if (typeof settingData === "string") {
@@ -982,6 +1035,10 @@
                 conditionDocsUseBuiltinDocIcon =
                     parsedData.data?.useBuiltinDocIcon ?? false;
             }
+        } else if (initialContentType) {
+            selectedContentType = initialContentType;
+            activeTab = initialActiveTab || resolveActiveTabForContentType(initialContentType);
+            await resolveSelectedDatabaseIdIfNeeded();
         }
 
         advancedEnabled = plugin.ADVANCED;

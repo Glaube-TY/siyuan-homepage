@@ -2,6 +2,19 @@ import { WidgetBlock } from "./mobileWidgetBlock";
 import { addCustomBlockToContainer } from "../../components/utils/widgetBlock/utils/block-creator-shared";
 import { saveLayout } from "./mobileHomepage_layout";
 
+export function createMobileWidgetBlock(
+    plugin: any,
+    currentBlockForSettingsRef: { value: HTMLElement | null },
+    containerEl: HTMLElement | null,
+    id?: string,
+    runtimeContext: { previewMode?: boolean } = {},
+): WidgetBlock | null {
+    if (!containerEl) return null;
+    const widget = new WidgetBlock(plugin, currentBlockForSettingsRef, id, undefined, "", runtimeContext);
+    widget.appendTo(containerEl);
+    return widget;
+}
+
 export function addCustomBlock(
     plugin: any,
     currentBlockForSettingsRef: { value: HTMLElement | null },

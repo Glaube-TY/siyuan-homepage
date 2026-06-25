@@ -1223,8 +1223,8 @@ export default class PluginHomepage extends Plugin {
 
         this.currentMobileDialog = svelteDialog({
             title: "移动主页",
-            width: "100vh",
-            height: "100vh",
+            width: "100vw",
+            height: "100dvh",
             constructor: (containerEl: HTMLElement) => {
                 return mount(MobileHomepage as any, {
                     target: containerEl,
@@ -1242,6 +1242,7 @@ export default class PluginHomepage extends Plugin {
                 this.currentMobileDialog = null;
             },
         });
+        this.currentMobileDialog.dialog.element.classList.add("mobile-homepage-dialog");
     }
 
     private async getPluginConfig(): Promise<PluginConfig> {

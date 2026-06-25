@@ -34,6 +34,7 @@ import fixedAssets from "./widget/fixedAssets/fixedAssets.svelte";
 import reviewDocs from "./widget/reviewDocs/reviewDocs.svelte";
 import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
+import { sanitizeWidgetTypeClass } from "@/homepage/mobileHomepage/mobile-widget-categories";
 
 const widgetRegistry: Record<string, any> = {
     "latest-docs": latestDocs,
@@ -108,10 +109,16 @@ const widgetNeedsPlugin: Set<string> = new Set([
     "notebrain",
 ]);
 
+export interface WidgetRuntimeContext {
+    placement?: "homepage" | "sidebar" | "mobile" | "preview" | "dock";
+    previewMode?: boolean;
+}
+
 export function mountWidgetContent(
     target: HTMLElement,
     plugin: any,
-    contentTypeJson: string
+    contentTypeJson: string,
+    runtimeContext: WidgetRuntimeContext = {},
 ): Record<string, any> | null {
     let contentData: any;
 
@@ -133,14 +140,28 @@ export function mountWidgetContent(
     const props: Record<string, any> = {
         contentTypeJson: contentTypeJson,
     };
+    const placement = runtimeContext.placement || "homepage";
+
+    target.dataset.widgetType = widgetType;
+    Array.from(target.classList)
+        .filter((className) => className.startsWith("widget-type-"))
+        .forEach((className) => target.classList.remove(className));
+    target.classList.add(`widget-type-${sanitizeWidgetTypeClass(widgetType)}`);
 
     if (widgetNeedsPlugin.has(widgetType)) {
         props.plugin = plugin;
     }
 
     if (widgetType === "notebrain") {
-        props.placement = "dock";
+        props.placement = runtimeContext.placement || "dock";
+    } else {
+        props.placement = placement;
     }
+    props.runtimeContext = {
+        placement,
+        previewMode: runtimeContext.previewMode ?? false,
+    };
+    props.previewMode = runtimeContext.previewMode ?? false;
 
     return mount(widgetComponent, {
         target: target,

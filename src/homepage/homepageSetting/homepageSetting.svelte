@@ -12,6 +12,7 @@
     import { loadWidgetLayoutSettings, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
     import { svelteDialog, confirmDialogBoolean, safeConfirmContent } from "../../libs/dialog"
     import HiddenWidgetsDialog from "./HiddenWidgetsDialog.svelte"
+    import MobileHomepagePreviewDialog from "../mobileHomepage/MobileHomepagePreviewDialog.svelte"
     import AboutSection from "./sections/AboutSection.svelte"
     import VipSection from "./sections/VipSection.svelte"
     import HomepageGlobalSection from "./sections/HomepageGlobalSection.svelte"
@@ -838,6 +839,24 @@
         });
     }
 
+    function openMobileHomepagePreviewDialog() {
+        const dialogRef = svelteDialog({
+            title: "手机端主页",
+            width: "1120px",
+            height: "86vh",
+            constructor: (containerEl: HTMLElement) => {
+                return mount(MobileHomepagePreviewDialog, {
+                    target: containerEl,
+                    props: {
+                        plugin,
+                        close: () => dialogRef.close(),
+                    },
+                });
+            },
+        });
+        dialogRef.dialog.element.classList.add("mobile-homepage-preview-dialog");
+    }
+
 </script>
 
 <div class="shp-homepage-settings">
@@ -870,9 +889,11 @@
                             tempAutoOpenHomepage={tempAutoOpenHomepage}
                             sidebarEnabled={sidebarEnabled}
                             autoOpenMobileHomepage={autoOpenMobileHomepage}
+                            showMobilePreview={!plugin?.isMobile}
                             onTempAutoOpenHomepageChange={(value) => tempAutoOpenHomepage = value}
                             onSidebarEnabledChange={(value) => sidebarEnabled = value}
                             onAutoOpenMobileHomepageChange={(value) => autoOpenMobileHomepage = value}
+                            onOpenMobileHomepagePreview={openMobileHomepagePreviewDialog}
                         />
                     {/if}
 

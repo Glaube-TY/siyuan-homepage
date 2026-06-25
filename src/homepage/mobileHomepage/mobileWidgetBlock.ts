@@ -1,14 +1,12 @@
-import { svelteDialog } from "../../libs/dialog";
-import WidgetBlockStyle from "./mobileStyleSetting.svelte";
-import WidgetBlockContent from "../../components/utils/widgetBlock/contentSetting.svelte";
-import { setBlockSize } from "../../components/utils/widgetBlock/utils/block-size-handler";
-import { saveLayout } from "../../components/utils/widgetBlock/utils/layout-handler";
-import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
-import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobileHomepage_layout";
-import { mountWidgetContent } from "../../components/utils/widgetBlock/widgetMountRegistry";
-import { mount, unmount } from "svelte";
+import { unmount } from "svelte";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
+import { mountWidgetContent } from "../../components/utils/widgetBlock/widgetMountRegistry";
 import { stringifyWidgetConfigForMount } from "../../components/utils/widgetBlock/utils/layout-shared";
+
+type MobileWidgetEventName =
+    | "mobile-widget-action"
+    | "mobile-widget-longpress"
+    | "mobile-widget-refreshed";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -18,46 +16,126 @@ export class WidgetBlock {
 
     private readonly plugin: any;
     private readonly currentBlockForSettingsRef: { value: HTMLElement | null };
+    private readonly previewMode: boolean;
     private mountedWidget: Record<string, any> | null = null;
+    private longPressTimer: number | null = null;
+    private pointerStart: { x: number; y: number } | null = null;
 
     constructor(
         plugin: any,
         currentBlockForSettingsRef: { value: HTMLElement | null },
         id?: string,
         style?: string,
-        loadcontent?: string
+        loadcontent?: string,
+        runtimeContext: { previewMode?: boolean } = {},
     ) {
         this.id = id || `block-${Date.now()}`;
         this.plugin = plugin;
         this.currentBlockForSettingsRef = currentBlockForSettingsRef;
-        this.style = style || 'aspect-ratio: 1 / 1;background-color: rgba(0, 0, 0, 0.03);draggable: true;border: 2px solid var(--b3-theme-primary);box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);transition: all 0.2s ease-in-out;border-radius: 8px;';
-        this.loadcontent = loadcontent || '';
+        this.previewMode = runtimeContext.previewMode ?? false;
+        this.style =
+            style ||
+            "aspect-ratio: 1 / 1;background-color: rgba(255, 255, 255, 0.72);border: 1px solid var(--b3-border-color);box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);transition: transform 0.2s ease, box-shadow 0.2s ease;border-radius: 12px;position: relative;overflow: hidden;";
+        this.loadcontent = loadcontent || "";
 
         this.element = document.createElement("div");
-        this.element.className = "widget-block";
+        this.element.className = "widget-block mobile-widget-card";
         this.element.id = this.id;
-
         this.element.innerHTML = this.renderControls(false);
-
         this.element.setAttribute("style", this.style);
 
-        // 在 DOM 上挂载实例引用，便于外部统一销毁
         (this.element as any).__widgetBlockInstance = this;
 
-        this.setupEventListeners();
+        this.setupPointerEvents();
+        this.setupChromeEventListeners();
     }
 
     private renderControls(includeRefresh = false): string {
         return `
-            <button class="block-style-button" title="样式设置">${renderSiyuanIcon("style", 14)}</button>
-            <button class="drag-handle" title="拖拽组件">${renderSiyuanIcon("drag", 14)}</button>
-            <button class="block-content-button" title="内容设置">${renderSiyuanIcon("settings", 14)}</button>
-            ${includeRefresh ? `<button class="block-update-button" title="刷新组件">${renderSiyuanIcon("refresh", 14)}</button>` : ""}
+            <div class="mobile-widget-chrome" aria-hidden="false">
+                <button class="mobile-widget-action-button" type="button" title="组件操作" aria-label="组件操作">⋯</button>
+                <button class="mobile-widget-drag-handle drag-handle" type="button" title="拖拽排序" aria-label="拖拽排序">${renderSiyuanIcon("drag", 16)}</button>
+                ${includeRefresh ? `<button class="mobile-widget-refresh-button" type="button" title="刷新组件" aria-label="刷新组件">${renderSiyuanIcon("refresh", 15)}</button>` : ""}
+            </div>
         `;
     }
 
-    // 公开销毁方法：统一清理 widget 实例
+    private setupChromeEventListeners(): void {
+        const actionButton = this.element.querySelector(".mobile-widget-action-button");
+        const refreshButton = this.element.querySelector(".mobile-widget-refresh-button");
+
+        actionButton?.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            this.currentBlockForSettingsRef.value = this.element;
+            this.dispatchMobileEvent("mobile-widget-action");
+        });
+
+        refreshButton?.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await this.refreshContent();
+        });
+    }
+
+    private setupPointerEvents(): void {
+        this.element.addEventListener("pointerdown", (event) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest("button,input,textarea,select,a,[role='button']")) return;
+            if (event.pointerType === "mouse" && event.button !== 0) return;
+
+            this.pointerStart = { x: event.clientX, y: event.clientY };
+            this.clearLongPressTimer();
+            this.longPressTimer = window.setTimeout(() => {
+                this.currentBlockForSettingsRef.value = this.element;
+                this.dispatchMobileEvent("mobile-widget-longpress");
+                this.clearLongPressTimer();
+            }, 520);
+        });
+
+        this.element.addEventListener("pointermove", (event) => {
+            if (!this.pointerStart) return;
+            const dx = Math.abs(event.clientX - this.pointerStart.x);
+            const dy = Math.abs(event.clientY - this.pointerStart.y);
+            if (dx > 10 || dy > 10) {
+                this.clearLongPressTimer();
+            }
+        });
+
+        this.element.addEventListener("pointerup", () => {
+            this.clearLongPressTimer();
+        });
+        this.element.addEventListener("pointercancel", () => {
+            this.clearLongPressTimer();
+        });
+        this.element.addEventListener("pointerleave", () => {
+            this.clearLongPressTimer();
+        });
+    }
+
+    private clearLongPressTimer(): void {
+        if (this.longPressTimer !== null) {
+            window.clearTimeout(this.longPressTimer);
+            this.longPressTimer = null;
+        }
+        this.pointerStart = null;
+    }
+
+    private dispatchMobileEvent(name: MobileWidgetEventName): void {
+        this.element.dispatchEvent(
+            new CustomEvent(name, {
+                bubbles: true,
+                detail: {
+                    id: this.id,
+                    element: this.element,
+                    instance: this,
+                },
+            }),
+        );
+    }
+
     public destroy(): void {
+        this.clearLongPressTimer();
         this.cleanupMountedWidget();
         (this.element as any).__widgetBlockInstance = null;
     }
@@ -69,94 +147,7 @@ export class WidgetBlock {
         }
     }
 
-    private setupEventListeners() {
-        const styleButton = this.element.querySelector(".block-style-button");
-        const contentButton = this.element.querySelector(".block-content-button");
-        const updateButton = this.element.querySelector(".block-update-button");
-
-        if (styleButton) {
-            styleButton.addEventListener("click", () => {
-                this.currentBlockForSettingsRef.value = this.element;
-
-                const dialogRef = svelteDialog({
-                    title: "组件样式",
-                    constructor: (containerEl: HTMLElement) => {
-                        return mount(WidgetBlockStyle, {
-                                                    target: containerEl,
-                                                    props: {
-                                                        plugin: this.plugin,
-                                                        currentBlockId: this.element.id,
-                                                        onClose: () => {
-                                                            dialogRef.close();
-                                                        },
-                                                        onDelete: () => {
-                                                            this.cleanupMountedWidget();
-                                                            if (this.currentBlockForSettingsRef.value) {
-                                                                this.currentBlockForSettingsRef.value.remove();
-                                                                this.currentBlockForSettingsRef.value = null;
-                                                            }
-                                                            dialogRef.close();
-                                                            saveLayout(this.plugin);
-                                                            saveSidebarLayout(this.plugin);
-                                                            saveMobileLayout(this.plugin);
-                                                            this.plugin.removeData(`widget-${this.id}.json`);
-                                                        },
-                                                        onSetSize: (size: number) => {
-                                                            setBlockSize(this.currentBlockForSettingsRef.value, size, 4);
-                                                            dialogRef.close();
-                                                        },
-                                                    },
-                                                });
-                    },
-                });
-            });
-        }
-
-        if (contentButton) {
-            contentButton.addEventListener("click", () => {
-                this.currentBlockForSettingsRef.value = this.element;
-
-                const dialogRef = svelteDialog({
-                    title: "组件内容",
-                    width: "100%",
-                    height: "72vh",
-                    constructor: (containerEl: HTMLElement) => {
-                        return mount(WidgetBlockContent, {
-                                                    target: containerEl,
-                                                    props: {
-                                                        plugin: this.plugin,
-                                                        currentBlockId: this.element.id,
-                                                        onClose: () => {
-                                                            dialogRef.close();
-                                                        },
-                                                        onConfirm: (contentTypeJson: string) => {
-                                                            const blockElement = document.getElementById(this.id);
-                                                            if (blockElement) {
-                                                                this.updateContent(contentTypeJson);
-                                                            }
-                                                            this.plugin.saveData(`widget-${this.id}.json`, JSON.parse(contentTypeJson));
-                                                            dialogRef.close();
-                                                        }
-                                                    },
-                                                });
-                    },
-                });
-            });
-        }
-
-        if (updateButton) {
-            updateButton.addEventListener("click", async () => {
-                const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
-                if (widgetConfig) {
-                    this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '');
-                } else {
-                    console.warn("未找到对应的 widget 配置");
-                }
-            });
-        }
-    }
-
-    public appendTo(container: Element | null) {
+    public appendTo(container: Element | null): void {
         if (container) {
             container.appendChild(this.element);
         }
@@ -169,12 +160,26 @@ export class WidgetBlock {
         }
 
         this.cleanupMountedWidget();
-
         this.element.innerHTML = this.renderControls(true);
+        this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson, {
+            placement: "mobile",
+            previewMode: this.previewMode,
+        });
+        this.setupChromeEventListeners();
+    }
 
-        this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson);
-
-        // 重新绑定按钮事件（如果需要）
-        this.setupEventListeners();
+    public async refreshContent(): Promise<void> {
+        const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
+        if (!widgetConfig) {
+            console.warn("未找到对应的 widget 配置");
+            return;
+        }
+        const contentJson = stringifyWidgetConfigForMount(widgetConfig);
+        if (!contentJson) {
+            console.warn("无法解析对应的 widget 配置");
+            return;
+        }
+        this.updateContent(contentJson);
+        this.dispatchMobileEvent("mobile-widget-refreshed");
     }
 }

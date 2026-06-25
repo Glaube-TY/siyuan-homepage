@@ -13,11 +13,13 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
 
     const contentTypeJsonObj = $derived(JSON.parse(contentTypeJson));
+    const isMobilePlacement = $derived(placement === "mobile");
 
     let favoritesNotes: any[] = $state([]);
     const favoritiesTitle =
@@ -45,6 +47,11 @@
         const month = raw.slice(4, 6);
         const day = raw.slice(6, 8);
         return `${year}年${month}月${day}日`;
+    }
+
+    function formatMobileDate(raw: string): string {
+        if (!raw || raw.length < 8) return "";
+        return `${raw.slice(4, 6)}/${raw.slice(6, 8)}`;
     }
     
     // 悬浮窗定时器
@@ -77,87 +84,126 @@
     });
 </script>
 
-<div class="content-display">
-    <h3 class="widget-title">{favoritiesTitle}</h3>
-    <div class="favorites-content-container">
-        {#if favoritesNotes.length}
-            <ul class="favorites-list">
+{#if isMobilePlacement}
+    <div class="mobile-favorites-widget">
+        <header class="mobile-favorites-header">
+            <div>
+                <h3>{favoritiesTitle}</h3>
+            </div>
+            <span class="mobile-favorites-count">{favoritesNotes.length}</span>
+        </header>
+
+        <div class="mobile-favorites-list">
+            {#if favoritesNotes.length}
                 {#each favoritesNotes as note}
                     {@const iconResult = getDocIcon(note)}
-                    <li class="favorites-item">
-                        <div
-                            class="favorites-item-content"
-                            onkeydown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                    openDocs(plugin, note.id, 0);
-                                }
-                            }}
-                            onmouseenter={(e) => {
-                                if (showFavFloatDoc && !plugin.isMobile) {
-                                    // 清除之前的定时器
-                                    if (floatDocTimeout) {
-                                        clearTimeout(floatDocTimeout);
-                                    }
-                                    // 设置新的定时器
-                                    floatDocTimeout = window.setTimeout(() => {
-                                        createFloatingDocPopup(note, e, plugin);
-                                        floatDocTimeout = null;
-                                    }, favFloatDocShowTime * 1000);
-                                }
-                            }}
-                            onmouseleave={() => {
-                                if (showFavFloatDoc && !plugin.isMobile) {
-                                    // 清除悬浮窗显示定时器
-                                    if (floatDocTimeout) {
-                                        clearTimeout(floatDocTimeout);
-                                        floatDocTimeout = null;
-                                    }
-                                    // 清除之前的 mouseleave timeout
-                                    if (mouseLeaveTimeout) {
-                                        clearTimeout(mouseLeaveTimeout);
-                                    }
-                                    // 使用配置的延迟时间，确保用户有足够时间查看弹窗
-                                    mouseLeaveTimeout = window.setTimeout(() => {
-                                        setMouseOnTrigger(false);
-                                        mouseLeaveTimeout = null;
-                                    }, 150);
-                                }
-                            }}
-                            onclick={() => {
-                                // 点击时立即隐藏弹窗并打开文档
-                                if (showFavFloatDoc && !plugin.isMobile) {
-                                    hideImmediately();
-                                }
-                                openDocs(plugin, note.id, 0);
-                            }}
-                            role="button"
-                            tabindex="0"
-                            aria-label="打开收藏文档：{note.content}"
-                        >
+                    <button type="button" class="mobile-favorite-row" onclick={() => openDocs(plugin, note.id, 0)}>
+                        <span class="mobile-favorite-icon">
                             {#if iconResult.type === "image"}
-                                <img class="doc-icon-image" src={iconResult.value} alt="" />
+                                <img src={iconResult.value} alt="" />
                             {:else}
-                                <span class="doc-icon">{iconResult.value}</span>
+                                {iconResult.value}
                             {/if}
-                            <span class="doc-title">{note.content}</span>
-                        </div>
-                        {#if showNoteMeta}
-                            <div class="note-meta">
-                                {#if contentTypeJsonObj.data?.favoritiesSortOrder === "created"}
-                                    创建时间：{formatDate(note.created)}
-                                {:else}
-                                    更新时间：{formatDate(note.updated)}
-                                {/if}
-                            </div>
-                        {/if}
-                    </li>
+                        </span>
+                        <span class="mobile-favorite-main">
+                            <strong>{note.content || "无标题文档"}</strong>
+                            {#if showNoteMeta}
+                                <small>
+                                    {contentTypeJsonObj.data?.favoritiesSortOrder === "created" ? "创建" : "更新"}
+                                    {formatMobileDate(contentTypeJsonObj.data?.favoritiesSortOrder === "created" ? note.created : note.updated)}
+                                </small>
+                            {/if}
+                        </span>
+                    </button>
                 {/each}
-            </ul>
-        {:else}
-            <p>暂无收藏的文档，可在文档树上右键选择收藏</p>
-        {/if}
+            {:else}
+                <div class="mobile-favorites-empty">暂无收藏文档</div>
+            {/if}
+        </div>
     </div>
-</div>
+{:else}
+    <div class="content-display">
+        <h3 class="widget-title">{favoritiesTitle}</h3>
+        <div class="favorites-content-container">
+            {#if favoritesNotes.length}
+                <ul class="favorites-list">
+                    {#each favoritesNotes as note}
+                        {@const iconResult = getDocIcon(note)}
+                        <li class="favorites-item">
+                            <div
+                                class="favorites-item-content"
+                                onkeydown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                        openDocs(plugin, note.id, 0);
+                                    }
+                                }}
+                                onmouseenter={(e) => {
+                                    if (showFavFloatDoc && !plugin.isMobile) {
+                                        // 清除之前的定时器
+                                        if (floatDocTimeout) {
+                                            clearTimeout(floatDocTimeout);
+                                        }
+                                        // 设置新的定时器
+                                        floatDocTimeout = window.setTimeout(() => {
+                                            createFloatingDocPopup(note, e, plugin);
+                                            floatDocTimeout = null;
+                                        }, favFloatDocShowTime * 1000);
+                                    }
+                                }}
+                                onmouseleave={() => {
+                                    if (showFavFloatDoc && !plugin.isMobile) {
+                                        // 清除悬浮窗显示定时器
+                                        if (floatDocTimeout) {
+                                            clearTimeout(floatDocTimeout);
+                                            floatDocTimeout = null;
+                                        }
+                                        // 清除之前的 mouseleave timeout
+                                        if (mouseLeaveTimeout) {
+                                            clearTimeout(mouseLeaveTimeout);
+                                        }
+                                        // 使用配置的延迟时间，确保用户有足够时间查看弹窗
+                                        mouseLeaveTimeout = window.setTimeout(() => {
+                                            setMouseOnTrigger(false);
+                                            mouseLeaveTimeout = null;
+                                        }, 150);
+                                    }
+                                }}
+                                onclick={() => {
+                                    // 点击时立即隐藏弹窗并打开文档
+                                    if (showFavFloatDoc && !plugin.isMobile) {
+                                        hideImmediately();
+                                    }
+                                    openDocs(plugin, note.id, 0);
+                                }}
+                                role="button"
+                                tabindex="0"
+                                aria-label="打开收藏文档：{note.content}"
+                            >
+                                {#if iconResult.type === "image"}
+                                    <img class="doc-icon-image" src={iconResult.value} alt="" />
+                                {:else}
+                                    <span class="doc-icon">{iconResult.value}</span>
+                                {/if}
+                                <span class="doc-title">{note.content}</span>
+                            </div>
+                            {#if showNoteMeta}
+                                <div class="note-meta">
+                                    {#if contentTypeJsonObj.data?.favoritiesSortOrder === "created"}
+                                        创建时间：{formatDate(note.created)}
+                                    {:else}
+                                        更新时间：{formatDate(note.updated)}
+                                    {/if}
+                                </div>
+                            {/if}
+                        </li>
+                    {/each}
+                </ul>
+            {:else}
+                <p>暂无收藏的文档，可在文档树上右键选择收藏</p>
+            {/if}
+        </div>
+    </div>
+{/if}
 
 <style lang="scss">
     .widget-title {
@@ -239,5 +285,117 @@
             vertical-align: middle;
             margin-right: 0.3em;
         }
+    }
+
+    .mobile-favorites-widget {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px;
+        box-sizing: border-box;
+        background: linear-gradient(180deg, rgba(236, 72, 153, 0.08), rgba(236, 72, 153, 0.02));
+    }
+
+    .mobile-favorites-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        min-height: 24px;
+
+        h3 {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.15;
+            color: var(--b3-theme-on-background);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    .mobile-favorites-count {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background: rgba(236, 72, 153, 0.12);
+        color: #db2777;
+        font-size: 12px;
+        font-weight: 800;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .mobile-favorites-list {
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .mobile-favorite-row {
+        min-height: 38px;
+        padding: 5px;
+        border: none;
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--b3-theme-surface) 78%, transparent);
+        color: inherit;
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        align-items: center;
+        gap: 6px;
+        text-align: left;
+    }
+
+    .mobile-favorite-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 9px;
+        background: color-mix(in srgb, #db2777 9%, var(--b3-theme-background));
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+
+        img {
+            width: 18px;
+            height: 18px;
+            object-fit: contain;
+        }
+    }
+
+    .mobile-favorite-main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        strong {
+            min-width: 0;
+            color: var(--b3-theme-on-background);
+            font-size: 14px;
+            line-height: 1.3;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        small {
+            color: var(--b3-theme-secondary);
+            font-size: 11px;
+            line-height: 1.2;
+        }
+    }
+
+    .mobile-favorites-empty {
+        padding: 6px 8px;
+        color: var(--b3-theme-secondary);
+        font-size: 12px;
+        text-align: center;
     }
 </style>

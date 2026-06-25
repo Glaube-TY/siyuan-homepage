@@ -7,11 +7,13 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
 
     let parsedContent = $derived(JSON.parse(contentTypeJson));
+    const isMobilePlacement = $derived(placement === "mobile");
     let statisticalCardTitle = $derived(parsedContent.data?.statisticalCardTitle || "统计卡片");
     let statisticalCardTitleSize = $derived(parsedContent.data?.statisticalCardTitleSize || 1);
     let statisticalCardTitleColor = $derived(parsedContent.data?.statisticalCardTitleColor || "#000000");
@@ -41,7 +43,7 @@
     });
 </script>
 
-<div class="content-display">
+<div class:mobile-stat-card={isMobilePlacement} class="content-display">
     {#if advancedEnabled}
         <div class="card-header">
             <div
@@ -121,6 +123,37 @@
             align-items: center;
             justify-content: center;
             gap: 1rem;
+        }
+    }
+
+    .mobile-stat-card {
+        padding: 12px !important;
+        justify-content: center;
+        gap: 6px;
+        background: linear-gradient(145deg, rgba(79, 70, 229, 0.1), rgba(14, 165, 233, 0.06));
+        box-shadow: none;
+
+        .card-header {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .card-title {
+            font-size: 13px !important;
+            color: var(--b3-theme-secondary) !important;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .card-body {
+            padding-top: 0;
+        }
+
+        .statistical-count {
+            font-size: clamp(30px, 12vw, 48px) !important;
+            line-height: 1;
+            letter-spacing: 0;
         }
     }
 </style>

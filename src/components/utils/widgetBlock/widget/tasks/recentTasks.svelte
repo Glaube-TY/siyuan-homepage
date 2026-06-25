@@ -9,11 +9,14 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
 
     const parsed = $derived(JSON.parse(contentTypeJson));
+    const isMobilePlacement = $derived(placement === "mobile");
+    const mobilePendingCount = $derived(displayedTasks.filter((task) => !task.checked).length);
 
     // 原始数据
     let recentTasks: RecentTasksInfo[] = $state([]);
@@ -186,14 +189,20 @@
     });
 </script>
 
-<div class="content-display">
-    <h3 class="widget-title">{TaskManTitle}</h3>
-    <ul class="task-list">
-        {#if displayedTasks.length > 0}
-            {#each displayedTasks as task (task.id + "-" + task.updated)}
-                <li class="task-item" class:completed={task.checked}>
-                    <div class="task-header">
-                        <span class="checkbox-label">
+{#if isMobilePlacement}
+    <div class="mobile-task-widget">
+        <header class="mobile-task-header">
+            <div>
+                <h3>{TaskManTitle}</h3>
+            </div>
+            <span class="mobile-task-count">{mobilePendingCount} 待办</span>
+        </header>
+
+        <div class="mobile-task-list">
+            {#if displayedTasks.length > 0}
+                {#each displayedTasks as task (task.id + "-" + task.updated)}
+                    <div class="mobile-task-row" class:completed={task.checked}>
+                        <label class="mobile-task-check" aria-label="切换任务完成状态">
                             <input
                                 type="checkbox"
                                 bind:checked={task.checked}
@@ -202,41 +211,73 @@
                                     handleCheck(e, task);
                                 }}
                             />
-                        </span>
+                        </label>
+                        <button type="button" class="mobile-task-main" onclick={() => handleOpenTask(task)}>
+                            <span>{task.content || "未命名任务"}</span>
+                            {#if showTasksDetails}
+                                <small>{formatDate(task.created).replace("（星期", " 周").replace("）", "")}</small>
+                            {/if}
+                        </button>
+                    </div>
+                {/each}
+            {:else}
+                <div class="mobile-task-empty">暂无任务</div>
+            {/if}
+        </div>
+    </div>
+{:else}
+    <div class="content-display">
+        <h3 class="widget-title">{TaskManTitle}</h3>
+        <ul class="task-list">
+            {#if displayedTasks.length > 0}
+                {#each displayedTasks as task (task.id + "-" + task.updated)}
+                    <li class="task-item" class:completed={task.checked}>
+                        <div class="task-header">
+                            <span class="checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    bind:checked={task.checked}
+                                    onchange={(e) => {
+                                        e.stopPropagation();
+                                        handleCheck(e, task);
+                                    }}
+                                />
+                            </span>
 
-                        <div
-                            class="task-content"
-                            onclick={(e) => {
-                                e.preventDefault();
-                                handleOpenTask(task);
-                            }}
-                            onkeydown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
+                            <div
+                                class="task-content"
+                                onclick={(e) => {
                                     e.preventDefault();
                                     handleOpenTask(task);
-                                }
-                            }}
-                            tabindex="0"
-                            role="button"
-                            aria-label={task.content}
-                        >
-                            {task.content}
+                                }}
+                                onkeydown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        handleOpenTask(task);
+                                    }
+                                }}
+                                tabindex="0"
+                                role="button"
+                                aria-label={task.content}
+                            >
+                                {task.content}
+                            </div>
                         </div>
-                    </div>
 
-                    {#if showTasksDetails}
-                        <span class="task-created-time"
-                            >📅 {formatDate(task.created)}</span
-                        >
-                        <span class="task-source">📃 {task.hpath}</span>
-                    {/if}
-                </li>
-            {/each}
-        {:else}
-            <p>暂无任务记录</p>
-        {/if}
-    </ul>
-</div>
+                        {#if showTasksDetails}
+                            <span class="task-created-time"
+                                >📅 {formatDate(task.created)}</span
+                            >
+                            <span class="task-source">📃 {task.hpath}</span>
+                        {/if}
+                    </li>
+                {/each}
+            {:else}
+                <p>暂无任务记录</p>
+            {/if}
+        </ul>
+    </div>
+{/if}
 
 <style lang="scss">
     .content-display {
@@ -324,5 +365,118 @@
         .task-content:hover {
             text-decoration: underline;
         }
+    }
+
+    .mobile-task-widget {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px;
+        box-sizing: border-box;
+        background: linear-gradient(180deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.02));
+    }
+
+    .mobile-task-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        min-height: 24px;
+
+        h3 {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.15;
+            color: var(--b3-theme-on-background);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    .mobile-task-count {
+        flex: 0 0 auto;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.12);
+        color: var(--b3-theme-primary);
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .mobile-task-list {
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .mobile-task-row {
+        min-height: 42px;
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        align-items: center;
+        gap: 5px;
+        padding: 5px;
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--b3-theme-surface) 78%, transparent);
+
+        &.completed {
+            opacity: 0.62;
+        }
+    }
+
+    .mobile-task-check {
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        input {
+            width: 20px;
+            height: 20px;
+            margin: 0;
+        }
+    }
+
+    .mobile-task-main {
+        min-width: 0;
+        border: none;
+        background: transparent;
+        color: inherit;
+        padding: 0;
+        text-align: left;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        span {
+            min-width: 0;
+            color: var(--b3-theme-on-background);
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.3;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        small {
+            color: var(--b3-theme-secondary);
+            font-size: 11px;
+            line-height: 1.2;
+        }
+    }
+
+    .mobile-task-empty {
+        padding: 6px 8px;
+        color: var(--b3-theme-secondary);
+        font-size: 12px;
+        text-align: center;
     }
 </style>
