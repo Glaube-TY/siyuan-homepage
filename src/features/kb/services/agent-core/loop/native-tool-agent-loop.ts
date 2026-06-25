@@ -136,7 +136,7 @@ export class NativeToolAgentLoop {
               content: JSON.stringify({
                 ok: false,
                 errorCode: "tool_call_limit_reached",
-                message: "工具调用次数达到本轮安全上限，本轮已停止。",
+                message: `工具调用次数达到本轮安全上限（当前 ${maxToolCalls} 次），本轮已停止。`,
               }),
             }));
           }
@@ -144,7 +144,7 @@ export class NativeToolAgentLoop {
           this.options.onEvent?.({
             type: "error",
             code: "tool_call_limit_reached",
-            message: "The agent exceeded the tool call limit.",
+            message: `The agent exceeded the tool call limit (${maxToolCalls}).`,
           });
           return {
             status: "failed",
@@ -152,7 +152,7 @@ export class NativeToolAgentLoop {
             steps,
             messages: this.session.snapshot(),
             errorCode: "tool_call_limit_reached",
-            errorMessage: "The agent exceeded the tool call limit.",
+            errorMessage: `The agent exceeded the tool call limit (${maxToolCalls}).`,
           };
         }
 
@@ -201,6 +201,25 @@ export class NativeToolAgentLoop {
       });
       steps += dispatch.stepCount;
       this.session.appendMany(dispatch.toolMessages);
+
+      // Check for fatal errors that should stop the turn immediately
+      // while preserving valid tool-call pairing.
+      if (dispatch.fatalErrorCode) {
+        this.options.onEvent?.({
+          type: "error",
+          code: dispatch.fatalErrorCode,
+          message: dispatch.fatalErrorMessage ?? "",
+        });
+        return {
+          status: "failed",
+          answer,
+          steps,
+          messages: this.session.snapshot(),
+          errorCode: dispatch.fatalErrorCode,
+          errorMessage: dispatch.fatalErrorMessage ?? "Unknown fatal error.",
+        };
+      }
+
       iteration += 1;
     }
   }

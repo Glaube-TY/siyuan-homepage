@@ -12,6 +12,9 @@ import { StormBreaker } from "./storm-breaker";
 export interface DispatchToolCallsResult {
   toolMessages: AgentToolMessage[];
   stepCount: number;
+  /** When set, the loop should stop immediately (e.g. repeated unknown tool). */
+  fatalErrorCode?: string;
+  fatalErrorMessage?: string;
 }
 
 /** Deprecated database tool names → migration hint for the model. */
@@ -113,11 +116,16 @@ async function executeOne(params: {
   // Check tool exists
   const tool = params.registry.get(params.call.name);
   if (!tool) {
+    const isRepeated = params.stormBreaker.tryRecordUnknownTool(params.call.name);
+    const code = isRepeated ? "repeated_unknown_tool" : "unknown_tool";
+    const message = isRepeated
+      ? `该工具当前未注册（${params.call.name}）。不要再次调用同名工具。请使用 mcp_list_tools 查看实际可用工具名，或根据已知工具回答。`
+      : buildUnknownToolHint(params.call.name);
     return finishToolFailure({
       call: params.call,
       toolName: params.call.name,
-      code: "unknown_tool",
-      message: buildUnknownToolHint(params.call.name),
+      code,
+      message,
       recoverable: false,
       stepIndex: params.stepIndex,
       startedAt,
@@ -326,6 +334,24 @@ export async function dispatchToolCalls(params: {
       onEvent: params.onEvent,
     });
     cursor++;
+  }
+
+  // Check if any tool result is a repeated_unknown_tool → fatal
+  for (const msg of toolMessages) {
+    if (!msg) continue;
+    try {
+      const content = typeof msg.content === "string" ? JSON.parse(msg.content) : msg.content;
+      if ((content as any)?.code === "repeated_unknown_tool") {
+        return {
+          toolMessages,
+          stepCount: params.calls.length,
+          fatalErrorCode: "repeated_unknown_tool",
+          fatalErrorMessage: "模型重复调用了未注册工具，本轮已停止。请先使用 mcp_list_tools 查看实际可用工具名。",
+        };
+      }
+    } catch {
+      // Not JSON content, skip
+    }
   }
 
   return {

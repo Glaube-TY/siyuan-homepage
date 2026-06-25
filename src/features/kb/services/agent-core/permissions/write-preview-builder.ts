@@ -498,18 +498,29 @@ function buildMcpManagementPreview(tool: NativeTool, args: Record<string, unknow
     const endpoint = transport === "stdio"
       ? (typeof server.command === "string" ? server.command : "")
       : (typeof server.url === "string" ? server.url : "");
+    const auth = server.auth && typeof server.auth === "object" ? server.auth as Record<string, unknown> : undefined;
+    const authType = auth ? String(auth.type ?? "none") : undefined;
+    const hasBearerToken = auth ? !!auth.bearerToken : false;
+    const hasApiKey = auth ? !!auth.apiKey : false;
+    const headerKeys = auth?.headers && typeof auth.headers === "object" ? Object.keys(auth.headers as Record<string, unknown>) : [];
+    const envKeys = server.env && typeof server.env === "object" ? Object.keys(server.env as Record<string, unknown>) : [];
     return {
       toolName: tool.name,
       title: "保存 MCP Server 配置",
       readOnly: false,
       risk: "medium",
-      argsPreview: { id, title, transport, endpoint },
+      argsPreview: { id, title, transport, endpoint, ...(authType ? { authType, hasBearerToken, hasApiKey, headerKeys } : {}), ...(envKeys.length > 0 ? { envKeys } : {}) },
       summary: [
         `Server：${title || id}`,
         `传输：${transport}`,
         endpoint ? `入口：${endpoint}` : "入口：未提供",
+        authType && authType !== "none" ? `认证：${authType}` : "认证：无",
+        hasBearerToken ? "已包含 Bearer Token" : "",
+        hasApiKey ? "已包含 API Key" : "",
+        headerKeys.length > 0 ? `附加 Header：${headerKeys.join(", ")}` : "",
+        envKeys.length > 0 ? `环境变量：${envKeys.join(", ")}` : "",
         "将写入 notebrain/mcp/servers.json。保存后仍需要同步 tools/list 才会暴露工具。",
-      ].join("\n"),
+      ].filter(Boolean).join("\n"),
     };
   }
 

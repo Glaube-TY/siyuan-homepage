@@ -102,6 +102,7 @@ export const DEFAULT_KB_SETTINGS: KbSettings = {
   previewMatchWeight: 3,
   agentReadMaxCharsPerDoc: 12000,
   agentThinkingEnabled: false,
+  agentMaxToolCallsPerTurn: 10,
   /** 聊天模型提供商列表（默认为空，用户需从预设添加） */
   chatProviders: [],
   /** 当前选中的聊天提供商 ID（默认为空） */

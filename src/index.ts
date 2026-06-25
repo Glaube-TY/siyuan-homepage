@@ -33,6 +33,7 @@ import { destroySelectionAiActionMenu } from "@/features/kb/services/selection-a
 import { createSelectionAiToolbarItems, removeSelectionAiToolbarItems } from "@/features/kb/services/selection-ai/selection-ai-menu";
 import { initSelectionAiToolbarPointerTracker, destroySelectionAiToolbarPointerTracker } from "@/features/kb/services/selection-ai/selection-ai-toolbar-pointer-tracker";
 import type { SelectionAiToolbarSettings } from "@/features/kb/services/selection-ai/selection-ai-types";
+import { pushAgentDebugEvent } from "@/features/kb/services/agent-workbench/debug/workbench-debug";
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
 
@@ -96,6 +97,7 @@ export default class PluginHomepage extends Plugin {
     private kbChatInstance: Record<string, any> | null = null;
     private kbChatTabDiv: HTMLDivElement | null = null;
     private kbDockInstance: Record<string, any> | null = null;
+    private kbDockRegistered = false;
     private sidebarDockInstance: Record<string, any> | null = null;
     private homepageTabObserver: MutationObserver | null = null;
     private customTabsRegistered = false;
@@ -446,6 +448,7 @@ export default class PluginHomepage extends Plugin {
             }
             this.kbDockInstance = null;
         }
+        this.kbDockRegistered = false;
 
         // 断开主页 tab 连接状态观察器
         if (this.homepageTabObserver) {
@@ -1122,19 +1125,60 @@ export default class PluginHomepage extends Plugin {
     }
 
     private findKbDockButton(): HTMLElement | null {
-        const root = document.querySelector("#dockRight") ?? document;
-        const selectors = [
-            `.dock__item[data-type="${this.name}${KB_DOCK_TYPE}"]`,
+        const exactSelector = `.dock__item[data-type="${this.name}${KB_DOCK_TYPE}"]`;
+        const fuzzySelectors = [
             `.dock__item[data-type$="${KB_DOCK_TYPE}"]`,
             `.dock__item[data-type*="${KB_DOCK_TYPE}"]`,
             `.dock__item[data-title="AI 知识库对话"]`,
             `.dock__item[aria-label*="AI 知识库对话"]`,
         ];
-        for (const selector of selectors) {
-            const el = root.querySelector(selector) as HTMLElement | null;
-            if (el) return el;
+
+        // Collect all candidates: [element, dockContainerId or null]
+        const candidates: Array<{ el: HTMLElement; container: string | null }> = [];
+
+        // Search each dock container by priority, then document-wide
+        const dockContainers = ["#dockRight", "#dockLeft", "#dockBottom"];
+        for (const containerId of dockContainers) {
+            const container = document.querySelector(containerId);
+            if (!container) continue;
+            const el = container.querySelector(exactSelector) as HTMLElement | null;
+            if (el) candidates.push({ el, container: containerId });
         }
-        return null;
+
+        // If exact selector found nothing, try document-wide
+        if (candidates.length === 0) {
+            const el = document.querySelector(exactSelector) as HTMLElement | null;
+            if (el) {
+                const container = el.closest("#dockRight, #dockLeft, #dockBottom");
+                candidates.push({ el, container: container?.id ?? null });
+            }
+        }
+
+        // If still nothing, fall back to fuzzy selectors document-wide
+        if (candidates.length === 0) {
+            for (const selector of fuzzySelectors) {
+                const el = document.querySelector(selector) as HTMLElement | null;
+                if (el) {
+                    const container = el.closest("#dockRight, #dockLeft, #dockBottom");
+                    candidates.push({ el, container: container?.id ?? null });
+                    break;
+                }
+            }
+        }
+
+        if (candidates.length === 0) return null;
+
+        // Preference: active button > visible button > first found
+        const active = candidates.find((c) => c.el.classList.contains("dock__item--active"));
+        if (active) return active.el;
+
+        const visible = candidates.find((c) => {
+            const style = getComputedStyle(c.el);
+            return style.display !== "none" && style.visibility !== "hidden";
+        });
+        if (visible) return visible.el;
+
+        return candidates[0].el;
     }
 
     private isKbDockContainerMounted(): boolean {
@@ -1170,42 +1214,118 @@ export default class PluginHomepage extends Plugin {
         return false;
     }
 
+    private async waitForKbDockButton(timeoutMs = 3000): Promise<HTMLElement | null> {
+        const found = this.findKbDockButton();
+        if (found) return found;
+        const step = 80;
+        let elapsed = 0;
+        while (elapsed < timeoutMs) {
+            await new Promise((r) => setTimeout(r, step));
+            elapsed += step;
+            const btn = this.findKbDockButton();
+            if (btn) return btn;
+        }
+        return null;
+    }
+
+    private getKbDockButtonSide(button: HTMLElement | null): "right" | "left" | "bottom" | "unknown" {
+        if (!button) return "unknown";
+        if (button.closest("#dockRight")) return "right";
+        if (button.closest("#dockLeft")) return "left";
+        if (button.closest("#dockBottom")) return "bottom";
+        return "unknown";
+    }
+
     public async openKbDock(): Promise<boolean> {
         if (this.isMobileFrontend()) {
+            pushAgentDebugEvent("SELECTION_AI_DOCK_OPEN_FAILED", {
+                reason: "mobile_frontend",
+                isMobile: true,
+            }, "warn");
             showMessage("移动端请使用 AI 知识库标签页", 3000);
             return false;
         }
 
         const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
         if (config.aiKbDockEnabled === false) {
+            pushAgentDebugEvent("SELECTION_AI_DOCK_OPEN_FAILED", {
+                reason: "ai_kb_dock_disabled",
+                isMobile: false,
+            }, "warn");
             showMessage("此功能需要开启 AI 知识库侧边栏，请在主页设置中启用「开启侧边栏对话」", 3000);
             return false;
         }
 
-        if (this.isKbDockChatReady()) {
-            return true;
+        pushAgentDebugEvent("SELECTION_AI_DOCK_OPEN_START", {
+            isMobile: false,
+            dockRegistered: this.kbDockRegistered,
+            chatReady: this.isKbDockChatReady(),
+        }, "info");
+
+        // 确保 dock 已注册（幂等守护，不会重复 addDock）
+        if (!this.kbDockRegistered) {
+            this.registerKbDock();
         }
 
-        const layout = (window as any).siyuan?.layout;
-        layout?.rightDock?.showDock?.(true);
-
-        const dockButton = this.findKbDockButton();
+        // 等待 dock 按钮出现在 DOM 中（addDock 后可能延迟）
+        const dockButton = await this.waitForKbDockButton();
         if (!dockButton) {
-            showMessage("未能自动打开 AI 知识库侧边栏，请先点击右侧「AI 知识库对话」按钮后再使用选区问答", 4000);
+            pushAgentDebugEvent("SELECTION_AI_DOCK_BUTTON_MISSING", {
+                hasButton: false,
+            }, "warn");
+            showMessage("未能自动打开 AI 知识库侧边栏，请确认已开启侧边栏对话后重试。", 4000);
             return false;
         }
 
-        if (!dockButton.classList.contains("dock__item--active")) {
+        // 判断 dock 按钮所在位置，打开对应侧栏
+        const dockSide = this.getKbDockButtonSide(dockButton);
+        const layout = (window as any).siyuan?.layout;
+        const hasDockApi = !!layout;
+
+        switch (dockSide) {
+            case "left":
+                layout?.leftDock?.showDock?.(true);
+                break;
+            case "bottom":
+                layout?.bottomDock?.showDock?.(true);
+                break;
+            case "right":
+            default:
+                layout?.rightDock?.showDock?.(true);
+                break;
+        }
+
+        pushAgentDebugEvent("SELECTION_AI_DOCK_SHOW_DOCK", {
+            dockSide,
+            hasDockApi,
+        }, "info");
+
+        const buttonActive = dockButton.classList.contains("dock__item--active");
+        pushAgentDebugEvent("SELECTION_AI_DOCK_BUTTON_FOUND", {
+            hasButton: true,
+            buttonActive,
+            dockSide,
+        }, "info");
+
+        if (!buttonActive) {
             dockButton.click();
         }
 
         const containerMounted = await this.waitForKbDockContainerMounted();
+        pushAgentDebugEvent("SELECTION_AI_DOCK_CONTAINER_READY", {
+            containerMounted,
+        }, "info");
+
         if (!containerMounted) {
-            showMessage("未能自动打开 AI 知识库侧边栏，请先点击右侧「AI 知识库对话」按钮后再使用选区问答", 4000);
+            showMessage("未能自动打开 AI 知识库侧边栏，请确认已开启侧边栏对话后重试。", 4000);
             return false;
         }
 
         const chatReady = await this.waitForKbDockChatReady();
+        pushAgentDebugEvent("SELECTION_AI_DOCK_CHAT_READY", {
+            chatReady,
+        }, "info");
+
         if (chatReady) {
             return true;
         }
@@ -1292,6 +1412,8 @@ export default class PluginHomepage extends Plugin {
     }
 
     private registerKbDock() {
+        if (this.kbDockRegistered) return;
+
         this.addDock({
             config: {
                 position: "RightTop",
@@ -1351,6 +1473,9 @@ export default class PluginHomepage extends Plugin {
                 }
             },
         });
+
+        this.kbDockRegistered = true;
+        pushAgentDebugEvent("SELECTION_AI_DOCK_REGISTERED", { dockRegistered: true, isMobile: this.isMobile }, "info");
     }
 
     // 校验并规范化 docId

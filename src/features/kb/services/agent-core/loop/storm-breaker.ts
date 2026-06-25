@@ -23,6 +23,7 @@ function buildGuardKey(toolName: string, args: Record<string, unknown>): string 
 export class StormBreaker {
   private readonly successfulWriteCalls = new Set<string>();
   private readonly readCallHistory = new Set<string>();
+  private readonly unknownToolHistory = new Set<string>();
 
   shouldBlockWrite(toolCall: AgentToolCall, args: Record<string, unknown>): boolean {
     const key = buildGuardKey(toolCall.name, args);
@@ -45,6 +46,16 @@ export class StormBreaker {
     if (this.readCallHistory.has(key)) return false;
     this.readCallHistory.add(key);
     return true;
+  }
+
+  /**
+   * Returns true if this unknown tool name has been seen before in this turn.
+   * First occurrence returns false and records the name.
+   */
+  tryRecordUnknownTool(toolName: string): boolean {
+    if (this.unknownToolHistory.has(toolName)) return true;
+    this.unknownToolHistory.add(toolName);
+    return false;
   }
 }
 

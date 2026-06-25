@@ -233,7 +233,7 @@ export function clearSchemaSanity(): void {
 
 /** Parameters for pushMcpDebugEvent — time is auto-set. */
 export interface McpDebugEventParams {
-  action: "spawn" | "spawn_error" | "initialize" | "initialize_error" | "tools_list" | "tools_list_error" | "tool_call" | "tool_call_error" | "close";
+  action: "spawn" | "spawn_error" | "initialize" | "initialize_error" | "tools_list" | "tools_list_error" | "tool_call" | "tool_call_error" | "close" | "auth_decrypt_failed";
   serverId?: string;
   transport?: string;
   command?: string;
@@ -255,6 +255,8 @@ export interface McpDebugEventParams {
   notebrainRootAbsolutePath?: string;
   /** First entry of PATH env (to confirm which npx/node is used). */
   envPathHead?: string;
+  /** Auth type for debug (none/bearer/apiKey/customHeaders/oauth2). */
+  authType?: string;
 }
 
 export interface McpDebugEvent extends McpDebugEventParams {

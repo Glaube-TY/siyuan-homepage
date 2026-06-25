@@ -45,6 +45,9 @@
     let advanced: boolean = $state(false);
     let sortable: Sortable | null = null;
     let mobileHomepageInitialized = false;
+    let initInFlight: Promise<void> | null = null;
+    let restoreVersion = 0;
+    let destroyed = false;
     let widgetEventsBound = false;
 
     let mobileHomepageWidgetContainer: HTMLElement | null = $state(null);
@@ -113,61 +116,74 @@
     }
 
     async function initMobileHomepageLayout(): Promise<void> {
-        await tick();
-
-        const container = mobileHomepageWidgetContainer;
-        if (!container) {
-            console.warn("mobileHomepageWidgetContainer not available");
-            return;
+        // Single-flight: if already initializing, wait for that one
+        if (initInFlight) {
+            return initInFlight;
         }
 
-        if (!widgetEventsBound) {
-            container.addEventListener("mobile-widget-action", handleWidgetAction as EventListener);
-            container.addEventListener("mobile-widget-longpress", handleWidgetLongPress as EventListener);
-            container.addEventListener("mobile-widget-refreshed", handleWidgetRefreshed as EventListener);
-            widgetEventsBound = true;
+        const version = ++restoreVersion;
+
+        initInFlight = (async () => {
+            await tick();
+
+            const container = mobileHomepageWidgetContainer;
+            if (!container) return;
+
+            if (destroyed) return;
+
+            if (!widgetEventsBound) {
+                container.addEventListener("mobile-widget-action", handleWidgetAction as EventListener);
+                container.addEventListener("mobile-widget-longpress", handleWidgetLongPress as EventListener);
+                container.addEventListener("mobile-widget-refreshed", handleWidgetRefreshed as EventListener);
+                widgetEventsBound = true;
+            }
+
+            if (sortable) {
+                sortable.destroy();
+                sortable = null;
+            }
+
+            sortable = new Sortable(container, {
+                animation: 150,
+                ghostClass: "mobile-sortable-ghost",
+                chosenClass: "mobile-sortable-chosen",
+                dragClass: "mobile-sortable-drag",
+                handle: ".mobile-widget-drag-handle",
+                delay: 180,
+                delayOnTouchOnly: true,
+                touchStartThreshold: 5,
+                filter: "button,input,textarea,select,a,[role='button']",
+                preventOnFilter: false,
+                disabled: true,
+                onEnd: async () => {
+                    if (editMode && activeCategory === "all") {
+                        await saveLayout(plugin, mobileHomepageWidgetContainer);
+                        await applyCategoryFilter();
+                    }
+                },
+            });
+
+            await restoreLayout(plugin, currentBlockForSettingsRef, mobileHomepageWidgetContainer, {
+                previewMode,
+            });
+
+            // If a newer restore started or container was destroyed, skip post-processing
+            if (version !== restoreVersion || destroyed) return;
+
+            await applyCategoryFilter();
+            syncWidgetCount();
+            updateSortableState();
+        })();
+
+        try {
+            await initInFlight;
+        } finally {
+            initInFlight = null;
         }
-
-        if (mobileHomepageInitialized) {
-            return;
-        }
-
-        mobileHomepageInitialized = true;
-
-        if (sortable) {
-            sortable.destroy();
-            sortable = null;
-        }
-
-        sortable = new Sortable(container, {
-            animation: 150,
-            ghostClass: "mobile-sortable-ghost",
-            chosenClass: "mobile-sortable-chosen",
-            dragClass: "mobile-sortable-drag",
-            handle: ".mobile-widget-drag-handle",
-            delay: 180,
-            delayOnTouchOnly: true,
-            touchStartThreshold: 5,
-            filter: "button,input,textarea,select,a,[role='button']",
-            preventOnFilter: false,
-            disabled: true,
-            onEnd: async () => {
-                if (editMode && activeCategory === "all") {
-                    await saveLayout(plugin, mobileHomepageWidgetContainer);
-                    await applyCategoryFilter();
-                }
-            },
-        });
-
-        await restoreLayout(plugin, currentBlockForSettingsRef, mobileHomepageWidgetContainer, {
-            previewMode,
-        });
-        await applyCategoryFilter();
-        syncWidgetCount();
-        updateSortableState();
     }
 
     function cleanupSortableState(): void {
+        destroyed = true;
         if (sortable) {
             sortable.destroy();
             sortable = null;
@@ -272,7 +288,7 @@
     async function handleContentConfirm(contentTypeJson: string): Promise<void> {
         if (!contentSheet) return;
 
-        let block = document.getElementById(contentSheet.blockId) as HTMLElement | null;
+        let block = mobileHomepageWidgetContainer?.querySelector(`#${CSS.escape(contentSheet.blockId)}`) as HTMLElement | null;
         if (contentSheet.isNew) {
             const created = createMobileWidgetBlock(
                 plugin,
@@ -344,7 +360,6 @@
 
         const handleAdvancedReady = async () => {
             advanced = true;
-            mobileHomepageInitialized = false;
             await tick();
             await initMobileHomepageLayout();
         };
@@ -366,7 +381,8 @@
             window.removeEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
             cleanupSortableState();
 
-            const container = mobileHomepageWidgetContainer || document.querySelector(".mobile-homepage-widget");
+            // Only clean up our own container instance
+            const container = mobileHomepageWidgetContainer;
             if (container) {
                 const widgetBlocks = container.querySelectorAll(".widget-block");
                 widgetBlocks.forEach((block) => {
@@ -402,20 +418,6 @@
     class:mobile-homepage--preview={previewMode}
 >
     {#if advanced}
-        <header class="mobile-homepage-topbar">
-            <div class="mobile-homepage-title">
-                <strong>移动主页</strong>
-            </div>
-            <div class="mobile-homepage-top-actions">
-                <button type="button" class="mobile-homepage-text-button" onclick={() => void toggleEditMode()}>
-                    {editMode ? "完成" : "编辑"}
-                </button>
-                <button type="button" class="mobile-homepage-icon-button" aria-label="关闭" onclick={close}>
-                    <SiyuanIcon name="cancel" size={16} />
-                </button>
-            </div>
-        </header>
-
         <nav class="mobile-homepage-nav" aria-label="移动主页分类">
             {#each MOBILE_WIDGET_CATEGORIES as category}
                 <button
@@ -451,6 +453,10 @@
             <button type="button" onclick={() => void refreshAllWidgets()}>
                 <SiyuanIcon name="refresh" size={16} />
                 <span>刷新</span>
+            </button>
+            <button type="button" onclick={() => void toggleEditMode()}>
+                <SiyuanIcon name="edit" size={16} />
+                <span>{editMode ? "完成" : "编辑"}</span>
             </button>
             <button type="button" onclick={close}>
                 <SiyuanIcon name="previous" size={16} />

@@ -8,6 +8,14 @@ type MobileWidgetEventName =
     | "mobile-widget-longpress"
     | "mobile-widget-refreshed";
 
+function createMobileWidgetId(): string {
+    try {
+        return `block-${crypto.randomUUID()}`;
+    } catch {
+        return `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+}
+
 export class WidgetBlock {
     public element: HTMLElement;
     public readonly id: string;
@@ -29,7 +37,7 @@ export class WidgetBlock {
         loadcontent?: string,
         runtimeContext: { previewMode?: boolean } = {},
     ) {
-        this.id = id || `block-${Date.now()}`;
+        this.id = id || createMobileWidgetId();
         this.plugin = plugin;
         this.currentBlockForSettingsRef = currentBlockForSettingsRef;
         this.previewMode = runtimeContext.previewMode ?? false;

@@ -21,6 +21,29 @@ function normalizeLayoutItems(items: unknown): LayoutItem[] {
     return items.map(normalizeLayoutItem).filter((item): item is LayoutItem => !!item);
 }
 
+/**
+ * Deduplicate layout items by id. When the same id appears multiple times,
+ * keeps the LAST occurrence (most recent = user's last drag/save state).
+ * Drops items with empty id. Returns sequential indices.
+ */
+function dedupeLayoutItems(items: LayoutItem[]): { items: LayoutItem[]; changed: boolean } {
+    const seen = new Map<string, LayoutItem>();
+    const order: string[] = [];
+    for (const item of items) {
+        if (!item.id) continue;
+        if (!seen.has(item.id)) {
+            order.push(item.id);
+        }
+        seen.set(item.id, item);
+    }
+    const changed = order.length !== items.length;
+    const deduped = order.map((id, index) => {
+        const item = seen.get(id)!;
+        return { ...item, index };
+    });
+    return { items: deduped, changed };
+}
+
 function getFirstProfileOrder(layout: WidgetLayoutData | null): LayoutItem[] {
     if (!layout?.profiles) return [];
     for (const profile of Object.values(layout.profiles)) {
@@ -32,12 +55,12 @@ function getFirstProfileOrder(layout: WidgetLayoutData | null): LayoutItem[] {
 
 function getMobileOrder(layout: WidgetLayoutData | null): LayoutItem[] {
     const defaultOrder = normalizeLayoutItems(layout?.defaultOrder);
-    if (defaultOrder.length > 0) return defaultOrder;
+    if (defaultOrder.length > 0) return dedupeLayoutItems(defaultOrder).items;
 
     const legacyOrder = normalizeLayoutItems(layout?.order);
-    if (legacyOrder.length > 0) return legacyOrder;
+    if (legacyOrder.length > 0) return dedupeLayoutItems(legacyOrder).items;
 
-    return getFirstProfileOrder(layout);
+    return dedupeLayoutItems(getFirstProfileOrder(layout)).items;
 }
 
 function destroyExistingWidgets(container: Element): void {
@@ -55,13 +78,14 @@ function destroyExistingWidgets(container: Element): void {
 }
 
 function readCurrentOrder(container: Element): LayoutItem[] {
-    return Array.from(container.children)
+    const raw = Array.from(container.children)
         .filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains("widget-block"))
         .map((widgetBlockElement, index) => ({
             id: widgetBlockElement.id,
             style: widgetBlockElement.getAttribute("style"),
             index,
         }));
+    return dedupeLayoutItems(raw).items;
 }
 
 export async function saveLayout(plugin: Plugin, containerEl?: HTMLElement | null): Promise<void> {
@@ -87,6 +111,19 @@ export async function restoreLayout(
     if (!container) return;
 
     const layout = (await plugin.loadData(MOBILE_LAYOUT_FILE)) as WidgetLayoutData | null;
+
+    // Auto-repair: detect and fix duplicate widgets in the stored layout
+    const rawOrder = normalizeLayoutItems(layout?.defaultOrder) || normalizeLayoutItems(layout?.order) || [];
+    const dedupeResult = dedupeLayoutItems(rawOrder);
+    if (dedupeResult.changed) {
+        const fixedLayout: WidgetLayoutData = {
+            ...layout,
+            defaultOrder: dedupeResult.items,
+            order: undefined,
+        };
+        await plugin.saveData(MOBILE_LAYOUT_FILE, fixedLayout);
+    }
+
     const order = getMobileOrder(layout);
 
     destroyExistingWidgets(container);

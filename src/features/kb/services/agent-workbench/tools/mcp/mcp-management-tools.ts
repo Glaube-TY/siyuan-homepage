@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpSettings, RuntimeToolsSettings } from "../../../../types/settings";
 import type { ToolContract, ToolResult } from "../../contracts/tool-contract";
+import type { McpServerConfig } from "../../mcp/mcp-types";
 import {
   loadMcpServers,
   normalizeMcpServerConfig,
@@ -22,7 +23,23 @@ const serverConfigSchema = z.object({
   url: z.string().optional(),
   timeoutMs: z.number().int().positive().optional(),
   trusted: z.boolean().optional(),
-}).strict();
+  auth: z.object({
+    type: z.enum(["none", "bearer", "apiKey", "customHeaders", "oauth2"]).optional().default("none"),
+    bearerToken: z.string().optional(),
+    apiKey: z.string().optional(),
+    apiKeyHeaderName: z.string().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    oauth: z.object({
+      clientId: z.string().optional(),
+      authorizationEndpoint: z.string().optional(),
+      tokenEndpoint: z.string().optional(),
+      scopes: z.array(z.string()).optional(),
+      accessToken: z.string().optional(),
+      refreshToken: z.string().optional(),
+      expiresAt: z.number().optional(),
+    }).optional(),
+  }).optional(),
+});
 
 const saveServerInputSchema = z.object({
   server: serverConfigSchema,
@@ -44,6 +61,90 @@ function mcpEnabled(settings: McpSettings) {
   return settings.enabled === true;
 }
 
+/**
+ * Redact sensitive arguments in a command-line args array for ToolResult display.
+ * Handles paired flags (--token xxx), KEY=VALUE, and enc:v1.
+ */
+function redactMcpArgsPreview(args: string[]): string[] {
+  const sensitiveFlags = new Set([
+    "--token", "--api-key", "--apikey", "--key", "--secret", "--password",
+    "-t", "-k",
+  ]);
+  const result: string[] = [];
+  let nextRedacted = false;
+  for (const arg of args) {
+    if (nextRedacted) {
+      result.push("***");
+      nextRedacted = false;
+      continue;
+    }
+    const lower = arg.toLowerCase();
+    if (sensitiveFlags.has(lower)) {
+      result.push(arg);
+      nextRedacted = true;
+      continue;
+    }
+    const eqIdx = arg.indexOf("=");
+    if (eqIdx > 0) {
+      const key = arg.slice(0, eqIdx);
+      if (/key|token|secret|password|authorization|access_token|refresh_token|client_secret|accessToken|refreshToken|clientSecret/i.test(key)) {
+        result.push(`${key}=***`);
+        continue;
+      }
+    }
+    if (/^enc:v1:/i.test(arg)) {
+      result.push("enc:v1:***");
+      continue;
+    }
+    result.push(arg);
+  }
+  return result;
+}
+
+/**
+ * Sanitize a server config for ToolResult — removes all secrets.
+ * Returns only metadata + existence flags, never plaintext tokens or enc:v1.
+ */
+function sanitizeMcpServerForToolResult(server: McpServerConfig): Record<string, unknown> {
+  const auth = server.auth;
+  const result: Record<string, unknown> = {
+    id: server.id,
+    title: server.title,
+    enabled: server.enabled,
+    transport: server.transport,
+    timeoutMs: server.timeoutMs,
+    trusted: server.trusted,
+    ...(server.url ? { url: server.url } : {}),
+    ...(server.command ? { command: server.command } : {}),
+    ...(server.args ? {
+      argsCount: server.args.length,
+      argsPreview: redactMcpArgsPreview(server.args).slice(0, 10),
+    } : {}),
+  };
+  if (auth) {
+    result.auth = {
+      type: auth.type,
+      hasBearerToken: !!auth.bearerToken,
+      hasApiKey: !!auth.apiKey,
+      headerKeys: auth.headers ? Object.keys(auth.headers) : [],
+      hasOauth: !!auth.oauth,
+      hasOauthAccessToken: !!auth.oauth?.accessToken,
+      hasOauthRefreshToken: !!auth.oauth?.refreshToken,
+    };
+  }
+  if (server.env) {
+    result.envKeys = Object.keys(server.env);
+  }
+  return result;
+}
+
+function redactMcpSyncError(message: string): string {
+  return message
+    .replace(/(["']?\s*Authorization\s*:\s*Bearer\s+)\S+/gi, "$1***")
+    .replace(/(\b(token|api[_-]?key|apiKey|secret|password|access_token|refresh_token|client_secret|accessToken|refreshToken|clientSecret)\s*[:=]\s*)([^\s,;"'}]+)/gi, "$1***")
+    .replace(/enc:v1:[A-Za-z0-9+/=]+/g, "enc:v1:***");
+}
+
 export function createMcpListServersTool(settings: McpSettings): ToolContract {
   return {
     name: "mcp_list_servers",
@@ -63,7 +164,8 @@ export function createMcpListServersTool(settings: McpSettings): ToolContract {
     },
     async execute(): Promise<ToolResult> {
       const file = await loadMcpServers();
-      return { ok: true, data: { total: file.servers.length, servers: file.servers } };
+      const servers = file.servers.map(sanitizeMcpServerForToolResult);
+      return { ok: true, data: { total: servers.length, servers } };
     },
   };
 }
@@ -72,7 +174,7 @@ export function createMcpSaveServerTool(settings: McpSettings): ToolContract<z.i
   return {
     name: "mcp_save_server",
     title: "保存 MCP Server 配置",
-    description: "新增或更新 Notebrain MCP Server 配置，写入 notebrain/mcp/servers.json。保存后还需要 mcp_sync_tools 同步工具。",
+    description: "新增或更新 Notebrain MCP Server 配置，写入 notebrain/mcp/servers.json。可保存带认证的远程 MCP（Bearer Token / API Key / 自定义 Headers / OAuth），密钥会加密保存。保存后还需要 mcp_sync_tools 同步工具。",
     inputSchema: saveServerInputSchema,
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.mcp" },
@@ -143,7 +245,7 @@ export function createMcpSaveServerTool(settings: McpSettings): ToolContract<z.i
         }
       }
       const file = await upsertMcpServer(normalized);
-      return { ok: true, data: { server: normalized, total: file.servers.length } };
+      return { ok: true, data: { server: sanitizeMcpServerForToolResult(normalized), total: file.servers.length } };
     },
   };
 }
@@ -206,7 +308,7 @@ export function createMcpSyncToolsTool(settings: McpSettings, runtimeTools?: Run
         try {
           results.push(await syncMcpServerTools(server, runtimeTools));
         } catch (err) {
-          const message = err instanceof Error ? err.message : "同步 MCP 工具失败。";
+          const message = err instanceof Error ? redactMcpSyncError(err.message) : "同步 MCP 工具失败。";
           errors.push({ serverId: server.id, error: message });
         }
       }

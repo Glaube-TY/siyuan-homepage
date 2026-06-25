@@ -12,6 +12,15 @@ import { getNotebrainRuntimeEnvironment } from "../../../agent-workbench/workspa
 import { pushAgentDebugEvent } from "../../../agent-workbench/debug/workbench-debug";
 import type { McpServerConfig, McpToolIndexEntry } from "../../../agent-workbench/mcp/mcp-types";
 
+/** Belt-and-suspenders: redact any remaining secrets in error messages before ToolResult. */
+function redactErrorMessage(msg: string): string {
+  return msg
+    .replace(/(["']?\s*Authorization\s*:\s*Bearer\s+)\S+/gi, "$1***")
+    .replace(/(["']?\s*Bearer\s+)\S+/gi, "$1***")
+    .replace(/(\b(token|api[_-]?key|apiKey|secret|password|access_token|refresh_token|client_secret|accessToken|refreshToken|clientSecret)\s*[:=]\s*)([^\s,;"'}]+)/gi, "$1***")
+    .replace(/enc:v1:[A-Za-z0-9+/=]+/g, "enc:v1:***");
+}
+
 function scoreTool(question: string, tool: McpToolIndexEntry): number {
   const q = question.toLowerCase();
   const haystack = [
@@ -169,7 +178,8 @@ function createNativeMcpTool(params: {
           }),
         };
       } catch (err) {
-        const message = err instanceof Error ? err.message : "MCP 工具调用失败。";
+        const rawMessage = err instanceof Error ? err.message : "MCP 工具调用失败。";
+        const message = redactErrorMessage(rawMessage);
         return {
           ok: false,
           summary: message,

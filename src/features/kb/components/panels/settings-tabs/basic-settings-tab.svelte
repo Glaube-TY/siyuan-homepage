@@ -46,18 +46,20 @@
         <div class="setting-desc">控制 AI 回答气泡底部图标按钮的对齐方式。</div>
       </div>
 
-      <div class="segmented-control" role="group" aria-label="AI 回答操作按钮位置">
-        {#each alignmentOptions as option}
-          <button
-            type="button"
-            class:active={settings.assistantActionAlignment === option.value}
-            on:click={() => setAlignment(option.value)}
-            title={option.label}
-          >
-            <SiyuanIcon name={option.icon} size={14} />
-            <span>{option.label}</span>
-          </button>
-        {/each}
+      <div class="setting-action">
+        <div class="segmented-control" role="group" aria-label="AI 回答操作按钮位置">
+          {#each alignmentOptions as option}
+            <button
+              type="button"
+              class:active={settings.assistantActionAlignment === option.value}
+              on:click={() => setAlignment(option.value)}
+              title={option.label}
+            >
+              <SiyuanIcon name={option.icon} size={14} />
+              <span>{option.label}</span>
+            </button>
+          {/each}
+        </div>
       </div>
     </div>
 
@@ -67,16 +69,18 @@
         <div class="setting-desc">控制工具执行过程中工作台事件的折叠状态。自动模式下生成时展开，完成后折叠。</div>
       </div>
 
-      <div class="segmented-control" role="group" aria-label="处理过程折叠">
-        {#each processModeOptions as option}
-          <button
-            type="button"
-            class:active={settings.workbenchProcessDisplayMode === option.value}
-            on:click={() => setWorkbenchProcessMode(option.value)}
-          >
-            <span>{option.label}</span>
-          </button>
-        {/each}
+      <div class="setting-action">
+        <div class="segmented-control" role="group" aria-label="处理过程折叠">
+          {#each processModeOptions as option}
+            <button
+              type="button"
+              class:active={settings.workbenchProcessDisplayMode === option.value}
+              on:click={() => setWorkbenchProcessMode(option.value)}
+            >
+              <span>{option.label}</span>
+            </button>
+          {/each}
+        </div>
       </div>
     </div>
 
@@ -86,16 +90,38 @@
         <div class="setting-desc">控制 AI 推理思考过程的折叠状态。自动模式下生成时展开，完成后折叠。</div>
       </div>
 
-      <div class="segmented-control" role="group" aria-label="思考过程折叠">
-        {#each processModeOptions as option}
-          <button
-            type="button"
-            class:active={settings.reasoningProcessDisplayMode === option.value}
-            on:click={() => setReasoningProcessMode(option.value)}
-          >
-            <span>{option.label}</span>
-          </button>
-        {/each}
+      <div class="setting-action">
+        <div class="segmented-control" role="group" aria-label="思考过程折叠">
+          {#each processModeOptions as option}
+            <button
+              type="button"
+              class:active={settings.reasoningProcessDisplayMode === option.value}
+              on:click={() => setReasoningProcessMode(option.value)}
+            >
+              <span>{option.label}</span>
+            </button>
+          {/each}
+        </div>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-copy">
+        <div class="setting-title">Agent 每轮最大工具调用次数</div>
+        <div class="setting-desc">
+          控制一次提问中 Agent 最多能调用多少次工具。
+        </div>
+      </div>
+      <div class="setting-action">
+        <input
+          class="number-input"
+          type="number"
+          min="1"
+          max="50"
+          step="1"
+          value={settings.agentMaxToolCallsPerTurn}
+          on:input={(e) => settings = { ...settings, agentMaxToolCallsPerTurn: Number(e.currentTarget.value) || 10 }}
+        />
       </div>
     </div>
   </section>
@@ -133,10 +159,39 @@
     justify-content: space-between;
     gap: $kb-space-lg;
     padding: $kb-space-md 0;
+    flex-wrap: wrap;
   }
 
   .setting-copy {
     min-width: 0;
+    flex: 1;
+  }
+
+  .setting-action {
+    width: min(250px, 35vw);
+    flex-shrink: 0;
+    display: flex;
+    justify-content: flex-end;
+
+    @media (max-width: 480px) {
+      width: 100%;
+    }
+  }
+
+  .setting-action .segmented-control {
+    width: 100%;
+  }
+
+  .setting-action .number-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 6px;
+    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-surface);
+    font-size: 13px;
+    text-align: center;
+    box-sizing: border-box;
   }
 
   .setting-title {
@@ -161,8 +216,8 @@
     border: 1px solid var(--b3-border-color);
     border-radius: $kb-radius-md;
     background: var(--b3-theme-surface);
-    flex-shrink: 0;
     box-shadow: $kb-shadow-card;
+    box-sizing: border-box;
   }
 
   .segmented-control button {
@@ -170,7 +225,7 @@
     align-items: center;
     justify-content: center;
     gap: 5px;
-    min-width: 72px;
+    flex: 1;
     height: 30px;
     padding: 0 10px;
     border: none;

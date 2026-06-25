@@ -10,7 +10,14 @@ export function createMobileWidgetBlock(
     runtimeContext: { previewMode?: boolean } = {},
 ): WidgetBlock | null {
     if (!containerEl) return null;
-    const widget = new WidgetBlock(plugin, currentBlockForSettingsRef, id, undefined, "", runtimeContext);
+
+    // Ensure unique ID within the container
+    let finalId = id;
+    if (finalId && containerEl.querySelector(`#${CSS.escape(finalId)}`)) {
+        finalId = undefined; // force generation of a new unique ID
+    }
+
+    const widget = new WidgetBlock(plugin, currentBlockForSettingsRef, finalId, undefined, "", runtimeContext);
     widget.appendTo(containerEl);
     return widget;
 }

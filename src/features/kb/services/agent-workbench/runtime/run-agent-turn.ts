@@ -522,6 +522,7 @@ export async function runAgentTurn(
       autoAllowedToolNames,
       abortSignal: params.abortSignal,
       question: params.question,
+      maxToolCalls: settings.agentMaxToolCallsPerTurn ?? 10,
       onEvent: (event) => {
         emitNativeEvent(event);
         if (event.type === "assistant_text_delta") {

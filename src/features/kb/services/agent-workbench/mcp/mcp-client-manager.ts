@@ -6,6 +6,7 @@ import { quoteWindowsCmdArg } from "../runtime-tools/runtime-tool-detector";
 import type { RuntimeToolsSettings } from "../../../types/settings";
 import { pushMcpDebugEvent } from "../debug/workbench-debug";
 import { resolveNotebrainCommandCwd } from "../workspace/notebrain-runtime-env";
+import { decryptMcpServerSecrets } from "./mcp-config-store";
 
 const JSONRPC_VERSION = "2.0";
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-03-26", "2024-11-05"];
@@ -78,6 +79,145 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * Validate and sanitize MCP auth headers before sending.
+ * - Empty keys are removed
+ * - Keys/values with \\r or \\n are removed (header injection protection)
+ * - Content-type, accept, mcp-protocol-version, mcp-session-id cannot be overridden
+ */
+function sanitizeMcpAuthHeaders(headers: Record<string, string>): Record<string, string> {
+  const result: Record<string, string> = {};
+  const forbiddenKeys = new Set(["content-type", "accept", "mcp-protocol-version", "mcp-session-id"]);
+  for (const [key, value] of Object.entries(headers)) {
+    if (!key || !key.trim()) continue;
+    const lower = key.toLowerCase();
+    if (forbiddenKeys.has(lower)) continue;
+    if (key.includes("\r") || key.includes("\n")) continue;
+    if (value.includes("\r") || value.includes("\n")) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+function hasHeaderCaseInsensitive(headers: Record<string, string>, key: string): boolean {
+  const lowerKey = key.toLowerCase();
+  return Object.keys(headers).some((k) => k.toLowerCase() === lowerKey);
+}
+
+async function resolveMcpAuthHeaders(server: McpServerConfig): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  const auth = server.auth;
+  if (!auth || auth.type === "none") return headers;
+
+  // Decrypt first — decrypt failure produces empty string, not enc:v1
+  const decrypted = await decryptMcpServerSecrets(server);
+  const effectiveAuth = decrypted.auth;
+  if (!effectiveAuth) return headers;
+
+  switch (effectiveAuth.type) {
+    case "bearer":
+      if (effectiveAuth.bearerToken) {
+        headers["authorization"] = `Bearer ${effectiveAuth.bearerToken}`;
+      }
+      break;
+    case "apiKey":
+      if (effectiveAuth.apiKey) {
+        const headerName = effectiveAuth.apiKeyHeaderName || "X-API-Key";
+        headers[headerName] = effectiveAuth.apiKey;
+      }
+      break;
+    case "oauth2":
+      if (effectiveAuth.oauth?.accessToken) {
+        headers["authorization"] = `Bearer ${effectiveAuth.oauth.accessToken}`;
+      }
+      break;
+  }
+
+  // Merge additional auth.headers for all types
+  // For bearer/apiKey/oauth2, don't let extra headers override the primary auth
+  if (effectiveAuth.headers) {
+    for (const [key, value] of Object.entries(effectiveAuth.headers)) {
+      const lower = key.toLowerCase();
+      if (effectiveAuth.type !== "customHeaders") {
+        if (lower === "authorization" || lower === (effectiveAuth.apiKeyHeaderName || "x-api-key").toLowerCase()) {
+          continue;
+        }
+      }
+      headers[key] = value;
+    }
+  }
+
+  return sanitizeMcpAuthHeaders(headers);
+}
+
+/**
+ * Redact sensitive command-line arguments for debug logging.
+ * Flags like --token, --api-key, --key, --secret, --password lose their values.
+ * KEY=VALUE pairs with sensitive key names also get redacted values.
+ */
+function redactMcpArgsPreview(args: string[]): string[] {
+  const sensitiveFlags = new Set(["--token", "--api-key", "--apikey", "--key", "--secret", "--password", "-t", "-k"]);
+  const result: string[] = [];
+  let nextRedacted = false;
+  for (const arg of args) {
+    if (nextRedacted) {
+      result.push("***");
+      nextRedacted = false;
+      continue;
+    }
+    if (sensitiveFlags.has(arg.toLowerCase())) {
+      result.push(arg);
+      nextRedacted = true;
+      continue;
+    }
+    const eqIdx = arg.indexOf("=");
+    if (eqIdx > 0) {
+      const key = arg.slice(0, eqIdx);
+      if (/key|token|secret|password|authorization/i.test(key)) {
+        result.push(`${key}=***`);
+        continue;
+      }
+    }
+    result.push(arg);
+  }
+  return result;
+}
+
+/**
+ * Redact sensitive text for debug/log output.
+ * Covers Authorization: Bearer xxx, token=xxx, KEY=VALUE patterns, etc.
+ */
+function redactMcpSecretText(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/(["']?\s*Authorization\s*:\s*Bearer\s+)\S+/gi, "$1***")
+    .replace(/(["']?\s*X-API-Key\s*:\s*)\S+/gi, "$1***")
+    .replace(/(["']?\s*Bearer\s+)\S+/gi, "$1***")
+    .replace(/(\b(token|api[_-]?key|apiKey|secret|password|access_token|refresh_token|client_secret|accessToken|refreshToken|clientSecret)\s*[:=]\s*)([^\s,;"'}]+)/gi, "$1***")
+    .replace(/enc:v1:[A-Za-z0-9+/=]+/g, "enc:v1:***");
+}
+
+/**
+ * Redact a debug value that may contain object/array/string.
+ * For strings, applies redactMcpSecretText. For objects/arrays, redacts recursively.
+ */
+function redactMcpDebugValue(value: unknown): unknown {
+  if (typeof value === "string") return redactMcpSecretText(value);
+  if (Array.isArray(value)) return value.map(redactMcpDebugValue);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (/key|token|secret|password|authorization/i.test(k)) {
+        out[k] = "***";
+      } else {
+        out[k] = redactMcpDebugValue(v);
+      }
+    }
+    return out;
+  }
+  return value;
 }
 
 function getWindowRequire(): ((id: string) => any) | null {
@@ -168,6 +308,7 @@ class HttpMcpConnection implements MinimalMcpConnection {
   constructor(
     private readonly url: URL,
     private readonly timeoutMs: number,
+    private readonly resolvedHeaders: Record<string, string> = {},
   ) {}
 
   setProtocolVersion(version: string) {
@@ -175,12 +316,19 @@ class HttpMcpConnection implements MinimalMcpConnection {
   }
 
   private buildHeaders(): Record<string, string> {
-    return {
+    const headers: Record<string, string> = {
       "content-type": "application/json",
       "accept": "application/json, text/event-stream",
       "mcp-protocol-version": this.protocolVersion,
       ...(this.sessionId ? { "mcp-session-id": this.sessionId } : {}),
     };
+    // Merge user auth headers LAST so they cannot override MCP protocol headers
+    for (const [key, value] of Object.entries(this.resolvedHeaders)) {
+      const lower = key.toLowerCase();
+      if (lower === "content-type" || lower === "accept" || lower === "mcp-protocol-version" || lower === "mcp-session-id") continue;
+      headers[key] = value;
+    }
+    return headers;
   }
 
   async request(method: string, params?: Record<string, unknown>): Promise<any> {
@@ -239,9 +387,22 @@ class SseMcpConnection implements MinimalMcpConnection {
   constructor(
     private readonly url: URL,
     private readonly timeoutMs: number,
+    private readonly resolvedHeaders: Record<string, string> = {},
   ) {}
 
   async start(): Promise<void> {
+    const hasAuthHeaders = Object.keys(this.resolvedHeaders).length > 0;
+
+    if (hasAuthHeaders && typeof fetch !== "undefined") {
+      await this.startWithFetch();
+    } else if (hasAuthHeaders) {
+      throw new Error("SSE + 认证 headers 需要 fetch API 支持（当前环境不可用）。建议改用 Streamable HTTP transport 或移除认证配置。");
+    } else {
+      await this.startWithNativeEventSource();
+    }
+  }
+
+  private async startWithNativeEventSource(): Promise<void> {
     if (typeof EventSource === "undefined") {
       throw new Error("当前环境不支持 SSE EventSource。");
     }
@@ -260,6 +421,66 @@ class SseMcpConnection implements MinimalMcpConnection {
         if (!this.endpointUrl) reject(new Error("MCP SSE 连接失败。"));
       };
     }), this.timeoutMs, "MCP SSE connect");
+  }
+
+  private async startWithFetch(): Promise<void> {
+    const response = await withTimeout(
+      fetch(this.url.href, {
+        method: "GET",
+        headers: {
+          ...this.resolvedHeaders,
+          accept: "text/event-stream",
+        },
+      }),
+      this.timeoutMs,
+      "MCP SSE connect",
+    );
+    if (!response.ok) {
+      throw new Error(`MCP SSE 连接返回 ${response.status}`);
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("MCP SSE 无法读取响应流。");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let endpointResolved = false;
+
+    const processLine = (line: string) => {
+      if (line.startsWith("event: endpoint")) return;
+      if (line.startsWith("data:")) {
+        const data = line.slice(5).trim();
+        if (!data) return;
+        if (!endpointResolved) {
+          this.endpointUrl = new URL(data, this.url).href;
+          endpointResolved = true;
+        } else {
+          this.handleServerMessage(data);
+        }
+      }
+    };
+
+    void (async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx = buffer.indexOf("\n");
+        while (idx >= 0) {
+          processLine(buffer.slice(0, idx).trim());
+          buffer = buffer.slice(idx + 1);
+          idx = buffer.indexOf("\n");
+        }
+      }
+    })();
+
+    await withTimeout(new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (this.endpointUrl) { resolve(); return; }
+        setTimeout(check, 80);
+      };
+      setTimeout(check, 80);
+      setTimeout(() => reject(new Error("MCP SSE endpoint 未在预期时间内建立。")), this.timeoutMs);
+    }), this.timeoutMs, "MCP SSE endpoint");
   }
 
   private handleServerMessage(data: string) {
@@ -285,11 +506,14 @@ class SseMcpConnection implements MinimalMcpConnection {
     if (!this.endpointUrl) throw new Error("MCP SSE endpoint 尚未建立。");
     const response = await fetch(this.endpointUrl, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...this.resolvedHeaders,
+      },
       body: JSON.stringify(message),
     });
     if (!response.ok && response.status !== 202) {
-      throw new Error(`MCP SSE POST ${response.status}: ${await response.text()}`);
+      throw new Error(`MCP SSE POST ${response.status}`);
     }
   }
 
@@ -395,6 +619,48 @@ class StdioMcpConnection implements MinimalMcpConnection {
       if (processModule.platform === "win32") spawnEnv.Path = mergedPATH;
     }
 
+    // Decrypt encrypted env values
+    try {
+      const { isEncryptedSecret, decryptSecretCipherText } = await import("../../settings/kb-sensitive-secret-crypto");
+      let decryptFailed = false;
+      for (const [key, val] of Object.entries(spawnEnv)) {
+        if (typeof val === "string" && isEncryptedSecret(val)) {
+          try {
+            spawnEnv[key] = await decryptSecretCipherText(val);
+          } catch {
+            decryptFailed = true;
+            pushMcpDebugEvent({
+              action: "spawn_error",
+              serverId: this.config.id,
+              transport: "stdio",
+              command: rawCommand,
+              rawError: `env_decrypt_failed:${key}`,
+            });
+          }
+        }
+        // Also check if value is still enc:v1 (decrypt skipped due to isEncryptedSecret returning false for mutated string)
+        if (typeof spawnEnv[key] === "string" && spawnEnv[key].startsWith("enc:v1:")) {
+          decryptFailed = true;
+          pushMcpDebugEvent({
+            action: "spawn_error",
+            serverId: this.config.id,
+            transport: "stdio",
+            command: rawCommand,
+            rawError: `env_still_encrypted:${key}`,
+          });
+        }
+      }
+      if (decryptFailed) {
+        throw Object.assign(
+          new Error("已保存的 MCP 密钥无法解密，请在 MCP Server 编辑页重新填写。"),
+          { code: "mcp_secret_decrypt_failed" }
+        );
+      }
+    } catch (e: any) {
+      if (e?.code === "mcp_secret_decrypt_failed") throw e;
+      /* crypto not available, proceed without decryption */
+    }
+
     const originalArgs = this.config.args ?? [];
     const hint = resolved
       ? ""
@@ -412,9 +678,9 @@ class StdioMcpConnection implements MinimalMcpConnection {
       transport: "stdio",
       command: rawCommand,
       resolvedCommand: resolvedPath,
-      argsPreview: originalArgs,
+      argsPreview: redactMcpArgsPreview(originalArgs),
       spawnExecutable: spawnCmd,
-      spawnArgsPreview: spawnArgs.slice(0, 5),
+      spawnArgsPreview: redactMcpArgsPreview(spawnArgs.slice(0, 5)),
       cwd: resolvedCwd ?? "",
       notebrainRootAbsolutePath: resolvedCwd ?? "",
       envPathHead: (mergedPATH || "").split(/[;:]/)[0] ?? "",
@@ -459,7 +725,7 @@ class StdioMcpConnection implements MinimalMcpConnection {
           if (exitBeforeSpawn) {
             settled = true;
             const errMsg = exitStderr
-              ? `MCP stdio 进程启动后立即退出，code=${exitCode ?? "null"}，stderr=${exitStderr}`
+              ? `MCP stdio 进程启动后立即退出，code=${exitCode ?? "null"}，stderr=${redactMcpSecretText(exitStderr)}`
               : `MCP stdio 进程启动后立即退出，code=${exitCode ?? "null"}`;
             reject(new Error(errMsg));
             return;
@@ -477,7 +743,7 @@ class StdioMcpConnection implements MinimalMcpConnection {
           transport: "stdio",
           command: rawCommand,
           resolvedCommand: resolvedPath,
-          rawError: this.spawnError.message,
+          rawError: redactMcpSecretText(this.spawnError.message),
         });
         if (!settled) {
           settled = true;
@@ -495,11 +761,11 @@ class StdioMcpConnection implements MinimalMcpConnection {
             transport: "stdio",
             command: rawCommand,
             exitCode: code,
-            stderrPreview: this.stderr.slice(-500),
+            stderrPreview: redactMcpSecretText(this.stderr.slice(-500)),
           });
         }
         const exitErr = this.spawnError
-          ?? new Error(`MCP stdio 进程已退出，code=${code ?? "null"}${this.stderr ? `，stderr=${this.stderr}` : ""}`);
+          ?? new Error(`MCP stdio 进程已退出，code=${code ?? "null"}${this.stderr ? `，stderr=${redactMcpSecretText(this.stderr.slice(-500))}` : ""}`);
         // Reject all pending requests
         for (const [id, pending] of this.pending) {
           clearTimeout(pending.timer);
@@ -567,7 +833,7 @@ class StdioMcpConnection implements MinimalMcpConnection {
     const result = new Promise<any>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`MCP ${method} timeout after ${this.timeoutMs}ms${this.stderr ? `，stderr=${this.stderr}` : ""}`));
+        reject(new Error(`MCP ${method} timeout after ${this.timeoutMs}ms${this.stderr ? `，stderr=${redactMcpSecretText(this.stderr)}` : ""}`));
       }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
@@ -610,12 +876,32 @@ async function createConnection(config: McpServerConfig, runtimeTools?: RuntimeT
     await connection.start();
     return connection;
   }
+  const authHeaders = await resolveMcpAuthHeaders(config);
+
+  // Check for decrypt failure: auth type requires a token but we got none
+  const auth = config.auth;
+  if (auth && auth.type !== "none") {
+    if ((auth.type === "bearer" && !hasHeaderCaseInsensitive(authHeaders, "authorization")) ||
+        (auth.type === "apiKey" && !hasHeaderCaseInsensitive(authHeaders, auth.apiKeyHeaderName || "X-API-Key")) ||
+        (auth.type === "oauth2" && !hasHeaderCaseInsensitive(authHeaders, "authorization"))) {
+      pushMcpDebugEvent({
+        action: "auth_decrypt_failed",
+        serverId: config.id,
+        authType: auth.type,
+      });
+      throw Object.assign(
+        new Error("已保存的 MCP 密钥无法解密，请在 MCP Server 编辑页重新填写。"),
+        { code: "mcp_secret_decrypt_failed" }
+      );
+    }
+  }
+
   if (config.transport === "sse") {
-    const connection = new SseMcpConnection(normalizeHttpUrl(config.url || ""), timeoutMs);
+    const connection = new SseMcpConnection(normalizeHttpUrl(config.url || ""), timeoutMs, authHeaders);
     await connection.start();
     return connection;
   }
-  return new HttpMcpConnection(normalizeHttpUrl(config.url || ""), timeoutMs);
+  return new HttpMcpConnection(normalizeHttpUrl(config.url || ""), timeoutMs, authHeaders);
 }
 
 async function initializeConnection(connection: MinimalMcpConnection): Promise<void> {
@@ -805,7 +1091,7 @@ export async function callMcpTool(params: {
     serverId: params.server.id,
     transport: params.server.transport,
     toolName: params.tool.originalName,
-    argumentsPreview: params.args,
+    argumentsPreview: redactMcpDebugValue(params.args),
   });
   try {
     const result = await withTimeout(
@@ -834,9 +1120,9 @@ export async function callMcpTool(params: {
       serverId: params.server.id,
       transport: params.server.transport,
       toolName: params.tool.originalName,
-      argumentsPreview: params.args,
+      argumentsPreview: redactMcpDebugValue(params.args),
       durationMs: Date.now() - startedAt,
-      rawError: result?.isError ? JSON.stringify(result).slice(0, 500) : undefined,
+      rawError: result?.isError ? redactMcpSecretText(JSON.stringify(result).slice(0, 500)) : undefined,
     });
     return result;
   } catch (err) {
@@ -845,7 +1131,7 @@ export async function callMcpTool(params: {
       serverId: params.server.id,
       transport: params.server.transport,
       toolName: params.tool.originalName,
-      rawError: err instanceof Error ? err.message : String(err),
+      rawError: redactMcpSecretText(err instanceof Error ? err.message : String(err)),
       durationMs: Date.now() - startedAt,
     });
     await appendNotebrainLog({
@@ -857,10 +1143,16 @@ export async function callMcpTool(params: {
       toolName: params.tool.internalName,
       source: params.server.id,
       durationMs: Date.now() - startedAt,
-      summary: err instanceof Error ? err.message : "MCP 工具调用失败。",
+      summary: err instanceof Error ? redactMcpSecretText(err.message) : "MCP 工具调用失败。",
       errorCode: "mcp_call_failed",
     });
-    throw err;
+    // Re-throw with redacted message to prevent token leakage in ToolResult
+    const safeMessage = err instanceof Error ? redactMcpSecretText(err.message) : "MCP 工具调用失败。";
+    const safeError = new Error(safeMessage);
+    if (err instanceof Error && (err as any).code) {
+      (safeError as any).code = (err as any).code;
+    }
+    throw safeError;
   } finally {
     // close() must not overwrite the real error — swallow close failures
     try { await connection.close(); } catch { /* Ignore close errors */ }

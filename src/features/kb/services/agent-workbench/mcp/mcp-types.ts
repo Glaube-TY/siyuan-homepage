@@ -1,5 +1,25 @@
 export type McpTransportType = "stdio" | "http" | "sse";
 export type McpRiskLevel = "low" | "medium" | "high";
+export type McpAuthType = "none" | "bearer" | "apiKey" | "customHeaders" | "oauth2";
+
+export interface McpOAuthConfig {
+  clientId?: string;
+  authorizationEndpoint?: string;
+  tokenEndpoint?: string;
+  scopes?: string[];
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+}
+
+export interface McpAuthConfig {
+  type: McpAuthType;
+  bearerToken?: string;
+  apiKey?: string;
+  apiKeyHeaderName?: string;
+  headers?: Record<string, string>;
+  oauth?: McpOAuthConfig;
+}
 
 export interface McpServerConfig {
   id: string;
@@ -14,6 +34,8 @@ export interface McpServerConfig {
   trusted?: boolean;
   /** Optional explicit working directory for stdio subprocess (resolved at save time). */
   cwd?: string;
+  /** Remote MCP auth configuration (HTTP/SSE only; stdio uses env). */
+  auth?: McpAuthConfig;
 }
 
 export interface McpServerConfigFile {

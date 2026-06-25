@@ -175,7 +175,16 @@ export function mapAgentErrorToUserFacing(input: {
     return {
       title: "工具调用次数超限",
       message: "工具调用次数达到本轮安全上限，本轮已停止。",
-      suggestion: "可以重试，或将复杂任务拆分为多个步骤。",
+      suggestion: "可以重试、拆分任务，或在基础设置中调高 Agent 每轮最大工具调用次数。",
+    };
+  }
+
+  // 重复调用未注册工具
+  if (code === "repeated_unknown_tool") {
+    return {
+      title: "工具未注册且被重复调用",
+      message: "模型重复调用了当前未注册的工具，本轮已停止。",
+      suggestion: "可以重新同步 MCP 工具，或让 AI 先使用 mcp_list_tools 查看实际可用工具名。",
     };
   }
 

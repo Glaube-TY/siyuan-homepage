@@ -245,6 +245,12 @@ export type KbSettings = {
    */
   agentThinkingEnabled: boolean;
   /**
+   * Agent 每轮最大工具调用次数。控制一次提问中 Agent 最多能调用多少次工具。
+   * 数值越大越适合复杂 MCP / 多工具任务，但也可能增加耗时和费用。
+   * 范围 1-50，默认 10。
+   */
+  agentMaxToolCallsPerTurn: number;
+  /**
    * 聊天模型提供商列表（多提供商配置）
    */
   chatProviders: KbChatProviderConfig[];

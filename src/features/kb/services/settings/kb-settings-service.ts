@@ -926,6 +926,12 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     agentThinkingEnabled: typeof normalized.agentThinkingEnabled === "boolean"
       ? normalized.agentThinkingEnabled
       : DEFAULT_KB_SETTINGS.agentThinkingEnabled,
+    agentMaxToolCallsPerTurn: normalizeIntegerSetting(
+      normalized.agentMaxToolCallsPerTurn,
+      DEFAULT_KB_SETTINGS.agentMaxToolCallsPerTurn,
+      1,
+      50,
+    ),
     chatProviders,
     selectedChatProviderId: finalSelectedProviderId,
     selectedChatModelId: finalSelectedModelId,

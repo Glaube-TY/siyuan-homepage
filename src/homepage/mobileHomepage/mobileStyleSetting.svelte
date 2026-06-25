@@ -25,7 +25,10 @@
         widgetType={blockElement.dataset.widgetType || ""}
         {onClose}
         {onDelete}
-        onStyleChanged={() => saveLayout(plugin)}
+        onStyleChanged={() => {
+            const container = blockElement.closest(".mobile-homepage-widget") as HTMLElement | null;
+            saveLayout(plugin, container);
+        }}
     />
 {:else}
     <div class="mobile-widget-style-missing">
