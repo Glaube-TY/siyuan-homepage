@@ -4,7 +4,7 @@ import WidgetBlockContent from "./contentSetting.svelte";
 import { setBlockSize } from "./utils/block-size-handler";
 import { mountWidgetContent } from "./widgetMountRegistry";
 import { mount, unmount } from "svelte";
-import { hideWidgetForCurrentDevice, deleteWidgetGlobally, loadWidgetLayoutSettings } from "./utils/layout-shared";
+import { hideWidgetForCurrentDevice, deleteWidgetGlobally, loadWidgetLayoutSettings, stringifyWidgetConfigForMount } from "./utils/layout-shared";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
 
 export class WidgetBlock {
@@ -144,7 +144,7 @@ export class WidgetBlock {
                                                             if (blockElement) {
                                                                 this.updateContent(contentTypeJson);
                                                             }
-                                                            this.plugin.saveData(`widget-${this.id}.json`, contentTypeJson);
+                                                            this.plugin.saveData(`widget-${this.id}.json`, JSON.parse(contentTypeJson));
                                                             dialogRef.close();
                                                         }
                                                     },
@@ -158,7 +158,7 @@ export class WidgetBlock {
             updateButton.addEventListener("click", async () => {
                 const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
                 if (widgetConfig) {
-                    this.updateContent(JSON.stringify(widgetConfig));
+                    this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '');
                 } else {
                     console.warn("未找到对应的 widget 配置");
                 }

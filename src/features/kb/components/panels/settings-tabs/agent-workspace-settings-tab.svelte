@@ -34,6 +34,11 @@
 
   $: workspace = settings.notebrainWorkspace;
   $: runtimeTools = settings.runtimeTools ?? DEFAULT_RUNTIME_TOOLS_SETTINGS;
+  $: sandboxEnabled = workspace.enabled && envStatus.isPcElectron;
+  $: commandEnabled = sandboxEnabled && workspace.commandExecutionEnabled;
+  $: mcpEnabled = settings.mcp?.enabled === true;
+  $: exposeToAgentEffective = runtimeTools.enabled && runtimeTools.exposeToAgent && (commandEnabled || mcpEnabled);
+  $: canDetectRuntimeTools = runtimeTools.enabled && (commandEnabled || mcpEnabled);
 
   onMount(async () => {
     envStatus = getNotebrainRuntimeEnvironment();
@@ -45,8 +50,11 @@
       resolvedRoot = "";
       resolveMessage = resolved.message;
     }
-    // Run initial detection only on PC/Electron — non-PC cannot detect.
-    if (envStatus.isPcElectron) {
+    // Run initial detection only when runtime tools is enabled AND
+    // either local command tool or MCP is active.
+    const initCmdOk = envStatus.isPcElectron && settings.notebrainWorkspace.enabled && settings.notebrainWorkspace.commandExecutionEnabled;
+    const initMcpOk = settings.mcp?.enabled === true;
+    if (envStatus.isPcElectron && runtimeTools.enabled && (initCmdOk || initMcpOk)) {
       void runDetection();
     }
   });
@@ -63,6 +71,19 @@
         reasonCode: envStatus.reasonCode,
         unsupportedCapabilities: envStatus.unsupportedCapabilities,
       }, "info");
+      return;
+    }
+    // runtimeTools.enabled must be true to detect
+    if (!runtimeTools.enabled) {
+      runtimeReport = null;
+      statusMessage = "运行时工具检测已关闭。";
+      return;
+    }
+    // Detection only serves local command tool or MCP stdio.
+    // If neither is active, detection is meaningless.
+    if (!commandEnabled && !mcpEnabled) {
+      runtimeReport = null;
+      statusMessage = "当前未启用本地命令工具或 MCP Client，运行时工具检测暂不生效。";
       return;
     }
     detecting = true;
@@ -212,6 +233,26 @@
   <p class="sandbox-short-note">限制 AI 的本地命令、文件写入和网络访问。当前不是系统级沙箱，命令仍可能读取系统信息或访问用户有权限的路径。cwd 限制在 {NOTEBRAIN_WORKSPACE_LOGICAL_ROOT}。</p>
 
   <section class="settings-section">
+    <div class="setting-row master-row">
+      <div class="setting-text">
+        <span class="setting-title">启用沙箱环境</span>
+        <span class="setting-desc">总开关。关闭后本页所有沙箱相关设置暂不生效，不注册沙箱工具，不进行环境检测。</span>
+      </div>
+      <label class="switch">
+        <input
+          type="checkbox"
+          checked={workspace.enabled}
+          on:change={(event) => patchWorkspace({ enabled: event.currentTarget.checked })}
+        />
+        <span class="slider"></span>
+      </label>
+    </div>
+  </section>
+
+  {#if !workspace.enabled}
+    <p class="sandbox-short-note">沙箱环境已关闭。启用后可配置本地命令执行、文件工具和运行时工具检测。</p>
+  {:else}
+  <section class="settings-section">
     <div class="section-header">
       <h2 class="section-title">基础开关</h2>
     </div>
@@ -274,7 +315,7 @@
             defaultCommandTimeoutMs: toNumber(event.currentTarget.value, workspace.defaultCommandTimeoutMs),
           })}
         />
-        <span class="field-hint">毫秒，保存时限制在 5000-600000。</span>
+        <span class="field-hint">毫秒，保存时限制在 5000-600000。{!commandEnabled ? '仅在启用本地命令工具后生效。' : ''}</span>
       </label>
 
       <label class="field-row">
@@ -289,7 +330,7 @@
             maxCommandOutputChars: toNumber(event.currentTarget.value, workspace.maxCommandOutputChars),
           })}
         />
-        <span class="field-hint">字符数，stdout/stderr 都会按该上限截断。</span>
+        <span class="field-hint">字符数，stdout/stderr 都会按该上限截断。{!commandEnabled ? '仅在启用本地命令工具后生效。' : ''}</span>
       </label>
 
       <label class="field-row">
@@ -302,7 +343,7 @@
           <option value="allow">allow - 命中规则时免确认</option>
           <option value="deny">deny - 默认拒绝</option>
         </select>
-        <span class="field-hint">deny 规则优先于 allow，allow 优先于 ask。</span>
+        <span class="field-hint">deny 规则优先于 allow，allow 优先于 ask。{!commandEnabled ? '仅在启用本地命令工具后生效。' : ''}</span>
       </label>
     </div>
   </section>
@@ -310,7 +351,7 @@
   <section class="settings-section">
     <div class="section-header">
       <h2 class="section-title">命令权限规则</h2>
-      <p class="section-description">每行一个模式，支持 `*` 通配和普通子串匹配。规则只改变确认策略，不放宽工作区限制。</p>
+      <p class="section-description">每行一个模式，支持 `*` 通配和普通子串匹配。规则只改变确认策略，不放宽工作区限制。{!commandEnabled ? '仅在启用本地命令工具后生效。' : ''}</p>
     </div>
 
     <div class="rules-grid">
@@ -350,7 +391,7 @@
   <section class="settings-section">
     <div class="section-header">
       <h2 class="section-title">网络与高级权限</h2>
-      <p class="section-description">控制本地命令的网络访问和高级系统能力。默认保守。注意：这不是 OS 级网络隔离，只是启发式风险标记。</p>
+      <p class="section-description">控制本地命令的网络访问和高级系统能力。默认保守。注意：这不是 OS 级网络隔离，只是启发式风险标记。{!commandEnabled ? '仅在启用本地命令工具后生效。' : ''}</p>
     </div>
 
     <div class="setting-row">
@@ -427,19 +468,20 @@
     <div class="setting-row">
       <div class="setting-text">
         <span class="setting-title">暴露给 AI</span>
-        <span class="setting-desc">开启后 Agent 上下文中会包含本机可用工具状态，AI 不会尝试使用不可用的命令。</span>
+        <span class="setting-desc">仅当本地命令工具或 MCP Client 启用时，才会进入 Agent 上下文。{!commandEnabled && !mcpEnabled ? '当前本地命令和 MCP 均关闭，该开关无实际效果。' : ''}</span>
       </div>
       <label class="switch">
         <input
           type="checkbox"
           checked={runtimeTools.exposeToAgent}
+          disabled={!commandEnabled && !mcpEnabled}
           on:change={(event) => patchRuntimeTools({ exposeToAgent: event.currentTarget.checked })}
         />
         <span class="slider"></span>
       </label>
     </div>
 
-    {#if runtimeTools.enabled}
+    {#if canDetectRuntimeTools}
       {#if !envStatus.isPcElectron}
         <p class="env-warning">{envStatus.userHint}</p>
       {/if}
@@ -518,6 +560,7 @@
       </div>
     {/if}
   </section>
+  {/if}
 </div>
 
 <style lang="scss">
@@ -643,6 +686,10 @@
     border: 1px solid var(--b3-border-color);
     border-radius: 8px;
     background: var(--b3-theme-surface);
+  }
+
+  .setting-row.master-row {
+    border-left: 3px solid var(--b3-theme-primary);
   }
 
   .setting-text {

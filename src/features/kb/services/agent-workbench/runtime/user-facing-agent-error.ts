@@ -171,7 +171,7 @@ export function mapAgentErrorToUserFacing(input: {
   }
 
   // 工具调用超限
-  if (code === "tool_call_limit_reached") {
+  if (code === "tool_call_limit_reached" || code === "tool_call_limit_exceeded") {
     return {
       title: "工具调用次数超限",
       message: "工具调用次数达到本轮安全上限，本轮已停止。",
@@ -221,11 +221,11 @@ export function mapAgentErrorToUserFacing(input: {
   }
 
   // 重复写入阻止
-  if (code === "duplicate_write_call_blocked") {
+  if (code === "duplicate_write_call_blocked" || code === "duplicate_read_call_blocked") {
     return {
-      title: "已阻止重复写入",
-      message: "模型在同一轮中重复提交了相同的写入操作，系统已阻止第二次执行。",
-      suggestion: "请先确认上一次写入结果；如需继续修改，请重新发起明确操作。",
+      title: "已阻止重复调用",
+      message: "模型在同一轮中重复提交了相同的工具调用，系统已阻止第二次执行。",
+      suggestion: "请先确认上一次调用结果后继续。",
     };
   }
 

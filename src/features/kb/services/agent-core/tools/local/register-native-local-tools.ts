@@ -7,6 +7,8 @@ export function registerNativeLocalTools(
   settings: NotebrainAgentWorkspaceSettings,
   runtimeToolsSettings?: RuntimeToolsSettings,
 ): void {
+  // Sandbox master switch must be enabled for native local command tool.
+  if (settings.enabled !== true) return;
   const commandTool = createRunNotebrainCommandNativeTool(settings, runtimeToolsSettings);
   if (commandTool) {
     registry.register(commandTool);

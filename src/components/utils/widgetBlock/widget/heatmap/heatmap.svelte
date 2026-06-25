@@ -22,7 +22,7 @@
     // ECharts 实例引用
     let chartInstance: echarts.ECharts | null = null;
     // 图表容器本地引用
-    let chartContainer: HTMLDivElement | null = null;
+    let chartContainer = $state<HTMLDivElement | null>(null);
     // 延迟初始化 timeout id
     let initTimeoutId: ReturnType<typeof setTimeout> | null = null;
     // 延后重绘 timeout id

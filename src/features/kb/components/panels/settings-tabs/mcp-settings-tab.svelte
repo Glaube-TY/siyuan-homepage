@@ -17,7 +17,7 @@
 
   let servers: McpServerConfig[] = [];
   let tools: McpToolIndexEntry[] = [];
-  let loading = true;
+  let loading = false;
   let syncingServerId = "";
   let statusMessage = "";
   let errorMessage = "";
@@ -51,7 +51,9 @@
   $: isPcElectron = getNotebrainRuntimeEnvironment().isPcElectron;
 
   onMount(() => {
-    void refreshMcpState();
+    if (mcp.enabled) {
+      void refreshMcpState();
+    }
   });
 
   function createEmptyServer(): McpServerConfig {
@@ -91,6 +93,18 @@
         ...patch,
       },
     };
+  }
+
+  function handleMcpEnabledChange(enabled: boolean) {
+    if (enabled) {
+      patchMcp({ enabled: true });
+      void refreshMcpState();
+    } else {
+      patchMcp({ enabled: false });
+      showEditor = false;
+      syncingServerId = "";
+      loading = false;
+    }
   }
 
   function uniqueToggle(values: readonly string[] | undefined, value: string, enabled: boolean): string[] {
@@ -403,18 +417,12 @@
 
 <div class="mcp-settings-tab">
   <section class="settings-section">
-    <div class="section-header with-actions">
-      <div>
-        <h2 class="section-title">MCP Client</h2>
-        <p class="section-description">连接外部 MCP Server 后，工具会以 `mcp__server__tool` 形式进入 Agent 工具索引。</p>
-      </div>
-      <div class="header-actions">
-        <button type="button" class="secondary-btn" on:click={refreshMcpState} disabled={loading}>刷新</button>
-        <button type="button" class="primary-btn" on:click={openNewServerEditor}>添加 Server</button>
-      </div>
+    <div class="section-header">
+      <h2 class="section-title">MCP Client</h2>
+      <p class="section-description">连接外部 MCP Server 后，工具会以 `mcp__server__tool` 形式进入 Agent 工具索引。</p>
     </div>
 
-    <div class="setting-row">
+    <div class="setting-row master-row">
       <div class="setting-text">
         <span class="setting-title">启用 MCP Client</span>
         <span class="setting-desc">关闭后不会暴露 MCP 管理工具和动态 MCP 工具。</span>
@@ -423,10 +431,20 @@
         <input
           type="checkbox"
           checked={mcp.enabled}
-          on:change={(event) => patchMcp({ enabled: event.currentTarget.checked })}
+          on:change={(event) => handleMcpEnabledChange(event.currentTarget.checked)}
         />
         <span class="slider"></span>
       </label>
+    </div>
+  </section>
+
+  {#if mcp.enabled}
+  <section class="settings-section">
+    <div class="section-header with-actions">
+      <div class="header-actions">
+        <button type="button" class="secondary-btn" on:click={refreshMcpState} disabled={loading}>刷新</button>
+        <button type="button" class="primary-btn" on:click={openNewServerEditor}>添加 Server</button>
+      </div>
     </div>
 
     <label class="field-row compact">
@@ -596,6 +614,9 @@
       </div>
     {/if}
   </section>
+  {:else}
+    <p class="section-description">MCP Client 已关闭。启用后可添加 MCP Server、同步工具索引并管理工具权限。</p>
+  {/if}
 </div>
 
 {#if showEditor}
@@ -754,6 +775,10 @@
     justify-content: space-between;
     gap: 16px;
     padding: 12px;
+  }
+
+  .setting-row.master-row {
+    border-left: 3px solid var(--b3-theme-primary);
   }
 
   .setting-text {

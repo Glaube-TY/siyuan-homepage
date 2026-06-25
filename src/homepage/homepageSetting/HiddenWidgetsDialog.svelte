@@ -10,6 +10,7 @@
         restoreWidgetForCurrentDevice,
         restoreLayoutForContainer,
         loadWidgetLayoutSettings,
+        stringifyWidgetConfigForMount,
         type HiddenWidgetItem,
     } from "../../components/utils/widgetBlock/utils/layout-shared";
 
@@ -96,7 +97,7 @@
             const instance = mountWidgetContent(
                 container,
                 plugin,
-                JSON.stringify(widget.contentData)
+                stringifyWidgetConfigForMount(widget.contentData) || ''
             );
 
             if (instance) {

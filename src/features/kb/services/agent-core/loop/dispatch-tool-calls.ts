@@ -138,6 +138,21 @@ async function executeOne(params: {
     });
   }
 
+  // Storm breaker: duplicate read check — same tool + same args in one turn.
+  // tryReserveRead atomically checks AND reserves before execution, so
+  // concurrent calls in the same Promise.all batch cannot both pass.
+  if (tool.readOnly && !params.stormBreaker.tryReserveRead(params.call, parsed.args)) {
+    return finishToolFailure({
+      call: params.call,
+      toolName: tool.name,
+      code: "duplicate_read_call_blocked",
+      message: "本轮同一工具同一参数已调用过，请使用前一次结果回答，不要重复调用。",
+      stepIndex: params.stepIndex,
+      startedAt,
+      onEvent: params.onEvent,
+    });
+  }
+
   // Emit tool_start
   params.onEvent?.({
     type: "tool_start",

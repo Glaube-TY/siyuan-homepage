@@ -27,6 +27,7 @@ export const DEFAULT_QUICK_PROMPTS_SETTINGS: QuickPromptsSettings = {
 };
 
 export const DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS: NotebrainAgentWorkspaceSettings = {
+  enabled: false,
   commandExecutionEnabled: false,
   defaultCommandTimeoutMs: 120000,
   maxCommandOutputChars: 20000,

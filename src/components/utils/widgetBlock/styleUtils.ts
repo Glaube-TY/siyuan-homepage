@@ -1,3 +1,5 @@
+import { normalizeWidgetConfigData } from "./utils/layout-shared";
+
 export interface StyleSettings {
     backgroundColor: string;
     backgroundOpacity: number;
@@ -165,8 +167,9 @@ export async function saveWidgetSize(
     colSize: number
 ): Promise<void> {
     const widgetConfig = await plugin.loadData(`widget-${currentBlockId}.json`);
+    const base = normalizeWidgetConfigData(widgetConfig) || {};
     const updatedConfig = {
-        ...widgetConfig,
+        ...base,
         rowSize,
         colSize
     };

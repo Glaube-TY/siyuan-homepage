@@ -49,7 +49,7 @@ export function registerWebTools(
     }));
   }
 
-  // Register HTTP API tools — gated by globalToolAccess switches
+  // Register HTTP API tools — gated only by globalToolAccess switches
   const httpTimeout = options.webReadPageToolDeps?.timeoutMs ?? 15000;
   if (options.globalToolAccess?.webHttpGet !== false) {
     toolRegistry.ensureTool(createWebHttpGetTool({ timeoutMs: httpTimeout }));

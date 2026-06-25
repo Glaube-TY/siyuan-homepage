@@ -8,6 +8,7 @@ import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobile
 import { mountWidgetContent } from "../widgetBlock/widgetMountRegistry";
 import { mount, unmount } from "svelte";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
+import { stringifyWidgetConfigForMount } from "../widgetBlock/utils/layout-shared";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -133,7 +134,7 @@ export class WidgetBlock {
                                                             if (blockElement) {
                                                                 this.updateContent(contentTypeJson);
                                                             }
-                                                            this.plugin.saveData(`widget-${this.id}.json`, contentTypeJson);
+                                                            this.plugin.saveData(`widget-${this.id}.json`, JSON.parse(contentTypeJson));
                                                             dialogRef.close();
                                                         }
                                                     },
@@ -147,7 +148,7 @@ export class WidgetBlock {
             updateButton.addEventListener("click", async () => {
                 const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
                 if (widgetConfig) {
-                    this.updateContent(JSON.stringify(widgetConfig));
+                    this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '');
                 } else {
                     console.warn("未找到对应的 widget 配置");
                 }

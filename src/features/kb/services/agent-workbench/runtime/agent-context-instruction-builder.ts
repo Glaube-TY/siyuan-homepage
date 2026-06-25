@@ -22,6 +22,11 @@ export interface BuildAgentContextInstructionsParams {
   attachedDocs?: readonly { docId: string; title?: string }[];
   externalSkillIndexPrompt?: string;
   runtimeToolsSettings?: RuntimeToolsSettings;
+  runtimeToolCapabilities?: {
+    sandboxEnabled: boolean;
+    localCommandToolEnabled: boolean;
+    mcpClientEnabled: boolean;
+  };
 }
 
 export interface AgentContextInstructions {
@@ -113,7 +118,9 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
     renderAttachedDocObservationContext(params.observationLog.getContextEvidence()),
     params.externalSkillIndexPrompt ?? "",
     renderSkillInstructions(skillSections),
-    params.runtimeToolsSettings ? buildRuntimeToolContextInstructions(params.runtimeToolsSettings) : "",
+    params.runtimeToolsSettings
+      ? buildRuntimeToolContextInstructions(params.runtimeToolsSettings, params.runtimeToolCapabilities)
+      : "",
   ]
     .filter((block) => block.trim().length > 0)
     .join("\n\n");

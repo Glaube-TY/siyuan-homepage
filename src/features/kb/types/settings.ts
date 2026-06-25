@@ -172,6 +172,8 @@ export type GlobalMemorySettings = {
 export type NotebrainPermissionAction = "allow" | "ask" | "deny";
 
 export type NotebrainAgentWorkspaceSettings = {
+  /** 沙箱环境总开关。关闭后本页所有设置均不生效，不注册沙箱工具，不进行环境检测。 */
+  enabled: boolean;
   commandExecutionEnabled: boolean;
   defaultCommandTimeoutMs: number;
   maxCommandOutputChars: number;

@@ -1,4 +1,4 @@
-import { createAssistantMessage, createSystemMessage, createUserMessage, type AgentMessage, type AgentToolCall } from "../messages/agent-message";
+import { createAssistantMessage, createSystemMessage, createToolMessage, createUserMessage, type AgentMessage, type AgentToolCall } from "../messages/agent-message";
 import { compactAgentMessages } from "../messages/message-compactor";
 import { filterStaleToolCalls } from "../messages/message-normalizer";
 import type { ProviderAdapter } from "../providers/provider-adapter";
@@ -46,7 +46,7 @@ export class NativeToolAgentLoop {
   }
 
   async run(question: string): Promise<NativeToolAgentLoopResult> {
-    const maxToolCalls = this.options.maxToolCalls;
+    const maxToolCalls = this.options.maxToolCalls ?? 10;
     let steps = 0;
     let totalToolCalls = 0;
     let iteration = 0;
@@ -110,6 +110,10 @@ export class NativeToolAgentLoop {
       }
 
       if (toolCalls.length > 0) {
+        // Check limit BEFORE appending — if exceeded, append assistant + failure
+        // tool results for every call to maintain valid tool-call pairing.
+        const wouldExceed = totalToolCalls + toolCalls.length > maxToolCalls;
+
         // Tool-planning iteration: if we streamed reasoning/text live, reset both.
         if (emittedTextLive) {
           this.options.onEvent?.({ type: "assistant_text_reset" });
@@ -117,6 +121,41 @@ export class NativeToolAgentLoop {
         if (emittedReasoningLive) {
           this.options.onEvent?.({ type: "assistant_reasoning_reset" });
         }
+
+        if (wouldExceed) {
+          this.session.append(createAssistantMessage({
+            content: answer,
+            toolCalls,
+          }));
+
+          // Append a failure role=tool message for every tool call to maintain pairing
+          for (const call of toolCalls) {
+            this.session.append(createToolMessage({
+              toolCallId: call.id,
+              name: call.name,
+              content: JSON.stringify({
+                ok: false,
+                errorCode: "tool_call_limit_reached",
+                message: "工具调用次数达到本轮安全上限，本轮已停止。",
+              }),
+            }));
+          }
+
+          this.options.onEvent?.({
+            type: "error",
+            code: "tool_call_limit_reached",
+            message: "The agent exceeded the tool call limit.",
+          });
+          return {
+            status: "failed",
+            answer,
+            steps,
+            messages: this.session.snapshot(),
+            errorCode: "tool_call_limit_reached",
+            errorMessage: "The agent exceeded the tool call limit.",
+          };
+        }
+
         this.session.append(createAssistantMessage({
           content: answer,
           toolCalls,
@@ -145,21 +184,6 @@ export class NativeToolAgentLoop {
       }
 
       totalToolCalls += toolCalls.length;
-      if (totalToolCalls > maxToolCalls) {
-        this.options.onEvent?.({
-          type: "error",
-          code: "tool_call_limit_exceeded",
-          message: "The agent exceeded the tool call limit.",
-        });
-        return {
-          status: "failed",
-          answer,
-          steps,
-          messages: this.session.snapshot(),
-          errorCode: "tool_call_limit_exceeded",
-          errorMessage: "The agent exceeded the tool call limit.",
-        };
-      }
 
       const dispatch = await dispatchToolCalls({
         calls: toolCalls,

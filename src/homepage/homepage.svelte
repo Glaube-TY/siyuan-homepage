@@ -10,7 +10,7 @@
         saveLayout,
         restoreLayout,
     } from "../components/utils/widgetBlock/utils/layout-handler";
-    import { loadWidgetLayoutSettings } from "../components/utils/widgetBlock/utils/layout-shared";
+    import { loadWidgetLayoutSettings, buildHomepageAppliedSignature, type WidgetLayoutData } from "../components/utils/widgetBlock/utils/layout-shared";
     import { handleLoad } from "./topBanner/drag";
     import {
         loadStatsData,
@@ -207,6 +207,7 @@
 
     // 首次初始化标记：用于确保只在启动期写盘动作完成后记录一次签名基线
     let initialSignaturesRecorded = false;
+    let homepageComponentDestroyed = false;
 
     // 实时获取高级功能启用状态
     function getAdvancedEnabled(): boolean {
@@ -370,28 +371,39 @@
         }
     }
 
-    // 检查签名变化，如有变化则触发整页 reload
+    // 检查签名变化，如有变化则触发热刷新
     async function checkAndReloadIfSignatureChanged(reason: string): Promise<void> {
         try {
             const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-            const layoutSettings = await loadWidgetLayoutSettings(plugin);
-
-            const currentConfigSig = computeConfigSignature(rawConfig);
-            const currentLayoutSig = computeLayoutSignature(layoutSettings);
+            const layout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
+            const deviceId = getLocalDeviceIdForSignature();
+            const currentCompositeSig = await buildHomepageAppliedSignature(plugin, rawConfig, layout, deviceId);
 
             const appliedSigs = plugin.getAppliedSignatures();
 
             // 如果已应用签名为空（首次加载），只更新不 reload
-            if (!appliedSigs.config && !appliedSigs.layout) {
-                plugin.updateAppliedSignatures(currentConfigSig, currentLayoutSig);
+            if (!appliedSigs.composite && !appliedSigs.config && !appliedSigs.layout) {
+                plugin.updateAppliedSignatures("", "", currentCompositeSig);
                 return;
             }
 
-            // 检查签名是否变化
-            if (currentConfigSig !== appliedSigs.config || currentLayoutSig !== appliedSigs.layout) {
-                console.debug(`[Homepage] 签名变化 detected: ${reason}`);
-                plugin.triggerHomepageFullReload(`signature-changed: ${reason}`);
+            // 优先用 composite 比较
+            if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
+                return;
             }
+
+            // 兼容旧签名（无 composite）
+            if (!appliedSigs.composite) {
+                const layoutSettings = await loadWidgetLayoutSettings(plugin);
+                const currentConfigSig = computeConfigSignature(rawConfig);
+                const currentLayoutSig = computeLayoutSignature(layoutSettings);
+                if (currentConfigSig === appliedSigs.config && currentLayoutSig === appliedSigs.layout) {
+                    return;
+                }
+            }
+
+            console.debug(`[Homepage] 签名变化 detected: ${reason}`);
+            plugin.triggerHomepageFullReload(`signature-changed: ${reason}`);
         } catch (e) {
             console.warn('[Homepage] 签名检查失败:', e);
         }
@@ -415,6 +427,70 @@
         if (foregroundSyncWatchTimer) {
             clearInterval(foregroundSyncWatchTimer);
             foregroundSyncWatchTimer = null;
+        }
+    }
+
+    // 外部同步变化时局部热刷新：不整页 reload，局部刷新配置、布局和组件内容
+    async function handleExternalSyncChanged(event: CustomEvent<{ reason: string }>): Promise<void> {
+        const reason = event.detail?.reason || "unknown";
+        if (homepageComponentDestroyed) {
+            return;
+        }
+        console.debug(`[Homepage] 接收到外部同步变化事件: ${reason}`);
+        try {
+            invalidateStatusAiCache();
+            await updateHomepage();
+            if (homepageComponentDestroyed) return;
+            await updateDisplayedStatsInfoText();
+            if (homepageComponentDestroyed) return;
+            await tick();
+            if (homepageComponentDestroyed) return;
+            const container = customContentContainer;
+            if (container) {
+                await restoreLayout(plugin, { value: container as HTMLElement }, container as HTMLElement);
+            }
+            if (homepageComponentDestroyed) return;
+            updateCustomGridMetrics();
+            reRegisterAllShortcuts(buttonsList);
+            // 重启飘落/鼠标等副作用
+            cleanupFallingEffects();
+            startFallingEffects();
+            updateCursorStyle({
+                advanced: getAdvancedEnabled(),
+                mouseIcon,
+                mouseGlobalEnabled,
+                ClickEffectEnabled,
+                ClickEffectContent,
+                MouseTrailEnabled,
+            });
+            // 更新已应用签名
+            const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+            if (homepageComponentDestroyed) return;
+            const latestLayoutForSig = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
+            if (homepageComponentDestroyed) return;
+            const deviceIdForSig = getLocalDeviceIdForSignature();
+            const compositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayoutForSig, deviceIdForSig);
+            plugin.updateAppliedSignatures("", "", compositeSig);
+            console.debug(`[Homepage] 局部热刷新完成: ${reason}`);
+        } catch (e) {
+            console.warn("[Homepage] 局部热刷新失败，尝试自愈:", e);
+            // 自愈：局部刷新失败时强制重建主页实例，避免保留损坏状态。
+            try {
+                if (typeof plugin.reloadHomepageInstance === "function") {
+                    plugin.reloadHomepageInstance();
+                } else {
+                    plugin.ensureHomepageMounted?.('hot-reload-failed');
+                }
+            } catch (healErr) {
+                console.warn("[Homepage] 自愈失败:", healErr);
+            }
+        } finally {
+            // 释放热刷新短期锁
+            try {
+                plugin.markHomepageHotReloadFinished?.(reason);
+            } catch {
+                // 忽略释放锁的异常
+            }
         }
     }
 
@@ -598,7 +674,9 @@
 
     // 初始化主页组件区布局（Sortable、ResizeObserver、restoreLayout）
     async function initCustomContentLayout(): Promise<void> {
+        if (homepageComponentDestroyed) return;
         await tick();
+        if (homepageComponentDestroyed) return;
         const container = customContentContainer;
         if (!container) {
             console.warn("[Homepage] customContentContainer 不存在，跳过布局初始化");
@@ -631,8 +709,10 @@
 
         // 恢复布局
         await restoreLayout(plugin, { value: container }, customContentContainer);
+        if (homepageComponentDestroyed) return;
 
         await tick();
+        if (homepageComponentDestroyed) return;
         updateCustomGridMetrics();
 
         // restoreLayout 完成后，启动期写盘动作已结束，此时记录签名基线
@@ -640,27 +720,33 @@
             initialSignaturesRecorded = true;
             // 重新读取最新文件内容，确保签名基线与实际落盘数据一致
             const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-            const latestLayout = await loadWidgetLayoutSettings(plugin);
-            plugin.updateAppliedSignatures(
-                computeConfigSignature(latestConfig),
-                computeLayoutSignature(latestLayout)
-            );
+            if (homepageComponentDestroyed) return;
+            const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
+            if (homepageComponentDestroyed) return;
+            const deviceId = getLocalDeviceIdForSignature();
+            const compositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, deviceId);
+            plugin.updateAppliedSignatures("", "", compositeSig);
         }
     }
 
     async function refreshCustomContentLayoutFromTemplate() {
-        const container = customContentContainer || document.querySelector(".custom-content");
+        if (homepageComponentDestroyed) return;
+        const container = customContentContainer;
         if (!container) return;
 
         try {
             const layoutSettings = await loadWidgetLayoutSettings(plugin);
+            if (homepageComponentDestroyed) return;
             widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
             widgetGap = layoutSettings.widgetGap;
 
             await tick();
+            if (homepageComponentDestroyed) return;
 
             await restoreLayout(plugin, { value: container as HTMLElement }, container as HTMLElement);
+            if (homepageComponentDestroyed) return;
             await tick();
+            if (homepageComponentDestroyed) return;
 
             updateCustomGridMetrics();
         } catch (e) {
@@ -673,28 +759,36 @@
     }
 
     onMount(async () => {
+        homepageComponentDestroyed = false;
         // 先添加事件监听器，确保不会错过 VIP 状态变化事件
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
         window.addEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
+        // 监听 plugin 侧派发的外部同步变化事件（主通道：window）
+        window.addEventListener("homepage-external-sync-changed", handleExternalSyncChanged as EventListener);
 
         // 首设备首次冷启动：初始化 widgetLayout.json 最小结构
         const existingLayout = await plugin.loadData("widgetLayout.json");
+        if (homepageComponentDestroyed) return;
         if (!existingLayout) {
             await plugin.saveData("widgetLayout.json", {
                 defaultOrder: [],
                 profiles: {},
             });
+            if (homepageComponentDestroyed) return;
             console.info("[Homepage] 已初始化 widgetLayout.json");
         }
 
         // 注册当前设备到同步配置（必须在加载配置之前，确保设备 profile 已就绪）
         const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+        if (homepageComponentDestroyed) return;
         await registerCurrentDevice(rawConfig);
+        if (homepageComponentDestroyed) return;
 
         // 加载配置（此时设备已注册，loadWidgetLayoutSettings 可正确读取设备 profile）
         await updateHomepage();
+        if (homepageComponentDestroyed) return;
 
         // 注意：此时不立即记录已应用签名，因为后续 restoreLayout 可能还会写盘
         // 签名基线将在 restoreLayout 完成后统一记录
@@ -703,6 +797,7 @@
         startForegroundSyncWatch();
 
         await tick();
+        if (homepageComponentDestroyed) return;
 
         // 页面加载完成后初始化拖拽
         if (document.readyState === "complete") {
@@ -713,6 +808,7 @@
 
         // 初始化主页组件区布局
         await initCustomContentLayout();
+        if (homepageComponentDestroyed) return;
 
         // 配置加载完成后初始化特效和事件监听
         reRegisterAllShortcuts(buttonsList);
@@ -736,6 +832,7 @@
     });
 
     onDestroy(() => {
+        homepageComponentDestroyed = true;
         if (sortable) {
             sortable.destroy();
             sortable = null;
@@ -756,6 +853,7 @@
         );
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
         window.removeEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
+        window.removeEventListener("homepage-external-sync-changed", handleExternalSyncChanged as EventListener);
         document.removeEventListener("click", handleDocumentClick);
         document.removeEventListener("click", handleClickEffect);
         document.removeEventListener("mousemove", handleMouseMoveTrail);
@@ -769,7 +867,7 @@
         abortStatusAiRequest();
 
         // 显式销毁所有 widget 实例，触发各自的 onDestroy
-        const container = customContentContainer || document.querySelector(".custom-content");
+        const container = customContentContainer;
         if (container) {
             const widgetBlocks = container.querySelectorAll(".widget-block");
             widgetBlocks.forEach((block) => {

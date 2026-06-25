@@ -57,6 +57,45 @@ function normalizeLayoutItems(items: unknown): LayoutItem[] {
     return items.map(normalizeLayoutItem).filter((item): item is LayoutItem => item !== null);
 }
 
+/**
+ * Normalize widget config data from storage.
+ * - If raw is a string, try JSON.parse; return object on success.
+ * - If raw is already an object, return it directly.
+ * - Otherwise return null.
+ */
+export function normalizeWidgetConfigData(raw: unknown): Record<string, unknown> | null {
+    if (typeof raw === "string") {
+        try {
+            const parsed = JSON.parse(raw);
+            if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+                return parsed as Record<string, unknown>;
+            }
+        } catch {
+            // not valid JSON string
+        }
+        return null;
+    }
+    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+        return raw as Record<string, unknown>;
+    }
+    return null;
+}
+
+/**
+ * Convert widget config data to a JSON string suitable for mountWidgetContent.
+ * Handles both string-stored and object-stored data without double-stringifying.
+ * Returns null if the data cannot be normalized.
+ */
+export function stringifyWidgetConfigForMount(raw: unknown): string | null {
+    const normalized = normalizeWidgetConfigData(raw);
+    if (!normalized) return null;
+    try {
+        return JSON.stringify(normalized);
+    } catch {
+        return null;
+    }
+}
+
 function getLayoutOrderForDevice(
     layout: WidgetLayoutData | null,
     deviceId: string | null
@@ -79,6 +118,29 @@ function getLayoutOrderForDevice(
     }
 
     return [];
+}
+
+function getEffectiveHomepageOrderForDevice(
+    layout: WidgetLayoutData | null,
+    deviceId: string | null
+): LayoutItem[] {
+    const deviceOrder = getLayoutOrderForDevice(layout, deviceId);
+    const defaultOrder = getDefaultOrder(layout);
+    if (!deviceId || defaultOrder.length === 0) {
+        return deviceOrder;
+    }
+
+    const hiddenWidgetIds = layout?.profiles?.[deviceId]?.hiddenWidgetIds || [];
+    const hiddenIdsSet = new Set(hiddenWidgetIds);
+    const deviceOrderIds = new Set(deviceOrder.map((item) => item.id));
+    const missingVisibleDefaultItems = defaultOrder.filter((item) => {
+        return !hiddenIdsSet.has(item.id) && !deviceOrderIds.has(item.id);
+    });
+
+    if (missingVisibleDefaultItems.length === 0) {
+        return deviceOrder;
+    }
+    return [...deviceOrder, ...missingVisibleDefaultItems];
 }
 
 async function migrateLegacyLayout(
@@ -255,11 +317,6 @@ export async function restoreLayoutForContainer(
     const deviceId = isDesktopDeviceProfileEnabled() ? getLocalDeviceId() : null;
     const order = getLayoutOrderForDevice(layout, deviceId);
 
-    // 若 order 为空，直接返回，不清空容器
-    if (!order || order.length === 0) {
-        return;
-    }
-
     // 获取 defaultOrder 用于跨设备同步
     const defaultOrder = getDefaultOrder(layout);
 
@@ -279,8 +336,13 @@ export async function restoreLayoutForContainer(
         }
     }
 
+    // 补齐后若仍为空（所有组件均被隐藏），才返回
+    if (finalOrder.length === 0) {
+        return;
+    }
+
     // 新设备首次建档：若当前设备无 profile，自动创建
-    if (deviceId && layout && !layout.profiles?.[deviceId] && order.length > 0) {
+    if (deviceId && layout && !layout.profiles?.[deviceId] && finalOrder.length > 0) {
         if (!layout.profiles) {
             layout.profiles = {};
         }
@@ -316,7 +378,7 @@ export async function restoreLayoutForContainer(
             );
 
             const contentData = await plugin.loadData(`widget-${item.id}.json`);
-            const contentJson = contentData ? JSON.stringify(contentData) : null;
+            const contentJson = contentData ? stringifyWidgetConfigForMount(contentData) : null;
 
             // 先保存 widgetBlock 和内容，稍后统一挂载
             widgetsToRestore.push({ widgetBlock, contentJson });
@@ -523,7 +585,12 @@ export async function saveWidgetLayoutSettings(
                 layout.profiles = {};
             }
             if (!layout.profiles[deviceId]) {
-                layout.profiles[deviceId] = { order: [] };
+                // 优先使用当前设备已有有效 order，否则用 defaultOrder，再没有才是 []
+                const existingOrder = getLayoutOrderForDevice(layout, deviceId);
+                const fallbackOrder = existingOrder.length > 0
+                    ? existingOrder
+                    : (layout.defaultOrder || []);
+                layout.profiles[deviceId] = { order: fallbackOrder };
             }
             layout.profiles[deviceId].widgetLayoutNumber = settings.widgetLayoutNumber;
             layout.profiles[deviceId].widgetGap = settings.widgetGap;
@@ -688,4 +755,86 @@ export async function restoreWidgetForCurrentDevice(plugin: Plugin, widgetId: st
     await plugin.saveData("widgetLayout.json", layout);
     console.info(`[Layout] 已恢复组件 ${widgetId} 到位置 ${insertIndex}`);
     return true;
+}
+
+// ==================== 同步签名 ====================
+
+/**
+ * 构建当前设备有效签名，用于多设备同步检测。
+ * 签名包含：归一化配置 + 当前设备有效布局 + 各 widget 内容签名。
+ * index.ts 和 homepage.svelte 应统一使用此函数，确保口径一致。
+ */
+export async function buildHomepageAppliedSignature(
+    plugin: Plugin,
+    config: Record<string, unknown> | null,
+    layout: WidgetLayoutData | null,
+    deviceId: string | null,
+): Promise<string> {
+    const parts: string[] = [];
+
+    // 1. 归一化配置签名（排除 deviceProfiles，bannerDeviceProfiles 只保留当前设备 bannerHeight）
+    try {
+        const normalizedConfig = normalizeConfigForSignatureHelper(config, deviceId);
+        parts.push("cfg:" + JSON.stringify(normalizedConfig));
+    } catch {
+        parts.push("cfg:null");
+    }
+
+    // 2. 当前设备有效布局
+    try {
+        const effectiveOrder = getEffectiveHomepageOrderForDevice(layout, deviceId);
+        const hiddenWidgetIds = (deviceId && layout?.profiles?.[deviceId]?.hiddenWidgetIds) || [];
+        const widgetLayoutNumber = layout?.profiles?.[deviceId]?.widgetLayoutNumber ?? layout?.widgetLayoutNumber ?? 4;
+        const widgetGap = layout?.profiles?.[deviceId]?.widgetGap ?? layout?.widgetGap ?? 0.2;
+        const layoutPart = {
+            order: effectiveOrder.map((item) => ({ id: item.id, style: item.style })),
+            hiddenWidgetIds: [...hiddenWidgetIds].sort(),
+            widgetLayoutNumber,
+            widgetGap,
+        };
+        parts.push("layout:" + JSON.stringify(layoutPart));
+    } catch {
+        parts.push("layout:null");
+    }
+
+    // 3. 当前 order 中各 widget 内容签名
+    try {
+        const effectiveOrder = getEffectiveHomepageOrderForDevice(layout, deviceId);
+        const widgetSigs: string[] = [];
+        for (const item of effectiveOrder) {
+            try {
+                const content = await plugin.loadData(`widget-${item.id}.json`);
+                const normalized = normalizeWidgetConfigData(content);
+                widgetSigs.push(`${item.id}:${JSON.stringify(normalized)}`);
+            } catch {
+                widgetSigs.push(`${item.id}:null`);
+            }
+        }
+        parts.push("widgets:" + widgetSigs.join(","));
+    } catch {
+        parts.push("widgets:null");
+    }
+
+    return parts.join("|");
+}
+
+function normalizeConfigForSignatureHelper(config: Record<string, unknown> | null, deviceId: string | null): unknown {
+    if (!config || typeof config !== "object") return config;
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(config)) {
+        if (key === "deviceProfiles") continue;
+        if (key === "bannerDeviceProfiles") {
+            const profiles = config[key] as Record<string, Record<string, unknown>> | undefined;
+            if (deviceId && profiles?.[deviceId]?.bannerHeight !== undefined) {
+                normalized[key] = {
+                    [deviceId]: {
+                        bannerHeight: profiles[deviceId].bannerHeight,
+                    },
+                };
+            }
+            continue;
+        }
+        normalized[key] = config[key];
+    }
+    return normalized;
 }

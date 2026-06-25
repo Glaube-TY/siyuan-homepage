@@ -196,6 +196,12 @@ export async function runAgentTurn(
       setMcpRuntimeSettings(settings.runtimeTools);
     }
 
+    // ── Per-turn capability computation ──
+    const runtimeEnv = getNotebrainRuntimeEnvironment();
+    const sandboxEnabled = settings.notebrainWorkspace.enabled === true && runtimeEnv.isPcElectron;
+    const localCommandToolEnabled = sandboxEnabled && settings.notebrainWorkspace.commandExecutionEnabled === true;
+    const mcpClientEnabled = settings.mcp.enabled === true;
+
     let webSearchToolDeps: AgentWorkbenchRuntimeOptions["webSearchToolDeps"] | undefined;
     let webReadPageToolDeps: AgentWorkbenchRuntimeOptions["webReadPageToolDeps"] | undefined;
 
@@ -285,9 +291,14 @@ export async function runAgentTurn(
       webSearchRegistered: !!webSearchToolDeps,
       webReadPageRegistered: !!webReadPageToolDeps,
       settingsEnabled: ws.enabled,
+      webHttpGetRegistered: !disabledGlobalTools.has("web_http_get"),
+      webHttpPostRegistered: !disabledGlobalTools.has("web_http_post"),
+      webSearchDisabledReason: !ws.enabled ? "web_search_disabled"
+        : !webSearchAccess?.enabled ? "web_access_off"
+        : undefined,
     }, "info");
 
-    const runtimeEnv = getNotebrainRuntimeEnvironment();
+    // Runtime environment debug (already computed above)
     pushAgentDebugEvent("RUNTIME_ENVIRONMENT", {
       isPcElectron: runtimeEnv.isPcElectron,
       platformLabel: runtimeEnv.platformLabel,
@@ -451,6 +462,11 @@ export async function runAgentTurn(
       attachedDocs: params.attachedDocs,
       externalSkillIndexPrompt,
       runtimeToolsSettings: settings.runtimeTools,
+      runtimeToolCapabilities: {
+        sandboxEnabled,
+        localCommandToolEnabled,
+        mcpClientEnabled,
+      },
     });
 
     // Record skill routing info for debug

@@ -15,6 +15,8 @@ export function registerMcpManagementTools(
   settings: McpSettings,
   runtimeTools?: RuntimeToolsSettings,
 ): void {
+  // Internal defensive check: caller should also gate, but be safe.
+  if (settings.enabled !== true) return;
   toolRegistry.ensureTool(createMcpListServersTool(settings));
   toolRegistry.ensureTool(createMcpSaveServerTool(settings));
   toolRegistry.ensureTool(createMcpSyncToolsTool(settings, runtimeTools));

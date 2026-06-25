@@ -287,6 +287,10 @@ function normalizeNotebrainWorkspaceSettings(raw: unknown): NotebrainAgentWorksp
   }
   const s = raw as Record<string, unknown>;
   return {
+    // 迁移：老设置没有 enabled 字段时，如果 commandExecutionEnabled 为 true 则自动启用沙箱
+    enabled: typeof s.enabled === "boolean"
+      ? s.enabled
+      : s.commandExecutionEnabled === true,
     commandExecutionEnabled: typeof s.commandExecutionEnabled === "boolean"
       ? s.commandExecutionEnabled
       : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.commandExecutionEnabled,

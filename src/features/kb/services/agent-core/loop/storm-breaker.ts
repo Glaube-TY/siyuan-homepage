@@ -16,17 +16,35 @@ function stripRuntimeFields(args: Record<string, unknown>): Record<string, unkno
   return out;
 }
 
+function buildGuardKey(toolName: string, args: Record<string, unknown>): string {
+  return `${toolName}:${stableStringify(stripRuntimeFields(args))}`;
+}
+
 export class StormBreaker {
   private readonly successfulWriteCalls = new Set<string>();
+  private readonly readCallHistory = new Set<string>();
 
   shouldBlockWrite(toolCall: AgentToolCall, args: Record<string, unknown>): boolean {
-    const key = `${toolCall.name}:${stableStringify(stripRuntimeFields(args))}`;
+    const key = buildGuardKey(toolCall.name, args);
     return this.successfulWriteCalls.has(key);
   }
 
   markWriteSuccess(toolCall: AgentToolCall, args: Record<string, unknown>): void {
-    const key = `${toolCall.name}:${stableStringify(stripRuntimeFields(args))}`;
+    const key = buildGuardKey(toolCall.name, args);
     this.successfulWriteCalls.add(key);
+  }
+
+  /**
+   * Reserve a read-only tool call key BEFORE execution. Returns true if the
+   * key is newly reserved (should execute), false if it was already reserved
+   * (duplicate, should block). Atomic — concurrent calls with the same key
+   * in a Promise.all batch will only get one reservation.
+   */
+  tryReserveRead(toolCall: AgentToolCall, args: Record<string, unknown>): boolean {
+    const key = buildGuardKey(toolCall.name, args);
+    if (this.readCallHistory.has(key)) return false;
+    this.readCallHistory.add(key);
+    return true;
   }
 }
 

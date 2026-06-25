@@ -16,6 +16,8 @@ export interface RunNativeAgentLoopParams {
   abortSignal?: AbortSignal;
   onEvent?: (event: AgentStreamEvent) => void;
   question: string;
+  /** Maximum tool calls per turn (defaults to 10). */
+  maxToolCalls?: number;
 }
 
 export interface RunNativeAgentLoopResult {
@@ -41,6 +43,7 @@ export async function runNativeAgentLoop(
     autoAllowedToolNames: params.autoAllowedToolNames,
     abortSignal: params.abortSignal,
     onEvent: params.onEvent,
+    maxToolCalls: params.maxToolCalls,
   });
 
   const raw = await loop.run(params.question);
