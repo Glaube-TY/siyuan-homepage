@@ -1,6 +1,6 @@
 {
   "name": "siyuan-homepage",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "type": "module",
   "description": "Provides personalized homepage layout and rich functional modules.",
   "repository": "https://github.com/Glaube-TY/siyuan-homepage",
@@ -10,12 +10,13 @@
   "license": "MIT",
   "scripts": {
     "dev": "cross-env NODE_ENV=development VITE_SOURCEMAP=inline vite build --watch",
-    "build": "cross-env NODE_ENV=production vite build",
+    "build": "pnpm build:feishu-gateway && cross-env NODE_ENV=production vite build",
+    "build:feishu-gateway": "node --no-warnings ./scripts/chat-action-feishu-gateway/build-feishu-gateway.js",
     "make-link": "node --no-warnings ./scripts/make_dev_link.js",
     "make-link-win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/elevate.ps1 -scriptPath ./scripts/make_dev_link.js",
     "update-version": "node --no-warnings ./scripts/update_version.js",
     "release": "node --no-warnings ./scripts/release.js",
-    "make-install": "vite build && node --no-warnings ./scripts/make_install.js",
+    "make-install": "pnpm build && node --no-warnings ./scripts/make_install.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
@@ -28,6 +29,7 @@
     "@typescript-eslint/eslint-plugin": "^8.18.0",
     "@typescript-eslint/parser": "^8.18.0",
     "cross-env": "^10.1.0",
+    "esbuild": "0.25.12",
     "eslint": "^9.17.0",
     "fast-glob": "^3.2.12",
     "glob": "^13.0.6",
@@ -47,6 +49,7 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.41",
     "@floating-ui/dom": "^1.7.4",
+    "@larksuiteoapi/node-sdk": "^1.68.0",
     "ai": "^6.0.158",
     "ajv": "^8.20.0",
     "crypto-js": "^4.2.0",

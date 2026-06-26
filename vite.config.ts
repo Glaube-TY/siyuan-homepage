@@ -1,4 +1,5 @@
 import { resolve } from "path"
+import { builtinModules } from "module"
 import { defineConfig } from "vite"
 import { viteStaticCopy } from "vite-plugin-static-copy"
 import livereload from "rollup-plugin-livereload"
@@ -13,6 +14,10 @@ const isSrcmap = env.VITE_SOURCEMAP === 'inline';
 const isDev = env.NODE_ENV === 'development';
 
 const outputDir = isDev ? "dev" : "dist";
+const nodeBuiltins = Array.from(new Set([
+    ...builtinModules,
+    ...builtinModules.map((name) => `node:${name}`),
+]));
 
 console.log("isDev=>", isDev);
 console.log("isSrcmap=>", isSrcmap);
@@ -38,6 +43,11 @@ export default defineConfig({
         viteStaticCopy({
             targets: [
                 { src: "asset", dest: "." },
+                {
+                    src: "build/chat-action-feishu-gateway/feishu-gateway.mjs",
+                    dest: "scripts/chat-action-feishu-gateway",
+                    rename: { stripBase: true },
+                },
                 { src: "README*.md", dest: "." },
                 { src: "plugin.json", dest: "." },
                 { src: "preview.png", dest: "." },
@@ -57,6 +67,9 @@ export default defineConfig({
         emptyOutDir: false,
         minify: true,
         sourcemap: isSrcmap ? 'inline' : false,
+        commonjsOptions: {
+            transformMixedEsModules: true,
+        },
 
         lib: {
             entry: resolve(__dirname, "src/index.ts"),
@@ -64,6 +77,8 @@ export default defineConfig({
             formats: ["cjs"],
         },
         rollupOptions: {
+            // Vite/Rollup watch cache can corrupt CommonJS transform state for the Feishu SDK's nested axios files.
+            cache: isDev ? false : undefined,
             plugins: [
                 ...(isDev ? [
                     livereload(outputDir),
@@ -94,7 +109,7 @@ export default defineConfig({
                 ])
             ],
 
-            external: ["siyuan", "process"],
+            external: ["siyuan", "process", ...nodeBuiltins],
 
             output: {
                 entryFileNames: "[name].js",

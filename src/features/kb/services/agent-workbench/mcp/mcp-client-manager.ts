@@ -7,6 +7,10 @@ import type { RuntimeToolsSettings } from "../../../types/settings";
 import { pushMcpDebugEvent } from "../debug/workbench-debug";
 import { resolveNotebrainCommandCwd } from "../workspace/notebrain-runtime-env";
 import { decryptMcpServerSecrets } from "./mcp-config-store";
+import {
+  decryptSecretCipherText,
+  isEncryptedSecret,
+} from "../../settings/kb-sensitive-secret-crypto";
 
 const JSONRPC_VERSION = "2.0";
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-03-26", "2024-11-05"];
@@ -621,7 +625,6 @@ class StdioMcpConnection implements MinimalMcpConnection {
 
     // Decrypt encrypted env values
     try {
-      const { isEncryptedSecret, decryptSecretCipherText } = await import("../../settings/kb-sensitive-secret-crypto");
       let decryptFailed = false;
       for (const [key, val] of Object.entries(spawnEnv)) {
         if (typeof val === "string" && isEncryptedSecret(val)) {

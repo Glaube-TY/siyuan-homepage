@@ -27,6 +27,7 @@ import { setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings
 import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
 import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage";
 import { setNotifyBridgePlugin } from "@/features/notify-bridge";
+import { destroyChatActionBridge, setChatActionBridgePlugin, startChatActionBridgeIfNeeded } from "@/features/chat-action-bridge";
 import { destroyTaskNotifyScheduler, setTaskNotifyHistoryPlugin, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
 import { destroyCountdownNotifyScheduler, setCountdownNotifyHistoryPlugin, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
 import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyHistoryPlugin, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
@@ -370,6 +371,7 @@ export default class PluginHomepage extends Plugin {
         setReferenceNavigationPlugin(this);
         setNotebrainPlugin(this);
         setNotifyBridgePlugin(this);
+        setChatActionBridgePlugin(this);
         setTaskNotifyPlugin(this);
         setTaskNotifyHistoryPlugin(this);
         setCountdownNotifyPlugin(this);
@@ -408,6 +410,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onunload() {
+        await destroyChatActionBridge();
         destroyTaskNotifyScheduler();
         destroyCountdownNotifyScheduler();
         destroyEnhancedDiaryNotifyScheduler();
@@ -498,6 +501,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onLayoutReady() {
+        void startChatActionBridgeIfNeeded();
         startTaskNotifyScheduler();
         startCountdownNotifyScheduler();
         startEnhancedDiaryNotifyScheduler();

@@ -23,6 +23,7 @@
     import StylesSettingsTab from "./tabs/StylesSettingsTab.svelte"
     import AiKnowledgeBaseSettingsTab from "./tabs/AiKnowledgeBaseSettingsTab.svelte"
     import NotifyBridgeSettingsTab from "./tabs/NotifyBridgeSettingsTab.svelte"
+    import ChatActionBridgeSettingsTab from "./tabs/ChatActionBridgeSettingsTab.svelte"
     import MainTabNav from "./layout/MainTabNav.svelte"
     import SubTabNav from "./layout/SubTabNav.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
@@ -1102,6 +1103,10 @@
         {:else if activeTab === "notifyBridge"}
             <div class="content-scroll-area full-content">
                 <NotifyBridgeSettingsTab advancedEnabled={advancedEnabled} plugin={plugin} />
+            </div>
+        {:else if activeTab === "chatActionBridge"}
+            <div class="content-scroll-area full-content">
+                <ChatActionBridgeSettingsTab advancedEnabled={advancedEnabled} plugin={plugin} />
             </div>
         {:else if activeTab === "about"}
             <div class="content-scroll-area full-content">

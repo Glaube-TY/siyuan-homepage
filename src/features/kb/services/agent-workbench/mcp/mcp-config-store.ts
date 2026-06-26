@@ -3,6 +3,11 @@ import {
   writeNotebrainJson,
 } from "../workspace/notebrain-workspace-fs";
 import { slugifyNotebrainId } from "../workspace/notebrain-workspace-paths";
+import {
+  decryptSecretCipherText,
+  encryptSecretPlainText,
+  isEncryptedSecret,
+} from "../../settings/kb-sensitive-secret-crypto";
 import type { McpAuthConfig, McpAuthType, McpOAuthConfig, McpServerConfig, McpServerConfigFile } from "./mcp-types";
 
 export const MCP_SERVERS_PATH = "mcp/servers.json";
@@ -150,7 +155,6 @@ function isSensitiveHeaderKey(key: string): boolean {
 export async function encryptMcpServerSecrets(
   server: McpServerConfig,
 ): Promise<McpServerConfig> {
-  const { encryptSecretPlainText, isEncryptedSecret } = await import("../../settings/kb-sensitive-secret-crypto");
   const copy = JSON.parse(JSON.stringify(server)) as McpServerConfig;
 
   // Encrypt auth fields if present
@@ -206,7 +210,6 @@ function createMcpSecretDecryptError(fieldPath: string): Error {
 export async function decryptMcpServerSecrets(
   server: McpServerConfig,
 ): Promise<McpServerConfig> {
-  const { decryptSecretCipherText, isEncryptedSecret } = await import("../../settings/kb-sensitive-secret-crypto");
   const copy = JSON.parse(JSON.stringify(server)) as McpServerConfig;
 
   // Decrypt auth fields if present — any failure throws
@@ -248,4 +251,3 @@ export async function decryptMcpServerSecrets(
   }
   return copy;
 }
-

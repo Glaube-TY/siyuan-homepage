@@ -1,5 +1,6 @@
 import { DEFAULT_COUNTDOWN_NOTIFY_SETTINGS, COUNTDOWN_NOTIFY_SETTINGS_CHANGED_EVENT, COUNTDOWN_NOTIFY_SETTINGS_KEY } from "./constants";
 import type { CountdownNotifyRule, CountdownNotifyRuleType, CountdownNotifySettings } from "./types";
+import { resolveDatabaseIdFromExistingWidgets } from "@/components/utils/widgetBlock/widget/sharedDatabaseId";
 
 let pluginInstance: any = null;
 
@@ -125,9 +126,6 @@ export async function resolveEffectiveCountdownDatabaseId(
     return { databaseId: "", source: "none", message: "Countdown Notify 尚未初始化。" };
   }
   try {
-    const { resolveDatabaseIdFromExistingWidgets } = await import(
-      "@/components/utils/widgetBlock/widget/sharedDatabaseId"
-    );
     const result = await resolveDatabaseIdFromExistingWidgets(pluginInstance, "countdown");
     if (result.databaseId) {
       return {

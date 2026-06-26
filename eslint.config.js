@@ -9,8 +9,11 @@ export default [
     {
         ignores: [
             'dist/**',
+            'build/**',
             'node_modules/**',
             'dev/**',
+            'tmp/**',
+            '.tmp/**',
             'scripts/elevate.ps1',
             '**/*.svelte',
             '**/*.d.ts',

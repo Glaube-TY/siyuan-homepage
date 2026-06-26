@@ -15,6 +15,7 @@ export const mainTabs: MainTabItem[] = [
     { key: "homepage", label: "主页设置" },
     { key: "aiKnowledgeBase", label: "AI 知识库" },
     { key: "notifyBridge", label: "外联通知" },
+    { key: "chatActionBridge", label: "机器助手" },
     { key: "vip", label: "会员服务" },
     { key: "about", label: "关于插件" },
 ];

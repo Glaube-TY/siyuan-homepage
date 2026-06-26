@@ -1,7 +1,7 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
     import { onMount } from "svelte";
-    import { getChildBlocks, insertBlock, appendBlock } from "@/api";
+    import { writeQuickNote } from "@/features/quick-note/quick-note-write-service";
 
     interface Props {
         quickNotesPosition: string;
@@ -27,27 +27,17 @@
             return;
         }
 
-        let contentToAdd = quickNotesContent;
-        if (quickNotesTimestampEnabled) {
-            const now = new Date();
-            const timestamp =
-                `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ` +
-                `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-            contentToAdd += `    🕒${timestamp}`;
-        }
-
-        try {
-            if (quickNotesAddPosition == "top") {
-                const docChildren = await getChildBlocks(quickNotesPosition);
-                const firstChildID = docChildren[0].id;
-
-                await insertBlock("markdown", contentToAdd, firstChildID);
-            } else {
-                await appendBlock("markdown", contentToAdd, quickNotesPosition);
-            }
-        } catch (e) {
-            console.error("Error adding quick note:", e);
-        }
+        const result = await writeQuickNote({
+            content: quickNotesContent,
+            source: "local",
+            options: {
+                quickNotesPosition,
+                quickNotesTimestampEnabled,
+                quickNotesAddPosition,
+            },
+        });
+        showMessage(result.message);
+        if (!result.ok) return;
 
         close();
     }
