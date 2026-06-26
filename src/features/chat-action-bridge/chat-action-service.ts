@@ -237,6 +237,16 @@ export async function startLocalFeishuGateway(): Promise<ChatActionRuntimeStatus
     return status;
   }
 
+  if (!isChatActionPremiumAvailable()) {
+    stopFeishuLocalGatewayProcess();
+    await stopClient("高级功能不可用，机器助手已停止。");
+    setStatus({
+      code: "premium_unavailable",
+      message: "高级功能不可用，机器助手未启动。",
+    });
+    return status;
+  }
+
   let settings: ChatActionRuntimeSettings;
   try {
     settings = await loadChatActionBridgeRuntimeSettings();
@@ -407,6 +417,7 @@ async function handleAdvancedReady(): Promise<void> {
 }
 
 async function handleAdvancedUnavailable(): Promise<void> {
+  stopFeishuLocalGatewayProcess();
   await stopClient("高级功能不可用，机器助手已停止。");
   setStatus({ code: "premium_unavailable", message: "高级功能不可用，机器助手已停止。" });
 }
