@@ -26,6 +26,10 @@ import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.s
 import { setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
 import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
 import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage";
+import { setNotifyBridgePlugin } from "@/features/notify-bridge";
+import { destroyTaskNotifyScheduler, setTaskNotifyHistoryPlugin, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
+import { destroyCountdownNotifyScheduler, setCountdownNotifyHistoryPlugin, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
+import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyHistoryPlugin, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
 import { getSelectionAiToolbarSettingsSnapshot, loadSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
 import { clearSelectionAskPayloadHandler } from "@/features/kb/services/selection-ai/selection-ai-chat-bridge";
 import { destroySelectionAiPopup } from "@/features/kb/services/selection-ai/selection-ai-popup-controller";
@@ -365,6 +369,14 @@ export default class PluginHomepage extends Plugin {
         setKbSettingsPlugin(this);
         setReferenceNavigationPlugin(this);
         setNotebrainPlugin(this);
+        setNotifyBridgePlugin(this);
+        setTaskNotifyPlugin(this);
+        setTaskNotifyHistoryPlugin(this);
+        setCountdownNotifyPlugin(this);
+        setCountdownNotifyHistoryPlugin(this);
+        setEnhancedDiaryNotifyPlugin(this);
+        setEnhancedDiaryNotifyHistoryPlugin(this);
+        setEnhancedDiaryNotifyRulesPlugin(this);
         await loadSelectionAiToolbarSettingsSnapshot(this);
         initSelectionAiToolbarPointerTracker();
         this.registerIcon();
@@ -396,6 +408,9 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onunload() {
+        destroyTaskNotifyScheduler();
+        destroyCountdownNotifyScheduler();
+        destroyEnhancedDiaryNotifyScheduler();
         this.eventBus.off("open-menu-doctree", this.docTreeMenuEventBindThis);
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
         this.eventBus.off("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
@@ -483,6 +498,9 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onLayoutReady() {
+        startTaskNotifyScheduler();
+        startCountdownNotifyScheduler();
+        startEnhancedDiaryNotifyScheduler();
         this.ensureTabContainers();
         this.registerCustomTabs();
         this.ensureHomepageTabObserver();
