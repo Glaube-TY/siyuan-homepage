@@ -1,7 +1,7 @@
 import { buildSelectionAskDraft } from "./selection-ai-prompts";
 import type { SelectionAiContext, SelectionAiSkill } from "./selection-ai-types";
 
-export type SelectionAskTarget = "dock" | "tab";
+export type SelectionAskTarget = "dock" | "tab" | "mobile";
 
 export interface SelectionAskPayload {
   selectedText: string;

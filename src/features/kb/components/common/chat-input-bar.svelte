@@ -34,6 +34,7 @@
   export let webAccessMode: "off" | "smart" | "required" = "off";
   export let quickPromptsEnabled: boolean = false;
   export let quickPromptsDocId: string = "";
+  export let mobile: boolean = false;
 
   let inputValue = value;
   let textareaElement: HTMLTextAreaElement;
@@ -41,6 +42,7 @@
   let showModelMenu = false;
   let showContextPopover = false;
   let showWebAccessMenu = false;
+  let showMobileActions = false;
   let contextRingEl: HTMLDivElement | undefined;
 
   // Quick prompts
@@ -302,9 +304,15 @@
     if (modelOptions.length > 0) return "请选择模型";
     return "暂无可用模型，请先在设置中添加并启用模型";
   })();
+  $: mobileWebAccessLabel = webAccessMode === "required"
+    ? "必须联网"
+    : webAccessMode === "smart"
+      ? "智能搜索"
+      : "关闭搜索";
   $: if (asking) {
     showModeMenu = false;
     showModelMenu = false;
+    showMobileActions = false;
   }
 
   const dispatch = createEventDispatcher<{
@@ -356,6 +364,68 @@
 
   function handleStop() {
     dispatch("stop");
+  }
+
+  function closeMobileActions() {
+    showMobileActions = false;
+  }
+
+  function toggleMobileActions() {
+    if (asking) return;
+    showMobileActions = !showMobileActions;
+    if (showMobileActions) {
+      showModeMenu = false;
+      showModelMenu = false;
+      showWebAccessMenu = false;
+      showDocSearch = false;
+      closeContextPopover();
+      closeQuickPrompts();
+      dispatch("refreshModels");
+      if (quickPromptsEnabled && quickPromptsDocId) {
+        void loadQuickPrompts();
+      }
+    }
+  }
+
+  function handleMobileModeSelect(mode: ChatMode) {
+    if (modeSelectorLocked) return;
+    selectMode(mode);
+    closeMobileActions();
+  }
+
+  function handleMobileModelSelect(option: ChatModelOption) {
+    selectModel(option);
+    closeMobileActions();
+  }
+
+  function handleMobileWebAccessSelect(mode: "off" | "smart" | "required") {
+    selectWebAccessMode(mode);
+    closeMobileActions();
+  }
+
+  function handleMobileDocSearch() {
+    closeMobileActions();
+    toggleDocSearch();
+  }
+
+  function handleMobileThinkingToggle() {
+    toggleThinkingMode();
+    closeMobileActions();
+  }
+
+  function handleMobileCompressAction() {
+    handleCompressAction();
+    closeMobileActions();
+  }
+
+  function handleMobileClearCompressionAction() {
+    handleClearCompressionAction();
+    closeMobileActions();
+  }
+
+  function handleMobileQuickPromptClick(item: QuickPromptItem) {
+    handleQuickPromptClick(item);
+    closeMobileActions();
   }
 
   export function focusTextarea() {
@@ -725,6 +795,9 @@
     if (!target.closest(".quick-prompts-toggle") && !target.closest(".quick-prompts-menu")) {
       closeQuickPrompts();
     }
+    if (!target.closest(".mobile-actions-trigger") && !target.closest(".mobile-actions-menu")) {
+      closeMobileActions();
+    }
   }
 
 
@@ -752,10 +825,10 @@
   }
 </script>
 
-<div class="chat-input-wrapper">
+<div class="chat-input-wrapper" class:mobile={mobile}>
   <div class="chat-input-box">
     <!-- Top tools row -->
-    <div class="input-tools-row">
+    <div class="input-tools-row {mobile ? 'mobile-hidden' : ''}">
       <div class="mode-selector">
         <button
           type="button"
@@ -998,6 +1071,133 @@
 
     <!-- Bottom action row -->
     <div class="input-actions-row">
+      {#if mobile}
+        <div class="mobile-actions-trigger" role="presentation" on:click|stopPropagation>
+          <button
+            type="button"
+            class="mobile-plus-btn"
+            class:active={showMobileActions}
+            on:click={toggleMobileActions}
+            disabled={asking}
+            aria-label="打开提问选项"
+          >
+            <SiyuanIcon name="iconAdd" size={18} />
+          </button>
+
+          {#if showMobileActions}
+            <div class="mobile-actions-menu" role="dialog" aria-label="提问选项" tabindex="-1">
+              <div class="mobile-actions-header">
+                <span class="mobile-actions-title">提问选项</span>
+                <button type="button" class="mobile-actions-close" on:click={closeMobileActions} aria-label="关闭">
+                  <SiyuanIcon name="iconClose" size={14} />
+                </button>
+              </div>
+
+              <section class="mobile-action-section">
+                <div class="mobile-section-title">提问范围</div>
+                <div class="mobile-choice-grid">
+                  {#if modeSelectorLocked}
+                    <button type="button" class="mobile-choice active" disabled>特定文档上下文</button>
+                  {:else}
+                    {#each visibleChatModes as mode}
+                      <button
+                        type="button"
+                        class="mobile-choice"
+                        class:active={selectedMode === mode.id}
+                        disabled={!mode.available}
+                        on:click={() => handleMobileModeSelect(mode.id)}
+                      >
+                        {mode.label}
+                      </button>
+                    {/each}
+                  {/if}
+                </div>
+              </section>
+
+              <section class="mobile-action-section">
+                <div class="mobile-section-title">模型</div>
+                <div class="mobile-model-list">
+                  {#if modelOptions.length === 0}
+                    <div class="mobile-empty">暂无可用模型，请先在设置中添加并启用模型</div>
+                  {:else}
+                    {#each modelOptions as option (option.key)}
+                      <button
+                        type="button"
+                        class="mobile-model-option"
+                        class:active={selectedModelKey === option.key}
+                        on:click={() => handleMobileModelSelect(option)}
+                      >
+                        <span>{option.label}</span>
+                        {#if option.description}
+                          <small>{option.description}</small>
+                        {/if}
+                      </button>
+                    {/each}
+                  {/if}
+                </div>
+              </section>
+
+              <section class="mobile-action-section compact">
+                <button type="button" class="mobile-action-row" on:click={handleMobileDocSearch}>
+                  <SiyuanIcon name="iconFile" size={16} />
+                  <span>添加文档</span>
+                  {#if attachedDocs.length > 0}
+                    <b>{attachedDocs.length}</b>
+                  {/if}
+                </button>
+                <button type="button" class="mobile-action-row" class:active={thinkingMode === "on"} on:click={handleMobileThinkingToggle}>
+                  <SiyuanIcon name="iconSparkles" size={16} />
+                  <span>深度思考</span>
+                  <em>{thinkingMode === "on" ? "已开启" : "已关闭"}</em>
+                </button>
+                {#if webSearchEnabled}
+                  <div class="mobile-web-group">
+                    <div class="mobile-section-title">联网搜索：{mobileWebAccessLabel}</div>
+                    <div class="mobile-choice-grid">
+                      <button type="button" class="mobile-choice" class:active={webAccessMode === "off"} on:click={() => handleMobileWebAccessSelect("off")}>关闭</button>
+                      <button type="button" class="mobile-choice" class:active={webAccessMode === "smart"} on:click={() => handleMobileWebAccessSelect("smart")}>智能</button>
+                      <button type="button" class="mobile-choice" class:active={webAccessMode === "required"} on:click={() => handleMobileWebAccessSelect("required")}>必须联网</button>
+                    </div>
+                  </div>
+                {/if}
+                {#if canCompress}
+                  <button type="button" class="mobile-action-row" on:click={handleMobileCompressAction}>
+                    <SiyuanIcon name="iconRefresh" size={16} />
+                    <span>{compressionState?.enabled ? "更新上下文压缩" : "压缩上下文"}</span>
+                  </button>
+                {/if}
+                {#if compressionState?.enabled}
+                  <button type="button" class="mobile-action-row" on:click={handleMobileClearCompressionAction}>
+                    <SiyuanIcon name="iconTrashcan" size={16} />
+                    <span>清除上下文压缩</span>
+                  </button>
+                {/if}
+              </section>
+
+              {#if quickPromptsEnabled && quickPromptsDocId}
+                <section class="mobile-action-section">
+                  <div class="mobile-section-title">快捷提示</div>
+                  {#if quickPromptsLoading}
+                    <div class="mobile-empty">加载中...</div>
+                  {:else if quickPromptItems.length === 0}
+                    <div class="mobile-empty">暂无提示语</div>
+                  {:else}
+                    <div class="mobile-quick-list">
+                      {#each quickPromptItems as item}
+                        <button type="button" class="mobile-quick-item" on:click={() => handleMobileQuickPromptClick(item)}>
+                          {item.text}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </section>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <div class="desktop-bottom-actions {mobile ? 'mobile-hidden' : ''}">
       <button
         type="button"
         class="thinking-toggle"
@@ -1135,6 +1335,7 @@
           </span>
         {/if}
       {/key}
+      </div>
 
       {#if asking}
         <Button
@@ -1223,6 +1424,58 @@
     flex-direction: column;
     padding: 8px;
     gap: 6px;
+  }
+
+  .chat-input-wrapper.mobile {
+    padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+
+    .chat-input-box {
+      border-radius: 22px;
+      padding: 8px 10px;
+      gap: 6px;
+      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.10);
+    }
+
+    .mobile-hidden {
+      display: none;
+    }
+
+    .chat-textarea {
+      min-height: 40px;
+      max-height: 132px;
+      padding: 6px 2px;
+      font-size: 15px;
+    }
+
+    .input-actions-row {
+      justify-content: space-between;
+      flex-wrap: nowrap;
+      gap: 8px;
+
+      > :last-child {
+        margin-left: auto;
+      }
+    }
+
+    :global(.b3-button) {
+      min-height: 38px;
+      border-radius: 999px;
+      padding: 0 16px;
+    }
+
+    .doc-search-container {
+      left: 0;
+      right: 0;
+      width: auto;
+      bottom: calc(100% + 8px);
+    }
+
+    .doc-search-popover,
+    .quick-prompts-menu {
+      width: min(100%, 360px);
+      max-height: 55dvh;
+      border-radius: 16px;
+    }
   }
 
   // Top tools row
@@ -1338,6 +1591,235 @@
     > :last-child {
       margin-left: auto;
     }
+  }
+
+  .desktop-bottom-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .mobile-actions-trigger {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .mobile-plus-btn {
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 50%;
+    background: var(--b3-theme-background-light);
+    color: var(--b3-theme-on-surface);
+    cursor: pointer;
+
+    &.active {
+      background: var(--b3-theme-primary);
+      border-color: var(--b3-theme-primary);
+      color: var(--b3-theme-on-primary);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  }
+
+  .mobile-actions-menu {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 10px);
+    width: min(88vw, 360px);
+    max-height: min(68dvh, 560px);
+    overflow: auto;
+    padding: 12px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 18px;
+    background: var(--b3-theme-background);
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+    z-index: 120;
+    box-sizing: border-box;
+  }
+
+  .mobile-actions-header,
+  .mobile-action-row {
+    display: flex;
+    align-items: center;
+  }
+
+  .mobile-actions-header {
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .mobile-actions-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--b3-theme-on-surface);
+  }
+
+  .mobile-actions-close {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 10px;
+    background: var(--b3-theme-background-light);
+    color: var(--b3-theme-on-surface-light);
+  }
+
+  .mobile-action-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 0;
+    border-top: 1px solid color-mix(in srgb, var(--b3-border-color) 65%, transparent);
+
+    &:first-of-type {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    &.compact {
+      gap: 6px;
+    }
+  }
+
+  .mobile-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface-light);
+  }
+
+  .mobile-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .mobile-choice,
+  .mobile-model-option,
+  .mobile-action-row,
+  .mobile-quick-item {
+    border: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-background-light);
+    color: var(--b3-theme-on-surface);
+    cursor: pointer;
+    box-sizing: border-box;
+  }
+
+  .mobile-choice {
+    min-height: 36px;
+    border-radius: 12px;
+    padding: 7px 10px;
+    font-size: 13px;
+    text-align: center;
+
+    &.active {
+      background: var(--b3-theme-primary);
+      border-color: var(--b3-theme-primary);
+      color: var(--b3-theme-on-primary);
+      font-weight: 600;
+    }
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+
+  .mobile-model-list,
+  .mobile-quick-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 180px;
+    overflow: auto;
+  }
+
+  .mobile-model-option {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    border-radius: 12px;
+    padding: 9px 10px;
+    text-align: left;
+
+    &.active {
+      border-color: var(--b3-theme-primary);
+      background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
+    }
+
+    span {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    small {
+      font-size: 11px;
+      color: var(--b3-theme-on-surface-light);
+      line-height: 1.35;
+    }
+  }
+
+  .mobile-action-row {
+    gap: 10px;
+    width: 100%;
+    min-height: 40px;
+    border-radius: 12px;
+    padding: 8px 10px;
+    font-size: 13px;
+    text-align: left;
+
+    span {
+      flex: 1;
+      min-width: 0;
+    }
+
+    b,
+    em {
+      font-style: normal;
+      font-size: 11px;
+      color: var(--b3-theme-primary);
+    }
+
+    &.active {
+      border-color: var(--b3-theme-primary);
+      background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
+    }
+  }
+
+  .mobile-web-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 0;
+  }
+
+  .mobile-quick-item {
+    width: 100%;
+    border-radius: 12px;
+    padding: 9px 10px;
+    font-size: 13px;
+    text-align: left;
+    line-height: 1.45;
+  }
+
+  .mobile-empty {
+    padding: 10px;
+    border-radius: 12px;
+    background: var(--b3-theme-background-light);
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+    line-height: 1.45;
   }
 
   .context-usage-ring {

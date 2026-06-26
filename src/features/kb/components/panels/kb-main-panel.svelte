@@ -4,6 +4,7 @@
   import ChatMessageList from "../common/chat-message-list.svelte";
   import ChatInputBar from "../common/chat-input-bar.svelte";
   import ConversationSidebar from "../common/conversation-sidebar.svelte";
+  import KbSettingsPanel from "./kb-settings-panel.svelte";
   import type { ExtendedKbSessionState } from "../../types/session";
   import type { ChatMode } from "../../constants/chat-modes";
   import { CHAT_MODES, DEFAULT_CHAT_MODE, getChatModeLabel } from "../../constants/chat-modes";
@@ -37,7 +38,7 @@
   } from "../../services/selection-ai/selection-ai-chat-bridge";
   import type { AttachedKbDoc } from "../../types/chat";
 
-  export let placement: "dock" | "tab" = "dock";
+  export let placement: "dock" | "tab" | "mobile" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
 
   // Web search state
@@ -131,6 +132,7 @@
 
   // 会话侧边栏状态
   let conversationSidebarOpen = false;
+  let mobileSettingsOpen = false;
 
   // 从 store 获取会话列表和当前活跃会话 ID（使用 ExtendedKbSessionState 类型）
   $: conversations = ($kbSessionStore as ExtendedKbSessionState).conversations ?? [];
@@ -625,7 +627,16 @@
   }
 
   function handleOpenSettings() {
+    if (placement === "mobile") {
+      mobileSettingsOpen = true;
+      conversationSidebarOpen = false;
+      return;
+    }
     onOpenSettings?.();
+  }
+
+  function handleCloseMobileSettings() {
+    mobileSettingsOpen = false;
   }
 
   // 创建新会话（增加 asking 保护）
@@ -1232,7 +1243,7 @@
   });
 </script>
 
-<div class="kb-main-panel" class:has-sidebar={conversationSidebarOpen}>
+<div class="kb-main-panel" class:has-sidebar={conversationSidebarOpen} class:mobile={placement === "mobile"}>
   <!-- 会话侧边栏 -->
   {#if conversationSidebarOpen}
     <ConversationSidebar
@@ -1338,6 +1349,7 @@
           webAccessMode={effectiveWebAccessMode}
           {quickPromptsEnabled}
           {quickPromptsDocId}
+          mobile={placement === "mobile"}
           on:webAccessModeChange={(e) => { kbSessionStore.setWebAccessMode(e.detail); }}
           on:send={handleSend}
           on:stop={handleStop}
@@ -1353,6 +1365,12 @@
       </div>
     </div>
   </div>
+
+  {#if placement === "mobile" && mobileSettingsOpen}
+    <div class="mobile-settings-overlay">
+      <KbSettingsPanel mobile={true} close={handleCloseMobileSettings} />
+    </div>
+  {/if}
 </div>
 
 <DocContentEditConfirmationModal
@@ -1552,6 +1570,81 @@
       &:hover {
         background: color-mix(in srgb, var(--b3-theme-on-surface) 30%, transparent);
       }
+    }
+  }
+
+  :global(.mobile-kb-chat-dialog .dialog-content) {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  :global(.mobile-kb-chat-dialog .b3-dialog__container) {
+    max-width: 100vw;
+    max-height: 100dvh;
+  }
+
+  .kb-main-panel.mobile {
+    flex-direction: column;
+    height: 100%;
+    background: var(--b3-theme-background);
+
+    &.has-sidebar :global(.conversation-sidebar) {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: min(86vw, 320px);
+      max-width: 320px;
+      z-index: 30;
+      box-shadow: 12px 0 28px rgba(15, 23, 42, 0.18);
+    }
+
+    .top-toolbar {
+      min-height: 44px;
+      padding: 6px 10px;
+      gap: 6px;
+      flex-wrap: nowrap;
+      box-shadow: none;
+    }
+
+    .toolbar-left,
+    .toolbar-right {
+      gap: 6px;
+      flex-wrap: nowrap;
+    }
+
+    .toolbar-btn {
+      min-width: 38px;
+      min-height: 38px;
+      justify-content: center;
+      padding: 0 10px;
+      border-radius: 12px;
+      transform: none;
+
+      &:hover:not(:disabled) {
+        transform: none;
+      }
+    }
+
+    .btn-label {
+      display: none;
+    }
+
+    .chat-wrapper .chat-area {
+      padding: 0;
+
+      :global(.chat-input-wrapper) {
+        margin-top: 0;
+        padding-top: 0;
+      }
+    }
+
+    .mobile-settings-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 60;
+      display: flex;
+      min-width: 0;
+      min-height: 0;
+      background: var(--b3-theme-background);
     }
   }
 

@@ -15,6 +15,9 @@
   import QuickPromptsSettingsTab from "./settings-tabs/quick-prompts-settings-tab.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
+  export let close: (() => void) | undefined = undefined;
+  export let mobile = false;
+
   // 页签定义
   const TABS = [
     { id: "basic", label: "基础设置", icon: "iconSettings" },
@@ -38,6 +41,15 @@
   let saveMessage = "";
   let saveMessageType: "success" | "error" = "success";
   let activeTab: TabId = "basic";
+  let mobileView: "list" | "detail" = "list";
+  const MOBILE_HIDDEN_TAB_IDS = new Set<TabId>(["agentWorkspace"]);
+
+  $: visibleTabs = mobile
+    ? TABS.filter((tab) => !MOBILE_HIDDEN_TAB_IDS.has(tab.id))
+    : TABS;
+  $: if (mobile && !visibleTabs.some((tab) => tab.id === activeTab)) {
+    activeTab = visibleTabs[0]?.id ?? "basic";
+  }
 
   onMount(async () => {
     try {
@@ -65,34 +77,95 @@
 
   function switchTab(tabId: TabId) {
     activeTab = tabId;
+    if (mobile) {
+      mobileView = "detail";
+      saveMessage = "";
+    }
+  }
+
+  function backToMobileList() {
+    mobileView = "list";
+    saveMessage = "";
+  }
+
+  function getMobileTabDescription(tabId: TabId): string {
+    switch (tabId) {
+      case "basic":
+        return "聊天显示、工具调用次数和过程展示。";
+      case "model":
+        return "模型供应商、API Key 和 Agent 兼容性。";
+      case "retrieval":
+        return "检索数量、上下文窗口和文档读取限制。";
+      case "skills":
+        return "内置与自定义 Skill 的启用和编辑。";
+      case "tools":
+        return "控制 AI 可用工具和写入确认。";
+      case "mcp":
+        return "移动端支持 HTTP/SSE，stdio 仅桌面端可用。";
+      case "webSearch":
+        return "联网搜索供应商和搜索策略。";
+      case "memory":
+        return "全局记忆文档和 AI 更新权限。";
+      case "quickPrompts":
+        return "快捷提示语文档和输入栏入口。";
+      default:
+        return "";
+    }
   }
 </script>
 
-<div class="kb-settings-panel">
+<div class="kb-settings-panel" class:mobile={mobile}>
   {#if loading}
     <div class="loading">加载中...</div>
   {:else}
-    <div class="settings-layout">
+    <div class="settings-layout" class:mobile-list={mobile && mobileView === "list"} class:mobile-detail={mobile && mobileView === "detail"}>
       <!-- 左侧导航 -->
-      <div class="settings-sidebar">
+      <div class="settings-sidebar" class:mobile-hidden={mobile && mobileView !== "list"}>
+        {#if mobile}
+          <div class="mobile-settings-heading">
+            <div>
+              <div class="mobile-settings-title">AI 知识库设置</div>
+              <div class="mobile-settings-subtitle">选择一个分类继续设置。</div>
+            </div>
+            <button type="button" class="mobile-icon-btn" on:click={() => close?.()} aria-label="关闭设置">
+              <SiyuanIcon name="iconClose" size={16} />
+            </button>
+          </div>
+        {/if}
         <div class="sidebar-nav">
-          {#each TABS as tab}
+          {#each visibleTabs as tab}
             <button
               class="sidebar-button"
               class:active={activeTab === tab.id}
               on:click={() => switchTab(tab.id)}
             >
               <span class="sidebar-icon"><SiyuanIcon name={tab.icon} size={16} /></span>
-              <span class="sidebar-label">{tab.label}</span>
+              <span class="sidebar-copy">
+                <span class="sidebar-label">{tab.label}</span>
+                {#if mobile}
+                  <span class="sidebar-desc">{getMobileTabDescription(tab.id)}</span>
+                {/if}
+              </span>
+              {#if mobile}
+                <span class="sidebar-arrow">›</span>
+              {/if}
             </button>
           {/each}
         </div>
+        {#if mobile}
+          <div class="mobile-desktop-note">沙箱环境、本地命令和运行时检测仅在 PC/Electron 桌面端配置与执行。</div>
+        {/if}
       </div>
 
       <!-- 右侧内容 -->
-      <div class="settings-main">
+      <div class="settings-main" class:mobile-hidden={mobile && mobileView !== "detail"}>
         <!-- 顶部操作栏 -->
         <div class="settings-header">
+          {#if mobile}
+            <button type="button" class="mobile-back-btn" on:click={backToMobileList} aria-label="返回设置分类">
+              <SiyuanIcon name="iconLeft" size={16} />
+            </button>
+          {/if}
           <div class="header-title">{TABS.find((t) => t.id === activeTab)?.label ?? ""}</div>
           <div class="header-actions">
             {#if saveMessage}
@@ -106,6 +179,11 @@
             >
               {saving ? "保存中..." : "保存设置"}
             </button>
+            {#if mobile}
+              <button type="button" class="mobile-close-btn" on:click={() => close?.()} aria-label="关闭设置">
+                <SiyuanIcon name="iconClose" size={14} />
+              </button>
+            {/if}
           </div>
         </div>
 
@@ -124,7 +202,7 @@
             {:else if activeTab === "agentWorkspace"}
               <AgentWorkspaceSettingsTab bind:settings />
             {:else if activeTab === "mcp"}
-              <McpSettingsTab bind:settings />
+              <McpSettingsTab bind:settings mobile={mobile} />
             {:else if activeTab === "webSearch"}
               <WebSearchSettingsTab bind:settings />
             {:else if activeTab === "memory"}
@@ -249,6 +327,12 @@
     height: 20px;
   }
 
+  .sidebar-copy {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
   .sidebar-label {
     white-space: nowrap;
     overflow: hidden;
@@ -353,6 +437,244 @@
 
     &.error {
       color: var(--b3-theme-error);
+    }
+  }
+
+  .mobile-hidden {
+    display: none !important;
+  }
+
+  .mobile-settings-heading,
+  .mobile-settings-title,
+  .mobile-settings-subtitle,
+  .sidebar-desc,
+  .sidebar-arrow,
+  .mobile-desktop-note,
+  .mobile-back-btn,
+  .mobile-close-btn,
+  .mobile-icon-btn {
+    display: none;
+  }
+
+  .kb-settings-panel.mobile {
+    height: 100%;
+    overflow: hidden;
+
+    .settings-layout {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--b3-theme-background);
+    }
+
+    .settings-sidebar {
+      width: 100%;
+      min-width: 0;
+      padding: 14px 14px max(18px, env(safe-area-inset-bottom));
+      border-right: none;
+      overflow: auto;
+      box-sizing: border-box;
+    }
+
+    .mobile-settings-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 0 14px;
+    }
+
+    .mobile-settings-title {
+      display: block;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--b3-theme-on-surface);
+      line-height: 1.3;
+    }
+
+    .mobile-settings-subtitle {
+      display: block;
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--b3-theme-on-surface-light);
+    }
+
+    .mobile-icon-btn,
+    .mobile-close-btn,
+    .mobile-back-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      border: 1px solid var(--b3-border-color);
+      background: var(--b3-theme-background-light);
+      color: var(--b3-theme-on-surface-light);
+      cursor: pointer;
+    }
+
+    .mobile-icon-btn,
+    .mobile-close-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+    }
+
+    .mobile-back-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+    }
+
+    .sidebar-nav {
+      gap: 8px;
+    }
+
+    .sidebar-button {
+      width: 100%;
+      min-height: 64px;
+      padding: 12px;
+      gap: 12px;
+      border: 1px solid var(--b3-border-color);
+      border-radius: 14px;
+      background: var(--b3-theme-background);
+      box-shadow: 0 3px 12px rgba(15, 23, 42, 0.04);
+
+      &::before {
+        display: none;
+      }
+
+      &.active {
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+        border-color: color-mix(in srgb, var(--b3-theme-primary) 35%, var(--b3-border-color));
+      }
+    }
+
+    .sidebar-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 12px;
+      background: var(--b3-theme-background-light);
+      color: var(--b3-theme-primary);
+    }
+
+    .sidebar-copy {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+    }
+
+    .sidebar-label {
+      font-size: 15px;
+      font-weight: 650;
+      color: var(--b3-theme-on-surface);
+    }
+
+    .sidebar-desc {
+      display: block;
+      width: 100%;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--b3-theme-on-surface-light);
+      white-space: normal;
+    }
+
+    .sidebar-arrow {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      color: var(--b3-theme-on-surface-light);
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .mobile-desktop-note {
+      display: block;
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--b3-card-warning-background, #fff7e6) 75%, var(--b3-theme-background));
+      color: var(--b3-theme-on-surface-light);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .settings-main {
+      width: 100%;
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .settings-header {
+      min-height: 54px;
+      padding: 8px 10px;
+      gap: 8px;
+      box-sizing: border-box;
+    }
+
+    .header-title {
+      flex: 1;
+      min-width: 0;
+      font-size: 17px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .header-actions {
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .save-message {
+      display: none;
+    }
+
+    .save-btn {
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .main-content {
+      padding: 14px 14px max(18px, env(safe-area-inset-bottom));
+      overflow-y: auto;
+      box-sizing: border-box;
+    }
+
+    .tab-container {
+      :global(.settings-section),
+      :global(.section-card),
+      :global(.provider-card),
+      :global(.model-card),
+      :global(.server-card),
+      :global(.skill-card) {
+        max-width: 100%;
+      }
+
+      :global(.setting-row),
+      :global(.field-row),
+      :global(.auth-row) {
+        align-items: stretch;
+      }
+
+      :global(input:not([type="checkbox"])),
+      :global(select),
+      :global(textarea) {
+        max-width: 100%;
+        min-height: 38px;
+        font-size: 14px;
+      }
     }
   }
 </style>

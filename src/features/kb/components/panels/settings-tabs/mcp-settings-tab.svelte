@@ -15,6 +15,7 @@
   import { isEncryptedSecret } from "../../../services/settings/kb-sensitive-secret-crypto";
 
   export let settings: KbSettings;
+  export let mobile = false;
 
   let servers: McpServerConfig[] = [];
   let tools: McpToolIndexEntry[] = [];
@@ -205,6 +206,11 @@
   }
 
   function openEditServerEditor(server: McpServerConfig) {
+    if (mobile && server.transport === "stdio") {
+      editorError = "移动端不能编辑 stdio MCP Server。请在 PC/Electron 端配置，或新建 HTTP/SSE Server。";
+      showEditor = false;
+      return;
+    }
     editingServer = { ...server, args: server.args ? [...server.args] : undefined, env: server.env ? { ...server.env } : undefined };
     argsText = (server.args ?? []).join("\n");
     envText = Object.entries(server.env ?? {}).map(([key, value]) => {
@@ -557,6 +563,10 @@
   }
 
   function updateTransport(value: string) {
+    if (mobile && value === "stdio") {
+      editorError = "移动端不支持 stdio MCP，请使用 HTTP/SSE Server，或在 PC/Electron 端配置 stdio。";
+      value = "http";
+    }
     editingServer = {
       ...editingServer,
       transport: (value === "stdio" || value === "sse" ? value : "http") as McpTransportType,
@@ -658,6 +668,7 @@
     };
 
     if (transport === "stdio") {
+      if (mobile) return null;
       server.command = typeof config.command === "string" ? config.command : undefined;
       server.args = Array.isArray(config.args) ? config.args.filter((a): a is string => typeof a === "string") : undefined;
       if (config.env && typeof config.env === "object" && !Array.isArray(config.env)) {
@@ -816,12 +827,15 @@
 
   <section class="settings-section">
     <div class="section-header with-actions">
-      <div>
-        <h2 class="section-title">Server 列表</h2>
-        <p class="section-description">stdio 仅支持 PC/Electron；HTTP/SSE 需要可访问 URL。</p>
-        {#if !isPcElectron}
-          <p class="diag-hint">当前环境不支持 stdio，stdio Server 的同步按钮已禁用。</p>
-        {/if}
+          <div>
+            <h2 class="section-title">Server 列表</h2>
+            <p class="section-description">stdio 仅支持 PC/Electron；HTTP/SSE 需要可访问 URL。</p>
+            {#if mobile}
+              <p class="diag-hint">移动端不会创建或同步 stdio Server。需要本地命令的 MCP 请在 PC/Electron 端配置；移动端可使用 HTTP/SSE Server。</p>
+            {/if}
+            {#if !isPcElectron}
+              <p class="diag-hint">当前环境不支持 stdio，stdio Server 的同步按钮已禁用。</p>
+            {/if}
       </div>
       <button type="button" class="secondary-btn" on:click={syncAllEnabledServers} disabled={syncingServerId !== "" || loading}>
         同步全部
@@ -984,7 +998,9 @@
             <select value={editingServer.transport} on:change={(event) => updateTransport(event.currentTarget.value)}>
               <option value="http">Streamable HTTP</option>
               <option value="sse">SSE</option>
-              <option value="stdio">stdio</option>
+              {#if !mobile}
+                <option value="stdio">stdio</option>
+              {/if}
             </select>
           </label>
           <label class="field-row">

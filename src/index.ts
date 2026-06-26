@@ -89,6 +89,7 @@ export default class PluginHomepage extends Plugin {
     kbChatTab?: () => Model;
     isMobile = false;
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
+    private currentMobileKbDialog: ReturnType<typeof svelteDialog> | null = null;
     private homepageInstance: Record<string, any> | null = null;
     private homepageTabDiv: HTMLDivElement | null = null;
     private enhancedDiaryWorkspaceInstance: Record<string, any> | null = null;
@@ -417,6 +418,10 @@ export default class PluginHomepage extends Plugin {
         if (this.currentMobileDialog) {
             this.currentMobileDialog.close();
             this.currentMobileDialog = null;
+        }
+        if (this.currentMobileKbDialog) {
+            this.currentMobileKbDialog.close();
+            this.currentMobileKbDialog = null;
         }
 
         // 销毁全局悬浮预览单例（清理 DOM、样式、Protyle 等资源）
@@ -1101,7 +1106,7 @@ export default class PluginHomepage extends Plugin {
 
     public async openKbChatTab(): Promise<void> {
         if (this.isMobileFrontend()) {
-            showMessage("AI 知识库标签页暂不支持移动端", 3000);
+            this.openMobileKbChat();
             return;
         }
 
@@ -1238,12 +1243,11 @@ export default class PluginHomepage extends Plugin {
 
     public async openKbDock(): Promise<boolean> {
         if (this.isMobileFrontend()) {
-            pushAgentDebugEvent("SELECTION_AI_DOCK_OPEN_FAILED", {
-                reason: "mobile_frontend",
+            pushAgentDebugEvent("SELECTION_AI_MOBILE_CHAT_OPEN", {
                 isMobile: true,
-            }, "warn");
-            showMessage("移动端请使用 AI 知识库标签页", 3000);
-            return false;
+            }, "info");
+            this.openMobileKbChat();
+            return true;
         }
 
         const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
@@ -1363,6 +1367,33 @@ export default class PluginHomepage extends Plugin {
             },
         });
         this.currentMobileDialog.dialog.element.classList.add("mobile-homepage-dialog");
+    }
+
+    private openMobileKbChat(): void {
+        if (this.currentMobileKbDialog) {
+            this.currentMobileKbDialog.close();
+            this.currentMobileKbDialog = null;
+        }
+
+        this.currentMobileKbDialog = svelteDialog({
+            title: "AI 知识库",
+            width: "100vw",
+            height: "100dvh",
+            constructor: (containerEl: HTMLElement) => {
+                return mount(KbPremiumGatePanel as any, {
+                    target: containerEl,
+                    props: {
+                        plugin: this,
+                        placement: "mobile",
+                        onOpenSettings: () => this.openKbSettingsDialog(),
+                    },
+                });
+            },
+            callback: () => {
+                this.currentMobileKbDialog = null;
+            },
+        });
+        this.currentMobileKbDialog.dialog.element.classList.add("mobile-kb-chat-dialog");
     }
 
     private async getPluginConfig(): Promise<PluginConfig> {

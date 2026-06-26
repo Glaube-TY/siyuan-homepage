@@ -5,7 +5,7 @@
 
     interface Props {
         plugin: any;
-        placement?: "tab" | "dock";
+        placement?: "tab" | "dock" | "mobile";
         onOpenSettings?: () => void;
     }
 
@@ -36,7 +36,7 @@
 {#if advanced}
     <KbMainPanel {placement} {onOpenSettings} />
 {:else}
-    <div class="kb-premium-gate" class:dock={placement === "dock"}>
+    <div class="kb-premium-gate" class:dock={placement === "dock"} class:mobile={placement === "mobile"}>
         <div class="kb-premium-lock-shell">
             <AdvancedFeatureLock
                 title="AI 知识库对话"
@@ -55,7 +55,7 @@
                     "上下文管理",
                 ]}
                 note="开启高级会员后即可使用 AI 知识库对话能力。"
-                compact={placement === "dock"}
+                compact={placement === "dock" || placement === "mobile"}
             />
         </div>
     </div>
@@ -74,7 +74,18 @@
         overflow: auto;
     }
 
+    :global(.mobile-kb-chat-dialog .dialog-content) {
+        padding: 0;
+        overflow: hidden;
+    }
+
     .kb-premium-gate.dock {
+        padding: 12px;
+        overflow: auto;
+    }
+
+    .kb-premium-gate.mobile {
+        align-items: stretch;
         padding: 12px;
         overflow: auto;
     }
@@ -97,7 +108,14 @@
         max-width: none;
     }
 
-    .kb-premium-gate.dock :global(.feature-lock) {
+    .kb-premium-gate.mobile .kb-premium-lock-shell {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+
+    .kb-premium-gate.dock :global(.feature-lock),
+    .kb-premium-gate.mobile :global(.feature-lock) {
         width: 100%;
     }
 
