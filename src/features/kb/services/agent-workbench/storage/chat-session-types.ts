@@ -12,6 +12,7 @@
 
 import type { ConversationStageSummary } from "../../../types/chat";
 import type { AgentMessage } from "../../agent-core/messages/agent-message";
+import type { ThinkingMode, WebAccessMode } from "../../../types/session";
 
 export interface ChatSessionIndexEntry {
   id: string;
@@ -52,6 +53,16 @@ export interface ChatSessionData {
   stageSummaries?: ConversationStageSummary[];
   compressionState?: unknown;
   compressedContextSummary?: string;
+  /**
+   * 当前会话输入区"深度思考"按钮状态（会话级持久化）
+   * 旧 session 文件缺字段时默认 "off"
+   */
+  thinkingMode?: ThinkingMode;
+  /**
+   * 当前会话输入区"联网搜索"按钮状态（会话级持久化）
+   * 旧 session 文件缺字段时默认 "off"
+   */
+  webAccessMode?: WebAccessMode;
   agentSession?: {
     id: string;
     messages: AgentMessage[];

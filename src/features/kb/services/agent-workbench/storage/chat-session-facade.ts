@@ -99,6 +99,8 @@ export async function saveKbChatSessionStorage(payload: {
       stageSummaries: persisted.stageSummaries,
       compressionState: persisted.compressionState,
       compressedContextSummary: persisted.compressedContextSummary,
+      thinkingMode: persisted.thinkingMode,
+      webAccessMode: persisted.webAccessMode,
       agentSession: persisted.agentSession,
     };
 

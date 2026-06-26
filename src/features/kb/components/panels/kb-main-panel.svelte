@@ -42,7 +42,10 @@
 
   // Web search state
   let webSearchEnabled = false;
-  let webAccessMode: "off" | "smart" | "required" = "off";
+  // 输入区"联网搜索"按钮状态由 store 驱动（会话级持久化）。
+  // webSearchEnabled=false 时 UI 临时显示 off，但不覆盖 store 中保存的会话偏好。
+  $: storedWebAccessMode = $kbSessionStore.webAccessMode ?? "off";
+  $: effectiveWebAccessMode = webSearchEnabled ? storedWebAccessMode : "off";
 
   // Quick prompts state
   let quickPromptsEnabled = false;
@@ -89,6 +92,8 @@
     argsPreview: Record<string, unknown>;
     displayMode?: "summary" | "block_diff" | "arrow_flow";
     editDiffPreview?: EditDiffPreview;
+    /** 结构化详情段落（如 URL/Headers/Body），来源于 ToolPermissionPreview.sections */
+    sections?: Array<{ label: string; value: string }>;
   } | null = null;
   let nativePermissionResolve:
     | ((decision: { type: "allow" | "deny"; reason?: string }) => void)
@@ -167,7 +172,7 @@
   ): { question: string; mode: ChatMode; thinkingMode: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" } {
     const storeThinkingMode = $kbSessionStore.thinkingMode ?? "off";
     if (typeof detail === "string") {
-      return { question: detail, mode: selectedMode, thinkingMode: storeThinkingMode, webAccessMode: webAccessMode };
+      return { question: detail, mode: selectedMode, thinkingMode: storeThinkingMode, webAccessMode: effectiveWebAccessMode };
     }
     const question = detail.question;
     const payloadMode = detail.mode;
@@ -187,6 +192,11 @@
     if (asking) return;
     const payload = normalizeSendPayload(e.detail);
     const { question, mode: effectiveMode, thinkingMode: submittedThinkingMode, attachedDocIds, attachedDocs, webAccessMode: submittedWebAccessMode } = payload;
+
+    const actualWebAccessMode = webSearchEnabled
+      ? (submittedWebAccessMode ?? storedWebAccessMode)
+      : "off";
+
     if (!question.trim()) return;
 
     if (effectiveMode !== storedSelectedMode) {
@@ -197,8 +207,13 @@
       kbSessionStore.setThinkingMode(submittedThinkingMode);
     }
 
-    if (submittedWebAccessMode) {
-      webAccessMode = submittedWebAccessMode;
+    // 联网搜索按钮状态由 store 持久化：仅全局 webSearchEnabled=true 时，用户选择的 submittedWebAccessMode 才写回 store
+    if (
+      webSearchEnabled &&
+      submittedWebAccessMode &&
+      submittedWebAccessMode !== storedWebAccessMode
+    ) {
+      kbSessionStore.setWebAccessMode(submittedWebAccessMode);
     }
 
     if (import.meta.env.DEV) {
@@ -210,12 +225,12 @@
         placement,
         availableModes,
         attachedDocCount: attachedDocIds?.length ?? 0,
-        webAccessMode: submittedWebAccessMode ?? "off",
+        webAccessMode: actualWebAccessMode,
       });
     }
 
     kbSessionStore.setDraftQuestion("");
-    await handleAskByMode(effectiveMode, question, submittedThinkingMode, attachedDocIds, attachedDocs, submittedWebAccessMode);
+    await handleAskByMode(effectiveMode, question, submittedThinkingMode, attachedDocIds, attachedDocs, actualWebAccessMode);
   }
 
   /**
@@ -224,7 +239,7 @@
   async function handleSuggestedQuestion(e: CustomEvent<string>) {
     if (asking) return;
     const question = e.detail;
-    await handleAskByMode(selectedMode, question, $kbSessionStore.thinkingMode ?? "off", undefined, undefined, webAccessMode);
+    await handleAskByMode(selectedMode, question, $kbSessionStore.thinkingMode ?? "off", undefined, undefined, effectiveWebAccessMode);
   }
 
   /**
@@ -483,7 +498,9 @@
     const effectiveThinkingMode = $kbSessionStore.thinkingMode ?? reusedThinkingMode ?? "off";
     const thinkingModeSource = $kbSessionStore.thinkingMode ? "store" : hasThinkingMode ? "requestContext" : "default_off";
 
-    const reusedWebAccessMode = requestContext?.webAccessMode ?? webAccessMode;
+    const reusedWebAccessMode = webSearchEnabled
+      ? (requestContext?.webAccessMode ?? storedWebAccessMode)
+      : "off";
 
     if (requestContext) {
       pushAgentDebugEvent("REGENERATE_REQUEST_CONTEXT_REUSED_SAFE", {
@@ -491,7 +508,10 @@
         effectiveScopeMode: requestContext.effectiveScopeMode,
         hasCustomDocs: Array.isArray(requestContext.customDocIds) && requestContext.customDocIds.length > 0,
         docCount: requestContext.customDocIds?.length ?? 0,
-        webAccessMode: reusedWebAccessMode,
+        requestContextWebAccessMode: requestContext?.webAccessMode,
+        storedWebAccessMode,
+        webSearchEnabled,
+        effectiveTurnWebAccessMode: reusedWebAccessMode,
         hasExplicitWebAccessMode: !!requestContext?.webAccessMode,
       }, "info");
     } else {
@@ -562,7 +582,9 @@
     // 当前 UI 状态优先，旧 requestContext 仅作 fallback
     const effectiveThinkingMode = $kbSessionStore.thinkingMode ?? reusedThinkingMode ?? "off";
     const thinkingModeSource = $kbSessionStore.thinkingMode ? "store" : hasThinkingMode ? "requestContext" : "default_off";
-    const reusedWebAccessMode = requestContext?.webAccessMode ?? webAccessMode;
+    const reusedWebAccessMode = webSearchEnabled
+      ? (requestContext?.webAccessMode ?? storedWebAccessMode)
+      : "off";
 
     pushAgentDebugEvent("RETRY_REQUEST_CONTEXT_REUSED_SAFE", {
       hasRequestContext,
@@ -570,7 +592,10 @@
       effectiveScopeMode: requestContext?.effectiveScopeMode ?? effectiveMode,
       customDocCount: customDocIds?.length ?? attachedDocs?.length ?? 0,
       missingRequestContext: !hasRequestContext,
-      webAccessMode: reusedWebAccessMode,
+      requestContextWebAccessMode: requestContext?.webAccessMode,
+      storedWebAccessMode,
+      webSearchEnabled,
+      effectiveTurnWebAccessMode: reusedWebAccessMode,
       hasExplicitWebAccessMode: !!requestContext?.webAccessMode,
     }, "info");
 
@@ -910,7 +935,7 @@
     pushAgentDebugEvent("WEB_ACCESS_MODE_SOURCE_SAFE", {
       sourceName: "handleAskByMode",
       rawValue: submittedWebAccessMode,
-      normalizedValue: submittedWebAccessMode ?? webAccessMode,
+      normalizedValue: submittedWebAccessMode ?? effectiveWebAccessMode,
       hasExplicitUserValue: submittedWebAccessMode !== undefined && submittedWebAccessMode !== null,
     }, "info");
 
@@ -961,7 +986,7 @@
       customDocIds,
       attachedDocs,
       contextWindowTokens: getSelectedContextWindowTokens(),
-      webAccessMode: submittedWebAccessMode ?? webAccessMode,
+      webAccessMode: submittedWebAccessMode ?? effectiveWebAccessMode,
     });
 
     // 只有当前会话仍等于请求归属会话时，才同步状态
@@ -1014,12 +1039,12 @@
       hasExplicitUserValue: submittedThinkingMode !== undefined && submittedThinkingMode !== null,
     }, "info");
 
-    const effectiveWebAccessMode = submittedWebAccessMode ?? webAccessMode;
+    const effectiveWebAccessModeForTurn = submittedWebAccessMode ?? effectiveWebAccessMode;
 
     pushAgentDebugEvent("WEB_ACCESS_MODE_SOURCE_SAFE", {
       sourceName: "handleAskByModeWithExistingUser",
       rawValue: submittedWebAccessMode,
-      normalizedValue: effectiveWebAccessMode,
+      normalizedValue: effectiveWebAccessModeForTurn,
       hasExplicitUserValue: submittedWebAccessMode !== undefined && submittedWebAccessMode !== null,
     }, "info");
 
@@ -1068,7 +1093,7 @@
       abortSignal: abortController.signal,
       chatModelSelection,
       contextWindowTokens: getSelectedContextWindowTokens(),
-      webAccessMode: effectiveWebAccessMode,
+      webAccessMode: effectiveWebAccessModeForTurn,
     });
 
     if (activeConversationId === requestConversationId) {
@@ -1093,7 +1118,8 @@
     }
     if (nextSettings?.webSearch?.enabled !== undefined) {
       webSearchEnabled = nextSettings.webSearch.enabled;
-      if (!webSearchEnabled) webAccessMode = "off";
+      // 全局联网搜索开关关闭时，effectiveWebAccessMode 会自动经 reactive 显示为 "off"
+      // 不调用 setWebAccessMode("off") 覆盖会话保存的偏好，避免用户重新开启全局设置后丢失会话偏好
     }
     if (nextSettings?.quickPrompts) {
       quickPromptsEnabled = nextSettings.quickPrompts.enabled ?? false;
@@ -1166,6 +1192,7 @@
             argsPreview: preview.argsPreview,
             displayMode,
             editDiffPreview: preview.editDiffPreview,
+            sections: preview.sections,
           };
           nativePermissionModalOpen = true;
           nativePermissionResolve = resolve;
@@ -1308,10 +1335,10 @@
           stageSummaryCount={($kbSessionStore.stageSummaries ?? []).length}
           {availableModes}
           webSearchEnabled={webSearchEnabled}
-          {webAccessMode}
+          webAccessMode={effectiveWebAccessMode}
           {quickPromptsEnabled}
           {quickPromptsDocId}
-          on:webAccessModeChange={(e) => { webAccessMode = e.detail; }}
+          on:webAccessModeChange={(e) => { kbSessionStore.setWebAccessMode(e.detail); }}
           on:send={handleSend}
           on:stop={handleStop}
           on:modeChange={handleModeChange}

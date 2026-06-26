@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AssistantChatMessage,
   ChatMessage,
   ConversationStageSummary,
@@ -10,6 +10,7 @@
 import type { AgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
 import type { AgentWorkbenchEvent } from "../agent-workbench/contracts/turn-event";
 import type { AgentMessage } from "../agent-core/messages/agent-message";
+import type { ThinkingMode, WebAccessMode } from "../../types/session";
 import { sanitizeMessageForStorage } from "../agent-core/session/session-store";
 
 export interface PersistedReferenceItem {
@@ -111,6 +112,10 @@ export interface PersistedConversation {
   stageSummaries?: ConversationStageSummary[];
   compressionState?: import("../../types/context-usage").ContextCompressionState;
   compressedContextSummary?: string;
+  /** 会话级"深度思考"按钮状态；旧文件缺字段时默认 "off" */
+  thinkingMode?: ThinkingMode;
+  /** 会话级"联网搜索"按钮状态；旧文件缺字段时默认 "off" */
+  webAccessMode?: WebAccessMode;
   agentSession?: {
     id: string;
     messages: AgentMessage[];
@@ -498,6 +503,16 @@ function fromPersistedMessage(message: PersistedChatMessage): ChatMessage {
   }
 }
 
+/** 规范化 ThinkingMode：仅接受 "off" | "on"，其余值（含 undefined）归一为 "off" */
+function normalizeThinkingMode(value: unknown): ThinkingMode {
+  return value === "on" ? "on" : "off";
+}
+
+/** 规范化 WebAccessMode：仅接受 "off" | "smart" | "required"，其余值（含 undefined）归一为 "off" */
+function normalizeWebAccessMode(value: unknown): WebAccessMode {
+  return value === "smart" || value === "required" ? value : "off";
+}
+
 export function toPersistedConversation(session: KbConversationSession): PersistedConversation {
   return {
     id: session.id,
@@ -508,6 +523,8 @@ export function toPersistedConversation(session: KbConversationSession): Persist
     stageSummaries: session.stageSummaries ?? [],
     compressionState: session.compressionState,
     compressedContextSummary: session.compressedContextSummary,
+    thinkingMode: session.thinkingMode,
+    webAccessMode: session.webAccessMode,
     agentSession: session.agentSession
       ? {
           id: session.agentSession.id,
@@ -531,6 +548,9 @@ export function fromPersistedConversation(
     stageSummaries: persisted.stageSummaries ?? [],
     compressionState: persisted.compressionState,
     compressedContextSummary: persisted.compressedContextSummary,
+    // 旧 session 文件没有这两个字段时，归一化为 "off"，保持向前兼容
+    thinkingMode: normalizeThinkingMode(persisted.thinkingMode),
+    webAccessMode: normalizeWebAccessMode(persisted.webAccessMode),
     agentSession: persisted.agentSession,
     ...defaults,
   };

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * KB Session Store
  * 知识库会话状态管理
  */
@@ -8,6 +8,7 @@ import type { KbSessionState } from "../types/session";
 import type { KbConversationSession } from "../types/chat";
 import type { ChatMode } from "../constants/chat-modes";
 import type { ChatModelSelection } from "../types/chat-model-selection";
+import type { ThinkingMode, WebAccessMode } from "../types/session";
 import {
   restoreKbChatSessions,
   saveKbChatSessionStorage,
@@ -43,6 +44,7 @@ const initialState: KbSessionState = {
   messages: [],
   stageSummaries: [],
   thinkingMode: "off",
+  webAccessMode: "off",
   // selectedMode 初始 undefined，由组件决定默认值
 };
 
@@ -74,6 +76,8 @@ function createDefaultConversation(): KbConversationSession {
     updatedAt: now,
     messages: [],
     stageSummaries: [],
+    thinkingMode: "off",
+    webAccessMode: "off",
   };
 }
 
@@ -257,6 +261,9 @@ function createKbSessionStore() {
       stageSummaries: state.stageSummaries ?? [],
       compressedContextSummary: state.compressedContextSummary,
       compressionState: state.compressionState,
+      // 会话级按钮状态：写入快照使其随会话持久化
+      thinkingMode: state.thinkingMode ?? "off",
+      webAccessMode: state.webAccessMode ?? "off",
       agentSession: conversation.agentSession,
       updatedAt: Date.now(),
     };
@@ -300,8 +307,14 @@ function createKbSessionStore() {
     },
 
     // 设置思考模式
-    setThinkingMode: (thinkingMode: import("../types/session").ThinkingMode) => {
+    setThinkingMode: (thinkingMode: ThinkingMode) => {
       update((state) => ({ ...state, thinkingMode }));
+      schedulePersist();
+    },
+
+    // 设置联网搜索模式（会话级持久化）
+    setWebAccessMode: (webAccessMode: WebAccessMode) => {
+      update((state) => ({ ...state, webAccessMode }));
       schedulePersist();
     },
 
@@ -461,6 +474,9 @@ function createKbSessionStore() {
           contextUsage: undefined,
           compressedContextSummary: undefined,
           compressionState: undefined,
+          // 新会话默认按钮状态为 off，并把当前运行态切到新会话的 off
+          thinkingMode: newConversation.thinkingMode ?? "off",
+          webAccessMode: newConversation.webAccessMode ?? "off",
         };
       });
       // 触发持久化
@@ -489,6 +505,9 @@ function createKbSessionStore() {
           contextUsage: undefined,
           compressedContextSummary: targetConv.compressedContextSummary,
           compressionState: targetConv.compressionState,
+          // 恢复目标会话的输入区按钮状态
+          thinkingMode: targetConv.thinkingMode ?? "off",
+          webAccessMode: targetConv.webAccessMode ?? "off",
         };
       });
       // 触发持久化
@@ -537,6 +556,9 @@ function createKbSessionStore() {
             contextUsage: undefined,
             compressedContextSummary: newActiveConv.compressedContextSummary,
             compressionState: newActiveConv.compressionState,
+            // 恢复新 active 会话的输入区按钮状态
+            thinkingMode: newActiveConv.thinkingMode ?? "off",
+            webAccessMode: newActiveConv.webAccessMode ?? "off",
           };
         }
 
@@ -658,6 +680,9 @@ function createKbSessionStore() {
             selectedMode: restored.selectedMode as ChatMode | undefined,
             compressedContextSummary: targetConv.compressedContextSummary,
             compressionState: targetConv.compressionState,
+            // 恢复 active 会话的输入区按钮状态（旧会话缺字段时为 "off"）
+            thinkingMode: targetConv.thinkingMode ?? "off",
+            webAccessMode: targetConv.webAccessMode ?? "off",
           };
         });
 

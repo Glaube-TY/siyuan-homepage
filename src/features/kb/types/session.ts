@@ -11,6 +11,17 @@ import type { KbConversationSession } from "./chat";
 import type { ContextUsageSnapshot, ContextCompressionState } from "./context-usage";
 
 export type ThinkingMode = "off" | "on";
+
+/**
+ * 联网搜索模式
+ * - off: 关闭联网搜索
+ * - smart: 智能联网（模型自主决定）
+ * - required: 必须联网
+ *
+ * 该类型为输入区"联网搜索"按钮的统一类型，避免到处写联合字面量。
+ */
+export type WebAccessMode = "off" | "smart" | "required";
+
 export type { ContextUsageSnapshot, ContextUsageLevel, ContextCompressionState, ContextUsageMaxContextSource } from "./context-usage";
 
 /**
@@ -57,6 +68,14 @@ export type KbSessionState = {
    * - 不影响工具执行、证据边界或业务流程
    */
   thinkingMode?: ThinkingMode;
+
+  /**
+   * 联网搜索模式开关
+   * - 用户手动控制，对应输入区"联网搜索"按钮
+   * - 跟随每个聊天会话保存，切换会话/重启插件后恢复
+   * - 当全局 webSearch 设置关闭时，UI 可以临时显示 off，但不应覆盖会话保存值
+   */
+  webAccessMode?: WebAccessMode;
 
   /**
    * 上下文用量快照（运行时，不持久化）

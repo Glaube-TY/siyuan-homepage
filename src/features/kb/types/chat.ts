@@ -2,6 +2,8 @@
  * 知识库聊天消息类型
  */
 
+import type { ThinkingMode, WebAccessMode } from "./session";
+
 /** 引用项（轻量结构） */
 export type ReferenceItem = {
   /** 序号 */
@@ -75,7 +77,7 @@ export interface UserMessageRequestContext {
   thinkingMode?: string;
   createdFrom: "send" | "regenerate" | "retry";
   /** 联网模式: off(关闭), smart(智能), required(必须) */
-  webAccessMode?: "off" | "smart" | "required";
+  webAccessMode?: WebAccessMode;
 }
 
 /** 用户消息 */
@@ -219,6 +221,19 @@ export type KbConversationSession = {
   compressionState?: import("./context-usage").ContextCompressionState;
   /** 压缩摘要文本（可选） */
   compressedContextSummary?: string;
+  /**
+   * 当前会话输入区"深度思考"按钮状态
+   * - 跟随会话持久化，切换会话/重启插件后恢复
+   * - 旧会话缺字段时默认 "off"
+   */
+  thinkingMode?: ThinkingMode;
+  /**
+   * 当前会话输入区"联网搜索"按钮状态
+   * - 跟随会话持久化，切换会话/重启插件后恢复
+   * - 旧会话缺字段时默认 "off"
+   * - 全局 webSearch 关闭时 UI 临时显示 off，但不覆盖会话保存值
+   */
+  webAccessMode?: WebAccessMode;
   /** Provider-facing native Agent message log; UI messages remain separate. */
   agentSession?: {
     id: string;
