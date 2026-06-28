@@ -28,6 +28,7 @@
         selectVersion?: number;
         todayRecords?: EnhancedDiaryWorkspaceRecord[];
         todayTasks?: EnhancedDiaryWorkspaceTask[];
+        taskManagementEnabled?: boolean;
     }
 
     let {
@@ -50,7 +51,10 @@
         selectVersion = 0,
         todayRecords = [],
         todayTasks = [],
+        taskManagementEnabled = true,
     }: Props = $props();
+
+    const effectiveTodayTasks = $derived(taskManagementEnabled ? todayTasks : []);
 
     let viewMode: "current" | "history" = $state("current");
     let selectedPeriod: EnhancedDiaryPeriod = $state("day");
@@ -70,10 +74,10 @@
     let focusedFieldKey: string | null = $state(null);
 
     const todayStats = $derived.by(() => {
-        const totalTasks = todayTasks.length;
-        const completedTasks = todayTasks.filter(t => t.completed).length;
-        const incompleteTasks = todayTasks.filter(t => !t.completed).length;
-        const overdueTasks = todayTasks.filter(t => t.isOverdue).length;
+        const totalTasks = effectiveTodayTasks.length;
+        const completedTasks = effectiveTodayTasks.filter(t => t.completed).length;
+        const incompleteTasks = effectiveTodayTasks.filter(t => !t.completed).length;
+        const overdueTasks = effectiveTodayTasks.filter(t => t.isOverdue).length;
         return {
             recordCount: todayRecords.length,
             totalTasks,
@@ -366,25 +370,29 @@
                                 <span>复盘内容</span>
                             </div>
 
-                            {#if (todayRecords.length > 0 || todayTasks.length > 0)}
+                            {#if (todayRecords.length > 0 || effectiveTodayTasks.length > 0)}
                                 <div class="today-materials">
                                     <div class="materials-header">今日素材</div>
                                     <div class="materials-stats">
                                         <div class="stat-item">记录: {todayStats.recordCount}</div>
-                                        <div class="stat-item">任务: {todayStats.totalTasks}</div>
-                                        <div class="stat-item">已完成: {todayStats.completedTasks}</div>
-                                        <div class="stat-item">未完成: {todayStats.incompleteTasks}</div>
-                                        <div class="stat-item">逾期: {todayStats.overdueTasks}</div>
+                                        {#if taskManagementEnabled}
+                                            <div class="stat-item">任务: {todayStats.totalTasks}</div>
+                                            <div class="stat-item">已完成: {todayStats.completedTasks}</div>
+                                            <div class="stat-item">未完成: {todayStats.incompleteTasks}</div>
+                                            <div class="stat-item">逾期: {todayStats.overdueTasks}</div>
+                                        {/if}
                                     </div>
                                     <div class="materials-actions">
-                                        <button
-                                            type="button"
-                                            class="btn-material"
-                                            disabled={todayStats.totalTasks === 0}
-                                            onclick={() => insertMaterial(
-                                                `今日任务：共 ${todayStats.totalTasks} 个，完成 ${todayStats.completedTasks} 个，未完成 ${todayStats.incompleteTasks} 个，逾期 ${todayStats.overdueTasks} 个。`
-                                            )}
-                                        >插入任务概览</button>
+                                        {#if taskManagementEnabled}
+                                            <button
+                                                type="button"
+                                                class="btn-material"
+                                                disabled={todayStats.totalTasks === 0}
+                                                onclick={() => insertMaterial(
+                                                    `今日任务：共 ${todayStats.totalTasks} 个，完成 ${todayStats.completedTasks} 个，未完成 ${todayStats.incompleteTasks} 个，逾期 ${todayStats.overdueTasks} 个。`
+                                                )}
+                                            >插入任务概览</button>
+                                        {/if}
                                         <button
                                             type="button"
                                             class="btn-material"
@@ -393,22 +401,24 @@
                                                 todayRecords.map(r => `- [${r.categoryTitle}] ${r.content.split('\n').find(line => line.trim()) || r.headingTitle}`).join('\n')
                                             )}
                                         >插入记录摘要</button>
-                                        <button
-                                            type="button"
-                                            class="btn-material"
-                                            disabled={todayStats.completedTasks === 0}
-                                            onclick={() => insertMaterial(
-                                                todayTasks.filter(t => t.completed).map(t => `- [x] ${t.taskname}`).join('\n')
-                                            )}
-                                        >插入已完成任务</button>
-                                        <button
-                                            type="button"
-                                            class="btn-material"
-                                            disabled={todayStats.incompleteTasks === 0}
-                                            onclick={() => insertMaterial(
-                                                todayTasks.filter(t => !t.completed).map(t => `- [ ] ${t.taskname}`).join('\n')
-                                            )}
-                                        >插入未完成任务</button>
+                                        {#if taskManagementEnabled}
+                                            <button
+                                                type="button"
+                                                class="btn-material"
+                                                disabled={todayStats.completedTasks === 0}
+                                                onclick={() => insertMaterial(
+                                                    effectiveTodayTasks.filter(t => t.completed).map(t => `- [x] ${t.taskname}`).join('\n')
+                                                )}
+                                            >插入已完成任务</button>
+                                            <button
+                                                type="button"
+                                                class="btn-material"
+                                                disabled={todayStats.incompleteTasks === 0}
+                                                onclick={() => insertMaterial(
+                                                    effectiveTodayTasks.filter(t => !t.completed).map(t => `- [ ] ${t.taskname}`).join('\n')
+                                                )}
+                                            >插入未完成任务</button>
+                                        {/if}
                                     </div>
                                 </div>
                             {/if}
@@ -604,7 +614,7 @@
         margin: 0;
         font-size: 18px;
         font-weight: 700;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         letter-spacing: -0.01em;
     }
 
@@ -615,9 +625,9 @@
     }
 
     .summary-card {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 12px;
         text-align: center;
     }
@@ -625,7 +635,7 @@
     .summary-card span {
         display: block;
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
         margin-bottom: 4px;
     }
@@ -633,7 +643,7 @@
     .summary-card strong {
         display: block;
         font-size: 22px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-variant-numeric: tabular-nums;
     }
 
@@ -642,14 +652,14 @@
     }
 
     .summary-card strong.danger {
-        color: var(--b3-theme-error, #d32f2f);
+        color: var(--wk-error);
     }
 
     .summary-card small {
         display: block;
         margin-top: 3px;
         font-size: 10px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.45;
         font-variant-numeric: tabular-nums;
     }
@@ -658,10 +668,10 @@
     .period-tabs {
         display: inline-flex;
         width: fit-content;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
         overflow: hidden;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
     }
 
     .period-tab {
@@ -670,9 +680,9 @@
         gap: 6px;
         min-width: 72px;
         border: none;
-        border-right: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        border-right: 1px solid var(--wk-border);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         padding: 7px 13px;
         font-size: 12px;
         cursor: pointer;
@@ -684,11 +694,11 @@
     }
 
     .period-tab:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 6%, var(--wk-background));
     }
 
     .period-tab.active {
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
@@ -704,9 +714,9 @@
 
     /* setting-card style */
     .setting-card {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 16px;
         display: flex;
         flex-direction: column;
@@ -717,23 +727,23 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         font-size: 14px;
         font-weight: 700;
     }
 
     .date-range {
         margin: 0;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.6;
         font-size: 12px;
         font-variant-numeric: tabular-nums;
     }
 
     .not-due-hint {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         padding: 16px;
         display: flex;
         align-items: center;
@@ -744,7 +754,7 @@
     .not-due-hint p {
         margin: 0;
         font-size: 13px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.65;
     }
 
@@ -755,9 +765,9 @@
     }
 
     .content-editor {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         padding: 14px;
         display: flex;
         flex-direction: column;
@@ -767,14 +777,14 @@
     .content-editor-header {
         font-size: 13px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .content-loading {
         padding: 16px 0;
         text-align: center;
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 
@@ -811,12 +821,12 @@
     .field-label {
         font-size: 13px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .field-missing-hint {
         font-size: 11px;
-        color: var(--b3-theme-primary, #0078d4);
+        color: var(--wk-primary);
         opacity: 0.7;
     }
 
@@ -827,15 +837,15 @@
         min-height: 80px;
         font-size: 13px;
         line-height: 1.5;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         padding: 8px 10px;
     }
 
     .field-list textarea:focus {
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
         outline: none;
     }
 
@@ -847,9 +857,9 @@
     }
 
     .today-materials {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 12px;
         display: flex;
         flex-direction: column;
@@ -859,7 +869,7 @@
     .materials-header {
         font-size: 12px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .materials-stats {
@@ -870,12 +880,12 @@
 
     .stat-item {
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.7;
         padding: 3px 8px;
         border-radius: 4px;
-        background: var(--b3-theme-background);
-        border: 1px solid var(--b3-border-color);
+        background: var(--wk-background);
+        border: 1px solid var(--wk-border);
     }
 
     .materials-actions {
@@ -885,10 +895,10 @@
     }
 
     .btn-material {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         padding: 5px 10px;
         font-size: 11px;
         cursor: pointer;
@@ -896,8 +906,8 @@
     }
 
     .btn-material:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     /* status badge */
@@ -910,13 +920,13 @@
         flex-shrink: 0;
     }
 
-    .status-badge.status-not_created    { background: rgba(0,0,0,0.06); color: var(--b3-theme-on-surface); border: 1px solid var(--b3-border-color); }
+    .status-badge.status-not_created    { background: rgba(0,0,0,0.06); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); }
     .status-badge.status-missing_template { background: rgba(255,165,0,0.12); color: #b87300; border: 1px solid rgba(255,165,0,0.35); }
-    .status-badge.status-pending        { background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent); color: var(--b3-theme-primary); border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 30%, transparent); }
+    .status-badge.status-pending        { background: color-mix(in srgb, var(--wk-primary) 12%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent); }
     .status-badge.status-completed      { background: rgba(40,167,69,0.12); color: #22863a; border: 1px solid rgba(40,167,69,0.3); }
-    .status-badge.status-overdue        { background: rgba(211,47,47,0.1); color: var(--b3-theme-error, #d32f2f); border: 1px solid rgba(211,47,47,0.3); }
-    .status-badge.status-skipped        { background: rgba(0,0,0,0.06); color: var(--b3-theme-on-surface); border: 1px solid var(--b3-border-color); opacity: 0.7; }
-    .status-badge.status-not_due        { background: rgba(0,0,0,0.04); color: var(--b3-theme-on-surface); border: 1px solid var(--b3-border-color); opacity: 0.55; }
+    .status-badge.status-overdue        { background: rgba(211,47,47,0.1); color: var(--wk-error); border: 1px solid rgba(211,47,47,0.3); }
+    .status-badge.status-skipped        { background: rgba(0,0,0,0.06); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); opacity: 0.7; }
+    .status-badge.status-not_due        { background: rgba(0,0,0,0.04); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); opacity: 0.55; }
 
     /* panel head + mode tabs */
     .panel-head {
@@ -929,15 +939,15 @@
     .mode-tabs {
         display: flex;
         gap: 0;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
         overflow: hidden;
     }
 
     .mode-tabs button {
         border: none;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         padding: 6px 14px;
         font-size: 12px;
         cursor: pointer;
@@ -945,20 +955,20 @@
     }
 
     .mode-tabs button:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 6%, var(--wk-background));
     }
 
     .mode-tabs button.active {
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
     /* buttons */
     button {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 6px 10px;
         font-size: 12px;
         cursor: pointer;
@@ -966,8 +976,8 @@
     }
 
     button:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     button:disabled {
@@ -976,8 +986,8 @@
     }
 
     .btn-primary {
-        border-color: var(--b3-theme-primary);
-        background: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
@@ -987,14 +997,14 @@
     }
 
     .btn-secondary {
-        border: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        border: 1px solid var(--wk-border);
+        background: var(--wk-background);
+        color: var(--wk-ink);
     }
 
     .btn-secondary:hover:not(:disabled) {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .btn-warning {
@@ -1017,29 +1027,29 @@
 
     .filter-select {
         padding: 6px 10px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         font-size: 12px;
         cursor: pointer;
     }
 
     .filter-count {
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 
     .history-empty-guide {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 12px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 22px;
         display: flex;
         align-items: flex-start;
         gap: 14px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .history-empty-guide h3 {
@@ -1074,9 +1084,9 @@
     }
 
     .history-list-col {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -1086,12 +1096,12 @@
     .list-label {
         font-size: 11px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.45;
         padding: 10px 14px 8px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
-        border-bottom: 1px solid var(--b3-border-color);
+        border-bottom: 1px solid var(--wk-border);
     }
 
     .history-list-scroll {
@@ -1116,12 +1126,12 @@
     }
 
     .history-list-item:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 6%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 6%, transparent);
     }
 
     .history-list-item.selected {
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-        border-left-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        border-left-color: var(--wk-primary);
     }
 
     .history-item-head {
@@ -1134,19 +1144,19 @@
     .history-item-period {
         font-size: 11px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
     }
 
     .history-item-date {
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 
     .history-item-title {
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.7;
     }
 
@@ -1156,18 +1166,18 @@
     }
 
     /* history list status accent */
-    .history-list-item.status-overdue      { border-left-color: color-mix(in srgb, var(--b3-theme-error, #d32f2f) 50%, transparent); }
-    .history-list-item.status-pending      { border-left-color: color-mix(in srgb, var(--b3-theme-primary) 40%, transparent); }
+    .history-list-item.status-overdue      { border-left-color: color-mix(in srgb, var(--wk-error) 50%, transparent); }
+    .history-list-item.status-pending      { border-left-color: color-mix(in srgb, var(--wk-primary) 40%, transparent); }
     .history-list-item.status-missing_template { border-left-color: color-mix(in srgb, #e6900a 40%, transparent); }
-    .history-list-item.status-overdue.selected      { border-left-color: var(--b3-theme-primary); }
-    .history-list-item.status-pending.selected      { border-left-color: var(--b3-theme-primary); }
-    .history-list-item.status-missing_template.selected { border-left-color: var(--b3-theme-primary); }
+    .history-list-item.status-overdue.selected      { border-left-color: var(--wk-primary); }
+    .history-list-item.status-pending.selected      { border-left-color: var(--wk-primary); }
+    .history-list-item.status-missing_template.selected { border-left-color: var(--wk-primary); }
 
     /* detail */
     .history-detail-col {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         min-height: 200px;
     }
 
@@ -1189,7 +1199,7 @@
         margin: 0;
         font-size: 16px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .detail-meta-grid {
@@ -1199,9 +1209,9 @@
     }
 
     .meta-item {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         padding: 6px 10px;
         display: flex;
         flex-direction: column;
@@ -1210,13 +1220,13 @@
 
     .meta-label {
         font-size: 10px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 
     .meta-value {
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         word-break: break-all;
     }
 
@@ -1225,27 +1235,27 @@
         flex-wrap: wrap;
         gap: 6px;
         padding-top: 8px;
-        border-top: 1px solid var(--b3-border-color);
+        border-top: 1px solid var(--wk-border);
     }
 
     .btn-action {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 5px 10px;
         font-size: 12px;
         cursor: pointer;
     }
 
     .btn-action:hover:not(:disabled) {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .btn-action.btn-primary {
-        border-color: var(--b3-theme-primary);
-        background: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
@@ -1266,7 +1276,7 @@
 
     .history-safe-hint {
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
         align-self: center;
     }

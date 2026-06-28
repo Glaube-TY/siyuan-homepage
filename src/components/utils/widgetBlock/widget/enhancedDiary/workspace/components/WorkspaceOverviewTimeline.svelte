@@ -9,9 +9,9 @@
     let { items }: Props = $props();
 </script>
 
-<div class="card wide">
-    <div class="card-head">
-        <h2>今日时间线</h2>
+<div class="wk-card timeline-card">
+    <div class="wk-card-head">
+        <h2 class="wk-card-title">今日时间线</h2>
     </div>
     {#if items.length === 0}
         <WorkspaceEmptyState title="今日暂无动态" description="新建任务、快速记录或项目推进后会在这里显示。" />
@@ -32,30 +32,8 @@
 </div>
 
 <style>
-    .card {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 12px;
-        background: var(--b3-theme-surface);
-        padding: 18px;
-    }
-
-    .wide {
+    .timeline-card {
         grid-column: 1 / -1;
-    }
-
-    .card-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 14px;
-    }
-
-    h2 {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--b3-theme-on-surface);
     }
 
     .timeline {
@@ -67,9 +45,9 @@
     .timeline-item {
         display: flex;
         align-items: flex-start;
-        gap: 12px;
+        gap: var(--wk-gap-sm);
         padding: 10px 0;
-        border-bottom: 1px solid var(--b3-border-color);
+        border-bottom: 1px solid var(--wk-border);
     }
 
     .timeline-item:last-child {
@@ -89,11 +67,11 @@
         margin-top: 5px;
     }
 
-    .timeline-dot.type-new_task { background: var(--b3-theme-primary); }
-    .timeline-dot.type-migrate_task { background: #e6900a; }
-    .timeline-dot.type-quick_record { background: #0969da; }
-    .timeline-dot.type-project_progress { background: #22863a; }
-    .timeline-dot.type-review { background: #6f42c1; }
+    .timeline-dot.type-new_task { background: var(--wk-primary); }
+    .timeline-dot.type-migrate_task { background: var(--wk-warning); }
+    .timeline-dot.type-quick_record { background: var(--wk-info); }
+    .timeline-dot.type-project_progress { background: var(--wk-success); }
+    .timeline-dot.type-review { background: var(--wk-secondary); }
 
     .timeline-content {
         flex: 1;
@@ -102,22 +80,20 @@
 
     .timeline-content strong {
         display: block;
-        font-size: 13px;
-        color: var(--b3-theme-on-surface);
+        font-size: var(--wk-text-base);
+        color: var(--wk-ink-secondary);
         margin-bottom: 2px;
     }
 
     .timeline-content span {
         display: block;
-        font-size: 12px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.6;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .timeline-date {
-        font-size: 11px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.4;
+        font-size: var(--wk-text-xs);
+        color: var(--wk-ink-faint);
         flex-shrink: 0;
         font-variant-numeric: tabular-nums;
     }

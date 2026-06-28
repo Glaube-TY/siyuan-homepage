@@ -36,7 +36,8 @@ import {
     type EnhancedDiaryCarryoverItem,
 } from "./enhancedDiaryWorkspaceCarryover";
 import { daysBetweenLocalDates } from "./enhancedDiaryWorkspaceDate";
-import type { EnhancedDiaryConfig } from "../enhancedDiaryTypes";
+import type { EnhancedDiaryConfig, EnhancedDiaryTemplateFieldMapping } from "../enhancedDiaryTypes";
+import { isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
 
 export type EnhancedDiaryProjectHealthStatus =
     | "healthy"
@@ -91,11 +92,14 @@ const EMPTY_SUMMARY: EnhancedDiaryWorkspaceSummary = {
     projectCount: 0,
 };
 
-function parseTodayProjectProgress(markdown?: string): Map<string, string> {
+function parseTodayProjectProgress(
+    markdown?: string,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
+): Map<string, string> {
     const map = new Map<string, string>();
     if (!markdown) return map;
 
-    const sections = getDayWorkspaceSections(markdown);
+    const sections = getDayWorkspaceSections(markdown, undefined, mapping);
     if (!sections.projectProgress.found || !sections.projectProgress.node) return map;
 
     const ppNode = sections.projectProgress.node;
@@ -134,10 +138,11 @@ function parseTodayProjectProgress(markdown?: string): Map<string, string> {
 function buildProjectSummary(
     tasks: EnhancedDiaryWorkspaceTask[],
     todayMarkdown: string | undefined,
-    today: string
+    today: string,
+    config?: EnhancedDiaryConfig
 ): EnhancedDiaryWorkspaceProject[] {
     const map = new Map<string, EnhancedDiaryWorkspaceProject>();
-    const progressMap = parseTodayProjectProgress(todayMarkdown);
+    const progressMap = parseTodayProjectProgress(todayMarkdown, config?.templateFieldMapping);
 
     function getLatestTaskDate(projectTasks: EnhancedDiaryWorkspaceTask[]): string {
         return projectTasks
@@ -247,19 +252,31 @@ export async function loadEnhancedDiaryWorkspaceState(
     const date = options.date || new Date();
     const today = formatDiaryDate(date);
     const config = await loadEnhancedDiaryConfig(plugin);
+    const taskManagementEnabled = isEnhancedDiaryTaskManagementEnabled(config);
     const todayDiary = await getDiaryDocumentForDate(date);
     const summary = todayDiary
-        ? buildEnhancedDiaryWorkspaceSummary(todayDiary.content, config.headingStructure)
+        ? buildEnhancedDiaryWorkspaceSummary(
+              todayDiary.content,
+              config.headingStructure,
+              config.templateFieldMapping,
+              taskManagementEnabled,
+          )
         : EMPTY_SUMMARY;
-    const tasks = await queryWorkspaceTasks(config, date);
+    const tasks = taskManagementEnabled ? await queryWorkspaceTasks(config, date) : [];
     const records = todayDiary
-        ? await queryTodayQuickRecords(todayDiary.id, todayDiary.content, today, config.headingStructure)
+        ? await queryTodayQuickRecords(
+            todayDiary.id,
+            todayDiary.content,
+            today,
+            config.headingStructure,
+            config.templateFieldMapping,
+        )
         : [];
     for (const record of records) {
         record.date = today;
         record.docTitle = todayDiary?.title || today;
     }
-    const projects = buildProjectSummary(tasks, todayDiary?.content, today);
+    const projects = taskManagementEnabled ? buildProjectSummary(tasks, todayDiary?.content, today, config) : [];
     const reviewCards = await buildWorkspaceReviewCards(config, date);
     const notifications = buildWorkspaceNotifications({
         tasks,
@@ -267,6 +284,7 @@ export async function loadEnhancedDiaryWorkspaceState(
         missingSections: summary.missing,
         todayDocId: todayDiary?.id,
         reviewCards,
+        taskManagementEnabled,
     });
     let carryoverPlans: EnhancedDiaryCarryoverItem[] = [];
     try {
@@ -296,8 +314,13 @@ export async function loadEnhancedDiaryWorkspaceState(
 }
 
 export async function loadWorkspaceHistoryRecords(
-    date: Date = new Date()
+    date: Date = new Date(),
+    config?: EnhancedDiaryConfig
 ): Promise<EnhancedDiaryWorkspaceRecord[]> {
+    if (!config) {
+        return [];
+    }
+
     const historyStart = new Date(date);
     historyStart.setDate(historyStart.getDate() - 89);
     try {
@@ -305,6 +328,7 @@ export async function loadWorkspaceHistoryRecords(
             startDate: historyStart,
             endDate: date,
             includeToday: true,
+            config,
         });
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceData] query history records failed", err);

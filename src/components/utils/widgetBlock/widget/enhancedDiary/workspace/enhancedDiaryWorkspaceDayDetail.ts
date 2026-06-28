@@ -1,7 +1,8 @@
 import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { buildEnhancedDiaryWorkspaceSummary } from "../enhancedDiaryWorkspaceSummary";
 import { formatDiaryDate, scanDiaryContentForPeriod } from "../enhancedDiaryUtils";
-import type { EnhancedDiaryPeriod } from "../enhancedDiaryTypes";
+import { isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
+import type { EnhancedDiaryConfig, EnhancedDiaryPeriod } from "../enhancedDiaryTypes";
 
 export interface EnhancedDiaryWorkspaceDayDetail {
     date: string;
@@ -35,7 +36,10 @@ function emptyDetail(dateText: string): EnhancedDiaryWorkspaceDayDetail {
     };
 }
 
-export async function loadWorkspaceDayDetail(date: Date): Promise<EnhancedDiaryWorkspaceDayDetail> {
+export async function loadWorkspaceDayDetail(
+    date: Date,
+    config?: EnhancedDiaryConfig
+): Promise<EnhancedDiaryWorkspaceDayDetail> {
     const dateText = formatDiaryDate(date);
 
     try {
@@ -45,14 +49,20 @@ export async function loadWorkspaceDayDetail(date: Date): Promise<EnhancedDiaryW
             return emptyDetail(dateText);
         }
 
-        const summary = buildEnhancedDiaryWorkspaceSummary(doc.content);
+        const taskManagementEnabled = isEnhancedDiaryTaskManagementEnabled(config);
+        const summary = buildEnhancedDiaryWorkspaceSummary(
+            doc.content,
+            config?.headingStructure,
+            config?.templateFieldMapping,
+            taskManagementEnabled,
+        );
 
         const periods: EnhancedDiaryPeriod[] = ["day", "week", "month", "year"];
         let completedReviewCount = 0;
         let pendingReviewCount = 0;
 
         for (const period of periods) {
-            const scan = scanDiaryContentForPeriod(doc.content, period);
+            const scan = scanDiaryContentForPeriod(doc.content, period, config?.templateFieldMapping);
             if (scan.completed) {
                 completedReviewCount += 1;
             } else if (scan.hasCompletionMarker && !scan.skipped) {

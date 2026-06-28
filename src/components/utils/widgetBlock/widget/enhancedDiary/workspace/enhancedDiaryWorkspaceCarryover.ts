@@ -1,7 +1,8 @@
-import type { EnhancedDiaryConfig } from "../enhancedDiaryTypes";
+import type { EnhancedDiaryConfig, EnhancedDiaryPeriod } from "../enhancedDiaryTypes";
 import { getPreviousPeriodContext } from "../enhancedDiaryUtils";
 import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { loadReviewContent } from "./enhancedDiaryWorkspaceReviewContent";
+import { getCarryoverFieldAliases, headingTitleMatchesAliases } from "../enhancedDiaryTemplateFieldMapping";
 
 export type EnhancedDiaryCarryoverPeriod = "day" | "week" | "month" | "year";
 
@@ -16,11 +17,18 @@ export interface EnhancedDiaryCarryoverItem {
     docId?: string;
 }
 
-const CARRYOVER_FIELD_MAP: Record<EnhancedDiaryCarryoverPeriod, { fieldLabel: string; sourceLabel: string; periodLabel: string }> = {
-    day: { fieldLabel: "明日关注", sourceLabel: "来自昨日", periodLabel: "昨日" },
-    week: { fieldLabel: "下周计划", sourceLabel: "来自上周", periodLabel: "上周" },
-    month: { fieldLabel: "下月计划", sourceLabel: "来自上月", periodLabel: "上月" },
-    year: { fieldLabel: "明年方向", sourceLabel: "来自去年", periodLabel: "去年" },
+const CARRYOVER_META: Record<EnhancedDiaryCarryoverPeriod, { sourceLabel: string; periodLabel: string }> = {
+    day: { sourceLabel: "来自昨日", periodLabel: "昨日" },
+    week: { sourceLabel: "来自上周", periodLabel: "上周" },
+    month: { sourceLabel: "来自上月", periodLabel: "上月" },
+    year: { sourceLabel: "来自去年", periodLabel: "去年" },
+};
+
+const DEFAULT_CARRYOVER_LABELS: Record<EnhancedDiaryCarryoverPeriod, string> = {
+    day: "明日关注",
+    week: "下周计划",
+    month: "下月计划",
+    year: "明年方向",
 };
 
 function parseCarryoverLines(content: string): string[] {
@@ -33,6 +41,18 @@ function parseCarryoverLines(content: string): string[] {
     return lines.slice(0, 8);
 }
 
+function findCarryoverField(
+    fields: Array<{ key: string; label: string; content: string; missing: boolean }>,
+    aliases: string[]
+): { key: string; label: string; content: string } | null {
+    for (const field of fields) {
+        if (headingTitleMatchesAliases(field.key, aliases)) {
+            return field;
+        }
+    }
+    return null;
+}
+
 export async function buildWorkspaceCarryoverPlans(
     config: EnhancedDiaryConfig,
     baseDate: Date
@@ -42,24 +62,25 @@ export async function buildWorkspaceCarryoverPlans(
 
     for (const period of periods) {
         try {
-            const ctx = getPreviousPeriodContext(period, baseDate, config);
+            const ctx = getPreviousPeriodContext(period as EnhancedDiaryPeriod, baseDate, config);
             const doc = await getDiaryDocumentForDate(ctx.targetDate);
             if (!doc) continue;
 
-            const contentResult = await loadReviewContent(doc.id, period, config.headingStructure);
-            const field = contentResult.fields.find((f) => f.key === CARRYOVER_FIELD_MAP[period].fieldLabel);
+            const contentResult = await loadReviewContent(doc.id, period as EnhancedDiaryPeriod, config.headingStructure, config.templateFieldMapping);
+            const aliases = getCarryoverFieldAliases(config.templateFieldMapping, period as EnhancedDiaryPeriod);
+            const field = findCarryoverField(contentResult.fields, aliases);
             if (!field || !field.content) continue;
 
             const lines = parseCarryoverLines(field.content);
             if (lines.length === 0) continue;
 
-            const meta = CARRYOVER_FIELD_MAP[period];
+            const meta = CARRYOVER_META[period];
             items.push({
                 period,
                 periodLabel: meta.periodLabel,
                 sourceLabel: meta.sourceLabel,
                 sourceDateOrRange: ctx.targetDate.toISOString().slice(0, 10),
-                fieldLabel: meta.fieldLabel,
+                fieldLabel: field.label || DEFAULT_CARRYOVER_LABELS[period],
                 content: field.content,
                 lines,
                 docId: doc.id,

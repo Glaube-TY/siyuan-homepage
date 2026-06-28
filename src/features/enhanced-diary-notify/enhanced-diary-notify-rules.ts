@@ -2,6 +2,7 @@ import { queryWorkspaceTasks } from "@/components/utils/widgetBlock/widget/enhan
 import { getDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
 import { getCompletionMarker } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryUtils";
 import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
+import { DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
 import type { EnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
 import type { EnhancedDiaryNotifyRule } from "./types";
 
@@ -82,6 +83,9 @@ function getDefaultEnhancedDiaryConfig(): EnhancedDiaryConfig {
         showLegalHoliday: false,
         showBriefCounts: false,
       },
+      modules: {
+        taskManagementEnabled: true,
+      },
     },
     recordCategorySuggestions: [],
     reviewReminderWindows: {
@@ -92,6 +96,7 @@ function getDefaultEnhancedDiaryConfig(): EnhancedDiaryConfig {
     headingStructure: {
       dayWorkspaceBaseHeadingLevel: 2,
     },
+    templateFieldMapping: structuredClone(DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING),
   };
 }
 

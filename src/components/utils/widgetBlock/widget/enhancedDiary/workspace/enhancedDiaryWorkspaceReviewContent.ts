@@ -1,7 +1,5 @@
 import { getChildBlocks, insertBlock, deleteBlock } from "@/api";
 import {
-    ENHANCED_DIARY_ROOT_HEADINGS,
-    findDescendantByTitleInScope,
     matchesRootHeading,
     normalizeHeadingTitle,
     parseMarkdownHeadingTree,
@@ -9,7 +7,14 @@ import {
     type EnhancedDiaryHeadingNode,
 } from "../enhancedDiaryMarkdownSections";
 import { readDiaryMarkdown } from "../enhancedDiaryDoc";
-import type { EnhancedDiaryHeadingStructureConfig, EnhancedDiaryPeriod } from "../enhancedDiaryTypes";
+import type { EnhancedDiaryHeadingStructureConfig, EnhancedDiaryPeriod, EnhancedDiaryTemplateFieldMapping } from "../enhancedDiaryTypes";
+import {
+    getActiveReviewFields,
+    getFieldAliases,
+    getPrimaryFieldTitle,
+    getReviewFieldLookupAliases,
+    headingTitleMatchesAliases,
+} from "../enhancedDiaryTemplateFieldMapping";
 
 export interface EnhancedDiaryReviewField {
     key: string;
@@ -24,57 +29,79 @@ interface ReviewSectionDef {
     fields: string[];
 }
 
-const REVIEW_CONTENT_FIELDS: Record<EnhancedDiaryPeriod, ReviewSectionDef> = {
-    day: {
-        rootTitle: ENHANCED_DIARY_ROOT_HEADINGS.day,
-        reviewTitle: "今日复盘",
-        fields: ["今日总结", "情绪状态", "收获与问题", "明日关注"],
-    },
-    week: {
-        rootTitle: ENHANCED_DIARY_ROOT_HEADINGS.week,
-        reviewTitle: "周复盘",
-        fields: ["本周总结", "任务回顾", "记录沉淀", "问题与风险", "下周计划"],
-    },
-    month: {
-        rootTitle: ENHANCED_DIARY_ROOT_HEADINGS.month,
-        reviewTitle: "月度复盘",
-        fields: ["本月总结", "关键进展", "任务回顾", "问题与风险", "下月计划"],
-    },
-    year: {
-        rootTitle: ENHANCED_DIARY_ROOT_HEADINGS.year,
-        reviewTitle: "年度复盘",
-        fields: ["年度总结", "关键成果", "重要变化", "经验教训", "明年方向"],
-    },
-};
+function getReviewSectionDef(
+    period: EnhancedDiaryPeriod,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
+): ReviewSectionDef {
+    return {
+        rootTitle: getPrimaryFieldTitle(mapping, "rootHeadings", period),
+        reviewTitle: getPrimaryFieldTitle(mapping, "reviewSections", period, "reviewRoot"),
+        fields: getActiveReviewFields(mapping, period),
+    };
+}
+
+function findDescendantByTitleInScopeWithAliases(
+    parent: EnhancedDiaryHeadingNode,
+    aliases: string[]
+): { found: true; node: EnhancedDiaryHeadingNode } | { found: false; missingTitle?: string } {
+    const preferredLevel = (parent.level + 1) as typeof parent.level;
+
+    for (const child of parent.children) {
+        if (child.level === preferredLevel) {
+            const normalized = normalizeHeadingTitle(child.title);
+            if (headingTitleMatchesAliases(normalized, aliases)) {
+                return { found: true, node: child };
+            }
+        }
+    }
+
+    for (const child of parent.children) {
+        if (child.level > preferredLevel) {
+            const normalized = normalizeHeadingTitle(child.title);
+            if (headingTitleMatchesAliases(normalized, aliases)) {
+                return { found: true, node: child };
+            }
+        }
+    }
+
+    for (const child of parent.children) {
+        const result = findDescendantByTitleInScopeWithAliases(child, aliases);
+        if (result.found) return result;
+    }
+
+    return { found: false, missingTitle: aliases[0] };
+}
 
 function findReviewRootNode(
     roots: EnhancedDiaryHeadingNode[],
     period: EnhancedDiaryPeriod,
-    reviewTitle: string
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiaryHeadingNode | null {
     let periodRoot: EnhancedDiaryHeadingNode | null = null;
 
     for (const node of roots) {
-        if (node.level === 1 && matchesRootHeading(normalizeHeadingTitle(node.title), period)) {
+        if (node.level === 1 && matchesRootHeading(normalizeHeadingTitle(node.title), period, mapping)) {
             periodRoot = node;
             break;
         }
     }
     if (!periodRoot) return null;
 
-    const reviewLookup = findDescendantByTitleInScope(periodRoot, reviewTitle);
+    const reviewTitleAliases = getFieldAliases(mapping, "reviewSections", period, "reviewRoot");
+    const reviewLookup = findDescendantByTitleInScopeWithAliases(periodRoot, reviewTitleAliases);
     return reviewLookup.found && reviewLookup.node ? reviewLookup.node : null;
 }
 
 export async function loadReviewContent(
     docId: string,
     period: EnhancedDiaryPeriod,
-    _headingStructure?: EnhancedDiaryHeadingStructureConfig
+    _headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): Promise<{ fields: EnhancedDiaryReviewField[]; reason?: string }> {
-    const def = REVIEW_CONTENT_FIELDS[period];
+    const def = getReviewSectionDef(period, mapping);
     const markdown = await readDiaryMarkdown(docId);
     const roots = parseMarkdownHeadingTree(markdown);
-    const reviewRoot = findReviewRootNode(roots, period, def.reviewTitle);
+    const reviewRoot = findReviewRootNode(roots, period, mapping);
 
     if (!reviewRoot) {
         return {
@@ -89,8 +116,10 @@ export async function loadReviewContent(
     }
 
     const fields: EnhancedDiaryReviewField[] = [];
-    for (const fieldTitle of def.fields) {
-        const lookup = findDescendantByTitleInScope(reviewRoot, fieldTitle);
+    for (let i = 0; i < def.fields.length; i++) {
+        const fieldTitle = def.fields[i];
+        const lookupAliases = getReviewFieldLookupAliases(mapping, period, fieldTitle, i);
+        const lookup = findDescendantByTitleInScopeWithAliases(reviewRoot, lookupAliases);
         if (lookup.found && lookup.node) {
             fields.push({
                 key: fieldTitle,
@@ -149,9 +178,10 @@ export async function saveReviewContent(
     docId: string,
     period: EnhancedDiaryPeriod,
     fields: EnhancedDiaryReviewField[],
-    _headingStructure?: EnhancedDiaryHeadingStructureConfig
+    _headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): Promise<{ ok: boolean; reason?: string }> {
-    const def = REVIEW_CONTENT_FIELDS[period];
+    const reviewRootAliases = getFieldAliases(mapping, "reviewSections", period, "reviewRoot");
 
     const children = await getChildBlocks(docId);
 
@@ -160,7 +190,7 @@ export async function saveReviewContent(
         const level = getHeadingLevel(children[i]);
         if (level === 1) {
             const title = parseHeadingTitle(children[i].markdown);
-            if (title && matchesRootHeading(normalizeHeadingTitle(title), period)) {
+            if (title && matchesRootHeading(normalizeHeadingTitle(title), period, mapping)) {
                 periodRootIndex = i;
                 break;
             }
@@ -178,7 +208,7 @@ export async function saveReviewContent(
         const title = parseHeadingTitle(children[i].markdown);
         if (title) {
             const normalizedReviewTitle = normalizeHeadingTitle(title);
-            if (normalizedReviewTitle === def.reviewTitle || normalizedReviewTitle.startsWith(def.reviewTitle + " ")) {
+            if (headingTitleMatchesAliases(normalizedReviewTitle, reviewRootAliases)) {
                 reviewRootIndex = i;
                 break;
             }
@@ -205,24 +235,34 @@ export async function saveReviewContent(
 
     const reviewBoundaryNextId = reviewEndIndex < children.length ? children[reviewEndIndex].id : null;
 
-    // Scan for existing fields by title text at any level deeper than review root
+    // Scan for existing fields by lookup aliases, mapping old titles to current field labels
+    const activeFields = getActiveReviewFields(mapping, period);
     const fieldIndexMap = new Map<string, { blockIndex: number; blockId: string; endIndex: number }>();
     for (let i = reviewRootIndex + 1; i < reviewEndIndex; i++) {
         const level = getHeadingLevel(children[i]);
         if (level !== null && level > reviewRootLevelVal) {
             const title = parseHeadingTitle(children[i].markdown);
-            if (title && def.fields.includes(title) && !fieldIndexMap.has(title)) {
-                // Found a field heading — compute its scope end
-                let endIdx = reviewEndIndex;
-                for (let j = i + 1; j < reviewEndIndex; j++) {
-                    const jLevel = getHeadingLevel(children[j]);
-                    if (jLevel !== null && jLevel <= level) {
-                        endIdx = j;
-                        break;
-                    }
+            if (!title) continue;
+            const normalizedTitle = normalizeHeadingTitle(title);
+            let matchedLabel: string | null = null;
+            for (let fi = 0; fi < activeFields.length; fi++) {
+                const fieldLabel = activeFields[fi];
+                const lookupAliases = getReviewFieldLookupAliases(mapping, period, fieldLabel, fi);
+                if (headingTitleMatchesAliases(normalizedTitle, lookupAliases)) {
+                    matchedLabel = fieldLabel;
+                    break;
                 }
-                fieldIndexMap.set(title, { blockIndex: i, blockId: children[i].id, endIndex: endIdx });
             }
+            if (!matchedLabel || fieldIndexMap.has(matchedLabel)) continue;
+            let endIdx = reviewEndIndex;
+            for (let j = i + 1; j < reviewEndIndex; j++) {
+                const jLevel = getHeadingLevel(children[j]);
+                if (jLevel !== null && jLevel <= level) {
+                    endIdx = j;
+                    break;
+                }
+            }
+            fieldIndexMap.set(matchedLabel, { blockIndex: i, blockId: children[i].id, endIndex: endIdx });
         }
     }
 

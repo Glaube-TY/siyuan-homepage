@@ -5,6 +5,7 @@
 
     interface Props {
         state: EnhancedDiaryWorkspaceState;
+        taskManagementEnabled?: boolean;
         onOpenTaskResult: (task: EnhancedDiaryWorkspaceTask) => void;
         onOpenRecordResult: (options: GoRecordsOptions) => void;
         onOpenProjectResult: (projectName: string) => void;
@@ -25,6 +26,7 @@
 
     let {
         state: workspaceState,
+        taskManagementEnabled = true,
         onOpenTaskResult,
         onOpenRecordResult,
         onOpenProjectResult,
@@ -50,20 +52,22 @@
 
         const items: SearchResult[] = [];
 
-        workspaceState.tasks.forEach((task) => {
-            if (!matches(keyword, task.taskname, task.tags.join(" "), task.sourceDate, task.sourceDocTitle, task.markdown)) return;
-            items.push({
-                key: `task-${task.blockId}`,
-                type: "task",
-                typeLabel: "任务",
-                title: task.taskname,
-                description: [task.sourceDate, task.deadline ? `截止 ${task.deadline}` : "", task.tags.map((tag) => `#${tag}#`).join(" ")]
-                    .filter(Boolean)
-                    .join(" · "),
-                actionLabel: "查看任务",
-                action: () => onOpenTaskResult(task),
+        if (taskManagementEnabled) {
+            workspaceState.tasks.forEach((task) => {
+                if (!matches(keyword, task.taskname, task.tags.join(" "), task.sourceDate, task.sourceDocTitle, task.markdown)) return;
+                items.push({
+                    key: `task-${task.blockId}`,
+                    type: "task",
+                    typeLabel: "任务",
+                    title: task.taskname,
+                    description: [task.sourceDate, task.deadline ? `截止 ${task.deadline}` : "", task.tags.map((tag) => `#${tag}#`).join(" ")]
+                        .filter(Boolean)
+                        .join(" · "),
+                    actionLabel: "查看任务",
+                    action: () => onOpenTaskResult(task),
+                });
             });
-        });
+        }
 
         [...workspaceState.records, ...workspaceState.historyRecords].forEach((record) => {
             if (!matches(keyword, record.headingTitle, record.content, record.categoryTitle, record.date, record.docTitle)) return;
@@ -79,18 +83,20 @@
             });
         });
 
-        workspaceState.projects.forEach((project) => {
-            if (!matches(keyword, project.name, project.progressMarkdown)) return;
-            items.push({
-                key: `project-${project.name}`,
-                type: "project",
-                typeLabel: "项目",
-                title: project.name,
-                description: `未完成 ${project.openTaskCount} · 今日任务 ${project.todayTaskCount}`,
-                actionLabel: "查看项目",
-                action: () => onOpenProjectResult(project.name),
+        if (taskManagementEnabled) {
+            workspaceState.projects.forEach((project) => {
+                if (!matches(keyword, project.name, project.progressMarkdown)) return;
+                items.push({
+                    key: `project-${project.name}`,
+                    type: "project",
+                    typeLabel: "项目",
+                    title: project.name,
+                    description: `未完成 ${project.openTaskCount} · 今日任务 ${project.todayTaskCount}`,
+                    actionLabel: "查看项目",
+                    action: () => onOpenProjectResult(project.name),
+                });
             });
-        });
+        }
 
         workspaceState.reviewCards.forEach((card) => {
             if (!matches(keyword, card.title, card.statusLabel, card.dateOrRange)) return;
@@ -146,7 +152,7 @@
     <div class="search-box">
         <input
             type="search"
-            placeholder="全局搜索任务、记录、项目、复盘、通知..."
+            placeholder={taskManagementEnabled ? "全局搜索任务、记录、项目、复盘、通知..." : "全局搜索记录、复盘、通知..."}
             bind:value={query}
         />
         {#if query}
@@ -182,8 +188,8 @@
 <style>
     .global-search {
         padding: 12px 20px;
-        border-bottom: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
+        border-bottom: 1px solid var(--wk-border);
+        background: var(--wk-background);
     }
 
     .search-box {
@@ -196,26 +202,26 @@
         width: 100%;
         min-width: 0;
         height: 34px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         padding: 0 12px;
         font-size: 13px;
         outline: none;
     }
 
     input:focus {
-        border-color: var(--b3-theme-primary);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
+        border-color: var(--wk-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--wk-primary) 18%, transparent);
     }
 
     .clear-btn,
     .expand-btn {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         padding: 6px 12px;
         font-size: 12px;
         cursor: pointer;
@@ -224,8 +230,8 @@
 
     .clear-btn:hover,
     .expand-btn:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .search-results {
@@ -233,9 +239,9 @@
         flex-direction: column;
         gap: 6px;
         margin-top: 10px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 8px;
     }
 
@@ -243,7 +249,7 @@
         padding: 12px;
         text-align: center;
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 
@@ -256,15 +262,15 @@
         border: 1px solid transparent;
         border-radius: 8px;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         padding: 8px 10px;
         text-align: left;
         cursor: pointer;
     }
 
     .result-item:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 6%, transparent);
-        border-color: color-mix(in srgb, var(--b3-theme-primary) 20%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 6%, transparent);
+        border-color: color-mix(in srgb, var(--wk-primary) 20%, transparent);
     }
 
     .result-type {
@@ -274,9 +280,9 @@
         border-radius: 999px;
         padding: 2px 7px;
         font-size: 10px;
-        color: var(--b3-theme-primary);
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 24%, transparent);
+        color: var(--wk-primary);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 24%, transparent);
     }
 
     .result-main {
@@ -286,7 +292,7 @@
     .result-main strong {
         display: block;
         font-size: 13px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -296,7 +302,7 @@
         display: block;
         margin-top: 2px;
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -305,7 +311,7 @@
 
     .result-action {
         font-size: 11px;
-        color: var(--b3-theme-primary);
+        color: var(--wk-primary);
         white-space: nowrap;
     }
 

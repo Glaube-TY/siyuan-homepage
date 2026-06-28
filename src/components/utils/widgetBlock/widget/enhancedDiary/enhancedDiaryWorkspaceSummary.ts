@@ -3,7 +3,7 @@ import { validateDayWorkspaceStructure, parseMarkdownHeadingTree, getSectionMark
 import {
     getDayWorkspaceSections,
 } from "./enhancedDiaryWorkspaceSections";
-import type { EnhancedDiaryHeadingStructureConfig } from "./enhancedDiaryTypes";
+import type { EnhancedDiaryHeadingStructureConfig, EnhancedDiaryTemplateFieldMapping } from "./enhancedDiaryTypes";
 
 export interface EnhancedDiaryWorkspaceSummary {
     templateValid: boolean;
@@ -94,10 +94,12 @@ function countProjectSections(markdown: string, parentLevel: number): number {
 
 export function buildEnhancedDiaryWorkspaceSummary(
     markdown: string,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
+    taskManagementEnabled: boolean = true
 ): EnhancedDiaryWorkspaceSummary {
-    const validation = validateDayWorkspaceStructure(markdown, headingStructure);
-    const sections = getDayWorkspaceSections(markdown, headingStructure);
+    const validation = validateDayWorkspaceStructure(markdown, headingStructure, mapping, taskManagementEnabled);
+    const sections = getDayWorkspaceSections(markdown, headingStructure, mapping);
 
     const projectProgressNode = sections.projectProgress.node;
 
@@ -108,12 +110,12 @@ export function buildEnhancedDiaryWorkspaceSummary(
     return {
         templateValid: validation.valid,
         missing: validation.missing,
-        newTaskCount: sections.newTasks.found ? countTaskLines(sections.newTasks.markdown) : 0,
-        migratedTaskCount: sections.migratedTasks.found
+        newTaskCount: taskManagementEnabled && sections.newTasks.found ? countTaskLines(sections.newTasks.markdown) : 0,
+        migratedTaskCount: taskManagementEnabled && sections.migratedTasks.found
             ? countTaskLines(sections.migratedTasks.markdown)
             : 0,
         quickRecordCount,
-        projectCount: sections.projectProgress.found
+        projectCount: taskManagementEnabled && sections.projectProgress.found
             ? countProjectSections(sections.projectProgress.markdown, projectProgressNode?.level ?? 2)
             : 0,
     };

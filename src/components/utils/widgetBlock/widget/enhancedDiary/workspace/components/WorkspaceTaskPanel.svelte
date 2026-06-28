@@ -255,13 +255,10 @@
     });
 
     const todayCount = $derived(tasks.filter((t) => t.isTodayTask).length);
+    const activeCount = $derived(tasks.filter((t) => !t.completed).length);
     const overdueCount = $derived(tasks.filter((t) => t.isOverdue).length);
-    const newCount = $derived(tasks.filter((t) => t.sourceKind === "new").length);
-    const migratedCount = $derived(tasks.filter((t) => t.sourceKind === "migrated").length);
     const migrateCount = $derived(tasks.filter((t) => t.shouldMigrate).length);
     const riskCount = $derived(tasks.filter((t) => getTaskRiskScore(t) >= 30).length);
-    const staleCount = $derived(tasks.filter((t) => getTaskStagnantDays(t) >= 7).length);
-    const projectTaskCount = $derived(tasks.filter((t) => !t.completed && t.tags.length > 0).length);
 
     let selectedTaskBlockId: string | null = $state(null);
 
@@ -526,27 +523,24 @@
 
     <div class="stats-summary">
         <button type="button" class="stat-chip-btn" class:active={statusFilter === "today"} onclick={() => applyStatusQuickFilter("today")}>今日任务 {todayCount}</button>
+        <button type="button" class="stat-chip-btn" class:active={statusFilter === "active"} onclick={() => applyStatusQuickFilter("active")}>未完成 {activeCount}</button>
         <button type="button" class="stat-chip-btn danger" class:active={statusFilter === "overdue"} onclick={() => applyStatusQuickFilter("overdue")}>逾期 {overdueCount}</button>
-        <button type="button" class="stat-chip-btn" class:active={statusFilter === "new"} onclick={() => applyStatusQuickFilter("new")}>今日新建 {newCount}</button>
-        <button type="button" class="stat-chip-btn" class:active={statusFilter === "migrated"} onclick={() => applyStatusQuickFilter("migrated")}>今日迁移 {migratedCount}</button>
         <button type="button" class="stat-chip-btn warning" class:active={statusFilter === "migrate"} onclick={() => applyStatusQuickFilter("migrate")}>建议迁移 {migrateCount}</button>
         <button type="button" class="stat-chip-btn" class:danger={riskFilter === "risk"} class:active={riskFilter === "risk"} onclick={() => applyRiskQuickFilter("risk")}>高风险 {riskCount}</button>
-        <button type="button" class="stat-chip-btn" class:warning={riskFilter === "stale"} class:active={riskFilter === "stale"} onclick={() => applyRiskQuickFilter("stale")}>停滞 {staleCount}</button>
-        <button type="button" class="stat-chip-btn" class:active={riskFilter === "project"} onclick={() => applyRiskQuickFilter("project")}>项目任务 {projectTaskCount}</button>
     </div>
 
     <div class="result-info">
         当前显示 {filteredTasks.length} / 总计 {tasks.length} 个任务
     </div>
 
-    {#if filteredTasks.length > 0}
+    {#if selectedBatchTasks.length > 0}
         <div class="batch-toolbar">
             <span>已选择 {selectedBatchTasks.length} 个任务</span>
             <button type="button" onclick={selectAllFilteredTasks}>全选当前结果</button>
-            <button type="button" onclick={clearBatchSelection} disabled={selectedBatchTasks.length === 0}>清空选择</button>
-            <button type="button" onclick={() => onBatchComplete(selectedBatchTasks)} disabled={selectedBatchTasks.length === 0}>批量完成</button>
-            <button type="button" onclick={() => onBatchPostpone(selectedBatchTasks, "tomorrow")} disabled={selectedBatchTasks.length === 0}>推迟明天</button>
-            <button type="button" onclick={() => onBatchPostpone(selectedBatchTasks, "nextWeek")} disabled={selectedBatchTasks.length === 0}>推迟下周</button>
+            <button type="button" onclick={clearBatchSelection}>清空选择</button>
+            <button type="button" onclick={() => onBatchComplete(selectedBatchTasks)}>批量完成</button>
+            <button type="button" onclick={() => onBatchPostpone(selectedBatchTasks, "tomorrow")}>推迟明天</button>
+            <button type="button" onclick={() => onBatchPostpone(selectedBatchTasks, "nextWeek")}>推迟下周</button>
         </div>
     {/if}
 
@@ -716,18 +710,6 @@
                                 <span class="meta-value">{selectedTask.deadline || "-"}</span>
                             </div>
                             <div class="meta-item">
-                                <span class="meta-label">重复</span>
-                                <span class="meta-value">{selectedTask.recurrence || "-"}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">提醒</span>
-                                <span class="meta-value">{selectedTask.reminder || "-"}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">地点</span>
-                                <span class="meta-value">{selectedTask.location || "-"}</span>
-                            </div>
-                            <div class="meta-item">
                                 <span class="meta-label">来源日期</span>
                                 <span class="meta-value">{selectedTask.sourceDate || "-"}</span>
                             </div>
@@ -736,20 +718,8 @@
                                 <span class="meta-value">{selectedTask.sourceDocTitle || "-"}</span>
                             </div>
                             <div class="meta-item">
-                                <span class="meta-label">来源类型</span>
-                                <span class="meta-value">{sourceLabel(selectedTask)}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">停滞天数</span>
-                                <span class="meta-value">{getTaskStagnantDays(selectedTask)} 天</span>
-                            </div>
-                            <div class="meta-item">
                                 <span class="meta-label">风险判断</span>
                                 <span class="meta-value">{getTaskRiskLabel(selectedTask)}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">项目关联</span>
-                                <span class="meta-value">{selectedTask.tags.length > 0 ? "已关联" : "-"}</span>
                             </div>
                         </div>
 
@@ -764,10 +734,40 @@
                             </div>
                         {/if}
 
-                        <div class="detail-section">
-                            <div class="section-label">原始任务 Markdown</div>
-                            <pre class="detail-markdown">{selectedTask.markdown}</pre>
-                        </div>
+                        <details class="detail-advanced">
+                            <summary>高级信息</summary>
+                            <div class="detail-meta-grid">
+                                <div class="meta-item">
+                                    <span class="meta-label">重复</span>
+                                    <span class="meta-value">{selectedTask.recurrence || "-"}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">提醒</span>
+                                    <span class="meta-value">{selectedTask.reminder || "-"}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">地点</span>
+                                    <span class="meta-value">{selectedTask.location || "-"}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">来源类型</span>
+                                    <span class="meta-value">{sourceLabel(selectedTask)}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">停滞天数</span>
+                                    <span class="meta-value">{getTaskStagnantDays(selectedTask)} 天</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">项目关联</span>
+                                    <span class="meta-value">{selectedTask.tags.length > 0 ? "已关联" : "-"}</span>
+                                </div>
+                            </div>
+
+                            <div class="detail-section">
+                                <div class="section-label">原始任务 Markdown</div>
+                                <pre class="detail-markdown">{selectedTask.markdown}</pre>
+                            </div>
+                        </details>
 
                         <div class="detail-actions">
                             <button
@@ -840,7 +840,7 @@
         margin: 0;
         font-size: 18px;
         font-weight: 700;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         letter-spacing: -0.01em;
     }
 
@@ -850,31 +850,31 @@
         gap: 8px;
         padding: 6px 12px;
         border-radius: 8px;
-        background: var(--b3-theme-background);
-        border: 1px solid var(--b3-border-color);
+        background: var(--wk-background);
+        border: 1px solid var(--wk-border);
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .tag-filter-chip strong {
-        color: var(--b3-theme-primary);
+        color: var(--wk-primary);
         font-weight: 600;
     }
 
     .clear-tag-btn {
         padding: 2px 8px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 11px;
         cursor: pointer;
         margin-left: auto;
     }
 
     .clear-tag-btn:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .date-filter-chip {
@@ -883,31 +883,31 @@
         gap: 8px;
         padding: 6px 12px;
         border-radius: 8px;
-        background: var(--b3-theme-background);
-        border: 1px solid var(--b3-border-color);
+        background: var(--wk-background);
+        border: 1px solid var(--wk-border);
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .date-filter-chip strong {
-        color: var(--b3-theme-primary);
+        color: var(--wk-primary);
         font-weight: 600;
     }
 
     .clear-date-btn {
         padding: 2px 8px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 11px;
         cursor: pointer;
         margin-left: auto;
     }
 
     .clear-date-btn:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     /* stats summary */
@@ -921,9 +921,9 @@
         font-size: 11px;
         padding: 2px 8px;
         border-radius: 999px;
-        background: var(--b3-theme-background);
-        border: 1px solid var(--b3-border-color);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-background);
+        border: 1px solid var(--wk-border);
+        color: var(--wk-ink-secondary);
         opacity: 0.75;
         cursor: pointer;
         transition: border-color 0.12s, background 0.12s, opacity 0.12s;
@@ -931,14 +931,14 @@
 
     .stat-chip-btn:hover {
         opacity: 1;
-        border-color: var(--b3-theme-primary);
-        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+        border-color: var(--wk-primary);
+        background: color-mix(in srgb, var(--wk-primary) 8%, var(--wk-background));
     }
 
     .stat-chip-btn.danger {
         background: rgba(211, 47, 47, 0.06);
         border-color: rgba(211, 47, 47, 0.25);
-        color: var(--b3-theme-error, #d32f2f);
+        color: var(--wk-error);
     }
 
     .stat-chip-btn.danger:hover {
@@ -959,8 +959,8 @@
 
     .stat-chip-btn.active {
         opacity: 1;
-        border-color: var(--b3-theme-primary);
-        background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
+        border-color: var(--wk-primary);
+        background: color-mix(in srgb, var(--wk-primary) 12%, var(--wk-background));
         font-weight: 600;
     }
 
@@ -977,17 +977,17 @@
     .view-mode-tabs {
         display: inline-flex;
         width: fit-content;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
         overflow: hidden;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
     }
 
     .view-mode-tabs button {
         border: none;
-        border-right: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        border-right: 1px solid var(--wk-border);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         padding: 6px 14px;
         font-size: 12px;
         cursor: pointer;
@@ -999,11 +999,11 @@
     }
 
     .view-mode-tabs button:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 7%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 7%, var(--wk-background));
     }
 
     .view-mode-tabs button.active {
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
@@ -1022,18 +1022,18 @@
 
     .task-group {
         min-width: 0;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         overflow: hidden;
     }
 
     .task-group.tone-primary {
-        border-top: 3px solid var(--b3-theme-primary);
+        border-top: 3px solid var(--wk-primary);
     }
 
     .task-group.tone-danger {
-        border-top: 3px solid var(--b3-theme-error, #d32f2f);
+        border-top: 3px solid var(--wk-error);
     }
 
     .task-group.tone-warning {
@@ -1050,21 +1050,21 @@
         justify-content: space-between;
         gap: 10px;
         padding: 12px 12px 10px;
-        border-bottom: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
+        border-bottom: 1px solid var(--wk-border);
+        background: var(--wk-background);
     }
 
     .task-group-head h3 {
         margin: 0 0 3px;
         font-size: 13px;
         font-weight: 700;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .task-group-head p {
         margin: 0;
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
         line-height: 1.4;
     }
@@ -1073,9 +1073,9 @@
         min-width: 24px;
         padding: 2px 7px;
         border-radius: 999px;
-        background: var(--b3-theme-surface);
-        border: 1px solid var(--b3-border-color);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        border: 1px solid var(--wk-border);
+        color: var(--wk-ink-secondary);
         font-size: 12px;
         text-align: center;
         font-variant-numeric: tabular-nums;
@@ -1083,7 +1083,7 @@
 
     .task-group-empty {
         padding: 18px 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.45;
         font-size: 12px;
         text-align: center;
@@ -1099,9 +1099,9 @@
     }
 
     .task-card {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 9px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         padding: 10px;
         display: flex;
         flex-direction: column;
@@ -1128,7 +1128,7 @@
         margin-top: 2px;
         width: 14px;
         height: 14px;
-        accent-color: var(--b3-theme-primary);
+        accent-color: var(--wk-primary);
         flex-shrink: 0;
     }
 
@@ -1140,7 +1140,7 @@
     .task-card-content strong {
         display: block;
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         line-height: 1.4;
         word-break: break-word;
     }
@@ -1153,7 +1153,7 @@
         display: block;
         margin-top: 3px;
         font-size: 10px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
         line-height: 1.4;
         word-break: break-word;
@@ -1170,9 +1170,9 @@
         font-size: 10px;
         padding: 1px 5px;
         border-radius: 999px;
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-        color: var(--b3-theme-primary);
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 24%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 24%, transparent);
     }
 
     .task-card-actions {
@@ -1183,18 +1183,18 @@
     }
 
     .task-card-actions button {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         padding: 3px 7px;
         font-size: 11px;
         cursor: pointer;
     }
 
     .task-card-actions button:hover:not(:disabled) {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     /* layout */
@@ -1207,9 +1207,9 @@
     }
 
     .task-list-col {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -1219,12 +1219,12 @@
     .list-label {
         font-size: 11px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.45;
         padding: 10px 14px 8px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
-        border-bottom: 1px solid var(--b3-border-color);
+        border-bottom: 1px solid var(--wk-border);
     }
 
     .task-list-scroll {
@@ -1249,12 +1249,12 @@
     }
 
     .task-list-item:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 6%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 6%, transparent);
     }
 
     .task-list-item.selected {
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-        border-left-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        border-left-color: var(--wk-primary);
     }
 
     .task-list-item.completed {
@@ -1282,14 +1282,14 @@
     .list-item-check input[type="checkbox"] {
         width: 14px;
         height: 14px;
-        accent-color: var(--b3-theme-primary);
+        accent-color: var(--wk-primary);
         cursor: pointer;
     }
 
     .list-item-name {
         font-size: 13px;
         font-weight: 500;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -1311,8 +1311,8 @@
         white-space: nowrap;
     }
 
-    .mini-today { background: color-mix(in srgb, var(--b3-theme-primary) 14%, transparent); color: var(--b3-theme-primary); }
-    .mini-overdue { background: rgba(211, 47, 47, 0.1); color: var(--b3-theme-error, #d32f2f); }
+    .mini-today { background: color-mix(in srgb, var(--wk-primary) 14%, transparent); color: var(--wk-primary); }
+    .mini-overdue { background: rgba(211, 47, 47, 0.1); color: var(--wk-error); }
     .mini-new { background: rgba(40, 167, 69, 0.1); color: #22863a; }
     .mini-migrated { background: rgba(63, 81, 181, 0.1); color: #3f51b5; }
     .mini-mig { background: rgba(230, 168, 23, 0.1); color: #b87300; }
@@ -1328,9 +1328,9 @@
         font-size: 10px;
         padding: 1px 6px;
         border-radius: 999px;
-        border: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        border: 1px solid var(--wk-border);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         opacity: 0.6;
     }
 
@@ -1344,16 +1344,16 @@
         font-size: 10px;
         padding: 1px 6px;
         border-radius: 999px;
-        background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
-        color: var(--b3-theme-primary);
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 30%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent);
     }
 
     /* detail */
     .task-detail-col {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         min-height: 200px;
     }
 
@@ -1375,7 +1375,7 @@
         margin: 0;
         font-size: 16px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         word-break: break-all;
     }
 
@@ -1394,10 +1394,10 @@
         white-space: nowrap;
     }
 
-    .badge-active { background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent); color: var(--b3-theme-primary); border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 25%, transparent); }
+    .badge-active { background: color-mix(in srgb, var(--wk-primary) 12%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 25%, transparent); }
     .badge-done { background: rgba(40, 167, 69, 0.1); color: #22863a; border: 1px solid rgba(40, 167, 69, 0.25); }
-    .badge-danger { background: rgba(211, 47, 47, 0.08); color: var(--b3-theme-error, #d32f2f); border: 1px solid rgba(211, 47, 47, 0.25); }
-    .badge-today { background: color-mix(in srgb, var(--b3-theme-primary) 14%, transparent); color: var(--b3-theme-primary); border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 30%, transparent); }
+    .badge-danger { background: rgba(211, 47, 47, 0.08); color: var(--wk-error); border: 1px solid rgba(211, 47, 47, 0.25); }
+    .badge-today { background: color-mix(in srgb, var(--wk-primary) 14%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent); }
     .badge-warn { background: rgba(230, 168, 23, 0.1); color: #b87300; border: 1px solid rgba(230, 168, 23, 0.25); }
 
     .detail-meta-grid {
@@ -1407,9 +1407,9 @@
     }
 
     .meta-item {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         padding: 6px 10px;
         display: flex;
         flex-direction: column;
@@ -1418,25 +1418,44 @@
 
     .meta-label {
         font-size: 10px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 
     .meta-value {
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         word-break: break-all;
     }
 
+    .detail-advanced {
+        border: 1px solid var(--wk-border);
+        border-radius: 8px;
+        background: var(--wk-background);
+        padding: 12px;
+    }
+
+    .detail-advanced summary {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--wk-ink-secondary);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .detail-advanced[open] summary {
+        margin-bottom: 12px;
+    }
+
     .detail-section {
-        border-top: 1px solid var(--b3-border-color);
+        border-top: 1px solid var(--wk-border);
         padding-top: 12px;
     }
 
     .section-label {
         font-size: 11px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
         margin-bottom: 8px;
         text-transform: uppercase;
@@ -1453,25 +1472,25 @@
         font-size: 11px;
         padding: 2px 8px;
         border-radius: 999px;
-        background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
-        color: var(--b3-theme-primary);
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 30%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent);
     }
 
     .detail-markdown {
         margin: 0;
         font-size: 12px;
         line-height: 1.5;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         white-space: pre-wrap;
         word-break: break-all;
         font-family: inherit;
         max-height: 10em;
         overflow-y: auto;
         padding: 8px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         border-radius: 6px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
     }
 
     .detail-actions {
@@ -1479,31 +1498,31 @@
         flex-wrap: wrap;
         gap: 6px;
         padding-top: 8px;
-        border-top: 1px solid var(--b3-border-color);
+        border-top: 1px solid var(--wk-border);
     }
 
     .btn-action {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 5px 10px;
         font-size: 12px;
         cursor: pointer;
     }
 
     .btn-action:hover:not(:disabled) {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .btn-action.btn-danger {
-        color: var(--b3-theme-error, #d32f2f);
-        border-color: color-mix(in srgb, var(--b3-theme-error, #d32f2f) 40%, var(--b3-border-color));
+        color: var(--wk-error);
+        border-color: color-mix(in srgb, var(--wk-error) 40%, var(--wk-border));
     }
 
     .btn-action.btn-danger:hover:not(:disabled) {
-        border-color: var(--b3-theme-error, #d32f2f);
+        border-color: var(--wk-error);
     }
 
     .btn-action.btn-migrate {
@@ -1517,9 +1536,9 @@
     }
 
     .panel-toolbar button {
-        border: 1px solid var(--b3-theme-primary);
+        border: 1px solid var(--wk-primary);
         border-radius: 7px;
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
         padding: 7px 14px;
         font-size: 13px;
@@ -1542,25 +1561,25 @@
         flex: 1 1 200px;
         min-width: 160px;
         padding: 6px 12px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         font-size: 13px;
         outline: none;
         transition: border-color 0.12s;
     }
 
     .search-input:focus {
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
     }
 
     .filter-select {
         padding: 6px 10px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         font-size: 13px;
         cursor: pointer;
         outline: none;
@@ -1568,28 +1587,28 @@
     }
 
     .filter-select:focus {
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
     }
 
     .clear-btn {
         padding: 6px 14px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         font-size: 13px;
         cursor: pointer;
         transition: all 0.12s;
     }
 
     .clear-btn:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .result-info {
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.6;
     }
 
@@ -1598,32 +1617,32 @@
         align-items: center;
         flex-wrap: wrap;
         gap: 8px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 10px 12px;
     }
 
     .batch-toolbar span {
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.65;
         margin-right: 4px;
     }
 
     .batch-toolbar button {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 5px 10px;
         font-size: 12px;
         cursor: pointer;
     }
 
     .batch-toolbar button:hover:not(:disabled) {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .batch-select,
@@ -1633,7 +1652,7 @@
         gap: 5px;
         width: fit-content;
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.58;
         cursor: pointer;
     }
@@ -1642,7 +1661,7 @@
     .task-card-select input {
         width: 13px;
         height: 13px;
-        accent-color: var(--b3-theme-primary);
+        accent-color: var(--wk-primary);
         cursor: pointer;
     }
 

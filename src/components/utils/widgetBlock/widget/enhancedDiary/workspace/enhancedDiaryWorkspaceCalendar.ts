@@ -2,6 +2,8 @@ import { SolarDay } from "tyme4ts";
 import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { formatDiaryDate, scanDiaryContentForPeriod } from "../enhancedDiaryUtils";
 import { buildEnhancedDiaryWorkspaceSummary } from "../enhancedDiaryWorkspaceSummary";
+import { isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
+import type { EnhancedDiaryConfig } from "../enhancedDiaryTypes";
 
 export interface EnhancedDiaryCalendarMetadata {
     lunarDayName: string;
@@ -62,7 +64,8 @@ function buildCalendarMetadata(date: Date): EnhancedDiaryCalendarMetadata {
 export async function buildWorkspaceCalendarMonth(
     _plugin: any,
     year: number,
-    month: number
+    month: number,
+    config?: EnhancedDiaryConfig
 ): Promise<EnhancedDiaryCalendarDay[]> {
     const start = startOfCalendarGrid(year, month);
     const days: Date[] = [];
@@ -71,6 +74,8 @@ export async function buildWorkspaceCalendarMonth(
         d.setDate(start.getDate() + i);
         days.push(d);
     }
+
+    const taskManagementEnabled = isEnhancedDiaryTaskManagementEnabled(config);
 
     return Promise.all(
         days.map(async (date) => {
@@ -82,14 +87,19 @@ export async function buildWorkspaceCalendarMonth(
             let pendingReviewCount = 0;
 
             if (doc) {
-                const summary = buildEnhancedDiaryWorkspaceSummary(doc.content);
+                const summary = buildEnhancedDiaryWorkspaceSummary(
+                    doc.content,
+                    config?.headingStructure,
+                    config?.templateFieldMapping,
+                    taskManagementEnabled,
+                );
                 newTaskCount = summary.newTaskCount;
                 migratedTaskCount = summary.migratedTaskCount;
                 quickRecordCount = summary.quickRecordCount;
 
                 const periods = ["day", "week", "month", "year"] as const;
                 periods.forEach((period) => {
-                    const scan = scanDiaryContentForPeriod(doc.content, period);
+                    const scan = scanDiaryContentForPeriod(doc.content, period, config?.templateFieldMapping);
                     if (scan.completed) completedReviewCount += 1;
                     else if (scan.hasCompletionMarker) pendingReviewCount += 1;
                 });

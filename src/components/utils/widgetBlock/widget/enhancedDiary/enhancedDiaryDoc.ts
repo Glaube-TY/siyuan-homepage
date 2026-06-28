@@ -6,12 +6,25 @@ import {
     appendBlock,
     insertBlock,
     updateBlock,
+    deleteBlock,
     getChildBlocks,
 } from "@/api";
 import { openDocs } from "@/components/tools/openDocs";
-import { renderEnhancedDiaryTemplate, scanDiaryContentForPeriod, getCompletionMarker, getSkipMarker } from "./enhancedDiaryUtils";
-import type { EnhancedDiaryPeriod, EnhancedDiaryTemplateContext, EnhancedDiaryHeadingStructureConfig } from "./enhancedDiaryTypes";
-import { validateDayWorkspaceStructure, getEnhancedDiaryHeadingPlan, normalizeHeadingTitle, type EnhancedDiaryWorkspaceValidationResult } from "./enhancedDiaryMarkdownSections";
+import { renderEnhancedDiaryTemplate, scanDiaryContentForPeriod, getLegacyCompletionMarker, getSkipMarker } from "./enhancedDiaryUtils";
+import type { EnhancedDiaryPeriod, EnhancedDiaryTemplateContext, EnhancedDiaryHeadingStructureConfig, EnhancedDiaryTemplateFieldMapping } from "./enhancedDiaryTypes";
+import {
+    ENHANCED_DIARY_COMPLETED_SUFFIX,
+    stripReviewStatusSuffix,
+    validateDayWorkspaceStructure,
+    getEnhancedDiaryHeadingPlan,
+    normalizeHeadingTitle,
+    type EnhancedDiaryWorkspaceValidationResult,
+} from "./enhancedDiaryMarkdownSections";
+import {
+    getFieldAliases,
+    getPrimaryFieldTitle,
+} from "./enhancedDiaryTemplateFieldMapping";
+import { pruneTaskSectionsFromDayTemplate } from "./enhancedDiaryTemplatePrune";
 
 export interface EnhancedDiaryDocumentInfo {
     id: string;
@@ -220,35 +233,41 @@ function findNextBoundaryBlock(
 }
 
 /**
- * Find the # 今日日记 root heading block (level 1, title matches "今日日记" or "今日日记 ...").
+ * Find the day root heading block (level 1, title matches configured aliases with optional status suffix).
  */
-function findDayRootHeadingBlock(headings: DocHeadingBlock[]): DocHeadingBlock | null {
-    return headings.find(
-        (h) => h.level === 1 && (h.title === "今日日记" || h.title.startsWith("今日日记 "))
-    ) || null;
+function findDayRootHeadingBlock(
+    headings: DocHeadingBlock[],
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
+): DocHeadingBlock | null {
+    const aliases = getFieldAliases(mapping, "rootHeadings", "day");
+    return headings.find((h) => {
+        if (h.level !== 1) return false;
+        const stripped = stripReviewStatusSuffix(h.title);
+        return aliases.some(
+            (alias) => stripped === alias || stripped.startsWith(alias + " ")
+        );
+    }) || null;
 }
 
 /**
- * Find a heading block by title within a given index range [startIndex, endIndex).
+ * Find a heading block by any of the provided aliases within a given index range.
  * Prefers headings at `preferredLevel`; falls back to deeper levels if none found at preferred.
  */
-function findHeadingBlockByTitleInScope(
+function findHeadingBlockByTitleAliasesInScope(
     headings: DocHeadingBlock[],
-    expectedTitle: string,
+    aliases: string[],
     startIndex: number,
     endIndex: number,
     preferredLevel: number
 ): DocHeadingBlock | null {
     const titleMatches = (h: DocHeadingBlock) =>
-        h.title === expectedTitle || h.title.startsWith(expectedTitle + " ");
+        aliases.some((alias) => h.title === alias || h.title.startsWith(alias + " "));
 
-    // Pass 1: preferred level
     for (const h of headings) {
         if (h.index < startIndex || h.index >= endIndex) continue;
         if (h.level === preferredLevel && titleMatches(h)) return h;
     }
 
-    // Pass 2: fallback — deeper level
     for (const h of headings) {
         if (h.index < startIndex || h.index >= endIndex) continue;
         if (h.level > preferredLevel && titleMatches(h)) return h;
@@ -261,46 +280,70 @@ function findHeadingBlockByTitleInScope(
  * Patch missing day workspace sections (base sections + sub-items).
  * Called when root heading exists but validateDayWorkspaceStructure reports missing items.
  */
+type DayWorkspaceSectionBaseKey = "taskManagement" | "quickRecords" | "dailyReview";
+type DayWorkspaceSubKey = "newTasks" | "migratedTasks" | "taskLog";
+
 async function patchDayWorkspaceStructure(
     docId: string,
     headingStructure: EnhancedDiaryHeadingStructureConfig | undefined,
-    validation: EnhancedDiaryWorkspaceValidationResult
+    validation: EnhancedDiaryWorkspaceValidationResult,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
+    taskManagementEnabled: boolean = true
 ): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
+    const rootTitle = getPrimaryFieldTitle(mapping, "rootHeadings", "day");
     // Defensive: root heading missing should be handled upstream in appendTemplateToDiary
-    if (validation.missing.some((m) => m.startsWith("# ") && (m === "# 今日日记" || m.startsWith("# 今日日记 ")))) {
+    if (validation.missing.some((m) => m.startsWith("# ") && (m === `# ${rootTitle}` || m.startsWith(`# ${rootTitle} `)))) {
         return { ok: false, reason: "missing_day_root" };
     }
 
     // Determine recommended heading levels
     const plan = headingStructure
-        ? getEnhancedDiaryHeadingPlan(headingStructure, "day")
+        ? getEnhancedDiaryHeadingPlan(headingStructure, "day", mapping)
         : null;
     const baseHash = plan ? "#".repeat(plan.baseLevel) : "##";
     const subHash = plan ? "#".repeat(plan.subLevel) : "###";
 
+    const taskManagement = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "taskManagement");
+    const newTasks = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "newTasks");
+    const migratedTasks = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "migratedTasks");
+    const taskLog = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "taskLog");
+    const quickRecords = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "quickRecords");
+    const dailyReview = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "dailyReview");
+
     // Required sections grouped by base parent
-    const sectionGroups: Array<{ baseLabel: string; baseTitle: string; subs: string[] }> = [
-        { baseLabel: `${baseHash} 任务管理`, baseTitle: "任务管理", subs: ["新建任务", "迁移任务", "任务动态"] },
-        { baseLabel: `${baseHash} 快速记录`, baseTitle: "快速记录", subs: [] },
-        { baseLabel: `${baseHash} 今日复盘`, baseTitle: "今日复盘", subs: [] },
+    const taskGroup = {
+        baseKey: "taskManagement" as DayWorkspaceSectionBaseKey,
+        baseLabel: `${baseHash} ${taskManagement}`,
+        subs: [
+            { key: "newTasks" as DayWorkspaceSubKey, title: newTasks },
+            { key: "migratedTasks" as DayWorkspaceSubKey, title: migratedTasks },
+            { key: "taskLog" as DayWorkspaceSubKey, title: taskLog },
+        ],
+    };
+    const nonTaskGroups = [
+        { baseKey: "quickRecords" as DayWorkspaceSectionBaseKey, baseLabel: `${baseHash} ${quickRecords}`, subs: [] as Array<{ key: DayWorkspaceSubKey; title: string }> },
+        { baseKey: "dailyReview" as DayWorkspaceSectionBaseKey, baseLabel: `${baseHash} ${dailyReview}`, subs: [] as Array<{ key: DayWorkspaceSubKey; title: string }> },
     ];
+    const sectionGroups = taskManagementEnabled ? [taskGroup, ...nonTaskGroups] : nonTaskGroups;
 
     // Missing base sections → insert full group at day root scope end
     const missingBaseParts: string[] = [];
     // Missing sub-items of EXISTING parents → insert under that parent
-    const missingSubItems: Array<{ parentTitle: string; subTitle: string }> = [];
+    const missingSubItems: Array<{ parentAliases: string[]; subTitle: string }> = [];
 
     for (const group of sectionGroups) {
         if (validation.missing.includes(group.baseLabel)) {
             missingBaseParts.push(group.baseLabel);
             for (const sub of group.subs) {
-                missingBaseParts.push(`${subHash} ${sub}`);
+                missingBaseParts.push(`${subHash} ${sub.title}`);
             }
         } else {
+            // 父级存在但可能用了旧标题，用内部 key 取别名查找
+            const parentAliases = getFieldAliases(mapping, "dayWorkspaceSections", group.baseKey);
             for (const sub of group.subs) {
-                const subLabel = `${subHash} ${sub}`;
+                const subLabel = `${subHash} ${sub.title}`;
                 if (validation.missing.includes(subLabel)) {
-                    missingSubItems.push({ parentTitle: group.baseTitle, subTitle: sub });
+                    missingSubItems.push({ parentAliases, subTitle: sub.title });
                 }
             }
         }
@@ -310,7 +353,7 @@ async function patchDayWorkspaceStructure(
 
     const children = await getChildBlocks(docId);
     const headingBlocks = parseDocHeadingBlocks(children);
-    const dayRoot = findDayRootHeadingBlock(headingBlocks);
+    const dayRoot = findDayRootHeadingBlock(headingBlocks, mapping);
 
     const dayScopeEnd = dayRoot
         ? (findNextBoundaryBlock(headingBlocks, dayRoot)?.index ?? children.length)
@@ -338,30 +381,31 @@ async function patchDayWorkspaceStructure(
         // Preferred parent level: dayRoot.level + 1 (e.g. H2 under H1 # 今日日记)
         const preferredParentLevel = dayRoot ? dayRoot.level + 1 : 2;
 
-        // Group missing sub-items by parent title
-        const groupedByParent = new Map<string, string[]>();
+        // Group missing sub-items by parent aliases
+        const groupedByParent = new Map<string, { aliases: string[]; subs: string[] }>();
         for (const sub of missingSubItems) {
-            const list = groupedByParent.get(sub.parentTitle);
-            if (list) {
-                list.push(sub.subTitle);
+            const key = sub.parentAliases.join("|");
+            const existing = groupedByParent.get(key);
+            if (existing) {
+                existing.subs.push(sub.subTitle);
             } else {
-                groupedByParent.set(sub.parentTitle, [sub.subTitle]);
+                groupedByParent.set(key, { aliases: sub.parentAliases, subs: [sub.subTitle] });
             }
         }
 
-        for (const [parentTitle, subTitles] of groupedByParent) {
-            const parentBlock = findHeadingBlockByTitleInScope(
-                headingBlocks, parentTitle, parentStartIndex, parentEndIndex, preferredParentLevel
+        for (const { aliases, subs: subTitles } of groupedByParent.values()) {
+            const parentBlock = findHeadingBlockByTitleAliasesInScope(
+                headingBlocks, aliases, parentStartIndex, parentEndIndex, preferredParentLevel
             );
             if (!parentBlock) {
-                console.warn("[enhancedDiaryDoc] parent heading not found for sub-items", parentTitle);
+                console.warn("[enhancedDiaryDoc] parent heading not found for sub-items", aliases);
                 hasError = true;
                 continue;
             }
 
             const subLevel = parentBlock.level + 1;
             if (subLevel > 6) {
-                console.warn("[enhancedDiaryDoc] parent level too deep for sub-items", parentTitle);
+                console.warn("[enhancedDiaryDoc] parent level too deep for sub-items", aliases);
                 hasError = true;
                 continue;
             }
@@ -397,11 +441,13 @@ export async function appendTemplateToDiary(params: {
     template: string;
     context: EnhancedDiaryTemplateContext;
     headingStructure?: EnhancedDiaryHeadingStructureConfig;
+    mapping?: EnhancedDiaryTemplateFieldMapping | null;
+    taskManagementEnabled?: boolean;
 }): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
-    const { docId, period, template, context, headingStructure } = params;
+    const { docId, period, template, context, headingStructure, mapping, taskManagementEnabled = true } = params;
 
     const content = await readDiaryMarkdown(docId);
-    const scan = scanDiaryContentForPeriod(content, period);
+    const scan = scanDiaryContentForPeriod(content, period, mapping);
 
     const renderedMarkdown = await renderEnhancedDiaryMarkdownWithSprig(period, template, context);
     if (renderedMarkdown.trim() === "") {
@@ -409,18 +455,23 @@ export async function appendTemplateToDiary(params: {
     }
 
     const heading = getFirstMarkdownHeading(renderedMarkdown);
+    const rootTitle = getPrimaryFieldTitle(mapping, "rootHeadings", "day");
 
     // Day period: validate structure first, regardless of markers/heading state
     if (period === "day") {
-        const validation = validateDayWorkspaceStructure(content, headingStructure);
+        const validation = validateDayWorkspaceStructure(content, headingStructure, mapping, taskManagementEnabled);
         if (!validation.valid) {
             // Check if root heading itself is missing
             const rootMissing = validation.missing.some(
-                (m) => m.startsWith("# ") && (m === "# 今日日记" || m.startsWith("# 今日日记 "))
+                (m) => m.startsWith("# ") && (m === `# ${rootTitle}` || m.startsWith(`# ${rootTitle} `))
             );
             if (rootMissing) {
                 // Root heading missing — append full rendered template
-                const markdownToAppend = "\n\n" + renderedMarkdown.trim();
+                // 任务管理关闭时，先过滤掉任务体系区块，避免旧默认模板把任务内容写回日记
+                const templateToAppend = taskManagementEnabled
+                    ? renderedMarkdown
+                    : pruneTaskSectionsFromDayTemplate(renderedMarkdown, mapping);
+                const markdownToAppend = "\n\n" + templateToAppend.trim();
                 try {
                     await appendBlock("markdown", markdownToAppend, docId);
                     return { ok: true };
@@ -430,7 +481,7 @@ export async function appendTemplateToDiary(params: {
                 }
             }
             // Root exists but sub-sections missing — patch incrementally
-            return await patchDayWorkspaceStructure(docId, headingStructure, validation);
+            return await patchDayWorkspaceStructure(docId, headingStructure, validation, mapping, taskManagementEnabled);
         }
         // Structure is complete — check markers/heading for skip
         if (scan.hasCompletionMarker || scan.hasSkipMarker) {
@@ -457,21 +508,85 @@ export async function appendTemplateToDiary(params: {
     }
 }
 
+interface RootHeadingMatch {
+    block: DocHeadingBlock;
+    raw: string;
+}
+
+function matchesPeriodRootHeading(
+    title: string,
+    period: EnhancedDiaryPeriod,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
+): boolean {
+    const stripped = stripReviewStatusSuffix(title);
+    const aliases = getFieldAliases(mapping, "rootHeadings", period);
+    return aliases.some(
+        (alias) => stripped === alias || stripped.startsWith(alias + " ")
+    );
+}
+
+async function findPeriodRootHeadingBlock(
+    docId: string,
+    period: EnhancedDiaryPeriod,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
+): Promise<RootHeadingMatch | null> {
+    try {
+        const children = await getChildBlocks(docId);
+        const headings = parseDocHeadingBlocks(children);
+        for (const h of headings) {
+            if (h.level === 1 && matchesPeriodRootHeading(h.title, period, mapping)) {
+                const block = children[h.index];
+                if (block) {
+                    return { block: h, raw: block.markdown || "" };
+                }
+            }
+        }
+    } catch (err) {
+        console.warn("[enhancedDiaryDoc] findPeriodRootHeadingBlock failed", err);
+    }
+    return null;
+}
+
+function buildUpdatedRootHeadingMarkdown(raw: string, completed: boolean): string | null {
+    const firstLine = raw.split("\n")[0] || "";
+    const match = firstLine.match(/^(#{1,6}\s+)(.*)$/);
+    if (!match) return null;
+
+    const prefix = match[1];
+    const title = match[2].trim();
+    const stripped = stripReviewStatusSuffix(title);
+    const newTitle = completed ? stripped + ENHANCED_DIARY_COMPLETED_SUFFIX : stripped;
+    if (newTitle === title) return null;
+
+    return prefix + newTitle + raw.slice(firstLine.length);
+}
+
 function escapeSqlString(value: string): string {
     return value.replace(/'/g, "''");
 }
 
 function getCompletionMarkerKeyword(period: EnhancedDiaryPeriod): string {
-    const marker = getCompletionMarker(period, false);
-    return marker.replace(/^- \[[ xX]\]\s*/, "");
+    const labels: Record<EnhancedDiaryPeriod, string> = {
+        day: "今日记录🌞",
+        week: "本周复盘📅",
+        month: "本月总结🌙",
+        year: "年度总结🎇",
+    };
+    return labels[period];
 }
 
 function getSkipMarkerKeyword(period: EnhancedDiaryPeriod): string {
-    const marker = getSkipMarker(period);
-    return marker.replace(/^- \[[ xX]\]\s*/, "");
+    const labels: Record<EnhancedDiaryPeriod, string> = {
+        day: "已跳过今日记录⏭️",
+        week: "已跳过本周复盘⏭️",
+        month: "已跳过本月总结⏭️",
+        year: "已跳过年度总结⏭️",
+    };
+    return labels[period];
 }
 
-async function findCompletionMarkerBlock(
+/** 仅查找旧版任务列表式完成标记块，用于兼容历史数据。 */
+async function findLegacyCompletionMarkerBlock(
     docId: string,
     period: EnhancedDiaryPeriod
 ): Promise<{ id: string; markdown: string } | null> {
@@ -485,22 +600,22 @@ async function findCompletionMarkerBlock(
         const results = await sql(query);
         if (!results || results.length === 0) return null;
 
-        const unchecked = getCompletionMarker(period, false);
-        const checked = getCompletionMarker(period, true);
-        const checkedUpper = checked.replace("[x]", "[X]");
+        const legacyUnchecked = getLegacyCompletionMarker(period, false);
+        const legacyChecked = getLegacyCompletionMarker(period, true);
+        const legacyCheckedUpper = legacyChecked.replace("[x]", "[X]");
 
         for (const row of results) {
             const md = row.markdown as string;
             if (
-                md.includes(unchecked) ||
-                md.includes(checked) ||
-                md.includes(checkedUpper)
+                md.includes(legacyUnchecked) ||
+                md.includes(legacyChecked) ||
+                md.includes(legacyCheckedUpper)
             ) {
                 return { id: row.id as string, markdown: md };
             }
         }
     } catch (err) {
-        console.warn("[enhancedDiaryDoc] findCompletionMarkerBlock failed", err);
+        console.warn("[enhancedDiaryDoc] findLegacyCompletionMarkerBlock failed", err);
     }
     return null;
 }
@@ -538,48 +653,22 @@ export async function toggleCompletionMarker(params: {
     docId: string;
     period: EnhancedDiaryPeriod;
     completed: boolean;
+    mapping?: EnhancedDiaryTemplateFieldMapping | null;
 }): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
-    const { docId, period, completed } = params;
+    const { docId, period, completed, mapping } = params;
 
-    const block = await findCompletionMarkerBlock(docId, period);
-    if (!block) {
-        return { ok: false, reason: "marker_not_found" };
+    const root = await findPeriodRootHeadingBlock(docId, period, mapping);
+    if (!root) {
+        return { ok: false, reason: "root_heading_not_found" };
     }
 
-    const unchecked = getCompletionMarker(period, false);
-    const checked = getCompletionMarker(period, true);
-    const checkedUpper = checked.replace("[x]", "[X]");
-
-    let newMarkdown: string | null = null;
-
-    if (completed) {
-        if (block.markdown.includes(checked) || block.markdown.includes(checkedUpper)) {
-            return { ok: true, skipped: true, reason: "already_completed" };
-        }
-        if (block.markdown.includes(unchecked)) {
-            newMarkdown = block.markdown.replace(unchecked, checked);
-        } else {
-            return { ok: false, reason: "marker_not_found" };
-        }
-    } else {
-        if (block.markdown.includes(unchecked)) {
-            return { ok: true, skipped: true, reason: "already_uncompleted" };
-        }
-        if (block.markdown.includes(checked)) {
-            newMarkdown = block.markdown.replace(checked, unchecked);
-        } else if (block.markdown.includes(checkedUpper)) {
-            newMarkdown = block.markdown.replace(checkedUpper, unchecked);
-        } else {
-            return { ok: false, reason: "marker_not_found" };
-        }
-    }
-
+    const newMarkdown = buildUpdatedRootHeadingMarkdown(root.raw, completed);
     if (!newMarkdown) {
-        return { ok: false, reason: "marker_not_found" };
+        return { ok: true, skipped: true, reason: completed ? "already_completed" : "already_uncompleted" };
     }
 
     try {
-        await updateBlock("markdown", newMarkdown, block.id);
+        await updateBlock("markdown", newMarkdown, root.block.id);
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryDoc] toggleCompletionMarker update failed", err);
@@ -590,43 +679,37 @@ export async function toggleCompletionMarker(params: {
 export async function skipPeriod(params: {
     docId: string;
     period: EnhancedDiaryPeriod;
+    mapping?: EnhancedDiaryTemplateFieldMapping | null;
 }): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
-    const { docId, period } = params;
+    const { docId, period, mapping } = params;
 
     const content = await readDiaryMarkdown(docId);
-    const scan = scanDiaryContentForPeriod(content, period);
+    const scan = scanDiaryContentForPeriod(content, period, mapping);
     if (scan.skipped) {
         return { ok: true, skipped: true, reason: "already_skipped" };
     }
 
-    const block = await findCompletionMarkerBlock(docId, period);
-    if (!block) {
-        return { ok: false, reason: "marker_not_found" };
-    }
-
-    const unchecked = getCompletionMarker(period, false);
-    const checked = getCompletionMarker(period, true);
-    const checkedUpper = checked.replace("[x]", "[X]");
     const skip = getSkipMarker(period);
 
-    let newMarkdown: string | null = null;
-
-    if (block.markdown.includes(unchecked)) {
-        newMarkdown = block.markdown.replace(unchecked, skip);
-    } else if (block.markdown.includes(checked)) {
-        newMarkdown = block.markdown.replace(checked, skip);
-    } else if (block.markdown.includes(checkedUpper)) {
-        newMarkdown = block.markdown.replace(checkedUpper, skip);
-    } else {
-        return { ok: false, reason: "marker_not_found" };
+    // 优先替换旧版完成标记块为跳过标记，保持旧文档兼容；
+    // 如果找不到旧标记，则在文档末尾追加跳过标记。
+    const legacyBlock = await findLegacyCompletionMarkerBlock(docId, period);
+    if (legacyBlock) {
+        try {
+            await updateBlock("markdown", skip, legacyBlock.id);
+            return { ok: true };
+        } catch (err) {
+            console.warn("[enhancedDiaryDoc] skipPeriod update legacy marker failed", err);
+            return { ok: false, reason: "update_failed" };
+        }
     }
 
     try {
-        await updateBlock("markdown", newMarkdown, block.id);
+        await appendBlock("markdown", "\n\n" + skip, docId);
         return { ok: true };
     } catch (err) {
-        console.warn("[enhancedDiaryDoc] skipPeriod update failed", err);
-        return { ok: false, reason: "update_failed" };
+        console.warn("[enhancedDiaryDoc] skipPeriod append failed", err);
+        return { ok: false, reason: "append_failed" };
     }
 }
 
@@ -634,33 +717,32 @@ export async function restoreSkippedPeriod(params: {
     docId: string;
     period: EnhancedDiaryPeriod;
     mode: "pending" | "completed";
+    mapping?: EnhancedDiaryTemplateFieldMapping | null;
 }): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
-    const { docId, period, mode } = params;
+    const { docId, period, mode, mapping } = params;
 
-    const block = await findSkipMarkerBlock(docId, period);
-    if (!block) {
+    const skipBlock = await findSkipMarkerBlock(docId, period);
+    if (!skipBlock) {
         return { ok: false, reason: "skip_marker_not_found" };
     }
 
-    const skip = getSkipMarker(period);
-    const skipUpper = skip.replace("[x]", "[X]");
-    const target = mode === "completed"
-        ? getCompletionMarker(period, true)
-        : getCompletionMarker(period, false);
-
-    if (!block.markdown.includes(skip) && !block.markdown.includes(skipUpper)) {
-        return { ok: false, reason: "skip_marker_not_found" };
+    // 先更新顶级标题后缀，成功后再删除旧的跳过标记块，避免状态与标记不一致。
+    const toggleResult = await toggleCompletionMarker({
+        docId,
+        period,
+        completed: mode === "completed",
+        mapping,
+    });
+    if (!toggleResult.ok && !toggleResult.skipped) {
+        return toggleResult;
     }
-
-    const newMarkdown = block.markdown.includes(skip)
-        ? block.markdown.replace(skip, target)
-        : block.markdown.replace(skipUpper, target);
 
     try {
-        await updateBlock("markdown", newMarkdown, block.id);
+        await deleteBlock(skipBlock.id);
         return { ok: true };
     } catch (err) {
-        console.warn("[enhancedDiaryDoc] restoreSkippedPeriod update failed", err);
-        return { ok: false, reason: "update_failed" };
+        console.warn("[enhancedDiaryDoc] restoreSkippedPeriod delete skip marker failed", err);
+        // 标题已更新成功，仅跳过标记块未删除，仍视为成功但附带原因。
+        return { ok: true, reason: "heading_updated_skip_not_deleted" };
     }
 }

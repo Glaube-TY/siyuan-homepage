@@ -4,107 +4,75 @@
 
     interface Props {
         state: EnhancedDiaryWorkspaceState;
-        onOpenToday: () => void | Promise<void>;
+        onOpenAndAppendTemplate: () => void | Promise<void>;
+        taskManagementEnabled?: boolean;
     }
 
-    let { state, onOpenToday }: Props = $props();
+    let { state, onOpenAndAppendTemplate, taskManagementEnabled = true }: Props = $props();
+
+    const statsColumns = $derived(
+        taskManagementEnabled ? 4 : 2
+    );
 </script>
 
-<div class="card wide today-card">
-    <div class="card-head">
+<div class="wk-card today-card">
+    <div class="wk-card-head">
         <div class="card-title-group">
-            <h2>今日概览</h2>
+            <h2 class="wk-card-title">今日概览</h2>
             {#if state.todayDiaryExists}
-                <span class="status-badge {state.templateValid ? 'ok' : 'warn'}">
+                <span class="wk-badge {state.templateValid ? 'wk-badge-ok' : 'wk-badge-warn'}">
                     {state.templateValid ? "模板完整" : "模板缺失"}
                 </span>
             {/if}
         </div>
-        <button type="button" class="btn-secondary" onclick={onOpenToday}>打开日记</button>
+        <button type="button" class="wk-btn wk-btn-secondary wk-btn-sm" onclick={onOpenAndAppendTemplate}>打开并补模板</button>
     </div>
     {#if state.todayDiaryExists}
-        <div class="today-stats">
-            <div class="stat-item">
-                <span>新建任务</span>
-                <strong>{state.summary.newTaskCount}</strong>
-            </div>
-            <div class="stat-item">
-                <span>迁移任务</span>
-                <strong>{state.summary.migratedTaskCount}</strong>
-            </div>
-            <div class="stat-item">
-                <span>快速记录</span>
+        <div class="today-stats" style="grid-template-columns: repeat({statsColumns}, minmax(0, 1fr));">
+            {#if taskManagementEnabled}
+                <div class="wk-stat">
+                    <span class="wk-stat-label">新建任务</span>
+                    <strong>{state.summary.newTaskCount}</strong>
+                </div>
+                <div class="wk-stat">
+                    <span class="wk-stat-label">迁移任务</span>
+                    <strong>{state.summary.migratedTaskCount}</strong>
+                </div>
+            {/if}
+            <div class="wk-stat">
+                <span class="wk-stat-label">快速记录</span>
                 <strong>{state.summary.quickRecordCount}</strong>
             </div>
-            <div class="stat-item">
-                <span>项目推进</span>
-                <strong>{state.summary.projectCount}</strong>
-            </div>
+            {#if taskManagementEnabled}
+                <div class="wk-stat">
+                    <span class="wk-stat-label">项目推进</span>
+                    <strong>{state.summary.projectCount}</strong>
+                </div>
+            {/if}
         </div>
         {#if !state.templateValid}
-            <div class="warning-box">
+            <div class="wk-warning-box">
                 <WorkspaceIcon name="warning" size={14} />
                 <span>模板结构缺失：{state.missingSections.slice(0, 4).join("、")}{state.missingSections.length > 4 ? " 等" : ""}，写入操作会被保护性拦截。</span>
             </div>
         {/if}
     {:else}
         <div class="no-diary-guide">
-            <p>今日还没有日记，打开后可补充强化日记模板。</p>
-            <button type="button" class="btn-primary" onclick={onOpenToday}>立即打开今日日记</button>
+            <p>今日还没有日记，打开后会自动补充模板。</p>
+            <button type="button" class="wk-btn wk-btn-primary wk-btn-sm" onclick={onOpenAndAppendTemplate}>立即打开今日日记</button>
         </div>
     {/if}
 </div>
 
 <style>
-    .card {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 12px;
-        background: var(--b3-theme-surface);
-        padding: 18px;
-    }
-
-    .wide {
+    .today-card {
         grid-column: 1 / -1;
-    }
-
-    .card-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 14px;
     }
 
     .card-title-group {
         display: flex;
         align-items: center;
         gap: 10px;
-    }
-
-    h2 {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--b3-theme-on-surface);
-    }
-
-    .status-badge {
-        font-size: 11px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-weight: 500;
-    }
-
-    .status-badge.ok {
-        background: rgba(40, 167, 69, 0.12);
-        color: #22863a;
-        border: 1px solid rgba(40, 167, 69, 0.3);
-    }
-
-    .status-badge.warn {
-        background: rgba(255, 165, 0, 0.12);
-        color: #b87300;
-        border: 1px solid rgba(255, 165, 0, 0.35);
     }
 
     .today-stats {
@@ -114,41 +82,13 @@
         margin-bottom: 4px;
     }
 
-    .stat-item {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 8px;
-        background: var(--b3-theme-background);
-        padding: 10px 12px;
-        text-align: center;
-    }
-
-    .stat-item span {
+    .wk-stat strong {
         display: block;
-        font-size: 11px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.6;
-        margin-bottom: 4px;
-    }
-
-    .stat-item strong {
-        display: block;
-        font-size: 20px;
-        color: var(--b3-theme-on-surface);
+        font-size: var(--wk-text-xl);
+        font-weight: 700;
+        color: var(--wk-ink-secondary);
         font-variant-numeric: tabular-nums;
-    }
-
-    .warning-box {
-        display: flex;
-        align-items: flex-start;
-        gap: 7px;
-        margin-top: 12px;
-        padding: 10px 12px;
-        border-radius: 8px;
-        background: rgba(255, 165, 0, 0.08);
-        border: 1px solid rgba(255, 165, 0, 0.35);
-        color: #b87300;
-        font-size: 13px;
-        line-height: 1.5;
+        line-height: 1.1;
     }
 
     .no-diary-guide {
@@ -160,33 +100,7 @@
 
     .no-diary-guide p {
         margin: 0;
-        font-size: 13px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.72;
-    }
-
-    .btn-secondary {
-        border: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
-        border-radius: 7px;
-        padding: 6px 11px;
-        font-size: 12px;
-        cursor: pointer;
-    }
-
-    .btn-secondary:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
-    }
-
-    .btn-primary {
-        border: 1px solid var(--b3-theme-primary);
-        background: var(--b3-theme-primary);
-        color: #fff;
-        border-radius: 7px;
-        padding: 6px 11px;
-        font-size: 12px;
-        cursor: pointer;
+        font-size: var(--wk-text-base);
+        color: var(--wk-ink-muted);
     }
 </style>

@@ -25,8 +25,13 @@ export interface EnhancedDiaryWorkspaceCalendarSettings {
     showBriefCounts: boolean;
 }
 
+export interface EnhancedDiaryWorkspaceModules {
+    taskManagementEnabled: boolean;
+}
+
 export interface EnhancedDiaryWorkspaceSettings {
     calendar: EnhancedDiaryWorkspaceCalendarSettings;
+    modules: EnhancedDiaryWorkspaceModules;
 }
 
 export interface EnhancedDiaryReviewReminderWindow {
@@ -46,6 +51,30 @@ export interface EnhancedDiaryHeadingStructureConfig {
     dayWorkspaceBaseHeadingLevel: EnhancedDiaryDayWorkspaceBaseHeadingLevel;
 }
 
+export interface EnhancedDiaryDayWorkspaceSectionMapping {
+    overview: string[];
+    taskManagement: string[];
+    newTasks: string[];
+    migratedTasks: string[];
+    taskLog: string[];
+    quickRecords: string[];
+    dailyReview: string[];
+    projectProgress: string[];
+}
+
+export interface EnhancedDiaryReviewSectionMapping {
+    reviewRoot: string[];
+    fields: string[];
+    /** 承接字段别名：上一周期写下的“下一步”会被读取到当前周期。默认可包含多个别名以兼容改名。 */
+    carryoverField: string[];
+}
+
+export interface EnhancedDiaryTemplateFieldMapping {
+    rootHeadings: Record<EnhancedDiaryPeriod, string[]>;
+    dayWorkspaceSections: EnhancedDiaryDayWorkspaceSectionMapping;
+    reviewSections: Record<EnhancedDiaryPeriod, EnhancedDiaryReviewSectionMapping>;
+}
+
 export interface EnhancedDiaryConfig {
     weekReviewDay: EnhancedDiaryWeekday;
     monthReviewRule: EnhancedDiaryMonthRule;
@@ -57,7 +86,56 @@ export interface EnhancedDiaryConfig {
     recordCategorySuggestions: string[];
     reviewReminderWindows: EnhancedDiaryReviewReminderWindows;
     headingStructure: EnhancedDiaryHeadingStructureConfig;
+    templateFieldMapping: EnhancedDiaryTemplateFieldMapping;
 }
+
+export type EnhancedDiaryTemplateFieldMappingGroup =
+    | "rootHeadings"
+    | "dayWorkspaceSections"
+    | "reviewSections";
+
+export type EnhancedDiaryDayWorkspaceSectionFieldKey = keyof EnhancedDiaryDayWorkspaceSectionMapping;
+
+export const DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING: EnhancedDiaryTemplateFieldMapping = {
+    rootHeadings: {
+        day: ["今日日记"],
+        week: ["周复盘", "本周复盘"],
+        month: ["月复盘", "月度复盘", "本月总结"],
+        year: ["年复盘", "年度复盘", "年度总结"],
+    },
+    dayWorkspaceSections: {
+        overview: ["今日概览"],
+        taskManagement: ["任务管理"],
+        newTasks: ["新建任务"],
+        migratedTasks: ["迁移任务"],
+        taskLog: ["任务动态"],
+        quickRecords: ["快速记录"],
+        dailyReview: ["今日复盘"],
+        projectProgress: ["项目推进"],
+    },
+    reviewSections: {
+        day: {
+            reviewRoot: ["今日复盘"],
+            fields: ["今日总结", "情绪状态", "收获与问题", "明日关注"],
+            carryoverField: ["明日关注"],
+        },
+        week: {
+            reviewRoot: ["周复盘"],
+            fields: ["本周总结", "任务回顾", "记录沉淀", "问题与风险", "下周计划"],
+            carryoverField: ["下周计划"],
+        },
+        month: {
+            reviewRoot: ["月度复盘"],
+            fields: ["本月总结", "关键进展", "任务回顾", "问题与风险", "下月计划"],
+            carryoverField: ["下月计划"],
+        },
+        year: {
+            reviewRoot: ["年度复盘"],
+            fields: ["年度总结", "关键成果", "重要变化", "经验教训", "明年方向"],
+            carryoverField: ["明年方向"],
+        },
+    },
+};
 
 export interface EnhancedDiaryTemplateContext {
     period: EnhancedDiaryPeriod;
@@ -95,7 +173,8 @@ export const ENHANCED_DIARY_CONFIG_FILE = "enhancedDiaryConfig.json";
 
 export const ENHANCED_DIARY_PERIODS: readonly EnhancedDiaryPeriod[] = ["day", "week", "month", "year"];
 
-export const ENHANCED_DIARY_COMPLETION_MARKERS: Record<EnhancedDiaryPeriod, string> = {
+// 旧版任务列表式完成标记，保留兼容识别，不删除历史块。
+export const ENHANCED_DIARY_COMPLETION_MARKERS_LEGACY: Record<EnhancedDiaryPeriod, string> = {
     day: "- [ ] 已完成今日记录🌞",
     week: "- [ ] 已完成本周复盘📅",
     month: "- [ ] 已完成本月总结🌙",
@@ -110,8 +189,6 @@ export const ENHANCED_DIARY_SKIP_MARKERS: Record<EnhancedDiaryPeriod, string> = 
 };
 
 const DEFAULT_DAY_TEMPLATE = `# 今日日记
-
-{{完成标记}}
 
 ## 任务管理
 
@@ -137,8 +214,6 @@ const DEFAULT_WEEK_TEMPLATE = `# 周复盘
 
 周期：{{周期范围}}
 
-{{完成标记}}
-
 ## 周复盘
 
 ### 本周总结
@@ -155,8 +230,6 @@ const DEFAULT_MONTH_TEMPLATE = `# 月复盘
 
 周期：{{周期范围}}
 
-{{完成标记}}
-
 ## 月度复盘
 
 ### 本月总结
@@ -172,8 +245,6 @@ const DEFAULT_MONTH_TEMPLATE = `# 月复盘
 const DEFAULT_YEAR_TEMPLATE = `# 年复盘
 
 周期：{{周期范围}}
-
-{{完成标记}}
 
 ## 年度复盘
 
@@ -209,6 +280,9 @@ export const DEFAULT_ENHANCED_DIARY_CONFIG: EnhancedDiaryConfig = {
             showLegalHoliday: true,
             showBriefCounts: true,
         },
+        modules: {
+            taskManagementEnabled: true,
+        },
     },
     recordCategorySuggestions: ["未分类", "想法", "问题", "决策", "日志"],
     reviewReminderWindows: {
@@ -219,4 +293,5 @@ export const DEFAULT_ENHANCED_DIARY_CONFIG: EnhancedDiaryConfig = {
     headingStructure: {
         dayWorkspaceBaseHeadingLevel: 2,
     },
+    templateFieldMapping: structuredClone(DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING),
 };

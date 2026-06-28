@@ -20,7 +20,7 @@ import {
 } from "../enhancedDiaryBlockLocator";
 import { getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
 import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
-import { formatDiaryDate } from "../enhancedDiaryUtils";
+import { formatDiaryDate, isEnhancedDiarySystemTaskMarkdown } from "../enhancedDiaryUtils";
 import { getDayWorkspaceSections } from "../enhancedDiaryWorkspaceSections";
 import { addDays, daysBetweenLocalDates, formatLocalDate } from "./enhancedDiaryWorkspaceDate";
 
@@ -121,7 +121,10 @@ async function querySourceDocs(rootIds: string[]): Promise<Map<string, SourceDoc
     return result;
 }
 
-async function getTodaySectionTaskSets(today: Date): Promise<{
+async function getTodaySectionTaskSets(
+    today: Date,
+    config?: EnhancedDiaryConfig
+): Promise<{
     todayDocId?: string;
     newTaskLines: Set<string>;
     migratedTaskLines: Set<string>;
@@ -134,7 +137,11 @@ async function getTodaySectionTaskSets(today: Date): Promise<{
         };
     }
 
-    const sections = getDayWorkspaceSections(todayDoc.content);
+    const sections = getDayWorkspaceSections(
+        todayDoc.content,
+        config?.headingStructure,
+        config?.templateFieldMapping,
+    );
     return {
         todayDocId: todayDoc.id,
         newTaskLines: sections.newTasks.found
@@ -160,7 +167,7 @@ export async function queryWorkspaceTasks(
     `);
 
     const sourceDocs = await querySourceDocs((rows || []).map((row) => row.root_id));
-    const todaySets = await getTodaySectionTaskSets(today);
+    const todaySets = await getTodaySectionTaskSets(today, config);
 
     return (rows || []).map((row) => {
         const markdown = firstTaskLine(row.markdown || row.content || "");
@@ -217,7 +224,7 @@ export async function queryWorkspaceTasks(
             isOverdue,
             shouldMigrate,
         };
-    }).filter((task) => task.taskname.trim().length > 0);
+    }).filter((task) => task.taskname.trim().length > 0 && !isEnhancedDiarySystemTaskMarkdown(task.markdown));
 }
 
 async function readTaskBlockMarkdown(task: EnhancedDiaryWorkspaceTask): Promise<string | null> {
@@ -358,6 +365,7 @@ export async function deleteWorkspaceTask(
             sectionKey: "taskLog",
             markdown: `- 删除任务：${task.taskname}（来源：${buildSourceLink(task)}）`,
             headingStructure: config.headingStructure,
+            mapping: config.templateFieldMapping,
         });
 
         if (!logResult.ok) {
@@ -414,6 +422,7 @@ export async function migrateWorkspaceTaskToToday(
         docId: todayDoc.docId,
         sectionKey: "migratedTasks",
         headingStructure: config.headingStructure,
+        mapping: config.templateFieldMapping,
     });
     if (!anchor.ok || !anchor.previousID) {
         return {
@@ -458,6 +467,7 @@ export async function migrateWorkspaceTaskToToday(
             sectionKey: "taskLog",
             markdown: `- 迁移任务：${task.taskname}，从 ${task.sourceDate || task.sourceDocTitle || "旧日记"} 迁移到今天`,
             headingStructure: config.headingStructure,
+            mapping: config.templateFieldMapping,
         });
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceTaskService] append migrate log failed", err);

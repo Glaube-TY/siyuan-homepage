@@ -39,14 +39,14 @@
         margin: 0 0 14px;
         line-height: 1.6;
         font-size: 13px;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         opacity: 0.72;
     }
 
     .record-preview {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 12px;
         margin-bottom: 18px;
         max-height: min(48vh, 420px);
@@ -64,7 +64,7 @@
     }
 
     .record-preview span {
-        color: var(--b3-theme-primary);
+        color: var(--wk-primary);
         font-size: 11px;
         margin-top: 4px;
     }
@@ -83,17 +83,17 @@
         gap: 8px;
         margin: 16px -20px 0;
         padding: 14px 20px 16px;
-        border-top: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-surface);
+        border-top: 1px solid var(--wk-border);
+        background: var(--wk-surface);
         position: sticky;
         bottom: 0;
     }
 
     button {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         padding: 7px 14px;
         font-size: 13px;
         cursor: pointer;
@@ -101,19 +101,19 @@
     }
 
     button:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .danger {
         border-color: rgba(211, 47, 47, 0.5);
-        color: var(--b3-theme-error, #d32f2f);
+        color: var(--wk-error);
         background: rgba(211, 47, 47, 0.05);
     }
 
     .danger:hover {
-        border-color: var(--b3-theme-error, #d32f2f);
+        border-color: var(--wk-error);
         background: rgba(211, 47, 47, 0.1);
-        color: var(--b3-theme-error, #d32f2f);
+        color: var(--wk-error);
     }
 </style>

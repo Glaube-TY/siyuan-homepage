@@ -8,29 +8,31 @@
     }
 
     let { label, value, tone = "normal", description = "", onclick }: Props = $props();
+
+    const valueClass = $derived(tone === "primary" ? "primary" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "");
 </script>
 
 {#if onclick}
     <button
         type="button"
-        class="stat-card tone-{tone} clickable"
+        class="wk-card clickable stat-card"
         onclick={onclick}
     >
-        <div class="accent-bar"></div>
+        <div class="accent-bar tone-{tone}"></div>
         <div class="card-body">
             <span class="label">{label}</span>
-            <strong class="value">{value}</strong>
+            <strong class="wk-stat-value {valueClass}">{value}</strong>
             {#if description}
                 <span class="desc">{description}</span>
             {/if}
         </div>
     </button>
 {:else}
-    <div class="stat-card tone-{tone}">
-        <div class="accent-bar"></div>
+    <div class="wk-card stat-card">
+        <div class="accent-bar tone-{tone}"></div>
         <div class="card-body">
             <span class="label">{label}</span>
-            <strong class="value">{value}</strong>
+            <strong class="wk-stat-value {valueClass}">{value}</strong>
             {#if description}
                 <span class="desc">{description}</span>
             {/if}
@@ -41,18 +43,10 @@
 <style>
     .stat-card {
         position: relative;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 10px;
-        background: var(--b3-theme-surface);
         padding: 0;
         min-width: 0;
         overflow: hidden;
-        transition: box-shadow 0.15s, transform 0.15s;
         text-align: left;
-    }
-
-    .stat-card.clickable {
-        cursor: pointer;
     }
 
     button.stat-card {
@@ -61,19 +55,14 @@
         font: inherit;
     }
 
-    .stat-card.clickable:hover {
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
-        transform: translateY(-1px);
-    }
-
     .accent-bar {
         height: 3px;
-        background: var(--b3-border-color);
+        background: var(--wk-border);
     }
 
-    .tone-primary .accent-bar { background: var(--b3-theme-primary); }
-    .tone-warning .accent-bar { background: #e6900a; }
-    .tone-danger  .accent-bar { background: var(--b3-theme-error, #d32f2f); }
+    .accent-bar.tone-primary { background: var(--wk-primary); }
+    .accent-bar.tone-warning { background: var(--wk-warning); }
+    .accent-bar.tone-danger  { background: var(--wk-error); }
 
     .card-body {
         padding: 12px 14px 14px;
@@ -81,31 +70,17 @@
 
     .label {
         display: block;
-        font-size: 11px;
+        font-size: var(--wk-text-xs);
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.6;
+        color: var(--wk-ink-muted);
         margin-bottom: 6px;
     }
-
-    .value {
-        display: block;
-        font-size: 26px;
-        line-height: 1;
-        color: var(--b3-theme-on-surface);
-        font-variant-numeric: tabular-nums;
-    }
-
-    .tone-primary .value { color: var(--b3-theme-primary); }
-    .tone-warning .value { color: #b87300; }
-    .tone-danger  .value { color: var(--b3-theme-error, #d32f2f); }
 
     .desc {
         display: block;
         margin-top: 6px;
-        font-size: 11px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.55;
+        font-size: var(--wk-text-xs);
+        color: var(--wk-ink-faint);
     }
 </style>

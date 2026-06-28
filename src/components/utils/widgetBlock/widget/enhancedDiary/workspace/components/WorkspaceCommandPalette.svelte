@@ -139,10 +139,10 @@
         margin: 0;
         display: flex;
         flex-direction: column;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 12px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         box-shadow: 0 24px 72px rgba(0, 0, 0, 0.24);
         overflow: hidden;
     }
@@ -152,26 +152,26 @@
         align-items: center;
         gap: 10px;
         padding: 12px;
-        border-bottom: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-surface);
+        border-bottom: 1px solid var(--wk-border);
+        background: var(--wk-surface);
     }
 
     input {
         width: 100%;
         min-width: 0;
         height: 38px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 0 12px;
         font-size: 14px;
         outline: none;
     }
 
     input:focus {
-        border-color: var(--b3-theme-primary);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
+        border-color: var(--wk-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--wk-primary) 18%, transparent);
     }
 
     header button {
@@ -180,15 +180,15 @@
         border: none;
         border-radius: 7px;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 20px;
         cursor: pointer;
         flex-shrink: 0;
     }
 
     header button:hover {
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-primary);
+        background: var(--wk-background);
+        color: var(--wk-primary);
     }
 
     .command-list {
@@ -208,7 +208,7 @@
         border: 1px solid transparent;
         border-radius: 9px;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         padding: 10px 12px;
         text-align: left;
         cursor: pointer;
@@ -216,8 +216,8 @@
 
     .command-item:hover:not(:disabled),
     .command-item:focus-visible {
-        border-color: color-mix(in srgb, var(--b3-theme-primary) 22%, transparent);
-        background: color-mix(in srgb, var(--b3-theme-primary) 7%, transparent);
+        border-color: color-mix(in srgb, var(--wk-primary) 22%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 7%, transparent);
         outline: none;
     }
 
@@ -230,9 +230,9 @@
         width: fit-content;
         max-width: 100%;
         border-radius: 999px;
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 24%, transparent);
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-        color: var(--b3-theme-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 24%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
         padding: 2px 8px;
         font-size: 11px;
         overflow: hidden;
@@ -254,20 +254,20 @@
 
     .command-main strong {
         font-size: 14px;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
     }
 
     .command-main small {
         margin-top: 3px;
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.6;
     }
 
     .empty-state {
         padding: 26px 12px;
         text-align: center;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
         font-size: 13px;
     }
@@ -276,10 +276,10 @@
         display: flex;
         justify-content: flex-end;
         gap: 12px;
-        border-top: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-surface);
+        border-top: 1px solid var(--wk-border);
+        background: var(--wk-surface);
         padding: 9px 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
         font-size: 11px;
     }

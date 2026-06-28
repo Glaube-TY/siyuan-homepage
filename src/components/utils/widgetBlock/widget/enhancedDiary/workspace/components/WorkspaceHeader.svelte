@@ -3,8 +3,7 @@
         today: string;
         loading?: boolean;
         onRefresh: () => void | Promise<void>;
-        onOpenToday: () => void | Promise<void>;
-        onAppendTemplate: () => void | Promise<void>;
+        onOpenAndAppendTemplate: () => void | Promise<void>;
         onOpenCommandPalette?: () => void;
     }
 
@@ -12,8 +11,7 @@
         today,
         loading = false,
         onRefresh,
-        onOpenToday,
-        onAppendTemplate,
+        onOpenAndAppendTemplate,
         onOpenCommandPalette,
     }: Props = $props();
 </script>
@@ -21,22 +19,19 @@
 <header class="workspace-header">
     <div class="header-left">
         <h1>强化日记工作台</h1>
-        <p class="subtitle">任务 · 记录 · 复盘一体化管理中心</p>
-        <p class="meta-line">本地日记数据 · Markdown 结构 · 思源笔记</p>
+        <p class="subtitle">{today}</p>
     </div>
     <div class="header-right">
-        <span class="today-badge">{today}</span>
         <div class="header-actions">
             {#if onOpenCommandPalette}
-                <button type="button" class="btn-ghost" onclick={onOpenCommandPalette} title="Ctrl/Cmd + K">
+                <button type="button" class="wk-btn wk-btn-ghost" onclick={onOpenCommandPalette} title="Ctrl/Cmd + K">
                     命令
                 </button>
             {/if}
-            <button type="button" class="btn-ghost" onclick={onRefresh} disabled={loading}>
+            <button type="button" class="wk-btn wk-btn-ghost" onclick={onRefresh} disabled={loading}>
                 {loading ? "加载中…" : "刷新"}
             </button>
-            <button type="button" class="btn-secondary" onclick={onOpenToday}>打开今日日记</button>
-            <button type="button" class="btn-primary" onclick={onAppendTemplate}>补充今日模板</button>
+            <button type="button" class="wk-btn wk-btn-primary" onclick={onOpenAndAppendTemplate}>打开并补模板</button>
         </div>
     </div>
 </header>
@@ -48,8 +43,8 @@
         justify-content: space-between;
         gap: 20px;
         padding: 22px 24px 20px;
-        border-bottom: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-surface);
+        border-bottom: 1px solid var(--wk-border);
+        background: var(--wk-surface);
     }
 
     .header-left {
@@ -60,23 +55,15 @@
         margin: 0 0 4px;
         font-size: 22px;
         font-weight: 700;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         letter-spacing: -0.01em;
     }
 
     .subtitle {
         margin: 0 0 3px;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         opacity: 0.72;
         font-size: 13px;
-    }
-
-    .meta-line {
-        margin: 0;
-        color: var(--b3-theme-on-background);
-        opacity: 0.42;
-        font-size: 11px;
-        letter-spacing: 0.02em;
     }
 
     .header-right {
@@ -87,13 +74,6 @@
         flex-shrink: 0;
     }
 
-    .today-badge {
-        font-size: 12px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.65;
-        font-variant-numeric: tabular-nums;
-    }
-
     .header-actions {
         display: flex;
         align-items: center;
@@ -102,52 +82,7 @@
         justify-content: flex-end;
     }
 
-    button {
-        border-radius: 7px;
-        padding: 7px 13px;
-        font-size: 13px;
-        cursor: pointer;
-        transition: opacity 0.12s, box-shadow 0.12s;
-        white-space: nowrap;
-    }
 
-    .btn-ghost {
-        border: 1px solid var(--b3-border-color);
-        background: transparent;
-        color: var(--b3-theme-on-surface);
-    }
-
-    .btn-ghost:hover:not(:disabled) {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
-    }
-
-    .btn-secondary {
-        border: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
-    }
-
-    .btn-secondary:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
-    }
-
-    .btn-primary {
-        border: 1px solid var(--b3-theme-primary);
-        background: var(--b3-theme-primary);
-        color: #fff;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-    }
-
-    .btn-primary:hover {
-        opacity: 0.88;
-    }
-
-    button:disabled {
-        cursor: not-allowed;
-        opacity: 0.5;
-    }
 
     @media (max-width: 760px) {
         .workspace-header {

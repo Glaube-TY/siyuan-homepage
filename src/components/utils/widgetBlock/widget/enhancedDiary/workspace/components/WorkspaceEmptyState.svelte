@@ -16,28 +16,26 @@
 
 <style>
     .empty-state {
-        border: 1px dashed var(--b3-border-color);
-        border-radius: 8px;
+        border: 1px dashed var(--wk-border);
+        border-radius: var(--wk-radius-sm);
         padding: 20px 16px;
         background: transparent;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         text-align: center;
     }
 
     strong {
         display: block;
-        font-size: 13px;
+        font-size: var(--wk-text-base);
         font-weight: 500;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.55;
+        color: var(--wk-ink-muted);
         margin-bottom: 5px;
     }
 
     p {
         margin: 0;
-        font-size: 12px;
-        opacity: 0.45;
+        font-size: var(--wk-text-sm);
         line-height: 1.5;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-faint);
     }
 </style>

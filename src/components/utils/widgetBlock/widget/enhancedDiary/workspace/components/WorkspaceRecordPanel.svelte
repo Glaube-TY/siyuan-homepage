@@ -15,6 +15,7 @@
         onConvertToTask: (record: EnhancedDiaryWorkspaceRecord) => void;
         onRequestHistory?: () => void | Promise<void>;
         historyLoading?: boolean;
+        taskManagementEnabled?: boolean;
         initialViewMode?: WorkspaceRecordViewMode;
         initialDateFilter?: string;
         initialCategoryFilter?: WorkspaceRecordCategoryFilter;
@@ -33,6 +34,7 @@
         onConvertToTask,
         onRequestHistory,
         historyLoading = false,
+        taskManagementEnabled = true,
         initialViewMode = "today",
         initialDateFilter = "",
         initialCategoryFilter = "all",
@@ -131,6 +133,7 @@
         let projectRelatedCount = 0;
 
         for (const record of filteredRecords) {
+            if (!taskManagementEnabled) continue;
             const key = record.categoryKey || "unknown";
             const current = categoryMap.get(key) || {
                 label: record.categoryTitle || key,
@@ -319,10 +322,12 @@
             <strong>{recordInsights.activeDays}</strong>
             <small>天有记录</small>
         </div>
-        <div class="insight-card">
-            <span class="insight-label">项目相关</span>
-            <strong>{recordInsights.projectRelatedCount}</strong>
-        </div>
+        {#if taskManagementEnabled}
+            <div class="insight-card">
+                <span class="insight-label">项目相关</span>
+                <strong>{recordInsights.projectRelatedCount}</strong>
+            </div>
+        {/if}
         <div class="insight-card insight-wide">
             <div class="trend-head">
                 <span class="insight-label">近 7 天趋势</span>
@@ -414,11 +419,13 @@
                                 class="btn-secondary"
                                 onclick={() => onOpenDoc(selectedRecord.docId)}
                             >打开原始日记</button>
-                            <button
-                                type="button"
-                                class="btn-secondary"
-                                onclick={() => onConvertToTask(selectedRecord)}
-                            >转为任务</button>
+                            {#if taskManagementEnabled}
+                                <button
+                                    type="button"
+                                    class="btn-secondary"
+                                    onclick={() => onConvertToTask(selectedRecord)}
+                                >转为任务</button>
+                            {/if}
 
                             {#if !isHistoryMode || isRecordFromToday}
                                 <button
@@ -484,7 +491,7 @@
         margin: 0;
         font-size: 16px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .mode-bar {
@@ -498,15 +505,15 @@
     .mode-tabs {
         display: flex;
         gap: 0;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
         overflow: hidden;
     }
 
     .mode-tabs button {
         border: none;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         padding: 6px 14px;
         font-size: 12px;
         cursor: pointer;
@@ -514,11 +521,11 @@
     }
 
     .mode-tabs button:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 6%, var(--wk-background));
     }
 
     .mode-tabs button.active {
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
@@ -533,24 +540,24 @@
     .search-input {
         flex: 1;
         min-width: 140px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 6px 10px;
         font-size: 12px;
     }
 
     .search-input::placeholder {
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         opacity: 0.4;
     }
 
     .range-select {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 6px 8px;
         font-size: 12px;
         cursor: pointer;
@@ -562,17 +569,17 @@
         gap: 6px;
         padding: 5px 10px;
         border-radius: 7px;
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, var(--b3-theme-background));
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 25%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 10%, var(--wk-background));
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 25%, transparent);
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         white-space: nowrap;
     }
 
     .clear-date-btn {
         border: none;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 12px;
         cursor: pointer;
         padding: 0 2px;
@@ -590,16 +597,16 @@
         flex-wrap: wrap;
         gap: 6px;
         padding: 10px 12px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
     }
 
     .category-tabs button {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         padding: 5px 10px;
         font-size: 12px;
         cursor: pointer;
@@ -607,13 +614,13 @@
     }
 
     .category-tabs button:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .category-tabs button.active {
-        border-color: var(--b3-theme-primary);
-        background: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
@@ -631,16 +638,16 @@
 
     .insight-card {
         min-width: 0;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 11px 12px;
     }
 
     .insight-label {
         display: block;
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
         margin-bottom: 5px;
     }
@@ -649,7 +656,7 @@
         display: block;
         font-size: 19px;
         line-height: 1.15;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -660,7 +667,7 @@
         display: block;
         margin-top: 4px;
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
     }
 
@@ -693,18 +700,18 @@
         flex: 1;
         min-width: 8px;
         border-radius: 999px 999px 2px 2px;
-        background: color-mix(in srgb, var(--b3-theme-on-surface) 14%, transparent);
+        background: color-mix(in srgb, var(--wk-ink-secondary) 14%, transparent);
         transition: all 0.12s;
     }
 
     .trend-bars span.active {
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
     }
 
     .btn-primary {
-        border: 1px solid var(--b3-theme-primary);
+        border: 1px solid var(--wk-primary);
         border-radius: 7px;
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
         padding: 7px 14px;
         font-size: 13px;
@@ -725,9 +732,9 @@
     }
 
     .record-list-col {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -737,12 +744,12 @@
     .list-label {
         font-size: 11px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.45;
         padding: 10px 14px 8px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
-        border-bottom: 1px solid var(--b3-border-color);
+        border-bottom: 1px solid var(--wk-border);
     }
 
     .record-list-scroll {
@@ -767,12 +774,12 @@
     }
 
     .record-list-item:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 6%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 6%, transparent);
     }
 
     .record-list-item.selected {
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-        border-left-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        border-left-color: var(--wk-primary);
     }
 
     .list-item-head {
@@ -785,7 +792,7 @@
     .list-item-excerpt {
         margin: 0;
         font-size: 13px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.9;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -799,13 +806,13 @@
         align-items: center;
         gap: 6px;
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 
     .list-item-date {
         font-size: 10px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.4;
     }
 
@@ -813,18 +820,18 @@
         font-size: 10px;
         padding: 1px 6px;
         border-radius: 999px;
-        background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
-        color: var(--b3-theme-primary);
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 30%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent);
         flex-shrink: 0;
         white-space: nowrap;
     }
 
     /* detail */
     .record-detail-col {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         min-height: 200px;
     }
 
@@ -846,7 +853,7 @@
         margin: 0;
         font-size: 16px;
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         word-break: break-all;
     }
 
@@ -857,9 +864,9 @@
     }
 
     .meta-item {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         padding: 6px 10px;
         display: flex;
         flex-direction: column;
@@ -868,17 +875,17 @@
 
     .meta-label {
         font-size: 10px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 
     .meta-value {
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
     }
 
     .detail-content {
-        border-top: 1px solid var(--b3-border-color);
+        border-top: 1px solid var(--wk-border);
         padding-top: 12px;
     }
 
@@ -886,14 +893,14 @@
         margin: 0;
         font-size: 13px;
         line-height: 1.6;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         white-space: pre-wrap;
         word-break: break-all;
         font-family: inherit;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         padding: 12px;
         border-radius: 8px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
     }
 
     .detail-actions {
@@ -902,29 +909,29 @@
         gap: 8px;
         align-items: center;
         padding-top: 8px;
-        border-top: 1px solid var(--b3-border-color);
+        border-top: 1px solid var(--wk-border);
     }
 
     .btn-secondary {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 6px 11px;
         font-size: 12px;
         cursor: pointer;
     }
 
     .btn-secondary:hover:not(:disabled) {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .btn-danger {
-        border: 1px solid var(--b3-theme-error, #d32f2f);
+        border: 1px solid var(--wk-error);
         border-radius: 7px;
         background: transparent;
-        color: var(--b3-theme-error, #d32f2f);
+        color: var(--wk-error);
         padding: 6px 11px;
         font-size: 12px;
         cursor: pointer;
@@ -941,7 +948,7 @@
 
     .hint-text {
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.45;
     }
 

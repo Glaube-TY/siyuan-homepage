@@ -2,40 +2,35 @@
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
-        hasTemplateMissing: boolean;
         onCreateTask: () => void;
         onCreateRecord: () => void;
-        onOpenToday: () => void | Promise<void>;
-        onAppendTemplate: () => void | Promise<void>;
+        onOpenAndAppendTemplate: () => void | Promise<void>;
         onGoReview: () => void;
+        taskManagementEnabled?: boolean;
     }
 
-    let { hasTemplateMissing, onCreateTask, onCreateRecord, onOpenToday, onAppendTemplate, onGoReview }: Props = $props();
+    let { onCreateTask, onCreateRecord, onOpenAndAppendTemplate, onGoReview, taskManagementEnabled = true }: Props = $props();
 </script>
 
-<div class="card">
-    <div class="card-head">
-        <h2>快速入口</h2>
+<div class="wk-card">
+    <div class="wk-card-head">
+        <h2 class="wk-card-title">快速入口</h2>
     </div>
     <div class="quick-actions">
-        <button type="button" class="quick-action-btn" onclick={onCreateTask}>
-            <span class="quick-action-icon"><WorkspaceIcon name="create" size={16} /></span>
-            <span class="quick-action-label">新建任务</span>
-        </button>
+        {#if taskManagementEnabled}
+            <button type="button" class="quick-action-btn" onclick={onCreateTask}>
+                <span class="quick-action-icon"><WorkspaceIcon name="create" size={16} /></span>
+                <span class="quick-action-label">新建任务</span>
+            </button>
+        {/if}
         <button type="button" class="quick-action-btn" onclick={onCreateRecord}>
             <span class="quick-action-icon"><WorkspaceIcon name="records" size={16} /></span>
             <span class="quick-action-label">快速记录</span>
         </button>
-        <button type="button" class="quick-action-btn" onclick={onOpenToday}>
+        <button type="button" class="quick-action-btn" onclick={onOpenAndAppendTemplate}>
             <span class="quick-action-icon"><WorkspaceIcon name="diary" size={16} /></span>
-            <span class="quick-action-label">打开今日日记</span>
+            <span class="quick-action-label">打开并补模板</span>
         </button>
-        {#if hasTemplateMissing}
-            <button type="button" class="quick-action-btn warn" onclick={onAppendTemplate}>
-                <span class="quick-action-icon"><WorkspaceIcon name="template" size={16} /></span>
-                <span class="quick-action-label">补充模板</span>
-            </button>
-        {/if}
         <button type="button" class="quick-action-btn" onclick={onGoReview}>
             <span class="quick-action-icon"><WorkspaceIcon name="review" size={16} /></span>
             <span class="quick-action-label">查看复盘</span>
@@ -44,28 +39,6 @@
 </div>
 
 <style>
-    .card {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 12px;
-        background: var(--b3-theme-surface);
-        padding: 18px;
-    }
-
-    .card-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 14px;
-    }
-
-    h2 {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--b3-theme-on-surface);
-    }
-
     .quick-actions {
         display: flex;
         flex-wrap: wrap;
@@ -76,36 +49,24 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 8px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        border: 1px solid var(--wk-border);
+        border-radius: var(--wk-radius-sm);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         padding: 10px 14px;
         cursor: pointer;
-        font-size: 13px;
-        transition: all 0.12s;
+        font-size: var(--wk-text-base);
+        font-weight: 500;
+        transition: border-color var(--wk-transition-fast), color var(--wk-transition-fast),
+            background var(--wk-transition-fast);
     }
 
     .quick-action-btn:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
-    }
-
-    .quick-action-btn.warn {
-        border-color: rgba(255, 165, 0, 0.35);
-        background: rgba(255, 165, 0, 0.06);
-        color: #b87300;
-    }
-
-    .quick-action-btn.warn:hover {
-        border-color: #b87300;
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .quick-action-icon {
         font-size: 16px;
-    }
-
-    .quick-action-label {
-        font-weight: 500;
     }
 </style>

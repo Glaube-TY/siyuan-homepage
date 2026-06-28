@@ -28,13 +28,16 @@ export function buildWorkspaceNotifications(params: {
     missingSections: string[];
     todayDocId?: string;
     reviewCards: EnhancedDiaryWorkspaceReviewCard[];
+    taskManagementEnabled?: boolean;
 }): EnhancedDiaryWorkspaceNotification[] {
     const notifications: EnhancedDiaryWorkspaceNotification[] = [];
+    const taskManagementEnabled = params.taskManagementEnabled !== false;
 
-    params.tasks
-        .filter((task) => task.isOverdue)
-        .slice(0, 20)
-        .forEach((task) => {
+    if (taskManagementEnabled) {
+        params.tasks
+            .filter((task) => task.isOverdue)
+            .slice(0, 20)
+            .forEach((task) => {
             notifications.push({
                 id: `overdue-${task.blockId}`,
                 type: "overdue_task",
@@ -66,6 +69,7 @@ export function buildWorkspaceNotifications(params: {
                 action: "migrate_task",
             });
         });
+    }
 
     if (params.todayDocId && !params.templateValid) {
         notifications.push({

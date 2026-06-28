@@ -1,5 +1,5 @@
 import { generateTaskLine, type GenerateTasksPlusTaskInput } from "../tasksPlus/tasksPlusParser";
-import type { EnhancedDiaryConfig, EnhancedDiaryHeadingStructureConfig } from "./enhancedDiaryTypes";
+import type { EnhancedDiaryConfig, EnhancedDiaryHeadingStructureConfig, EnhancedDiaryTemplateFieldMapping } from "./enhancedDiaryTypes";
 import { resolveRecordCategoryTitle } from "./enhancedDiaryWorkspaceSections";
 import {
     createTodayDailyNoteForWidget,
@@ -101,6 +101,7 @@ export async function addNewTaskToDiary(params: {
     docId: string;
     task: GenerateTasksPlusTaskInput;
     headingStructure?: EnhancedDiaryHeadingStructureConfig;
+    mapping?: EnhancedDiaryTemplateFieldMapping | null;
 }): Promise<EnhancedDiaryActionResult> {
     let taskMarkdown = "";
     try {
@@ -118,6 +119,7 @@ export async function addNewTaskToDiary(params: {
         sectionKey: "newTasks",
         markdown: taskMarkdown,
         headingStructure: params.headingStructure,
+        mapping: params.mapping,
     });
 
     if (!result.ok) {
@@ -133,6 +135,7 @@ export async function addQuickRecordToDiary(params: {
     content: string;
     now?: Date;
     headingStructure?: EnhancedDiaryHeadingStructureConfig;
+    mapping?: EnhancedDiaryTemplateFieldMapping | null;
 }): Promise<EnhancedDiaryActionResult> {
     const content = params.content.trim();
     if (!content) {
@@ -150,6 +153,7 @@ export async function addQuickRecordToDiary(params: {
         content,
         recordTime: formatNowTime(params.now),
         headingStructure: params.headingStructure,
+        mapping: params.mapping,
     });
 
     if (!result.ok) {

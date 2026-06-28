@@ -4,15 +4,15 @@
     interface Props {
         onCreateTask: () => void;
         onCreateRecord: () => void;
-        onOpenToday: () => void | Promise<void>;
-        onAppendTemplate: () => void | Promise<void>;
+        onOpenAndAppendTemplate: () => void | Promise<void>;
+        taskManagementEnabled?: boolean;
     }
 
     let {
         onCreateTask,
         onCreateRecord,
-        onOpenToday,
-        onAppendTemplate,
+        onOpenAndAppendTemplate,
+        taskManagementEnabled = true,
     }: Props = $props();
 
     let expanded = $state(false);
@@ -26,21 +26,19 @@
 <div class="quick-create-fab">
     {#if expanded}
         <div class="fab-menu">
-            <button type="button" onclick={() => runAction(onCreateTask)}>
-                <span>任务</span>
-                <strong>新建任务</strong>
-            </button>
+            {#if taskManagementEnabled}
+                <button type="button" onclick={() => runAction(onCreateTask)}>
+                    <span>任务</span>
+                    <strong>新建任务</strong>
+                </button>
+            {/if}
             <button type="button" onclick={() => runAction(onCreateRecord)}>
                 <span>记录</span>
                 <strong>快速记录</strong>
             </button>
-            <button type="button" onclick={() => runAction(onOpenToday)}>
+            <button type="button" onclick={() => runAction(onOpenAndAppendTemplate)}>
                 <span>日记</span>
-                <strong>打开今日日记</strong>
-            </button>
-            <button type="button" onclick={() => runAction(onAppendTemplate)}>
-                <span>模板</span>
-                <strong>补充今日模板</strong>
+                <strong>打开并补模板</strong>
             </button>
         </div>
     {/if}
@@ -80,9 +78,9 @@
         flex-direction: column;
         gap: 8px;
         width: 210px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
         padding: 8px;
     }
@@ -96,23 +94,23 @@
         border: 1px solid transparent;
         border-radius: 8px;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         padding: 8px;
         text-align: left;
         cursor: pointer;
     }
 
     .fab-menu button:hover {
-        border-color: color-mix(in srgb, var(--b3-theme-primary) 24%, transparent);
-        background: color-mix(in srgb, var(--b3-theme-primary) 7%, transparent);
+        border-color: color-mix(in srgb, var(--wk-primary) 24%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 7%, transparent);
     }
 
     .fab-menu span {
         width: fit-content;
         border-radius: 999px;
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-        color: var(--b3-theme-primary);
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 24%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 24%, transparent);
         padding: 2px 7px;
         font-size: 11px;
         line-height: 1.4;
@@ -124,15 +122,15 @@
         text-overflow: ellipsis;
         white-space: nowrap;
         font-size: 13px;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
     }
 
     .fab-button {
         width: 48px;
         height: 48px;
-        border: 1px solid var(--b3-theme-primary);
+        border: 1px solid var(--wk-primary);
         border-radius: 999px;
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
         cursor: pointer;
         box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);

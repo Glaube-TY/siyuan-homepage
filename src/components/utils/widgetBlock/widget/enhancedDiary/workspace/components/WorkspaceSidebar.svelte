@@ -7,19 +7,22 @@
         activeTab: WorkspaceTab;
         onSelect: (tab: WorkspaceTab) => void;
         notificationCount?: number;
+        taskManagementEnabled?: boolean;
     }
 
-    let { activeTab, onSelect, notificationCount = 0 }: Props = $props();
+    let { activeTab, onSelect, notificationCount = 0, taskManagementEnabled = true }: Props = $props();
 
-    const tabs: Array<{ key: WorkspaceTab; label: string; icon: WorkspaceIconName }> = [
+    const allTabs: Array<{ key: WorkspaceTab; label: string; icon: WorkspaceIconName; requiresTasks?: boolean }> = [
         { key: "overview",       label: "总览",   icon: "overview" },
-        { key: "tasks",          label: "任务",   icon: "tasks" },
-        { key: "projects",       label: "项目",   icon: "projects" },
+        { key: "tasks",          label: "任务",   icon: "tasks", requiresTasks: true },
+        { key: "projects",       label: "项目",   icon: "projects", requiresTasks: true },
         { key: "records",        label: "记录",   icon: "records" },
         { key: "review",         label: "复盘",   icon: "review" },
         { key: "settings",       label: "设置",   icon: "settings" },
         { key: "more",           label: "更多",   icon: "more" },
     ];
+
+    const tabs = $derived(allTabs.filter((tab) => taskManagementEnabled || !tab.requiresTasks));
 
     function isTabActive(tabKey: WorkspaceTab): boolean {
         if (tabKey === "more") {
@@ -48,8 +51,8 @@
 
 <style>
     .workspace-sidebar {
-        border-right: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-surface);
+        border-right: 1px solid var(--wk-border);
+        background: var(--wk-surface);
         padding: 14px 10px;
         width: 200px;
         box-sizing: border-box;
@@ -60,11 +63,10 @@
     }
 
     .nav-section-label {
-        font-size: 10px;
+        font-size: var(--wk-text-xs);
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.45;
+        color: var(--wk-ink-faint);
         padding: 0 10px 8px;
     }
 
@@ -74,25 +76,25 @@
         align-items: center;
         gap: 9px;
         border: none;
-        border-radius: 8px;
+        border-radius: var(--wk-radius-sm);
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         padding: 9px 10px;
         cursor: pointer;
         text-align: left;
-        font-size: 13px;
-        transition: background 0.12s, color 0.12s;
+        font-size: var(--wk-text-base);
+        transition: background var(--wk-transition-fast), color var(--wk-transition-fast);
         position: relative;
     }
 
     button:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
-        color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--wk-primary) 8%, transparent);
+        color: var(--wk-primary);
     }
 
     button.active {
-        background: color-mix(in srgb, var(--b3-theme-primary) 14%, transparent);
-        color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--wk-primary) 14%, transparent);
+        color: var(--wk-primary);
         font-weight: 600;
     }
 
@@ -104,7 +106,7 @@
         bottom: 20%;
         width: 3px;
         border-radius: 0 3px 3px 0;
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
     }
 
     .tab-icon {
@@ -121,11 +123,11 @@
     .badge {
         min-width: 18px;
         padding: 1px 5px;
-        border-radius: 999px;
-        background: var(--b3-theme-error, #d32f2f);
+        border-radius: var(--wk-radius-pill);
+        background: var(--wk-error);
         color: #fff;
         font-style: normal;
-        font-size: 10px;
+        font-size: var(--wk-text-xs);
         text-align: center;
         flex-shrink: 0;
     }
@@ -137,7 +139,7 @@
             gap: 4px;
             overflow-x: auto;
             border-right: none;
-            border-bottom: 1px solid var(--b3-border-color);
+            border-bottom: 1px solid var(--wk-border);
             padding: 8px 10px;
         }
 
@@ -151,7 +153,7 @@
             flex-direction: column;
             gap: 3px;
             padding: 7px 10px;
-            font-size: 11px;
+            font-size: var(--wk-text-xs);
             text-align: center;
         }
 

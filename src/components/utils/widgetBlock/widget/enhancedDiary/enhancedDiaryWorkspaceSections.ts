@@ -6,29 +6,24 @@ import {
     getEnhancedDiaryHeadingPlan,
 } from "./enhancedDiaryMarkdownSections";
 import { normalizeHeadingTitle } from "./enhancedDiaryMarkdownSections";
-import type { EnhancedDiaryHeadingStructureConfig } from "./enhancedDiaryTypes";
+import type { EnhancedDiaryHeadingStructureConfig, EnhancedDiaryTemplateFieldMapping } from "./enhancedDiaryTypes";
+import {
+    getDayWorkspaceSectionPathAliases,
+    getFieldAliases,
+    getPrimaryFieldTitle,
+} from "./enhancedDiaryTemplateFieldMapping";
 
-export const ENHANCED_DIARY_DAY_WORKSPACE_SECTION_TITLES = {
-    overview: "今日概览",
-    newTasks: "新建任务",
-    migratedTasks: "迁移任务",
-    quickRecords: "快速记录",
-    projectProgress: "项目推进",
-    taskLog: "任务动态",
-    dailyReview: "今日复盘",
-} as const;
+export const ENHANCED_DIARY_DAY_WORKSPACE_SECTION_KEYS = [
+    "overview",
+    "newTasks",
+    "migratedTasks",
+    "quickRecords",
+    "projectProgress",
+    "taskLog",
+    "dailyReview",
+] as const;
 
-export const ENHANCED_DIARY_DAY_WORKSPACE_SECTION_PATHS: Record<EnhancedDiaryDayWorkspaceSectionKey, string[]> = {
-    overview: ["今日概览"],
-    newTasks: ["任务管理", "新建任务"],
-    migratedTasks: ["任务管理", "迁移任务"],
-    quickRecords: ["快速记录"],
-    projectProgress: ["项目推进"],
-    taskLog: ["任务管理", "任务动态"],
-    dailyReview: ["今日复盘"],
-};
-
-export type EnhancedDiaryDayWorkspaceSectionKey = keyof typeof ENHANCED_DIARY_DAY_WORKSPACE_SECTION_TITLES;
+export type EnhancedDiaryDayWorkspaceSectionKey = typeof ENHANCED_DIARY_DAY_WORKSPACE_SECTION_KEYS[number];
 
 export const ENHANCED_DIARY_RECORD_CATEGORY_TITLES = {
     uncategorized: "未分类",
@@ -85,24 +80,70 @@ function toWorkspaceSectionResult(
     };
 }
 
+function findDescendantByTitleInScopeWithAliases(
+    parent: EnhancedDiaryHeadingNode,
+    aliases: string[]
+): EnhancedDiarySectionLookupResult {
+    const children = parent.children;
+
+    // Pass 1: direct children at parent.level + 1
+    const preferredLevel = (parent.level + 1) as typeof parent.level;
+    for (const child of children) {
+        if (child.level === preferredLevel) {
+            const normalized = normalizeHeadingTitle(child.title);
+            if (headingTitleMatchesAliases(normalized, aliases)) {
+                return { found: true, node: child };
+            }
+        }
+    }
+
+    // Pass 2: any direct child at deeper level
+    for (const child of children) {
+        if (child.level > preferredLevel) {
+            const normalized = normalizeHeadingTitle(child.title);
+            if (headingTitleMatchesAliases(normalized, aliases)) {
+                return { found: true, node: child };
+            }
+        }
+    }
+
+    // Pass 3: recurse into subtrees
+    for (const child of children) {
+        const result = findDescendantByTitleInScopeWithAliases(child, aliases);
+        if (result.found) return result;
+    }
+
+    return { found: false, missingTitle: aliases[0] };
+}
+
+function headingTitleMatchesAliases(title: string, aliases: string[]): boolean {
+    return aliases.some(
+        (alias) => title === alias || title.startsWith(alias + " ")
+    );
+}
+
 export function getDayRootSection(
     markdown: string,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiaryWorkspaceSectionResult {
-    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day") : undefined;
-    const lookupResult = findRootHeading(markdown, "day", plan);
-    return toWorkspaceSectionResult(markdown, lookupResult, ["今日日记"]);
+    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day", mapping) : undefined;
+    const lookupResult = findRootHeading(markdown, "day", plan, mapping);
+    return toWorkspaceSectionResult(markdown, lookupResult, [getPrimaryFieldTitle(mapping, "rootHeadings", "day")]);
 }
 
 export function getDayWorkspaceSection(
     markdown: string,
     sectionKey: EnhancedDiaryDayWorkspaceSectionKey,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiaryWorkspaceSectionResult {
-    const path = ENHANCED_DIARY_DAY_WORKSPACE_SECTION_PATHS[sectionKey];
-    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day") : undefined;
-    const dayRootLookup = findRootHeading(markdown, "day", plan);
-    const fullPath = ["今日日记", ...path];
+    const pathAliases = getDayWorkspaceSectionPathAliases(mapping, sectionKey);
+    const primaryPath = pathAliases.map((aliases) => aliases[0]);
+    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day", mapping) : undefined;
+    const dayRootLookup = findRootHeading(markdown, "day", plan, mapping);
+    const rootTitle = getPrimaryFieldTitle(mapping, "rootHeadings", "day");
+    const fullPath = [rootTitle, ...primaryPath];
 
     if (!dayRootLookup.found || !dayRootLookup.node) {
         return {
@@ -114,8 +155,9 @@ export function getDayWorkspaceSection(
     }
 
     let currentNode = dayRootLookup.node;
-    for (let i = 0; i < path.length; i++) {
-        const childLookup = findDescendantByTitleInScope(currentNode, path[i]);
+    for (let i = 0; i < pathAliases.length; i++) {
+        const aliases = pathAliases[i];
+        const childLookup = findDescendantByTitleInScopeWithAliases(currentNode, aliases);
         if (!childLookup.found || !childLookup.node) {
             return {
                 found: false,
@@ -137,19 +179,20 @@ export function getDayWorkspaceSection(
 
 export function getDayWorkspaceSections(
     markdown: string,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiaryDayWorkspaceMap {
-    const dayRoot = getDayRootSection(markdown, headingStructure);
+    const dayRoot = getDayRootSection(markdown, headingStructure, mapping);
 
     const result: EnhancedDiaryDayWorkspaceMap = {
         dayRoot,
-        overview: getDayWorkspaceSection(markdown, "overview", headingStructure),
-        newTasks: getDayWorkspaceSection(markdown, "newTasks", headingStructure),
-        migratedTasks: getDayWorkspaceSection(markdown, "migratedTasks", headingStructure),
-        quickRecords: getDayWorkspaceSection(markdown, "quickRecords", headingStructure),
-        projectProgress: getDayWorkspaceSection(markdown, "projectProgress", headingStructure),
-        taskLog: getDayWorkspaceSection(markdown, "taskLog", headingStructure),
-        dailyReview: getDayWorkspaceSection(markdown, "dailyReview", headingStructure),
+        overview: getDayWorkspaceSection(markdown, "overview", headingStructure, mapping),
+        newTasks: getDayWorkspaceSection(markdown, "newTasks", headingStructure, mapping),
+        migratedTasks: getDayWorkspaceSection(markdown, "migratedTasks", headingStructure, mapping),
+        quickRecords: getDayWorkspaceSection(markdown, "quickRecords", headingStructure, mapping),
+        projectProgress: getDayWorkspaceSection(markdown, "projectProgress", headingStructure, mapping),
+        taskLog: getDayWorkspaceSection(markdown, "taskLog", headingStructure, mapping),
+        dailyReview: getDayWorkspaceSection(markdown, "dailyReview", headingStructure, mapping),
     };
 
     return result;
@@ -157,45 +200,49 @@ export function getDayWorkspaceSections(
 
 export function getQuickRecordsRoot(
     markdown: string,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiaryWorkspaceSectionResult {
-    return getDayWorkspaceSection(markdown, "quickRecords", headingStructure);
+    return getDayWorkspaceSection(markdown, "quickRecords", headingStructure, mapping);
 }
 
 export function getRecordCategorySection(
     markdown: string,
     categoryKey: EnhancedDiaryRecordCategoryKey,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiaryRecordCategoryResult {
     const categoryTitle = ENHANCED_DIARY_RECORD_CATEGORY_TITLES[categoryKey];
-    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day") : undefined;
-    const quickRecordsLookup = findRootHeading(markdown, "day", plan);
+    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day", mapping) : undefined;
+    const quickRecordsLookup = findRootHeading(markdown, "day", plan, mapping);
+    const rootTitle = getPrimaryFieldTitle(mapping, "rootHeadings", "day");
+    const quickRecordsTitle = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "quickRecords");
 
     if (!quickRecordsLookup.found || !quickRecordsLookup.node) {
         return {
             found: false,
             markdown: "",
             missingTitle: quickRecordsLookup.missingTitle,
-            path: ["今日日记", "快速记录", categoryTitle],
+            path: [rootTitle, quickRecordsTitle, categoryTitle],
             categoryKey,
         };
     }
 
     const quickRecordsNode = quickRecordsLookup.node;
-    const quickRecordsChild = findDescendantByTitleInScope(quickRecordsNode, "快速记录");
+    const quickRecordsChild = findDescendantByTitleInScopeWithAliases(quickRecordsNode, getFieldAliases(mapping, "dayWorkspaceSections", "quickRecords"));
 
     if (!quickRecordsChild.found || !quickRecordsChild.node) {
         return {
             found: false,
             markdown: "",
             missingTitle: quickRecordsChild.missingTitle,
-            path: ["今日日记", "快速记录", categoryTitle],
+            path: [rootTitle, quickRecordsTitle, categoryTitle],
             categoryKey,
         };
     }
 
     const categoryLookup = findDescendantByTitleInScope(quickRecordsChild.node, categoryTitle);
-    const result = toWorkspaceSectionResult(markdown, categoryLookup, ["今日日记", "快速记录", categoryTitle]);
+    const result = toWorkspaceSectionResult(markdown, categoryLookup, [rootTitle, quickRecordsTitle, categoryTitle]);
 
     return {
         ...result,
@@ -205,43 +252,47 @@ export function getRecordCategorySection(
 
 export function getRecordCategorySections(
     markdown: string,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): Record<EnhancedDiaryRecordCategoryKey, EnhancedDiaryRecordCategoryResult> {
     return {
-        uncategorized: getRecordCategorySection(markdown, "uncategorized", headingStructure),
-        idea: getRecordCategorySection(markdown, "idea", headingStructure),
-        problem: getRecordCategorySection(markdown, "problem", headingStructure),
-        decision: getRecordCategorySection(markdown, "decision", headingStructure),
-        log: getRecordCategorySection(markdown, "log", headingStructure),
+        uncategorized: getRecordCategorySection(markdown, "uncategorized", headingStructure, mapping),
+        idea: getRecordCategorySection(markdown, "idea", headingStructure, mapping),
+        problem: getRecordCategorySection(markdown, "problem", headingStructure, mapping),
+        decision: getRecordCategorySection(markdown, "decision", headingStructure, mapping),
+        log: getRecordCategorySection(markdown, "log", headingStructure, mapping),
     };
 }
 
 export function getProjectSection(
     markdown: string,
     projectName: string,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiaryWorkspaceSectionResult {
-    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day") : undefined;
-    const projectProgressLookup = findRootHeading(markdown, "day", plan);
+    const plan = headingStructure ? getEnhancedDiaryHeadingPlan(headingStructure, "day", mapping) : undefined;
+    const projectProgressLookup = findRootHeading(markdown, "day", plan, mapping);
+    const rootTitle = getPrimaryFieldTitle(mapping, "rootHeadings", "day");
+    const projectProgressTitle = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "projectProgress");
 
     if (!projectProgressLookup.found || !projectProgressLookup.node) {
         return {
             found: false,
             markdown: "",
             missingTitle: projectProgressLookup.missingTitle,
-            path: ["今日日记", "项目推进", projectName],
+            path: [rootTitle, projectProgressTitle, projectName],
         };
     }
 
     const dayRoot = projectProgressLookup.node;
-    const projectProgressChild = findDescendantByTitleInScope(dayRoot, "项目推进");
+    const projectProgressChild = findDescendantByTitleInScopeWithAliases(dayRoot, getFieldAliases(mapping, "dayWorkspaceSections", "projectProgress"));
 
     if (!projectProgressChild.found || !projectProgressChild.node) {
         return {
             found: false,
             markdown: "",
             missingTitle: projectProgressChild.missingTitle,
-            path: ["今日日记", "项目推进", projectName],
+            path: [rootTitle, projectProgressTitle, projectName],
         };
     }
 
@@ -252,7 +303,7 @@ export function getProjectSection(
             found: true,
             node: projectLookup.node,
             markdown: getSectionMarkdown(markdown, projectLookup.node),
-            path: ["今日日记", "项目推进", projectName],
+            path: [rootTitle, projectProgressTitle, projectName],
         };
     }
 
@@ -260,7 +311,7 @@ export function getProjectSection(
         found: false,
         markdown: "",
         missingTitle: projectName,
-        path: ["今日日记", "项目推进", projectName],
+        path: [rootTitle, projectProgressTitle, projectName],
     };
 }
 

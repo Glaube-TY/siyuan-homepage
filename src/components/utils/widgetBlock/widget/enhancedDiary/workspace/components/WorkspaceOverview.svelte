@@ -28,13 +28,13 @@
     interface Props {
         state: EnhancedDiaryWorkspaceState;
         onOpenToday: () => void | Promise<void>;
+        onOpenTodayAndAppendTemplate: () => void | Promise<void>;
         onGoTasks: (statusFilter?: WorkspaceTaskStatusFilter) => void;
         onGoReview: () => void;
         onGoProjects: (statusFilter?: WorkspaceProjectStatusFilter) => void;
         onGoNotifications: () => void;
         onCreateTask: (input?: Partial<GenerateTasksPlusTaskInput>) => void;
         onCreateRecord: () => void;
-        onAppendTemplate: () => void | Promise<void>;
         calendarDays: EnhancedDiaryCalendarDay[];
         calendarDate: Date;
         calendarLoading: boolean;
@@ -50,18 +50,19 @@
         onCalendarToday: () => void | Promise<void>;
         onOpenTasks: (date: string) => void;
         calendarDisplaySettings?: EnhancedDiaryWorkspaceCalendarSettings;
+        taskManagementEnabled?: boolean;
     }
 
     let {
         state,
         onOpenToday,
+        onOpenTodayAndAppendTemplate,
         onGoTasks,
         onGoReview,
         onGoProjects,
         onGoNotifications,
         onCreateTask,
         onCreateRecord,
-        onAppendTemplate,
         calendarDays,
         calendarDate,
         calendarLoading,
@@ -77,10 +78,11 @@
         onCalendarToday,
         onOpenTasks,
         calendarDisplaySettings,
+        taskManagementEnabled = true,
     }: Props = $props();
 
-    const overdueTasks = $derived(state.tasks.filter((task) => task.isOverdue).slice(0, 5));
-    const migrateTasks = $derived(state.tasks.filter((task) => task.shouldMigrate).slice(0, 5));
+    const overdueTasks = $derived(taskManagementEnabled ? state.tasks.filter((task) => task.isOverdue).slice(0, 5) : []);
+    const migrateTasks = $derived(taskManagementEnabled ? state.tasks.filter((task) => task.shouldMigrate).slice(0, 5) : []);
     const hasNoDiaryReminder = $derived(!state.todayDiaryExists);
     const hasTemplateMissing = $derived(!state.templateValid && state.todayDiaryExists);
     const pendingReviewCards = $derived(
@@ -96,7 +98,9 @@
     );
 
     const riskyProjects = $derived(
-        state.projects.filter((project) => project.healthTone === "danger" || project.healthTone === "warning")
+        taskManagementEnabled
+            ? state.projects.filter((project) => project.healthTone === "danger" || project.healthTone === "warning")
+            : []
     );
 
     const focusItems = $derived.by((): FocusItem[] => {
@@ -161,7 +165,7 @@
                 key: "steady",
                 icon: "diary",
                 title: "今天的节奏很稳",
-                description: "暂无明显风险，可以继续记录过程或回到今日日记。",
+                description: "目前状态平稳，适合继续记录或回到日记。",
                 actionLabel: "打开日记",
                 tone: "normal",
                 action: "today",
@@ -181,7 +185,7 @@
 
     const timelineItems = $derived.by((): TimelineItem[] => {
         const items: TimelineItem[] = [];
-        if (state.summary.newTaskCount > 0) {
+        if (taskManagementEnabled && state.summary.newTaskCount > 0) {
             items.push({
                 type: "new_task",
                 title: "新建任务",
@@ -189,7 +193,7 @@
                 date: state.today,
             });
         }
-        if (state.summary.migratedTaskCount > 0) {
+        if (taskManagementEnabled && state.summary.migratedTaskCount > 0) {
             items.push({
                 type: "migrate_task",
                 title: "迁移任务",
@@ -205,7 +209,7 @@
                 date: state.today,
             });
         }
-        if (state.summary.projectCount > 0) {
+        if (taskManagementEnabled && state.summary.projectCount > 0) {
             items.push({
                 type: "project_progress",
                 title: "项目推进",
@@ -229,14 +233,15 @@
 <section class="dashboard">
     <WorkspaceOverviewTodayCard
         {state}
-        {onOpenToday}
+        {taskManagementEnabled}
+        onOpenAndAppendTemplate={onOpenTodayAndAppendTemplate}
     />
 
-    <div class="focus-card">
-        <div class="focus-head">
+    <div class="wk-card focus-card">
+        <div class="wk-card-head focus-head">
             <div>
-                <h2>今日作战台</h2>
-                <p>根据现有任务、记录、项目和复盘状态推导，不自动写入内容。</p>
+                <h2 class="wk-card-title">今日作战台</h2>
+                <p class="wk-card-subtitle">{taskManagementEnabled ? "从任务、记录、项目和复盘中归纳出的今日重点。" : "从记录和复盘中归纳出的今日重点。"}</p>
             </div>
         </div>
         <div class="focus-list">
@@ -257,16 +262,16 @@
         </div>
     </div>
 
-    <div class="carryover-card">
-        <div class="carryover-head">
+    <div class="wk-card carryover-card">
+        <div class="wk-card-head carryover-head">
             <div>
-                <h2>计划承接</h2>
-                <p>读取上一周期复盘中的下一步计划，支持手动转为任务。</p>
+                <h2 class="wk-card-title">计划承接</h2>
+                <p class="wk-card-subtitle">{taskManagementEnabled ? "读取上一周期复盘中的下一步计划，支持手动转为任务。" : "读取上一周期复盘中的下一步计划。"}</p>
             </div>
         </div>
         {#if state.carryoverPlans.length === 0}
-            <div class="carryover-empty">
-                暂无可承接计划。完成复盘后，这里会展示上一周期写下的下一步。
+            <div class="wk-empty carryover-empty">
+                还没有从上周期承接的计划。完成复盘后，这里会显示下一步。
             </div>
         {:else}
             {#each state.carryoverPlans as plan}
@@ -275,7 +280,7 @@
                         <span class="carryover-source">{plan.sourceLabel} · {plan.fieldLabel}</span>
                         <button
                             type="button"
-                            class="btn-carryover-open"
+                            class="wk-btn wk-btn-ghost wk-btn-sm"
                             onclick={() => onOpenDoc(plan.docId)}
                         >打开来源</button>
                     </div>
@@ -283,11 +288,13 @@
                         {#each plan.lines.slice(0, 3) as line}
                             <div class="carryover-line">
                                 <span class="carryover-line-text">{line}</span>
-                                <button
-                                    type="button"
-                                    class="btn-carryover-task"
-                                    onclick={() => onCreateTask({ taskname: line, tags: ["计划承接", plan.periodLabel] })}
-                                >转为任务</button>
+                                {#if taskManagementEnabled}
+                                    <button
+                                        type="button"
+                                        class="wk-btn wk-btn-secondary wk-btn-sm"
+                                        onclick={() => onCreateTask({ taskname: line, tags: ["计划承接", plan.periodLabel] })}
+                                    >转为任务</button>
+                                {/if}
                             </div>
                         {/each}
                         {#if plan.lines.length > 3}
@@ -300,12 +307,11 @@
     </div>
 
     <WorkspaceOverviewQuickActions
-        {hasTemplateMissing}
         {onCreateTask}
         {onCreateRecord}
-        {onOpenToday}
-        {onAppendTemplate}
+        onOpenAndAppendTemplate={onOpenTodayAndAppendTemplate}
         {onGoReview}
+        {taskManagementEnabled}
     />
 
     <WorkspaceOverviewActionList
@@ -315,11 +321,11 @@
         overdueTasks={overdueTasks}
         migrateTasks={migrateTasks}
         pendingReviewCards={pendingReviewCards}
-        {onOpenToday}
-        {onAppendTemplate}
+        onOpenAndAppendTemplate={onOpenTodayAndAppendTemplate}
         {onGoTasks}
         {onGoReview}
         {onGoNotifications}
+        {taskManagementEnabled}
     />
 
     <WorkspaceOverviewTimeline items={timelineItems} />
@@ -340,6 +346,7 @@
         onCalendarToday={onCalendarToday}
         {onOpenTasks}
         displaySettings={calendarDisplaySettings}
+        {taskManagementEnabled}
     />
 </section>
 
@@ -347,84 +354,62 @@
     .dashboard {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: var(--wk-gap-md);
     }
 
-    .focus-card {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 12px;
-        background: var(--b3-theme-surface);
-        padding: 16px;
-    }
-
-    .focus-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 12px;
-    }
-
-    .focus-head h2 {
-        margin: 0 0 4px;
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--b3-theme-on-surface);
-    }
-
-    .focus-head p {
-        margin: 0;
-        font-size: 12px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.62;
+    .focus-head,
+    .carryover-head {
+        margin-bottom: 0;
     }
 
     .focus-list {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 10px;
+        gap: var(--wk-gap-sm);
     }
 
     .focus-item {
         min-width: 0;
         display: flex;
         align-items: center;
-        gap: 10px;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 10px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        gap: var(--wk-gap-sm);
+        border: 1px solid var(--wk-border);
+        border-radius: var(--wk-radius-md);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 11px 12px;
         text-align: left;
         cursor: pointer;
-        transition: all 0.12s ease;
+        transition: border-color var(--wk-transition-fast), box-shadow var(--wk-transition-fast), transform var(--wk-transition-fast);
     }
 
     .focus-item:hover {
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
         transform: translateY(-1px);
     }
 
     .focus-item.tone-danger {
-        border-left: 3px solid var(--b3-theme-error, #d32f2f);
+        border-left: 3px solid var(--wk-error);
     }
 
     .focus-item.tone-warning {
-        border-left: 3px solid #e6900a;
+        border-left: 3px solid var(--wk-warning);
     }
 
     .focus-item.tone-primary {
-        border-left: 3px solid var(--b3-theme-primary);
+        border-left: 3px solid var(--wk-primary);
     }
 
     .focus-icon {
         width: 30px;
         height: 30px;
-        border-radius: 8px;
+        border-radius: var(--wk-radius-sm);
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
-        color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
         flex-shrink: 0;
     }
 
@@ -439,8 +424,8 @@
     }
 
     .focus-content strong {
-        font-size: 13px;
-        color: var(--b3-theme-on-surface);
+        font-size: var(--wk-text-base);
+        color: var(--wk-ink-secondary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -448,59 +433,26 @@
 
     .focus-content small {
         margin-top: 2px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         line-height: 1.45;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.62;
+        color: var(--wk-ink-muted);
     }
 
     .focus-action {
-        font-size: 12px;
-        color: var(--b3-theme-primary);
+        font-size: var(--wk-text-sm);
+        color: var(--wk-primary);
         white-space: nowrap;
         flex-shrink: 0;
     }
 
-    .carryover-card {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 12px;
-        background: var(--b3-theme-surface);
-        padding: 16px;
-    }
-
-    .carryover-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 12px;
-    }
-
-    .carryover-head h2 {
-        margin: 0 0 4px;
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--b3-theme-on-surface);
-    }
-
-    .carryover-head p {
-        margin: 0;
-        font-size: 12px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.62;
-    }
-
     .carryover-empty {
-        padding: 16px;
-        text-align: center;
-        font-size: 13px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.5;
+        padding: var(--wk-gap-md);
     }
 
     .carryover-item {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 8px;
-        background: var(--b3-theme-background);
+        border: 1px solid var(--wk-border);
+        border-radius: var(--wk-radius-sm);
+        background: var(--wk-background);
         padding: 10px 12px;
         margin-bottom: 8px;
     }
@@ -517,68 +469,36 @@
     }
 
     .carryover-source {
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: var(--b3-theme-on-surface);
-    }
-
-    .btn-carryover-open {
-        font-size: 11px;
-        color: var(--b3-theme-primary);
-        background: none;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 4px;
-        padding: 2px 8px;
-        cursor: pointer;
-    }
-
-    .btn-carryover-open:hover {
-        border-color: var(--b3-theme-primary);
+        color: var(--wk-ink-secondary);
     }
 
     .carryover-lines {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--wk-gap-xs);
     }
 
     .carryover-line {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 8px;
+        gap: var(--wk-gap-sm);
     }
 
     .carryover-line-text {
-        font-size: 13px;
-        color: var(--b3-theme-on-surface);
+        font-size: var(--wk-text-base);
+        color: var(--wk-ink-secondary);
         flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
-    .btn-carryover-task {
-        font-size: 11px;
-        color: var(--b3-theme-primary);
-        background: none;
-        border: 1px solid var(--b3-border-color);
-        border-radius: 4px;
-        padding: 2px 8px;
-        cursor: pointer;
-        white-space: nowrap;
-        flex-shrink: 0;
-    }
-
-    .btn-carryover-task:hover {
-        border-color: var(--b3-theme-primary);
-        background: color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
-    }
-
     .carryover-more {
-        font-size: 11px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.5;
+        font-size: var(--wk-text-xs);
+        color: var(--wk-ink-faint);
         text-align: center;
         padding-top: 4px;
     }

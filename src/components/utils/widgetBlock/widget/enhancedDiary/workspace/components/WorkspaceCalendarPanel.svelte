@@ -15,9 +15,10 @@
         onNext: () => void | Promise<void>;
         onToday?: () => void | Promise<void>;
         displaySettings?: EnhancedDiaryWorkspaceCalendarSettings;
+        taskManagementEnabled?: boolean;
     }
 
-    let { days, year, month, loading = false, selectedDate, onSelectDate, onOpenDoc, onPrev, onNext, onToday, displaySettings }: Props = $props();
+    let { days, year, month, loading = false, selectedDate, onSelectDate, onOpenDoc, onPrev, onNext, onToday, displaySettings, taskManagementEnabled = true }: Props = $props();
     const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
     let viewMode: "month" | "list" | "heatmap" = $state("month");
 
@@ -27,20 +28,20 @@
 
     const currentMonthDays = $derived(days.filter((day) => day.inCurrentMonth));
     const activeMonthDays = $derived(
-        currentMonthDays.filter((day) =>
-            day.hasDiary ||
-            day.newTaskCount > 0 ||
-            day.migratedTaskCount > 0 ||
-            day.quickRecordCount > 0 ||
-            day.completedReviewCount > 0 ||
-            day.pendingReviewCount > 0
-        )
+        currentMonthDays.filter((day) => {
+            const hasTask = taskManagementEnabled && (day.newTaskCount > 0 || day.migratedTaskCount > 0);
+            return day.hasDiary ||
+                hasTask ||
+                day.quickRecordCount > 0 ||
+                day.completedReviewCount > 0 ||
+                day.pendingReviewCount > 0;
+        })
     );
 
     function getActivityScore(day: EnhancedDiaryCalendarDay): number {
+        const taskScore = taskManagementEnabled ? day.newTaskCount + day.migratedTaskCount : 0;
         return Number(day.hasDiary) +
-            day.newTaskCount +
-            day.migratedTaskCount +
+            taskScore +
             day.quickRecordCount +
             day.completedReviewCount +
             day.pendingReviewCount;
@@ -73,7 +74,7 @@
 
     function summaryText(day: EnhancedDiaryCalendarDay): string {
         const items: string[] = [];
-        const taskCount = day.newTaskCount + day.migratedTaskCount;
+        const taskCount = taskManagementEnabled ? day.newTaskCount + day.migratedTaskCount : 0;
         if (day.hasDiary) items.push("日记");
         if (taskCount > 0) items.push(`任务 ${taskCount}`);
         if (day.quickRecordCount > 0) items.push(`记录 ${day.quickRecordCount}`);
@@ -158,7 +159,7 @@
                         {#if calendarSettings.showBriefCounts && summaryText(day)}
                             <div class="brief-counts" title={summaryText(day)}>
                                 {#if day.hasDiary}<span>日记</span>{/if}
-                                {#if day.newTaskCount + day.migratedTaskCount > 0}<span>任务 {day.newTaskCount + day.migratedTaskCount}</span>{/if}
+                                {#if taskManagementEnabled && day.newTaskCount + day.migratedTaskCount > 0}<span>任务 {day.newTaskCount + day.migratedTaskCount}</span>{/if}
                                 {#if day.quickRecordCount > 0}<span>记录 {day.quickRecordCount}</span>{/if}
                                 {#if day.completedReviewCount + day.pendingReviewCount > 0}<span>复盘</span>{/if}
                             </div>
@@ -167,7 +168,7 @@
                                 {#if day.hasDiary}
                                     <span class="dot diary-dot" title="有日记"></span>
                                 {/if}
-                                {#if day.newTaskCount + day.migratedTaskCount > 0}
+                                {#if taskManagementEnabled && day.newTaskCount + day.migratedTaskCount > 0}
                                     <span class="dot task-dot" title="任务 {day.newTaskCount + day.migratedTaskCount}"></span>
                                 {/if}
                                 {#if day.quickRecordCount > 0}
@@ -195,7 +196,7 @@
     {:else if viewMode === "list"}
         <div class="calendar-list-wrapper">
             {#if activeMonthDays.length === 0}
-                <div class="calendar-empty">本月暂无日记、任务、记录或复盘动态。</div>
+                <div class="calendar-empty">{taskManagementEnabled ? "本月暂无日记、任务、记录或复盘动态。" : "本月暂无日记、记录或复盘动态。"}</div>
             {:else}
                 {#each activeMonthDays as day}
                     <button
@@ -210,7 +211,7 @@
                             {#if primaryFestival(day)}<small>{primaryFestival(day)}</small>{/if}
                             {#if calendarSettings.showSolarTerm && day.metadata.solarTermName}<small>{day.metadata.solarTermName}</small>{/if}
                             {#if day.hasDiary}<small>日记</small>{/if}
-                            {#if day.newTaskCount + day.migratedTaskCount > 0}<small>任务 {day.newTaskCount + day.migratedTaskCount}</small>{/if}
+                            {#if taskManagementEnabled && day.newTaskCount + day.migratedTaskCount > 0}<small>任务 {day.newTaskCount + day.migratedTaskCount}</small>{/if}
                             {#if day.quickRecordCount > 0}<small>记录 {day.quickRecordCount}</small>{/if}
                             {#if day.completedReviewCount > 0}<small>复盘 {day.completedReviewCount}</small>{/if}
                             {#if day.pendingReviewCount > 0}<small>待复盘 {day.pendingReviewCount}</small>{/if}
@@ -278,7 +279,7 @@
         margin: 0;
         font-size: 18px;
         font-weight: 700;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         letter-spacing: -0.01em;
     }
 
@@ -291,10 +292,10 @@
     .month-nav button {
         width: 32px;
         height: 32px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         font-size: 18px;
         cursor: pointer;
         display: flex;
@@ -304,8 +305,8 @@
     }
 
     .month-nav button:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .month-nav .today-btn {
@@ -317,7 +318,7 @@
 
     .month-label {
         font-size: 14px;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         min-width: 110px;
         text-align: center;
         font-variant-numeric: tabular-nums;
@@ -326,18 +327,18 @@
     .calendar-view-tabs {
         display: inline-flex;
         width: fit-content;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
         overflow: hidden;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
     }
 
     .calendar-view-tabs button {
         min-width: 60px;
         border: none;
-        border-right: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        border-right: 1px solid var(--wk-border);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         padding: 6px 12px;
         font-size: 12px;
         cursor: pointer;
@@ -348,18 +349,18 @@
     }
 
     .calendar-view-tabs button:hover {
-        background: color-mix(in srgb, var(--b3-theme-primary) 7%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 7%, var(--wk-background));
     }
 
     .calendar-view-tabs button.active {
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
     .calendar-wrapper {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 14px;
     }
 
@@ -376,7 +377,7 @@
 
     .weekdays div {
         text-align: center;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         opacity: 0.55;
         font-size: 11px;
         font-weight: 600;
@@ -392,9 +393,9 @@
         justify-content: flex-start;
         gap: 5px;
         padding: 8px 6px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
         cursor: pointer;
         transition: all 0.12s;
         position: relative;
@@ -414,33 +415,33 @@
     }
 
     .calendar-grid .day-cell.has-diary {
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
         border-width: 2px;
     }
 
     .calendar-grid .day-cell.is-today {
-        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 8%, var(--wk-background));
     }
 
     .calendar-grid .day-cell.is-today .date {
-        color: var(--b3-theme-primary);
+        color: var(--wk-primary);
         font-weight: 700;
     }
 
     .calendar-grid .day-cell.is-selected {
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
         border-width: 2px;
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 25%, transparent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--wk-primary) 25%, transparent);
     }
 
     .calendar-grid .day-cell.is-selected.is-today {
-        background: color-mix(in srgb, var(--b3-theme-primary) 15%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 15%, var(--wk-background));
     }
 
     .date {
         font-weight: 600;
         font-size: 15px;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         line-height: 1;
     }
 
@@ -457,7 +458,7 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.55;
         font-size: 10px;
     }
@@ -477,7 +478,7 @@
     .festival-meta {
         border: 1px solid rgba(211, 47, 47, 0.24);
         background: rgba(211, 47, 47, 0.08);
-        color: var(--b3-theme-error, #d32f2f);
+        color: var(--wk-error);
     }
 
     .term-meta {
@@ -498,9 +499,9 @@
     .brief-counts span {
         border-radius: 999px;
         padding: 1px 5px;
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
-        background: color-mix(in srgb, var(--b3-theme-primary) 7%, transparent);
-        color: var(--b3-theme-on-surface);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 18%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 7%, transparent);
+        color: var(--wk-ink-secondary);
         font-size: 9px;
         line-height: 1.45;
         white-space: nowrap;
@@ -520,23 +521,23 @@
         flex-shrink: 0;
     }
 
-    .diary-dot  { background: var(--b3-theme-primary); }
+    .diary-dot  { background: var(--wk-primary); }
     .task-dot   { background: #e6900a; }
     .record-dot { background: #0969da; }
     .review-dot { background: #22863a; }
 
     .calendar-list-wrapper,
     .calendar-heatmap-wrapper {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 12px;
     }
 
     .calendar-empty {
         padding: 28px 16px;
         text-align: center;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
         font-size: 13px;
     }
@@ -555,22 +556,22 @@
         align-items: center;
         gap: 10px;
         width: 100%;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 9px 10px;
         text-align: left;
         cursor: pointer;
     }
 
     .calendar-list-item:hover {
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
     }
 
     .calendar-list-item.selected {
-        border-color: var(--b3-theme-primary);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 20%, transparent);
+        border-color: var(--wk-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--wk-primary) 20%, transparent);
     }
 
     .list-date {
@@ -590,19 +591,19 @@
         font-size: 11px;
         padding: 2px 7px;
         border-radius: 999px;
-        background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-        color: var(--b3-theme-primary);
-        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 24%, transparent);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 24%, transparent);
     }
 
     .list-open {
         display: inline-flex;
         align-items: center;
         gap: 4px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 6px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         padding: 3px 8px;
         font-size: 11px;
         cursor: pointer;
@@ -610,8 +611,8 @@
     }
 
     .list-open:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .heatmap-grid {
@@ -623,9 +624,9 @@
     .heatmap-cell {
         aspect-ratio: 1;
         min-height: 40px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
@@ -633,38 +634,38 @@
     }
 
     .heatmap-cell:hover {
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
         transform: translateY(-1px);
     }
 
     .heatmap-cell.selected {
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 28%, transparent);
-        border-color: var(--b3-theme-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--wk-primary) 28%, transparent);
+        border-color: var(--wk-primary);
     }
 
     .heatmap-cell.level-0,
     .heatmap-legend .level-0 {
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
     }
 
     .heatmap-cell.level-1,
     .heatmap-legend .level-1 {
-        background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 12%, var(--wk-background));
     }
 
     .heatmap-cell.level-2,
     .heatmap-legend .level-2 {
-        background: color-mix(in srgb, var(--b3-theme-primary) 24%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 24%, var(--wk-background));
     }
 
     .heatmap-cell.level-3,
     .heatmap-legend .level-3 {
-        background: color-mix(in srgb, var(--b3-theme-primary) 38%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 38%, var(--wk-background));
     }
 
     .heatmap-cell.level-4,
     .heatmap-legend .level-4 {
-        background: color-mix(in srgb, var(--b3-theme-primary) 55%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--wk-primary) 55%, var(--wk-background));
     }
 
     .heatmap-legend {
@@ -673,7 +674,7 @@
         justify-content: flex-end;
         gap: 5px;
         margin-top: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.6;
         font-size: 11px;
     }
@@ -681,7 +682,7 @@
     .heatmap-legend i {
         width: 12px;
         height: 12px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 3px;
     }
 
@@ -694,7 +695,7 @@
         border: none;
         border-radius: 4px;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 12px;
         cursor: pointer;
         display: flex;
@@ -709,7 +710,7 @@
     }
 
     .open-diary-btn:hover {
-        background: var(--b3-theme-primary);
+        background: var(--wk-primary);
         color: #fff;
     }
 
@@ -718,11 +719,11 @@
         align-items: center;
         justify-content: center;
         gap: 10px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
         padding: 32px 20px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         font-size: 13px;
     }
 
@@ -730,8 +731,8 @@
         display: inline-block;
         width: 14px;
         height: 14px;
-        border: 2px solid var(--b3-border-color);
-        border-top-color: var(--b3-theme-primary);
+        border: 2px solid var(--wk-border);
+        border-top-color: var(--wk-primary);
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }

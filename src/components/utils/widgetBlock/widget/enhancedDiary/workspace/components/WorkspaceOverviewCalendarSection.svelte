@@ -21,6 +21,7 @@
         onCalendarToday?: () => void | Promise<void>;
         onOpenTasks: (date: string) => void;
         displaySettings?: EnhancedDiaryWorkspaceCalendarSettings;
+        taskManagementEnabled?: boolean;
     }
 
     let {
@@ -39,10 +40,11 @@
         onCalendarToday,
         onOpenTasks,
         displaySettings,
+        taskManagementEnabled = true,
     }: Props = $props();
 </script>
 
-<div class="card wide calendar-card">
+<div class="wk-card calendar-card">
     <div class="calendar-layout">
         <div class="calendar-col">
             <WorkspaceCalendarPanel
@@ -57,6 +59,7 @@
                 onNext={onNextMonth}
                 onToday={onCalendarToday}
                 {displaySettings}
+                {taskManagementEnabled}
             />
         </div>
         <div class="calendar-detail-col">
@@ -67,31 +70,22 @@
                 onOpenRecords={onOpenRecords}
                 onOpenTasks={onOpenTasks}
                 onOpenReview={onOpenReview}
+                {taskManagementEnabled}
             />
         </div>
     </div>
 </div>
 
 <style>
-    .card {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 12px;
-        background: var(--b3-theme-surface);
-        padding: 18px;
-    }
-
-    .wide {
-        grid-column: 1 / -1;
-    }
-
     .calendar-card {
-        padding: 14px;
+        grid-column: 1 / -1;
+        padding: var(--wk-gap-sm);
     }
 
     .calendar-layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 340px;
-        gap: 16px;
+        gap: var(--wk-gap-md);
         align-items: start;
     }
 

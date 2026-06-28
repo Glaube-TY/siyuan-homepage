@@ -3,6 +3,7 @@
     import { Dialog, showMessage } from "siyuan";
     import WorkspaceHeader from "./components/WorkspaceHeader.svelte";
     import WorkspaceSidebar, { type WorkspaceTab } from "./components/WorkspaceSidebar.svelte";
+    import { getWorkspaceReviewFields, isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
     import WorkspaceStatCard from "./components/WorkspaceStatCard.svelte";
     import WorkspaceOverview from "./components/WorkspaceOverview.svelte";
     import WorkspaceTaskPanel from "./components/WorkspaceTaskPanel.svelte";
@@ -25,6 +26,7 @@
         openMigrateTaskSvelteDialog,
     } from "./enhancedDiaryWorkspaceDialogs";
     import WorkspaceMorePage from "./components/WorkspaceMorePage.svelte";
+    import "./workspaceDesignTokens.css";
     import {
         loadReviewContent,
         saveReviewContent,
@@ -69,6 +71,8 @@
     } from "../enhancedDiaryActions";
     import {
         appendTemplateToDiary,
+        createTodayDailyNoteForWidget,
+        getDiaryDocumentForDate,
         openDiaryDocument,
         openOrCreateDiaryForDate,
         restoreSkippedPeriod,
@@ -213,12 +217,14 @@
         selectTab("notifications");
     }
 
-    const todayTaskCount = $derived(state ? state.tasks.filter((task) => task.isTodayTask).length : 0);
-    const activeTaskCount = $derived(state ? state.tasks.filter((task) => !task.completed).length : 0);
-    const overdueTaskCount = $derived(state ? state.tasks.filter((task) => task.isOverdue).length : 0);
-    const migrateTaskCount = $derived(state ? state.tasks.filter((task) => task.shouldMigrate).length : 0);
+    const taskManagementEnabled = $derived(state ? isEnhancedDiaryTaskManagementEnabled(state.config) : true);
+
+    const todayTaskCount = $derived(taskManagementEnabled && state ? state.tasks.filter((task) => task.isTodayTask).length : 0);
+    const activeTaskCount = $derived(taskManagementEnabled && state ? state.tasks.filter((task) => !task.completed).length : 0);
+    const overdueTaskCount = $derived(taskManagementEnabled && state ? state.tasks.filter((task) => task.isOverdue).length : 0);
+    const migrateTaskCount = $derived(taskManagementEnabled && state ? state.tasks.filter((task) => task.shouldMigrate).length : 0);
     const riskyProjectCount = $derived(
-        state ? state.projects.filter((project) => project.healthTone === "danger" || project.healthTone === "warning").length : 0
+        taskManagementEnabled && state ? state.projects.filter((project) => project.healthTone === "danger" || project.healthTone === "warning").length : 0
     );
     const reviewStatusText = $derived(
         state
@@ -229,17 +235,15 @@
         state ? getUnhandledNotificationCount(state.notifications) + notificationCountVersion * 0 : 0
     );
 
+    $effect(() => {
+        if (!taskManagementEnabled && (activeTab === "tasks" || activeTab === "projects")) {
+            selectTab("overview");
+        }
+    });
+
     const commandItems = $derived.by((): WorkspaceCommand[] => {
         const notificationCount = unhandledNotificationCount;
-        return [
-            {
-                id: "create-task",
-                group: "创建",
-                title: "新建任务",
-                description: "写入今日日记的「新建任务」区块",
-                keywords: ["task", "todo", "任务"],
-                run: () => openCreateTaskDialog(),
-            },
+        const baseCommands: WorkspaceCommand[] = [
             {
                 id: "create-record",
                 group: "创建",
@@ -273,46 +277,6 @@
                 run: () => selectTab("overview"),
             },
             {
-                id: "tasks-today",
-                group: "任务",
-                title: `今日任务 ${todayTaskCount}`,
-                description: "进入任务中心并筛选今日任务",
-                keywords: ["today", "task", "todo", "任务", "今天"],
-                run: () => goTasks("today"),
-            },
-            {
-                id: "tasks-active",
-                group: "任务",
-                title: `未完成任务 ${activeTaskCount}`,
-                description: "进入任务中心并筛选未完成任务",
-                keywords: ["active", "todo", "待办", "未完成"],
-                run: () => goTasks("active"),
-            },
-            {
-                id: "tasks-overdue",
-                group: "任务",
-                title: `逾期任务 ${overdueTaskCount}`,
-                description: "进入任务中心并筛选逾期任务",
-                keywords: ["overdue", "risk", "风险", "逾期"],
-                run: () => goTasks("overdue"),
-            },
-            {
-                id: "tasks-migrate",
-                group: "任务",
-                title: `建议迁移 ${migrateTaskCount}`,
-                description: "进入任务中心并筛选建议迁移任务",
-                keywords: ["migrate", "迁移"],
-                run: () => goTasks("migrate"),
-            },
-            {
-                id: "tasks-risk",
-                group: "任务",
-                title: "高风险任务",
-                description: "进入任务中心并筛选高风险任务",
-                keywords: ["risk", "高风险", "风险任务", "停滞", "截止"],
-                run: () => goTasks("all", "", "", "risk"),
-            },
-            {
                 id: "records-today",
                 group: "记录",
                 title: `今日记录 ${state?.records.length || 0}`,
@@ -327,22 +291,6 @@
                 description: "进入记录中心并加载最近 90 天记录",
                 keywords: ["history", "历史记录"],
                 run: () => goRecords({ mode: "history" }),
-            },
-            {
-                id: "projects",
-                group: "项目",
-                title: `项目中心 ${state?.projects.length || 0}`,
-                description: "查看项目聚合和项目时间线",
-                keywords: ["project", "项目"],
-                run: () => goProjects("all"),
-            },
-            {
-                id: "projects-risk",
-                group: "项目",
-                title: `风险项目 ${riskyProjectCount}`,
-                description: "查看存在逾期、堆积或停滞迹象的项目",
-                keywords: ["project", "risk", "health", "项目", "风险", "健康度"],
-                run: () => goProjects("risk"),
             },
             {
                 id: "review",
@@ -388,6 +336,78 @@
                 run: () => selectTab("notifications"),
             },
         ];
+
+        if (!taskManagementEnabled) {
+            return baseCommands;
+        }
+
+        return [
+            {
+                id: "create-task",
+                group: "创建",
+                title: "新建任务",
+                description: "写入今日日记的「新建任务」区块",
+                keywords: ["task", "todo", "任务"],
+                run: () => openCreateTaskDialog(),
+            },
+            ...baseCommands,
+            {
+                id: "tasks-today",
+                group: "任务",
+                title: `今日任务 ${todayTaskCount}`,
+                description: "进入任务中心并筛选今日任务",
+                keywords: ["today", "task", "todo", "任务", "今天"],
+                run: () => goTasks("today"),
+            },
+            {
+                id: "tasks-active",
+                group: "任务",
+                title: `未完成任务 ${activeTaskCount}`,
+                description: "进入任务中心并筛选未完成任务",
+                keywords: ["active", "todo", "待办", "未完成"],
+                run: () => goTasks("active"),
+            },
+            {
+                id: "tasks-overdue",
+                group: "任务",
+                title: `逾期任务 ${overdueTaskCount}`,
+                description: "进入任务中心并筛选逾期任务",
+                keywords: ["overdue", "risk", "风险", "逾期"],
+                run: () => goTasks("overdue"),
+            },
+            {
+                id: "tasks-migrate",
+                group: "任务",
+                title: `建议迁移 ${migrateTaskCount}`,
+                description: "进入任务中心并筛选建议迁移任务",
+                keywords: ["migrate", "迁移"],
+                run: () => goTasks("migrate"),
+            },
+            {
+                id: "tasks-risk",
+                group: "任务",
+                title: "高风险任务",
+                description: "进入任务中心并筛选高风险任务",
+                keywords: ["risk", "高风险", "风险任务", "停滞", "截止"],
+                run: () => goTasks("all", "", "", "risk"),
+            },
+            {
+                id: "projects",
+                group: "项目",
+                title: `项目中心 ${state?.projects.length || 0}`,
+                description: "查看项目聚合和项目时间线",
+                keywords: ["project", "项目"],
+                run: () => goProjects("all"),
+            },
+            {
+                id: "projects-risk",
+                group: "项目",
+                title: `风险项目 ${riskyProjectCount}`,
+                description: "查看存在逾期、堆积或停滞迹象的项目",
+                keywords: ["project", "risk", "health", "项目", "风险", "健康度"],
+                run: () => goProjects("risk"),
+            },
+        ];
     });
 
     async function refresh(): Promise<void> {
@@ -414,6 +434,28 @@
         }
     }
 
+    let refreshTimer: number | null = null;
+    let refreshQueued = false;
+
+    async function refreshAfterWorkspaceMutation(): Promise<void> {
+        if (refreshQueued) return;
+        refreshQueued = true;
+        if (refreshTimer) {
+            window.clearTimeout(refreshTimer);
+            refreshTimer = null;
+        }
+        try {
+            await refresh();
+        } finally {
+            refreshTimer = window.setTimeout(() => {
+                refreshTimer = null;
+                void refresh().finally(() => {
+                    refreshQueued = false;
+                });
+            }, 400);
+        }
+    }
+
     async function saveWorkspaceSettings(config: EnhancedDiaryWorkspaceState["config"]): Promise<void> {
         if (settingsSaving) return;
         settingsSaving = true;
@@ -437,7 +479,7 @@
         if (!state || historyRecordsLoading || historyRecordsLoaded) return;
         historyRecordsLoading = true;
         try {
-            const historyRecords = await loadWorkspaceHistoryRecords(state.date);
+            const historyRecords = await loadWorkspaceHistoryRecords(state.date, state.config);
             if (state) {
                 state = { ...state, historyRecords };
                 historyRecordsLoaded = true;
@@ -520,7 +562,7 @@
         }
         dayDetailLoading = true;
         try {
-            selectedDayDetail = await loadWorkspaceDayDetail(parseLocalDate(dateStr));
+            selectedDayDetail = await loadWorkspaceDayDetail(parseLocalDate(dateStr), state.config);
             dayDetailCache.set(dateStr, selectedDayDetail);
         } catch (err) {
             console.warn("[enhancedDiaryWorkspace] load day detail failed", err);
@@ -541,7 +583,8 @@
             calendarDays = await buildWorkspaceCalendarMonth(
                 plugin,
                 calendarDate.getFullYear(),
-                calendarDate.getMonth()
+                calendarDate.getMonth(),
+                state.config
             );
             calendarMonthCache.set(cacheKey, calendarDays);
         } catch (err) {
@@ -566,41 +609,76 @@
         if (!result.id) {
             showMessage("打开今日日记失败，请检查日记笔记本设置", 4000);
         }
-        await refresh();
+        await refreshAfterWorkspaceMutation();
     }
 
-    async function appendTodayTemplate(): Promise<void> {
+    async function ensureTodayDiaryAndAppendTemplate(options: { openDoc: boolean } = { openDoc: false }): Promise<void> {
         if (!state) return;
+        const date = new Date();
         const dayCard = state.reviewCards.find((card) => card.period === "day");
-        if (!dayCard) return;
-
-        const todayDoc = await getOrCreateTodayDiaryDocument(plugin, state.config);
-        if (!todayDoc.ok || !todayDoc.docId) {
-            showMessage("未能打开或创建今日日记，无法补充模板", 4000);
+        const todayDoc = await getDiaryDocumentForDate(date);
+        let docId: string | null = todayDoc?.id ?? null;
+        let created = false;
+        if (!docId) {
+            if (!state.config.dailyNotebookId) {
+                showMessage("请先在强化日记设置中选择日记笔记本。", 4000);
+                return;
+            }
+            docId = await createTodayDailyNoteForWidget(plugin, state.config.dailyNotebookId);
+            created = true;
+            if (!docId) {
+                showMessage("创建今日日记失败，请检查日记笔记本设置", 4000);
+                return;
+            }
+        }
+        if (options.openDoc) {
+            openDiaryDocument(plugin, docId);
+        }
+        if (!dayCard) {
+            if (options.openDoc) {
+                showMessage(created ? "已创建并打开今日日记" : "已打开今日日记", 3000);
+            } else {
+                showMessage(created ? "已创建今日日记" : "已定位到今日日记", 3000);
+            }
+            await refreshAfterWorkspaceMutation();
             return;
         }
 
         const result = await appendTemplateToDiary({
-            docId: todayDoc.docId,
+            docId,
             period: "day",
             template: state.config.templates.day,
             context: dayCard.templateContext,
             headingStructure: state.config.headingStructure,
+            mapping: state.config.templateFieldMapping,
+            taskManagementEnabled,
         });
         if (result.ok && result.skipped) {
-            showMessage("今日模板已存在，无需补充", 3000);
+            showMessage(created ? "已创建并打开今日日记，模板已存在" : "已打开今日日记，模板已存在", 3000);
         } else if (result.ok) {
-            showMessage("今日模板已处理", 3000);
+            showMessage(created ? "已创建今日日记并补齐模板" : "已补齐今日模板", 3000);
         } else if (result.reason && result.reason.startsWith("template_incomplete:")) {
             const missingList = result.reason.slice("template_incomplete:".length).trim();
             showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
         } else {
             showMessage("补充模板失败", 3000);
         }
-        await refresh();
+        await refreshAfterWorkspaceMutation();
+    }
+
+    async function appendTodayTemplate(): Promise<void> {
+        await ensureTodayDiaryAndAppendTemplate({ openDoc: false });
+    }
+
+    async function openTodayAndAppendTemplate(): Promise<void> {
+        await ensureTodayDiaryAndAppendTemplate({ openDoc: true });
     }
 
     function openCreateTaskDialog(input: Partial<GenerateTasksPlusTaskInput> = {}): void {
+        if (!taskManagementEnabled) {
+            showMessage("任务管理已关闭", 3000);
+            return;
+        }
         openTaskEditorSvelteDialog({
             mode: "create",
             initialInput: input,
@@ -611,6 +689,10 @@
     }
 
     async function submitNewTaskForWorkspace(input: GenerateTasksPlusTaskInput): Promise<boolean> {
+        if (!taskManagementEnabled) {
+            showMessage("任务管理已关闭", 3000);
+            return false;
+        }
         if (actionBusy) return false;
         actionBusy = true;
         try {
@@ -619,10 +701,15 @@
                 showMessage("未能打开或创建今日日记，任务未写入", 4000);
                 return false;
             }
-            const result = await addNewTaskToDiary({ docId: todayDoc.docId, task: input, headingStructure: state.config.headingStructure });
+            const result = await addNewTaskToDiary({
+                docId: todayDoc.docId,
+                task: input,
+                headingStructure: state.config.headingStructure,
+                mapping: state.config.templateFieldMapping,
+            });
             if (result.ok) {
                 showMessage("任务已写入「新建任务」区块", 3000);
-                await refresh();
+                await refreshAfterWorkspaceMutation();
                 return true;
             } else {
                 showMessage(result.message || "新增任务失败", 4000);
@@ -634,6 +721,10 @@
     }
 
     function convertRecordToTask(record: EnhancedDiaryWorkspaceRecord): void {
+        if (!taskManagementEnabled) {
+            showMessage("任务管理已关闭", 3000);
+            return;
+        }
         const firstContentLine = record.content
             .split("\n")
             .map((line) => line.trim())
@@ -659,7 +750,7 @@
                         onConfirm: async () => {
                             const deleteResult = await deleteQuickRecord(record);
                             if (deleteResult.ok) {
-                                await refresh();
+                                await refreshAfterWorkspaceMutation();
                                 return true;
                             }
                             return false;
@@ -704,7 +795,7 @@
             if (result.ok) {
                 showMessage("任务已更新", 3000);
                 editingTask = null;
-                await refresh();
+                await refreshAfterWorkspaceMutation();
             } else {
                 showMessage(result.message || "任务更新失败", 4000);
             }
@@ -719,21 +810,21 @@
         try {
             const result = await toggleWorkspaceTaskComplete(task, !task.completed);
             showMessage(result.ok ? "任务状态已更新" : result.message || "任务状态更新失败", 3000);
-            await refresh();
+            await refreshAfterWorkspaceMutation();
         } finally {
             actionBusy = false;
         }
     }
 
-    async function confirmDeleteTask(mode: "log" | "delete"): Promise<boolean> {
-        if (!state || !deletingTask || actionBusy) return false;
+    async function confirmDeleteTask(task: EnhancedDiaryWorkspaceTask | null, mode: "log" | "delete"): Promise<boolean> {
+        if (!state || !task || actionBusy) return false;
         actionBusy = true;
         try {
-            const result = await deleteWorkspaceTask(plugin, state.config, deletingTask, mode);
+            const result = await deleteWorkspaceTask(plugin, state.config, task, mode);
             if (result.ok) {
                 showMessage("任务已删除", 3000);
                 deletingTask = null;
-                await refresh();
+                await refreshAfterWorkspaceMutation();
                 return true;
             } else {
                 showMessage(result.message || "删除任务失败", 4000);
@@ -756,12 +847,12 @@
             if (result.ok) {
                 showMessage("任务已迁移到今日日记", 3000);
                 migratingTask = null;
-                await refresh();
+                await refreshAfterWorkspaceMutation();
                 return true;
             } else if (result.changed) {
                 showMessage(result.message || "任务已移动，但后续处理失败，请刷新后检查", 4000);
                 migratingTask = null;
-                await refresh();
+                await refreshAfterWorkspaceMutation();
                 return true;
             } else {
                 showMessage(result.message || "迁移任务失败", 4000);
@@ -779,7 +870,7 @@
             const result = await postponeWorkspaceTask(task, target);
             if (result.ok) {
                 showMessage(target === "tomorrow" ? "任务已推迟到明天" : "任务已推迟到下周", 3000);
-                await refresh();
+                await refreshAfterWorkspaceMutation();
             } else {
                 showMessage(result.message || "推迟任务失败", 4000);
             }
@@ -796,7 +887,7 @@
             const results = await Promise.all(targets.map((task) => toggleWorkspaceTaskComplete(task, true)));
             const successCount = results.filter((result) => result.ok).length;
             showMessage(`已完成 ${successCount}/${targets.length} 个任务`, 3000);
-            await refresh();
+            await refreshAfterWorkspaceMutation();
         } finally {
             actionBusy = false;
         }
@@ -815,7 +906,7 @@
                     : `已推迟 ${successCount}/${targets.length} 个任务到下周`,
                 3000
             );
-            await refresh();
+            await refreshAfterWorkspaceMutation();
         } finally {
             actionBusy = false;
         }
@@ -831,7 +922,7 @@
             const result = await addWorkspaceQuickRecord(plugin, state.config, categoryTitle, content);
             if (result.ok) {
                 showMessage("记录已写入「快速记录」区块", 3000);
-                await refresh();
+                await refreshAfterWorkspaceMutation();
                 return true;
             } else {
                 showMessage(result.message || "新增记录失败", 4000);
@@ -852,15 +943,15 @@
         });
     }
 
-    async function confirmDeleteRecord(): Promise<boolean> {
-        if (!deletingRecord || actionBusy) return false;
+    async function confirmDeleteRecord(record: EnhancedDiaryWorkspaceRecord | null): Promise<boolean> {
+        if (!record || actionBusy) return false;
         actionBusy = true;
         try {
-            const result = await deleteQuickRecord(deletingRecord);
+            const result = await deleteQuickRecord(record);
             if (result.ok) {
                 showMessage("记录已删除", 3000);
                 deletingRecord = null;
-                await refresh();
+                await refreshAfterWorkspaceMutation();
                 return true;
             } else {
                 showMessage(result.message || "删除记录失败", 4000);
@@ -888,10 +979,11 @@
     }
 
     function openDeleteTaskDialog(task: EnhancedDiaryWorkspaceTask): void {
+        deletingTask = task;
         openDeleteTaskSvelteDialog({
             task,
             onSelect: async (mode) => {
-                return confirmDeleteTask(mode);
+                return confirmDeleteTask(task, mode);
             },
             onClose: () => {
                 deletingTask = null;
@@ -900,10 +992,11 @@
     }
 
     function openDeleteRecordDialog(record: EnhancedDiaryWorkspaceRecord): void {
+        deletingRecord = record;
         openDeleteRecordSvelteDialog({
             record,
             onConfirm: async () => {
-                return confirmDeleteRecord();
+                return confirmDeleteRecord(record);
             },
             onClose: () => {
                 deletingRecord = null;
@@ -936,7 +1029,7 @@
             if (result.ok) {
                 showMessage("记录已更新", 3000);
                 editingRecord = null;
-                await refresh();
+                await refreshAfterWorkspaceMutation();
             } else {
                 showMessage(result.message || "更新记录失败", 4000);
             }
@@ -956,6 +1049,8 @@
             template: state.config.templates[card.period],
             context: card.templateContext,
             headingStructure: state.config.headingStructure,
+            mapping: state.config.templateFieldMapping,
+            taskManagementEnabled,
         });
         if (result.ok && result.skipped) {
             showMessage("模板已存在，无需补充", 3000);
@@ -967,7 +1062,7 @@
         } else {
             showMessage("补充模板失败", 3000);
         }
-        await refresh();
+        await refreshAfterWorkspaceMutation();
     }
 
     async function createOrOpenReview(card: EnhancedDiaryWorkspaceReviewCard): Promise<void> {
@@ -978,7 +1073,7 @@
             state.config.dailyNotebookId
         );
         if (result.id) {
-            await refresh();
+            await refreshAfterWorkspaceMutation();
         } else if (result.reason === "only_today_create_supported") {
             showMessage("暂不自动创建非今日日记，请先在思源中创建对应日期日记。", 4000);
         } else if (result.reason === "missing_notebook") {
@@ -1000,9 +1095,10 @@
             docId: card.docId,
             period: card.period,
             completed,
+            mapping: state.config.templateFieldMapping,
         });
         showMessage(result.ok ? "复盘状态已更新" : "复盘状态更新失败", 3000);
-        await refresh();
+        await refreshAfterWorkspaceMutation();
     }
 
     async function skipReview(card: EnhancedDiaryWorkspaceReviewCard): Promise<void> {
@@ -1010,9 +1106,9 @@
             showMessage("未找到对应日记", 3000);
             return;
         }
-        const result = await skipPeriod({ docId: card.docId, period: card.period });
+        const result = await skipPeriod({ docId: card.docId, period: card.period, mapping: state.config.templateFieldMapping });
         showMessage(result.ok ? "已跳过本周期" : "跳过失败", 3000);
-        await refresh();
+        await refreshAfterWorkspaceMutation();
     }
 
     function selectRestoreSkipMode(): Promise<"pending" | "completed" | null> {
@@ -1060,9 +1156,10 @@
             docId: card.docId,
             period: card.period,
             mode,
+            mapping: state.config.templateFieldMapping,
         });
         showMessage(result.ok ? "已取消跳过" : "取消跳过失败", 3000);
-        await refresh();
+        await refreshAfterWorkspaceMutation();
     }
 
     async function loadReviewContentForPanel(
@@ -1071,7 +1168,14 @@
         if (!card.docId) {
             return { fields: [], reason: "no_doc" };
         }
-        return loadReviewContent(card.docId, card.period, state.config.headingStructure);
+        const result = await loadReviewContent(card.docId, card.period, state.config.headingStructure, state.config.templateFieldMapping);
+        const visibleFieldLabels = new Set(
+            getWorkspaceReviewFields(state.config.templateFieldMapping, card.period, taskManagementEnabled)
+        );
+        return {
+            ...result,
+            fields: result.fields.filter((field) => visibleFieldLabels.has(field.label)),
+        };
     }
 
     async function saveReviewContentFromPanel(
@@ -1079,10 +1183,14 @@
         fields: EnhancedDiaryReviewField[]
     ): Promise<boolean> {
         if (!card.docId) return false;
-        const result = await saveReviewContent(card.docId, card.period, fields, state.config.headingStructure);
+        const visibleFieldLabels = new Set(
+            getWorkspaceReviewFields(state.config.templateFieldMapping, card.period, taskManagementEnabled)
+        );
+        const visibleFields = fields.filter((field) => visibleFieldLabels.has(field.label));
+        const result = await saveReviewContent(card.docId, card.period, visibleFields, state.config.headingStructure, state.config.templateFieldMapping);
         if (result.ok) {
             showMessage("复盘内容已保存", 2500);
-            await refresh();
+            await refreshAfterWorkspaceMutation();
             return true;
         }
         if (result.reason === "missing_review_root") {
@@ -1164,41 +1272,44 @@
             today={state?.today || ""}
             {loading}
             onRefresh={refresh}
-            onOpenToday={openToday}
-            onAppendTemplate={appendTodayTemplate}
+            onOpenAndAppendTemplate={openTodayAndAppendTemplate}
             onOpenCommandPalette={() => (commandPaletteOpen = true)}
         />
 
     {#if state}
         <div class="stats-grid">
-            <WorkspaceStatCard
-                label="今日任务"
-                value={todayTaskCount}
-                tone="primary"
-                onclick={() => goTasks("today")}
-            />
-            <WorkspaceStatCard
-                label="逾期任务"
-                value={overdueTaskCount}
-                tone={overdueTaskCount > 0 ? "danger" : "normal"}
-                onclick={() => goTasks("overdue")}
-            />
-            <WorkspaceStatCard
-                label="建议迁移"
-                value={migrateTaskCount}
-                tone={migrateTaskCount > 0 ? "warning" : "normal"}
-                onclick={() => goTasks("migrate")}
-            />
+            {#if taskManagementEnabled}
+                <WorkspaceStatCard
+                    label="今日任务"
+                    value={todayTaskCount}
+                    tone="primary"
+                    onclick={() => goTasks("today")}
+                />
+                <WorkspaceStatCard
+                    label="逾期任务"
+                    value={overdueTaskCount}
+                    tone={overdueTaskCount > 0 ? "danger" : "normal"}
+                    onclick={() => goTasks("overdue")}
+                />
+                <WorkspaceStatCard
+                    label="建议迁移"
+                    value={migrateTaskCount}
+                    tone={migrateTaskCount > 0 ? "warning" : "normal"}
+                    onclick={() => goTasks("migrate")}
+                />
+            {/if}
             <WorkspaceStatCard
                 label="今日记录"
                 value={state.records.length}
                 onclick={() => goRecords({ mode: "today" })}
             />
-            <WorkspaceStatCard
-                label="进行中项目"
-                value={state.projects.length}
-                onclick={() => selectTab("projects")}
-            />
+            {#if taskManagementEnabled}
+                <WorkspaceStatCard
+                    label="进行中项目"
+                    value={state.projects.length}
+                    onclick={() => selectTab("projects")}
+                />
+            {/if}
             <WorkspaceStatCard
                 label="复盘状态"
                 value={reviewStatusText}
@@ -1208,6 +1319,7 @@
 
         <WorkspaceGlobalSearch
             {state}
+            taskManagementEnabled={taskManagementEnabled}
             onOpenTaskResult={goTaskDetail}
             onOpenRecordResult={goRecords}
             onOpenProjectResult={goProjectDetail}
@@ -1220,20 +1332,22 @@
             <WorkspaceSidebar
                 {activeTab}
                 notificationCount={unhandledNotificationCount}
+                taskManagementEnabled={taskManagementEnabled}
                 onSelect={selectTab}
             />
             <main>
                 {#if activeTab === "overview"}
                     <WorkspaceOverview
                         {state}
+                        {taskManagementEnabled}
                         onOpenToday={openToday}
+                        onOpenTodayAndAppendTemplate={openTodayAndAppendTemplate}
                         onGoTasks={goTasks}
                         onGoReview={() => selectTab("review")}
                         onGoProjects={goProjects}
                         onGoNotifications={() => selectTab("notifications")}
                         onCreateTask={openCreateTaskDialog}
                         onCreateRecord={openQuickRecordDialogForWorkspace}
-                        onAppendTemplate={appendTodayTemplate}
                         calendarDays={calendarDays}
                         calendarDate={calendarDate}
                         calendarLoading={calendarLoading}
@@ -1250,7 +1364,7 @@
                         onOpenTasks={goTasksByDate}
                         calendarDisplaySettings={state.config.workspaceSettings.calendar}
                     />
-                {:else if activeTab === "tasks"}
+                {:else if activeTab === "tasks" && taskManagementEnabled}
                     <WorkspaceTaskPanel
                         tasks={state.tasks}
                         onCreate={openCreateTaskDialog}
@@ -1282,6 +1396,7 @@
                         onEdit={openEditRecordDialog}
                         onDelete={openDeleteRecordDialog}
                         onConvertToTask={convertRecordToTask}
+                        taskManagementEnabled={taskManagementEnabled}
                         initialViewMode={recordViewMode}
                         initialDateFilter={recordDateFilter}
                         initialCategoryFilter={recordCategoryFilter}
@@ -1303,6 +1418,7 @@
                             onNext={nextMonth}
                             onToday={jumpCalendarToToday}
                             displaySettings={state.config.workspaceSettings.calendar}
+                            taskManagementEnabled={taskManagementEnabled}
                         />
                         <WorkspaceCalendarDayDetail
                             detail={selectedDayDetail}
@@ -1311,6 +1427,7 @@
                             onOpenRecords={goRecordsByDate}
                             onOpenReview={goReviewByDate}
                             onOpenTasks={goTasksByDate}
+                            taskManagementEnabled={taskManagementEnabled}
                         />
                     </div>
                 {:else if activeTab === "notifications"}
@@ -1329,6 +1446,7 @@
                         onSnoozedChange={() => (notificationCountVersion += 1)}
                         initialSelectedNotificationId={notificationSelectId}
                         selectVersion={notificationSelectVersion}
+                        {taskManagementEnabled}
                     />
                 {:else if activeTab === "review"}
                     <WorkspaceReviewPanel
@@ -1350,9 +1468,10 @@
                         initialSelectedHistoryKey={reviewSelectedHistoryKey}
                         selectVersion={reviewSelectVersion}
                         todayRecords={state.records}
-                        todayTasks={state.tasks.filter(t => t.isTodayTask || t.sourceDate === state.today)}
+                        todayTasks={taskManagementEnabled ? state.tasks.filter(t => t.isTodayTask || t.sourceDate === state.today) : []}
+                        {taskManagementEnabled}
                     />
-                {:else if activeTab === "projects"}
+                {:else if activeTab === "projects" && taskManagementEnabled}
                     <WorkspaceProjectPanel
                         projects={state.projects}
                         tasks={state.tasks}
@@ -1367,8 +1486,7 @@
                         config={state.config}
                         saving={settingsSaving}
                         onSave={saveWorkspaceSettings}
-                        onOpenToday={openToday}
-                        onAppendTemplate={appendTodayTemplate}
+                        onOpenAndAppendTemplate={openTodayAndAppendTemplate}
                     />
                 {:else if activeTab === "more"}
                     <WorkspaceMorePage
@@ -1380,6 +1498,8 @@
                         todayDiaryExists={state.todayDiaryExists}
                         templateValid={state.templateValid}
                         missingSections={state.missingSections}
+                        {taskManagementEnabled}
+                        templateFieldMapping={state.config.templateFieldMapping}
                     />
                 {/if}
             </main>
@@ -1403,10 +1523,10 @@
 
 {#if state}
     <WorkspaceQuickCreateFab
+        taskManagementEnabled={taskManagementEnabled}
         onCreateTask={() => openCreateTaskDialog()}
         onCreateRecord={openQuickRecordDialogForWorkspace}
-        onOpenToday={openToday}
-        onAppendTemplate={appendTodayTemplate}
+        onOpenAndAppendTemplate={openTodayAndAppendTemplate}
     />
 {/if}
 {:else}

@@ -10,9 +10,10 @@
         onOpenRecords?: (date: string) => void;
         onOpenTasks?: (date: string) => void;
         onOpenReview?: (date: string) => void;
+        taskManagementEnabled?: boolean;
     }
 
-    let { detail, loading = false, onOpenDoc, onClose, onOpenRecords, onOpenTasks, onOpenReview }: Props = $props();
+    let { detail, loading = false, onOpenDoc, onClose, onOpenRecords, onOpenTasks, onOpenReview, taskManagementEnabled = true }: Props = $props();
 </script>
 
 <section class="day-detail-panel">
@@ -45,22 +46,26 @@
             </div>
 
             <div class="stat-grid">
-                <div class="stat-card">
-                    <span class="stat-value">{detail.newTaskCount}</span>
-                    <span class="stat-label">新建任务</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">{detail.migratedTaskCount}</span>
-                    <span class="stat-label">迁移任务</span>
-                </div>
+                {#if taskManagementEnabled}
+                    <div class="stat-card">
+                        <span class="stat-value">{detail.newTaskCount}</span>
+                        <span class="stat-label">新建任务</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">{detail.migratedTaskCount}</span>
+                        <span class="stat-label">迁移任务</span>
+                    </div>
+                {/if}
                 <div class="stat-card">
                     <span class="stat-value">{detail.quickRecordCount}</span>
                     <span class="stat-label">快速记录</span>
                 </div>
-                <div class="stat-card">
-                    <span class="stat-value">{detail.projectCount}</span>
-                    <span class="stat-label">项目推进</span>
-                </div>
+                {#if taskManagementEnabled}
+                    <div class="stat-card">
+                        <span class="stat-value">{detail.projectCount}</span>
+                        <span class="stat-label">项目推进</span>
+                    </div>
+                {/if}
             </div>
 
             <div class="review-status">
@@ -94,7 +99,7 @@
                         查看这天记录
                     </button>
                 {/if}
-                {#if (detail.newTaskCount + detail.migratedTaskCount) > 0 && onOpenTasks}
+                {#if taskManagementEnabled && (detail.newTaskCount + detail.migratedTaskCount) > 0 && onOpenTasks}
                     <button type="button" class="open-tasks-btn" onclick={() => onOpenTasks(detail.date)}>
                         查看这天任务
                     </button>
@@ -114,9 +119,9 @@
         display: flex;
         flex-direction: column;
         gap: 14px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 10px;
-        background: var(--b3-theme-surface);
+        background: var(--wk-surface);
         padding: 16px;
         min-height: 200px;
     }
@@ -130,7 +135,7 @@
     .detail-title {
         font-size: 16px;
         font-weight: 700;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
     }
 
     .close-btn {
@@ -139,7 +144,7 @@
         border: none;
         border-radius: 6px;
         background: transparent;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 14px;
         cursor: pointer;
         display: flex;
@@ -149,8 +154,8 @@
     }
 
     .close-btn:hover {
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-primary);
+        background: var(--wk-background);
+        color: var(--wk-primary);
     }
 
     .detail-loading {
@@ -159,7 +164,7 @@
         justify-content: center;
         gap: 10px;
         padding: 32px 20px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 13px;
     }
 
@@ -167,8 +172,8 @@
         display: inline-block;
         width: 14px;
         height: 14px;
-        border: 2px solid var(--b3-border-color);
-        border-top-color: var(--b3-theme-primary);
+        border: 2px solid var(--wk-border);
+        border-top-color: var(--wk-primary);
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }
@@ -184,7 +189,7 @@
         justify-content: center;
         gap: 8px;
         padding: 32px 20px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         font-size: 13px;
         opacity: 0.6;
     }
@@ -205,7 +210,7 @@
     .detail-date-text {
         font-size: 15px;
         font-weight: 600;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         font-variant-numeric: tabular-nums;
     }
 
@@ -217,13 +222,13 @@
     }
 
     .badge-diary {
-        background: color-mix(in srgb, var(--b3-theme-primary) 15%, transparent);
-        color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--wk-primary) 15%, transparent);
+        color: var(--wk-primary);
     }
 
     .badge-no-diary {
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         opacity: 0.6;
     }
 
@@ -239,41 +244,41 @@
         align-items: center;
         gap: 4px;
         padding: 10px 6px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-background);
+        background: var(--wk-background);
     }
 
     .stat-value {
         font-size: 20px;
         font-weight: 700;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         font-variant-numeric: tabular-nums;
     }
 
     .stat-label {
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.7;
     }
 
     .review-status {
         padding: 8px 12px;
         border-radius: 8px;
-        background: var(--b3-theme-background);
-        border: 1px solid var(--b3-border-color);
+        background: var(--wk-background);
+        border: 1px solid var(--wk-border);
     }
 
     .review-text {
         font-size: 13px;
-        color: var(--b3-theme-on-background);
+        color: var(--wk-ink);
         font-weight: 600;
     }
 
     .warning-box {
         padding: 10px 14px;
         border-radius: 8px;
-        background: color-mix(in srgb, #e6900a 8%, var(--b3-theme-background));
+        background: color-mix(in srgb, #e6900a 8%, var(--wk-background));
         border: 1px solid color-mix(in srgb, #e6900a 30%, transparent);
     }
 
@@ -291,7 +296,7 @@
         margin: 0;
         padding-left: 18px;
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         line-height: 1.6;
     }
 
@@ -306,10 +311,10 @@
 
     .open-doc-btn {
         padding: 8px 20px;
-        border: 1px solid var(--b3-theme-primary);
+        border: 1px solid var(--wk-primary);
         border-radius: 8px;
-        background: var(--b3-theme-primary);
-        color: var(--b3-theme-on-primary, #fff);
+        background: var(--wk-primary);
+        color: var(--wk-primary-contrast);
         font-size: 13px;
         font-weight: 600;
         cursor: pointer;
@@ -323,10 +328,10 @@
     .open-records-btn,
     .open-review-btn {
         padding: 8px 20px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         font-size: 13px;
         font-weight: 600;
         cursor: pointer;
@@ -335,16 +340,16 @@
 
     .open-records-btn:hover,
     .open-review-btn:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .open-tasks-btn {
         padding: 8px 20px;
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 8px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-background);
+        color: var(--wk-ink-secondary);
         font-size: 13px;
         font-weight: 600;
         cursor: pointer;
@@ -352,13 +357,13 @@
     }
 
     .open-tasks-btn:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .no-diary-hint {
         font-size: 13px;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
 

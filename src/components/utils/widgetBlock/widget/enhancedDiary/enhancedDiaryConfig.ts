@@ -7,12 +7,14 @@ import {
     type EnhancedDiaryHeadingStructureConfig,
     type EnhancedDiaryReviewReminderWindow,
     type EnhancedDiaryReviewReminderWindows,
+    type EnhancedDiaryTemplateFieldMapping,
     type EnhancedDiaryWorkspaceCalendarSettings,
+    type EnhancedDiaryWorkspaceModules,
     type EnhancedDiaryWorkspaceSettings,
     type EnhancedDiaryTemplateMap,
 } from "./enhancedDiaryTypes";
 
-const COMPLETION_MARKER = "{{完成标记}}";
+
 
 const VALID_WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
 const VALID_MONTH_RULES = new Set(["monthEnd", "nextMonthFirst"]);
@@ -51,13 +53,6 @@ function normalizeSingleTemplate(raw: unknown): string {
     return raw;
 }
 
-function ensureCompletionMarker(template: string): string {
-    if (template.includes(COMPLETION_MARKER)) {
-        return template;
-    }
-    return COMPLETION_MARKER + "\n\n" + template;
-}
-
 function normalizeTemplates(raw: unknown): EnhancedDiaryTemplateMap {
     const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.templates;
     if (!isRecord(raw)) {
@@ -69,7 +64,7 @@ function normalizeTemplates(raw: unknown): EnhancedDiaryTemplateMap {
     for (const period of ENHANCED_DIARY_PERIODS) {
         const normalized = normalizeSingleTemplate((raw as Record<string, unknown>)[period]);
         if (normalized) {
-            result[period] = ensureCompletionMarker(normalized);
+            result[period] = normalized;
         }
     }
 
@@ -110,16 +105,28 @@ function normalizeWorkspaceCalendarSettings(raw: unknown): EnhancedDiaryWorkspac
     };
 }
 
+function normalizeWorkspaceModules(raw: unknown): EnhancedDiaryWorkspaceModules {
+    const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.modules;
+    if (!isRecord(raw)) {
+        return { ...defaults };
+    }
+    return {
+        taskManagementEnabled: normalizeBoolean(raw.taskManagementEnabled, defaults.taskManagementEnabled),
+    };
+}
+
 function normalizeWorkspaceSettings(raw: unknown): EnhancedDiaryWorkspaceSettings {
     const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings;
     if (!isRecord(raw)) {
         return {
             calendar: { ...defaults.calendar },
+            modules: { ...defaults.modules },
         };
     }
 
     return {
         calendar: normalizeWorkspaceCalendarSettings(raw.calendar),
+        modules: normalizeWorkspaceModules(raw.modules),
     };
 }
 
@@ -188,6 +195,110 @@ function normalizeHeadingStructure(raw: unknown): EnhancedDiaryHeadingStructureC
     };
 }
 
+function normalizeStringArray(raw: unknown, fallback: string[]): string[] {
+    if (!Array.isArray(raw)) {
+        return [...fallback];
+    }
+    const result = Array.from(
+        new Set(
+            (raw as unknown[])
+                .map((item) => {
+                    if (typeof item !== "string") return "";
+                    return item
+                        .trim()
+                        .replace(/[\r\n]+/g, " ")
+                        .replace(/\s+/g, " ");
+                })
+                .filter((item) => item.length > 0 && item.length <= 50),
+        ),
+    );
+    return result.length > 0 ? result : [...fallback];
+}
+
+function normalizeTemplateFieldMapping(raw: unknown): EnhancedDiaryTemplateFieldMapping {
+    const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.templateFieldMapping;
+    if (!isRecord(raw)) {
+        return structuredClone(defaults);
+    }
+
+    const input = raw as Partial<EnhancedDiaryTemplateFieldMapping>;
+
+    const rootHeadings: EnhancedDiaryTemplateFieldMapping["rootHeadings"] = {
+        day: normalizeStringArray(input.rootHeadings?.day, defaults.rootHeadings.day),
+        week: normalizeStringArray(input.rootHeadings?.week, defaults.rootHeadings.week),
+        month: normalizeStringArray(input.rootHeadings?.month, defaults.rootHeadings.month),
+        year: normalizeStringArray(input.rootHeadings?.year, defaults.rootHeadings.year),
+    };
+
+    const inputDaySections: Partial<EnhancedDiaryTemplateFieldMapping["dayWorkspaceSections"]> =
+        input.dayWorkspaceSections || {};
+    const dayWorkspaceSections: EnhancedDiaryTemplateFieldMapping["dayWorkspaceSections"] = {
+        overview: normalizeStringArray(inputDaySections.overview, defaults.dayWorkspaceSections.overview),
+        taskManagement: normalizeStringArray(inputDaySections.taskManagement, defaults.dayWorkspaceSections.taskManagement),
+        newTasks: normalizeStringArray(inputDaySections.newTasks, defaults.dayWorkspaceSections.newTasks),
+        migratedTasks: normalizeStringArray(inputDaySections.migratedTasks, defaults.dayWorkspaceSections.migratedTasks),
+        taskLog: normalizeStringArray(inputDaySections.taskLog, defaults.dayWorkspaceSections.taskLog),
+        quickRecords: normalizeStringArray(inputDaySections.quickRecords, defaults.dayWorkspaceSections.quickRecords),
+        dailyReview: normalizeStringArray(inputDaySections.dailyReview, defaults.dayWorkspaceSections.dailyReview),
+        projectProgress: normalizeStringArray(inputDaySections.projectProgress, defaults.dayWorkspaceSections.projectProgress),
+    };
+
+    const inputReviewSections: Partial<EnhancedDiaryTemplateFieldMapping["reviewSections"]> =
+        input.reviewSections || {};
+    const reviewSections: EnhancedDiaryTemplateFieldMapping["reviewSections"] = {
+        day: {
+            reviewRoot: normalizeStringArray(
+                inputReviewSections.day?.reviewRoot,
+                defaults.reviewSections.day.reviewRoot,
+            ),
+            fields: normalizeStringArray(inputReviewSections.day?.fields, defaults.reviewSections.day.fields),
+            carryoverField: normalizeStringArray(
+                inputReviewSections.day?.carryoverField,
+                defaults.reviewSections.day.carryoverField,
+            ),
+        },
+        week: {
+            reviewRoot: normalizeStringArray(
+                inputReviewSections.week?.reviewRoot,
+                defaults.reviewSections.week.reviewRoot,
+            ),
+            fields: normalizeStringArray(inputReviewSections.week?.fields, defaults.reviewSections.week.fields),
+            carryoverField: normalizeStringArray(
+                inputReviewSections.week?.carryoverField,
+                defaults.reviewSections.week.carryoverField,
+            ),
+        },
+        month: {
+            reviewRoot: normalizeStringArray(
+                inputReviewSections.month?.reviewRoot,
+                defaults.reviewSections.month.reviewRoot,
+            ),
+            fields: normalizeStringArray(inputReviewSections.month?.fields, defaults.reviewSections.month.fields),
+            carryoverField: normalizeStringArray(
+                inputReviewSections.month?.carryoverField,
+                defaults.reviewSections.month.carryoverField,
+            ),
+        },
+        year: {
+            reviewRoot: normalizeStringArray(
+                inputReviewSections.year?.reviewRoot,
+                defaults.reviewSections.year.reviewRoot,
+            ),
+            fields: normalizeStringArray(inputReviewSections.year?.fields, defaults.reviewSections.year.fields),
+            carryoverField: normalizeStringArray(
+                inputReviewSections.year?.carryoverField,
+                defaults.reviewSections.year.carryoverField,
+            ),
+        },
+    };
+
+    return {
+        rootHeadings,
+        dayWorkspaceSections,
+        reviewSections,
+    };
+}
+
 export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfig {
     if (!isRecord(input)) {
         return {
@@ -199,10 +310,12 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
             taskMigrationReminderDays: DEFAULT_ENHANCED_DIARY_CONFIG.taskMigrationReminderDays,
             workspaceSettings: {
                 calendar: { ...DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.calendar },
+                modules: { ...DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.modules },
             },
             recordCategorySuggestions: [...DEFAULT_ENHANCED_DIARY_CONFIG.recordCategorySuggestions],
             reviewReminderWindows: { ...DEFAULT_ENHANCED_DIARY_CONFIG.reviewReminderWindows },
             headingStructure: { ...DEFAULT_ENHANCED_DIARY_CONFIG.headingStructure },
+            templateFieldMapping: structuredClone(DEFAULT_ENHANCED_DIARY_CONFIG.templateFieldMapping),
         };
     }
 
@@ -239,6 +352,9 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
         ),
         headingStructure: normalizeHeadingStructure(
             (input as Record<string, unknown>).headingStructure
+        ),
+        templateFieldMapping: normalizeTemplateFieldMapping(
+            (input as Record<string, unknown>).templateFieldMapping
         ),
     };
 }

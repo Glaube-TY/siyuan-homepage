@@ -39,6 +39,7 @@
         buildEnhancedDiaryWorkspaceSummary,
         type EnhancedDiaryWorkspaceSummary,
     } from "./enhancedDiaryWorkspaceSummary";
+    import { isEnhancedDiaryTaskManagementEnabled } from "./enhancedDiaryTemplateFieldMapping";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     function cloneDate(date: Date): Date {
@@ -74,6 +75,8 @@
     let todayWorkspaceSummary = $state<EnhancedDiaryWorkspaceSummary | null>(null);
     let todayDiaryExists = $state(false);
     let advancedEnabled = $state(false);
+
+    const taskManagementEnabled = $derived(config ? isEnhancedDiaryTaskManagementEnabled(config) : true);
 
     const PERIOD_LABELS: Record<EnhancedDiaryPeriod, string> = {
         day: "今日记录",
@@ -270,7 +273,7 @@
         const doc = await getDiaryDocumentForDate(new Date());
         todayDiaryExists = !!doc;
         todayWorkspaceSummary = doc
-            ? buildEnhancedDiaryWorkspaceSummary(doc.content)
+            ? buildEnhancedDiaryWorkspaceSummary(doc.content, config?.headingStructure, config?.templateFieldMapping, taskManagementEnabled)
             : null;
     }
 
@@ -433,6 +436,10 @@
             showMessage("强化日记为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
             return;
         }
+        if (!taskManagementEnabled) {
+            showMessage("任务管理已关闭", 3000);
+            return;
+        }
         if (actionBusy) return;
         openTaskEditorSvelteDialog({
             mode: "create",
@@ -459,6 +466,10 @@
 
     async function submitNewTask(input: GenerateTasksPlusTaskInput): Promise<boolean> {
         if (!config || actionBusy) return false;
+        if (!taskManagementEnabled) {
+            showMessage("任务管理已关闭", 3000);
+            return false;
+        }
         actionBusy = true;
         try {
             const docId = await getTodayDocIdForAction();
@@ -471,6 +482,7 @@
                 docId,
                 task: input,
                 headingStructure: config?.headingStructure,
+                mapping: config?.templateFieldMapping,
             });
 
             if (result.ok) {
@@ -498,6 +510,7 @@
                 categoryTitle,
                 content,
                 headingStructure: config?.headingStructure,
+                mapping: config?.templateFieldMapping,
             });
 
             if (result.ok) {
@@ -598,10 +611,12 @@
                     template,
                     context: menuCard.templateContext,
                     headingStructure: config.headingStructure,
+                    mapping: config.templateFieldMapping,
+                    taskManagementEnabled,
                 });
                 if (result.ok && result.skipped) {
                     if (result.reason === "marker_exists") {
-                        showMessage("检测到已有完成标记，已跳过重复补充", 3000);
+                        showMessage("检测到周期标题已存在，已跳过重复补充", 3000);
                     } else if (result.reason === "heading_exists") {
                         showMessage(
                             "检测到模板标题已存在，已跳过重复补充",
@@ -634,13 +649,14 @@
                     docId: menuCard.docId,
                     period: menuCard.period,
                     completed: true,
+                    mapping: config?.templateFieldMapping,
                 });
                 if (result.ok && result.skipped) {
                     showMessage("当前周期已是完成状态", 3000);
                 } else if (result.ok) {
                     showMessage("已标记完成", 3000);
                 } else if (result.reason === "marker_not_found") {
-                    showMessage("当前日记缺少完成标记，请先补充模板", 4000);
+                    showMessage("当前日记缺少周期顶级标题，请先补充模板", 4000);
                 } else {
                     showMessage("标记完成失败，请稍后重试", 4000);
                 }
@@ -654,13 +670,14 @@
                     docId: menuCard.docId,
                     period: menuCard.period,
                     completed: false,
+                    mapping: config?.templateFieldMapping,
                 });
                 if (result.ok && result.skipped) {
                     showMessage("当前周期已是未完成状态", 3000);
                 } else if (result.ok) {
                     showMessage("已取消完成", 3000);
                 } else if (result.reason === "marker_not_found") {
-                    showMessage("当前日记缺少完成标记，请先补充模板", 4000);
+                    showMessage("当前日记缺少周期顶级标题，请先补充模板", 4000);
                 } else {
                     showMessage("取消完成失败，请稍后重试", 4000);
                 }
@@ -673,13 +690,14 @@
                 const result = await skipPeriod({
                     docId: menuCard.docId,
                     period: menuCard.period,
+                    mapping: config?.templateFieldMapping,
                 });
                 if (result.ok && result.skipped) {
                     showMessage("当前周期已跳过", 3000);
                 } else if (result.ok) {
                     showMessage("已跳过本周期", 3000);
                 } else if (result.reason === "marker_not_found") {
-                    showMessage("当前日记缺少完成标记，请先补充模板", 4000);
+                    showMessage("当前日记缺少周期顶级标题，请先补充模板", 4000);
                 } else if (result.reason === "update_failed") {
                     showMessage("跳过本周期失败，请稍后重试", 4000);
                 } else {
@@ -701,6 +719,7 @@
                 docId: currentCard.docId,
                 period: currentCard.period,
                 mode,
+                mapping: config?.templateFieldMapping,
             });
             if (result.ok) {
                 if (mode === "pending") {
@@ -774,9 +793,11 @@
     </div>
 
     <div class="enhanced-diary-quick-actions">
-        <button type="button" onclick={openNewTaskDialog} disabled={actionBusy}>
-            新建任务
-        </button>
+        {#if taskManagementEnabled}
+            <button type="button" onclick={openNewTaskDialog} disabled={actionBusy}>
+                新建任务
+            </button>
+        {/if}
         <button type="button" onclick={openQuickRecordDialog} disabled={actionBusy}>
             快速记录
         </button>
@@ -841,14 +862,21 @@
 <div class="enhanced-diary-container enhanced-diary-locked">
     <AdvancedFeatureLock
         title="强化日记工作台"
-        subtitle="把日记、任务、记录、复盘和计划承接整合成一个专业工作台。"
+        subtitle={taskManagementEnabled ? "把日记、任务、记录、复盘和计划承接整合成一个专业工作台。" : "把日记、记录、复盘和计划承接整合成一个专业工作台。"}
         icon="diary"
-        features={[
-            "任务、记录、复盘集中管理",
-            "今日作战台与风险提醒",
-            "计划承接与复盘内容编辑",
-            "快速记录和自定义分类"
-        ]}
+        features={taskManagementEnabled
+            ? [
+                "任务、记录、复盘集中管理",
+                "今日作战台与风险提醒",
+                "计划承接与复盘内容编辑",
+                "快速记录和自定义分类"
+            ]
+            : [
+                "记录、复盘集中管理",
+                "今日作战台与提醒",
+                "计划承接与复盘内容编辑",
+                "快速记录和自定义分类"
+            ]}
         highlights={["Dashboard", "复盘工作流", "计划承接"]}
         tutorialUrl="https://blog.glaube-ty.top/archives/019e5f59-4a9c-727b-bd6a-a32c4d604a48"
         compact

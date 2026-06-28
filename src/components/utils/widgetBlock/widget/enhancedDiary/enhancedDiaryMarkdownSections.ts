@@ -1,7 +1,25 @@
 import type {
     EnhancedDiaryHeadingStructureConfig,
     EnhancedDiaryPeriod,
+    EnhancedDiaryTemplateFieldMapping,
 } from "./enhancedDiaryTypes";
+import {
+    DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING,
+} from "./enhancedDiaryTypes";
+import {
+    ENHANCED_DIARY_COMPLETED_SUFFIX,
+    getFieldAliases,
+    getPrimaryFieldTitle,
+    headingTitleMatchesAliases,
+    normalizeHeadingTitle,
+    stripReviewStatusSuffix,
+} from "./enhancedDiaryTemplateFieldMapping";
+
+export {
+    ENHANCED_DIARY_COMPLETED_SUFFIX,
+    normalizeHeadingTitle,
+    stripReviewStatusSuffix,
+};
 
 export type EnhancedDiaryHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -36,9 +54,10 @@ export interface EnhancedDiaryHeadingPlan {
 
 export function getEnhancedDiaryHeadingPlan(
     headingStructure: EnhancedDiaryHeadingStructureConfig,
-    period: EnhancedDiaryPeriod
+    period: EnhancedDiaryPeriod,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiaryHeadingPlan {
-    const rootHeadingTitle = ENHANCED_DIARY_ROOT_HEADINGS[period];
+    const rootHeadingTitle = getPrimaryFieldTitle(mapping, "rootHeadings", period);
     let baseLevel = headingStructure.dayWorkspaceBaseHeadingLevel as EnhancedDiaryHeadingLevel;
 
     // Clamp: recordLevel = baseLevel + 2 must not exceed 6
@@ -59,59 +78,53 @@ export function getEnhancedDiaryHeadingPlan(
 }
 
 export function getEnhancedDiaryRequiredPaths(
-    plan: EnhancedDiaryHeadingPlan
+    plan: EnhancedDiaryHeadingPlan,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): Array<{ path: string[]; label: string }> {
     const baseHash = "#".repeat(plan.baseLevel);
     const subHash = "#".repeat(plan.subLevel);
+    const taskManagement = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "taskManagement");
+    const newTasks = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "newTasks");
+    const migratedTasks = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "migratedTasks");
+    const taskLog = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "taskLog");
+    const quickRecords = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "quickRecords");
+    const dailyReview = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "dailyReview");
     return [
-        { path: ["任务管理"], label: `${baseHash} 任务管理` },
-        { path: ["任务管理", "新建任务"], label: `${subHash} 新建任务` },
-        { path: ["任务管理", "迁移任务"], label: `${subHash} 迁移任务` },
-        { path: ["任务管理", "任务动态"], label: `${subHash} 任务动态` },
-        { path: ["快速记录"], label: `${baseHash} 快速记录` },
-        { path: ["今日复盘"], label: `${baseHash} 今日复盘` },
+        { path: [taskManagement], label: `${baseHash} ${taskManagement}` },
+        { path: [taskManagement, newTasks], label: `${subHash} ${newTasks}` },
+        { path: [taskManagement, migratedTasks], label: `${subHash} ${migratedTasks}` },
+        { path: [taskManagement, taskLog], label: `${subHash} ${taskLog}` },
+        { path: [quickRecords], label: `${baseHash} ${quickRecords}` },
+        { path: [dailyReview], label: `${baseHash} ${dailyReview}` },
     ];
 }
 
 export const ENHANCED_DIARY_ROOT_HEADINGS: Record<EnhancedDiaryPeriod, string> = {
-    day: "今日日记",
-    week: "周复盘",
-    month: "月复盘",
-    year: "年复盘",
+    day: DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING.rootHeadings.day[0],
+    week: DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING.rootHeadings.week[0],
+    month: DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING.rootHeadings.month[0],
+    year: DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING.rootHeadings.year[0],
 };
 
 export const ENHANCED_DIARY_ROOT_HEADING_ALIASES: Record<EnhancedDiaryPeriod, string[]> = {
-    day: ["今日日记"],
-    week: ["周复盘", "本周复盘"],
-    month: ["月复盘", "月度复盘", "本月总结"],
-    year: ["年复盘", "年度复盘", "年度总结"],
+    day: [...DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING.rootHeadings.day],
+    week: [...DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING.rootHeadings.week],
+    month: [...DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING.rootHeadings.month],
+    year: [...DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING.rootHeadings.year],
 };
 
-export function matchesRootHeading(normalizedTitle: string, period: EnhancedDiaryPeriod): boolean {
-    const aliases = ENHANCED_DIARY_ROOT_HEADING_ALIASES[period];
-    return aliases.some(
-        (alias) => normalizedTitle === alias || normalizedTitle.startsWith(alias + " ")
-    );
+export function matchesRootHeading(
+    normalizedTitle: string,
+    period: EnhancedDiaryPeriod,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
+): boolean {
+    const stripped = stripReviewStatusSuffix(normalizedTitle);
+    const aliases = getFieldAliases(mapping, "rootHeadings", period);
+    return headingTitleMatchesAliases(stripped, aliases);
 }
-
-export const ENHANCED_DIARY_DAY_REQUIRED_PATHS: Array<{ path: string[]; label: string }> = [
-    { path: ["任务管理"], label: "## 任务管理" },
-    { path: ["任务管理", "新建任务"], label: "### 新建任务" },
-    { path: ["任务管理", "迁移任务"], label: "### 迁移任务" },
-    { path: ["任务管理", "任务动态"], label: "### 任务动态" },
-    { path: ["快速记录"], label: "## 快速记录" },
-    { path: ["今日复盘"], label: "## 今日复盘" },
-];
 
 export function getLines(markdown: string): string[] {
     return markdown.replace(/\r\n/g, "\n").split("\n");
-}
-
-export function normalizeHeadingTitle(title: string): string {
-    let result = title.trim();
-    result = result.replace(/\s+/g, " ");
-    result = result.replace(/\s*#+\s*$/, "");
-    return result.trim();
 }
 
 export function isHeadingLine(line: string): boolean {
@@ -218,18 +231,19 @@ export function headingTitleStartsWith(node: EnhancedDiaryHeadingNode, expectedT
 export function findRootHeading(
     markdown: string,
     period: EnhancedDiaryPeriod,
-    plan?: EnhancedDiaryHeadingPlan
+    plan?: EnhancedDiaryHeadingPlan,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): EnhancedDiarySectionLookupResult {
     const roots = parseMarkdownHeadingTree(markdown);
     const targetLevel = plan ? plan.rootHeadingLevel : 1;
 
     for (const node of roots) {
-        if (node.level === targetLevel && matchesRootHeading(normalizeHeadingTitle(node.title), period)) {
+        if (node.level === targetLevel && matchesRootHeading(normalizeHeadingTitle(node.title), period, mapping)) {
             return { found: true, node };
         }
     }
 
-    const expectedTitle = plan ? plan.rootHeadingTitle : ENHANCED_DIARY_ROOT_HEADINGS[period];
+    const expectedTitle = plan ? plan.rootHeadingTitle : getPrimaryFieldTitle(mapping, "rootHeadings", period);
     return { found: false, missingTitle: `${"#".repeat(targetLevel)} ${expectedTitle}` };
 }
 
@@ -248,9 +262,45 @@ export function findDirectChildHeading(
     return { found: false, missingTitle: expectedTitle };
 }
 
+function findDescendantByAliases(
+    parent: EnhancedDiaryHeadingNode,
+    aliases: string[]
+): EnhancedDiaryHeadingNode | null {
+    const preferredLevel = (parent.level + 1) as EnhancedDiaryHeadingLevel;
+    for (const child of parent.children) {
+        if (child.level === preferredLevel && headingTitleMatchesAliases(normalizeHeadingTitle(child.title), aliases)) {
+            return child;
+        }
+    }
+    for (const child of parent.children) {
+        if (child.level > preferredLevel && headingTitleMatchesAliases(normalizeHeadingTitle(child.title), aliases)) {
+            return child;
+        }
+    }
+    for (const child of parent.children) {
+        const found = findDescendantByAliases(child, aliases);
+        if (found) return found;
+    }
+    return null;
+}
+
+function findSectionByAliasesPath(
+    root: EnhancedDiaryHeadingNode,
+    aliasesPath: string[][]
+): boolean {
+    let current: EnhancedDiaryHeadingNode | null = root;
+    for (const aliases of aliasesPath) {
+        current = findDescendantByAliases(current, aliases);
+        if (!current) return false;
+    }
+    return true;
+}
+
 export function validateDayWorkspaceStructure(
     markdown: string,
-    headingStructure?: EnhancedDiaryHeadingStructureConfig
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
+    taskManagementEnabled: boolean = true
 ): EnhancedDiaryWorkspaceValidationResult {
     const missing: string[] = [];
 
@@ -258,36 +308,53 @@ export function validateDayWorkspaceStructure(
     let rootNode: EnhancedDiaryHeadingNode | null = null;
 
     for (const node of roots) {
-        if (node.level === 1 && matchesRootHeading(normalizeHeadingTitle(node.title), "day")) {
+        if (node.level === 1 && matchesRootHeading(normalizeHeadingTitle(node.title), "day", mapping)) {
             rootNode = node;
             break;
         }
     }
 
     if (!rootNode) {
-        missing.push(`# ${ENHANCED_DIARY_ROOT_HEADINGS.day}`);
+        missing.push(`# ${getPrimaryFieldTitle(mapping, "rootHeadings", "day")}`);
         return { valid: false, missing };
     }
 
-    // Build recommended labels from plan (for display only, not for matching)
     const plan = headingStructure
-        ? getEnhancedDiaryHeadingPlan(headingStructure, "day")
+        ? getEnhancedDiaryHeadingPlan(headingStructure, "day", mapping)
         : null;
     const baseHash = plan ? "#".repeat(plan.baseLevel) : "##";
     const subHash = plan ? "#".repeat(plan.subLevel) : "###";
 
-    const requiredItems: { path: string[]; recommendedLabel: string }[] = [
-        { path: ["任务管理"], recommendedLabel: `${baseHash} 任务管理` },
-        { path: ["任务管理", "新建任务"], recommendedLabel: `${subHash} 新建任务` },
-        { path: ["任务管理", "迁移任务"], recommendedLabel: `${subHash} 迁移任务` },
-        { path: ["任务管理", "任务动态"], recommendedLabel: `${subHash} 任务动态` },
-        { path: ["快速记录"], recommendedLabel: `${baseHash} 快速记录` },
-        { path: ["今日复盘"], recommendedLabel: `${baseHash} 今日复盘` },
+    const quickRecords = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "quickRecords");
+    const dailyReview = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "dailyReview");
+    const quickRecordsAliases = getFieldAliases(mapping, "dayWorkspaceSections", "quickRecords");
+    const dailyReviewAliases = getFieldAliases(mapping, "dayWorkspaceSections", "dailyReview");
+
+    const requiredItems: { aliasesPath: string[][]; recommendedLabel: string }[] = [
+        { aliasesPath: [quickRecordsAliases], recommendedLabel: `${baseHash} ${quickRecords}` },
+        { aliasesPath: [dailyReviewAliases], recommendedLabel: `${baseHash} ${dailyReview}` },
     ];
 
-    for (const { path, recommendedLabel } of requiredItems) {
-        const result = findSectionByTitlePath(rootNode, path);
-        if (!result.found) {
+    if (taskManagementEnabled) {
+        const taskManagement = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "taskManagement");
+        const newTasks = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "newTasks");
+        const migratedTasks = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "migratedTasks");
+        const taskLog = getPrimaryFieldTitle(mapping, "dayWorkspaceSections", "taskLog");
+        const taskManagementAliases = getFieldAliases(mapping, "dayWorkspaceSections", "taskManagement");
+        const newTasksAliases = getFieldAliases(mapping, "dayWorkspaceSections", "newTasks");
+        const migratedTasksAliases = getFieldAliases(mapping, "dayWorkspaceSections", "migratedTasks");
+        const taskLogAliases = getFieldAliases(mapping, "dayWorkspaceSections", "taskLog");
+
+        requiredItems.unshift(
+            { aliasesPath: [taskManagementAliases], recommendedLabel: `${baseHash} ${taskManagement}` },
+            { aliasesPath: [taskManagementAliases, newTasksAliases], recommendedLabel: `${subHash} ${newTasks}` },
+            { aliasesPath: [taskManagementAliases, migratedTasksAliases], recommendedLabel: `${subHash} ${migratedTasks}` },
+            { aliasesPath: [taskManagementAliases, taskLogAliases], recommendedLabel: `${subHash} ${taskLog}` }
+        );
+    }
+
+    for (const { aliasesPath, recommendedLabel } of requiredItems) {
+        if (!findSectionByAliasesPath(rootNode, aliasesPath)) {
             missing.push(recommendedLabel);
         }
     }

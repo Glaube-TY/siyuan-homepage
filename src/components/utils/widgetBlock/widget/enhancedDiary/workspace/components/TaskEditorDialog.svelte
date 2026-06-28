@@ -133,17 +133,17 @@
         gap: 6px;
         font-size: 12px;
         font-weight: 500;
-        color: var(--b3-theme-on-surface);
+        color: var(--wk-ink-secondary);
         opacity: 0.8;
         min-width: 0;
     }
 
     input,
     select {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+        background: var(--wk-surface);
+        color: var(--wk-ink-secondary);
         padding: 8px 10px;
         font-size: 13px;
         transition: border-color 0.12s;
@@ -154,7 +154,7 @@
     input:focus,
     select:focus {
         outline: none;
-        border-color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
     }
 
     footer {
@@ -163,17 +163,17 @@
         justify-content: flex-end;
         gap: 10px;
         padding: 16px 18px;
-        border-top: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-surface);
+        border-top: 1px solid var(--wk-border);
+        background: var(--wk-surface);
         width: 100%;
         box-sizing: border-box;
     }
 
     footer button {
-        border: 1px solid var(--b3-border-color);
+        border: 1px solid var(--wk-border);
         border-radius: 7px;
-        background: var(--b3-theme-background);
-        color: var(--b3-theme-on-background);
+        background: var(--wk-background);
+        color: var(--wk-ink);
         padding: 7px 16px;
         font-size: 13px;
         cursor: pointer;
@@ -181,13 +181,13 @@
     }
 
     footer button:hover {
-        border-color: var(--b3-theme-primary);
-        color: var(--b3-theme-primary);
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .primary {
-        border-color: var(--b3-theme-primary) !important;
-        background: var(--b3-theme-primary) !important;
+        border-color: var(--wk-primary) !important;
+        background: var(--wk-primary) !important;
         color: #fff !important;
     }
 
