@@ -81,6 +81,110 @@ export function normalizeWidgetConfigData(raw: unknown): Record<string, unknown>
     return null;
 }
 
+// 音乐播放器运行态字段：这些字段只影响本地播放体验，不应影响主页同步刷新签名
+const MUSIC_PLAYER_RUNTIME_FIELDS = new Set([
+    "currentTrackIndex",
+    "currentTime",
+    "duration",
+    "isPlaying",
+    "isMuted",
+    "volume",
+    "playMode",
+    "metadataCache",
+    "lyricsCache",
+    "coverCache",
+    "sortMode",
+    "sortDirection",
+    "viewMode",
+    "selectedPlaylistId",
+    "favoriteTrackKeys",
+    "playlists",
+]);
+
+function isMusicPlayerWidgetType(normalized: Record<string, unknown>): boolean {
+    if (normalized.type === "musicPlayer") return true;
+    if (normalized.contentType === "musicPlayer") return true;
+    const data = normalized.data;
+    if (typeof data === "object" && data !== null && !Array.isArray(data)) {
+        const dataRecord = data as Record<string, unknown>;
+        if (dataRecord.type === "musicPlayer") return true;
+        if (dataRecord.contentType === "musicPlayer") return true;
+    }
+    return false;
+}
+
+function filterMusicPlayerRuntimeFields(obj: Record<string, unknown>): Record<string, unknown> {
+    const filtered: Record<string, unknown> = {};
+    for (const key of Object.keys(obj)) {
+        if (!MUSIC_PLAYER_RUNTIME_FIELDS.has(key)) {
+            filtered[key] = obj[key];
+        }
+    }
+    return filtered;
+}
+
+/**
+ * 归一化 widget 配置用于主页同步签名。
+ * 对 musicPlayer 类型过滤运行态字段，避免切歌、调音量等本地操作触发主页热刷新。
+ * 其它 widget 保持原样。
+ */
+export function normalizeWidgetConfigForHomepageSignature(raw: unknown): unknown {
+    const normalized = normalizeWidgetConfigData(raw);
+    if (!normalized) return null;
+
+    if (isMusicPlayerWidgetType(normalized)) {
+        // 历史配置可能把运行态字段放在顶层，兜底过滤；只影响签名，不修改保存数据
+        const topFiltered = filterMusicPlayerRuntimeFields(normalized);
+
+        const rawData = normalized.data;
+        if (typeof rawData === "object" && rawData !== null && !Array.isArray(rawData)) {
+            const data = filterMusicPlayerRuntimeFields(rawData as Record<string, unknown>);
+            return { ...topFiltered, data };
+        }
+
+        return topFiltered;
+    }
+
+    return normalized;
+}
+
+/**
+ * 计算音乐播放器相关的布局/静态配置签名。
+ * 用于主页热刷新失败自愈时判断：若该签名未变，说明变化与音乐播放器布局/静态配置无关，
+ * 可优先不整页重建，避免打断播放。
+ */
+export async function computeMusicPlayerAffectingSignature(
+    plugin: Plugin,
+    layout: WidgetLayoutData | null,
+    deviceId: string | null,
+): Promise<string> {
+    const effectiveOrder = getEffectiveHomepageOrderForDevice(layout, deviceId);
+    const hiddenWidgetIds = (deviceId && layout?.profiles?.[deviceId]?.hiddenWidgetIds) || [];
+    const widgetLayoutNumber = layout?.profiles?.[deviceId]?.widgetLayoutNumber ?? layout?.widgetLayoutNumber ?? 4;
+    const widgetGap = layout?.profiles?.[deviceId]?.widgetGap ?? layout?.widgetGap ?? 0.2;
+    const layoutPart = {
+        order: effectiveOrder.map((item) => ({ id: item.id, style: item.style })),
+        hiddenWidgetIds: [...hiddenWidgetIds].sort(),
+        widgetLayoutNumber,
+        widgetGap,
+    };
+
+    const musicWidgetSigs: string[] = [];
+    for (const item of effectiveOrder) {
+        try {
+            const content = await plugin.loadData(`widget-${item.id}.json`);
+            const normalized = normalizeWidgetConfigForHomepageSignature(content);
+            if (normalized && isMusicPlayerWidgetType(normalized as Record<string, unknown>)) {
+                musicWidgetSigs.push(`${item.id}:${JSON.stringify(normalized)}`);
+            }
+        } catch {
+            // 单个 widget 读取失败不影响整体判断
+        }
+    }
+
+    return `layout:${JSON.stringify(layoutPart)}|musicWidgets:${musicWidgetSigs.join(",")}`;
+}
+
 /**
  * Convert widget config data to a JSON string suitable for mountWidgetContent.
  * Handles both string-stored and object-stored data without double-stringifying.
@@ -804,7 +908,7 @@ export async function buildHomepageAppliedSignature(
         for (const item of effectiveOrder) {
             try {
                 const content = await plugin.loadData(`widget-${item.id}.json`);
-                const normalized = normalizeWidgetConfigData(content);
+                const normalized = normalizeWidgetConfigForHomepageSignature(content);
                 widgetSigs.push(`${item.id}:${JSON.stringify(normalized)}`);
             } catch {
                 widgetSigs.push(`${item.id}:null`);

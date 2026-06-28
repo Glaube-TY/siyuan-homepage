@@ -113,6 +113,9 @@ export default defineConfig({
 
             output: {
                 entryFileNames: "[name].js",
+                // 思源插件 index.js 可能通过 data url/eval 注入渲染进程，
+                // 动态分块的 require 相对路径会失效，因此强制内联所有动态 import。
+                inlineDynamicImports: true,
                 assetFileNames: (assetInfo) => {
                     if (assetInfo.name === "style.css") {
                         return "index.css";

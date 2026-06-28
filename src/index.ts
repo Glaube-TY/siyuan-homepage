@@ -11,7 +11,9 @@ import {
 import { svelteDialog } from "@/libs/dialog";
 import * as advanced from "@/components/tools/advanced";
 import { loadWidgetLayoutSettings, buildHomepageAppliedSignature } from "@/components/utils/widgetBlock/utils/layout-shared";
+import type { WidgetLayoutData } from "@/components/utils/widgetBlock/utils/layout-shared";
 import { destroyFloatingDoc } from "@/components/tools/floatingDoc";
+import { destroyFloatingMini } from "@/components/utils/widgetBlock/widget/musicPlayer/musicFloatingMiniManager";
 import { setBlockAttrs } from "@/api";
 import Homepage from "./homepage/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
@@ -122,8 +124,8 @@ export default class PluginHomepage extends Plugin {
 
     // 主页热刷新短期锁：只防同一轮事件重入，必须可自动释放
     private homepageReloadTriggered = false;
-    private pendingHomepageHotReloadReason: string | null = null;
     private activeHomepageHotReloadReason: string | null = null;
+    private pendingHomepageHotReloadReason: string | null = null;
     private homepageHotReloadWatchdogTimer: number | null = null;
     private homepagePendingFlushTimer: number | null = null;
 
@@ -171,23 +173,29 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
-    private startHomepageHotReloadWatchdog(reason: string): void {
+    private startHomepageHotReloadWatchdog(_reason: string): void {
         this.clearHomepageHotReloadWatchdog();
         this.homepageHotReloadWatchdogTimer = window.setTimeout(() => {
             this.homepageHotReloadWatchdogTimer = null;
             if (!this.homepageReloadTriggered) {
                 return;
             }
-            const retryReason = this.activeHomepageHotReloadReason || reason;
-            console.warn(`[Homepage] 热刷新未收到完成回调，自动释放锁: ${retryReason}`);
-            this.activeHomepageHotReloadReason = null;
+            // watchdog 触发释放锁，同时清理 active reason，避免旧事件长期占用。
+            const activeReason = this.activeHomepageHotReloadReason;
             this.homepageReloadTriggered = false;
-            if (!this.pendingHomepageHotReloadReason && retryReason) {
-                this.pendingHomepageHotReloadReason = retryReason;
+            this.activeHomepageHotReloadReason = null;
+
+            const pending = this.pendingHomepageHotReloadReason;
+            if (!pending) {
+                return;
             }
-            if (this.pendingHomepageHotReloadReason) {
-                this.scheduleFlushPendingHomepageHotReload("watchdog-release");
+            // pending 与当前 active reason 相同，说明是同一个旧事件，不重放并清理。
+            if (pending === activeReason) {
+                this.pendingHomepageHotReloadReason = null;
+                return;
             }
+            // pending 与当前 active reason 不同，可能是锁期间来的新事件，允许刷新一次。
+            this.scheduleFlushPendingHomepageHotReload("watchdog-release");
         }, 30000);
     }
 
@@ -335,7 +343,7 @@ export default class PluginHomepage extends Plugin {
         try {
             // 读取最新配置和布局
             const rawConfig = (await this.loadData("homepageSettingConfig.json")) || {};
-            const layout = await this.loadData("widgetLayout.json") as import("@/components/utils/widgetBlock/utils/layout-shared").WidgetLayoutData | null;
+            const layout = await this.loadData("widgetLayout.json") as WidgetLayoutData | null;
             const deviceId = this.getLocalDeviceIdForSignature();
 
             // 使用统一 helper 计算复合签名（覆盖 config + layout + widget 内容）
@@ -414,6 +422,7 @@ export default class PluginHomepage extends Plugin {
         destroyTaskNotifyScheduler();
         destroyCountdownNotifyScheduler();
         destroyEnhancedDiaryNotifyScheduler();
+        destroyFloatingMini();
         this.eventBus.off("open-menu-doctree", this.docTreeMenuEventBindThis);
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
         this.eventBus.off("click-editortitleicon", this.editorTitleIconMenuEventBindThis);

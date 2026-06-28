@@ -8,9 +8,23 @@
         advancedEnabled: boolean;
         musicFolderPath?: string;
         autoPlay?: boolean;
+        showLyrics?: boolean;
+        showCover?: boolean;
+        scanSubfolders?: boolean;
+        parseMetadata?: boolean;
+        showFloatingMini?: boolean;
     }
 
-    let { advancedEnabled, musicFolderPath = $bindable(""), autoPlay = $bindable(false) }: Props = $props();
+    let {
+        advancedEnabled,
+        musicFolderPath = $bindable(""),
+        autoPlay = $bindable(false),
+        showLyrics = $bindable(true),
+        showCover = $bindable(true),
+        scanSubfolders = $bindable(false),
+        parseMetadata = $bindable(true),
+        showFloatingMini = $bindable(false),
+    }: Props = $props();
 </script>
 
 <div class="music-player-settings">
@@ -28,6 +42,29 @@
                 <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={autoPlay} />
             </SettingRow>
         </SettingSection>
+
+        <SettingSection title="显示设置">
+            <SettingRow title="显示歌词">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showLyrics} />
+            </SettingRow>
+            <SettingRow title="显示封面">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showCover} />
+            </SettingRow>
+            <!-- TODO: 悬浮播放器开发中，暂不显示设置入口
+            <SettingRow title="显示右下角迷你播放器">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showFloatingMini} />
+            </SettingRow>
+            -->
+            <SettingRow title="解析元数据">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={parseMetadata} />
+            </SettingRow>
+        </SettingSection>
+
+        <SettingSection title="扫描设置">
+            <SettingRow title="扫描子文件夹">
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={scanSubfolders} />
+            </SettingRow>
+        </SettingSection>
     {:else}
         <AdvancedFeatureLock
             title="音乐播放器"
@@ -42,3 +79,11 @@
         />
     {/if}
 </div>
+
+<style lang="scss">
+    .music-player-settings {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+</style>

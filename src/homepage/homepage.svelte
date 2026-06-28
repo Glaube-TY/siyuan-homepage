@@ -10,7 +10,7 @@
         saveLayout,
         restoreLayout,
     } from "../components/utils/widgetBlock/utils/layout-handler";
-    import { loadWidgetLayoutSettings, buildHomepageAppliedSignature, type WidgetLayoutData } from "../components/utils/widgetBlock/utils/layout-shared";
+    import { loadWidgetLayoutSettings, buildHomepageAppliedSignature, computeMusicPlayerAffectingSignature, type WidgetLayoutData } from "../components/utils/widgetBlock/utils/layout-shared";
     import { handleLoad } from "./topBanner/drag";
     import {
         loadStatsData,
@@ -203,11 +203,16 @@
 
     // 前台同步检测定时器
     let foregroundSyncWatchTimer: ReturnType<typeof setInterval> | null = null;
-    const FOREGROUND_SYNC_WATCH_INTERVAL = 30000; // 30 秒检测一次
 
     // 首次初始化标记：用于确保只在启动期写盘动作完成后记录一次签名基线
     let initialSignaturesRecorded = false;
     let homepageComponentDestroyed = false;
+
+    // 局部热刷新失败后整页自愈的冷却与锁，避免连续重建导致音乐播放中断
+    const HOMEPAGE_SELF_HEAL_COOLDOWN_MS = 30000;
+    let homepageSelfHealLocked = false;
+    let homepageSelfHealLastTime = 0;
+    let pendingHotReloadMusicAffectingSignature = "";
 
     // 实时获取高级功能启用状态
     function getAdvancedEnabled(): boolean {
@@ -283,17 +288,13 @@
     }
 
     // 页面可见性变化处理
-    // 注意：plugin 侧（src/index.ts）是签名检测主入口，homepage.svelte 侧只是补充检测
+    // 只负责飘落特效的暂停/恢复，不再触发签名检测或前台轮询
     function handleVisibilityChange(): void {
         if (document.visibilityState === "visible") {
             const config = getFallingConfig();
             if (config.advanced && config.FallEffectsEnabled) {
                 startFallingEffects();
             }
-            // 启动前台同步检测（补充检测）
-            startForegroundSyncWatch();
-            // 立即检查一次签名变化
-            checkAndReloadIfSignatureChanged("visibility-visible");
         } else {
             // 页面不可见时停止前台检测
             stopForegroundSyncWatch();
@@ -371,57 +372,6 @@
         }
     }
 
-    // 检查签名变化，如有变化则触发热刷新
-    async function checkAndReloadIfSignatureChanged(reason: string): Promise<void> {
-        try {
-            const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-            const layout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
-            const deviceId = getLocalDeviceIdForSignature();
-            const currentCompositeSig = await buildHomepageAppliedSignature(plugin, rawConfig, layout, deviceId);
-
-            const appliedSigs = plugin.getAppliedSignatures();
-
-            // 如果已应用签名为空（首次加载），只更新不 reload
-            if (!appliedSigs.composite && !appliedSigs.config && !appliedSigs.layout) {
-                plugin.updateAppliedSignatures("", "", currentCompositeSig);
-                return;
-            }
-
-            // 优先用 composite 比较
-            if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
-                return;
-            }
-
-            // 兼容旧签名（无 composite）
-            if (!appliedSigs.composite) {
-                const layoutSettings = await loadWidgetLayoutSettings(plugin);
-                const currentConfigSig = computeConfigSignature(rawConfig);
-                const currentLayoutSig = computeLayoutSignature(layoutSettings);
-                if (currentConfigSig === appliedSigs.config && currentLayoutSig === appliedSigs.layout) {
-                    return;
-                }
-            }
-
-            console.debug(`[Homepage] 签名变化 detected: ${reason}`);
-            plugin.triggerHomepageFullReload(`signature-changed: ${reason}`);
-        } catch (e) {
-            console.warn('[Homepage] 签名检查失败:', e);
-        }
-    }
-
-    // 启动前台轻量同步检测（补充检测）
-    // 注意：plugin 侧（src/index.ts）是签名检测主入口，homepage.svelte 侧只是补充检测
-    function startForegroundSyncWatch(): void {
-        if (foregroundSyncWatchTimer) {
-            return;
-        }
-        foregroundSyncWatchTimer = setInterval(() => {
-            if (document.visibilityState === 'visible') {
-                checkAndReloadIfSignatureChanged("foreground-sync-watch");
-            }
-        }, FOREGROUND_SYNC_WATCH_INTERVAL);
-    }
-
     // 停止前台同步检测
     function stopForegroundSyncWatch(): void {
         if (foregroundSyncWatchTimer) {
@@ -434,9 +384,29 @@
     async function handleExternalSyncChanged(event: CustomEvent<{ reason: string }>): Promise<void> {
         const reason = event.detail?.reason || "unknown";
         if (homepageComponentDestroyed) {
+            // 组件已销毁时也要释放热刷新锁，避免旧实例遗留状态导致锁永久占用
+            plugin.markHomepageHotReloadFinished?.(reason);
             return;
         }
-        console.debug(`[Homepage] 接收到外部同步变化事件: ${reason}`);
+
+        // 二次校验：若当前签名已等于 applied 基线，说明是运行态变化导致的误触发，直接释放锁
+        try {
+            const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+            const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
+            const latestDeviceId = getLocalDeviceIdForSignature();
+            const currentCompositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, latestDeviceId);
+            const appliedSigs = plugin.getAppliedSignatures();
+            if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
+                plugin.markHomepageHotReloadFinished?.(reason);
+                return;
+            }
+            // 记录热刷新前的音乐相关签名，失败自愈时用于判断是否与音乐播放器布局/静态配置有关
+            pendingHotReloadMusicAffectingSignature = await computeMusicPlayerAffectingSignature(plugin, latestLayout, latestDeviceId);
+        } catch {
+            // 签名校验失败时继续执行刷新，避免遗漏真正的同步变化
+            pendingHotReloadMusicAffectingSignature = "";
+        }
+
         try {
             invalidateStatusAiCache();
             await updateHomepage();
@@ -473,8 +443,47 @@
             plugin.updateAppliedSignatures("", "", compositeSig);
             console.debug(`[Homepage] 局部热刷新完成: ${reason}`);
         } catch (e) {
-            console.warn("[Homepage] 局部热刷新失败，尝试自愈:", e);
-            // 自愈：局部刷新失败时强制重建主页实例，避免保留损坏状态。
+            console.warn("[Homepage] 局部热刷新失败:", e);
+
+            // 谨慎自愈：只有在确认存在真实变化且不是运行态误触发时才允许整页重建，
+            // 避免音乐播放等运行态被连续中断。
+            if (homepageComponentDestroyed) {
+                // 组件已销毁，无需重建，由后续挂载流程处理
+                return;
+            }
+
+            try {
+                const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
+                const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
+                const latestDeviceId = getLocalDeviceIdForSignature();
+                const currentCompositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, latestDeviceId);
+                const appliedSigs = plugin.getAppliedSignatures();
+                if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
+                    // 签名已一致，说明只是运行态/容器暂不可用导致的误判，不重建
+                    return;
+                }
+                // 若热刷新失败前后音乐相关签名未变，说明变化与音乐播放器布局/静态配置无关，
+                // 优先不整页重建，避免打断正在播放的音乐
+                if (pendingHotReloadMusicAffectingSignature) {
+                    const currentMusicAffectingSig = await computeMusicPlayerAffectingSignature(plugin, latestLayout, latestDeviceId);
+                    if (currentMusicAffectingSig === pendingHotReloadMusicAffectingSignature) {
+                        return;
+                    }
+                }
+            } catch {
+                // 签名校验失败继续尝试自愈，但受冷却保护
+            }
+
+            if (homepageSelfHealLocked) {
+                return;
+            }
+            const now = Date.now();
+            if (now - homepageSelfHealLastTime < HOMEPAGE_SELF_HEAL_COOLDOWN_MS) {
+                return;
+            }
+
+            homepageSelfHealLocked = true;
+            homepageSelfHealLastTime = now;
             try {
                 if (typeof plugin.reloadHomepageInstance === "function") {
                     plugin.reloadHomepageInstance();
@@ -483,6 +492,10 @@
                 }
             } catch (healErr) {
                 console.warn("[Homepage] 自愈失败:", healErr);
+            } finally {
+                window.setTimeout(() => {
+                    homepageSelfHealLocked = false;
+                }, HOMEPAGE_SELF_HEAL_COOLDOWN_MS);
             }
         } finally {
             // 释放热刷新短期锁
@@ -793,8 +806,7 @@
         // 注意：此时不立即记录已应用签名，因为后续 restoreLayout 可能还会写盘
         // 签名基线将在 restoreLayout 完成后统一记录
 
-        // 启动前台同步检测
-        startForegroundSyncWatch();
+        // 不再启动前台同步轮询，避免切换软件/放后台/可见性变化时误刷新主页
 
         await tick();
         if (homepageComponentDestroyed) return;
@@ -1194,24 +1206,27 @@
                 return;
             }
 
-            if (result.ok) {
-                statusAiCacheKey = result.cacheKey;
-                statusAiCachedText = result.text;
-                formattedStatsInfoText = result.text;
-                setStatusAiRuntimeState("success");
-            } else if (!result.ok) {
-                if (result.reason === "aborted") {
+            if (result.ok === false) {
+                const reason = result.reason;
+                const message = result.message;
+                if (reason === "aborted") {
                     setStatusAiRuntimeState("aborted");
                     setVisibleStatusTextError(getHomepageStatusAiFailureText("aborted"));
                 } else {
-                    setStatusAiRuntimeState(result.reason === "no_model" ? "no_model" : result.reason === "not_premium" ? "no_premium" : "failed");
-                    setVisibleStatusTextError(getHomepageStatusAiFailureText(result.reason));
+                    setStatusAiRuntimeState(reason === "no_model" ? "no_model" : reason === "not_premium" ? "no_premium" : "failed");
+                    setVisibleStatusTextError(getHomepageStatusAiFailureText(reason));
                     console.warn(
                         "[Homepage] AI 状态语生成失败:",
-                        sanitizeStatusAiDiagnosticMessage(result.message),
+                        sanitizeStatusAiDiagnosticMessage(message),
                     );
                 }
+                return;
             }
+
+            statusAiCacheKey = result.cacheKey;
+            statusAiCachedText = result.text;
+            formattedStatsInfoText = result.text;
+            setStatusAiRuntimeState("success");
         } catch (error) {
             if (!abortController.signal.aborted) {
                 setStatusAiRuntimeState("failed");

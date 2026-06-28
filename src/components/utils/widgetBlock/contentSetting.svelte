@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
+    import { checkExistingMusicPlayer } from "./widget/musicPlayer/musicPlayerInstanceGuard";
     import { getNotebooks } from "@/components/tools/getNotebooks";
     import FavoritesSet from "./widget/favorites/favoritesSet.svelte";
     import FocusSet from "./widget/focus/focusSet.svelte";
@@ -87,6 +88,8 @@
         initialActiveTab = "",
         forceInitialContentType = false
     }: Props = $props();
+
+    let loadedWidgetConfig: Record<string, any> | null = $state(null);
 
     let activeTab = $state("note");
 
@@ -336,6 +339,11 @@
     // 音乐播放器相关
     let musicFolderPath = $state("");
     let autoPlay = $state(false);
+    let musicShowLyrics = $state(true);
+    let musicShowCover = $state(true);
+    let musicScanSubfolders = $state(false);
+    let musicParseMetadata = $state(true);
+    let musicShowFloatingMini = $state(false);
 
     //  黄历相关
     let almanacStyle: string = $state("classic");
@@ -539,6 +547,7 @@
 
             selectedContentType = parsedData.type || "latest-docs";
             activeTab = parsedData.activeTab || "note";
+            loadedWidgetConfig = parsedData;
 
             if (parsedData.type === "latest-docs") {
                 docLimit = parsedData.data?.[0]?.limit || 5;
@@ -811,6 +820,11 @@
             } else if (parsedData.type === "musicPlayer") {
                 musicFolderPath = parsedData.data?.musicFolderPath || "";
                 autoPlay = parsedData.data?.autoPlay || false;
+                musicShowLyrics = parsedData.data?.showLyrics !== undefined ? !!parsedData.data.showLyrics : true;
+                musicShowCover = parsedData.data?.showCover !== undefined ? !!parsedData.data.showCover : true;
+                musicScanSubfolders = !!parsedData.data?.scanSubfolders;
+                musicParseMetadata = parsedData.data?.parseMetadata !== undefined ? !!parsedData.data.parseMetadata : true;
+                musicShowFloatingMini = !!parsedData.data?.showFloatingMini;
             } else if (parsedData.type === "almanac") {
                 almanacStyle = parsedData.data?.almanacStyle || "";
             } else if (parsedData.type === "stikynot") {
@@ -1669,6 +1683,11 @@
                         {advancedEnabled}
                         bind:musicFolderPath
                         bind:autoPlay
+                        bind:showLyrics={musicShowLyrics}
+                        bind:showCover={musicShowCover}
+                        bind:scanSubfolders={musicScanSubfolders}
+                        bind:parseMetadata={musicParseMetadata}
+                        bind:showFloatingMini={musicShowFloatingMini}
                     />
                 {:else if selectedContentType === "almanac"}
                     <AlmanacSet {advancedEnabled} bind:almanacStyle />
@@ -2071,11 +2090,26 @@
                         },
                     };
                 } else if (selectedContentType === "musicPlayer") {
+                    const existingMusicPlayerData =
+                        loadedWidgetConfig?.type === "musicPlayer" &&
+                        loadedWidgetConfig?.data &&
+                        !Array.isArray(loadedWidgetConfig.data)
+                            ? loadedWidgetConfig.data
+                            : {};
                     contentTypeJson = {
                         activeTab: activeTab,
                         type: "musicPlayer",
                         blockId: currentBlockId,
-                        data: { musicFolderPath, autoPlay },
+                        data: {
+                            ...existingMusicPlayerData,
+                            musicFolderPath,
+                            autoPlay,
+                            showLyrics: musicShowLyrics,
+                            showCover: musicShowCover,
+                            scanSubfolders: musicScanSubfolders,
+                            parseMetadata: musicParseMetadata,
+                            showFloatingMini: musicShowFloatingMini,
+                        },
                     };
                 } else if (selectedContentType === "almanac") {
                     contentTypeJson = {
@@ -2282,6 +2316,14 @@
                         blockId: currentBlockId,
                         data: {},
                     };
+                }
+
+                if (selectedContentType === "musicPlayer") {
+                    const { exists } = await checkExistingMusicPlayer(plugin, currentBlockId);
+                    if (exists) {
+                        showMessage("音乐播放器只能添加一个，请先删除主页或侧边栏中已有的音乐播放器。", 5000);
+                        return;
+                    }
                 }
 
                 await syncCurrentDatabaseWidgetConfig(contentTypeJson);
