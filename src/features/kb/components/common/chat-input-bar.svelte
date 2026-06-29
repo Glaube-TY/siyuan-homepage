@@ -1457,12 +1457,6 @@
       }
     }
 
-    :global(.b3-button) {
-      min-height: 38px;
-      border-radius: 999px;
-      padding: 0 16px;
-    }
-
     .doc-search-container {
       left: 0;
       right: 0;
@@ -1476,6 +1470,12 @@
       max-height: 55dvh;
       border-radius: 16px;
     }
+  }
+
+  .chat-input-wrapper :global(.b3-button) {
+    min-height: 38px;
+    border-radius: 999px;
+    padding: 0 16px;
   }
 
   // Top tools row

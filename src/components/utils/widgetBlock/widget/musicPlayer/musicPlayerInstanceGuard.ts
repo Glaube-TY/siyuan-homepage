@@ -11,25 +11,42 @@ export async function checkExistingMusicPlayer(
         const layoutFiles = ["widgetLayout.json", "sidebarWidgetLayout.json"];
 
         for (const fileName of layoutFiles) {
-            const raw = await plugin.loadData(fileName);
-            if (!raw) continue;
-            const layout = typeof raw === "string" ? JSON.parse(raw) : raw;
-            if (!layout || typeof layout !== "object") continue;
+            let layout: any;
+            try {
+                const raw = await plugin.loadData(fileName);
+                if (!raw) continue;
+                layout = typeof raw === "string" ? JSON.parse(raw) : raw;
+                if (!layout || typeof layout !== "object") continue;
+            } catch {
+                // 单个 layout 文件读取或解析失败时跳过，继续检查其它 layout
+                continue;
+            }
 
-            const ids = collectWidgetIds(layout);
+            let ids: string[];
+            try {
+                ids = collectWidgetIds(layout);
+            } catch {
+                continue;
+            }
+
             for (const id of ids) {
                 if (id === currentBlockId) continue;
-                const widgetRaw = await plugin.loadData(`widget-${id}.json`);
-                if (!widgetRaw) continue;
-                const widget = typeof widgetRaw === "string" ? JSON.parse(widgetRaw) : widgetRaw;
-                if (widget?.type === "musicPlayer") {
-                    return { exists: true, existingBlockId: id };
+                try {
+                    const widgetRaw = await plugin.loadData(`widget-${id}.json`);
+                    if (!widgetRaw) continue;
+                    const widget = typeof widgetRaw === "string" ? JSON.parse(widgetRaw) : widgetRaw;
+                    if (widget?.type === "musicPlayer") {
+                        return { exists: true, existingBlockId: id };
+                    }
+                } catch {
+                    // 单个 widget 文件读取或解析失败时跳过，继续检查其它 widget
                 }
             }
         }
 
         return { exists: false };
     } catch {
+        // 兜底：保证设置弹窗不会崩溃
         return { exists: false };
     }
 }
@@ -45,19 +62,25 @@ function collectWidgetIds(layout: any): string[] {
         }
     };
 
+    const addFromProfile = (profile: any) => {
+        if (!profile || typeof profile !== "object") return;
+        if (profile.defaultOrder) addFromArray(profile.defaultOrder);
+        if (profile.order) addFromArray(profile.order);
+    };
+
     if (layout.defaultOrder) addFromArray(layout.defaultOrder);
     if (layout.order) addFromArray(layout.order);
 
-    // profiles 可能是数组 [{order: [...]}] 或对象 Record<string, {order: [...]}>
+    // profiles 可能是数组 [{defaultOrder?: [...], order?: [...]}] 或对象 Record<string, {defaultOrder?: [...], order?: [...]}>
     if (layout.profiles) {
         if (Array.isArray(layout.profiles)) {
             for (const profile of layout.profiles) {
-                if (profile && profile.order) addFromArray(profile.order);
+                addFromProfile(profile);
             }
         } else if (typeof layout.profiles === "object") {
             const values = Object.values(layout.profiles) as any[];
             for (const profile of values) {
-                if (profile && profile.order) addFromArray(profile.order);
+                addFromProfile(profile);
             }
         }
     }

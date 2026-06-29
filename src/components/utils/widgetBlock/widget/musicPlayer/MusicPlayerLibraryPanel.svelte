@@ -86,7 +86,6 @@
         onReplaceActiveQueue,
         onAppendActiveQueue,
         onAppendTrackToActiveQueue,
-        onOpenQueueDialog,
     }: Props = $props();
 
     let menuOpen = $state(false);

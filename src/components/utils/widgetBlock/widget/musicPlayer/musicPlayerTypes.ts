@@ -105,6 +105,36 @@ export const DEFAULT_MUSIC_PLAYER_SETTINGS: MusicPlayerSettings = {
     showFloatingMini: false,
 };
 
+export interface MusicMetadataIndexProgress {
+    running: boolean;
+    total: number;
+    queued: number;
+    processed: number;
+    indexed: number;
+    basic: number;
+    noTag: number;
+    failed: number;
+    skipped: number;
+    fresh: number;
+    startedAt?: number;
+    updatedAt?: number;
+    completedAt?: number;
+    lastMessage?: string;
+}
+
+export const DEFAULT_MUSIC_METADATA_INDEX_PROGRESS: MusicMetadataIndexProgress = {
+    running: false,
+    total: 0,
+    queued: 0,
+    processed: 0,
+    indexed: 0,
+    basic: 0,
+    noTag: 0,
+    failed: 0,
+    skipped: 0,
+    fresh: 0,
+};
+
 export interface MusicPlayerViewModel {
     musicFiles: MusicTrack[];
     currentTrackIndex: number;
@@ -127,6 +157,8 @@ export interface MusicPlayerViewModel {
     statsVersion: number;
     activeQueueTrackKeys: string[];
     activeQueueCount: number;
+    detailDialogOpen: boolean;
+    metadataIndexProgress: MusicMetadataIndexProgress;
 }
 
 export interface MusicPlayerActions {

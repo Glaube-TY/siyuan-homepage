@@ -1,11 +1,9 @@
 import { parseBuffer, parseFile } from "music-metadata";
 import type { MetadataCacheEntry, MusicTrack, MusicLyricLine, MusicMetadataLoadMode } from "./musicPlayerTypes";
 import { buildLocalAudioFileUrl } from "./musicPlayerUtils";
-
+import type { MusicMetadataIndexEntry } from "./musicMetadataIndexStore";
+import { getTrackKey } from "./musicPlaybackStatsStore";
 type AudioMetadata = Awaited<ReturnType<typeof parseBuffer>>;
-
-const LIGHT_MODE_MAX_READ_SIZE = 50 * 1024 * 1024;
-
 const metadataCache = new Map<string, MetadataCacheEntry>();
 const coverObjectUrls = new Set<string>();
 
@@ -311,19 +309,32 @@ function applyBaseMetadataToTrack(
     }
 }
 
-async function applyFullMetadataToTrack(track: MusicTrack, metadata: AudioMetadata, extra?: NativeExtraMetadata) {
-    applyBaseMetadataToTrack(track, metadata, extra, false);
-    applyCoverToTrack(track, metadata);
+async function applyFullMetadataToTrack(
+    track: MusicTrack,
+    metadata: AudioMetadata,
+    extra?: NativeExtraMetadata,
+    options: LoadMetadataOptions = {},
+) {
+    const includeCover = options.includeCover !== false;
+    const includeLyrics = options.includeLyrics !== false;
 
-    const embeddedLyricsText = parseEmbeddedLyricsText(metadata);
-    if (embeddedLyricsText) {
-        track.unsyncedLyricsText = embeddedLyricsText;
-        const parsed = parseEmbeddedLyrics(embeddedLyricsText);
-        if (parsed.length > 0) {
-            track.lyrics = parsed;
+    applyBaseMetadataToTrack(track, metadata, extra, false);
+    if (includeCover) {
+        applyCoverToTrack(track, metadata);
+    }
+
+    if (includeLyrics) {
+        const embeddedLyricsText = parseEmbeddedLyricsText(metadata);
+        if (embeddedLyricsText) {
+            track.unsyncedLyricsText = embeddedLyricsText;
+            const parsed = parseEmbeddedLyrics(embeddedLyricsText);
+            if (parsed.length > 0) {
+                track.lyrics = parsed;
+            }
+            track.lyricsStatus = "loaded";
         }
     }
-    if (extra?.picture && !track.coverObjectUrl) {
+    if (includeCover && extra?.picture && !track.coverObjectUrl) {
         try {
             const blob = new Blob([new Uint8Array(extra.picture.data)], { type: extra.picture.format || "image/jpeg" });
             const objectUrl = URL.createObjectURL(blob);
@@ -335,7 +346,7 @@ async function applyFullMetadataToTrack(track: MusicTrack, metadata: AudioMetada
     }
 
     // 无内嵌封面时尝试同目录封面兜底
-    if (!track.coverObjectUrl) {
+    if (includeCover && !track.coverObjectUrl) {
         await loadExternalCoverForTrack(track);
     }
 }
@@ -343,23 +354,6 @@ async function applyFullMetadataToTrack(track: MusicTrack, metadata: AudioMetada
 function applyLightMetadataToTrack(track: MusicTrack, metadata: AudioMetadata, extra?: NativeExtraMetadata) {
     applyBaseMetadataToTrack(track, metadata, extra, false);
     // light 模式不读取封面、不读取内嵌歌词
-}
-
-function applyMetadataToTrack(track: MusicTrack, metadata: AudioMetadata, preserve = false) {
-    applyBaseMetadataToTrack(track, metadata, undefined, preserve);
-    if (!preserve || !track.coverObjectUrl) {
-        applyCoverToTrack(track, metadata);
-    }
-    if (!preserve || (!track.unsyncedLyricsText && track.lyrics.length === 0)) {
-        const embeddedLyricsText = parseEmbeddedLyricsText(metadata);
-        if (embeddedLyricsText) {
-            track.unsyncedLyricsText = embeddedLyricsText;
-            const parsed = parseEmbeddedLyrics(embeddedLyricsText);
-            if (parsed.length > 0) {
-                track.lyrics = parsed;
-            }
-        }
-    }
 }
 
 type Picture = NonNullable<AudioMetadata["common"]["picture"]>[number];
@@ -371,35 +365,6 @@ interface NativeExtraMetadata {
     lyrics?: string;
     comment?: string;
     picture?: Picture;
-}
-
-function applyNativeExtraToTrack(track: MusicTrack, extra: NativeExtraMetadata) {
-    if (extra.title && (!track.title || track.title === track.baseName)) {
-        track.title = extra.title;
-    }
-    if (extra.artist && !track.artist) {
-        track.artist = extra.artist;
-    }
-    if (extra.album && !track.album) {
-        track.album = extra.album;
-    }
-    if (extra.lyrics && !track.unsyncedLyricsText && track.lyrics.length === 0) {
-        track.unsyncedLyricsText = extra.lyrics;
-        const parsed = parseEmbeddedLyrics(extra.lyrics);
-        if (parsed.length > 0) {
-            track.lyrics = parsed;
-        }
-    }
-    if (extra.picture && !track.coverObjectUrl) {
-        try {
-            const blob = new Blob([new Uint8Array(extra.picture.data)], { type: extra.picture.format || "image/jpeg" });
-            const objectUrl = URL.createObjectURL(blob);
-            track.coverObjectUrl = objectUrl;
-            coverObjectUrls.add(objectUrl);
-        } catch {
-            // ignore
-        }
-    }
 }
 
 async function parseId3Chunk(id3Data: Buffer): Promise<AudioMetadata | undefined> {
@@ -572,25 +537,36 @@ async function parseLocalAudioMetadataLight(
         const extra = extractNativeTagFallback(metadata);
         return { metadata, extra };
     } catch {
-        // parseFile 在部分环境不可用，继续 fallback
+        // parseFile 在部分环境或部分格式下不可用，继续 fallback
     }
 
-    // 大文件不再整文件读取，只保留文件名和未知时长
-    if (track.size > LIGHT_MODE_MAX_READ_SIZE) {
+    // fallback：使用 parseBuffer 读取完整文件（索引队列串行执行，避免并发大文件）
+    try {
+        const buffer = await readAudioBuffer(track.filePath);
+        const mimeType = getMimeTypeFromExt(track.ext);
+        const metadata = await parseBuffer(buffer, { mimeType, size: track.size });
+        let extra: NativeExtraMetadata | undefined;
+        if (track.ext === ".wav" || track.ext === ".wave") {
+            extra = await scanWavChunks(buffer);
+        }
+        if (!extra) {
+            extra = extractNativeTagFallback(metadata);
+        }
+        return { metadata, extra };
+    } catch {
         return {};
     }
+}
 
-    const buffer = await readAudioBuffer(track.filePath);
-    const mimeType = getMimeTypeFromExt(track.ext);
-    const metadata = await parseBuffer(buffer, { mimeType, size: track.size });
-    let extra: NativeExtraMetadata | undefined;
-    if (track.ext === ".wav" || track.ext === ".wave") {
-        extra = await scanWavChunks(buffer);
-    }
-    if (!extra) {
-        extra = extractNativeTagFallback(metadata);
-    }
-    return { metadata, extra };
+function deriveHasTextMetadataFromLightResult(
+    metadata: AudioMetadata | undefined,
+    extra: NativeExtraMetadata | undefined,
+): boolean {
+    if (!metadata) return false;
+    const title = metadata.common.title?.trim() || extra?.title?.trim() || "";
+    const artist = metadata.common.artist?.trim() || extra?.artist?.trim() || "";
+    const album = metadata.common.album?.trim() || extra?.album?.trim() || "";
+    return !!(title || artist || album);
 }
 
 async function parseLocalAudioMetadata(
@@ -603,10 +579,75 @@ async function parseLocalAudioMetadata(
     return parseLocalAudioMetadataFull(track);
 }
 
+export async function loadLightMetadataForIndex(track: MusicTrack): Promise<MusicMetadataIndexEntry | null> {
+    let metadata: AudioMetadata | undefined;
+    let extra: NativeExtraMetadata | undefined;
+    let parseFailed = false;
+    try {
+        const result = await parseLocalAudioMetadataLight(track);
+        metadata = result.metadata;
+        extra = result.extra;
+        if (metadata) {
+            applyLightMetadataToTrack(track, metadata, extra);
+            track.metadataError = undefined;
+        } else {
+            track.metadataError = "metadata_light_skipped";
+        }
+    } catch {
+        parseFailed = true;
+        track.metadataError = "metadata_parse_failed_light";
+    }
+
+    track.metadataStatus = "loaded";
+    track.metadataLoadLevel = "light";
+
+    const hasTextMetadata = metadata
+        ? deriveHasTextMetadataFromLightResult(metadata, extra)
+        : !!(track.artist || track.album || (track.title && track.title !== track.baseName));
+    const hasDuration = metadata
+        ? (metadata.format.duration || track.duration || 0) > 0
+        : track.duration > 0;
+
+    const indexStatus: MusicMetadataIndexEntry["indexStatus"] = parseFailed
+        ? "failed"
+        : hasTextMetadata
+          ? "text"
+          : hasDuration
+            ? "basic"
+            : "noTag";
+
+    return {
+        trackKey: getTrackKey(track),
+        filePath: track.filePath,
+        fileName: track.fileName,
+        baseName: track.baseName,
+        ext: track.ext,
+        size: track.size,
+        mtimeMs: track.mtimeMs,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        duration: track.duration,
+        bitrate: track.bitrate,
+        sampleRate: track.sampleRate,
+        hasTextMetadata,
+        hasDuration,
+        attempted: true,
+        indexStatus,
+        updatedAt: Date.now(),
+    };
+}
+
+export interface LoadMetadataOptions {
+    includeCover?: boolean;
+    includeLyrics?: boolean;
+}
+
 export async function loadMetadataForTrack(
     track: MusicTrack,
     parseMetadata: boolean,
     mode: MusicMetadataLoadMode = "full",
+    options: LoadMetadataOptions = {},
 ): Promise<void> {
     if (!parseMetadata) {
         track.metadataStatus = "loaded";
@@ -617,18 +658,26 @@ export async function loadMetadataForTrack(
 
     const currentLevel = track.metadataLoadLevel || "none";
     if (mode === "light" && (currentLevel === "light" || currentLevel === "full")) return;
-    if (mode === "full" && currentLevel === "full") return;
+    if (mode === "full" && currentLevel === "full") {
+        const coverMissing = options.includeCover !== false && !track.coverObjectUrl;
+        const lyricsMissing =
+            options.includeLyrics !== false &&
+            track.lyricsStatus === "pending" &&
+            track.lyrics.length === 0 &&
+            !track.unsyncedLyricsText;
+        if (!coverMissing && !lyricsMissing) return;
+    }
 
     const cacheKey = getCacheKey(track.filePath, track.size, track.mtimeMs);
     const cached = metadataCache.get(cacheKey);
     if (cached) {
         const cachedLevel = cached.metadataLoadLevel || "none";
         if (mode === "light" && (cachedLevel === "light" || cachedLevel === "full")) {
-            await applyCachedToTrack(track, cached, mode);
+            await applyCachedToTrack(track, cached, mode, options);
             return;
         }
         if (mode === "full" && cachedLevel === "full") {
-            await applyCachedToTrack(track, cached, mode);
+            await applyCachedToTrack(track, cached, mode, options);
             return;
         }
         // 缓存级别低于所需级别，继续重新解析
@@ -639,13 +688,16 @@ export async function loadMetadataForTrack(
         const { metadata, extra } = await parseLocalAudioMetadata(track, mode);
         if (metadata) {
             if (mode === "full") {
-                await applyFullMetadataToTrack(track, metadata, extra);
+                await applyFullMetadataToTrack(track, metadata, extra, options);
             } else {
                 applyLightMetadataToTrack(track, metadata, extra);
             }
             track.metadataStatus = "loaded";
             track.metadataLoadLevel = mode;
+            track.metadataError = undefined;
 
+            const shouldCacheLyrics = mode === "full" && options.includeLyrics !== false;
+            const embeddedLyricsText = shouldCacheLyrics ? parseEmbeddedLyricsText(metadata) : undefined;
             metadataCache.set(cacheKey, {
                 filePath: track.filePath,
                 size: track.size,
@@ -656,8 +708,8 @@ export async function loadMetadataForTrack(
                 duration: track.duration,
                 bitrate: track.bitrate,
                 sampleRate: track.sampleRate,
-                unsyncedLyricsText: mode === "full" ? track.unsyncedLyricsText : undefined,
-                lyrics: mode === "full" && track.lyrics.length > 0 ? track.lyrics : undefined,
+                unsyncedLyricsText: embeddedLyricsText || undefined,
+                lyrics: embeddedLyricsText ? parseEmbeddedLyrics(embeddedLyricsText) : undefined,
                 metadataLoadLevel: mode,
             });
         } else {
@@ -685,7 +737,12 @@ export async function loadMetadataForTrack(
     }
 }
 
-async function applyCachedToTrack(track: MusicTrack, cached: MetadataCacheEntry, mode: MusicMetadataLoadMode) {
+async function applyCachedToTrack(
+    track: MusicTrack,
+    cached: MetadataCacheEntry,
+    mode: MusicMetadataLoadMode,
+    options: LoadMetadataOptions = {},
+) {
     track.title = cached.title || track.baseName;
     track.artist = cached.artist || "";
     track.album = cached.album || "";
@@ -694,10 +751,13 @@ async function applyCachedToTrack(track: MusicTrack, cached: MetadataCacheEntry,
     track.sampleRate = cached.sampleRate;
     track.metadataStatus = "loaded";
     track.metadataLoadLevel = cached.metadataLoadLevel || "none";
+    track.metadataError = undefined;
     if (mode === "full") {
-        track.unsyncedLyricsText = cached.unsyncedLyricsText;
-        track.lyrics = cached.lyrics && cached.lyrics.length > 0 ? cached.lyrics : [];
-        if (!track.coverObjectUrl) {
+        if (options.includeLyrics !== false) {
+            track.unsyncedLyricsText = cached.unsyncedLyricsText;
+            track.lyrics = cached.lyrics && cached.lyrics.length > 0 ? cached.lyrics : [];
+        }
+        if (options.includeCover !== false && !track.coverObjectUrl) {
             await loadCoverForTrack(track);
         }
     }
@@ -715,10 +775,10 @@ async function loadCoverForTrack(track: MusicTrack): Promise<void> {
     try {
         const { metadata, extra } = await parseLocalAudioMetadata(track, "full");
         if (metadata) {
-            applyMetadataToTrack(track, metadata, true);
-            if (extra) {
-                applyNativeExtraToTrack(track, extra);
-            }
+            await applyFullMetadataToTrack(track, metadata, extra, {
+                includeCover: true,
+                includeLyrics: false,
+            });
         }
     } catch {
         // 封面读取失败不影响文字元数据和播放

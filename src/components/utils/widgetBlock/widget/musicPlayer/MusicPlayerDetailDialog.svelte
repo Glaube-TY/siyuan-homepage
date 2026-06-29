@@ -1,5 +1,6 @@
 <script lang="ts">
-    import type { MusicPlayerActions, MusicPlayerVmStore } from "./musicPlayerTypes";
+    import { onMount, onDestroy, untrack } from "svelte";
+    import type { MusicPlayerActions, MusicPlayerVmStore, MusicTrack, MusicPlayerSortMode, MusicPlayerSortDirection, MusicPlayerViewMode, MusicPlaylist } from "./musicPlayerTypes";
     import { formatPlaybackTime } from "./musicPlayerUtils";
     import MusicPlayerIcon from "./MusicPlayerIcon.svelte";
     import MusicPlayerLyricsPanel from "./MusicPlayerLyricsPanel.svelte";
@@ -25,6 +26,30 @@
     let { vmStore, actions, onClose, onRequestLightMetadata, getTrackStats, musicFolderPath = "", onQueueChange, onReplaceActiveQueue, onAppendActiveQueue, onAppendTrackToActiveQueue, onOpenQueueDialog }: Props = $props();
 
     let addMenuOpen = $state(false);
+    let libraryReady = $state(false);
+    let libraryReadyFrame1: number | null = null;
+    let libraryReadyFrame2: number | null = null;
+
+    onMount(() => {
+        libraryReadyFrame1 = requestAnimationFrame(() => {
+            libraryReadyFrame1 = null;
+            libraryReadyFrame2 = requestAnimationFrame(() => {
+                libraryReady = true;
+                libraryReadyFrame2 = null;
+            });
+        });
+    });
+
+    onDestroy(() => {
+        if (libraryReadyFrame1 !== null) {
+            cancelAnimationFrame(libraryReadyFrame1);
+            libraryReadyFrame1 = null;
+        }
+        if (libraryReadyFrame2 !== null) {
+            cancelAnimationFrame(libraryReadyFrame2);
+            libraryReadyFrame2 = null;
+        }
+    });
 
     function isCurrentFavorite(): boolean {
         if (!currentTrack) return false;
@@ -34,9 +59,72 @@
 
     const vm = $derived($vmStore);
     const currentTrack = $derived(vm.musicFiles[vm.currentTrackIndex]);
-    const progressPercent = $derived(
-        vm.duration > 0 && Number.isFinite(vm.currentTime) ? (vm.currentTime / vm.duration) * 100 : 0,
-    );
+    const progressPercent = $derived(clampProgressPercent(vm.currentTime, vm.duration));
+
+    interface LibraryVmSnapshot {
+        musicFiles: MusicTrack[];
+        currentTrackIndex: number;
+        sortMode: MusicPlayerSortMode;
+        sortDirection: MusicPlayerSortDirection;
+        viewMode: MusicPlayerViewMode;
+        selectedPlaylistId: string | null;
+        favoriteTrackKeys: string[];
+        playlists: MusicPlaylist[];
+        statsVersion: number;
+        activeQueueTrackKeys: string[];
+        currentTrack: MusicTrack | undefined;
+    }
+
+    let libraryVmSnapshot = $state<LibraryVmSnapshot>({
+        musicFiles: [],
+        currentTrackIndex: 0,
+        sortMode: "default",
+        sortDirection: "asc",
+        viewMode: "all",
+        selectedPlaylistId: null,
+        favoriteTrackKeys: [],
+        playlists: [],
+        statsVersion: 0,
+        activeQueueTrackKeys: [],
+        currentTrack: undefined,
+    });
+
+    $effect(() => {
+        const vm = $vmStore;
+        const prev = untrack(() => libraryVmSnapshot);
+        if (
+            prev.musicFiles !== vm.musicFiles ||
+            prev.currentTrackIndex !== vm.currentTrackIndex ||
+            prev.sortMode !== vm.sortMode ||
+            prev.sortDirection !== vm.sortDirection ||
+            prev.viewMode !== vm.viewMode ||
+            prev.selectedPlaylistId !== vm.selectedPlaylistId ||
+            prev.favoriteTrackKeys !== vm.favoriteTrackKeys ||
+            prev.playlists !== vm.playlists ||
+            prev.statsVersion !== vm.statsVersion ||
+            prev.activeQueueTrackKeys !== vm.activeQueueTrackKeys ||
+            prev.currentTrack !== currentTrack
+        ) {
+            libraryVmSnapshot = {
+                musicFiles: vm.musicFiles,
+                currentTrackIndex: vm.currentTrackIndex,
+                sortMode: vm.sortMode,
+                sortDirection: vm.sortDirection,
+                viewMode: vm.viewMode,
+                selectedPlaylistId: vm.selectedPlaylistId,
+                favoriteTrackKeys: vm.favoriteTrackKeys,
+                playlists: vm.playlists,
+                statsVersion: vm.statsVersion,
+                activeQueueTrackKeys: vm.activeQueueTrackKeys,
+                currentTrack,
+            };
+        }
+    });
+
+    function clampProgressPercent(currentTime: number, duration: number): number {
+        if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(currentTime)) return 0;
+        return Math.max(0, Math.min(100, (currentTime / duration) * 100));
+    }
     const audioFormatInfo = $derived((() => {
         if (!currentTrack) return "";
         const parts: string[] = [];
@@ -110,44 +198,48 @@
         </div>
 
         <div class="detail-right">
-            <MusicPlayerLibraryPanel
-                musicFiles={vm.musicFiles}
-                currentTrackIndex={vm.currentTrackIndex}
-                playTrack={actions.playTrack}
-                onRequestLightMetadata={onRequestLightMetadata}
-                sortMode={vm.sortMode}
-                sortDirection={vm.sortDirection}
-                setSortMode={actions.setSortMode}
-                setSortDirection={actions.setSortDirection}
-                {getTrackStats}
-                viewMode={vm.viewMode}
-                selectedPlaylistId={vm.selectedPlaylistId}
-                favoriteTrackKeys={vm.favoriteTrackKeys}
-                playlists={vm.playlists}
-                toggleFavoriteTrack={actions.toggleFavoriteTrack}
-                setViewMode={actions.setViewMode}
-                selectPlaylist={actions.selectPlaylist}
-                createPlaylist={actions.createPlaylist}
-                renamePlaylist={actions.renamePlaylist}
-                deletePlaylist={actions.deletePlaylist}
-                addCurrentTrackToPlaylist={actions.addCurrentTrackToPlaylist}
-                addTrackToPlaylist={actions.addTrackToPlaylist}
-                removeTrackFromPlaylist={actions.removeTrackFromPlaylist}
-                exportPlaylistM3U8={actions.exportPlaylistM3U8}
-                importM3U8={actions.importM3U8}
-                exportLibraryJSON={actions.exportLibraryJSON}
-                importLibraryJSON={actions.importLibraryJSON}
-                syncLibraryState={actions.syncLibraryState}
-                {musicFolderPath}
-                currentTrack={currentTrack}
-                statsVersion={vm.statsVersion}
-                onVisibleQueueChange={onQueueChange}
-                activeQueueTrackKeys={vm.activeQueueTrackKeys}
-                onReplaceActiveQueue={onReplaceActiveQueue}
-                onAppendActiveQueue={onAppendActiveQueue}
-                onAppendTrackToActiveQueue={onAppendTrackToActiveQueue}
-                onOpenQueueDialog={onOpenQueueDialog}
-            />
+            {#if libraryReady}
+                <MusicPlayerLibraryPanel
+                    musicFiles={libraryVmSnapshot.musicFiles}
+                    currentTrackIndex={libraryVmSnapshot.currentTrackIndex}
+                    playTrack={actions.playTrack}
+                    onRequestLightMetadata={onRequestLightMetadata}
+                    sortMode={libraryVmSnapshot.sortMode}
+                    sortDirection={libraryVmSnapshot.sortDirection}
+                    setSortMode={actions.setSortMode}
+                    setSortDirection={actions.setSortDirection}
+                    {getTrackStats}
+                    viewMode={libraryVmSnapshot.viewMode}
+                    selectedPlaylistId={libraryVmSnapshot.selectedPlaylistId}
+                    favoriteTrackKeys={libraryVmSnapshot.favoriteTrackKeys}
+                    playlists={libraryVmSnapshot.playlists}
+                    toggleFavoriteTrack={actions.toggleFavoriteTrack}
+                    setViewMode={actions.setViewMode}
+                    selectPlaylist={actions.selectPlaylist}
+                    createPlaylist={actions.createPlaylist}
+                    renamePlaylist={actions.renamePlaylist}
+                    deletePlaylist={actions.deletePlaylist}
+                    addCurrentTrackToPlaylist={actions.addCurrentTrackToPlaylist}
+                    addTrackToPlaylist={actions.addTrackToPlaylist}
+                    removeTrackFromPlaylist={actions.removeTrackFromPlaylist}
+                    exportPlaylistM3U8={actions.exportPlaylistM3U8}
+                    importM3U8={actions.importM3U8}
+                    exportLibraryJSON={actions.exportLibraryJSON}
+                    importLibraryJSON={actions.importLibraryJSON}
+                    syncLibraryState={actions.syncLibraryState}
+                    {musicFolderPath}
+                    currentTrack={libraryVmSnapshot.currentTrack}
+                    statsVersion={libraryVmSnapshot.statsVersion}
+                    onVisibleQueueChange={onQueueChange}
+                    activeQueueTrackKeys={libraryVmSnapshot.activeQueueTrackKeys}
+                    onReplaceActiveQueue={onReplaceActiveQueue}
+                    onAppendActiveQueue={onAppendActiveQueue}
+                    onAppendTrackToActiveQueue={onAppendTrackToActiveQueue}
+                    onOpenQueueDialog={onOpenQueueDialog}
+                />
+            {:else}
+                <div class="detail-library-placeholder"><MusicPlayerIcon name="musicNote" size={32} /><span>正在加载歌曲列表…</span></div>
+            {/if}
         </div>
     </div>
 
@@ -303,7 +395,7 @@
                 var(--b3-theme-surface);
             background-size: cover;
             background-position: center;
-            filter: blur(52px) brightness(0.78) saturate(1.3);
+            filter: blur(38px) brightness(0.78) saturate(1.3);
             transform: scale(1.12);
             z-index: 0;
         }
@@ -493,6 +585,19 @@
             .detail-right {
                 min-width: 0;
                 padding: 1rem;
+
+                .detail-library-placeholder {
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 0.75rem;
+                    color: var(--mp-detail-muted);
+                    font-size: 0.85rem;
+                    user-select: none;
+                }
             }
         }
 

@@ -1680,7 +1680,9 @@
                     />
                 {:else if selectedContentType === "musicPlayer"}
                     <MusicPlayerSet
+                        {plugin}
                         {advancedEnabled}
+                        blockId={currentBlockId}
                         bind:musicFolderPath
                         bind:autoPlay
                         bind:showLyrics={musicShowLyrics}

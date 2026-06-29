@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onDestroy } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import type { MusicTrack, MusicPlayerSortMode, MusicPlayerSortDirection, MusicPlayerViewMode } from "./musicPlayerTypes";
     import { formatPlaybackTime } from "./musicPlayerUtils";
     import { getTrackKey } from "./musicPlaybackStatsStore";
@@ -42,6 +42,13 @@
     let searchQuery = $state("");
     let listScrollContainer: HTMLUListElement | null = $state(null);
     let pulseIndex = $state(-1);
+    let scrollTop = $state(0);
+    let viewportHeight = $state(0);
+    let lastScrollResetKey = "";
+    let lastVisibleQueueKey = "";
+
+    const VIRTUAL_ROW_HEIGHT = 56;
+    const VIRTUAL_OVERSCAN = 8;
 
     const SORT_LABELS: Record<MusicPlayerSortMode, string> = {
         default: "默认", title: "标题", artist: "艺术家", album: "专辑",
@@ -50,6 +57,11 @@
 
     const sourceFiles = $derived(displayFiles ?? musicFiles);
     const sourceOrderMap = $derived(new Map(sourceFiles.map((t, i) => [t, i])));
+    const trackIndexMap = $derived(new Map(musicFiles.map((track, index) => [track, index])));
+
+    function getOriginalIndex(track: MusicTrack): number {
+        return trackIndexMap.get(track) ?? -1;
+    }
 
     const filteredFiles = $derived(
         searchQuery.trim()
@@ -119,14 +131,40 @@
 
     const currentTrackVisibleInList = $derived(
         currentTrackIndex >= 0 && currentTrackIndex < musicFiles.length &&
-        sortedFilteredFiles.some((t) => musicFiles.indexOf(t) === currentTrackIndex),
+        sortedFilteredFiles.some((t) => getOriginalIndex(t) === currentTrackIndex),
     );
 
-    const VISIBLE_PRELOAD_COUNT = 20;
-    const visibleTrackIndices = $derived(sortedFilteredFiles.slice(0, VISIBLE_PRELOAD_COUNT).map((t) => musicFiles.indexOf(t)).filter((i) => i >= 0));
-    const visibleQueueIndices = $derived(sortedFilteredFiles.map((t) => musicFiles.indexOf(t)).filter((i) => i >= 0));
+    const visibleQueueIndices = $derived(sortedFilteredFiles.map((t) => getOriginalIndex(t)).filter((i) => i >= 0));
 
-    $effect(() => { onVisibleQueueChange?.(visibleQueueIndices); });
+    const totalListHeight = $derived(sortedFilteredFiles.length * VIRTUAL_ROW_HEIGHT);
+    const virtualStartIndex = $derived(clampStartIndex(Math.floor(scrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN, sortedFilteredFiles.length));
+    const virtualEndIndex = $derived(clampEndIndex(Math.ceil((scrollTop + viewportHeight) / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN, sortedFilteredFiles.length, virtualStartIndex));
+
+    const LIGHT_METADATA_PRELOAD_COUNT = 20;
+    const LIGHT_METADATA_OVERSCAN_BEFORE = 10;
+    const LIGHT_METADATA_OVERSCAN_AFTER = 20;
+    const metadataStartIndex = $derived(viewportHeight > 0 ? Math.max(0, virtualStartIndex - LIGHT_METADATA_OVERSCAN_BEFORE) : 0);
+    const metadataEndIndex = $derived(viewportHeight > 0 ? Math.min(sortedFilteredFiles.length, virtualEndIndex + LIGHT_METADATA_OVERSCAN_AFTER) : Math.min(sortedFilteredFiles.length, LIGHT_METADATA_PRELOAD_COUNT));
+    const visibleTrackIndices = $derived(sortedFilteredFiles.slice(metadataStartIndex, metadataEndIndex).map((t) => getOriginalIndex(t)).filter((i) => i >= 0));
+    const virtualFiles = $derived(sortedFilteredFiles.slice(virtualStartIndex, virtualEndIndex));
+    const virtualTopPadding = $derived(virtualStartIndex * VIRTUAL_ROW_HEIGHT);
+    const virtualBottomPadding = $derived(Math.max(0, totalListHeight - virtualTopPadding - virtualFiles.length * VIRTUAL_ROW_HEIGHT));
+
+    function clampStartIndex(value: number, max: number): number {
+        return Math.max(0, Math.min(value, max));
+    }
+
+    function clampEndIndex(value: number, max: number, startIndex: number): number {
+        return Math.max(startIndex, Math.min(value, max));
+    }
+
+    $effect(() => {
+        const key = visibleQueueIndices.join(",");
+        if (key !== lastVisibleQueueKey) {
+            lastVisibleQueueKey = key;
+            onVisibleQueueChange?.(visibleQueueIndices);
+        }
+    });
 
     const LIGHT_REQUEST_DEBOUNCE_MS = 300;
     let lastRequestedIndicesKey = "";
@@ -143,7 +181,37 @@
         lightRequestDebounceTimer = setTimeout(() => { lightRequestDebounceTimer = null; lastRequestedIndicesKey = key; onRequestLightMetadata?.(indices); }, LIGHT_REQUEST_DEBOUNCE_MS);
     });
 
+    function updateViewportHeight() {
+        viewportHeight = listScrollContainer?.clientHeight ?? 0;
+    }
+
+    onMount(() => {
+        updateViewportHeight();
+        window.addEventListener("resize", updateViewportHeight);
+        return () => window.removeEventListener("resize", updateViewportHeight);
+    });
+
     onDestroy(() => { if (lightRequestDebounceTimer) { clearTimeout(lightRequestDebounceTimer); lightRequestDebounceTimer = null; } });
+
+    const scrollResetKey = $derived([
+        searchQuery.trim(),
+        sortMode,
+        sortDirection,
+        viewMode,
+        selectedPlaylistId ?? "",
+    ].join("|"));
+
+    $effect(() => {
+        const key = scrollResetKey;
+        if (key === lastScrollResetKey) return;
+        if (lastScrollResetKey === "") {
+            lastScrollResetKey = key;
+            return;
+        }
+        lastScrollResetKey = key;
+        scrollTop = 0;
+        if (listScrollContainer) listScrollContainer.scrollTop = 0;
+    });
 
     function handleSortModeChange(e: Event) {
         const value = (e.currentTarget as HTMLSelectElement).value as MusicPlayerSortMode;
@@ -183,12 +251,10 @@
 
     function locateCurrentTrack() {
         if (!listScrollContainer || currentTrackIndex < 0 || !currentTrackVisibleInList) return;
-        const el = listScrollContainer.querySelector(`[data-track-index="${currentTrackIndex}"]`) as HTMLElement | null;
-        if (!el) return;
-        const containerRect = listScrollContainer.getBoundingClientRect();
-        const itemRect = el.getBoundingClientRect();
-        const target = listScrollContainer.scrollTop + (itemRect.top + itemRect.height / 2) - (containerRect.top + containerRect.height / 2);
-        const maxScroll = listScrollContainer.scrollHeight - listScrollContainer.clientHeight;
+        const displayIndex = sortedFilteredFiles.findIndex((t) => getOriginalIndex(t) === currentTrackIndex);
+        if (displayIndex < 0) return;
+        const target = displayIndex * VIRTUAL_ROW_HEIGHT - listScrollContainer.clientHeight / 2 + VIRTUAL_ROW_HEIGHT / 2;
+        const maxScroll = Math.max(0, totalListHeight - listScrollContainer.clientHeight);
         listScrollContainer.scrollTo({ top: Math.max(0, Math.min(target, maxScroll)), behavior: "smooth" });
         pulseIndex = currentTrackIndex;
         const ti = currentTrackIndex;
@@ -218,28 +284,35 @@
         </div>
     </div>
 
-    <ul class="playlist-list" bind:this={listScrollContainer}>
-        {#each sortedFilteredFiles as track, displayIndex (track.filePath)}
-            {@const originalIndex = musicFiles.indexOf(track)}
+    <ul class="playlist-list" bind:this={listScrollContainer} onscroll={(e) => { scrollTop = (e.currentTarget as HTMLUListElement).scrollTop; }}>
+        {#if virtualTopPadding > 0}<li class="playlist-virtual-spacer" style="height:{virtualTopPadding}px" aria-hidden="true"></li>{/if}
+        {#each virtualFiles as track, localIndex (track.filePath)}
+            {@const displayIndex = virtualStartIndex + localIndex}
+            {@const originalIndex = getOriginalIndex(track)}
             <li class="playlist-item" class:is-current={originalIndex === currentTrackIndex} class:pulse={pulseIndex === originalIndex} data-track-index={originalIndex}>
                 <button class="playlist-track-button" onclick={() => { if (originalIndex >= 0) playTrack(originalIndex); }} onkeydown={(e) => { if (originalIndex >= 0) handleKeydown(e, originalIndex); }} disabled={originalIndex < 0}>
                     <span class="track-number">{displayIndex + 1}</span>
                     <span class="track-info"><span class="track-title">{trackDisplayTitle(track)}</span><span class="track-subtitle">{trackDisplaySubtitle(track)}</span></span>
-                    <span class="track-duration">{track.metadataStatus === "loading" ? "解析中" : formatPlaybackTime(track.duration)}</span>
-                    {#if sortMode === "recent"}<span class="track-recent-time">{formatRecentTime(track)}</span>{/if}
-                    {#if sortMode === "plays"}<span class="track-play-count">{trackPlayCount(track)} 次</span>{/if}
+                    <span class="track-meta-right">
+                        <span class="track-duration">{track.metadataStatus === "loading" ? "解析中" : formatPlaybackTime(track.duration)}</span>
+                        {#if sortMode === "recent"}<span class="track-recent-time">{formatRecentTime(track)}</span>{/if}
+                        {#if sortMode === "plays"}<span class="track-play-count">{trackPlayCount(track)} 次</span>{/if}
+                    </span>
+                </button>
+                <span class="track-actions" role="group" aria-label="歌曲操作">
                     {#if onToggleFavorite}
-                        <span class="track-favorite" class:is-favorite={isFavorite(track)} onclick={(e) => handleToggleFavorite(e, track)} title={isFavorite(track) ? "取消收藏" : "收藏"} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleToggleFavorite(e, track); } }}><MusicPlayerIcon name={isFavorite(track) ? "heartFilled" : "heart"} size={15} /></span>
+                        <span class="track-favorite" class:is-favorite={isFavorite(track)} onclick={(e) => handleToggleFavorite(e, track)} title={isFavorite(track) ? "取消收藏" : "收藏"} aria-label={isFavorite(track) ? "取消收藏" : "收藏"} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleToggleFavorite(e, track); } }}><MusicPlayerIcon name={isFavorite(track) ? "heartFilled" : "heart"} size={15} /></span>
                     {/if}
                     {#if viewMode === "playlists" && selectedPlaylistId && onRemoveFromPlaylist}
-                        <span class="track-remove" onclick={(e) => handleRemoveFromPlaylist(e, track)} title="从歌单移除" role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleRemoveFromPlaylist(e, track); } }}><MusicPlayerIcon name="remove" size={15} /></span>
+                        <span class="track-remove" onclick={(e) => handleRemoveFromPlaylist(e, track)} title="从歌单移除" aria-label="从歌单移除" role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleRemoveFromPlaylist(e, track); } }}><MusicPlayerIcon name="remove" size={15} /></span>
                     {/if}
                     {#if onAppendTrackToActiveQueue && originalIndex >= 0}
-                        <span class="track-add-queue" class:in-queue={isInActiveQueue(track)} onclick={(e) => handleAppendTrackToActiveQueue(e, originalIndex)} title={isInActiveQueue(track) ? "已在播放列表" : "加入播放列表"} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleAppendTrackToActiveQueue(e, originalIndex); } }}><MusicPlayerIcon name={isInActiveQueue(track) ? "check" : "queueAdd"} size={15} /></span>
+                        <span class="track-add-queue" class:in-queue={isInActiveQueue(track)} onclick={(e) => handleAppendTrackToActiveQueue(e, originalIndex)} title={isInActiveQueue(track) ? "已在播放列表" : "加入播放列表"} aria-label={isInActiveQueue(track) ? "已在播放列表" : "加入播放列表"} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleAppendTrackToActiveQueue(e, originalIndex); } }}><MusicPlayerIcon name={isInActiveQueue(track) ? "check" : "queueAdd"} size={15} /></span>
                     {/if}
-                </button>
+                </span>
             </li>
         {/each}
+        {#if virtualBottomPadding > 0}<li class="playlist-virtual-spacer" style="height:{virtualBottomPadding}px" aria-hidden="true"></li>{/if}
     </ul>
 
     {#if sortedFilteredFiles.length === 0}<div class="playlist-empty">未找到匹配的歌曲</div>{/if}
@@ -273,33 +346,54 @@
             .playlist-sort-select { padding: 0.55rem 0.6rem; border: 1px solid transparent; border-radius: 10px; background: var(--mp-panel-bg-strong, color-mix(in srgb, var(--b3-theme-surface-light) 85%, transparent)); color: var(--mp-detail-text, var(--b3-theme-on-surface)); font-size: 0.8rem; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; &:focus { outline: none; background: var(--mp-panel-bg, color-mix(in srgb, var(--b3-theme-surface) 55%, transparent)); border-color: var(--mp-panel-border, var(--b3-border-color)); } }
             .playlist-sort-direction { width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 10px; background: var(--mp-panel-bg-strong, color-mix(in srgb, var(--b3-theme-surface-light) 85%, transparent)); color: var(--mp-detail-text, var(--b3-theme-on-surface)); font-size: 0.85rem; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; &:hover { background: var(--mp-panel-bg, color-mix(in srgb, var(--b3-theme-surface) 55%, transparent)); } }
         }
-        .playlist-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }
+        .playlist-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; overflow-anchor: none; flex: 1; }
+        .playlist-virtual-spacer {
+            list-style: none; flex-shrink: 0; pointer-events: none; border: none; background: transparent;
+        }
         .playlist-item {
-            border-radius: 10px; overflow: hidden; margin-bottom: 0.15rem; transition: background 0.15s ease;
+            position: relative;
+            height: 56px; box-sizing: border-box; border-radius: 10px; overflow: hidden; margin-bottom: 0; transition: background 0.15s ease;
             &.is-current { background: linear-gradient(90deg, var(--mp-panel-highlight, color-mix(in srgb, var(--b3-theme-primary) 16%, transparent)) 0%, transparent 85%); .playlist-track-button { color: var(--mp-detail-text, var(--b3-theme-on-surface)); font-weight: 600; } .track-number { color: var(--mp-current-accent, var(--b3-theme-primary)); font-weight: 700; } .track-subtitle { color: var(--mp-detail-muted, var(--b3-theme-on-surface-light)); opacity: 1; } .track-duration { color: var(--mp-current-accent, var(--b3-theme-primary)); font-weight: 600; } }
         }
         .playlist-track-button {
-            width: 100%; display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.65rem; background: transparent; border: none; color: var(--mp-detail-text, var(--b3-theme-on-surface)); text-align: left; cursor: pointer; border-radius: 10px; transition: background 0.15s ease;
+            width: 100%; height: 100%; display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem; background: transparent; border: none; color: var(--mp-detail-text, var(--b3-theme-on-surface)); text-align: left; cursor: pointer; border-radius: 10px; transition: background 0.15s ease;
             &:hover { background: var(--mp-panel-highlight, color-mix(in srgb, var(--b3-theme-primary) 10%, transparent)); }
             &:disabled { opacity: 0.4; cursor: not-allowed; }
             .track-number { width: 1.5rem; flex-shrink: 0; font-size: 0.75rem; text-align: center; color: var(--mp-detail-muted, var(--b3-theme-on-surface-light)); }
             .track-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
             .track-title { font-size: 0.9rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .track-subtitle { font-size: 0.75rem; color: var(--mp-detail-muted, var(--b3-theme-on-surface-light)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .track-meta-right { flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem; transition: transform 0.16s ease; }
             .track-duration { flex-shrink: 0; font-size: 0.75rem; color: var(--mp-detail-muted, var(--b3-theme-on-surface-light)); }
             .track-recent-time { flex-shrink: 0; font-size: 0.7rem; color: var(--mp-detail-muted, var(--b3-theme-on-surface-light)); min-width: 4.5rem; text-align: right; white-space: nowrap; }
             .track-play-count { flex-shrink: 0; min-width: 2.5rem; text-align: right; font-size: 0.75rem; color: var(--mp-detail-muted, var(--b3-theme-on-surface-light)); }
-            .track-favorite, .track-remove, .track-add-queue { flex-shrink: 0; width: 1.6rem; height: 1.6rem; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 0.9rem; color: var(--mp-detail-muted, var(--b3-theme-on-surface-light)); cursor: pointer; opacity: 0; transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease; &:hover { background: var(--mp-panel-bg-strong, color-mix(in srgb, var(--b3-theme-surface-light) 70%, transparent)); color: var(--mp-detail-text, var(--b3-theme-on-surface)); } }
-            .track-favorite.is-favorite { opacity: 1; color: #e94e5a; }
-            .track-add-queue.in-queue { opacity: 1; color: var(--mp-current-accent, var(--b3-theme-primary)); }
         }
-        .playlist-item.is-current .track-favorite:not(.is-favorite),
-        .playlist-item.is-current .track-add-queue:not(.in-queue) { opacity: 1; }
-        .playlist-track-button:hover .track-favorite:not(.is-favorite),
-        .playlist-track-button:hover .track-remove,
-        .playlist-track-button:hover .track-add-queue:not(.in-queue) { opacity: 1; }
+        .track-actions {
+            position: absolute;
+            right: 0.65rem;
+            top: 50%;
+            transform: translateY(-50%) translateX(8px);
+            display: flex;
+            align-items: center;
+            gap: 0.2rem;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
+            z-index: 2;
+            .track-favorite, .track-remove, .track-add-queue { flex-shrink: 0; width: 1.6rem; height: 1.6rem; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 0.9rem; color: var(--mp-detail-muted, var(--b3-theme-on-surface-light)); cursor: pointer; transition: background 0.15s ease, color 0.15s ease; &:hover { background: var(--mp-panel-bg-strong, color-mix(in srgb, var(--b3-theme-surface-light) 70%, transparent)); color: var(--mp-detail-text, var(--b3-theme-on-surface)); } }
+            .track-favorite.is-favorite { color: #e94e5a; }
+            .track-add-queue.in-queue { color: var(--mp-current-accent, var(--b3-theme-primary)); }
+        }
+        .playlist-item:hover .track-meta-right,
+        .playlist-item:focus-within .track-meta-right { transform: translateX(-5.25rem); }
+        .playlist-item:hover .track-actions,
+        .playlist-item:focus-within .track-actions { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(-50%) translateX(0); }
         .playlist-empty { padding: 1.25rem 1rem; text-align: center; font-size: 0.9rem; font-weight: 500; color: var(--mp-detail-text, var(--b3-theme-on-surface)); background: var(--mp-panel-bg-strong, color-mix(in srgb, var(--b3-theme-surface-light) 70%, transparent)); border-radius: 12px; }
         @keyframes playlist-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
         .playlist-item.pulse { animation: playlist-pulse 0.6s ease-in-out 2; }
+        @media (prefers-reduced-motion: reduce) {
+            .track-actions, .track-meta-right { transition: none; }
+        }
     }
 </style>
