@@ -7,6 +7,7 @@ export type DocPreviewMode = "preview" | "wysiwyg";
 export type HomepageTitleAlign = "left" | "center" | "right";
 export type QuickButtonStyle = "default" | "flat" | "glass";
 export type BannerGlassColorMode = "theme" | "custom";
+export type BackgroundImageType = "local" | "remote";
 
 export const DEFAULT_HOMEPAGE_TITLE_ALIGN: HomepageTitleAlign = "center";
 export const DEFAULT_QUICK_BUTTON_STYLE: QuickButtonStyle = "default";
@@ -15,6 +16,9 @@ export const DEFAULT_BANNER_GLASS_COLOR_MODE: BannerGlassColorMode = "theme";
 export const DEFAULT_BANNER_GLASS_COLOR = "#ffffff";
 export const DEFAULT_BANNER_GLASS_OPACITY = 18;
 export const DEFAULT_BANNER_GLASS_BLUR = 12;
+export const DEFAULT_BACKGROUND_IMAGE_TYPE: BackgroundImageType = "local";
+export const DEFAULT_BACKGROUND_IMAGE_OPACITY = 35;
+export const DEFAULT_BACKGROUND_IMAGE_BLUR = 0;
 
 export function normalizeHomepageTitleAlign(value: unknown): HomepageTitleAlign {
     if (value === "left" || value === "center" || value === "right") {
@@ -60,6 +64,25 @@ export function normalizeBannerGlassOpacity(value: unknown): number {
 export function normalizeBannerGlassBlur(value: unknown): number {
     const num = Number(value);
     if (!Number.isFinite(num)) return DEFAULT_BANNER_GLASS_BLUR;
+    return Math.min(40, Math.max(0, Math.round(num)));
+}
+
+export function normalizeBackgroundImageType(value: unknown): BackgroundImageType {
+    if (value === "local" || value === "remote") {
+        return value;
+    }
+    return DEFAULT_BACKGROUND_IMAGE_TYPE;
+}
+
+export function normalizeBackgroundImageOpacity(value: unknown): number {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return DEFAULT_BACKGROUND_IMAGE_OPACITY;
+    return Math.min(100, Math.max(0, Math.round(num)));
+}
+
+export function normalizeBackgroundImageBlur(value: unknown): number {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return DEFAULT_BACKGROUND_IMAGE_BLUR;
     return Math.min(40, Math.max(0, Math.round(num)));
 }
 
@@ -119,6 +142,13 @@ export interface HomepageSettingConfig {
     mouseGlobalEnabled: boolean;
     ClickEffectEnabled: boolean;
     ClickEffectContent: string;
+    backgroundImageEnabled?: boolean;
+    backgroundImageGlobalEnabled?: boolean;
+    backgroundImageType?: BackgroundImageType;
+    backgroundImageLocalData?: string | null;
+    backgroundImageRemoteUrl?: string;
+    backgroundImageOpacity?: number;
+    backgroundImageBlur?: number;
     FallEffectsEnabled: boolean;
     GlobalFallingEffectsEnabled: boolean;
     FallingIcon: string;

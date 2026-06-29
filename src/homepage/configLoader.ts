@@ -9,13 +9,20 @@ import {
     DEFAULT_BANNER_GLASS_OPACITY,
     DEFAULT_HOMEPAGE_TITLE_ALIGN,
     DEFAULT_QUICK_BUTTON_STYLE,
+    DEFAULT_BACKGROUND_IMAGE_BLUR,
+    DEFAULT_BACKGROUND_IMAGE_OPACITY,
+    DEFAULT_BACKGROUND_IMAGE_TYPE,
     normalizeBannerGlassBlur,
     normalizeBannerGlassColor,
     normalizeBannerGlassColorMode,
     normalizeBannerGlassOpacity,
     normalizeBannerIntegratedColor,
+    normalizeBackgroundImageBlur,
+    normalizeBackgroundImageOpacity,
+    normalizeBackgroundImageType,
     normalizeHomepageTitleAlign,
     normalizeQuickButtonStyle,
+    type BackgroundImageType,
     type BannerGlassColorMode,
     type BannerDeviceProfile,
     type HomepageTitleAlign,
@@ -79,6 +86,13 @@ export interface HomepageConfig {
     mouseGlobalEnabled: boolean;
     ClickEffectEnabled: boolean;
     ClickEffectContent: string;
+    backgroundImageEnabled: boolean;
+    backgroundImageGlobalEnabled: boolean;
+    backgroundImageType: BackgroundImageType;
+    backgroundImageLocalData: string | null;
+    backgroundImageRemoteUrl: string;
+    backgroundImageOpacity: number;
+    backgroundImageBlur: number;
     FallEffectsEnabled: boolean;
     GlobalFallingEffectsEnabled: boolean;
     FallingIcon: string;
@@ -94,6 +108,11 @@ export interface HomepageConfig {
 export interface BannerImageResult {
     bannerImgSrc: string;
     remoteBannerImageData: string;
+}
+
+export interface BackgroundImageResult {
+    backgroundImageSrc: string;
+    remoteBackgroundImageData: string;
 }
 
 export const defaultButtonsList = createDefaultButtons();
@@ -143,6 +162,13 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDe
     mouseGlobalEnabled: true,
     ClickEffectEnabled: false,
     ClickEffectContent: "",
+    backgroundImageEnabled: false,
+    backgroundImageGlobalEnabled: false,
+    backgroundImageType: DEFAULT_BACKGROUND_IMAGE_TYPE,
+    backgroundImageLocalData: null,
+    backgroundImageRemoteUrl: "",
+    backgroundImageOpacity: DEFAULT_BACKGROUND_IMAGE_OPACITY,
+    backgroundImageBlur: DEFAULT_BACKGROUND_IMAGE_BLUR,
     FallEffectsEnabled: false,
     GlobalFallingEffectsEnabled: false,
     FallingIcon: "snow",
@@ -276,6 +302,13 @@ export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
         mouseGlobalEnabled: config.mouseGlobalEnabled ?? DEFAULT_HOMEPAGE_CONFIG.mouseGlobalEnabled,
         ClickEffectEnabled: config.ClickEffectEnabled ?? DEFAULT_HOMEPAGE_CONFIG.ClickEffectEnabled,
         ClickEffectContent: normalizeString(config.ClickEffectContent, DEFAULT_HOMEPAGE_CONFIG.ClickEffectContent),
+        backgroundImageEnabled: config.backgroundImageEnabled === true,
+        backgroundImageGlobalEnabled: config.backgroundImageGlobalEnabled === true,
+        backgroundImageType: normalizeBackgroundImageType(config.backgroundImageType),
+        backgroundImageLocalData: normalizeStringOrNull(config.backgroundImageLocalData),
+        backgroundImageRemoteUrl: normalizeString(config.backgroundImageRemoteUrl, DEFAULT_HOMEPAGE_CONFIG.backgroundImageRemoteUrl),
+        backgroundImageOpacity: normalizeBackgroundImageOpacity(config.backgroundImageOpacity),
+        backgroundImageBlur: normalizeBackgroundImageBlur(config.backgroundImageBlur),
         FallEffectsEnabled: config.FallEffectsEnabled ?? DEFAULT_HOMEPAGE_CONFIG.FallEffectsEnabled,
         GlobalFallingEffectsEnabled: config.GlobalFallingEffectsEnabled ?? DEFAULT_HOMEPAGE_CONFIG.GlobalFallingEffectsEnabled,
         FallingIcon: normalizeString(config.FallingIcon, DEFAULT_HOMEPAGE_CONFIG.FallingIcon),
@@ -432,6 +465,27 @@ export async function resolveBannerImage(
     }
 
     return { bannerImgSrc, remoteBannerImageData };
+}
+
+export async function resolveBackgroundImage(
+    config: HomepageConfig,
+    advanced: boolean,
+): Promise<BackgroundImageResult> {
+    let backgroundImageSrc = "";
+    let remoteBackgroundImageData = "";
+
+    if (!advanced || !config.backgroundImageEnabled) {
+        return { backgroundImageSrc, remoteBackgroundImageData };
+    }
+
+    if (config.backgroundImageType === "local") {
+        backgroundImageSrc = config.backgroundImageLocalData || "";
+    } else if (config.backgroundImageType === "remote" && config.backgroundImageRemoteUrl) {
+        remoteBackgroundImageData = await getImage(config.backgroundImageRemoteUrl);
+        backgroundImageSrc = remoteBackgroundImageData || config.backgroundImageRemoteUrl;
+    }
+
+    return { backgroundImageSrc, remoteBackgroundImageData };
 }
 
 export function resolveButtonsList(config: HomepageConfig): HomepageButtonItem[] {

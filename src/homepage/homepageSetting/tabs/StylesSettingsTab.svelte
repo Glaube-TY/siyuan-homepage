@@ -3,6 +3,7 @@
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
     import AdvancedFeatureLock from '@/components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte';
+    import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
 
     interface Props {
         state: StylesSettingsState;
@@ -10,7 +11,8 @@
         advancedEnabled?: boolean;
     }
 
-    let { state, actions, advancedEnabled = false }: Props = $props();
+    let { state: settingsState, actions, advancedEnabled = false }: Props = $props();
+    let backgroundFileInputEl: HTMLInputElement | null = $state(null);
 </script>
 
 {#if advancedEnabled}
@@ -19,18 +21,18 @@
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
-            checked={state.footerEnabled}
+            checked={settingsState.footerEnabled}
             onchange={(e) => actions.onFooterEnabledChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
 
-    {#if state.footerEnabled}
+    {#if settingsState.footerEnabled}
         <SettingRow title="页脚内容" description="支持 HTML 标签">
             <textarea
                 class="control-full"
                 rows="3"
                 placeholder="输入页脚内容"
-                value={state.footerContent}
+                value={settingsState.footerContent}
                 oninput={(e) => actions.onFooterContentChange((e.currentTarget as HTMLTextAreaElement).value)}
             ></textarea>
         </SettingRow>
@@ -41,7 +43,7 @@
     <SettingRow title="鼠标图标" description="选择自定义鼠标指针样式">
         <select
             class="control-md"
-            value={state.mouseIcon}
+            value={settingsState.mouseIcon}
             onchange={(e) => actions.onMouseIconChange((e.currentTarget as HTMLSelectElement).value)}
         >
             <option value="default">默认</option>
@@ -70,7 +72,7 @@
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
-            checked={state.mouseGlobalEnabled}
+            checked={settingsState.mouseGlobalEnabled}
             onchange={(e) => actions.onMouseGlobalEnabledChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
@@ -78,7 +80,7 @@
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
-            checked={state.mouseTrailEnabled}
+            checked={settingsState.mouseTrailEnabled}
             onchange={(e) => actions.onMouseTrailEnabledChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
@@ -86,21 +88,117 @@
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
-            checked={state.clickEffectEnabled}
+            checked={settingsState.clickEffectEnabled}
             onchange={(e) => actions.onClickEffectEnabledChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
 
-    {#if state.clickEffectEnabled}
+    {#if settingsState.clickEffectEnabled}
         <SettingRow title="特效内容" description="每行一个特效文字">
             <textarea
                 class="control-full"
                 rows="3"
                 placeholder="输入点击特效内容（每行一个特效）"
-                value={state.clickEffectContent}
+                value={settingsState.clickEffectContent}
                 oninput={(e) => actions.onClickEffectContentChange((e.currentTarget as HTMLTextAreaElement).value)}
             ></textarea>
         </SettingRow>
+    {/if}
+</SettingSection>
+
+<SettingSection title="背景图片">
+    <SettingRow title="开启背景图片" description="为主页或整个思源界面显示背景图片">
+        <input
+            type="checkbox"
+            class="b3-switch fn__flex-center"
+            checked={settingsState.backgroundImageEnabled}
+            onchange={(e) => actions.onBackgroundImageEnabledChange((e.currentTarget as HTMLInputElement).checked)}
+        />
+    </SettingRow>
+
+    {#if settingsState.backgroundImageEnabled}
+        <SettingRow title="应用于全局" description="开启后背景图片应用到整个思源笔记，否则只应用到主页">
+            <input
+                type="checkbox"
+                class="b3-switch fn__flex-center"
+                checked={settingsState.backgroundImageGlobalEnabled}
+                onchange={(e) => actions.onBackgroundImageGlobalEnabledChange((e.currentTarget as HTMLInputElement).checked)}
+            />
+        </SettingRow>
+
+        <SettingRow title="图片来源" description="选择使用本地图片或网络图片">
+            <select
+                class="control-md"
+                value={settingsState.backgroundImageType}
+                onchange={(e) => actions.onBackgroundImageTypeChange((e.currentTarget as HTMLSelectElement).value as "local" | "remote")}
+            >
+                <option value="local">本地图片</option>
+                <option value="remote">网络图片</option>
+            </select>
+        </SettingRow>
+
+        {#if settingsState.backgroundImageType === "local"}
+            <SettingRow title="选择图片" description="从本地选择背景图片">
+                <button
+                    type="button"
+                    onclick={() => backgroundFileInputEl?.click()}
+                    class="file-action-btn"
+                >
+                    <SiyuanIcon name="folder" size={14} />
+                </button>
+                <input
+                    type="file"
+                    accept="image/*"
+                    bind:this={backgroundFileInputEl}
+                    onchange={actions.onBackgroundImageSelect}
+                    style="display:none;"
+                />
+            </SettingRow>
+        {:else}
+            <SettingRow title="图片地址" description="输入远程图片 URL">
+                <input
+                    type="text"
+                    class="control-full"
+                    value={settingsState.backgroundImageRemoteUrl}
+                    oninput={(e) => actions.onBackgroundImageRemoteUrlChange((e.currentTarget as HTMLInputElement).value)}
+                    placeholder="输入远程图片地址"
+                />
+            </SettingRow>
+        {/if}
+
+        <SettingRow title="透明度" description="背景图片显示强度">
+            <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={settingsState.backgroundImageOpacity}
+                oninput={(e) => actions.onBackgroundImageOpacityChange(Number((e.currentTarget as HTMLInputElement).value))}
+            />
+            <span class="style-value-label">{settingsState.backgroundImageOpacity}%</span>
+        </SettingRow>
+
+        <SettingRow title="模糊" description="背景图片虚化强度">
+            <input
+                type="range"
+                min="0"
+                max="40"
+                step="1"
+                value={settingsState.backgroundImageBlur}
+                oninput={(e) => actions.onBackgroundImageBlurChange(Number((e.currentTarget as HTMLInputElement).value))}
+            />
+            <span class="style-value-label">{settingsState.backgroundImageBlur}px</span>
+        </SettingRow>
+
+        {#if settingsState.backgroundImageType === "local" && settingsState.backgroundImageLocalData}
+            <div class="background-preview-wrapper">
+                <img src={settingsState.backgroundImageLocalData} alt="背景图片预览" class="background-preview-image" />
+            </div>
+        {:else if settingsState.backgroundImageType === "remote" && settingsState.backgroundImageRemoteUrl}
+            <div class="background-preview-wrapper">
+                <img src={settingsState.backgroundImageRemoteUrl} alt="背景图片预览" class="background-preview-image" />
+            </div>
+        {/if}
     {/if}
 </SettingSection>
 
@@ -109,7 +207,7 @@
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
-            checked={state.fallEffectsEnabled}
+            checked={settingsState.fallEffectsEnabled}
             onchange={(e) => actions.onFallEffectsEnabledChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
@@ -117,14 +215,14 @@
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
-            checked={state.globalFallingEffectsEnabled}
+            checked={settingsState.globalFallingEffectsEnabled}
             onchange={(e) => actions.onGlobalFallingEffectsEnabledChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
     <SettingRow title="飘落图形" description="选择飘落的图形样式">
         <select
             class="control-md"
-            value={state.fallingIcon}
+            value={settingsState.fallingIcon}
             onchange={(e) => actions.onFallingIconChange((e.currentTarget as HTMLSelectElement).value)}
         >
             <option value="snow">雪花</option>
@@ -149,7 +247,7 @@
     <SettingRow title="密度" description="飘落图形的数量">
         <select
             class="control-sm"
-            value={state.fallingDensity}
+            value={settingsState.fallingDensity}
             onchange={(e) => actions.onFallingDensityChange((e.currentTarget as HTMLSelectElement).value)}
         >
             <option value="low">低</option>
@@ -160,7 +258,7 @@
     <SettingRow title="速度" description="飘落图形的下落速度">
         <select
             class="control-sm"
-            value={state.fallingSpeed}
+            value={settingsState.fallingSpeed}
             onchange={(e) => actions.onFallingSpeedChange((e.currentTarget as HTMLSelectElement).value)}
         >
             <option value="low">低</option>
@@ -177,9 +275,33 @@
     features={[
         "自定义页脚内容和主页展示",
         "鼠标指针、轨迹和点击特效",
+        "主页或全局背景图片",
         "飘落动画与全局装饰效果",
         "打造更个性化的思源主页"
     ]}
-    highlights={["个性化主页", "鼠标特效", "飘落动画"]}
+    highlights={["个性化主页", "背景图片", "鼠标特效", "飘落动画"]}
 />
 {/if}
+
+<style>
+    .style-value-label {
+        min-width: 44px;
+        font-size: 13px;
+        color: var(--b3-theme-on-surface-light);
+        text-align: right;
+    }
+
+    .background-preview-wrapper {
+        display: flex;
+        justify-content: center;
+        padding: 0.75rem 0 0.25rem;
+    }
+
+    .background-preview-image {
+        width: min(100%, 360px);
+        max-height: 180px;
+        border-radius: 8px;
+        object-fit: cover;
+        border: 1px solid var(--b3-border-color);
+    }
+</style>

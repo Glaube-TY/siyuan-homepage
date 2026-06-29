@@ -16,6 +16,24 @@
     }
 }
 
+// 背景图启用时的透明化处理
+.homepage-container.background-image-active {
+    // 让 custom-content 区域透明，使底层背景图可见
+    .custom-content {
+        background-color: transparent;
+    }
+
+    // 让 workspace-header 区域透明，使底层背景图可见
+    .workspace-header {
+        background-color: transparent;
+    }
+
+    // 让 plugin-footer 区域透明，使底层背景图可见
+    .plugin-footer {
+        background-color: transparent;
+    }
+}
+
 .shp-mouse-trail {
     position: absolute;
     width: 6px;

@@ -15,6 +15,14 @@ import type { WidgetLayoutData } from "@/components/utils/widgetBlock/utils/layo
 import { destroyFloatingDoc } from "@/components/tools/floatingDoc";
 import { destroyFloatingMini } from "@/components/utils/widgetBlock/widget/musicPlayer/musicFloatingMiniManager";
 import { setBlockAttrs } from "@/api";
+import {
+    loadHomepageConfig,
+    resolveBackgroundImage,
+} from "./homepage/configLoader";
+import {
+    cleanupGlobalBackgroundImageStyle,
+    updateGlobalBackgroundImageStyle,
+} from "./homepage/effects/backgroundImage";
 import Homepage from "./homepage/homepage.svelte";
 import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/tasksEditingDialog.svelte";
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
@@ -116,6 +124,9 @@ export default class PluginHomepage extends Plugin {
     private contentMenuEventBindThis = this.handleContentMenu.bind(this);
     private editorTitleIconMenuEventBindThis = this.handleEditorTitleIconMenu.bind(this);
     private blockIconMenuEventBindThis = this.handleBlockIconMenu.bind(this);
+    private homepageSettingsSavedBindThis = this.handleHomepageSettingsSaved.bind(this);
+    private homepageAdvancedReadyBindThis = this.handleHomepageAdvancedReady.bind(this);
+    private homepageAdvancedUnavailableBindThis = this.handleHomepageAdvancedUnavailable.bind(this);
 
     // 已应用签名状态：用于检测外部同步变化
     private lastAppliedConfigSignature = "";
@@ -128,6 +139,9 @@ export default class PluginHomepage extends Plugin {
     private pendingHomepageHotReloadReason: string | null = null;
     private homepageHotReloadWatchdogTimer: number | null = null;
     private homepagePendingFlushTimer: number | null = null;
+
+    // 全局背景异步刷新版本号：防止旧请求覆盖新状态
+    private globalBackgroundApplyVersion = 0;
 
     // 更新已应用签名（homepage 初始化完成后调用）
     public updateAppliedSignatures(configSig: string, layoutSig: string, compositeSig?: string): void {
@@ -415,6 +429,41 @@ export default class PluginHomepage extends Plugin {
             this.registerKbDock();
         }
 
+        // 监听全局背景相关事件：设置保存、会员状态变化
+        window.addEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
+        window.addEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
+        window.addEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
+
+        // 插件加载时应用全局背景（会员校验是异步的，后续事件会再次触发刷新）
+        await this.applyGlobalBackgroundImageStyle();
+    }
+
+    private async applyGlobalBackgroundImageStyle(): Promise<void> {
+        const version = ++this.globalBackgroundApplyVersion;
+        const config = await loadHomepageConfig(this);
+        if (version !== this.globalBackgroundApplyVersion) return;
+        const { backgroundImageSrc } = await resolveBackgroundImage(config, this.ADVANCED);
+        if (version !== this.globalBackgroundApplyVersion) return;
+        updateGlobalBackgroundImageStyle({
+            advanced: this.ADVANCED,
+            backgroundImageEnabled: config.backgroundImageEnabled,
+            backgroundImageGlobalEnabled: config.backgroundImageGlobalEnabled,
+            backgroundImageSrc,
+            backgroundImageOpacity: config.backgroundImageOpacity,
+            backgroundImageBlur: config.backgroundImageBlur,
+        });
+    }
+
+    private async handleHomepageSettingsSaved(): Promise<void> {
+        await this.applyGlobalBackgroundImageStyle();
+    }
+
+    private async handleHomepageAdvancedReady(): Promise<void> {
+        await this.applyGlobalBackgroundImageStyle();
+    }
+
+    private async handleHomepageAdvancedUnavailable(): Promise<void> {
+        await this.applyGlobalBackgroundImageStyle();
     }
 
     async onunload() {
@@ -427,6 +476,11 @@ export default class PluginHomepage extends Plugin {
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
         this.eventBus.off("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
         this.eventBus.off("click-blockicon", this.blockIconMenuEventBindThis);
+        window.removeEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
+        window.removeEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
+        window.removeEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
+        this.globalBackgroundApplyVersion++;
+        cleanupGlobalBackgroundImageStyle();
 
         // 销毁 Homepage 组件实例
         this.destroyHomepageInstance();

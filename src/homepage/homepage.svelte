@@ -37,6 +37,10 @@
         cleanupMouseEffects,
     } from "./effects/mouseEffects";
     import {
+        updateHomepageBackgroundImageStyle,
+        cleanupHomepageBackgroundImageStyle,
+    } from "./effects/backgroundImage";
+    import {
         preloadFallingIcons,
         animateFalling,
         cleanupFallingEffects,
@@ -45,12 +49,16 @@
     import {
         loadHomepageConfig,
         resolveBannerImage,
+        resolveBackgroundImage,
         resolveButtonsList,
         loadBannerDisplaySettings,
         saveBannerDisplaySettings,
         type HomepageStatusTextMode,
     } from "./configLoader";
     import {
+        DEFAULT_BACKGROUND_IMAGE_BLUR,
+        DEFAULT_BACKGROUND_IMAGE_OPACITY,
+        DEFAULT_BACKGROUND_IMAGE_TYPE,
         DEFAULT_BANNER_GLASS_BLUR,
         DEFAULT_BANNER_GLASS_COLOR,
         DEFAULT_BANNER_GLASS_COLOR_MODE,
@@ -58,6 +66,7 @@
         DEFAULT_BANNER_INTEGRATED_COLOR,
         DEFAULT_HOMEPAGE_TITLE_ALIGN,
         DEFAULT_QUICK_BUTTON_STYLE,
+        type BackgroundImageType,
         type BannerDeviceProfile,
         type BannerGlassColorMode,
         type HomepageTitleAlign,
@@ -110,6 +119,12 @@
     let bannerGlassColor = $state("#ffffff");
     let bannerGlassOpacity = $state(18);
     let bannerGlassBlur = $state(12);
+    let backgroundImageEnabled = $state(false);
+    let backgroundImageGlobalEnabled = $state(false);
+    let backgroundImageType = $state<BackgroundImageType>(DEFAULT_BACKGROUND_IMAGE_TYPE);
+    let backgroundImageSrc = $state("");
+    let backgroundImageOpacity = $state(DEFAULT_BACKGROUND_IMAGE_OPACITY);
+    let backgroundImageBlur = $state(DEFAULT_BACKGROUND_IMAGE_BLUR);
     let effectiveBannerHeight = $derived(
         bannerTitleIntegrated && bannerEnabled
             ? Math.max(bannerHeight, BANNER_TITLE_INTEGRATED_MIN_HEIGHT)
@@ -287,6 +302,17 @@
             FallingDensity,
             FallingSpeed,
         };
+    }
+
+    function applyBackgroundImageStyle(): void {
+        updateHomepageBackgroundImageStyle({
+            advanced: getAdvancedEnabled(),
+            backgroundImageEnabled,
+            backgroundImageGlobalEnabled,
+            backgroundImageSrc,
+            backgroundImageOpacity,
+            backgroundImageBlur,
+        });
     }
 
     // 横幅拖拽配置选项（设备级存储）
@@ -953,6 +979,7 @@
         stopForegroundSyncWatch();
         unregisterAllShortcuts();
         cleanupMouseEffects();
+        cleanupHomepageBackgroundImageStyle();
         abortStatusAiRequest();
 
         // 显式销毁所有 widget 实例，触发各自的 onDestroy
@@ -996,6 +1023,10 @@
             ClickEffectContent,
             MouseTrailEnabled,
         });
+    });
+
+    run(() => {
+        applyBackgroundImageStyle();
     });
 
     // 更新加载主页配置
@@ -1065,6 +1096,11 @@
         FallingIcon = config.FallingIcon;
         FallingDensity = config.FallingDensity;
         FallingSpeed = config.FallingSpeed;
+        backgroundImageEnabled = advanced && config.backgroundImageEnabled;
+        backgroundImageGlobalEnabled = advanced && config.backgroundImageGlobalEnabled;
+        backgroundImageType = advanced ? config.backgroundImageType : DEFAULT_BACKGROUND_IMAGE_TYPE;
+        backgroundImageOpacity = advanced ? config.backgroundImageOpacity : DEFAULT_BACKGROUND_IMAGE_OPACITY;
+        backgroundImageBlur = advanced ? config.backgroundImageBlur : DEFAULT_BACKGROUND_IMAGE_BLUR;
 
         // 横幅高度配置 - 优先使用当前桌面设备的配置
         try {
@@ -1087,6 +1123,14 @@
         );
         if (currentVersion !== updateHomepageVersion) return;
         bannerImgSrc = bannerResult.bannerImgSrc;
+
+        // 背景图片
+        const backgroundResult = await resolveBackgroundImage(
+            config,
+            getAdvancedEnabled(),
+        );
+        if (currentVersion !== updateHomepageVersion) return;
+        backgroundImageSrc = backgroundResult.backgroundImageSrc;
     }
 
     // 格式化状态语言，将变量替换为统计信息（异步处理）
@@ -1384,6 +1428,7 @@
     class:quick-buttons-glass={quickButtonStyle === "glass"}
     class:banner-glass-enabled={bannerTitleIntegrated && $showBanner && bannerGlassEnabled}
     class:banner-glass-custom={bannerGlassColorMode === "custom"}
+    class:background-image-active={backgroundImageEnabled && backgroundImageSrc && advanced}
     style={`--homepage-banner-title-color: ${bannerTitleColor}; --homepage-banner-status-color: ${bannerStatusColor}; --homepage-banner-button-color: ${bannerButtonColor}; --homepage-banner-glass-color: ${bannerGlassColor}; --homepage-banner-glass-opacity: ${bannerGlassOpacity}%; --homepage-banner-glass-blur: ${bannerGlassBlur}px;`}
 >
     <!-- 头部横幅区域 -->

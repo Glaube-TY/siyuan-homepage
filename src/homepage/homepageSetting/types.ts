@@ -58,6 +58,13 @@ export interface StylesSettingsState {
     mouseTrailEnabled: boolean;
     clickEffectEnabled: boolean;
     clickEffectContent: string;
+    backgroundImageEnabled: boolean;
+    backgroundImageGlobalEnabled: boolean;
+    backgroundImageType: "local" | "remote";
+    backgroundImageLocalData: string | null;
+    backgroundImageRemoteUrl: string;
+    backgroundImageOpacity: number;
+    backgroundImageBlur: number;
     fallEffectsEnabled: boolean;
     globalFallingEffectsEnabled: boolean;
     fallingIcon: string;
@@ -73,6 +80,14 @@ export interface StylesSettingsActions {
     onMouseTrailEnabledChange: (value: boolean) => void;
     onClickEffectEnabledChange: (value: boolean) => void;
     onClickEffectContentChange: (value: string) => void;
+    onBackgroundImageEnabledChange: (value: boolean) => void;
+    onBackgroundImageGlobalEnabledChange: (value: boolean) => void;
+    onBackgroundImageTypeChange: (value: "local" | "remote") => void;
+    onBackgroundImageLocalDataChange: (value: string | null) => void;
+    onBackgroundImageRemoteUrlChange: (value: string) => void;
+    onBackgroundImageOpacityChange: (value: number) => void;
+    onBackgroundImageBlurChange: (value: number) => void;
+    onBackgroundImageSelect: (event: Event) => void;
     onFallEffectsEnabledChange: (value: boolean) => void;
     onGlobalFallingEffectsEnabledChange: (value: boolean) => void;
     onFallingIconChange: (value: string) => void;

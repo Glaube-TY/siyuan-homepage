@@ -10,13 +10,16 @@
         normalizeBannerGlassColor,
         normalizeBannerGlassColorMode,
         normalizeBannerGlassOpacity,
+        normalizeBackgroundImageBlur,
+        normalizeBackgroundImageOpacity,
+        normalizeBackgroundImageType,
         loadHomepageSettingConfig,
         normalizeBannerIntegratedColor,
         normalizeHomepageTitleAlign,
         normalizeQuickButtonStyle,
         saveHomepageSettingConfig,
     } from "./config"
-    import type { BannerDeviceProfile, BannerGlassColorMode, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
+    import type { BackgroundImageType, BannerDeviceProfile, BannerGlassColorMode, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
     import { getLocalDeviceId, isDesktopDeviceProfileEnabled, getCurrentDeviceInfo, updateDeviceProfile, findExistingDeviceByHardware, deduplicateDeviceProfiles } from "../utils/deviceProfile"
     import { loadWidgetLayoutSettings, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
@@ -228,6 +231,13 @@
     let MouseTrailEnabled = $state(false);
     let ClickEffectEnabled = $state(false);
     let ClickEffectContent = $state("");
+    let backgroundImageEnabled = $state(false);
+    let backgroundImageGlobalEnabled = $state(false);
+    let backgroundImageType = $state<BackgroundImageType>("local");
+    let backgroundImageLocalData: string | null = $state(null);
+    let backgroundImageRemoteUrl = $state("");
+    let backgroundImageOpacity = $state(35);
+    let backgroundImageBlur = $state(0);
     let FallEffectsEnabled = $state(false);
     let GlobalFallingEffectsEnabled = $state(false);
     let FallingIcon = $state("snow");
@@ -286,6 +296,13 @@
         mouseTrailEnabled: MouseTrailEnabled,
         clickEffectEnabled: ClickEffectEnabled,
         clickEffectContent: ClickEffectContent,
+        backgroundImageEnabled,
+        backgroundImageGlobalEnabled,
+        backgroundImageType,
+        backgroundImageLocalData,
+        backgroundImageRemoteUrl,
+        backgroundImageOpacity,
+        backgroundImageBlur,
         fallEffectsEnabled: FallEffectsEnabled,
         globalFallingEffectsEnabled: GlobalFallingEffectsEnabled,
         fallingIcon: FallingIcon,
@@ -301,6 +318,19 @@
         onMouseTrailEnabledChange: (value) => MouseTrailEnabled = value,
         onClickEffectEnabledChange: (value) => ClickEffectEnabled = value,
         onClickEffectContentChange: (value) => ClickEffectContent = value,
+        onBackgroundImageEnabledChange: (value) => backgroundImageEnabled = value,
+        onBackgroundImageGlobalEnabledChange: (value) => backgroundImageGlobalEnabled = value,
+        onBackgroundImageTypeChange: (value) => {
+            backgroundImageType = normalizeBackgroundImageType(value);
+            if (backgroundImageType === "remote") {
+                backgroundImageLocalData = null;
+            }
+        },
+        onBackgroundImageLocalDataChange: (value) => backgroundImageLocalData = value,
+        onBackgroundImageRemoteUrlChange: (value) => backgroundImageRemoteUrl = value,
+        onBackgroundImageOpacityChange: (value) => backgroundImageOpacity = normalizeBackgroundImageOpacity(value),
+        onBackgroundImageBlurChange: (value) => backgroundImageBlur = normalizeBackgroundImageBlur(value),
+        onBackgroundImageSelect: handleBackgroundImageSelect,
         onFallEffectsEnabledChange: (value) => FallEffectsEnabled = value,
         onGlobalFallingEffectsEnabledChange: (value) => GlobalFallingEffectsEnabled = value,
         onFallingIconChange: (value) => FallingIcon = value,
@@ -445,6 +475,13 @@
             mouseGlobalEnabled = savedConfig.mouseGlobalEnabled ?? false;
             ClickEffectEnabled = savedConfig.ClickEffectEnabled ?? false;
             ClickEffectContent = savedConfig.ClickEffectContent || "";
+            backgroundImageEnabled = savedConfig.backgroundImageEnabled === true;
+            backgroundImageGlobalEnabled = savedConfig.backgroundImageGlobalEnabled === true;
+            backgroundImageType = normalizeBackgroundImageType(savedConfig.backgroundImageType);
+            backgroundImageLocalData = savedConfig.backgroundImageLocalData || null;
+            backgroundImageRemoteUrl = savedConfig.backgroundImageRemoteUrl || "";
+            backgroundImageOpacity = normalizeBackgroundImageOpacity(savedConfig.backgroundImageOpacity);
+            backgroundImageBlur = normalizeBackgroundImageBlur(savedConfig.backgroundImageBlur);
             FallEffectsEnabled = savedConfig.FallEffectsEnabled ?? false;
             GlobalFallingEffectsEnabled =
                 savedConfig.GlobalFallingEffectsEnabled ?? false;
@@ -571,9 +608,29 @@
         }
     }
 
+    function handleBackgroundImageSelect(event: Event) {
+        const input = event.target as HTMLInputElement;
+        if (input.files && input.files.length > 0) {
+            const file = input.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function (e) {
+                backgroundImageLocalData = e.target?.result as string;
+            };
+
+            reader.readAsDataURL(file);
+        }
+    }
+
     $effect(() => {
         if (tempBannerType === "remote") {
             bannerLocalData = null; // 清空本地图片数据
+        }
+    });
+
+    $effect(() => {
+        if (backgroundImageType === "remote") {
+            backgroundImageLocalData = null;
         }
     });
 
@@ -851,6 +908,13 @@
             mouseGlobalEnabled: mouseGlobalEnabled,
             ClickEffectEnabled: ClickEffectEnabled,
             ClickEffectContent: ClickEffectContent,
+            backgroundImageEnabled: backgroundImageEnabled,
+            backgroundImageGlobalEnabled: backgroundImageGlobalEnabled,
+            backgroundImageType: normalizeBackgroundImageType(backgroundImageType),
+            backgroundImageLocalData: backgroundImageType === "local" ? backgroundImageLocalData : null,
+            backgroundImageRemoteUrl: backgroundImageRemoteUrl,
+            backgroundImageOpacity: normalizeBackgroundImageOpacity(backgroundImageOpacity),
+            backgroundImageBlur: normalizeBackgroundImageBlur(backgroundImageBlur),
             FallEffectsEnabled: FallEffectsEnabled,
             GlobalFallingEffectsEnabled: GlobalFallingEffectsEnabled,
             FallingIcon: FallingIcon,
