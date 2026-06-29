@@ -435,8 +435,8 @@
                 syncConfig.databaseId,
                 currentBlockId,
             );
-        } catch (error) {
-            console.warn("[contentSetting] 同步同类组件数据库 ID 失败", error);
+        } catch {
+            showMessage("同步同类组件数据库 ID 失败，不影响当前组件保存");
         }
     }
 
@@ -537,8 +537,8 @@
             if (typeof settingData === "string") {
                 try {
                     parsedData = JSON.parse(settingData);
-                } catch (e) {
-                    console.error("无法解析 settingData", e);
+                } catch {
+                    showMessage("组件配置解析失败，请检查该组件配置数据");
                     return;
                 }
             } else {
@@ -654,8 +654,8 @@
                                     ? result.events.map((event) => ({ ...event }))
                                     : [{ name: "", date: "", anniversary: false }];
                         }
-                    } catch (error) {
-                        console.warn("[contentSetting] 读取倒数日数据库失败", error);
+                    } catch {
+                        showMessage("读取倒数日数据库失败，将使用默认空列表");
                     }
                 }
                 countdownCard1BgSelect =
