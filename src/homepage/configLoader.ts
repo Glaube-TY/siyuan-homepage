@@ -1,7 +1,26 @@
 import { getImage } from "@/components/tools/getImage";
 import type { DeviceProfilesMap } from "./utils/deviceProfile";
 import { getLocalDeviceId, isDesktopDeviceProfileEnabled } from "./utils/deviceProfile";
-import type { BannerDeviceProfile } from "./homepageSetting/config";
+import {
+    DEFAULT_BANNER_INTEGRATED_COLOR,
+    DEFAULT_BANNER_GLASS_BLUR,
+    DEFAULT_BANNER_GLASS_COLOR,
+    DEFAULT_BANNER_GLASS_COLOR_MODE,
+    DEFAULT_BANNER_GLASS_OPACITY,
+    DEFAULT_HOMEPAGE_TITLE_ALIGN,
+    DEFAULT_QUICK_BUTTON_STYLE,
+    normalizeBannerGlassBlur,
+    normalizeBannerGlassColor,
+    normalizeBannerGlassColorMode,
+    normalizeBannerGlassOpacity,
+    normalizeBannerIntegratedColor,
+    normalizeHomepageTitleAlign,
+    normalizeQuickButtonStyle,
+    type BannerGlassColorMode,
+    type BannerDeviceProfile,
+    type HomepageTitleAlign,
+    type QuickButtonStyle,
+} from "./homepageSetting/config";
 import { createDefaultButtons, normalizeButtonsList as normalizeButtonsListFromRegistry, type HomepageButtonItem } from "./buttonRegistry";
 import {
     DEFAULT_STATS_INFO_TEXT,
@@ -34,6 +53,17 @@ export interface HomepageConfig {
     TitleIconImage: string | null;
     titleIconType: TitleIconType;
     customTitle: string;
+    bannerTitleIntegrated: boolean;
+    homepageTitleAlign: HomepageTitleAlign;
+    quickButtonStyle: QuickButtonStyle;
+    bannerTitleColor: string;
+    bannerStatusColor: string;
+    bannerButtonColor: string;
+    bannerGlassEnabled: boolean;
+    bannerGlassColorMode: BannerGlassColorMode;
+    bannerGlassColor: string;
+    bannerGlassOpacity: number;
+    bannerGlassBlur: number;
     tempTitleIconStyle: TitleIconStyle;
     statsInfoText: string;
     statusTextMode: HomepageStatusTextMode;
@@ -73,6 +103,8 @@ const VALID_TITLE_ICON_STYLES: TitleIconStyle[] = ["square", "round", "circle"];
 const VALID_BANNER_GLOBAL_TYPES: BannerGlobalType[] = ["custom", "bing"];
 const VALID_FALLING_DENSITIES: FallingDensity[] = ["low", "medium", "high"];
 const VALID_FALLING_SPEEDS: FallingSpeed[] = ["low", "medium", "high"];
+const MIN_BANNER_SCROLL_TOP = -10000;
+const MAX_BANNER_SCROLL_TOP = 10000;
 
 const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDeviceProfiles'> & { deviceProfiles: DeviceProfilesMap; bannerDeviceProfiles: Record<string, BannerDeviceProfile> } = {
     bannerEnabled: true,
@@ -85,6 +117,17 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDe
     TitleIconImage: null,
     titleIconType: "emoji",
     customTitle: "思源笔记首页",
+    bannerTitleIntegrated: false,
+    homepageTitleAlign: DEFAULT_HOMEPAGE_TITLE_ALIGN,
+    quickButtonStyle: DEFAULT_QUICK_BUTTON_STYLE,
+    bannerTitleColor: DEFAULT_BANNER_INTEGRATED_COLOR,
+    bannerStatusColor: DEFAULT_BANNER_INTEGRATED_COLOR,
+    bannerButtonColor: DEFAULT_BANNER_INTEGRATED_COLOR,
+    bannerGlassEnabled: false,
+    bannerGlassColorMode: DEFAULT_BANNER_GLASS_COLOR_MODE,
+    bannerGlassColor: DEFAULT_BANNER_GLASS_COLOR,
+    bannerGlassOpacity: DEFAULT_BANNER_GLASS_OPACITY,
+    bannerGlassBlur: DEFAULT_BANNER_GLASS_BLUR,
     tempTitleIconStyle: "square",
     statsInfoText: DEFAULT_STATS_INFO_TEXT,
     statusTextMode: "custom",
@@ -161,12 +204,30 @@ function normalizeBannerDeviceProfiles(value: unknown): Record<string, BannerDev
             if (height !== 300) normalized.bannerHeight = height;
         }
         if (rawProfile.scrollTop !== undefined) {
-            const scroll = normalizeNumber(rawProfile.scrollTop, 0, 0, 10000);
+            const scroll = normalizeNumber(rawProfile.scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP);
             if (scroll !== 0) normalized.scrollTop = scroll;
         }
         result[deviceId] = normalized;
     }
     return result;
+}
+
+async function loadLegacyBannerScrollTop(plugin: any): Promise<number> {
+    try {
+        const oldPosition = await plugin.loadData("bannerPosition.json");
+        if (oldPosition && typeof oldPosition.scrollTop === "number") {
+            return normalizeNumber(oldPosition.scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP);
+        }
+    } catch {
+        // 忽略读取错误
+    }
+    return 0;
+}
+
+async function saveLegacyBannerScrollTop(plugin: any, scrollTop: number): Promise<void> {
+    await plugin.saveData("bannerPosition.json", {
+        scrollTop: normalizeNumber(scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP),
+    });
 }
 
 // 注意：getDeviceLayout 已废弃，请使用 loadWidgetLayoutSettings(plugin) 从 widgetLayout.json 读取
@@ -189,6 +250,17 @@ export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
         TitleIconImage: normalizeStringOrNull(config.TitleIconImage),
         titleIconType: normalizeEnum(config.titleIconType, VALID_TITLE_ICON_TYPES, DEFAULT_HOMEPAGE_CONFIG.titleIconType),
         customTitle: normalizeString(config.customTitle, DEFAULT_HOMEPAGE_CONFIG.customTitle),
+        bannerTitleIntegrated: config.bannerTitleIntegrated === true,
+        homepageTitleAlign: normalizeHomepageTitleAlign(config.homepageTitleAlign),
+        quickButtonStyle: normalizeQuickButtonStyle(config.quickButtonStyle),
+        bannerTitleColor: normalizeBannerIntegratedColor(config.bannerTitleColor),
+        bannerStatusColor: normalizeBannerIntegratedColor(config.bannerStatusColor),
+        bannerButtonColor: normalizeBannerIntegratedColor(config.bannerButtonColor),
+        bannerGlassEnabled: config.bannerGlassEnabled === true,
+        bannerGlassColorMode: normalizeBannerGlassColorMode(config.bannerGlassColorMode),
+        bannerGlassColor: normalizeBannerGlassColor(config.bannerGlassColor),
+        bannerGlassOpacity: normalizeBannerGlassOpacity(config.bannerGlassOpacity),
+        bannerGlassBlur: normalizeBannerGlassBlur(config.bannerGlassBlur),
         tempTitleIconStyle: normalizeEnum(config.tempTitleIconStyle, VALID_TITLE_ICON_STYLES, DEFAULT_HOMEPAGE_CONFIG.tempTitleIconStyle),
         statsInfoText: normalizeString(config.statsInfoText, DEFAULT_HOMEPAGE_CONFIG.statsInfoText),
         statusTextMode: normalizeHomepageStatusTextMode(config.statusTextMode),
@@ -236,11 +308,13 @@ export async function loadBannerDisplaySettings(plugin: any): Promise<BannerDisp
             const deviceHeight = profile.bannerHeight !== undefined
                 ? normalizeNumber(profile.bannerHeight, globalBannerHeight, 50, 1000)
                 : globalBannerHeight;
-            const deviceScrollTop = profile.scrollTop;
+            const deviceScrollTop = profile.scrollTop !== undefined
+                ? normalizeNumber(profile.scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP)
+                : await loadLegacyBannerScrollTop(plugin);
 
             return {
                 bannerHeight: deviceHeight,
-                scrollTop: deviceScrollTop ?? 0,
+                scrollTop: deviceScrollTop,
                 source: `device profile (${deviceId})`,
                 deviceId,
             };
@@ -248,15 +322,7 @@ export async function loadBannerDisplaySettings(plugin: any): Promise<BannerDisp
     }
 
     // 回退：读取旧的 bannerPosition.json
-    let scrollTop = 0;
-    try {
-        const oldPosition = await plugin.loadData("bannerPosition.json");
-        if (oldPosition && typeof oldPosition.scrollTop === "number") {
-            scrollTop = normalizeNumber(oldPosition.scrollTop, 0, 0, 10000);
-        }
-    } catch {
-        // 忽略读取错误
-    }
+    const scrollTop = await loadLegacyBannerScrollTop(plugin);
 
     return {
         bannerHeight: globalBannerHeight,
@@ -296,12 +362,14 @@ export async function saveBannerDisplaySettings(
                 );
             }
             if (partialSettings.scrollTop !== undefined) {
-                config.bannerDeviceProfiles[deviceId].scrollTop = normalizeNumber(
+                const normalizedScrollTop = normalizeNumber(
                     partialSettings.scrollTop,
                     0,
-                    0,
-                    10000
+                    MIN_BANNER_SCROLL_TOP,
+                    MAX_BANNER_SCROLL_TOP
                 );
+                config.bannerDeviceProfiles[deviceId].scrollTop = normalizedScrollTop;
+                await saveLegacyBannerScrollTop(plugin, normalizedScrollTop);
             }
 
             await plugin.saveData("homepageSettingConfig.json", config);
@@ -317,9 +385,7 @@ export async function saveBannerDisplaySettings(
 
     // scrollTop 仍保存到旧文件以保持兼容
     if (partialSettings.scrollTop !== undefined) {
-        await plugin.saveData("bannerPosition.json", {
-            scrollTop: normalizeNumber(partialSettings.scrollTop, 0, 0, 10000),
-        });
+        await saveLegacyBannerScrollTop(plugin, partialSettings.scrollTop);
     }
 }
 

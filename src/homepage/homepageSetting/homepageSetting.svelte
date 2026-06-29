@@ -5,8 +5,18 @@
 
     import "./homepageSettingStyle/homepageSetting.scss"
     import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
-    import { loadHomepageSettingConfig, saveHomepageSettingConfig } from "./config"
-    import type { HomepageSettingConfig } from "./config"
+    import {
+        normalizeBannerGlassBlur,
+        normalizeBannerGlassColor,
+        normalizeBannerGlassColorMode,
+        normalizeBannerGlassOpacity,
+        loadHomepageSettingConfig,
+        normalizeBannerIntegratedColor,
+        normalizeHomepageTitleAlign,
+        normalizeQuickButtonStyle,
+        saveHomepageSettingConfig,
+    } from "./config"
+    import type { BannerDeviceProfile, BannerGlassColorMode, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
     import { getLocalDeviceId, isDesktopDeviceProfileEnabled, getCurrentDeviceInfo, updateDeviceProfile, findExistingDeviceByHardware, deduplicateDeviceProfiles } from "../utils/deviceProfile"
     import { loadWidgetLayoutSettings, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
@@ -76,6 +86,17 @@
     let tempTitleIconEmoji = $state("🏠");
     let tempTitleIconImage: string | null = $state(null);
     let tempCustomTitle = $state("思源笔记首页");
+    let tempBannerTitleIntegrated = $state(false);
+    let tempHomepageTitleAlign = $state<HomepageTitleAlign>("center");
+    let tempQuickButtonStyle = $state<QuickButtonStyle>("default");
+    let tempBannerTitleColor = $state("#ffffff");
+    let tempBannerStatusColor = $state("#ffffff");
+    let tempBannerButtonColor = $state("#ffffff");
+    let tempBannerGlassEnabled = $state(false);
+    let tempBannerGlassColorMode = $state<BannerGlassColorMode>("theme");
+    let tempBannerGlassColor = $state("#ffffff");
+    let tempBannerGlassOpacity = $state(18);
+    let tempBannerGlassBlur = $state(12);
 
     let tempStatsInfoText =
         $state("自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤");
@@ -228,6 +249,35 @@
     let currentDeviceInfo = $state<ReturnType<typeof getCurrentDeviceInfo> | null>(null);
     let deviceProfiles = $state<Record<string, any>>({});
 
+    function isSameDeviceHardwareProfile(a: any, b: any): boolean {
+        return Boolean(a && b
+            && a.hostname === b.hostname
+            && a.platform === b.platform
+            && a.arch === b.arch
+            && a.isMobile === b.isMobile);
+    }
+
+    function mergeBannerDeviceProfile(config: any, fromDeviceId: string, toDeviceId: string): boolean {
+        if (!fromDeviceId || !toDeviceId || fromDeviceId === toDeviceId) {
+            return false;
+        }
+
+        const bannerProfiles = config.bannerDeviceProfiles;
+        if (!bannerProfiles?.[fromDeviceId]) {
+            return false;
+        }
+
+        const source = bannerProfiles[fromDeviceId] as BannerDeviceProfile;
+        const target = (bannerProfiles[toDeviceId] || {}) as BannerDeviceProfile;
+
+        bannerProfiles[toDeviceId] = {
+            bannerHeight: target.bannerHeight ?? source.bannerHeight,
+            scrollTop: target.scrollTop ?? source.scrollTop,
+        };
+        delete bannerProfiles[fromDeviceId];
+        return true;
+    }
+
     let stylesSettingsState = $derived<StylesSettingsState>({
         footerEnabled,
         footerContent,
@@ -332,6 +382,17 @@
             tempTitleIconImage = savedConfig.TitleIconImage || null;
             tempTitleIconStyle = savedConfig.tempTitleIconStyle || "square";
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
+            tempBannerTitleIntegrated = bannerEnabled && savedConfig.bannerTitleIntegrated === true;
+            tempHomepageTitleAlign = normalizeHomepageTitleAlign(savedConfig.homepageTitleAlign);
+            tempQuickButtonStyle = normalizeQuickButtonStyle(savedConfig.quickButtonStyle);
+            tempBannerTitleColor = normalizeBannerIntegratedColor(savedConfig.bannerTitleColor);
+            tempBannerStatusColor = normalizeBannerIntegratedColor(savedConfig.bannerStatusColor);
+            tempBannerButtonColor = normalizeBannerIntegratedColor(savedConfig.bannerButtonColor);
+            tempBannerGlassEnabled = savedConfig.bannerGlassEnabled === true;
+            tempBannerGlassColorMode = normalizeBannerGlassColorMode(savedConfig.bannerGlassColorMode);
+            tempBannerGlassColor = normalizeBannerGlassColor(savedConfig.bannerGlassColor);
+            tempBannerGlassOpacity = normalizeBannerGlassOpacity(savedConfig.bannerGlassOpacity);
+            tempBannerGlassBlur = normalizeBannerGlassBlur(savedConfig.bannerGlassBlur);
             tempStatsInfoText = savedConfig.statsInfoText || "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤";
             tempStatusTextMode = normalizeHomepageStatusTextMode(savedConfig.statusTextMode);
             tempStatusAiPrompt = normalizeStatusAiPrompt(savedConfig.statusAiPrompt);
@@ -396,8 +457,18 @@
             let loadedDeviceProfiles = savedConfig.deviceProfiles || {};
             
             // 先做一次去重清理
+            const originalDeviceProfiles = loadedDeviceProfiles;
             const { cleanedProfiles, deletedIds } = deduplicateDeviceProfiles(loadedDeviceProfiles);
             if (deletedIds.length > 0) {
+                for (const deletedId of deletedIds) {
+                    const deletedProfile = originalDeviceProfiles[deletedId];
+                    const retainedEntry = Object.entries(cleanedProfiles).find(([, profile]) =>
+                        isSameDeviceHardwareProfile(profile, deletedProfile)
+                    );
+                    if (retainedEntry) {
+                        mergeBannerDeviceProfile(savedConfig, deletedId, retainedEntry[0]);
+                    }
+                }
                 loadedDeviceProfiles = cleanedProfiles;
                 
                 // 同步清理 widgetLayout.json 中的重复 profiles
@@ -448,6 +519,7 @@
                             delete widgetLayout.profiles[oldDeviceId];
                             await plugin.saveData("widgetLayout.json", widgetLayout);
                         }
+                        mergeBannerDeviceProfile(savedConfig, oldDeviceId, currentDeviceInfo.deviceId);
                     }
                 } else {
                     // 创建新 profile（不含 layout，layout 已移到 widgetLayout.json）
@@ -653,15 +725,28 @@
 
         // 初始化 bannerDeviceProfiles（如果不存在）
         let bannerDeviceProfiles = existingConfig.bannerDeviceProfiles || {};
+        existingConfig.bannerDeviceProfiles = bannerDeviceProfiles;
 
         // 桌面端：登记当前设备信息，并保存设备特定的横幅高度
         if (isDesktopDeviceProfileEnabled()) {
             const deviceId = getLocalDeviceId();
             if (deviceId) {
                 const deviceInfo = getCurrentDeviceInfo();
-                const existingProfile = deviceProfiles[deviceId];
+                let existingProfile = deviceProfiles[deviceId];
+                let oldDeviceId: string | null = null;
+                if (!existingProfile) {
+                    const matchedId = findExistingDeviceByHardware(deviceProfiles, deviceInfo);
+                    if (matchedId) {
+                        existingProfile = deviceProfiles[matchedId];
+                        oldDeviceId = matchedId;
+                    }
+                }
                 if (existingProfile) {
                     deviceProfiles[deviceId] = updateDeviceProfile(existingProfile, deviceInfo);
+                    if (oldDeviceId && oldDeviceId !== deviceId) {
+                        delete deviceProfiles[oldDeviceId];
+                        mergeBannerDeviceProfile(existingConfig, oldDeviceId, deviceId);
+                    }
                 } else {
                     deviceProfiles[deviceId] = {
                         deviceId: deviceInfo.deviceId,
@@ -706,6 +791,17 @@
             TitleIconEmoji: tempTitleIconEmoji,
             TitleIconImage: tempTitleIconImage,
             customTitle: tempCustomTitle,
+            bannerTitleIntegrated: tempBannerEnabled && tempBannerTitleIntegrated,
+            homepageTitleAlign: normalizeHomepageTitleAlign(tempHomepageTitleAlign),
+            quickButtonStyle: normalizeQuickButtonStyle(tempQuickButtonStyle),
+            bannerTitleColor: normalizeBannerIntegratedColor(tempBannerTitleColor),
+            bannerStatusColor: normalizeBannerIntegratedColor(tempBannerStatusColor),
+            bannerButtonColor: normalizeBannerIntegratedColor(tempBannerButtonColor),
+            bannerGlassEnabled: tempBannerEnabled && tempBannerTitleIntegrated && tempBannerGlassEnabled,
+            bannerGlassColorMode: normalizeBannerGlassColorMode(tempBannerGlassColorMode),
+            bannerGlassColor: normalizeBannerGlassColor(tempBannerGlassColor),
+            bannerGlassOpacity: normalizeBannerGlassOpacity(tempBannerGlassOpacity),
+            bannerGlassBlur: normalizeBannerGlassBlur(tempBannerGlassBlur),
             tempTitleIconStyle: tempTitleIconStyle,
 
             statsInfoText: tempStatsInfoText,
@@ -909,7 +1005,10 @@
                             bannerRemoteUrl={bannerRemoteUrl}
                             tempBannerHeight={tempBannerHeight}
                             advancedEnabled={advancedEnabled}
-                            onTempBannerEnabledChange={(value) => tempBannerEnabled = value}
+                            onTempBannerEnabledChange={(value) => {
+                                tempBannerEnabled = value;
+                                if (!value) tempBannerTitleIntegrated = false;
+                            }}
                             onBannerGlobalTypeChange={(value) => bannerGlobalType = value}
                             onBingApiTypeChange={(value) => bingApiType = value}
                             onTempBannerTypeChange={(value) => tempBannerType = value}
@@ -932,6 +1031,18 @@
                             tempStatusTextMode={tempStatusTextMode}
                             tempStatusAiPrompt={tempStatusAiPrompt}
                             tempStatusAiMaxChars={tempStatusAiMaxChars}
+                            tempBannerEnabled={tempBannerEnabled}
+                            tempBannerTitleIntegrated={tempBannerTitleIntegrated}
+                            tempHomepageTitleAlign={tempHomepageTitleAlign}
+                            tempQuickButtonStyle={tempQuickButtonStyle}
+                            tempBannerTitleColor={tempBannerTitleColor}
+                            tempBannerStatusColor={tempBannerStatusColor}
+                            tempBannerButtonColor={tempBannerButtonColor}
+                            tempBannerGlassEnabled={tempBannerGlassEnabled}
+                            tempBannerGlassColorMode={tempBannerGlassColorMode}
+                            tempBannerGlassColor={tempBannerGlassColor}
+                            tempBannerGlassOpacity={tempBannerGlassOpacity}
+                            tempBannerGlassBlur={tempBannerGlassBlur}
                             statusAiAvailableModelCount={statusAiAvailableModelCount}
                             statusAiSelectedModelLabel={statusAiSelectedModelLabel}
                             advancedEnabled={advancedEnabled}
@@ -945,6 +1056,17 @@
                             onTempStatusTextModeChange={handleStatusTextModeChange}
                             onTempStatusAiPromptChange={(value) => tempStatusAiPrompt = value}
                             onTempStatusAiMaxCharsChange={(value) => tempStatusAiMaxChars = value}
+                            onTempBannerTitleIntegratedChange={(value) => tempBannerTitleIntegrated = tempBannerEnabled && value}
+                            onTempHomepageTitleAlignChange={(value) => tempHomepageTitleAlign = normalizeHomepageTitleAlign(value)}
+                            onTempQuickButtonStyleChange={(value) => tempQuickButtonStyle = normalizeQuickButtonStyle(value)}
+                            onTempBannerTitleColorChange={(value) => tempBannerTitleColor = normalizeBannerIntegratedColor(value)}
+                            onTempBannerStatusColorChange={(value) => tempBannerStatusColor = normalizeBannerIntegratedColor(value)}
+                            onTempBannerButtonColorChange={(value) => tempBannerButtonColor = normalizeBannerIntegratedColor(value)}
+                            onTempBannerGlassEnabledChange={(value) => tempBannerGlassEnabled = value}
+                            onTempBannerGlassColorModeChange={(value) => tempBannerGlassColorMode = normalizeBannerGlassColorMode(value)}
+                            onTempBannerGlassColorChange={(value) => tempBannerGlassColor = normalizeBannerGlassColor(value)}
+                            onTempBannerGlassOpacityChange={(value) => tempBannerGlassOpacity = normalizeBannerGlassOpacity(value)}
+                            onTempBannerGlassBlurChange={(value) => tempBannerGlassBlur = normalizeBannerGlassBlur(value)}
                         />
                     {/if}
 

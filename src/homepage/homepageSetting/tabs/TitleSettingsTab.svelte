@@ -10,6 +10,7 @@
         normalizeStatusAiMaxChars,
         type HomepageStatusTextMode,
     } from '@/homepage/status-text-config';
+    import type { BannerGlassColorMode, HomepageTitleAlign, QuickButtonStyle } from '../config';
 
     let iconInputEl: HTMLInputElement | null = $state(null);
     let emojiButtonRef: HTMLButtonElement | null = $state(null);
@@ -25,6 +26,18 @@
         tempStatusTextMode: HomepageStatusTextMode;
         tempStatusAiPrompt: string;
         tempStatusAiMaxChars: number;
+        tempBannerEnabled: boolean;
+        tempBannerTitleIntegrated: boolean;
+        tempHomepageTitleAlign: HomepageTitleAlign;
+        tempQuickButtonStyle: QuickButtonStyle;
+        tempBannerTitleColor: string;
+        tempBannerStatusColor: string;
+        tempBannerButtonColor: string;
+        tempBannerGlassEnabled: boolean;
+        tempBannerGlassColorMode: BannerGlassColorMode;
+        tempBannerGlassColor: string;
+        tempBannerGlassOpacity: number;
+        tempBannerGlassBlur: number;
         statusAiAvailableModelCount?: number;
         statusAiSelectedModelLabel?: string;
         advancedEnabled?: boolean;
@@ -38,6 +51,17 @@
         onTempStatusTextModeChange: (value: HomepageStatusTextMode) => void;
         onTempStatusAiPromptChange: (value: string) => void;
         onTempStatusAiMaxCharsChange: (value: number) => void;
+        onTempBannerTitleIntegratedChange: (value: boolean) => void;
+        onTempHomepageTitleAlignChange: (value: HomepageTitleAlign) => void;
+        onTempQuickButtonStyleChange: (value: QuickButtonStyle) => void;
+        onTempBannerTitleColorChange: (value: string) => void;
+        onTempBannerStatusColorChange: (value: string) => void;
+        onTempBannerButtonColorChange: (value: string) => void;
+        onTempBannerGlassEnabledChange: (value: boolean) => void;
+        onTempBannerGlassColorModeChange: (value: BannerGlassColorMode) => void;
+        onTempBannerGlassColorChange: (value: string) => void;
+        onTempBannerGlassOpacityChange: (value: number) => void;
+        onTempBannerGlassBlurChange: (value: number) => void;
     }
 
     let {
@@ -51,6 +75,18 @@
         tempStatusTextMode,
         tempStatusAiPrompt,
         tempStatusAiMaxChars,
+        tempBannerEnabled,
+        tempBannerTitleIntegrated,
+        tempHomepageTitleAlign,
+        tempQuickButtonStyle,
+        tempBannerTitleColor,
+        tempBannerStatusColor,
+        tempBannerButtonColor,
+        tempBannerGlassEnabled,
+        tempBannerGlassColorMode,
+        tempBannerGlassColor,
+        tempBannerGlassOpacity,
+        tempBannerGlassBlur,
         statusAiAvailableModelCount = 0,
         statusAiSelectedModelLabel = "",
         advancedEnabled = false,
@@ -63,7 +99,18 @@
         onTempStatsTextChange,
         onTempStatusTextModeChange,
         onTempStatusAiPromptChange,
-        onTempStatusAiMaxCharsChange
+        onTempStatusAiMaxCharsChange,
+        onTempBannerTitleIntegratedChange,
+        onTempHomepageTitleAlignChange,
+        onTempQuickButtonStyleChange,
+        onTempBannerTitleColorChange,
+        onTempBannerStatusColorChange,
+        onTempBannerButtonColorChange,
+        onTempBannerGlassEnabledChange,
+        onTempBannerGlassColorModeChange,
+        onTempBannerGlassColorChange,
+        onTempBannerGlassOpacityChange,
+        onTempBannerGlassBlurChange
     }: Props = $props();
 
     function selectStatusTextMode(mode: HomepageStatusTextMode) {
@@ -185,6 +232,148 @@
     </SettingRow>
 </SettingSection>
 
+<SettingSection title="标题区域外观">
+    {#if !advancedEnabled}
+        <div class="title-appearance-vip-note">
+            <SiyuanIcon name="vip" size={14} />
+            <span>标题融入横幅、标题对齐、快捷按钮样式和横幅毛玻璃为会员专属。会员过期后会按默认主页样式显示，已保存的设置会保留。</span>
+        </div>
+    {/if}
+
+    <SettingRow
+        title="标题融入横幅"
+        description={!advancedEnabled ? "会员专属，当前按默认样式显示" : tempBannerEnabled ? "开启后，主页标题、状态语和快捷按钮会显示在横幅图片内" : "开启横幅后可用"}
+    >
+        <input
+            type="checkbox"
+            class="b3-switch fn__flex-center"
+            checked={tempBannerEnabled && tempBannerTitleIntegrated}
+            disabled={!advancedEnabled || !tempBannerEnabled}
+            onchange={(e) => onTempBannerTitleIntegratedChange((e.currentTarget as HTMLInputElement).checked)}
+        />
+    </SettingRow>
+
+    <SettingRow title="标题对齐方式" description={!advancedEnabled ? "会员专属，当前按居中显示" : "同时影响标题、状态语和快捷按钮组"}>
+        <select
+            class="control-sm"
+            value={tempHomepageTitleAlign}
+            disabled={!advancedEnabled}
+            onchange={(e) => onTempHomepageTitleAlignChange((e.currentTarget as HTMLSelectElement).value as HomepageTitleAlign)}
+        >
+            <option value="left">左对齐</option>
+            <option value="center">居中</option>
+            <option value="right">右对齐</option>
+        </select>
+    </SettingRow>
+
+    <SettingRow title="快捷按钮样式" description={!advancedEnabled ? "会员专属，当前按默认按钮样式显示" : "仅影响主页标题区域的快捷按钮"}>
+        <select
+            class="control-sm"
+            value={tempQuickButtonStyle}
+            disabled={!advancedEnabled}
+            onchange={(e) => onTempQuickButtonStyleChange((e.currentTarget as HTMLSelectElement).value as QuickButtonStyle)}
+        >
+            <option value="default">默认</option>
+            <option value="flat">扁平</option>
+            <option value="glass">毛玻璃</option>
+        </select>
+    </SettingRow>
+
+    {#if tempBannerEnabled && tempBannerTitleIntegrated}
+        <SettingRow title="横幅内标题颜色" description="标题融入横幅时使用">
+            <input
+                type="color"
+                class="banner-color-input"
+                value={tempBannerTitleColor}
+                disabled={!advancedEnabled}
+                oninput={(e) => onTempBannerTitleColorChange((e.currentTarget as HTMLInputElement).value)}
+            />
+        </SettingRow>
+
+        <SettingRow title="横幅内状态语颜色" description="状态语融入横幅时使用">
+            <input
+                type="color"
+                class="banner-color-input"
+                value={tempBannerStatusColor}
+                disabled={!advancedEnabled}
+                oninput={(e) => onTempBannerStatusColorChange((e.currentTarget as HTMLInputElement).value)}
+            />
+        </SettingRow>
+
+        <SettingRow title="横幅内按钮颜色" description="快捷按钮文字和边框颜色">
+            <input
+                type="color"
+                class="banner-color-input"
+                value={tempBannerButtonColor}
+                disabled={!advancedEnabled}
+                oninput={(e) => onTempBannerButtonColorChange((e.currentTarget as HTMLInputElement).value)}
+            />
+        </SettingRow>
+
+        <SettingRow title="横幅毛玻璃层" description={!advancedEnabled ? "会员专属，当前不显示毛玻璃层" : "在横幅图片和标题内容之间增加可调毛玻璃层"}>
+            <input
+                type="checkbox"
+                class="b3-switch fn__flex-center"
+                checked={tempBannerGlassEnabled}
+                disabled={!advancedEnabled}
+                onchange={(e) => onTempBannerGlassEnabledChange((e.currentTarget as HTMLInputElement).checked)}
+            />
+        </SettingRow>
+
+        {#if tempBannerGlassEnabled}
+            <SettingRow title="毛玻璃颜色来源" description="可随思源主题，也可使用自定义颜色">
+                <select
+                    class="control-sm"
+                    value={tempBannerGlassColorMode}
+                    disabled={!advancedEnabled}
+                    onchange={(e) => onTempBannerGlassColorModeChange((e.currentTarget as HTMLSelectElement).value as BannerGlassColorMode)}
+                >
+                    <option value="theme">随思源主题</option>
+                    <option value="custom">自定义颜色</option>
+                </select>
+            </SettingRow>
+
+            {#if tempBannerGlassColorMode === "custom"}
+                <SettingRow title="毛玻璃颜色" description="自定义毛玻璃层底色">
+                    <input
+                        type="color"
+                        class="banner-color-input"
+                        value={tempBannerGlassColor}
+                        disabled={!advancedEnabled}
+                        oninput={(e) => onTempBannerGlassColorChange((e.currentTarget as HTMLInputElement).value)}
+                    />
+                </SettingRow>
+            {/if}
+
+            <SettingRow title="毛玻璃浓度" description={`${tempBannerGlassOpacity}%`}>
+                <input
+                    type="range"
+                    class="banner-range-input"
+                    min="0"
+                    max="80"
+                    step="1"
+                    value={tempBannerGlassOpacity}
+                    disabled={!advancedEnabled}
+                    oninput={(e) => onTempBannerGlassOpacityChange(Number((e.currentTarget as HTMLInputElement).value))}
+                />
+            </SettingRow>
+
+            <SettingRow title="模糊强度" description={`${tempBannerGlassBlur}px`}>
+                <input
+                    type="range"
+                    class="banner-range-input"
+                    min="0"
+                    max="40"
+                    step="1"
+                    value={tempBannerGlassBlur}
+                    disabled={!advancedEnabled}
+                    oninput={(e) => onTempBannerGlassBlurChange(Number((e.currentTarget as HTMLInputElement).value))}
+                />
+            </SettingRow>
+        {/if}
+    {/if}
+</SettingSection>
+
 <SettingSection title="状态语">
     <SettingRow title="状态语来源" description="选择主页标题下方状态语的生成方式">
         <div class="status-mode-switch">
@@ -302,6 +491,37 @@
         width: 32px;
         height: 32px;
         object-fit: cover;
+    }
+    .banner-color-input {
+        width: 40px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        background: transparent;
+        cursor: pointer;
+    }
+    .banner-range-input {
+        width: min(220px, 100%);
+        accent-color: var(--b3-theme-primary);
+    }
+    .title-appearance-vip-note {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        margin-bottom: 0.75rem;
+        padding: 0.6rem 0.7rem;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 28%, var(--b3-border-color));
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-surface));
+        color: var(--b3-theme-on-surface);
+        font-size: 12px;
+        line-height: 1.5;
+    }
+    .title-appearance-vip-note :global(svg) {
+        flex: 0 0 auto;
+        margin-top: 2px;
+        color: var(--b3-theme-primary);
     }
     .help-link {
         font-size: 12px;

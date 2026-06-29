@@ -51,6 +51,19 @@
         type HomepageStatusTextMode,
     } from "./configLoader";
     import {
+        DEFAULT_BANNER_GLASS_BLUR,
+        DEFAULT_BANNER_GLASS_COLOR,
+        DEFAULT_BANNER_GLASS_COLOR_MODE,
+        DEFAULT_BANNER_GLASS_OPACITY,
+        DEFAULT_BANNER_INTEGRATED_COLOR,
+        DEFAULT_HOMEPAGE_TITLE_ALIGN,
+        DEFAULT_QUICK_BUTTON_STYLE,
+        type BannerDeviceProfile,
+        type BannerGlassColorMode,
+        type HomepageTitleAlign,
+        type QuickButtonStyle,
+    } from "./homepageSetting/config";
+    import {
         DEFAULT_STATS_INFO_TEXT,
         DEFAULT_STATUS_AI_MAX_CHARS,
         DEFAULT_STATUS_AI_PROMPT,
@@ -79,10 +92,29 @@
 
     let { plugin, showIcon = writable(true) }: Props = $props();
 
+    const BANNER_TITLE_INTEGRATED_MIN_HEIGHT = 240;
+
     let showBanner = writable(true);
+    let bannerEnabled = $state(true);
     let bannerImage: HTMLImageElement = $state();
     let bannerHeight = $state(300);
     let bannerImgSrc = $state("");
+    let bannerTitleIntegrated = $state(false);
+    let homepageTitleAlign = $state<HomepageTitleAlign>("center");
+    let quickButtonStyle = $state<QuickButtonStyle>("default");
+    let bannerTitleColor = $state("#ffffff");
+    let bannerStatusColor = $state("#ffffff");
+    let bannerButtonColor = $state("#ffffff");
+    let bannerGlassEnabled = $state(false);
+    let bannerGlassColorMode = $state<BannerGlassColorMode>("theme");
+    let bannerGlassColor = $state("#ffffff");
+    let bannerGlassOpacity = $state(18);
+    let bannerGlassBlur = $state(12);
+    let effectiveBannerHeight = $derived(
+        bannerTitleIntegrated && bannerEnabled
+            ? Math.max(bannerHeight, BANNER_TITLE_INTEGRATED_MIN_HEIGHT)
+            : bannerHeight
+    );
 
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };
@@ -96,6 +128,7 @@
         const action = button.action || "";
         if (action === "search" || button.label?.includes("搜索笔记")) return "search";
         if (action === "diary" || button.label?.includes("今日日记")) return "diary";
+        if (action === "aiKnowledgeBase" || button.label?.includes("AI 知识库") || button.label?.includes("AI知识库")) return "iconSparkles";
         if (action === "addWidget" || button.label?.includes("添加组件")) return "create";
         if (action === "settings" || button.label?.includes("主页设置")) return "settings";
         if (action === "cleanEmptyDocs" || button.label?.includes("清理空文档")) return "delete";
@@ -107,6 +140,7 @@
         const actionLabelMap: Record<string, string> = {
             search: "搜索笔记",
             diary: "今日日记",
+            aiKnowledgeBase: "AI 知识库",
             addWidget: "添加组件",
             settings: "主页设置",
             cleanEmptyDocs: "清理空文档",
@@ -363,6 +397,35 @@
         return null;
     }
 
+    function isSameDeviceHardwareProfile(a: any, b: any): boolean {
+        return Boolean(a && b
+            && a.hostname === b.hostname
+            && a.platform === b.platform
+            && a.arch === b.arch
+            && a.isMobile === b.isMobile);
+    }
+
+    function mergeBannerDeviceProfile(config: any, fromDeviceId: string, toDeviceId: string): boolean {
+        if (!fromDeviceId || !toDeviceId || fromDeviceId === toDeviceId) {
+            return false;
+        }
+
+        const bannerProfiles = config.bannerDeviceProfiles;
+        if (!bannerProfiles?.[fromDeviceId]) {
+            return false;
+        }
+
+        const source = bannerProfiles[fromDeviceId] as BannerDeviceProfile;
+        const target = (bannerProfiles[toDeviceId] || {}) as BannerDeviceProfile;
+
+        bannerProfiles[toDeviceId] = {
+            bannerHeight: target.bannerHeight ?? source.bannerHeight,
+            scrollTop: target.scrollTop ?? source.scrollTop,
+        };
+        delete bannerProfiles[fromDeviceId];
+        return true;
+    }
+
     // 计算布局签名
     function computeLayoutSignature(layout: any): string {
         try {
@@ -596,8 +659,18 @@
         let hasWidgetLayoutChanged = false;
         
         // 先做一次去重清理
+        const originalDeviceProfiles = deviceProfiles;
         const { cleanedProfiles, deletedIds } = deduplicateDeviceProfiles(deviceProfiles);
         if (deletedIds.length > 0) {
+            for (const deletedId of deletedIds) {
+                const deletedProfile = originalDeviceProfiles[deletedId];
+                const retainedEntry = Object.entries(cleanedProfiles).find(([, profile]) =>
+                    isSameDeviceHardwareProfile(profile, deletedProfile)
+                );
+                if (retainedEntry && mergeBannerDeviceProfile(config, deletedId, retainedEntry[0])) {
+                    hasConfigChanged = true;
+                }
+            }
             deviceProfiles = cleanedProfiles;
             hasConfigChanged = true;
             
@@ -659,6 +732,10 @@
                         widgetLayout.profiles[deviceInfo.deviceId] = widgetLayout.profiles[oldDeviceId];
                         delete widgetLayout.profiles[oldDeviceId];
                         await plugin.saveData("widgetLayout.json", widgetLayout);
+                    }
+
+                    if (mergeBannerDeviceProfile(config, oldDeviceId, deviceInfo.deviceId)) {
+                        hasConfigChanged = true;
                     }
                 }
             }
@@ -939,6 +1016,7 @@
         advanced = getAdvancedEnabled();
 
         // 横幅相关配置
+        bannerEnabled = config.bannerEnabled;
         showBanner.set(config.bannerEnabled);
 
         showIcon.set(config.showIcon);
@@ -947,6 +1025,17 @@
         tempTitleIconImage = config.TitleIconImage;
         titleIconType = config.titleIconType;
         pageTitle = config.customTitle;
+        bannerTitleIntegrated = advanced && config.bannerTitleIntegrated;
+        homepageTitleAlign = advanced ? config.homepageTitleAlign : DEFAULT_HOMEPAGE_TITLE_ALIGN;
+        quickButtonStyle = advanced ? config.quickButtonStyle : DEFAULT_QUICK_BUTTON_STYLE;
+        bannerTitleColor = advanced ? config.bannerTitleColor : DEFAULT_BANNER_INTEGRATED_COLOR;
+        bannerStatusColor = advanced ? config.bannerStatusColor : DEFAULT_BANNER_INTEGRATED_COLOR;
+        bannerButtonColor = advanced ? config.bannerButtonColor : DEFAULT_BANNER_INTEGRATED_COLOR;
+        bannerGlassEnabled = advanced && config.bannerGlassEnabled;
+        bannerGlassColorMode = advanced ? config.bannerGlassColorMode : DEFAULT_BANNER_GLASS_COLOR_MODE;
+        bannerGlassColor = advanced ? config.bannerGlassColor : DEFAULT_BANNER_GLASS_COLOR;
+        bannerGlassOpacity = advanced ? config.bannerGlassOpacity : DEFAULT_BANNER_GLASS_OPACITY;
+        bannerGlassBlur = advanced ? config.bannerGlassBlur : DEFAULT_BANNER_GLASS_BLUR;
         tempTitleIconStyle = config.tempTitleIconStyle;
 
         statsInfoText = config.statsInfoText;
@@ -1285,12 +1374,23 @@
     }
 </script>
 
-<div class="homepage-container">
+<div
+    class="homepage-container"
+    class:banner-title-integrated={bannerTitleIntegrated && $showBanner}
+    class:title-align-left={homepageTitleAlign === "left"}
+    class:title-align-center={homepageTitleAlign === "center"}
+    class:title-align-right={homepageTitleAlign === "right"}
+    class:quick-buttons-flat={quickButtonStyle === "flat"}
+    class:quick-buttons-glass={quickButtonStyle === "glass"}
+    class:banner-glass-enabled={bannerTitleIntegrated && $showBanner && bannerGlassEnabled}
+    class:banner-glass-custom={bannerGlassColorMode === "custom"}
+    style={`--homepage-banner-title-color: ${bannerTitleColor}; --homepage-banner-status-color: ${bannerStatusColor}; --homepage-banner-button-color: ${bannerButtonColor}; --homepage-banner-glass-color: ${bannerGlassColor}; --homepage-banner-glass-opacity: ${bannerGlassOpacity}%; --homepage-banner-glass-blur: ${bannerGlassBlur}px;`}
+>
     <!-- 头部横幅区域 -->
     <div
         class="section top-banner"
         class:hide-top-banner={!$showBanner}
-        style:height={`${bannerHeight}px`}
+        style:height={`${effectiveBannerHeight}px`}
     >
         <img
             bind:this={bannerImage}
@@ -1302,6 +1402,9 @@
             aria-hidden="true"
         />
         <div class="banner-overlay"></div>
+        {#if bannerTitleIntegrated && $showBanner && bannerGlassEnabled}
+            <div class="banner-glass-layer" aria-hidden="true"></div>
+        {/if}
         <!-- 按钮容器 -->
         <div class="button-wrapper">
             <button
@@ -1344,125 +1447,246 @@
                 >
             </button>
         </div>
+
+        {#if bannerTitleIntegrated && $showBanner}
+            <div class="banner-title-layer">
+                <div class="header-content">
+                    {#if $showIcon}
+                        <div class="icon-title">
+                            {#if titleIconType === "emoji"}
+                                {@html normalizeSiyuanDocIcon(tempTitleIconEmoji) || "🏠"}
+                            {:else if titleIconType === "image" && tempTitleIconImage}
+                                <img
+                                    src={tempTitleIconImage}
+                                    alt="图标"
+                                    style="width: 32px; height: 32px;
+                   border-radius: {tempTitleIconStyle === 'square'
+                                            ? '0%'
+                                            : tempTitleIconStyle === 'round'
+                                              ? '20%'
+                                              : '50%'};"
+                                />
+                            {/if}
+                        </div>
+                    {/if}
+                    <h1 class="section-title">{pageTitle}</h1>
+                </div>
+
+                <div class="stats-info-wrap">
+                    <div
+                        class="stats-info"
+                        class:error={Boolean(statusAiVisibleErrorMessage)}
+                        style="white-space: pre-line"
+                    >
+                        {formattedStatsInfoText}
+                    </div>
+
+                    <button
+                        class="stats-info-refresh"
+                        class:is-refreshing={isRefreshingStatusText}
+                        type="button"
+                        title="刷新状态语"
+                        aria-label="刷新状态语"
+                        disabled={isRefreshingStatusText || statusAiRuntimeState === "generating"}
+                        onclick={() => void refreshStatusText()}
+                    >
+                        <SiyuanIcon name="refresh" size={14} />
+                    </button>
+                </div>
+
+                <!-- 快捷按钮栏 -->
+                <div
+                    class="nav-bar"
+                    role="navigation"
+                    aria-label="主菜单导航栏"
+                    onmouseenter={() => (isHoveringNavBar = true)}
+                    onmouseleave={() => (isHoveringNavBar = false)}
+                >
+                    <div class="nav-bar-left"></div>
+                    <div class="nav-buttons">
+                        {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
+                            {#if sortedButtons.checked}
+                                <button
+                                    class="nav-button"
+                                    onclick={() =>
+                                        handleButtonClick(
+                                            sortedButtons,
+                                            plugin,
+                                            currentBlockForSettingsRef,
+                                            saveLayout,
+                                        )}
+                                >
+                                    {#if getButtonIconName(sortedButtons)}
+                                        <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
+                                    {/if}
+                                    <span>{getButtonDisplayLabel(sortedButtons)}</span>
+                                </button>
+                            {/if}
+                        {/each}
+                    </div>
+
+                    <div class="nav-bar-right">
+                        <button
+                            class="nav-button more-button"
+                            class:hidden={!isHoveringNavBar ||
+                                filteredButtons.length === 0}
+                            onclick={() => {
+                                const newShowMoreMenu =
+                                    handleMoreButtonClick(showMoreMenu);
+                                showMoreMenu = newShowMoreMenu;
+                            }}
+                        >
+                            更多
+                        </button>
+
+                        {#if showMoreMenu && filteredButtons.length > 0}
+                            <div class="more-menu">
+                                {#each filteredButtons as item}
+                                    <button
+                                        class="more-menu-item"
+                                        onclick={() => {
+                                            handleButtonClick(
+                                                item,
+                                                plugin,
+                                                currentBlockForSettingsRef,
+                                                saveLayout,
+                                            );
+                                            showMoreMenu = false;
+                                        }}
+                                    >
+                                        {#if getButtonIconName(item)}
+                                            <SiyuanIcon name={getButtonIconName(item)} size={14} />
+                                        {/if}
+                                        <span>{getButtonDisplayLabel(item)}</span>
+                                    </button>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                </div>
+            </div>
+        {/if}
     </div>
 
     <!-- 头部快捷区域 -->
-    <div class="section workspace-header">
-        <div class="header-content">
-            {#if $showIcon}
-                <div class="icon-title">
-                    {#if titleIconType === "emoji"}
-                        {@html normalizeSiyuanDocIcon(tempTitleIconEmoji) || "🏠"}
-                    {:else if titleIconType === "image" && tempTitleIconImage}
-                        <img
-                            src={tempTitleIconImage}
-                            alt="图标"
-                            style="width: 32px; height: 32px; 
+    {#if !(bannerTitleIntegrated && $showBanner)}
+        <div class="section workspace-header">
+            <div class="header-content">
+                {#if $showIcon}
+                    <div class="icon-title">
+                        {#if titleIconType === "emoji"}
+                            {@html normalizeSiyuanDocIcon(tempTitleIconEmoji) || "🏠"}
+                        {:else if titleIconType === "image" && tempTitleIconImage}
+                            <img
+                                src={tempTitleIconImage}
+                                alt="图标"
+                                style="width: 32px; height: 32px;
                border-radius: {tempTitleIconStyle === 'square'
-                                ? '0%'
-                                : tempTitleIconStyle === 'round'
-                                  ? '20%'
-                                  : '50%'};"
-                        />
-                    {/if}
-                </div>
-            {/if}
-            <h1 class="section-title">{pageTitle}</h1>
-        </div>
-
-        <div class="stats-info-wrap">
-            <div
-                class="stats-info"
-                class:error={Boolean(statusAiVisibleErrorMessage)}
-                style="white-space: pre-line"
-            >
-                {formattedStatsInfoText}
+                                    ? '0%'
+                                    : tempTitleIconStyle === 'round'
+                                      ? '20%'
+                                      : '50%'};"
+                            />
+                        {/if}
+                    </div>
+                {/if}
+                <h1 class="section-title">{pageTitle}</h1>
             </div>
 
-            <button
-                class="stats-info-refresh"
-                class:is-refreshing={isRefreshingStatusText}
-                type="button"
-                title="刷新状态语"
-                aria-label="刷新状态语"
-                disabled={isRefreshingStatusText || statusAiRuntimeState === "generating"}
-                onclick={() => void refreshStatusText()}
-            >
-                <SiyuanIcon name="refresh" size={14} />
-            </button>
-        </div>
-
-        <!-- 快捷按钮栏 -->
-        <div
-            class="nav-bar"
-            role="navigation"
-            aria-label="主菜单导航栏"
-            onmouseenter={() => (isHoveringNavBar = true)}
-            onmouseleave={() => (isHoveringNavBar = false)}
-        >
-            <div class="nav-bar-left"></div>
-            <div class="nav-buttons">
-                {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
-                    {#if sortedButtons.checked}
-                        <button
-                            class="nav-button"
-                            onclick={() =>
-                                handleButtonClick(
-                                    sortedButtons,
-                                    plugin,
-                                    currentBlockForSettingsRef,
-                                    saveLayout,
-                                )}
-                        >
-                            {#if getButtonIconName(sortedButtons)}
-                                <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
-                            {/if}
-                            <span>{getButtonDisplayLabel(sortedButtons)}</span>
-                        </button>
-                    {/if}
-                {/each}
-            </div>
-
-            <div class="nav-bar-right">
-                <button
-                    class="nav-button more-button"
-                    class:hidden={!isHoveringNavBar ||
-                        filteredButtons.length === 0}
-                    onclick={() => {
-                        const newShowMoreMenu =
-                            handleMoreButtonClick(showMoreMenu);
-                        showMoreMenu = newShowMoreMenu;
-                    }}
+            <div class="stats-info-wrap">
+                <div
+                    class="stats-info"
+                    class:error={Boolean(statusAiVisibleErrorMessage)}
+                    style="white-space: pre-line"
                 >
-                    更多
-                </button>
+                    {formattedStatsInfoText}
+                </div>
 
-                {#if showMoreMenu && filteredButtons.length > 0}
-                    <div class="more-menu">
-                        {#each filteredButtons as item}
+                <button
+                    class="stats-info-refresh"
+                    class:is-refreshing={isRefreshingStatusText}
+                    type="button"
+                    title="刷新状态语"
+                    aria-label="刷新状态语"
+                    disabled={isRefreshingStatusText || statusAiRuntimeState === "generating"}
+                    onclick={() => void refreshStatusText()}
+                >
+                    <SiyuanIcon name="refresh" size={14} />
+                </button>
+            </div>
+
+            <!-- 快捷按钮栏 -->
+            <div
+                class="nav-bar"
+                role="navigation"
+                aria-label="主菜单导航栏"
+                onmouseenter={() => (isHoveringNavBar = true)}
+                onmouseleave={() => (isHoveringNavBar = false)}
+            >
+                <div class="nav-bar-left"></div>
+                <div class="nav-buttons">
+                    {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
+                        {#if sortedButtons.checked}
                             <button
-                                class="more-menu-item"
-                                onclick={() => {
+                                class="nav-button"
+                                onclick={() =>
                                     handleButtonClick(
-                                        item,
+                                        sortedButtons,
                                         plugin,
                                         currentBlockForSettingsRef,
                                         saveLayout,
-                                    );
-                                    showMoreMenu = false;
-                                }}
+                                    )}
                             >
-                                {#if getButtonIconName(item)}
-                                    <SiyuanIcon name={getButtonIconName(item)} size={14} />
+                                {#if getButtonIconName(sortedButtons)}
+                                    <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
                                 {/if}
-                                <span>{getButtonDisplayLabel(item)}</span>
+                                <span>{getButtonDisplayLabel(sortedButtons)}</span>
                             </button>
-                        {/each}
-                    </div>
-                {/if}
+                        {/if}
+                    {/each}
+                </div>
+
+                <div class="nav-bar-right">
+                    <button
+                        class="nav-button more-button"
+                        class:hidden={!isHoveringNavBar ||
+                            filteredButtons.length === 0}
+                        onclick={() => {
+                            const newShowMoreMenu =
+                                handleMoreButtonClick(showMoreMenu);
+                            showMoreMenu = newShowMoreMenu;
+                        }}
+                    >
+                        更多
+                    </button>
+
+                    {#if showMoreMenu && filteredButtons.length > 0}
+                        <div class="more-menu">
+                            {#each filteredButtons as item}
+                                <button
+                                    class="more-menu-item"
+                                    onclick={() => {
+                                        handleButtonClick(
+                                            item,
+                                            plugin,
+                                            currentBlockForSettingsRef,
+                                            saveLayout,
+                                        );
+                                        showMoreMenu = false;
+                                    }}
+                                >
+                                    {#if getButtonIconName(item)}
+                                        <SiyuanIcon name={getButtonIconName(item)} size={14} />
+                                    {/if}
+                                    <span>{getButtonDisplayLabel(item)}</span>
+                                </button>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
             </div>
         </div>
-    </div>
+    {/if}
 
     <!-- 自定义组件区域 -->
     <div

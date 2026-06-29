@@ -302,6 +302,9 @@ function getButtonAction(item: ButtonItem): string {
     if (item.label.includes("今日日记")) {
         return "diary";
     }
+    if (item.label.includes("AI 知识库") || item.label.includes("AI知识库")) {
+        return "aiKnowledgeBase";
+    }
     if (item.label.includes("清理空文档")) {
         return "cleanEmptyDocs";
     }
@@ -327,6 +330,8 @@ export function handleButtonClick(
         openEmptyDocCleanerDialog(plugin);
     } else if (action === "templateCenter") {
         openTemplateCenterDialog(plugin);
+    } else if (action === "aiKnowledgeBase") {
+        void plugin.openKbChatTab?.();
     } else if (action === "search" || action === "diary") {
         // 搜索和日记按钮通过 shortcut 触发，但已有 isTrusted 保护不会递归
         if (item.shortcut) {

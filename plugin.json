@@ -26,8 +26,8 @@
     "zh_CN": "主页"
   },
   "description": {
-    "en_US": "Provides personalized homepage layout and rich functional modules.",
-    "zh_CN": "提供个性化首页布局和丰富的功能模块。"
+    "en_US": "Provides personalized homepage layout and rich functional modules, as well as AI knowledge base.",
+    "zh_CN": "提供个性化首页布局和丰富的功能模块以及 AI 知识库功能。"
   },
   "readme": {
     "default": "README.md"

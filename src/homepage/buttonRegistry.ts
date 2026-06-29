@@ -7,7 +7,7 @@ export interface HomepageButtonItem {
     action?: string;
 }
 
-export const CORE_ACTIONS = ["search", "diary", "addWidget", "cleanEmptyDocs", "templateCenter", "settings"] as const;
+export const CORE_ACTIONS = ["search", "diary", "aiKnowledgeBase", "addWidget", "cleanEmptyDocs", "templateCenter", "settings"] as const;
 export type CoreAction = typeof CORE_ACTIONS[number];
 
 const LABEL_TO_ACTION: Record<string, CoreAction> = {
@@ -15,22 +15,25 @@ const LABEL_TO_ACTION: Record<string, CoreAction> = {
     "搜索笔记": "search",
     "📅 今日日记": "diary",
     "今日日记": "diary",
+    "AI 知识库": "aiKnowledgeBase",
+    "AI知识库": "aiKnowledgeBase",
     "➕ 添加组件": "addWidget",
     "添加组件": "addWidget",
     "⚙ 主页设置": "settings",
     "主页设置": "settings",
 };
 
-const PROTECTED_ACTIONS: CoreAction[] = ["addWidget", "settings", "cleanEmptyDocs", "templateCenter"];
+const PROTECTED_ACTIONS: CoreAction[] = ["aiKnowledgeBase", "addWidget", "settings", "cleanEmptyDocs", "templateCenter"];
 
 export function createDefaultButtons(): HomepageButtonItem[] {
     return [
         { id: 1728000000000, label: "搜索笔记", checked: true, shortcut: "Ctrl+P", order: 0, action: "search" },
         { id: 1728000001000, label: "今日日记", checked: true, shortcut: "Alt+5", order: 1, action: "diary" },
-        { id: 1728000002000, label: "添加组件", checked: true, shortcut: "", order: 2, action: "addWidget" },
-        { id: 1728000002400, label: "布局模板", checked: true, shortcut: "", order: 3, action: "templateCenter" },
-        { id: 1728000002500, label: "清理空文档", checked: true, shortcut: "", order: 4, action: "cleanEmptyDocs" },
-        { id: 1728000003000, label: "主页设置", checked: true, shortcut: "", order: 5, action: "settings" },
+        { id: 1728000001500, label: "AI 知识库", checked: true, shortcut: "", order: 2, action: "aiKnowledgeBase" },
+        { id: 1728000002000, label: "添加组件", checked: true, shortcut: "", order: 3, action: "addWidget" },
+        { id: 1728000002400, label: "布局模板", checked: true, shortcut: "", order: 4, action: "templateCenter" },
+        { id: 1728000002500, label: "清理空文档", checked: true, shortcut: "", order: 5, action: "cleanEmptyDocs" },
+        { id: 1728000003000, label: "主页设置", checked: true, shortcut: "", order: 6, action: "settings" },
     ];
 }
 
@@ -103,10 +106,26 @@ export function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
         });
     }
 
-    // 统一 templateCenter 内置按钮 label，老用户旧 label 强制刷新
+    // 老用户：如果不存在 action === "aiKnowledgeBase"，追加内置按钮
+    const hasAiKnowledgeBase = normalized.some((item) => item.action === "aiKnowledgeBase");
+    if (!hasAiKnowledgeBase) {
+        const maxOrder = normalized.length > 0 ? Math.max(...normalized.map((b) => b.order)) : -1;
+        normalized.push({
+            id: 1728000001500,
+            label: "AI 知识库",
+            checked: true,
+            shortcut: "",
+            order: maxOrder + 1,
+            action: "aiKnowledgeBase",
+        });
+    }
+
+    // 统一内置按钮 label，老用户旧 label 强制刷新
     for (const item of normalized) {
         if (item.action === "templateCenter") {
             item.label = "布局模板";
+        } else if (item.action === "aiKnowledgeBase") {
+            item.label = "AI 知识库";
         }
     }
 
@@ -151,6 +170,19 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
         usage: [
             "点击后进入当前设置界面。",
             "这是插件主页配置的主要入口。",
+        ],
+    },
+    aiKnowledgeBase: {
+        action: "aiKnowledgeBase",
+        title: "AI 知识库",
+        badge: "内置功能",
+        description: "打开 AI 知识库问答标签页，用于在主工作区中进行知识库对话。",
+        usage: [
+            "点击后打开 AI 知识库问答的新标签页。",
+            "该入口使用标签页对话，不会打开右侧侧边栏。",
+        ],
+        safety: [
+            "如果未启用标签页对话，会提示到主页设置中开启。",
         ],
     },
     cleanEmptyDocs: {

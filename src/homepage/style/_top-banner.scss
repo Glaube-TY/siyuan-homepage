@@ -84,4 +84,37 @@
     .button-wrapper .action-button {
         white-space: nowrap;
     }
+
+    &.banner-title-integrated {
+        .top-banner {
+            background: linear-gradient(135deg,
+                    color-mix(in srgb, var(--b3-theme-primary) 16%, var(--b3-theme-background)),
+                    var(--b3-theme-background));
+        }
+
+        .banner-glass-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            background: color-mix(in srgb, var(--b3-theme-background) var(--homepage-banner-glass-opacity, 18%), transparent);
+            backdrop-filter: blur(var(--homepage-banner-glass-blur, 12px)) saturate(135%);
+        }
+
+        &.banner-glass-custom .banner-glass-layer {
+            background: color-mix(in srgb, var(--homepage-banner-glass-color, #ffffff) var(--homepage-banner-glass-opacity, 18%), transparent);
+        }
+
+        .banner-overlay {
+            z-index: 2;
+            background: linear-gradient(to top,
+                    var(--b3-theme-background) 0%,
+                    color-mix(in srgb, var(--b3-theme-background) 82%, transparent) 12%,
+                    rgba(245, 245, 245, 0) 46%);
+        }
+
+        .banner-image[src=""] {
+            opacity: 0;
+        }
+    }
 }

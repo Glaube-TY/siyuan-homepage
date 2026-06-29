@@ -28,6 +28,16 @@ function initDrag(
     let isDragging = false;
     let startY = 0;
     let scrollTop = 0;
+    const dragSurface = imageElement.parentElement;
+
+    if (!dragSurface) return undefined;
+
+    function isInteractiveDragTarget(target: EventTarget | null): boolean {
+        if (!(target instanceof HTMLElement)) return false;
+        return Boolean(target.closest(
+            'button, a, input, select, textarea, [role="button"], .button-wrapper, .nav-button, .more-menu, .more-menu-item, .stats-info-refresh'
+        ));
+    }
 
     function handleMove(e: MouseEvent | TouchEvent) {
         if (!isDragging || !imageElement) return;
@@ -63,7 +73,7 @@ function initDrag(
     }
 
     function startDrag(e: MouseEvent | TouchEvent) {
-        if (!(e.target as HTMLElement).closest('.banner-image')) return;
+        if (isInteractiveDragTarget(e.target)) return;
         e.preventDefault();
         isDragging = true;
         startY = "touches" in e ? e.touches[0].clientY : e.clientY;
@@ -113,8 +123,8 @@ function initDrag(
         window.removeEventListener("touchend", endDrag);
     }
 
-    imageElement.addEventListener("mousedown", startDrag);
-    imageElement.addEventListener("touchstart", startDrag);
+    dragSurface.addEventListener("mousedown", startDrag);
+    dragSurface.addEventListener("touchstart", startDrag);
     imageElement.addEventListener("load", initImagePosition);
 
     if (imageElement.complete) {
@@ -123,8 +133,8 @@ function initDrag(
 
     return {
         destroy: () => {
-            imageElement.removeEventListener("mousedown", startDrag);
-            imageElement.removeEventListener("touchstart", startDrag);
+            dragSurface.removeEventListener("mousedown", startDrag);
+            dragSurface.removeEventListener("touchstart", startDrag);
             imageElement.removeEventListener("load", initImagePosition);
             window.removeEventListener("mousemove", handleMove);
             window.removeEventListener("touchmove", handleMove);
