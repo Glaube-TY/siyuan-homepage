@@ -1,4 +1,63 @@
 .homepage-container {
+    .component-section-area {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .component-section-nav {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 8px;
+        width: 100%;
+        min-width: 0;
+        overflow-x: auto;
+        padding: 0 0 14px;
+        box-sizing: border-box;
+        scrollbar-width: thin;
+
+        &.align-center {
+            justify-content: center;
+        }
+
+        &.align-right {
+            justify-content: flex-end;
+        }
+    }
+
+    .component-section-nav__button {
+        flex: 0 0 auto;
+        max-width: 180px;
+        min-height: 30px;
+        padding: 5px 12px;
+        border: 1px solid var(--b3-border-color, rgba(127, 127, 127, 0.24));
+        border-radius: 999px;
+        background: var(--b3-theme-background, #fff);
+        color: var(--b3-theme-on-background, #1f2937);
+        font-size: 13px;
+        line-height: 18px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow: hidden;
+        cursor: pointer;
+        transition:
+            background-color 0.18s ease,
+            border-color 0.18s ease,
+            color 0.18s ease;
+
+        &:hover {
+            border-color: var(--b3-theme-primary, #3575f0);
+            color: var(--b3-theme-primary, #3575f0);
+        }
+
+        &.active {
+            border-color: var(--b3-theme-primary, #3575f0);
+            background: var(--b3-theme-primary, #3575f0);
+            color: var(--b3-theme-on-primary, #fff);
+        }
+    }
+
     .custom-content {
         display: grid;
         grid-auto-flow: dense;
@@ -6,7 +65,11 @@
         align-items: stretch;
         flex-grow: 1;
         height: auto;
-        background-color: var(--b3-theme-background);
+        background-color: var(--b3-theme-background, #fff);
+
+        &.component-section-panel.hidden {
+            display: none;
+        }
 
         .widget-block {
             position: relative;
@@ -49,7 +112,7 @@
                     transform 0.3s ease;
 
                 &:hover {
-                    background-color: var(--b3-theme-primary);
+                    background-color: var(--b3-theme-primary, #3575f0);
                 }
             }
 

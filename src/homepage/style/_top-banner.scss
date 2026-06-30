@@ -5,6 +5,8 @@
         overflow: hidden;
         user-select: none;
         position: relative;
+        flex: 0 0 var(--homepage-effective-banner-height, auto);
+        min-height: var(--homepage-effective-banner-height, 240px);
     }
 
     .hide-top-banner {
@@ -28,8 +30,10 @@
     // 横幅图片样式
     .banner-image {
         width: 100%;
-        height: auto;
+        height: 100%;
         min-height: 100%;
+        max-width: none;
+        flex-shrink: 0;
         object-fit: cover;
         object-position: center;
         display: block;
@@ -87,9 +91,24 @@
 
     &.banner-title-integrated {
         .top-banner {
+            height: auto;
+            min-height: 0;
+            flex: 0 0 auto;
             background: linear-gradient(135deg,
                     color-mix(in srgb, var(--b3-theme-primary) 16%, var(--b3-theme-background)),
                     var(--b3-theme-background));
+        }
+
+        .banner-image {
+            position: absolute;
+            inset: 0;
+        }
+
+        .banner-title-layer {
+            position: relative;
+            inset: auto;
+            min-height: 0;
+            height: auto;
         }
 
         .banner-glass-layer {

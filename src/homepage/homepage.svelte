@@ -10,7 +10,15 @@
         saveLayout,
         restoreLayout,
     } from "../components/utils/widgetBlock/utils/layout-handler";
-    import { loadWidgetLayoutSettings, buildHomepageAppliedSignature, computeMusicPlayerAffectingSignature, type WidgetLayoutData } from "../components/utils/widgetBlock/utils/layout-shared";
+    import {
+        ensureComponentSectionsForCurrentDevice,
+        getActiveComponentSectionForCurrentDevice,
+        loadWidgetLayoutSettings,
+        setActiveComponentSectionForCurrentDevice,
+        buildHomepageAppliedSignature,
+        computeMusicPlayerAffectingSignature,
+        type WidgetLayoutData,
+    } from "../components/utils/widgetBlock/utils/layout-shared";
     import { handleLoad } from "./topBanner/drag";
     import {
         loadStatsData,
@@ -64,11 +72,16 @@
         DEFAULT_BANNER_GLASS_COLOR_MODE,
         DEFAULT_BANNER_GLASS_OPACITY,
         DEFAULT_BANNER_INTEGRATED_COLOR,
+        DEFAULT_COMPONENT_SECTION_ID,
         DEFAULT_HOMEPAGE_TITLE_ALIGN,
         DEFAULT_QUICK_BUTTON_STYLE,
+        normalizeComponentSections,
+        normalizeComponentSectionsNavAlign,
         type BackgroundImageType,
         type BannerDeviceProfile,
         type BannerGlassColorMode,
+        type ComponentSection,
+        type ComponentSectionsNavAlign,
         type HomepageTitleAlign,
         type QuickButtonStyle,
     } from "./homepageSetting/config";
@@ -101,8 +114,6 @@
 
     let { plugin, showIcon = writable(true) }: Props = $props();
 
-    const BANNER_TITLE_INTEGRATED_MIN_HEIGHT = 240;
-
     let showBanner = writable(true);
     let bannerEnabled = $state(true);
     let bannerImage: HTMLImageElement = $state();
@@ -125,10 +136,10 @@
     let backgroundImageSrc = $state("");
     let backgroundImageOpacity = $state(DEFAULT_BACKGROUND_IMAGE_OPACITY);
     let backgroundImageBlur = $state(DEFAULT_BACKGROUND_IMAGE_BLUR);
-    let effectiveBannerHeight = $derived(
+    let topBannerInlineStyle = $derived(
         bannerTitleIntegrated && bannerEnabled
-            ? Math.max(bannerHeight, BANNER_TITLE_INTEGRATED_MIN_HEIGHT)
-            : bannerHeight
+            ? "--homepage-effective-banner-height: auto; height: auto; min-height: 0; flex-basis: auto;"
+            : `--homepage-effective-banner-height: ${bannerHeight}px; height: var(--homepage-effective-banner-height); min-height: var(--homepage-effective-banner-height); flex-basis: var(--homepage-effective-banner-height);`
     );
 
     let currentBlockForSettings: HTMLElement | null = null;
@@ -218,11 +229,18 @@
 
     let widgetLayoutNumber = $state(4);
     let widgetGap = $state(0.2);
+    let componentSectionsEnabled = $state(false);
+    let componentSections = $state<ComponentSection[]>(normalizeComponentSections(undefined));
+    let componentSectionsNavAlign = $state<ComponentSectionsNavAlign>("left");
+    let activeComponentSectionId = $state(DEFAULT_COMPONENT_SECTION_ID);
+    let effectiveComponentSectionsEnabled = $derived(advanced && componentSectionsEnabled);
     let sortable: Sortable | null = null;
     let destroyBannerDrag: (() => void) | null = null;
 
     // 本地容器引用：避免全局 selector 在实例重叠时命中错容器
     let customContentContainer: HTMLElement | null = null;
+    const componentSectionContainers = new Map<string, HTMLElement>();
+    const restoredComponentSectionIds = new Set<string>();
 
     // 初始化状态标记：确保只初始化一次
     let customContentInitialized = false;
@@ -241,6 +259,121 @@
         if (cellSize > 0) {
             container.style.setProperty("--widget-cell-size", `${cellSize}px`);
         }
+    }
+
+    function getCurrentComponentSectionId(): string {
+        return effectiveComponentSectionsEnabled ? activeComponentSectionId : DEFAULT_COMPONENT_SECTION_ID;
+    }
+
+    function normalizeRuntimeSectionId(sectionId: string | null | undefined): string {
+        const trimmed = typeof sectionId === "string" ? sectionId.trim() : "";
+        return trimmed || DEFAULT_COMPONENT_SECTION_ID;
+    }
+
+    function getComponentSectionContainer(sectionId: string): HTMLElement | null {
+        return componentSectionContainers.get(sectionId) || null;
+    }
+
+    function activateComponentSectionContainer(sectionId = getCurrentComponentSectionId()): HTMLElement | null {
+        const container = getComponentSectionContainer(sectionId);
+        if (!container) return null;
+        customContentContainer = container;
+        setupActiveCustomContentInfrastructure(container);
+        return container;
+    }
+
+    function registerCustomContentContainer(node: HTMLElement, sectionId: string) {
+        componentSectionContainers.set(sectionId, node);
+        if (sectionId === getCurrentComponentSectionId()) {
+            customContentContainer = node;
+        }
+
+        return {
+            destroy() {
+                if (componentSectionContainers.get(sectionId) === node) {
+                    componentSectionContainers.delete(sectionId);
+                }
+                if (customContentContainer === node) {
+                    customContentContainer = null;
+                }
+                restoredComponentSectionIds.delete(sectionId);
+            },
+        };
+    }
+
+    function setupActiveCustomContentInfrastructure(container: HTMLElement): void {
+        customContentResizeObserver?.disconnect();
+        sortable?.destroy();
+
+        customContentResizeObserver = new ResizeObserver(() => {
+            updateCustomGridMetrics();
+        });
+        customContentResizeObserver.observe(container);
+
+        sortable = new Sortable(container, {
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            handle: ".drag-handle",
+            onEnd: () => {
+                saveLayout(plugin, customContentContainer, getHomepageLayoutRuntimeOptions());
+            },
+        });
+    }
+
+    async function ensureComponentSectionRestored(sectionId: string, force = false): Promise<void> {
+        const container = getComponentSectionContainer(sectionId);
+        if (!container) return;
+        if (!force && restoredComponentSectionIds.has(sectionId)) return;
+
+        await restoreLayout(
+            plugin,
+            { value: container },
+            container,
+            {
+                sectionsEnabled: effectiveComponentSectionsEnabled,
+                sectionId,
+            },
+        );
+        restoredComponentSectionIds.add(sectionId);
+    }
+
+    async function handleComponentSectionLayoutInvalidated(
+        event: CustomEvent<{ sectionIds?: string[]; forceCurrent?: boolean }>,
+    ): Promise<void> {
+        const detail = event.detail || {};
+        const sectionIds = Array.isArray(detail.sectionIds)
+            ? [...new Set(detail.sectionIds.map(normalizeRuntimeSectionId))]
+            : null;
+
+        if (sectionIds && sectionIds.length > 0) {
+            sectionIds.forEach((sectionId) => restoredComponentSectionIds.delete(sectionId));
+        } else {
+            restoredComponentSectionIds.clear();
+        }
+
+        if (effectiveComponentSectionsEnabled) {
+            const shouldRestoreCurrent =
+                detail.forceCurrent === true ||
+                (sectionIds && sectionIds.includes(activeComponentSectionId));
+            if (!shouldRestoreCurrent) return;
+
+            await tick();
+            if (homepageComponentDestroyed) return;
+            activateComponentSectionContainer(activeComponentSectionId);
+            await ensureComponentSectionRestored(activeComponentSectionId, true);
+            if (homepageComponentDestroyed) return;
+            await tick();
+            updateCustomGridMetrics();
+            return;
+        }
+
+        await tick();
+        if (homepageComponentDestroyed) return;
+        activateComponentSectionContainer(DEFAULT_COMPONENT_SECTION_ID);
+        await ensureComponentSectionRestored(DEFAULT_COMPONENT_SECTION_ID, true);
+        if (homepageComponentDestroyed) return;
+        await tick();
+        updateCustomGridMetrics();
     }
 
     // 异步请求版本戳，用于丢弃过期结果
@@ -266,6 +399,61 @@
     // 实时获取高级功能启用状态
     function getAdvancedEnabled(): boolean {
         return Boolean(plugin?.ADVANCED);
+    }
+
+    function isComponentSectionsEffectiveForConfig(config: Record<string, unknown> | null): boolean {
+        return getAdvancedEnabled() && config?.componentSectionsEnabled === true;
+    }
+
+    function getSafeActiveComponentSectionId(sectionId: string | null | undefined, sections = componentSections): string {
+        const normalizedSections = normalizeComponentSections(sections);
+        if (sectionId && normalizedSections.some((section) => section.id === sectionId)) {
+            return sectionId;
+        }
+        return normalizedSections[0]?.id || DEFAULT_COMPONENT_SECTION_ID;
+    }
+
+    function getHomepageLayoutRuntimeOptions() {
+        return {
+            sectionsEnabled: effectiveComponentSectionsEnabled,
+            sectionId: activeComponentSectionId,
+        };
+    }
+
+    async function updateActiveComponentSectionFromLayout(): Promise<void> {
+        const storedActiveSectionId = await getActiveComponentSectionForCurrentDevice(plugin);
+        const safeSectionId = getSafeActiveComponentSectionId(storedActiveSectionId);
+        activeComponentSectionId = safeSectionId;
+        if (effectiveComponentSectionsEnabled && safeSectionId !== storedActiveSectionId) {
+            await setActiveComponentSectionForCurrentDevice(plugin, safeSectionId);
+        }
+    }
+
+    async function handleComponentSectionSwitch(sectionId: string): Promise<void> {
+        if (!effectiveComponentSectionsEnabled) return;
+        const targetSectionId = getSafeActiveComponentSectionId(sectionId);
+        if (targetSectionId === activeComponentSectionId) return;
+        const currentContainer = getComponentSectionContainer(activeComponentSectionId) || customContentContainer;
+
+        await saveLayout(plugin, currentContainer, getHomepageLayoutRuntimeOptions());
+        await setActiveComponentSectionForCurrentDevice(plugin, targetSectionId);
+        activeComponentSectionId = targetSectionId;
+
+        await tick();
+        const targetContainer = activateComponentSectionContainer(targetSectionId);
+        if (!targetContainer) return;
+
+        const layoutSettings = await loadWidgetLayoutSettings(plugin, {
+            sectionsEnabled: true,
+            sectionId: targetSectionId,
+        });
+        widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
+        widgetGap = layoutSettings.widgetGap;
+
+        await tick();
+        await ensureComponentSectionRestored(targetSectionId);
+        await tick();
+        updateCustomGridMetrics();
     }
 
     // 点击特效包装函数
@@ -483,14 +671,15 @@
             const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
             const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
             const latestDeviceId = getLocalDeviceIdForSignature();
-            const currentCompositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, latestDeviceId);
+            const latestSectionsEnabled = isComponentSectionsEffectiveForConfig(latestConfig);
+            const currentCompositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, latestDeviceId, latestSectionsEnabled);
             const appliedSigs = plugin.getAppliedSignatures();
             if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
                 plugin.markHomepageHotReloadFinished?.(reason);
                 return;
             }
             // 记录热刷新前的音乐相关签名，失败自愈时用于判断是否与音乐播放器布局/静态配置有关
-            pendingHotReloadMusicAffectingSignature = await computeMusicPlayerAffectingSignature(plugin, latestLayout, latestDeviceId);
+            pendingHotReloadMusicAffectingSignature = await computeMusicPlayerAffectingSignature(plugin, latestLayout, latestDeviceId, latestSectionsEnabled);
         } catch {
             // 签名校验失败时继续执行刷新，避免遗漏真正的同步变化
             pendingHotReloadMusicAffectingSignature = "";
@@ -504,9 +693,9 @@
             if (homepageComponentDestroyed) return;
             await tick();
             if (homepageComponentDestroyed) return;
-            const container = customContentContainer;
+            const container = activateComponentSectionContainer();
             if (container) {
-                await restoreLayout(plugin, { value: container as HTMLElement }, container as HTMLElement);
+                await ensureComponentSectionRestored(getCurrentComponentSectionId(), true);
             }
             if (homepageComponentDestroyed) return;
             updateCustomGridMetrics();
@@ -528,7 +717,8 @@
             const latestLayoutForSig = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
             if (homepageComponentDestroyed) return;
             const deviceIdForSig = getLocalDeviceIdForSignature();
-            const compositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayoutForSig, deviceIdForSig);
+            const latestSectionsEnabledForSig = isComponentSectionsEffectiveForConfig(latestConfig);
+            const compositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayoutForSig, deviceIdForSig, latestSectionsEnabledForSig);
             plugin.updateAppliedSignatures("", "", compositeSig);
             console.debug(`[Homepage] 局部热刷新完成: ${reason}`);
         } catch (e) {
@@ -545,7 +735,8 @@
                 const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
                 const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
                 const latestDeviceId = getLocalDeviceIdForSignature();
-                const currentCompositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, latestDeviceId);
+                const latestSectionsEnabled = isComponentSectionsEffectiveForConfig(latestConfig);
+                const currentCompositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, latestDeviceId, latestSectionsEnabled);
                 const appliedSigs = plugin.getAppliedSignatures();
                 if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
                     // 签名已一致，说明只是运行态/容器暂不可用导致的误判，不重建
@@ -554,7 +745,7 @@
                 // 若热刷新失败前后音乐相关签名未变，说明变化与音乐播放器布局/静态配置无关，
                 // 优先不整页重建，避免打断正在播放的音乐
                 if (pendingHotReloadMusicAffectingSignature) {
-                    const currentMusicAffectingSig = await computeMusicPlayerAffectingSignature(plugin, latestLayout, latestDeviceId);
+                    const currentMusicAffectingSig = await computeMusicPlayerAffectingSignature(plugin, latestLayout, latestDeviceId, latestSectionsEnabled);
                     if (currentMusicAffectingSig === pendingHotReloadMusicAffectingSignature) {
                         return;
                     }
@@ -643,14 +834,22 @@
         // 2. 等待 DOM 更新
         await tick();
 
-        // 3. 重新注册快捷按钮
+        // 3. 重新恢复当前组件区布局
+        const container = activateComponentSectionContainer();
+        if (container) {
+            await ensureComponentSectionRestored(getCurrentComponentSectionId());
+            await tick();
+            updateCustomGridMetrics();
+        }
+
+        // 4. 重新注册快捷按钮
         reRegisterAllShortcuts(buttonsList);
 
-        // 4. 重新处理飘落特效
+        // 5. 重新处理飘落特效
         cleanupFallingEffects();
         startFallingEffects();
 
-        // 5. 重新应用鼠标样式
+        // 6. 重新应用鼠标样式
         updateCursorStyle({
             advanced: getAdvancedEnabled(),
             mouseIcon,
@@ -662,10 +861,19 @@
 
         // 6. 同步更新已应用签名，避免后续检测误判成本地刚保存的配置为外部同步变化
         const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-        const layoutSettings = await loadWidgetLayoutSettings(plugin);
+        const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
+        const deviceId = getLocalDeviceIdForSignature();
+        const compositeSig = await buildHomepageAppliedSignature(
+            plugin,
+            rawConfig,
+            latestLayout,
+            deviceId,
+            isComponentSectionsEffectiveForConfig(rawConfig),
+        );
         plugin.updateAppliedSignatures(
             computeConfigSignature(rawConfig),
-            computeLayoutSignature(layoutSettings)
+            computeLayoutSignature(latestLayout),
+            compositeSig,
         );
     }
 
@@ -793,7 +1001,8 @@
         if (homepageComponentDestroyed) return;
         await tick();
         if (homepageComponentDestroyed) return;
-        const container = customContentContainer;
+        const sectionId = getCurrentComponentSectionId();
+        const container = activateComponentSectionContainer(sectionId);
         if (!container) {
             console.warn("[Homepage] customContentContainer 不存在，跳过布局初始化");
             return;
@@ -803,28 +1012,8 @@
         }
         customContentInitialized = true;
 
-        // 清理旧对象
-        customContentResizeObserver?.disconnect();
-        sortable?.destroy();
-
-        // 初始化 ResizeObserver
-        customContentResizeObserver = new ResizeObserver(() => {
-            updateCustomGridMetrics();
-        });
-        customContentResizeObserver.observe(container);
-
-        // 初始化 Sortable
-        sortable = new Sortable(container, {
-            animation: 150,
-            ghostClass: "sortable-ghost",
-            handle: ".drag-handle",
-            onEnd: () => {
-                saveLayout(plugin, customContentContainer);
-            },
-        });
-
         // 恢复布局
-        await restoreLayout(plugin, { value: container }, customContentContainer);
+        await ensureComponentSectionRestored(sectionId);
         if (homepageComponentDestroyed) return;
 
         await tick();
@@ -840,18 +1029,24 @@
             const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
             if (homepageComponentDestroyed) return;
             const deviceId = getLocalDeviceIdForSignature();
-            const compositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, deviceId);
+            const compositeSig = await buildHomepageAppliedSignature(
+                plugin,
+                latestConfig,
+                latestLayout,
+                deviceId,
+                isComponentSectionsEffectiveForConfig(latestConfig),
+            );
             plugin.updateAppliedSignatures("", "", compositeSig);
         }
     }
 
     async function refreshCustomContentLayoutFromTemplate() {
         if (homepageComponentDestroyed) return;
-        const container = customContentContainer;
+        const container = activateComponentSectionContainer();
         if (!container) return;
 
         try {
-            const layoutSettings = await loadWidgetLayoutSettings(plugin);
+            const layoutSettings = await loadWidgetLayoutSettings(plugin, getHomepageLayoutRuntimeOptions());
             if (homepageComponentDestroyed) return;
             widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
             widgetGap = layoutSettings.widgetGap;
@@ -859,7 +1054,7 @@
             await tick();
             if (homepageComponentDestroyed) return;
 
-            await restoreLayout(plugin, { value: container as HTMLElement }, container as HTMLElement);
+            await ensureComponentSectionRestored(getCurrentComponentSectionId(), true);
             if (homepageComponentDestroyed) return;
             await tick();
             if (homepageComponentDestroyed) return;
@@ -881,6 +1076,10 @@
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
         window.addEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
+        window.addEventListener(
+            "homepage-component-section-layout-invalidated",
+            handleComponentSectionLayoutInvalidated as EventListener,
+        );
         // 监听 plugin 侧派发的外部同步变化事件（主通道：window）
         window.addEventListener("homepage-external-sync-changed", handleExternalSyncChanged as EventListener);
 
@@ -968,6 +1167,10 @@
         );
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
         window.removeEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
+        window.removeEventListener(
+            "homepage-component-section-layout-invalidated",
+            handleComponentSectionLayoutInvalidated as EventListener,
+        );
         window.removeEventListener("homepage-external-sync-changed", handleExternalSyncChanged as EventListener);
         document.removeEventListener("click", handleDocumentClick);
         document.removeEventListener("click", handleClickEffect);
@@ -983,8 +1186,11 @@
         abortStatusAiRequest();
 
         // 显式销毁所有 widget 实例，触发各自的 onDestroy
-        const container = customContentContainer;
-        if (container) {
+        const containersToDestroy = new Set<HTMLElement>([
+            ...Array.from(componentSectionContainers.values()),
+            ...(customContentContainer ? [customContentContainer] : []),
+        ]);
+        containersToDestroy.forEach((container) => {
             const widgetBlocks = container.querySelectorAll(".widget-block");
             widgetBlocks.forEach((block) => {
                 const instance = (block as any).__widgetBlockInstance;
@@ -996,8 +1202,10 @@
                     }
                 }
             });
-        }
+        });
         customContentContainer = null;
+        componentSectionContainers.clear();
+        restoredComponentSectionIds.clear();
         if (customContentResizeObserver) {
             customContentResizeObserver.disconnect();
             customContentResizeObserver = null;
@@ -1038,13 +1246,22 @@
         // 丢弃过期请求结果
         if (currentVersion !== updateHomepageVersion) return;
 
+        advanced = getAdvancedEnabled();
+        componentSectionsEnabled = config.componentSectionsEnabled;
+        componentSections = normalizeComponentSections(config.componentSections);
+        componentSectionsNavAlign = normalizeComponentSectionsNavAlign(config.componentSectionsNavAlign);
+        if (advanced && componentSectionsEnabled) {
+            await ensureComponentSectionsForCurrentDevice(plugin);
+        }
+        if (currentVersion !== updateHomepageVersion) return;
+        await updateActiveComponentSectionFromLayout();
+        if (currentVersion !== updateHomepageVersion) return;
+
         // 组件设置 - 优先从 widgetLayout.json 读取（与组件顺序存储方式一致）
-        const layoutSettings = await loadWidgetLayoutSettings(plugin);
+        const layoutSettings = await loadWidgetLayoutSettings(plugin, getHomepageLayoutRuntimeOptions());
         if (currentVersion !== updateHomepageVersion) return;
         widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
         widgetGap = layoutSettings.widgetGap;
-
-        advanced = getAdvancedEnabled();
 
         // 横幅相关配置
         bannerEnabled = config.bannerEnabled;
@@ -1435,7 +1652,7 @@
     <div
         class="section top-banner"
         class:hide-top-banner={!$showBanner}
-        style:height={`${effectiveBannerHeight}px`}
+        style={topBannerInlineStyle}
     >
         <img
             bind:this={bannerImage}
@@ -1495,7 +1712,8 @@
 
         {#if bannerTitleIntegrated && $showBanner}
             <div class="banner-title-layer">
-                <div class="header-content">
+                <div class="banner-title-content">
+                    <div class="header-content">
                     {#if $showIcon}
                         <div class="icon-title">
                             {#if titleIconType === "emoji"}
@@ -1515,9 +1733,9 @@
                         </div>
                     {/if}
                     <h1 class="section-title">{pageTitle}</h1>
-                </div>
+                    </div>
 
-                <div class="stats-info-wrap">
+                    <div class="stats-info-wrap">
                     <div
                         class="stats-info"
                         class:error={Boolean(statusAiVisibleErrorMessage)}
@@ -1537,16 +1755,16 @@
                     >
                         <SiyuanIcon name="refresh" size={14} />
                     </button>
-                </div>
+                    </div>
 
-                <!-- 快捷按钮栏 -->
-                <div
+                    <!-- 快捷按钮栏 -->
+                    <div
                     class="nav-bar"
                     role="navigation"
                     aria-label="主菜单导航栏"
                     onmouseenter={() => (isHoveringNavBar = true)}
                     onmouseleave={() => (isHoveringNavBar = false)}
-                >
+                    >
                     <div class="nav-bar-left"></div>
                     <div class="nav-buttons">
                         {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
@@ -1559,6 +1777,10 @@
                                             plugin,
                                             currentBlockForSettingsRef,
                                             saveLayout,
+                                            {
+                                                containerEl: customContentContainer,
+                                                ...getHomepageLayoutRuntimeOptions(),
+                                            },
                                         )}
                                 >
                                     {#if getButtonIconName(sortedButtons)}
@@ -1595,6 +1817,10 @@
                                                 plugin,
                                                 currentBlockForSettingsRef,
                                                 saveLayout,
+                                                {
+                                                    containerEl: customContentContainer,
+                                                    ...getHomepageLayoutRuntimeOptions(),
+                                                },
                                             );
                                             showMoreMenu = false;
                                         }}
@@ -1607,6 +1833,7 @@
                                 {/each}
                             </div>
                         {/if}
+                    </div>
                     </div>
                 </div>
             </div>
@@ -1680,6 +1907,10 @@
                                         plugin,
                                         currentBlockForSettingsRef,
                                         saveLayout,
+                                        {
+                                            containerEl: customContentContainer,
+                                            ...getHomepageLayoutRuntimeOptions(),
+                                        },
                                     )}
                             >
                                 {#if getButtonIconName(sortedButtons)}
@@ -1716,6 +1947,10 @@
                                             plugin,
                                             currentBlockForSettingsRef,
                                             saveLayout,
+                                            {
+                                                containerEl: customContentContainer,
+                                                ...getHomepageLayoutRuntimeOptions(),
+                                            },
                                         );
                                         showMoreMenu = false;
                                     }}
@@ -1734,14 +1969,52 @@
     {/if}
 
     <!-- 自定义组件区域 -->
-    <div
-        bind:this={customContentContainer}
-        class="section custom-content"
-        role="region"
-        aria-label="自定义组件区域"
-        style="grid-template-columns: repeat({widgetLayoutNumber}, 1fr);
-        gap: {widgetGap}rem;"
-    ></div>
+    <div class="section component-section-area">
+        {#if effectiveComponentSectionsEnabled && componentSections.length >= 1}
+            <div
+                class="component-section-nav"
+                class:align-center={componentSectionsNavAlign === "center"}
+                class:align-right={componentSectionsNavAlign === "right"}
+                role="tablist"
+                aria-label="组件分区导航"
+            >
+                {#each componentSections as section (section.id)}
+                    <button
+                        type="button"
+                        class="component-section-nav__button"
+                        class:active={section.id === activeComponentSectionId}
+                        role="tab"
+                        aria-selected={section.id === activeComponentSectionId}
+                        onclick={() => void handleComponentSectionSwitch(section.id)}
+                    >
+                        {section.name}
+                    </button>
+                {/each}
+            </div>
+            {#each componentSections as section (section.id)}
+                <div
+                    use:registerCustomContentContainer={section.id}
+                    class="custom-content component-section-panel"
+                    data-component-section-id={section.id}
+                    class:hidden={section.id !== activeComponentSectionId}
+                    role="region"
+                    aria-label={`自定义组件区域 - ${section.name}`}
+                    aria-hidden={section.id !== activeComponentSectionId}
+                    style="grid-template-columns: repeat({widgetLayoutNumber}, 1fr);
+                    gap: {widgetGap}rem;"
+                ></div>
+            {/each}
+        {:else}
+            <div
+                use:registerCustomContentContainer={DEFAULT_COMPONENT_SECTION_ID}
+                class="custom-content"
+                role="region"
+                aria-label="自定义组件区域"
+                style="grid-template-columns: repeat({widgetLayoutNumber}, 1fr);
+                gap: {widgetGap}rem;"
+            ></div>
+        {/if}
+    </div>
 
     <!-- 插件信息底部区域 -->
     {#if advanced}

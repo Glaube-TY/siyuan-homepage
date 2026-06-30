@@ -5,6 +5,7 @@ import Mousetrap from "mousetrap";
 import { mount } from "svelte";
 import { openEmptyDocCleanerDialog } from "../features/emptyDocCleaner/openEmptyDocCleanerDialog";
 import { openTemplateCenterDialog } from "../features/templateCenter/openTemplateCenterDialog";
+import type { HomepageLayoutRuntimeOptions } from "@/components/utils/widgetBlock/utils/layout-handler";
 
 type ExtendedKeyboardEvent = KeyboardEvent & {
     keyCode: number;
@@ -315,15 +316,16 @@ export function handleButtonClick(
     item: ButtonItem,
     plugin: any,
     currentBlockForSettingsRef: { value: HTMLElement | null },
-    saveLayoutFn: (plugin: any) => void
+    saveLayoutFn: (plugin: any, containerEl?: HTMLElement | null, runtimeOptions?: HomepageLayoutRuntimeOptions) => void,
+    layoutContext: HomepageLayoutRuntimeOptions & { containerEl?: HTMLElement | null } = {},
 ): void {
     const OpenHomepageSetting = createOpenHomepageSetting(plugin);
 
     const action = getButtonAction(item);
 
     if (action === "addWidget") {
-        addCustomBlock(plugin, currentBlockForSettingsRef);
-        saveLayoutFn(plugin);
+        addCustomBlock(plugin, currentBlockForSettingsRef, layoutContext.containerEl, layoutContext);
+        saveLayoutFn(plugin, layoutContext.containerEl, layoutContext);
     } else if (action === "settings") {
         OpenHomepageSetting();
     } else if (action === "cleanEmptyDocs") {

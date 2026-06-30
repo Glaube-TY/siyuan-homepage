@@ -29,8 +29,64 @@ function initDrag(
     let startY = 0;
     let scrollTop = 0;
     const dragSurface = imageElement.parentElement;
+    let resizeObserver: ResizeObserver | null = null;
 
     if (!dragSurface) return undefined;
+
+    function fitImageToSurface(): void {
+        const containerWidth = dragSurface.clientWidth;
+        const containerHeight = dragSurface.clientHeight;
+        const naturalWidth = imageElement.naturalWidth;
+        const naturalHeight = imageElement.naturalHeight;
+
+        if (containerWidth <= 0 || containerHeight <= 0 || naturalWidth <= 0 || naturalHeight <= 0) {
+            return;
+        }
+
+        const imageRatio = naturalWidth / naturalHeight;
+        const containerRatio = containerWidth / containerHeight;
+
+        if (imageRatio > containerRatio) {
+            const renderedWidth = Math.ceil(containerHeight * imageRatio);
+            imageElement.style.width = `${renderedWidth}px`;
+            imageElement.style.height = `${containerHeight}px`;
+            imageElement.style.marginLeft = `${Math.floor((containerWidth - renderedWidth) / 2)}px`;
+        } else {
+            const renderedHeight = Math.ceil(containerWidth / imageRatio);
+            imageElement.style.width = `${containerWidth}px`;
+            imageElement.style.height = `${renderedHeight}px`;
+            imageElement.style.marginLeft = "0";
+        }
+    }
+
+    function getTranslateY(): number {
+        const computedStyle = window.getComputedStyle(imageElement);
+        try {
+            const matrix = new DOMMatrixReadOnly(computedStyle.transform);
+            return matrix.m42;
+        } catch {
+            return 0;
+        }
+    }
+
+    function clampTranslateY(value: number): number {
+        const containerHeight = dragSurface.clientHeight;
+        const imageHeight = imageElement.offsetHeight;
+        if (containerHeight <= 0 || imageHeight <= 0) return 0;
+        const minY = Math.min(0, containerHeight - imageHeight);
+        return Math.min(0, Math.max(minY, value));
+    }
+
+    function setImageTranslateY(value: number): number {
+        const clampedY = clampTranslateY(value);
+        imageElement.style.transform = `translateY(${clampedY}px)`;
+        return clampedY;
+    }
+
+    function syncImagePositionBounds(): void {
+        fitImageToSurface();
+        scrollTop = setImageTranslateY(getTranslateY());
+    }
 
     function isInteractiveDragTarget(target: EventTarget | null): boolean {
         if (!(target instanceof HTMLElement)) return false;
@@ -46,11 +102,12 @@ function initDrag(
         const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
         const deltaY = clientY - startY;
         const newY = scrollTop + deltaY;
-        imageElement.style.transform = `translateY(${newY}px)`;
+        setImageTranslateY(newY);
     }
 
     async function initImagePosition() {
         if (imageElement.naturalHeight === 0) return;
+        fitImageToSurface();
 
         let savedData: { scrollTop: number } | null = null;
 
@@ -67,8 +124,7 @@ function initDrag(
 
         const initialY = savedData?.scrollTop || 0;
 
-        imageElement.style.transform = `translateY(${initialY}px)`;
-        scrollTop = initialY;
+        scrollTop = setImageTranslateY(initialY);
         imageElement.style.willChange = "transform";
     }
 
@@ -78,9 +134,7 @@ function initDrag(
         isDragging = true;
         startY = "touches" in e ? e.touches[0].clientY : e.clientY;
 
-        const computedStyle = window.getComputedStyle(imageElement);
-        const matrix = new DOMMatrixReadOnly(computedStyle.transform);
-        scrollTop = matrix.m42;
+        scrollTop = getTranslateY();
 
         window.removeEventListener("mousemove", handleMove);
         window.removeEventListener("touchmove", handleMove);
@@ -97,21 +151,13 @@ function initDrag(
         if (!isDragging) return;
         isDragging = false;
 
-        const computedStyle = window.getComputedStyle(imageElement);
-        let matrix: DOMMatrixReadOnly;
-
-        try {
-            matrix = new DOMMatrixReadOnly(computedStyle.transform);
-        } catch (e) {
-            console.error("transform解析失败", computedStyle.transform);
-            matrix = new DOMMatrixReadOnly();
-        }
+        const finalY = setImageTranslateY(getTranslateY());
 
         if (onSavePosition) {
-            await onSavePosition({ scrollTop: matrix.m42 });
+            await onSavePosition({ scrollTop: finalY });
         } else {
             try {
-                await plugin.saveData("bannerPosition.json", { scrollTop: matrix.m42 });
+                await plugin.saveData("bannerPosition.json", { scrollTop: finalY });
             } catch (e) {
                 console.error("保存位置失败", e);
             }
@@ -126,6 +172,10 @@ function initDrag(
     dragSurface.addEventListener("mousedown", startDrag);
     dragSurface.addEventListener("touchstart", startDrag);
     imageElement.addEventListener("load", initImagePosition);
+    resizeObserver = new ResizeObserver(() => {
+        syncImagePositionBounds();
+    });
+    resizeObserver.observe(dragSurface);
 
     if (imageElement.complete) {
         initImagePosition();
@@ -136,6 +186,7 @@ function initDrag(
             dragSurface.removeEventListener("mousedown", startDrag);
             dragSurface.removeEventListener("touchstart", startDrag);
             imageElement.removeEventListener("load", initImagePosition);
+            resizeObserver?.disconnect();
             window.removeEventListener("mousemove", handleMove);
             window.removeEventListener("touchmove", handleMove);
             window.removeEventListener("mouseup", endDrag);

@@ -4,11 +4,9 @@
     import { showMessage } from "siyuan";
     import type { Plugin } from "siyuan";
     import { mountWidgetContent } from "../../components/utils/widgetBlock/widgetMountRegistry";
-    import { WidgetBlock } from "../../components/utils/widgetBlock/WidgetBlock";
     import {
         getHiddenWidgetsForCurrentDevice,
         restoreWidgetForCurrentDevice,
-        restoreLayoutForContainer,
         loadWidgetLayoutSettings,
         stringifyWidgetConfigForMount,
         type HiddenWidgetItem,
@@ -121,19 +119,9 @@
             }, 300);
             restoreTimeoutIds.add(timeoutId);
 
-            // 尝试刷新主页
-            try {
-                const container = document.querySelector(".custom-content");
-                if (container) {
-                    await restoreLayoutForContainer(plugin, { value: null }, {
-                        containerSelector: ".custom-content",
-                        layoutFileName: "widgetLayout.json",
-                        WidgetBlockClass: WidgetBlock,
-                    });
-                }
-            } catch (e) {
-                console.warn("[HiddenWidgetsDialog] 刷新主页失败:", e);
-            }
+            window.dispatchEvent(new CustomEvent("homepage-component-section-layout-invalidated", {
+                detail: { forceCurrent: true },
+            }));
         }
     }
 

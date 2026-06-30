@@ -359,9 +359,10 @@ export default class PluginHomepage extends Plugin {
             const rawConfig = (await this.loadData("homepageSettingConfig.json")) || {};
             const layout = await this.loadData("widgetLayout.json") as WidgetLayoutData | null;
             const deviceId = this.getLocalDeviceIdForSignature();
+            const sectionsEnabled = Boolean((this as any).ADVANCED) && rawConfig?.componentSectionsEnabled === true;
 
             // 使用统一 helper 计算复合签名（覆盖 config + layout + widget 内容）
-            const currentCompositeSig = await buildHomepageAppliedSignature(this, rawConfig, layout, deviceId);
+            const currentCompositeSig = await buildHomepageAppliedSignature(this, rawConfig, layout, deviceId, sectionsEnabled);
 
             // 比较：优先用 composite，回退到旧 config+layout 字段
             if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {

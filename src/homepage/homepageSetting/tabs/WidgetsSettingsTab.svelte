@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { WidgetsSettingsState, WidgetsSettingsActions, DocPreviewMode } from '../types';
+    import type { WidgetsSettingsState, WidgetsSettingsActions, DocPreviewMode, ComponentSectionsNavAlign } from '../types';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
 
@@ -9,6 +9,12 @@
     }
 
     let { state, actions }: Props = $props();
+
+    const navAlignOptions: { value: ComponentSectionsNavAlign; label: string }[] = [
+        { value: "left", label: "左对齐" },
+        { value: "center", label: "居中" },
+        { value: "right", label: "右对齐" },
+    ];
 </script>
 
 <SettingSection title="组件布局">
@@ -29,6 +35,86 @@
             oninput={(e) => actions.onWidgetGapChange(Number((e.currentTarget as HTMLInputElement).value))}
         />
     </SettingRow>
+</SettingSection>
+
+<SettingSection title="组件分区导航 👑">
+    <SettingRow
+        title="启用分区导航"
+        description={state.advancedEnabled
+            ? "开启后，桌面主页组件区顶部显示自定义分区导航。"
+            : "会员专属，过期后按普通组件布局显示，分区数据保留。"}
+    >
+        <input
+            type="checkbox"
+            class="b3-switch fn__flex-center"
+            checked={state.componentSectionsEnabled}
+            disabled={!state.advancedEnabled}
+            onchange={(e) => actions.onComponentSectionsEnabledChange((e.currentTarget as HTMLInputElement).checked)}
+        />
+    </SettingRow>
+
+    {#if state.componentSectionsEnabled}
+        <SettingRow title="导航对齐" description="设置桌面主页组件分区导航按钮的水平位置">
+            <div class="component-section-align-control">
+                {#each navAlignOptions as option}
+                    <button
+                        type="button"
+                        class="component-section-align-button"
+                        class:active={state.componentSectionsNavAlign === option.value}
+                        onclick={() => actions.onComponentSectionsNavAlignChange(option.value)}
+                    >
+                        {option.label}
+                    </button>
+                {/each}
+            </div>
+        </SettingRow>
+
+        <div class="component-sections-manager">
+            {#each state.componentSections as section, index (section.id)}
+                <div class="component-section-item">
+                    <input
+                        type="text"
+                        class="control-full component-section-name"
+                        value={section.name}
+                        oninput={(e) => actions.onRenameComponentSection(section.id, (e.currentTarget as HTMLInputElement).value)}
+                    />
+                    <div class="component-section-actions">
+                        <button
+                            type="button"
+                            class="component-section-action"
+                            disabled={index === 0}
+                            onclick={() => actions.onMoveComponentSectionUp(section.id)}
+                        >
+                            上移
+                        </button>
+                        <button
+                            type="button"
+                            class="component-section-action"
+                            disabled={index === state.componentSections.length - 1}
+                            onclick={() => actions.onMoveComponentSectionDown(section.id)}
+                        >
+                            下移
+                        </button>
+                        <button
+                            type="button"
+                            class="component-section-action danger"
+                            disabled={state.componentSections.length <= 1 || section.id === "overview"}
+                            onclick={() => actions.onDeleteComponentSection(section.id)}
+                        >
+                            删除
+                        </button>
+                    </div>
+                </div>
+            {/each}
+            <button
+                type="button"
+                class="component-section-add"
+                onclick={actions.onAddComponentSection}
+            >
+                新增分区
+            </button>
+        </div>
+    {/if}
 </SettingSection>
 
 <SettingSection title="快速笔记">
@@ -71,6 +157,84 @@
         </SettingRow>
     {/if}
 </SettingSection>
+
+<style lang="scss">
+    .component-sections-manager {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .component-section-item {
+        display: grid;
+        grid-template-columns: minmax(120px, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .component-section-name {
+        min-width: 0;
+    }
+
+    .component-section-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+    }
+
+    .component-section-align-control {
+        display: inline-flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .component-section-align-button,
+    .component-section-action,
+    .component-section-add {
+        border: 1px solid var(--b3-border-color, rgba(127, 127, 127, 0.24));
+        background: var(--b3-theme-background, #fff);
+        color: var(--b3-theme-on-background, #1f2937);
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .component-section-align-button.active {
+        border-color: var(--b3-theme-primary, #3575f0);
+        background: var(--b3-theme-primary, #3575f0);
+        color: var(--b3-theme-on-primary, #fff);
+    }
+
+    .component-section-action:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .component-section-action.danger {
+        color: var(--b3-theme-error, #dc2626);
+    }
+
+    .component-section-add {
+        align-self: flex-start;
+        color: var(--b3-theme-primary, #3575f0);
+    }
+
+    @media (max-width: 620px) {
+        .component-section-item {
+            grid-template-columns: 1fr;
+        }
+
+        .component-section-actions {
+            justify-content: flex-start;
+        }
+    }
+</style>
 
 <SettingSection title="任务管理 Plus">
     <SettingRow title="开启任务编辑器" description="启用任务管理 Plus 功能">

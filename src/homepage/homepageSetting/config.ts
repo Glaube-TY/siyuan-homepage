@@ -8,6 +8,14 @@ export type HomepageTitleAlign = "left" | "center" | "right";
 export type QuickButtonStyle = "default" | "flat" | "glass";
 export type BannerGlassColorMode = "theme" | "custom";
 export type BackgroundImageType = "local" | "remote";
+export type ComponentSectionsNavAlign = "left" | "center" | "right";
+
+export interface ComponentSection {
+    id: string;
+    name: string;
+    createdAt: number;
+    updatedAt: number;
+}
 
 export const DEFAULT_HOMEPAGE_TITLE_ALIGN: HomepageTitleAlign = "center";
 export const DEFAULT_QUICK_BUTTON_STYLE: QuickButtonStyle = "default";
@@ -19,6 +27,9 @@ export const DEFAULT_BANNER_GLASS_BLUR = 12;
 export const DEFAULT_BACKGROUND_IMAGE_TYPE: BackgroundImageType = "local";
 export const DEFAULT_BACKGROUND_IMAGE_OPACITY = 35;
 export const DEFAULT_BACKGROUND_IMAGE_BLUR = 0;
+export const DEFAULT_COMPONENT_SECTION_ID = "overview";
+export const DEFAULT_COMPONENT_SECTION_NAME = "总览";
+export const DEFAULT_COMPONENT_SECTIONS_NAV_ALIGN: ComponentSectionsNavAlign = "left";
 
 export function normalizeHomepageTitleAlign(value: unknown): HomepageTitleAlign {
     if (value === "left" || value === "center" || value === "right") {
@@ -84,6 +95,59 @@ export function normalizeBackgroundImageBlur(value: unknown): number {
     const num = Number(value);
     if (!Number.isFinite(num)) return DEFAULT_BACKGROUND_IMAGE_BLUR;
     return Math.min(40, Math.max(0, Math.round(num)));
+}
+
+export function normalizeComponentSectionsNavAlign(value: unknown): ComponentSectionsNavAlign {
+    if (value === "left" || value === "center" || value === "right") {
+        return value;
+    }
+    return DEFAULT_COMPONENT_SECTIONS_NAV_ALIGN;
+}
+
+function normalizeComponentSectionId(value: unknown): string {
+    if (typeof value !== "string") return "";
+    return value.trim().replace(/[^a-zA-Z0-9_-]/g, "");
+}
+
+export function normalizeComponentSections(value: unknown): ComponentSection[] {
+    const now = Date.now();
+    const source = Array.isArray(value) ? value : [];
+    const result: ComponentSection[] = [];
+    const usedIds = new Set<string>();
+
+    for (const item of source) {
+        if (typeof item !== "object" || item === null) continue;
+        const raw = item as Record<string, unknown>;
+        const id = normalizeComponentSectionId(raw.id);
+        if (!id || usedIds.has(id)) continue;
+        const name = typeof raw.name === "string" && raw.name.trim()
+            ? raw.name.trim()
+            : (id === DEFAULT_COMPONENT_SECTION_ID ? DEFAULT_COMPONENT_SECTION_NAME : "新分区");
+        const createdAt = typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)
+            ? raw.createdAt
+            : now;
+        const updatedAt = typeof raw.updatedAt === "number" && Number.isFinite(raw.updatedAt)
+            ? raw.updatedAt
+            : createdAt;
+        result.push({ id, name, createdAt, updatedAt });
+        usedIds.add(id);
+    }
+
+    if (!usedIds.has(DEFAULT_COMPONENT_SECTION_ID)) {
+        result.unshift({
+            id: DEFAULT_COMPONENT_SECTION_ID,
+            name: DEFAULT_COMPONENT_SECTION_NAME,
+            createdAt: now,
+            updatedAt: now,
+        });
+    }
+
+    return result.length > 0 ? result : [{
+        id: DEFAULT_COMPONENT_SECTION_ID,
+        name: DEFAULT_COMPONENT_SECTION_NAME,
+        createdAt: now,
+        updatedAt: now,
+    }];
 }
 
 export interface BannerDeviceProfile {
@@ -157,6 +221,9 @@ export interface HomepageSettingConfig {
     deviceProfiles?: DeviceProfilesMap;
     bannerDeviceProfiles?: Record<string, BannerDeviceProfile>;
     defaultDocPreviewMode?: DocPreviewMode;
+    componentSectionsEnabled?: boolean;
+    componentSections?: ComponentSection[];
+    componentSectionsNavAlign?: ComponentSectionsNavAlign;
     aiKbDockEnabled?: boolean;
     aiKbTabEnabled?: boolean;
     selectionAiToolbar?: SelectionAiToolbarSettings;

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { saveLayout } from "./utils/layout-handler";
+    import { showMessage } from "siyuan";
+    import { saveLayout, type HomepageLayoutRuntimeOptions } from "./utils/layout-handler";
     import {
         updateElementBackground,
         updateElementBorder,
@@ -8,7 +9,8 @@
         loadWidgetSize,
         saveWidgetSize
     } from "./styleUtils";
-    import { loadWidgetLayoutSettings } from "./utils/layout-shared";
+    import { loadWidgetLayoutSettings, moveWidgetToComponentSectionForCurrentDevice } from "./utils/layout-shared";
+    import { normalizeComponentSections, type ComponentSection } from "@/homepage/homepageSetting/config";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
@@ -20,6 +22,7 @@
         onDeleteGlobally: () => void;
         onSetSize: (size: number) => void;
         currentBlockId?: string;
+        layoutRuntimeOptions?: HomepageLayoutRuntimeOptions;
     }
 
     let {
@@ -28,7 +31,8 @@
         onHideForCurrentDevice,
         onDeleteGlobally,
         onSetSize,
-        currentBlockId = ""
+        currentBlockId = "",
+        layoutRuntimeOptions = {},
     }: Props = $props();
 
     let backgroundColor: string = $state("#ffffff");
@@ -38,24 +42,89 @@
     let widgetLayoutNumber = $state(4);
     let rowSize = $state(1);
     let colSize = $state(1);
+    let componentSectionsEnabled = $state(false);
+    let componentSections = $state<ComponentSection[]>([]);
+    let targetSectionId = $state("");
 
     let sizeOptions = $derived(Array.from({ length: widgetLayoutNumber }, (_, i) => i + 1));
+    let availableTargetSections = $derived(
+        componentSections.filter((section) => section.id !== layoutRuntimeOptions.sectionId)
+    );
+    let canMigrateToSection = $derived(
+        Boolean(plugin?.ADVANCED) &&
+        layoutRuntimeOptions.sectionsEnabled === true &&
+        componentSectionsEnabled &&
+        availableTargetSections.length > 0
+    );
+
+    function getCurrentContainer(): HTMLElement | null {
+        return document.getElementById(currentBlockId)?.parentElement || null;
+    }
 
     function handleStyleChange() {
         updateElementBackground(currentBlockId, backgroundColor, backgroundOpacity);
         updateElementBorder(currentBlockId, borderColor, borderWidth);
-        saveLayout(plugin);
+        saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
     }
 
     async function handleApplySize() {
         onSetSize(parseInt(`${rowSize}${colSize}`));
         await saveWidgetSize(plugin, currentBlockId, rowSize, colSize);
-        saveLayout(plugin);
+        saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
+    }
+
+    async function handleMoveToSection() {
+        if (!canMigrateToSection || !targetSectionId) {
+            showMessage("组件分区导航开启且会员有效后可迁移", 3000);
+            return;
+        }
+        const blockElement = document.getElementById(currentBlockId) as HTMLElement | null;
+        const currentContainer = getCurrentContainer();
+        const success = await moveWidgetToComponentSectionForCurrentDevice(plugin, currentBlockId, {
+            fromSectionId: layoutRuntimeOptions.sectionId,
+            toSectionId: targetSectionId,
+            style: blockElement?.getAttribute("style") || null,
+            currentContainerEl: currentContainer,
+        });
+        if (!success) {
+            showMessage("迁移失败，请确认组件分区导航已开启", 3000);
+            return;
+        }
+
+        if (blockElement) {
+            const instance = (blockElement as any).__widgetBlockInstance;
+            if (instance && typeof instance.destroy === "function") {
+                try {
+                    instance.destroy();
+                } catch {
+                    // 忽略旧实例销毁失败，后续强制恢复会重新挂载
+                }
+            }
+            blockElement.remove();
+        }
+
+        const sectionIds = [layoutRuntimeOptions.sectionId, targetSectionId]
+            .filter((sectionId): sectionId is string => Boolean(sectionId));
+        window.dispatchEvent(new CustomEvent("homepage-component-section-layout-invalidated", {
+            detail: {
+                sectionIds,
+                forceCurrent: true,
+            },
+        }));
+
+        showMessage("组件已迁移，切换到目标分区后可查看");
+        onClose();
     }
 
     onMount(async () => {
-        const settings = await loadWidgetLayoutSettings(plugin);
+        const settings = await loadWidgetLayoutSettings(plugin, layoutRuntimeOptions);
         widgetLayoutNumber = settings.widgetLayoutNumber;
+
+        const config = await plugin.loadData("homepageSettingConfig.json");
+        componentSectionsEnabled = config?.componentSectionsEnabled === true;
+        const normalizedSections = normalizeComponentSections(config?.componentSections);
+        componentSections = normalizedSections;
+        targetSectionId = normalizedSections.find((section) => section.id !== layoutRuntimeOptions.sectionId)?.id || "";
 
         const styles = loadElementStyles(currentBlockId);
         if (styles) {
@@ -92,6 +161,35 @@
                 <span class="size-label">列</span>
                 <button type="button" class="apply-size-button" onclick={handleApplySize}>
                     应用尺寸
+                </button>
+            </div>
+        </SettingRow>
+    </SettingSection>
+
+    <SettingSection title="分区迁移">
+        <SettingRow
+            title="迁移到"
+            description={canMigrateToSection
+                ? "将当前组件移动到目标分区末尾，保留样式和内容。"
+                : "会员有效且组件分区导航开启后可用。"}
+        >
+            <div class="section-move-control">
+                <select
+                    class="control-md"
+                    bind:value={targetSectionId}
+                    disabled={!canMigrateToSection}
+                >
+                    {#each availableTargetSections as section (section.id)}
+                        <option value={section.id}>{section.name}</option>
+                    {/each}
+                </select>
+                <button
+                    type="button"
+                    class="move-section-button"
+                    disabled={!canMigrateToSection || !targetSectionId}
+                    onclick={handleMoveToSection}
+                >
+                    迁移
                 </button>
             </div>
         </SettingRow>
@@ -168,12 +266,41 @@
 
     .size-label {
         font-size: 13px;
-        color: var(--b3-theme-on-surface);
+        color: var(--b3-theme-on-surface, #1f2329);
     }
 
     .size-separator {
         font-size: 14px;
-        color: var(--b3-theme-on-surface-light);
+        color: var(--b3-theme-on-surface-light, #6b7280);
+    }
+
+    .section-move-control {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        width: 100%;
+    }
+
+    .move-section-button {
+        background: var(--b3-theme-primary, #3575f0);
+        color: white;
+        border: none;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: opacity 0.2s ease;
+
+        &:hover:not(:disabled) {
+            opacity: 0.9;
+        }
+
+        &:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
     }
 
     .range-control {
@@ -186,18 +313,18 @@
         input[type="range"] {
             flex: 1;
             min-width: 120px;
-            accent-color: var(--b3-theme-primary);
+            accent-color: var(--b3-theme-primary, #3575f0);
             height: 4px;
         }
     }
 
     .range-value {
         min-width: 40px;
-        background: var(--b3-theme-background);
+        background: var(--b3-theme-background, #fff);
         padding: 2px 8px;
         border-radius: 4px;
         font-size: 12px;
-        color: var(--b3-theme-on-surface);
+        color: var(--b3-theme-on-surface, #1f2329);
     }
 
     .danger-actions {
@@ -265,7 +392,7 @@
     }
 
     .apply-size-button {
-        background: var(--b3-theme-primary);
+        background: var(--b3-theme-primary, #3575f0);
         color: white;
         border: none;
         padding: 0.4rem 0.8rem;

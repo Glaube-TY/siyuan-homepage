@@ -20,11 +20,15 @@ import {
     normalizeBackgroundImageBlur,
     normalizeBackgroundImageOpacity,
     normalizeBackgroundImageType,
+    normalizeComponentSections,
+    normalizeComponentSectionsNavAlign,
     normalizeHomepageTitleAlign,
     normalizeQuickButtonStyle,
     type BackgroundImageType,
     type BannerGlassColorMode,
     type BannerDeviceProfile,
+    type ComponentSection,
+    type ComponentSectionsNavAlign,
     type HomepageTitleAlign,
     type QuickButtonStyle,
 } from "./homepageSetting/config";
@@ -103,6 +107,9 @@ export interface HomepageConfig {
     buttonsList: HomepageButtonItem[];
     deviceProfiles: DeviceProfilesMap;
     bannerDeviceProfiles: Record<string, BannerDeviceProfile>;
+    componentSectionsEnabled: boolean;
+    componentSections: ComponentSection[];
+    componentSectionsNavAlign: ComponentSectionsNavAlign;
 }
 
 export interface BannerImageResult {
@@ -178,6 +185,9 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDe
     buttonsList: createDefaultButtons(),
     deviceProfiles: {},
     bannerDeviceProfiles: {},
+    componentSectionsEnabled: false,
+    componentSections: normalizeComponentSections(undefined),
+    componentSectionsNavAlign: "left",
 };
 
 function normalizeNumber(value: unknown, defaultValue: number, min?: number, max?: number): number {
@@ -319,6 +329,9 @@ export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
         buttonsList: normalizeButtonsList(config.buttonsList),
         deviceProfiles: normalizeDeviceProfiles(config.deviceProfiles),
         bannerDeviceProfiles: normalizeBannerDeviceProfiles(config.bannerDeviceProfiles),
+        componentSectionsEnabled: config.componentSectionsEnabled === true,
+        componentSections: normalizeComponentSections(config.componentSections),
+        componentSectionsNavAlign: normalizeComponentSectionsNavAlign(config.componentSectionsNavAlign),
     };
 }
 

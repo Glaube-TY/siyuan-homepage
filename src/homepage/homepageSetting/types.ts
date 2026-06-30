@@ -27,10 +27,22 @@ export interface ButtonSettingsActions {
 }
 
 export type DocPreviewMode = "preview" | "wysiwyg";
+export type ComponentSectionsNavAlign = "left" | "center" | "right";
+
+export interface ComponentSection {
+    id: string;
+    name: string;
+    createdAt: number;
+    updatedAt: number;
+}
 
 export interface WidgetsSettingsState {
     widgetLayoutNumber: number;
     widgetGap: number;
+    advancedEnabled: boolean;
+    componentSectionsEnabled: boolean;
+    componentSections: ComponentSection[];
+    componentSectionsNavAlign: ComponentSectionsNavAlign;
     quickNotesEnabled: boolean;
     quickNotesPosition: string;
     quickNotesTimestampEnabled: boolean;
@@ -42,6 +54,13 @@ export interface WidgetsSettingsState {
 export interface WidgetsSettingsActions {
     onWidgetLayoutNumberChange: (value: number) => void;
     onWidgetGapChange: (value: number) => void;
+    onComponentSectionsEnabledChange: (value: boolean) => void;
+    onAddComponentSection: () => void;
+    onRenameComponentSection: (sectionId: string, name: string) => void;
+    onDeleteComponentSection: (sectionId: string) => void;
+    onMoveComponentSectionUp: (sectionId: string) => void;
+    onMoveComponentSectionDown: (sectionId: string) => void;
+    onComponentSectionsNavAlignChange: (value: ComponentSectionsNavAlign) => void;
     onQuickNotesEnabledChange: (value: boolean) => void;
     onQuickNotesPositionChange: (value: string) => void;
     onQuickNotesTimestampEnabledChange: (value: boolean) => void;

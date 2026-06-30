@@ -6,6 +6,7 @@ import { mountWidgetContent } from "./widgetMountRegistry";
 import { mount, unmount } from "svelte";
 import { hideWidgetForCurrentDevice, deleteWidgetGlobally, loadWidgetLayoutSettings, stringifyWidgetConfigForMount } from "./utils/layout-shared";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
+import type { HomepageLayoutRuntimeOptions } from "./utils/layout-handler";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -16,6 +17,7 @@ export class WidgetBlock {
 
     private readonly plugin: any;
     private readonly currentBlockForSettingsRef: { value: HTMLElement | null };
+    private readonly runtimeOptions: HomepageLayoutRuntimeOptions;
     private mountedWidget: Record<string, any> | null = null;
 
     constructor(
@@ -24,15 +26,17 @@ export class WidgetBlock {
         id?: string,
         style?: string,
         loadcontent?: string,
+        runtimeOptions: HomepageLayoutRuntimeOptions = {},
     ) {
         this.id = id || `block-${Date.now()}`;
         this.plugin = plugin;
         this.currentBlockForSettingsRef = currentBlockForSettingsRef;
+        this.runtimeOptions = runtimeOptions;
         this.style = style || 'aspect-ratio: 1 / 1;background-color: rgba(0, 0, 0, 0.03);draggable: true;border: 2px solid var(--b3-theme-primary);box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);transition: all 0.2s ease-in-out;border-radius: 8px;';
         this.loadcontent = loadcontent || '';
 
         // 统一从 widgetLayout.json 读取列数
-        loadWidgetLayoutSettings(plugin).then((settings) => {
+        loadWidgetLayoutSettings(plugin, runtimeOptions).then((settings) => {
             this.widgetLayoutNumber = settings.widgetLayoutNumber;
         });
 
@@ -93,7 +97,7 @@ export class WidgetBlock {
                                                             dialogRef.close();
                                                         },
                                                         onHideForCurrentDevice: async () => {
-                                                            await hideWidgetForCurrentDevice(this.plugin, this.id);
+                                                            await hideWidgetForCurrentDevice(this.plugin, this.id, this.runtimeOptions);
                                                             this.cleanupMountedWidget();
                                                             if (this.currentBlockForSettingsRef.value) {
                                                                 this.currentBlockForSettingsRef.value.remove();
@@ -115,6 +119,7 @@ export class WidgetBlock {
                                                             setBlockSize(this.currentBlockForSettingsRef.value, size, layoutNumber);
                                                             dialogRef.close();
                                                         },
+                                                        layoutRuntimeOptions: this.runtimeOptions,
                                                     },
                                                 });
                     },

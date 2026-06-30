@@ -13,16 +13,18 @@
         normalizeBackgroundImageBlur,
         normalizeBackgroundImageOpacity,
         normalizeBackgroundImageType,
+        normalizeComponentSections,
+        normalizeComponentSectionsNavAlign,
         loadHomepageSettingConfig,
         normalizeBannerIntegratedColor,
         normalizeHomepageTitleAlign,
         normalizeQuickButtonStyle,
         saveHomepageSettingConfig,
     } from "./config"
-    import type { BackgroundImageType, BannerDeviceProfile, BannerGlassColorMode, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
+    import type { BackgroundImageType, BannerDeviceProfile, BannerGlassColorMode, ComponentSection, ComponentSectionsNavAlign, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
     import { getLocalDeviceId, isDesktopDeviceProfileEnabled, getCurrentDeviceInfo, updateDeviceProfile, findExistingDeviceByHardware, deduplicateDeviceProfiles } from "../utils/deviceProfile"
-    import { loadWidgetLayoutSettings, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
+    import { ensureComponentSectionsForCurrentDevice, loadWidgetLayoutSettings, removeComponentSectionLayouts, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
     import { svelteDialog, confirmDialogBoolean, safeConfirmContent } from "../../libs/dialog"
     import HiddenWidgetsDialog from "./HiddenWidgetsDialog.svelte"
     import MobileHomepagePreviewDialog from "../mobileHomepage/MobileHomepagePreviewDialog.svelte"
@@ -124,6 +126,10 @@
     // 组件设置内容
     let widgetLayoutNumber = $state(4);
     let widgetGap = $state(0.2);
+    let componentSectionsEnabled = $state(false);
+    let componentSections = $state<ComponentSection[]>(normalizeComponentSections(undefined));
+    let componentSectionsNavAlign = $state<ComponentSectionsNavAlign>("left");
+    let deletedComponentSectionIds: string[] = [];
     // 快速笔记设置
     let quickNotesEnabled = $state(false);
     let quickNotesPosition = $state("");
@@ -201,9 +207,93 @@
         normalizeSelectionAiToolbarSettings(DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS)
     );
 
+    function createComponentSectionId(): string {
+        const randomPart = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        return `section-${randomPart}`.replace(/[^a-zA-Z0-9_-]/g, "");
+    }
+
+    function sanitizeComponentSectionName(name: string): string {
+        return name.trim() || "新分区";
+    }
+
+    function handleComponentSectionsEnabledChange(value: boolean): void {
+        if (value && !advancedEnabled) {
+            showMessage("会员专属，过期后按普通组件布局显示，分区数据保留。", 4000);
+            componentSectionsEnabled = false;
+            return;
+        }
+        componentSectionsEnabled = value;
+        componentSections = normalizeComponentSections(componentSections);
+    }
+
+    function handleAddComponentSection(): void {
+        const now = Date.now();
+        componentSections = normalizeComponentSections([
+            ...componentSections,
+            {
+                id: createComponentSectionId(),
+                name: "新分区",
+                createdAt: now,
+                updatedAt: now,
+            },
+        ]);
+    }
+
+    function handleRenameComponentSection(sectionId: string, name: string): void {
+        const now = Date.now();
+        componentSections = normalizeComponentSections(componentSections.map((section) => (
+            section.id === sectionId
+                ? { ...section, name: sanitizeComponentSectionName(name), updatedAt: now }
+                : section
+        )));
+    }
+
+    async function handleDeleteComponentSection(sectionId: string): Promise<void> {
+        if (sectionId === "overview") {
+            showMessage("总览分区不能删除", 3000);
+            return;
+        }
+        const normalizedSections = normalizeComponentSections(componentSections);
+        if (normalizedSections.length <= 1) {
+            showMessage("至少保留一个分区", 3000);
+            return;
+        }
+        const target = normalizedSections.find((section) => section.id === sectionId);
+        if (!target) return;
+
+        const confirmed = await confirmDialogBoolean({
+            title: "删除分区",
+            content: safeConfirmContent(
+                "确定要删除该组件分区吗？\n\n只会移除该分区的布局引用，不会删除组件内容文件。\n\n分区：",
+                target.name,
+            ),
+        });
+        if (!confirmed) return;
+
+        componentSections = normalizeComponentSections(normalizedSections.filter((section) => section.id !== sectionId));
+        deletedComponentSectionIds = [...new Set([...deletedComponentSectionIds, sectionId])];
+    }
+
+    function moveComponentSection(sectionId: string, direction: -1 | 1): void {
+        const sections = normalizeComponentSections(componentSections);
+        const index = sections.findIndex((section) => section.id === sectionId);
+        const targetIndex = index + direction;
+        if (index < 0 || targetIndex < 0 || targetIndex >= sections.length) return;
+        const next = [...sections];
+        const [item] = next.splice(index, 1);
+        next.splice(targetIndex, 0, item);
+        componentSections = next;
+    }
+
     let widgetsSettingsState = $derived<WidgetsSettingsState>({
         widgetLayoutNumber,
         widgetGap,
+        advancedEnabled,
+        componentSectionsEnabled,
+        componentSections,
+        componentSectionsNavAlign,
         quickNotesEnabled,
         quickNotesPosition,
         quickNotesTimestampEnabled,
@@ -215,6 +305,13 @@
     let widgetsSettingsActions: WidgetsSettingsActions = {
         onWidgetLayoutNumberChange: (value) => widgetLayoutNumber = value,
         onWidgetGapChange: (value) => widgetGap = value,
+        onComponentSectionsEnabledChange: handleComponentSectionsEnabledChange,
+        onAddComponentSection: handleAddComponentSection,
+        onRenameComponentSection: handleRenameComponentSection,
+        onDeleteComponentSection: (sectionId) => void handleDeleteComponentSection(sectionId),
+        onMoveComponentSectionUp: (sectionId) => moveComponentSection(sectionId, -1),
+        onMoveComponentSectionDown: (sectionId) => moveComponentSection(sectionId, 1),
+        onComponentSectionsNavAlignChange: (value) => componentSectionsNavAlign = normalizeComponentSectionsNavAlign(value),
         onQuickNotesEnabledChange: (value) => quickNotesEnabled = value,
         onQuickNotesPositionChange: (value) => quickNotesPosition = value,
         onQuickNotesTimestampEnabledChange: (value) => quickNotesTimestampEnabled = value,
@@ -446,6 +543,9 @@
             const layoutSettings = await loadWidgetLayoutSettings(plugin);
             widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
             widgetGap = layoutSettings.widgetGap;
+            componentSectionsEnabled = savedConfig.componentSectionsEnabled === true;
+            componentSections = normalizeComponentSections(savedConfig.componentSections);
+            componentSectionsNavAlign = normalizeComponentSectionsNavAlign(savedConfig.componentSectionsNavAlign);
 
             quickNotesEnabled = savedConfig.quickNotesEnabled ?? false;
             quickNotesPosition = savedConfig.quickNotesPosition || "";
@@ -824,8 +924,24 @@
             }
         }
 
+        const normalizedComponentSections = normalizeComponentSections(componentSections);
+        const effectiveComponentSectionsEnabled = advancedEnabled && componentSectionsEnabled;
+
+        if (deletedComponentSectionIds.length > 0) {
+            await removeComponentSectionLayouts(plugin, deletedComponentSectionIds);
+            deletedComponentSectionIds = [];
+        }
+
+        if (componentSectionsEnabled) {
+            await ensureComponentSectionsForCurrentDevice(plugin);
+        }
+
         // 保存布局设置到 widgetLayout.json（与组件顺序存储方式一致）
-        await saveWidgetLayoutSettings(plugin, { widgetLayoutNumber, widgetGap });
+        await saveWidgetLayoutSettings(
+            plugin,
+            { widgetLayoutNumber, widgetGap },
+            { sectionsEnabled: effectiveComponentSectionsEnabled },
+        );
 
         const config = {
             // 全局配置
@@ -884,6 +1000,9 @@
             // 这里保留移动端的全局值，桌面端不再使用
             widgetLayoutNumber: widgetLayoutNumber,
             widgetGap: widgetGap,
+            componentSectionsEnabled: componentSectionsEnabled,
+            componentSections: normalizedComponentSections,
+            componentSectionsNavAlign: normalizeComponentSectionsNavAlign(componentSectionsNavAlign),
             quickNotesEnabled: quickNotesEnabled,
             quickNotesPosition: quickNotesPosition,
             quickNotesTimestampEnabled: quickNotesTimestampEnabled,
