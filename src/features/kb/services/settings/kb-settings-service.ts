@@ -3,7 +3,7 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, KbDangerousSkillToolName, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, NotebrainPermissionAction, RuntimeToolsSettings } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, KbDangerousSkillToolName, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, NotebrainPermissionAction, RuntimeToolsSettings, KbChatAppearanceSettings, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
@@ -16,6 +16,7 @@ import {
   DEFAULT_EXTERNAL_SKILL_SETTINGS,
   DEFAULT_MCP_SETTINGS,
   DEFAULT_RUNTIME_TOOLS_SETTINGS,
+  DEFAULT_CHAT_APPEARANCE_SETTINGS,
 } from "../../constants/default-settings";
 import {
   sanitizeChatProviders as sanitizeChatProvidersCore,
@@ -33,6 +34,7 @@ import {
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 
 const SETTINGS_KEY = "kb-settings";
+const MAX_AVATAR_DATA_URL_LENGTH = 1_572_864;
 
 // ==================== 数值归一化 helpers ====================
 
@@ -91,6 +93,56 @@ function normalizeProcessDisplayMode(raw: unknown): KbProcessDisplayMode {
     return raw;
   }
   return "collapsed";
+}
+
+function normalizeChatAppearanceStyle(raw: unknown): KbChatAppearanceStyle {
+  if (raw === "default" || raw === "minimal" || raw === "prose" || raw === "card") {
+    return raw;
+  }
+  // 迁移旧品牌样式名到新中性样式
+  if (raw === "gpt") return "minimal";
+  if (raw === "deepseek" || raw === "gemini") return "prose";
+  if (raw === "claude") return "card";
+  return DEFAULT_CHAT_APPEARANCE_SETTINGS.style;
+}
+
+function normalizeChatAvatarSettings(raw: unknown): KbChatAvatarSettings {
+  if (!raw || typeof raw !== "object") {
+    return { kind: "default" };
+  }
+  const s = raw as Record<string, unknown>;
+  const kind = s.kind === "emoji" || s.kind === "image" || s.kind === "default" ? s.kind : "default";
+
+  if (kind === "emoji") {
+    const emoji = typeof s.emoji === "string" ? s.emoji.trim() : "";
+    return emoji ? { kind, emoji } : { kind: "default" };
+  }
+
+  if (kind === "image") {
+    const imageDataUrl = typeof s.imageDataUrl === "string" ? s.imageDataUrl : "";
+    if (imageDataUrl.startsWith("data:image/") && imageDataUrl.length <= MAX_AVATAR_DATA_URL_LENGTH) {
+      return { kind, imageDataUrl };
+    }
+    return { kind: "default" };
+  }
+
+  return { kind: "default" };
+}
+
+function normalizeChatAppearanceSettings(raw: unknown): KbChatAppearanceSettings {
+  if (!raw || typeof raw !== "object") {
+    return {
+      style: DEFAULT_CHAT_APPEARANCE_SETTINGS.style,
+      userAvatar: { ...DEFAULT_CHAT_APPEARANCE_SETTINGS.userAvatar },
+      assistantAvatar: { ...DEFAULT_CHAT_APPEARANCE_SETTINGS.assistantAvatar },
+    };
+  }
+  const s = raw as Record<string, unknown>;
+  return {
+    style: normalizeChatAppearanceStyle(s.style),
+    userAvatar: normalizeChatAvatarSettings(s.userAvatar),
+    assistantAvatar: normalizeChatAvatarSettings(s.assistantAvatar),
+  };
 }
 
 function normalizePermissionAction(raw: unknown, fallback: NotebrainPermissionAction): NotebrainPermissionAction {
@@ -916,6 +968,7 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
 
   // 第四步：显式构造 KbSettings 返回对象
   return {
+    chatAppearance: normalizeChatAppearanceSettings(normalized.chatAppearance),
     assistantActionAlignment: normalizeAssistantActionAlignment(normalized.assistantActionAlignment),
     firstPassMaxHits: normalized.firstPassMaxHits ?? DEFAULT_KB_SETTINGS.firstPassMaxHits,
     docTitleMatchWeight: normalized.docTitleMatchWeight ?? DEFAULT_KB_SETTINGS.docTitleMatchWeight,

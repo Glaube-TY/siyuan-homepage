@@ -13,6 +13,7 @@
   import { getCurrentDocumentId, resolveDocMetaForAttachment } from "../../services/siyuan/current-doc-service";
   import { showMessage } from "siyuan";
   import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "../../services/settings/kb-settings-service";
+  import { DEFAULT_CHAT_APPEARANCE_SETTINGS } from "../../constants/default-settings";
   import {
     buildChatModelOptions,
     findDefaultChatModelOption,
@@ -22,7 +23,7 @@
     type ChatModelOption,
     type ChatModelSelection,
   } from "../../types/chat-model-selection";
-  import type { KbAssistantActionAlignment } from "../../types/settings";
+  import type { KbAssistantActionAlignment, KbChatAppearanceSettings } from "../../types/settings";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import DocContentEditConfirmationModal from "../common/doc-content-edit-confirmation-modal.svelte";
   import AgentToolPermissionModal from "../common/agent-tool-permission-modal.svelte";
@@ -53,6 +54,7 @@
   let quickPromptsDocId = "";
   let workbenchDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
   let reasoningDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
+  let chatAppearance: KbChatAppearanceSettings = DEFAULT_CHAT_APPEARANCE_SETTINGS;
 
   const TAB_CHAT_MODES: ChatMode[] = ["whole_kb"];
   const CURRENT_DOCUMENT_REQUIRED_MODES: ChatMode[] = [
@@ -782,6 +784,7 @@
     try {
       const settings = await getKbSettings();
       assistantActionAlignment = settings.assistantActionAlignment;
+      chatAppearance = settings.chatAppearance ?? DEFAULT_CHAT_APPEARANCE_SETTINGS;
       const options = buildChatModelOptions(settings);
       chatModelOptions = options;
 
@@ -1152,6 +1155,9 @@
     if (nextSettings?.assistantActionAlignment) {
       assistantActionAlignment = nextSettings.assistantActionAlignment;
     }
+    if (nextSettings?.chatAppearance) {
+      chatAppearance = nextSettings.chatAppearance;
+    }
     if (nextSettings?.webSearch?.enabled !== undefined) {
       webSearchEnabled = nextSettings.webSearch.enabled;
       // 全局联网搜索开关关闭时，effectiveWebAccessMode 会自动经 reactive 显示为 "off"
@@ -1187,6 +1193,7 @@
         quickPromptsDocId = settings.quickPrompts?.docId ?? "";
         workbenchDisplayMode = settings.workbenchProcessDisplayMode ?? "collapsed";
         reasoningDisplayMode = settings.reasoningProcessDisplayMode ?? "collapsed";
+        chatAppearance = settings.chatAppearance ?? DEFAULT_CHAT_APPEARANCE_SETTINGS;
       } catch { /* ignore */ }
       refreshContextUsageSafe("hydrate");
     })();
@@ -1298,7 +1305,7 @@
   });
 </script>
 
-<div class="kb-main-panel" class:has-sidebar={conversationSidebarOpen} class:mobile={placement === "mobile"}>
+<div class={`kb-main-panel style-${chatAppearance.style}`} class:empty-chat={messages.length === 0} class:has-sidebar={conversationSidebarOpen} class:mobile={placement === "mobile"}>
   <!-- 会话侧边栏 -->
   {#if conversationSidebarOpen}
     <ConversationSidebar
@@ -1375,6 +1382,9 @@
           on:deleteTurn={handleDeleteTurn}
           on:sendSuggestedQuestion={handleSuggestedQuestion}
           {assistantActionAlignment}
+          chatAppearanceStyle={chatAppearance.style}
+          userAvatar={chatAppearance.userAvatar}
+          assistantAvatar={chatAppearance.assistantAvatar}
           {suggestedQuestions}
           {workbenchDisplayMode}
           {reasoningDisplayMode}
@@ -1404,6 +1414,7 @@
           webAccessMode={effectiveWebAccessMode}
           {quickPromptsEnabled}
           {quickPromptsDocId}
+          chatAppearanceStyle={chatAppearance.style}
           mobile={placement === "mobile"}
           on:webAccessModeChange={(e) => { kbSessionStore.setWebAccessMode(e.detail); }}
           on:send={handleSend}
@@ -1469,12 +1480,109 @@
     background: var(--b3-theme-background);
     position: relative;
 
+    &.style-minimal {
+      background: var(--b3-theme-background, #fff);
+    }
+
+    &.style-prose {
+      background: var(--b3-theme-background, #fff);
+    }
+
+    &.style-card {
+      background: var(--b3-theme-background, #fff);
+    }
+
+    &.style-minimal .main-content,
+    &.style-prose .main-content,
+    &.style-card .main-content {
+      background: transparent;
+    }
+
     // Sidebar open/close transition
     &.has-sidebar {
       :global(.conversation-sidebar) {
         // Sidebar slides in from left with spring-like easing
         animation: sidebar-slide-in 250ms $kb-ease-out both;
       }
+    }
+  }
+
+  // ---- Non-default chat shell ----
+  .kb-main-panel.style-minimal,
+  .kb-main-panel.style-prose,
+  .kb-main-panel.style-card {
+    .top-toolbar {
+      background: transparent;
+      border-bottom: none;
+      box-shadow: none;
+      padding: 8px 12px;
+      min-height: 32px;
+    }
+
+    .toolbar-btn {
+      border: none;
+      background: transparent;
+      color: var(--b3-theme-on-surface-light, #6b7280);
+
+      &:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 8%, transparent);
+        border-color: transparent;
+        box-shadow: none;
+        transform: none;
+      }
+
+      &:active:not(:disabled) {
+        transform: scale(0.97);
+      }
+
+      &.active {
+        background: color-mix(in srgb, var(--b3-theme-primary, #3577f0) 12%, transparent);
+        color: var(--b3-theme-primary, #3577f0);
+        box-shadow: none;
+      }
+    }
+
+    .btn-label {
+      display: none;
+    }
+
+    .chat-wrapper {
+      justify-content: center;
+    }
+
+    .chat-area {
+      max-width: min(100%, 900px);
+      margin: 0 auto;
+      width: 100%;
+      padding: 0;
+
+      :global(.chat-input-wrapper) {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+      }
+    }
+  }
+
+  .kb-main-panel.style-minimal.empty-chat,
+  .kb-main-panel.style-prose.empty-chat,
+  .kb-main-panel.style-card.empty-chat {
+    .chat-area {
+      justify-content: center;
+    }
+
+    :global(.chat-message-list) {
+      flex: 0 0 auto;
+      min-height: 0;
+    }
+
+    :global(.chat-scroll-viewport) {
+      height: auto;
+    }
+
+    :global(.empty-state) {
+      height: auto;
+      padding: 24px 0;
     }
   }
 

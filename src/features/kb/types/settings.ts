@@ -84,6 +84,26 @@ export type KbAssistantActionAlignment = "left" | "center" | "right";
 /** 处理过程/思考过程显示模式 */
 export type KbProcessDisplayMode = "collapsed" | "expanded" | "auto";
 
+/** AI 对话界面样式 */
+export type KbChatAppearanceStyle = "default" | "minimal" | "prose" | "card";
+
+/** AI 对话头像来源 */
+export type KbChatAvatarKind = "default" | "emoji" | "image";
+
+/** 单个对话头像设置 */
+export type KbChatAvatarSettings = {
+  kind: KbChatAvatarKind;
+  emoji?: string;
+  imageDataUrl?: string;
+};
+
+/** AI 对话外观设置 */
+export type KbChatAppearanceSettings = {
+  style: KbChatAppearanceStyle;
+  userAvatar: KbChatAvatarSettings;
+  assistantAvatar: KbChatAvatarSettings;
+};
+
 /** 网页搜索提供商类型 */
 export type WebSearchProvider = "anysearch" | "custom_json" | "tavily";
 
@@ -223,6 +243,8 @@ export type RuntimeToolsSettings = {
 };
 
 export type KbSettings = {
+  /** AI 对话外观设置 */
+  chatAppearance: KbChatAppearanceSettings;
   /** AI 回答底部操作按钮对齐方式 */
   assistantActionAlignment: KbAssistantActionAlignment;
   /** 第一次检索最大返回条数 */

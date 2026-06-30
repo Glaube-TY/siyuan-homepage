@@ -2,7 +2,7 @@
  * 知识库默认设置
  */
 
-import type { KbSettings, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, RuntimeToolsSettings } from "../types/settings";
+import type { KbSettings, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, RuntimeToolsSettings, KbChatAppearanceSettings } from "../types/settings";
 
 /** 默认温度参数 */
 export const DEFAULT_TEMPERATURE = 0.3;
@@ -65,6 +65,12 @@ export const DEFAULT_RUNTIME_TOOLS_SETTINGS: RuntimeToolsSettings = {
   commandOverrides: {},
 };
 
+export const DEFAULT_CHAT_APPEARANCE_SETTINGS: KbChatAppearanceSettings = {
+  style: "default",
+  userAvatar: { kind: "default" },
+  assistantAvatar: { kind: "default" },
+};
+
 /** 默认网页搜索设置 */
 export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
   enabled: false,
@@ -94,6 +100,7 @@ export const DEFAULT_SKILL_SETTINGS: KbSkillSettings = {
 };
 
 export const DEFAULT_KB_SETTINGS: KbSettings = {
+  chatAppearance: DEFAULT_CHAT_APPEARANCE_SETTINGS,
   assistantActionAlignment: "left",
   firstPassMaxHits: 50,
   docTitleMatchWeight: 20,

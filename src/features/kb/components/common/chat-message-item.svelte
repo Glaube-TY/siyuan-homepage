@@ -2,11 +2,12 @@
   import { createEventDispatcher, onDestroy } from "svelte";
   import type { ChatMessage, ReferenceItem } from "../../types/chat";
   import type { AgentWorkbenchEvent } from "../../services/agent-workbench";
-  import type { KbAssistantActionAlignment } from "../../types/settings";
+  import type { KbAssistantActionAlignment, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
   import { navigateToReference, navigateToDocId } from "../../services/siyuan/reference-navigation";
   import { mdToHtml } from "../../utils/md-to-html";
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import { mapAgentErrorToUserFacing } from "../../services/agent-workbench/runtime/user-facing-agent-error";
+  import ChatAvatar from "./chat-avatar.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   // Props - 由父组件 ChatMessageList 传入
@@ -20,6 +21,16 @@
   export let assistantActionAlignment: KbAssistantActionAlignment = "left";
   export let workbenchDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
   export let reasoningDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
+  export let chatAppearanceStyle: KbChatAppearanceStyle = "default";
+  export let userAvatar: KbChatAvatarSettings = { kind: "default" };
+  export let assistantAvatar: KbChatAvatarSettings = { kind: "default" };
+
+  $: currentAvatar =
+    message.role === "user"
+      ? userAvatar
+      : message.role === "assistant"
+        ? assistantAvatar
+        : { kind: "default" as const };
 
   const dispatch = createEventDispatcher<{
     regenerate: void;
@@ -619,17 +630,9 @@
 
 <svelte:window on:mousedown={hideQuotePopover} on:mouseup={handleMouseUpInAssistant} />
 
-<div class="chat-message-item {message.role}">
+<div class={`chat-message-item ${message.role} style-${chatAppearanceStyle}`}>
   <div class="avatar">
-    {#if message.role === "user"}
-      <SiyuanIcon name="iconAccount" size={16} />
-    {:else if message.role === "assistant"}
-      <SiyuanIcon name="iconSparkles" size={16} />
-    {:else if message.role === "error"}
-      <SiyuanIcon name="iconInfo" size={16} />
-    {:else}
-      <SiyuanIcon name="iconClock" size={16} />
-    {/if}
+    <ChatAvatar role={message.role} avatar={currentAvatar} />
   </div>
   <div class="content">
     {#if message.role === "assistant"}
@@ -1161,6 +1164,200 @@
     font-size: 14px;
     line-height: 1.6;
     word-break: break-word;
+  }
+
+  .chat-message-item.style-minimal {
+    padding: 6px 0;
+    gap: 0;
+
+    .avatar {
+      display: none;
+    }
+
+    .content {
+      width: 100%;
+      max-width: 100%;
+    }
+
+    &.assistant .bubble {
+      background: transparent;
+      border: none;
+      padding: 4px 0;
+      color: var(--b3-theme-on-surface, #1f2329);
+    }
+
+    &.user {
+      .content {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .bubble {
+        max-width: min(76%, 620px);
+        background: var(--b3-theme-background-light, rgba(0, 0, 0, 0.04));
+        color: var(--b3-theme-on-surface, #1f2329);
+        border-radius: 18px;
+      }
+    }
+
+    .assistant-actions {
+      border-top-color: transparent;
+      margin-top: 8px;
+      padding-top: 6px;
+    }
+
+    .action-btn {
+      border-color: transparent;
+      background: transparent;
+      opacity: 0.55;
+
+      &:hover {
+        opacity: 0.9;
+        background: var(--b3-theme-background-light, rgba(0, 0, 0, 0.04));
+      }
+    }
+
+    .user-attached-docs {
+      border-top-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 10%, transparent);
+    }
+
+    .user-doc-chip {
+      background: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 6%, transparent);
+      border-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 12%, transparent);
+      color: var(--b3-theme-on-surface, #1f2329);
+    }
+  }
+
+  .chat-message-item.style-prose {
+    padding: 8px 0;
+    gap: 0;
+
+    .avatar {
+      display: none;
+    }
+
+    &.assistant .bubble {
+      background: transparent;
+      padding: 7px 0;
+      color: var(--b3-theme-on-surface, #1f2329);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    &.user {
+      .content {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .bubble {
+        max-width: min(78%, 640px);
+        background: color-mix(in srgb, var(--b3-theme-primary, #3577f0) 7%, var(--b3-theme-background, #fff));
+        color: var(--b3-theme-on-surface, #1f2329);
+        border-radius: 18px;
+      }
+    }
+
+    .content {
+      max-width: min(88%, 760px);
+    }
+
+    .workbench-events-toggle,
+    .workbench-event {
+      background: color-mix(in srgb, var(--b3-theme-background, #fff) 70%, transparent);
+      border-color: color-mix(in srgb, var(--b3-border-color, rgba(0, 0, 0, 0.12)) 70%, transparent);
+    }
+
+    .reasoning-toggle,
+    .reasoning-content {
+      background: color-mix(in srgb, var(--b3-theme-background, #fff) 70%, transparent);
+      border-color: color-mix(in srgb, var(--b3-border-color, rgba(0, 0, 0, 0.12)) 70%, transparent);
+    }
+
+    .assistant-actions {
+      border-top-color: transparent;
+    }
+
+    .action-btn {
+      border-color: transparent;
+      background: transparent;
+      opacity: 0.55;
+
+      &:hover {
+        opacity: 0.9;
+        background: var(--b3-theme-background-light, rgba(0, 0, 0, 0.04));
+      }
+    }
+
+    .user-attached-docs {
+      border-top-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 10%, transparent);
+    }
+
+    .user-doc-chip {
+      background: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 6%, transparent);
+      border-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 12%, transparent);
+      color: var(--b3-theme-on-surface, #1f2329);
+    }
+  }
+
+  .chat-message-item.style-card {
+    padding: 8px 0;
+
+    .avatar {
+      opacity: 0.7;
+    }
+
+    &.assistant .bubble {
+      background: var(--b3-theme-background, #fff);
+      border: 1px solid color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 16%, var(--b3-border-color, rgba(0, 0, 0, 0.12)));
+      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.12), 0 4px 10px rgba(15, 23, 42, 0.06);
+      border-radius: 16px;
+    }
+
+    &.user {
+      .content {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .bubble {
+        max-width: min(78%, 640px);
+        background: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 5%, var(--b3-theme-background, #fff));
+        color: var(--b3-theme-on-surface, #1f2329);
+        border: 1px solid color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 12%, transparent);
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+        border-radius: 18px;
+      }
+    }
+
+    .content {
+      max-width: min(88%, 760px);
+    }
+
+    .assistant-actions {
+      border-top-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 12%, transparent);
+    }
+
+    .action-btn {
+      border-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 18%, var(--b3-border-color, rgba(0, 0, 0, 0.12)));
+      background: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 5%, var(--b3-theme-background, #fff));
+      opacity: 0.75;
+
+      &:hover {
+        opacity: 1;
+        border-color: var(--b3-theme-on-surface, #1f2329);
+      }
+    }
+
+    .user-attached-docs {
+      border-top-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 12%, transparent);
+    }
+
+    .user-doc-chip {
+      background: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 6%, transparent);
+      border-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 12%, transparent);
+      color: var(--b3-theme-on-surface, #1f2329);
+    }
   }
 
   .message-text {

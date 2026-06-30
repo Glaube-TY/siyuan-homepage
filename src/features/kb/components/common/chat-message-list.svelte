@@ -4,16 +4,39 @@
   import { kbSessionStore } from "../../stores/kb-session-store";
   import type { ChatMessage } from "../../types/chat";
   import { isTextChatMessage } from "../../types/chat";
-  import type { KbAssistantActionAlignment } from "../../types/settings";
+  import type { KbAssistantActionAlignment, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   export let messages: ChatMessage[] = [];
   export let assistantActionAlignment: KbAssistantActionAlignment = "left";
   export let workbenchDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
   export let reasoningDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
+  export let chatAppearanceStyle: KbChatAppearanceStyle = "default";
+  export let userAvatar: KbChatAvatarSettings = { kind: "default" };
+  export let assistantAvatar: KbChatAvatarSettings = { kind: "default" };
 
   export let emptyTitle: string = "开始对话";
   export let emptyDescription: string = "读取当前文档后，即可开始提问";
+
+  // 根据样式推导空态文案与图标（default 保持原有 props）
+  const STYLE_EMPTY_META: Record<
+    Exclude<KbChatAppearanceStyle, "default">,
+    { title: string; desc: string; icon: string | null }
+  > = {
+    minimal: { title: "有什么可以帮你？", desc: "随时提问，我会基于你的知识库作答。", icon: null },
+    prose: { title: "开始整理你的知识库", desc: "输入问题，探索知识之间的关联。", icon: null },
+    card: { title: "今天想聊点什么？", desc: "我可以帮你整理思路、查找资料或撰写内容。", icon: "iconSparkles" },
+  };
+
+  $: displayEmptyTitle = chatAppearanceStyle === "default"
+    ? emptyTitle
+    : STYLE_EMPTY_META[chatAppearanceStyle].title;
+  $: displayEmptyDescription = chatAppearanceStyle === "default"
+    ? emptyDescription
+    : STYLE_EMPTY_META[chatAppearanceStyle].desc;
+  $: displayEmptyIconName = chatAppearanceStyle === "default"
+    ? "iconFeedback"
+    : STYLE_EMPTY_META[chatAppearanceStyle].icon;
 
   // 快捷建议问题
   export let suggestedQuestions: string[] = [];
@@ -272,15 +295,18 @@
       cancelAnimationFrame(scrollNavRaf);
     }
   });
+
 </script>
 
-<div class="chat-message-list">
+<div class={`chat-message-list style-${chatAppearanceStyle}`}>
   <div class="chat-scroll-viewport" bind:this={scrollContainer} on:scroll={handleScroll}>
     {#if messages.length === 0}
       <div class="empty-state">
-        <div class="empty-icon"><SiyuanIcon name="iconFeedback" size={48} /></div>
-        <div class="empty-title">{emptyTitle}</div>
-        <div class="empty-desc">{emptyDescription}</div>
+        {#if displayEmptyIconName}
+          <div class="empty-icon"><SiyuanIcon name={displayEmptyIconName} size={48} /></div>
+        {/if}
+        <div class="empty-title">{displayEmptyTitle}</div>
+        <div class="empty-desc">{displayEmptyDescription}</div>
         <!-- 快捷建议问题 -->
         {#if suggestedQuestions.length > 0}
           <div class="suggested-questions">
@@ -322,6 +348,9 @@
               {assistantActionAlignment}
               {workbenchDisplayMode}
               {reasoningDisplayMode}
+              {chatAppearanceStyle}
+              {userAvatar}
+              {assistantAvatar}
               on:regenerate={() => dispatch('regenerate')}
               on:retry={() => dispatch('retry')}
               on:quoteSelection={(e) => dispatch('quoteSelection', e.detail)}
@@ -457,6 +486,127 @@
     gap: $kb-space-lg;
     padding: $kb-space-sm 10px $kb-space-sm 0;
     position: relative;
+  }
+
+  .chat-message-list.style-minimal,
+  .chat-message-list.style-prose,
+  .chat-message-list.style-card {
+    .chat-scroll-viewport {
+      padding: 18px 16px;
+    }
+
+    .messages {
+      margin: 0 auto;
+      padding: 8px 0 16px;
+      gap: 18px;
+    }
+
+    .empty-state {
+      height: auto;
+      min-height: 0;
+      justify-content: flex-start;
+      padding: 12vh 0 32px;
+    }
+
+    .empty-icon {
+      font-size: 28px;
+      margin-bottom: $kb-space-md;
+      opacity: 0.5;
+    }
+
+    .empty-title {
+      font-size: 32px;
+      font-weight: 500;
+      line-height: 1.25;
+    }
+
+    .empty-desc {
+      font-size: 15px;
+      font-weight: 400;
+      opacity: 0.75;
+    }
+
+    .suggested-questions {
+      margin-top: 40px;
+    }
+  }
+
+  .chat-message-list.style-minimal {
+    .chat-scroll-viewport {
+      background: var(--b3-theme-background, #fff);
+    }
+
+    .messages {
+      width: min(100%, 760px);
+    }
+
+    .empty-state {
+      width: min(100%, 760px);
+      margin: 0 auto;
+      align-items: center;
+      text-align: center;
+    }
+
+    .empty-title {
+      letter-spacing: -0.02em;
+    }
+  }
+
+  .chat-message-list.style-prose {
+    .chat-scroll-viewport {
+      background: var(--b3-theme-background, #fff);
+    }
+
+    .messages {
+      width: min(100%, 780px);
+    }
+
+    .empty-state {
+      width: min(100%, 720px);
+      margin: 0 auto;
+      align-items: center;
+      text-align: center;
+      padding-top: 14vh;
+    }
+
+    .empty-title {
+      font-size: 38px;
+      font-weight: 400;
+      color: var(--b3-theme-on-surface, #1f2329);
+    }
+
+    .empty-desc {
+      font-size: 16px;
+      opacity: 0.65;
+    }
+  }
+
+  .chat-message-list.style-card {
+    .chat-scroll-viewport {
+      background: var(--b3-theme-background, #fff);
+    }
+
+    .messages {
+      width: min(100%, 760px);
+    }
+
+    .empty-state {
+      width: min(100%, 600px);
+      margin: 0 auto;
+      align-items: center;
+      text-align: center;
+      padding-top: 12vh;
+    }
+
+    .empty-title {
+      font-size: 28px;
+      font-weight: 500;
+      color: var(--b3-theme-on-surface, #1f2329);
+    }
+
+    .empty-desc {
+      opacity: 0.8;
+    }
   }
 
   .compression-separator {

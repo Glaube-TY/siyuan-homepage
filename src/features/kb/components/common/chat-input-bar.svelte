@@ -4,6 +4,7 @@
   import { showMessage } from "siyuan";
   import { CHAT_MODES, type ChatMode, isChatModeAvailable } from "../../constants/chat-modes";
   import type { ChatModelOption, ChatModelSelection } from "../../types/chat-model-selection";
+  import type { KbChatAppearanceStyle } from "../../types/settings";
   import type { ThinkingMode } from "../../types/session";
   import type { ContextUsageSnapshot } from "../../types/context-usage";
   import type { AttachedKbDoc } from "../../types/chat";
@@ -34,6 +35,7 @@
   export let webAccessMode: "off" | "smart" | "required" = "off";
   export let quickPromptsEnabled: boolean = false;
   export let quickPromptsDocId: string = "";
+  export let chatAppearanceStyle: KbChatAppearanceStyle = "default";
   export let mobile: boolean = false;
 
   let inputValue = value;
@@ -44,6 +46,7 @@
   let showWebAccessMenu = false;
   let showMobileActions = false;
   let contextRingEl: HTMLDivElement | undefined;
+  $: useCompactActionMenu = mobile || chatAppearanceStyle === "minimal";
 
   // Quick prompts
   let showQuickPrompts = false;
@@ -825,10 +828,11 @@
   }
 </script>
 
-<div class="chat-input-wrapper" class:mobile={mobile}>
+<div class={`chat-input-wrapper style-${chatAppearanceStyle}`} class:mobile={mobile} class:compact-actions={useCompactActionMenu}>
   <div class="chat-input-box">
     <!-- Top tools row -->
-    <div class="input-tools-row {mobile ? 'mobile-hidden' : ''}">
+    {#if !useCompactActionMenu}
+    <div class="input-tools-row">
       <div class="mode-selector">
         <button
           type="button"
@@ -1039,6 +1043,7 @@
         </div>
       {/if}
     </div>
+    {/if}
 
     <!-- Attached docs chips row -->
     {#if attachedDocs.length > 0}
@@ -1071,7 +1076,7 @@
 
     <!-- Bottom action row -->
     <div class="input-actions-row">
-      {#if mobile}
+      {#if useCompactActionMenu}
         <div class="mobile-actions-trigger" role="presentation" on:click|stopPropagation>
           <button
             type="button"
@@ -1197,7 +1202,8 @@
         </div>
       {/if}
 
-      <div class="desktop-bottom-actions {mobile ? 'mobile-hidden' : ''}">
+      {#if !useCompactActionMenu}
+      <div class="desktop-bottom-actions">
       <button
         type="button"
         class="thinking-toggle"
@@ -1336,19 +1342,43 @@
         {/if}
       {/key}
       </div>
+      {/if}
 
-      {#if asking}
-        <Button
-          label="停止"
-          disabled={false}
-          on:click={handleStop}
-        />
+      {#if chatAppearanceStyle !== "default" && !mobile}
+        {#if asking}
+          <button
+            type="button"
+            class="send-icon-btn stop"
+            aria-label="停止"
+            on:click={handleStop}
+          >
+            ■
+          </button>
+        {:else}
+          <button
+            type="button"
+            class="send-icon-btn"
+            aria-label="发送"
+            disabled={disabled || !inputValue.trim() || !hasValidSelectedModel}
+            on:click={handleSend}
+          >
+            ↑
+          </button>
+        {/if}
       {:else}
-        <Button
-          label="发送"
-          disabled={disabled || !inputValue.trim() || !hasValidSelectedModel}
-          on:click={handleSend}
-        />
+        {#if asking}
+          <Button
+            label="停止"
+            disabled={false}
+            on:click={handleStop}
+          />
+        {:else}
+          <Button
+            label="发送"
+            disabled={disabled || !inputValue.trim() || !hasValidSelectedModel}
+            on:click={handleSend}
+          />
+        {/if}
       {/if}
     </div>
 
@@ -1436,10 +1466,6 @@
       box-shadow: 0 8px 28px rgba(15, 23, 42, 0.10);
     }
 
-    .mobile-hidden {
-      display: none;
-    }
-
     .chat-textarea {
       min-height: 40px;
       max-height: 132px;
@@ -1472,10 +1498,123 @@
     }
   }
 
-  .chat-input-wrapper :global(.b3-button) {
+  .chat-input-wrapper.style-minimal,
+  .chat-input-wrapper.style-prose,
+  .chat-input-wrapper.style-card {
+    border-top: none;
+    background: transparent;
+  }
+
+  .chat-input-wrapper.style-minimal {
+    padding: 10px 16px 16px;
+
+    .chat-input-box {
+      width: min(100%, 760px);
+      margin: 0 auto;
+      border-radius: 26px;
+      padding: 10px 12px;
+      background: var(--b3-theme-background, #fff);
+      box-shadow: 0 12px 38px rgba(15, 23, 42, 0.12);
+    }
+
+    .chat-textarea {
+      min-height: 44px;
+      font-size: 15px;
+    }
+
+    .input-actions-row {
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+  }
+
+  .chat-input-wrapper.style-prose {
+    padding: 10px 16px 14px;
+
+    .chat-input-box {
+      width: min(100%, 780px);
+      margin: 0 auto;
+      border-radius: 24px;
+      padding: 10px 12px;
+      background: var(--b3-theme-background, #fff);
+      box-shadow: 0 8px 26px rgba(15, 23, 42, 0.08);
+    }
+  }
+
+  .chat-input-wrapper.style-card {
+    padding: 12px 16px 16px;
+
+    .chat-input-box {
+      width: min(100%, 760px);
+      margin: 0 auto;
+      border-radius: 18px;
+      padding: 12px;
+      background: var(--b3-theme-background, #fff);
+      border-color: color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 16%, var(--b3-border-color, rgba(0, 0, 0, 0.12)));
+      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+  }
+
+  .chat-input-wrapper.style-minimal :global(.b3-button),
+  .chat-input-wrapper.style-prose :global(.b3-button),
+  .chat-input-wrapper.style-card :global(.b3-button) {
     min-height: 38px;
     border-radius: 999px;
     padding: 0 16px;
+  }
+
+  .send-icon-btn {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--b3-theme-primary, #3577f0);
+    color: var(--b3-theme-on-primary, #fff);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      opacity 0.15s ease,
+      transform 0.15s ease;
+
+    &:hover:not(:disabled) {
+      opacity: 0.9;
+      transform: scale(1.05);
+    }
+
+    &:active:not(:disabled) {
+      transform: scale(0.97);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    &.stop {
+      background: var(--b3-theme-error, #d23f31);
+    }
+  }
+
+  .chat-input-wrapper.style-minimal .send-icon-btn {
+    width: 38px;
+    height: 38px;
+    background: var(--b3-theme-on-surface, #1f2329);
+    color: var(--b3-theme-background, #fff);
+  }
+
+  .chat-input-wrapper.style-prose .send-icon-btn {
+    background: var(--b3-theme-primary, #3577f0);
+  }
+
+  .chat-input-wrapper.style-card .send-icon-btn {
+    background: var(--b3-theme-primary, #3577f0);
+    color: var(--b3-theme-on-primary, #fff);
   }
 
   // Top tools row

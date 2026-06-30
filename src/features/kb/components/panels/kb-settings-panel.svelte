@@ -4,6 +4,7 @@
   import { DEFAULT_KB_SETTINGS } from "../../constants/default-settings";
   import { getKbSettings, saveKbSettings } from "../../services/settings/kb-settings-service";
   import BasicSettingsTab from "./settings-tabs/basic-settings-tab.svelte";
+  import ChatStyleSettingsTab from "./settings-tabs/chat-style-settings-tab.svelte";
   import ModelSettingsTab from "./settings-tabs/model-settings-tab.svelte";
   import RetrievalSettingsTab from "./settings-tabs/retrieval-settings-tab.svelte";
   import SkillsSettingsTab from "./settings-tabs/skills-settings-tab.svelte";
@@ -21,6 +22,7 @@
   // 页签定义
   const TABS = [
     { id: "basic", label: "基础设置", icon: "iconSettings" },
+    { id: "style", label: "样式", icon: "iconTheme" },
     { id: "model", label: "大模型配置", icon: "iconSparkles" },
     { id: "retrieval", label: "检索与上下文", icon: "iconSearch" },
     { id: "skills", label: "技能", icon: "iconPlugin" },
@@ -92,6 +94,8 @@
     switch (tabId) {
       case "basic":
         return "聊天显示、工具调用次数和过程展示。";
+      case "style":
+        return "对话外观、头像和输入框风格。";
       case "model":
         return "模型供应商、API Key 和 Agent 兼容性。";
       case "retrieval":
@@ -191,6 +195,8 @@
           <div class="tab-container">
             {#if activeTab === "basic"}
               <BasicSettingsTab bind:settings />
+            {:else if activeTab === "style"}
+              <ChatStyleSettingsTab bind:settings />
             {:else if activeTab === "model"}
               <ModelSettingsTab bind:settings />
             {:else if activeTab === "retrieval"}
