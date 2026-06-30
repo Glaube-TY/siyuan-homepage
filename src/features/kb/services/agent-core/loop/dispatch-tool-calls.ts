@@ -4,7 +4,7 @@ import type { ToolConfirmationBridge } from "../permissions/confirmation-bridge"
 import { DefaultToolPermissionGate } from "../permissions/tool-permission-gate";
 import type { NativeToolRegistry } from "../tools/native-tool-registry";
 import { NativeToolExecutor } from "../tools/tool-executor";
-import { createToolExecutionFailure } from "../tools/tool-execution-result";
+import { createToolExecutionFailure, parseToolResultContentEnvelope } from "../tools/tool-execution-result";
 import type { NativeTool, ToolExecutionContext } from "../tools/native-tool";
 import type { AgentStreamEvent } from "./stream-event";
 import { StormBreaker } from "./storm-breaker";
@@ -339,18 +339,14 @@ export async function dispatchToolCalls(params: {
   // Check if any tool result is a repeated_unknown_tool → fatal
   for (const msg of toolMessages) {
     if (!msg) continue;
-    try {
-      const content = typeof msg.content === "string" ? JSON.parse(msg.content) : msg.content;
-      if ((content as any)?.code === "repeated_unknown_tool") {
-        return {
-          toolMessages,
-          stepCount: params.calls.length,
-          fatalErrorCode: "repeated_unknown_tool",
-          fatalErrorMessage: "模型重复调用了未注册工具，本轮已停止。请先使用 mcp_list_tools 查看实际可用工具名。",
-        };
-      }
-    } catch {
-      // Not JSON content, skip
+    const content = parseToolResultContentEnvelope(msg.content);
+    if (content?.code === "repeated_unknown_tool") {
+      return {
+        toolMessages,
+        stepCount: params.calls.length,
+        fatalErrorCode: "repeated_unknown_tool",
+        fatalErrorMessage: "模型重复调用了未注册工具，本轮已停止。请先使用 mcp_list_tools 查看实际可用工具名。",
+      };
     }
   }
 

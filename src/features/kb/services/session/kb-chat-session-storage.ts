@@ -10,8 +10,10 @@ import type {
 import type { AgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
 import type { AgentWorkbenchEvent } from "../agent-workbench/contracts/turn-event";
 import type { AgentMessage } from "../agent-core/messages/agent-message";
+import { compactAgentSessionMessagesForStorage } from "../agent-core/messages/message-compactor";
 import type { ThinkingMode, WebAccessMode } from "../../types/session";
 import { sanitizeMessageForStorage } from "../agent-core/session/session-store";
+import { sanitizePersistedSummaryText } from "./persisted-summary-sanitizer";
 
 export interface PersistedReferenceItem {
   index: number;
@@ -141,12 +143,15 @@ function toPersistedAgentTurnMemory(memory: AgentTurnMemory): PersistedAgentTurn
     scope: memory.scope,
     actionTraceSummary: {
       toolNames: memory.actionTraceSummary.toolNames,
-      outcomes: memory.actionTraceSummary.outcomes,
+      outcomes: memory.actionTraceSummary.outcomes?.map(sanitizePersistedActionOutcome),
       lastTouchedDocIds: memory.actionTraceSummary.lastTouchedDocIds,
       lastTouchedBlockIds: memory.actionTraceSummary.lastTouchedBlockIds,
       lastTouchedTitles: memory.actionTraceSummary.lastTouchedTitles,
       lastWriteStatus: memory.actionTraceSummary.lastWriteStatus,
-      lastWriteSummary: memory.actionTraceSummary.lastWriteSummary,
+      lastWriteSummary: sanitizePersistedSummaryText(
+        memory.actionTraceSummary.lastWriteSummary,
+        300,
+      ),
     },
     // Do NOT use Set() here — it breaks index alignment across parallel arrays.
     footerReferenceDocIds: memory.footerReferenceDocIds,
@@ -171,12 +176,15 @@ function fromPersistedAgentTurnMemory(memory: PersistedAgentTurnMemory): AgentTu
     scope: memory.scope,
     actionTraceSummary: {
       toolNames: memory.actionTraceSummary.toolNames ?? [],
-      outcomes: memory.actionTraceSummary.outcomes,
+      outcomes: memory.actionTraceSummary.outcomes?.map(sanitizePersistedActionOutcome),
       lastTouchedDocIds: memory.actionTraceSummary.lastTouchedDocIds,
       lastTouchedBlockIds: memory.actionTraceSummary.lastTouchedBlockIds,
       lastTouchedTitles: memory.actionTraceSummary.lastTouchedTitles,
       lastWriteStatus: memory.actionTraceSummary.lastWriteStatus,
-      lastWriteSummary: memory.actionTraceSummary.lastWriteSummary,
+      lastWriteSummary: sanitizePersistedSummaryText(
+        memory.actionTraceSummary.lastWriteSummary,
+        300,
+      ) ?? memory.actionTraceSummary.lastWriteSummary,
     },
     footerReferenceDocIds: memory.footerReferenceDocIds,
     footerReferenceTitles: memory.footerReferenceTitles,
@@ -198,18 +206,42 @@ function truncatePersistedText(value: unknown, maxChars: number): string | undef
   return text.length <= maxChars ? text : `${text.slice(0, Math.max(0, maxChars - 3))}...`;
 }
 
+function sanitizePersistedActionOutcome(
+  outcome: import("../agent-workbench/memory/agent-turn-memory").AgentTurnActionOutcome,
+): import("../agent-workbench/memory/agent-turn-memory").AgentTurnActionOutcome {
+  return {
+    ...outcome,
+    summary: sanitizePersistedSummaryText(outcome.summary, 120) ?? outcome.summary,
+    errorCode: sanitizePersistedSummaryText(outcome.errorCode, 80) ?? outcome.errorCode,
+    targetTitles: outcome.targetTitles?.map(
+      (title) => sanitizePersistedSummaryText(title, 120) ?? title,
+    ),
+  };
+}
+
+function sanitizeConversationStageSummary(
+  summary: import("../../types/chat").ConversationStageSummary,
+): import("../../types/chat").ConversationStageSummary {
+  const sanitizedSummary = sanitizePersistedSummaryText(summary.summary, 6000) ?? summary.summary;
+  return {
+    ...summary,
+    summary: sanitizedSummary,
+    summaryChars: sanitizedSummary.length,
+  };
+}
+
 function toPersistedArgsPreview(argsPreview: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!argsPreview) return undefined;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(argsPreview)) {
     if (value == null) continue;
     if (typeof value === "string") {
-      out[key] = truncatePersistedText(value, 240);
+      out[key] = sanitizePersistedSummaryText(value, 240);
     } else if (typeof value === "number" || typeof value === "boolean") {
       out[key] = value;
     } else if (Array.isArray(value)) {
       out[key] = value.slice(0, 8).map((item) => {
-        if (typeof item === "string") return truncatePersistedText(item, 120) ?? "";
+        if (typeof item === "string") return sanitizePersistedSummaryText(item, 120) ?? "";
         if (typeof item === "number" || typeof item === "boolean") return item;
         return "[object]";
       });
@@ -240,7 +272,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         ok: event.result.ok,
-        outputSummary: truncatePersistedText(event.result.summary, 300),
+        outputSummary: sanitizePersistedSummaryText(event.result.summary, 300),
         errorCode: truncatePersistedText(event.result.errorCode ?? event.result.code, 80),
         durationMs: event.durationMs,
         safeTargetPreview: event.result.safeTargetPreview,
@@ -250,7 +282,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
         type: "error",
         stepIndex: event.stepIndex,
         at: event.at,
-        message: truncatePersistedText(event.message, 300),
+        message: sanitizePersistedSummaryText(event.message, 300),
         errorCode: truncatePersistedText(event.code, 80),
       };
     case "assistant_final":
@@ -272,7 +304,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
         type: "notice",
         stepIndex: event.stepIndex,
         at: event.at,
-        message: truncatePersistedText(event.message, 200),
+        message: sanitizePersistedSummaryText(event.message, 200),
       };
     default:
       return null;
@@ -290,7 +322,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
         at,
         toolCallId: event.toolCallId ?? `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
         toolName: event.toolName ?? "unknown",
-        argsPreview: event.argsPreview ?? {},
+        argsPreview: toPersistedArgsPreview(event.argsPreview) ?? {},
         readOnly: event.readOnly ?? true,
         startedAt: at,
       };
@@ -304,7 +336,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
         result: {
           ok: event.ok ?? false,
           content: "",
-          summary: event.outputSummary ?? "",
+          summary: sanitizePersistedSummaryText(event.outputSummary, 300) ?? event.outputSummary ?? "",
           errorCode: event.errorCode,
           safeTargetPreview: event.safeTargetPreview,
         },
@@ -315,7 +347,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
         type: "error",
         stepIndex,
         at,
-        message: event.message,
+        message: sanitizePersistedSummaryText(event.message, 300) ?? event.message ?? "",
         code: event.errorCode ?? "agent_workbench_runtime_error",
       };
     case "assistant_final":
@@ -337,7 +369,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
         type: "notice",
         stepIndex,
         at,
-        message: event.message ?? "",
+        message: sanitizePersistedSummaryText(event.message, 200) ?? event.message ?? "",
       };
     default:
       return null;
@@ -520,15 +552,19 @@ export function toPersistedConversation(session: KbConversationSession): Persist
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     messages: session.messages.map(toPersistedMessage).filter((m): m is PersistedChatMessage => !!m),
-    stageSummaries: session.stageSummaries ?? [],
+    stageSummaries: session.stageSummaries?.map(sanitizeConversationStageSummary) ?? [],
     compressionState: session.compressionState,
-    compressedContextSummary: session.compressedContextSummary,
+    compressedContextSummary:
+      sanitizePersistedSummaryText(session.compressedContextSummary, 16000) ??
+      session.compressedContextSummary,
     thinkingMode: session.thinkingMode,
     webAccessMode: session.webAccessMode,
     agentSession: session.agentSession
       ? {
           id: session.agentSession.id,
-          messages: session.agentSession.messages.map(sanitizeMessageForStorage),
+          messages: compactAgentSessionMessagesForStorage(session.agentSession.messages).map(
+            sanitizeMessageForStorage,
+          ),
           updatedAt: session.agentSession.updatedAt,
         }
       : undefined,
@@ -545,9 +581,11 @@ export function fromPersistedConversation(
     createdAt: persisted.createdAt,
     updatedAt: persisted.updatedAt,
     messages: persisted.messages.map(fromPersistedMessage),
-    stageSummaries: persisted.stageSummaries ?? [],
+    stageSummaries: persisted.stageSummaries?.map(sanitizeConversationStageSummary) ?? [],
     compressionState: persisted.compressionState,
-    compressedContextSummary: persisted.compressedContextSummary,
+    compressedContextSummary:
+      sanitizePersistedSummaryText(persisted.compressedContextSummary, 16000) ??
+      persisted.compressedContextSummary,
     // 旧 session 文件没有这两个字段时，归一化为 "off"，保持向前兼容
     thinkingMode: normalizeThinkingMode(persisted.thinkingMode),
     webAccessMode: normalizeWebAccessMode(persisted.webAccessMode),

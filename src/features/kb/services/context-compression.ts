@@ -19,6 +19,7 @@ import type { ContextCompressionState } from "../types/context-usage";
 import type { ChatModelSelection } from "../types/chat-model-selection";
 import { pushAgentDebugEvent } from "./agent-workbench/debug/workbench-debug";
 import { getCompleteConversationTurns } from "./agent-workbench/runtime/conversation-turns";
+import { sanitizePersistedSummaryText } from "./session/persisted-summary-sanitizer";
 import { callModelText } from "./qa/kb-model-call";
 
 const COMPRESSION_VERSION = 3;
@@ -187,7 +188,8 @@ function renderCompressedSummary(params: {
   stageSummaries: readonly ConversationStageSummary[];
   latestStageIndex: number;
   maxCompressedSummaryChars: number;
-}): { summary: string; stageSummaryCount: number; droppedChars: number } {
+}):
+  { summary: string; stageSummaryCount: number; droppedChars: number } {
   const selected = getSortedStageSummaries(params.stageSummaries)
     .filter((stage) => stage.index <= params.latestStageIndex);
   const raw = selected
@@ -197,8 +199,9 @@ function renderCompressedSummary(params: {
     ].join("\n"))
     .join("\n\n");
   const { rolled, droppedChars } = rollCompressedSummary(raw, params.maxCompressedSummaryChars);
+  const summary = sanitizePersistedSummaryText(rolled, params.maxCompressedSummaryChars) ?? rolled;
   return {
-    summary: rolled,
+    summary,
     stageSummaryCount: selected.length,
     droppedChars,
   };
@@ -949,7 +952,7 @@ export async function emergencyCompressContext(
       const prevTurn = entry.startTurnIndex > 1
         ? allTurns.find((t) => t.turnIndex === entry.startTurnIndex - 1)
         : undefined;
-      const summaryText = entry.summary.trim();
+      const summaryText = sanitizePersistedSummaryText(entry.summary.trim(), 6000) ?? entry.summary.trim();
 
       allNewStageSummaries.push({
         id: `emergency-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,

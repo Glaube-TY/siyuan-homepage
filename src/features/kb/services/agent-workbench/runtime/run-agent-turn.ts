@@ -53,7 +53,9 @@ import {
 import type { AgentStreamEvent } from "../../agent-core/loop/stream-event";
 import { AgentSession } from "../../agent-core/session/agent-session";
 import type { AgentMessage } from "../../agent-core/messages/agent-message";
+import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
+import { buildSafeTurnStageSummary } from "../memory/build-safe-turn-stage-summary";
 
 function createWebSearchProvider(ws: {
   provider: string;
@@ -140,8 +142,13 @@ function toTraceEvents(events: AgentWorkbenchEvent[]) {
   }));
 }
 
-function sanitizeAgentMessages(messages: readonly AgentMessage[]): AgentMessage[] {
-  return messages.map(sanitizeMessageForStorage);
+function compactAndSanitizeAgentMessages(messages: readonly AgentMessage[]): AgentMessage[] {
+  const compacted = compactAgentSessionMessagesForStorage(messages);
+  pushAgentDebugEvent("AGENT_SESSION_STORAGE_COMPACTED", {
+    beforeMessageCount: messages.length,
+    afterMessageCount: compacted.length,
+  }, "info");
+  return compacted.map(sanitizeMessageForStorage);
 }
 
 function buildFailureOutcome(params: {
@@ -180,6 +187,8 @@ export async function runAgentTurn(
     params.onWorkbenchEvent?.(workbenchEvent);
     return workbenchEvent;
   };
+
+  let session: AgentSession | undefined;
 
   try {
     const resolvedScope = await resolveAgentScope({
@@ -503,7 +512,18 @@ export async function runAgentTurn(
       }
     }
 
-    const session = new AgentSession(conversationId, params.agentSessionMessages ?? []);
+    const initialMessages = params.agentSessionMessages ?? [];
+    const safeInitialMessages = initialMessages.length > 0
+      ? compactAndSanitizeAgentMessages(initialMessages)
+      : initialMessages;
+    if (initialMessages.length > 0) {
+      pushAgentDebugEvent("AGENT_SESSION_INITIAL_STORAGE_SAFE_COMPACTED", {
+        beforeMessageCount: initialMessages.length,
+        afterMessageCount: safeInitialMessages.length,
+      }, "info");
+    }
+
+    session = new AgentSession(conversationId, safeInitialMessages);
     let reasoningStarted = false;
     let answerFinished = false;
 
@@ -556,7 +576,7 @@ export async function runAgentTurn(
       params.onAnswerFinish?.(loopResult.answer);
     }
 
-    const sanitizedMessages = sanitizeAgentMessages(loopResult.messages);
+    const compactedAndSanitizedMessages = compactAndSanitizeAgentMessages(loopResult.messages);
 
     saveTurnTrace({
       turnId: `${Date.now()}`,
@@ -578,7 +598,7 @@ export async function runAgentTurn(
         message: loopResult.errorMessage,
         steps: loopResult.steps,
         events: localEvents,
-        agentSessionMessages: sanitizedMessages,
+        agentSessionMessages: compactedAndSanitizedMessages,
       });
     }
 
@@ -591,6 +611,30 @@ export async function runAgentTurn(
     });
     const footerReferences = toFooterReferenceItems(observationRefs);
 
+    let stageSummary: { summary: string } | undefined;
+    if (loopResult.answer.trim().length > 0) {
+      try {
+        stageSummary = buildSafeTurnStageSummary({
+          userQuestion: params.question,
+          answer: loopResult.answer,
+          footerReferences,
+          events: localEvents,
+          scopeSummary: resolvedScope.summary,
+        });
+        if (stageSummary) {
+          pushAgentDebugEvent("TURN_STAGE_SUMMARY_GENERATED_SAFE", {
+            summaryChars: stageSummary.summary.length,
+            footerReferenceCount: footerReferences.length,
+            eventCount: localEvents.length,
+          }, "info");
+        }
+      } catch (err) {
+        pushAgentDebugEvent("TURN_STAGE_SUMMARY_GENERATION_FAILED", {
+          error: err instanceof Error ? err.message.slice(0, 80) : String(err),
+        }, "warn");
+      }
+    }
+
     const result: AgentTurnResult = {
       scope,
       scopeSummary: resolvedScope.summary,
@@ -598,6 +642,7 @@ export async function runAgentTurn(
       footerReferences,
       warnings: [],
       events: localEvents,
+      stageSummary,
     };
 
     return {
@@ -605,7 +650,7 @@ export async function runAgentTurn(
       steps: loopResult.steps,
       footerReferencesCount: footerReferences.length,
       result,
-      agentSessionMessages: sanitizedMessages,
+      agentSessionMessages: compactedAndSanitizedMessages,
     };
   } catch (err) {
     const providerError = normalizeProviderError(err);
@@ -623,15 +668,19 @@ export async function runAgentTurn(
       finishedAt: Date.now(),
       status: "exception",
       steps: localEvents.length > 0
-        ? Math.max(...localEvents.map((event) => event.stepIndex ?? 0))
-        : 0,
+        ? Math.max(...localEvents.map((event) => event.stepIndex ?? 0)) : 0,
       events: toTraceEvents(localEvents),
     });
+
+    const exceptionSessionMessages = session
+      ? compactAndSanitizeAgentMessages(session.snapshot())
+      : undefined;
 
     return buildFailureOutcome({
       code,
       message,
       events: localEvents,
+      agentSessionMessages: exceptionSessionMessages,
     });
   }
 }

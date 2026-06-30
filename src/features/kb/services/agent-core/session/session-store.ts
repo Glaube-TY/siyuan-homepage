@@ -1,4 +1,5 @@
 import type { AgentMessage } from "../messages/agent-message";
+import { parseToolResultContentEnvelope } from "../tools/tool-execution-result";
 import { AgentSession } from "./agent-session";
 
 export interface AgentSessionRecord {
@@ -8,49 +9,58 @@ export interface AgentSessionRecord {
 }
 
 const SENSITIVE_FIELD_KEYS = new Set([
-  "beforeSnapshot", "afterSnapshot", "visualCompare", "confirmationId",
+  "beforeSnapshot", "afterSnapshot", "visualCompare", "confirmationId", "_confirmationId",
   "debug_trace", "api_key", "secret", "encryptedKey", "internalPath",
-  "realPath", "snapshots", "toolInput",
+  "realPath", "path", "snapshots", "toolInput", "markdown", "kramdown", "content", "blocks",
+  "textPreview", "stdoutPreview", "stderrPreview", "stdout", "stderr",
+  "result", "output", "raw", "rawContent", "responseText",
 ]);
 
+function deepSanitizeObject(obj: unknown): unknown {
+  if (Array.isArray(obj)) {
+    return obj.map(deepSanitizeObject);
+  }
+  if (typeof obj === "object" && obj !== null) {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (SENSITIVE_FIELD_KEYS.has(key)) continue;
+      result[key] = deepSanitizeObject(value);
+    }
+    return result;
+  }
+  return obj;
+}
+
 /**
- * Sanitize tool result content string by stripping sensitive fields from JSON content.
+ * Sanitize a message before persistence.
+ * - For assistant messages: strips reasoning (rebuilt each turn by the provider).
+ * - For tool messages: recursively strips sensitive fields from JSON content.
  * This is a conservative best-effort sanitization.
  */
 export function sanitizeMessageForStorage(message: AgentMessage): AgentMessage {
+  if (message.role === "assistant") {
+    if (message.reasoning) {
+      const { reasoning: _reasoning, ...rest } = message;
+      return rest as AgentMessage;
+    }
+    return message;
+  }
   if (message.role !== "tool") return message;
   if (!message.content || message.content.length <= 4) return message;
 
-  // Try to parse JSON content and strip sensitive keys
   try {
     const parsed = JSON.parse(message.content);
     if (typeof parsed !== "object" || parsed === null) return message;
-
-    // Strip sensitive fields from top level
-    for (const key of Object.keys(parsed)) {
-      if (SENSITIVE_FIELD_KEYS.has(key)) {
-        delete (parsed as Record<string, unknown>)[key];
-      }
-    }
-
-    // Truncate very large content bodies
-    if (typeof parsed.content === "string" && parsed.content.length > 2000) {
-      parsed.content = `${parsed.content.slice(0, 2000)}...[truncated]`;
-    }
-    if (typeof parsed.markdown === "string" && parsed.markdown.length > 2000) {
-      parsed.markdown = `${parsed.markdown.slice(0, 2000)}...[truncated]`;
-    }
-    if (typeof parsed.kramdown === "string" && parsed.kramdown.length > 2000) {
-      parsed.kramdown = `${parsed.kramdown.slice(0, 2000)}...[truncated]`;
-    }
-
-    return { ...message, content: JSON.stringify(parsed) };
+    const sanitized = deepSanitizeObject(parsed);
+    return { ...message, content: JSON.stringify(sanitized) };
   } catch {
-    // Not JSON, just truncate long content
-    if (message.content.length > 4000) {
-      return { ...message, content: `${message.content.slice(0, 4000)}...[truncated]` };
+    // Not direct JSON: try [TOOL_FAILED] envelope, otherwise replace with safe note
+    const envelope = parseToolResultContentEnvelope(message.content);
+    if (envelope) {
+      const sanitized = deepSanitizeObject(envelope);
+      return { ...message, content: JSON.stringify(sanitized) };
     }
-    return message;
+    return { ...message, content: JSON.stringify({ ok: false, note: "Tool result compacted for storage." }) };
   }
 }
 

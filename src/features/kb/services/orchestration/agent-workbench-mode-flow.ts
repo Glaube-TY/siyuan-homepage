@@ -43,6 +43,7 @@ import { buildConversationContext } from "../agent-workbench/runtime/conversatio
 import type { BuildConversationContextParams } from "../agent-workbench/runtime/conversation-context-builder";
 import { findCompleteConversationTurn, getCompleteConversationTurns } from "../agent-workbench/runtime/conversation-turns";
 import { mapAgentErrorToUserFacing } from "../agent-workbench/runtime/user-facing-agent-error";
+import { sanitizePersistedSummaryText } from "../session/persisted-summary-sanitizer";
 import { showMessage } from "siyuan";
 import type { KbSessionState } from "../../types/session";
 import type { ContextUsageSnapshot } from "../../types/context-usage";
@@ -379,7 +380,10 @@ function appendAgentStageSummary(params: {
   userMessageId?: string;
   assistantMessageId: string;
 }): ConversationStageSummary[] | undefined {
-  const summary = params.result.stageSummary?.summary?.trim();
+  const rawSummary = params.result.stageSummary?.summary?.trim();
+  if (!rawSummary) return undefined;
+
+  const summary = sanitizePersistedSummaryText(rawSummary, 1200) ?? rawSummary;
   if (!summary) return undefined;
 
   const endTurn = findCompleteConversationTurn(params.messages, {
