@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
   import type { ChatMessage, ReferenceItem } from "../../types/chat";
   import type { AgentWorkbenchEvent } from "../../services/agent-workbench";
   import type { KbAssistantActionAlignment } from "../../types/settings";
@@ -536,6 +536,8 @@
 
   // 选中文本追问
   let selectedText = "";
+  let selectedTextCopied = false;
+  let selectedCopyTimeout: ReturnType<typeof setTimeout> | null = null;
   let showQuotePopover = false;
   let quotePopoverPos = { x: 0, y: 0 };
   let assistantContentEl: HTMLDivElement;
@@ -559,6 +561,7 @@
       return;
     }
     selectedText = text;
+    selectedTextCopied = false;
     const rect = range.getBoundingClientRect();
     quotePopoverPos = {
       x: rect.left + rect.width / 2,
@@ -575,6 +578,25 @@
     window.getSelection()?.removeAllRanges();
   }
 
+  async function handleSelectedTextCopy() {
+    const text = selectedText;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      selectedTextCopied = true;
+      if (selectedCopyTimeout) {
+        clearTimeout(selectedCopyTimeout);
+      }
+      selectedCopyTimeout = setTimeout(() => {
+        selectedTextCopied = false;
+        showQuotePopover = false;
+        window.getSelection()?.removeAllRanges();
+      }, 900);
+    } catch (err) {
+      console.error("[ChatMessageItem] Copy selected text failed:", err);
+    }
+  }
+
   function hideQuotePopover(e: MouseEvent) {
     if (quotePopoverEl?.contains(e.target as Node)) return;
     showQuotePopover = false;
@@ -584,6 +606,15 @@
   function handleEditUserMessage() {
     dispatch("editUserMessage", { text: message.content });
   }
+
+  onDestroy(() => {
+    if (copyTimeout) {
+      clearTimeout(copyTimeout);
+    }
+    if (selectedCopyTimeout) {
+      clearTimeout(selectedCopyTimeout);
+    }
+  });
 </script>
 
 <svelte:window on:mousedown={hideQuotePopover} on:mouseup={handleMouseUpInAssistant} />
@@ -791,6 +822,15 @@
             >
               <SiyuanIcon name="iconQuote" size={13} />
               <span>追问</span>
+            </button>
+            <button
+              type="button"
+              class="quote-popover-btn"
+              on:mousedown|stopPropagation|preventDefault
+              on:click|stopPropagation={handleSelectedTextCopy}
+            >
+              <SiyuanIcon name={selectedTextCopied ? "iconCheck" : "iconCopy"} size={13} />
+              <span>{selectedTextCopied ? "已复制" : "复制"}</span>
             </button>
           </div>
         {/if}
@@ -1183,6 +1223,14 @@
     position: fixed;
     z-index: 100;
     transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    background: var(--b3-theme-background);
+    border: 1px solid var(--b3-border-color);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   }
 
   .quote-popover-btn {
@@ -1190,20 +1238,18 @@
     align-items: center;
     gap: 6px;
     padding: 6px 10px;
-    background: var(--b3-theme-background);
-    border: 1px solid var(--b3-border-color);
-    border-radius: 8px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
     font-size: 12px;
     color: var(--b3-theme-on-surface);
     cursor: pointer;
     user-select: none;
     -webkit-user-select: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: all 0.15s ease;
 
     &:hover {
       background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
-      border-color: var(--b3-theme-primary);
       color: var(--b3-theme-primary);
     }
 
