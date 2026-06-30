@@ -244,6 +244,13 @@ function createNativeUpdateBlockTool(deps: { conversationId: string }): NativeTo
         displayMode: "block_diff" as const,
         confirmationId: confirmation.id,
         editDiffPreview: diffPreview,
+        title: "更新内容块",
+        summary: `更新内容块 ${blockId}，新内容 ${markdown.length} 字符。`,
+        risk: risk.riskLevel,
+        operationLabel: "更新内容块",
+        targetSummary: `内容块 ${blockId}`,
+        impactSummary: `将替换该块 Markdown 内容，新内容 ${markdown.length} 字符。`,
+        missingPreviewReason: windowContent ? undefined : "无法读取足够上下文，仅能按目标块生成预览。",
       };
     },
 
@@ -351,6 +358,13 @@ function createNativeInsertBlockTool(deps: { conversationId: string }): NativeTo
         displayMode: "block_diff" as const,
         confirmationId: confirmation.id,
         editDiffPreview: diffPreview,
+        title: "插入内容块",
+        summary: `在 ${referenceBlockId} 的 ${position} 位置插入 ${markdown.length} 字符。`,
+        risk: risk.riskLevel,
+        operationLabel: "插入内容块",
+        targetSummary: `参考块 ${referenceBlockId} / 位置 ${position}`,
+        impactSummary: `将插入一个新内容块，内容 ${markdown.length} 字符。`,
+        missingPreviewReason: refFound ? undefined : "未在上下文窗口中找到参考块，仅显示新增内容预览。",
       };
     },
 
@@ -432,6 +446,15 @@ function createNativeDeleteBlocksTool(deps: { conversationId: string }): NativeT
         displayMode: "block_diff" as const,
         confirmationId: confirmation.id,
         editDiffPreview: diffPreview,
+        title: "删除内容块",
+        summary: `删除 ${blockIds.length} 个内容块。`,
+        risk: risk.riskLevel,
+        operationLabel: "删除内容块",
+        targetSummary: `内容块 ${blockIds.slice(0, 5).join("、")}${blockIds.length > 5 ? `、...还有 ${blockIds.length - 5} 个` : ""}`,
+        impactSummary: `将删除 ${blockIds.length} 个内容块。`,
+        riskReason: "删除块会改变文档结构，系统不会自动回滚。",
+        warnings: ["请确认块 ID 来自读取结果；删除后块顺序和结构可能变化。"],
+        missingPreviewReason: window.oldContent ? undefined : "无法读取删除块的上下文，预览可能不完整。",
       };
     },
 
@@ -521,9 +544,18 @@ function createNativeReplaceDocContentTool(deps: { conversationId: string }): Na
         };
 
         return {
-          displayMode: "summary" as const,
+          displayMode: "block_diff" as const,
           confirmationId: confirmation.id,
           editDiffPreview: longPreview,
+          title: "替换文档正文",
+          summary: `替换文档正文 · 长文档 (${oldContent.length}→${markdown.length} 字符) · 高风险`,
+          risk: "high",
+          operationLabel: "替换文档正文",
+          targetSummary: `${block.content || docId}`,
+          impactSummary: `将完全覆盖当前文档正文，新内容 ${markdown.length} 字符。`,
+          riskReason: "完整替换文档正文风险高，系统不会自动回滚。",
+          warnings: ["文档内容较长，已省略逐块 diff；请确认目标文档和字符数。"],
+          missingPreviewReason: "长文档未展示完整正文，仅显示字符数和高风险提示。",
         };
       }
 
@@ -554,6 +586,14 @@ function createNativeReplaceDocContentTool(deps: { conversationId: string }): Na
         displayMode: "block_diff" as const,
         confirmationId: confirmation.id,
         editDiffPreview: diffPreview,
+        title: "替换文档正文",
+        summary: `替换文档正文 ${docId}，${oldContent.length}→${markdown.length} 字符。`,
+        risk: risk.riskLevel,
+        operationLabel: "替换文档正文",
+        targetSummary: `${block.content || docId}`,
+        impactSummary: `将完全覆盖当前文档正文，新内容 ${markdown.length} 字符。`,
+        riskReason: "完整替换文档正文风险高，系统不会自动回滚。",
+        warnings: ["请确认目标文档正确；执行后以当前思源内容为准。"],
       };
     },
 
@@ -650,6 +690,14 @@ function createNativeMoveBlockTool(deps: { conversationId: string }): NativeTool
         displayMode: "arrow_flow" as const,
         confirmationId: confirmation.id,
         arrowFlow: arrow,
+        title: "移动内容块",
+        summary: `移动内容块 ${blockId} 到 ${previousID ? `previousID=${previousID}` : parentID ? `parentID=${parentID}` : "新位置"}。`,
+        risk: risk.riskLevel,
+        operationLabel: "移动内容块",
+        targetSummary: `blockId=${blockId}`,
+        impactSummary: `移动到 ${previousID ? `previousID=${previousID}` : parentID ? `parentID=${parentID}` : "新位置"}；移动后块结构可能变化。`,
+        riskReason: "块移动会改变文档结构，移动后 ID/顺序/父子结构可能变化。",
+        warnings: ["请确认 previousID/parentID 来自读取结果。"],
       };
     },
 
@@ -724,6 +772,12 @@ function createNativeCreateDocTool(deps: { conversationId: string }): NativeTool
         displayMode: "arrow_flow" as const,
         confirmationId: confirmation.id,
         arrowFlow: arrow,
+        title: "新建文档",
+        summary: `在 notebook ${notebookId} 新建 ${path}，初始内容 ${markdown.length} 字符。`,
+        risk: risk.riskLevel,
+        operationLabel: "新建文档",
+        targetSummary: `notebookId=${notebookId} / path=${path}`,
+        impactSummary: `将创建新文档，初始内容 ${markdown.length} 字符。`,
       };
     },
 
@@ -800,6 +854,13 @@ function createNativeRenameDocTool(deps: { conversationId: string }): NativeTool
         displayMode: "arrow_flow" as const,
         confirmationId: confirmation.id,
         arrowFlow: arrow,
+        title: "重命名文档",
+        summary: `重命名文档：${previousTitle} → ${title}`,
+        risk: risk.riskLevel,
+        operationLabel: "重命名文档",
+        targetSummary: `docId=${docId}`,
+        impactSummary: `${previousTitle} → ${title}`,
+        missingPreviewReason: block ? undefined : "未读取到文档标题，旧标题可能不完整。",
       };
     },
 
@@ -875,6 +936,15 @@ function createNativeDeleteDocTool(deps: { conversationId: string }): NativeTool
         displayMode: "arrow_flow" as const,
         confirmationId: confirmation.id,
         arrowFlow: arrow,
+        title: "删除文档",
+        summary: `删除文档：${title} (${docId})`,
+        risk: risk.riskLevel,
+        operationLabel: "删除文档",
+        targetSummary: `${title} / docId=${docId}`,
+        impactSummary: "文档将被永久删除。",
+        riskReason: "永久删除文档风险高，系统不会自动回滚。",
+        warnings: ["请确认文档 ID 来自读取结果；删除后以思源当前状态为准。"],
+        missingPreviewReason: block ? undefined : "未读取到文档标题，仅能显示文档 ID。",
       };
     },
 

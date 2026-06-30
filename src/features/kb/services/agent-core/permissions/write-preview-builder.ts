@@ -35,17 +35,151 @@ const SAFE_ARG_KEYS = new Set([
   "deadline",
 ]);
 
-function compactValue(value: unknown): unknown {
+const SENSITIVE_QUERY_KEYS = /(^|[_-])(token|key|api[_-]?key|secret|password|authorization|bearer|cookie|credential|private[_-]?key)([_-]|$)/i;
+const ABSOLUTE_PATH_PATTERN = /([A-Za-z]:\\(?:[^\\\s]+\\)*[^\\\s]*|\/(?:home|mnt\/data|data|workspace|Users|var|tmp|opt|root)(?:\/[^\s"'`<>]*)?)/g;
+const URL_PATTERN = /\bhttps?:\/\/[^\s"'`<>]+/gi;
+
+function truncateText(value: unknown, max: number): string {
+  const text = String(value ?? "");
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 3))}...` : text;
+}
+
+function redactSensitiveText(value: string): string {
+  const protectedUrls: string[] = [];
+  let text = value
+    .replace(URL_PATTERN, (match) => {
+      const index = protectedUrls.push(redactUrlQuery(match)) - 1;
+      return `__NB_PREVIEW_URL_${index}__`;
+    })
+    .replace(/Authorization\s*:\s*Bearer\s+[^\s,;"']+/gi, "Authorization: Bearer [REDACTED]")
+    .replace(/\b(token|api_key|apikey|password|secret)=([^&\s]+)/gi, "$1=[REDACTED]")
+    .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]+=*/gi, "$1 [REDACTED]");
+
+  text = text.replace(ABSOLUTE_PATH_PATTERN, "[path]");
+  text = text.replace(/__NB_PREVIEW_URL_(\d+)__/g, (_, rawIndex: string) => protectedUrls[Number(rawIndex)] ?? "");
+
+  return text;
+}
+
+function redactUrlQuery(value: string): string {
+  try {
+    const url = new URL(value);
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (SENSITIVE_QUERY_KEYS.test(key)) url.searchParams.set(key, "[REDACTED]");
+    }
+    return url.toString().replace(/%5BREDACTED%5D/gi, "[REDACTED]");
+  } catch {
+    return value.replace(/([?&][^=\s&]*(?:token|key|password|secret|authorization|cookie)[^=\s&]*=)[^&\s]+/gi, "$1[REDACTED]");
+  }
+}
+
+function sanitizePreviewText(value: unknown, max: number): string {
+  return truncateText(redactSensitiveText(String(value ?? "")), max);
+}
+
+function redactSensitiveObject(
+  value: unknown,
+  options: { depth?: number; maxDepth?: number; maxArray?: number; maxString?: number } = {},
+): unknown {
+  const depth = options.depth ?? 0;
+  const maxDepth = options.maxDepth ?? 2;
+  const maxArray = options.maxArray ?? 5;
+  const maxString = options.maxString ?? 120;
+
+  if (depth > maxDepth) return "[已省略]";
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return sanitizePreviewText(value, maxString);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    const out = value.slice(0, maxArray).map((item) => redactSensitiveObject(item, { ...options, depth: depth + 1 }));
+    if (value.length > maxArray) out.push(`...还有 ${value.length - maxArray} 项`);
+    return out;
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_QUERY_KEYS.test(key) || SENSITIVE_HEADER_KEYS.has(key.toLowerCase())) {
+        out[key] = "[REDACTED]";
+      } else {
+        out[key] = redactSensitiveObject(child, { ...options, depth: depth + 1 });
+      }
+    }
+    return out;
+  }
+  return "[unknown]";
+}
+
+function compactPreviewValue(value: unknown): unknown {
   if (typeof value === "string") {
-    return value.length > 120 ? `${value.slice(0, 117)}...` : value;
+    return sanitizePreviewText(value, 120);
   }
   if (Array.isArray(value)) {
-    return value.slice(0, 10).map(compactValue);
+    return value.slice(0, 5).map(compactPreviewValue);
   }
   if (typeof value === "number" || typeof value === "boolean" || value == null) {
     return value;
   }
-  return "[object]";
+  return redactSensitiveObject(value);
+}
+
+function compactValue(value: unknown): unknown {
+  return compactPreviewValue(value);
+}
+
+function countArray(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function formatIdList(value: unknown, max = 5): string {
+  if (!Array.isArray(value)) return "";
+  const ids = value.map((item) => typeof item === "string" ? item : "").filter(Boolean);
+  const head = ids.slice(0, max).map((id) => sanitizePreviewText(id, 80)).join("、");
+  return ids.length > max ? `${head}、...还有 ${ids.length - max} 项` : head;
+}
+
+function formatTitleList(value: unknown, max = 5): string {
+  if (!Array.isArray(value)) return "";
+  const titles = value.map((item) => typeof item === "string" ? item : "").filter(Boolean);
+  const head = titles.slice(0, max).map((title) => sanitizePreviewText(title, 80)).join("、");
+  return titles.length > max ? `${head}、...还有 ${titles.length - max} 项` : head;
+}
+
+function makePreview(params: {
+  tool: NativeTool;
+  title?: string;
+  readOnly?: boolean;
+  risk?: ToolPermissionPreview["risk"];
+  argsPreview?: Record<string, unknown>;
+  operationLabel?: string;
+  targetSummary?: string;
+  impactSummary?: string;
+  riskReason?: string;
+  warnings?: string[];
+  missingPreviewReason?: string;
+  sections?: Array<{ label: string; value: string }>;
+  summary?: string;
+}): ToolPermissionPreview {
+  const summary = params.summary ?? [
+    params.operationLabel ? `操作：${params.operationLabel}` : "",
+    params.targetSummary ? `目标：${params.targetSummary}` : "",
+    params.impactSummary ? `影响：${params.impactSummary}` : "",
+  ].filter(Boolean).join("\n");
+
+  return {
+    toolName: params.tool.name,
+    title: params.title ?? params.tool.title,
+    readOnly: params.readOnly ?? false,
+    risk: params.risk ?? "medium",
+    argsPreview: params.argsPreview ?? {},
+    summary: summary || undefined,
+    operationLabel: params.operationLabel,
+    targetSummary: params.targetSummary,
+    impactSummary: params.impactSummary,
+    riskReason: params.riskReason,
+    warnings: params.warnings,
+    missingPreviewReason: params.missingPreviewReason,
+    sections: params.sections,
+  };
 }
 
 function buildEditGlobalMemoryPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -60,18 +194,20 @@ function buildEditGlobalMemoryPreview(tool: NativeTool, args: Record<string, unk
   } else {
     previewParts.push(`将全量替换全局记忆`);
     previewParts.push(`新记忆：${memoryChars} 字符，${memoryLineCount} 条`);
-    const preview = normalized.length > 400 ? `${normalized.slice(0, 397)}...` : normalized;
+    const preview = sanitizePreviewText(normalized, 400);
     previewParts.push(`预览：${preview}`);
   }
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  return makePreview({
+    tool,
     risk: "high",
     argsPreview: { memory: memoryChars > 0 ? `(${memoryChars} 字符)` : "(清空)" },
+    operationLabel: normalized ? "全量替换全局记忆" : "清空全局记忆",
+    targetSummary: "Notebrain 全局记忆",
+    impactSummary: normalized ? `${memoryChars} 字符，约 ${memoryLineCount} 条` : "全局记忆会被清空",
+    riskReason: "会覆盖全局记忆内容，后续回答可能受影响。",
     summary: previewParts.join("\n"),
-  };
+  });
 }
 
 function buildUpdateAttributeViewCellPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -105,9 +241,10 @@ function buildUpdateAttributeViewCellPreview(tool: NativeTool, args: Record<stri
       if (item && typeof item === "object") {
         const itemRowId = typeof item.rowId === "string" ? item.rowId : "";
         const itemKeyId = typeof item.keyId === "string" ? item.keyId : "";
+        const itemFieldName = typeof item.expectedFieldName === "string" ? item.expectedFieldName : "";
         const itemValueText = typeof item.valueText === "string" ? item.valueText : "";
-        const displayValue = itemValueText.length > 50 ? `${itemValueText.slice(0, 47)}...` : itemValueText;
-        parts.push(`[${i + 1}] rowId=${itemRowId}, keyId=${itemKeyId}, value=${displayValue}`);
+        const displayValue = sanitizePreviewText(itemValueText, 80);
+        parts.push(`[${i + 1}] rowId=${itemRowId}, keyId=${itemKeyId}${itemFieldName ? `, fieldName=${itemFieldName}` : ""}, value=${displayValue}`);
       }
     }
 
@@ -129,19 +266,29 @@ function buildUpdateAttributeViewCellPreview(tool: NativeTool, args: Record<stri
       argsPreview.valueTypeHint = valueTypeHint;
       parts.push(`值类型：${valueTypeHint}`);
     }
-    const displayValue = valueText.length > 200 ? `${valueText.slice(0, 197)}...` : valueText;
+    const displayValue = sanitizePreviewText(valueText, 160);
     argsPreview.valueText = displayValue;
     parts.push(`新值：${displayValue}`);
   }
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  const missing: string[] = [];
+  if (!expectedFieldName && updates.length === 0) missing.push("字段名");
+  if (!Array.isArray(args.expectedTitles) && !args.expectedTitle) missing.push("条目标题");
+
+  return makePreview({
+    tool,
     risk: "medium",
     argsPreview,
+    operationLabel: updates.length > 0 ? "批量更新数据库单元格" : "更新数据库单元格",
+    targetSummary: expectedFieldName ? `数据库 ${databaseId} / 字段 ${expectedFieldName}` : `数据库 ${databaseId}`,
+    impactSummary: updates.length > 0 ? `更新 ${updates.length} 个单元格，预览前 ${Math.min(5, updates.length)} 条` : `更新条目 ${rowId || "未提供"} 的字段 ${expectedFieldName || keyId || "未提供"}`,
+    missingPreviewReason: missing.length > 0 ? `未提供${missing.join("/")}，请确认 ID 来自读取结果。` : undefined,
+    sections: [
+      { label: "数据库 ID", value: databaseId || "未提供" },
+      { label: updates.length > 0 ? "更新预览" : "单元格", value: parts.join("\n") },
+    ],
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildAddAttributeViewKeyPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -165,14 +312,15 @@ function buildAddAttributeViewKeyPreview(tool: NativeTool, args: Record<string, 
     parts.push(`插入位置：${previousKeyId} 之后`);
   }
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  return makePreview({
+    tool,
     risk: "medium",
     argsPreview,
+    operationLabel: "新增数据库字段",
+    targetSummary: `数据库 ${databaseId}`,
+    impactSummary: `新增字段 ${keyName || "未提供"}（${keyType}）`,
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildAddAttributeViewRowsPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -181,6 +329,8 @@ function buildAddAttributeViewRowsPreview(tool: NativeTool, args: Record<string,
   const blockIds = Array.isArray(args.blockIds) ? args.blockIds : [];
   const detachedRows = Array.isArray(args.detachedRows) ? args.detachedRows : [];
   const defaultValues = args.defaultValues && typeof args.defaultValues === "object" ? args.defaultValues as Record<string, unknown> : {};
+  const blockIdCount = countArray(args.blockIds);
+  const detachedRowCount = countArray(args.detachedRows);
   const viewID = typeof args.viewID === "string" ? args.viewID : "";
   const groupID = typeof args.groupID === "string" ? args.groupID : "";
   const previousID = typeof args.previousID === "string" ? args.previousID : "";
@@ -246,14 +396,20 @@ function buildAddAttributeViewRowsPreview(tool: NativeTool, args: Record<string,
     parts.push(`默认值字段：${fieldNames.join("、")}`);
   }
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  return makePreview({
+    tool,
     risk: "medium",
     argsPreview,
+    operationLabel: "新增数据库条目",
+    targetSummary: `数据库 ${databaseId}`,
+    impactSummary: `新增 ${blockIdCount + detachedRowCount} 个条目；绑定块 ${blockIdCount} 个，脱离块条目 ${detachedRowCount} 个`,
+    sections: [
+      { label: "条目数量", value: `绑定块 ${blockIds.length} 个，脱离块条目 ${detachedRows.length} 个` },
+      { label: "标题预览", value: detachedRows.length > 0 ? formatTitleList(detachedRows.map((row: any) => row?.title), 5) || "未提供" : "未提供" },
+      { label: "字段名预览", value: Object.keys(defaultValues).length > 0 ? Object.keys(defaultValues).slice(0, 10).join("、") : "未提供" },
+    ],
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildRemoveAttributeViewKeyPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -278,14 +434,17 @@ function buildRemoveAttributeViewKeyPreview(tool: NativeTool, args: Record<strin
   parts.push(`删除关联目标：${removeRelationDest ? "是" : "否"}`);
   parts.push("警告：删除字段会移除该字段及其所有值。");
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  return makePreview({
+    tool,
     risk: "high",
     argsPreview,
+    operationLabel: "删除数据库字段",
+    targetSummary: expectedKeyName ? `数据库 ${databaseId} / 字段 ${expectedKeyName}` : `数据库 ${databaseId} / 字段 ${keyId}`,
+    impactSummary: "会移除该字段及其所有值。",
+    riskReason: "删除数据库字段不可由 Agent 自动回滚。",
+    warnings: ["删除字段会移除该字段及其所有值。", `是否同时处理关联目标：${removeRelationDest ? "是" : "否"}`],
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildRemoveAttributeViewRowsPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -321,14 +480,22 @@ function buildRemoveAttributeViewRowsPreview(tool: NativeTool, args: Record<stri
 
   parts.push("警告：删除条目会移除该条目及其所有字段值。");
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  return makePreview({
+    tool,
     risk: "high",
     argsPreview,
+    operationLabel: "删除数据库条目",
+    targetSummary: `数据库 ${databaseId}`,
+    impactSummary: `删除 ${rowIds.length} 条条目及其字段值`,
+    riskReason: "删除数据库条目不可由 Agent 自动回滚。",
+    warnings: ["删除条目会移除该条目及其所有字段值。"],
+    missingPreviewReason: expectedTitles.length === 0 && rowIds.length > 0 ? "只提供了 rowId，未提供条目标题，请确认 ID 来自读取结果。" : undefined,
+    sections: [
+      { label: "条目 ID", value: formatIdList(rowIds, 5) || "未提供" },
+      { label: "标题预览", value: formatTitleList(expectedTitles, 5) || "未提供" },
+    ],
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildClearAttributeViewCellPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -354,14 +521,16 @@ function buildClearAttributeViewCellPreview(tool: NativeTool, args: Record<strin
   parts.push("清空会写入该字段类型的空值/默认空值。");
   parts.push("警告：清空后该单元格值将被重置。");
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  return makePreview({
+    tool,
     risk: "medium",
     argsPreview,
+    operationLabel: "清空数据库单元格",
+    targetSummary: expectedFieldName ? `数据库 ${databaseId} / 条目 ${rowId} / 字段 ${expectedFieldName}` : `数据库 ${databaseId} / 条目 ${rowId} / 字段 ${keyId}`,
+    impactSummary: "会写入该字段类型的空值/默认空值，不是删除字段。",
+    riskReason: "清空后该单元格值会被重置。",
     summary: parts.join("\n"),
-  };
+  });
 }
 
 const TASK_DIARY_WRITE_TOOLS = new Set([
@@ -384,8 +553,8 @@ function buildRunNotebrainCommandPreview(tool: NativeTool, args: Record<string, 
 
   const parts = [
     "不是系统级沙箱，仅限制 cwd 为 notebrain/projects/default；命令本身仍可能读取系统信息、环境变量或访问绝对路径。",
-    `命令：${command}`,
-    `cwd：${cwd}`,
+    `命令：${sanitizePreviewText(command, 240)}`,
+    `cwd：${sanitizePreviewText(cwd, 160)}`,
     strictMode ? "严格模式：开启" : "严格模式：关闭",
   ];
 
@@ -408,85 +577,127 @@ function buildRunNotebrainCommandPreview(tool: NativeTool, args: Record<string, 
   if (maxOutputChars) parts.push(`输出预览上限：${maxOutputChars} 字符`);
   parts.push("命令不支持交互式 TTY 或后台常驻进程，执行日志会写入 notebrain/logs/commands。");
 
-  return {
-    toolName: tool.name,
+  return makePreview({
+    tool,
     title: `执行本地命令${riskLevel === "high" ? " ⚠ 高风险" : ""}`,
-    readOnly: false,
     risk: "high",
-    argsPreview: { command, cwd, timeoutMs, maxOutputChars, riskLevel, riskReasons, riskCategories, strictMode, hardDeny },
+    argsPreview: { command: sanitizePreviewText(command, 240), cwd: sanitizePreviewText(cwd, 160), timeoutMs, maxOutputChars, riskLevel, riskReasons, riskCategories, strictMode, hardDeny },
+    operationLabel: "执行 Notebrain 本地命令",
+    targetSummary: `cwd=${sanitizePreviewText(cwd, 120)}`,
+    impactSummary: "将在 notebrain/projects/default 限制工作区内执行非交互式命令。",
+    riskReason: riskReasons.length > 0 ? riskReasons.join("；") : "本地命令不是系统级沙箱，仅有 cwd 限制。",
+    warnings: [
+      "这不是系统级沙箱，只限制 cwd。",
+      ...riskReasons,
+      ...(hardDeny ? ["严格模式已拒绝，不进入确认执行。"] : []),
+    ],
+    sections: [
+      { label: "命令", value: sanitizePreviewText(command, 500) },
+      { label: "cwd", value: sanitizePreviewText(cwd, 200) },
+      { label: "执行限制", value: `${strictMode ? "严格模式：开启" : "严格模式：关闭"}\n不是系统级沙箱，仅限制 cwd。` },
+      { label: "运行参数", value: [`timeout=${timeoutMs ?? "默认"}`, `maxOutputChars=${maxOutputChars ?? "默认"}`].join("\n") },
+      { label: "风险类别", value: riskCategories.length > 0 ? riskCategories.join("、") : "未标记" },
+    ],
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildSkillInstallPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
-  const source = typeof args.source === "string" ? args.source : "";
+  const source = typeof args.source === "string" ? sanitizePreviewText(args.source, 220) : "";
   const targetSkillId = typeof args.targetSkillId === "string" ? args.targetSkillId : "(自动生成)";
-  return {
-    toolName: tool.name,
+  return makePreview({
+    tool,
     title: "安装外部 Skill",
-    readOnly: false,
     risk: "medium",
     argsPreview: { source, targetSkillId },
+    operationLabel: "安装外部 Skill",
+    targetSummary: `notebrain/skills/installed/${targetSkillId}`,
+    impactSummary: "会下载/解压 Skill 包、写入 Notebrain 工作区并更新 skills/index.json。",
+    riskReason: "外部 Skill 会改变可用能力，请确认来源可信。",
     summary: [
       `来源：${source}`,
       `目标：notebrain/skills/installed/${targetSkillId}`,
       "将下载/解压 Skill 包、写入 notebrain 工作区并更新 skills/index.json。",
       "如 Skill 需要 API Key 或环境变量，安装后只提示用户配置，不会自动搜索隐私信息。",
     ].join("\n"),
-  };
+  });
 }
 
 function buildSkillMaintenancePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
   const id = typeof args.id === "string" ? args.id : "";
   const isReindex = tool.name === "skill_reindex";
-  return {
-    toolName: tool.name,
+  return makePreview({
+    tool,
     title: isReindex ? "重建外部 Skill 索引" : "停用外部 Skill",
-    readOnly: false,
     risk: "medium",
     argsPreview: isReindex ? {} : { id },
+    operationLabel: isReindex ? "重建外部 Skill 索引" : "停用外部 Skill",
+    targetSummary: isReindex ? "notebrain/skills/index.json" : `Skill ${id || "未提供"}`,
+    impactSummary: isReindex
+      ? "会扫描 installed 下的 SKILL.md，并重写 skills/index.json。"
+      : "会把该 Skill 标记为 disabled，不会永久删除文件。",
     summary: isReindex
       ? "将扫描 notebrain/skills/installed 下的 SKILL.md，并重写 notebrain/skills/index.json。"
       : `将把 Skill ${id} 标记为 disabled，不会永久删除文件。`,
-  };
+  });
 }
 
 function buildNotebrainFileWritePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
-  const path = typeof args.path === "string" ? args.path : "";
+  const path = typeof args.path === "string" ? sanitizePreviewText(args.path, 180) : "";
   const content = typeof args.content === "string" ? args.content : "";
   const isDelete = tool.name === "delete_notebrain_path";
-  return {
-    toolName: tool.name,
+  const overwrite = args.overwrite === true || args.createOnly === false;
+  return makePreview({
+    tool,
     title: isDelete ? "删除 Notebrain 路径" : "写入 Notebrain 文件",
-    readOnly: false,
     risk: isDelete ? "high" : "medium",
     argsPreview: isDelete ? { path } : { path, chars: content.length },
+    operationLabel: isDelete ? "删除 Notebrain 工作区路径" : "写入 Notebrain 工作区文件",
+    targetSummary: `notebrain 工作区路径：${path || "未提供"}`,
+    impactSummary: isDelete ? "会删除该工作区路径。" : `写入 ${content.length} 字符${overwrite ? "，可能覆盖现有文件" : ""}`,
+    riskReason: isDelete ? "删除文件或目录不可由 Agent 自动回滚。" : undefined,
+    warnings: isDelete ? ["删除 Notebrain 工作区路径为高风险操作。"] : undefined,
+    sections: [
+      { label: "工作区路径", value: path || "未提供" },
+      { label: "内容字符数", value: isDelete ? "不适用" : String(content.length) },
+      { label: "覆盖", value: isDelete ? "不适用" : (overwrite ? "可能覆盖" : "按工具参数决定") },
+    ],
     summary: isDelete
       ? `将删除 notebrain 工作区内路径：${path}`
       : `将写入 notebrain 工作区内文件：${path}\n内容长度：${content.length} 字符`,
-  };
+  });
 }
 
 function buildMcpToolPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
   const meta = (tool as NativeTool & { meta?: Record<string, unknown> }).meta;
   const serverId = typeof meta?.serverId === "string" ? meta.serverId : "";
   const originalName = typeof meta?.originalName === "string" ? meta.originalName : tool.name;
-  return {
-    toolName: tool.name,
+  const argsSummary = redactSensitiveObject(args, { maxDepth: 2, maxArray: 5, maxString: 120 });
+  return makePreview({
+    tool,
     title: "调用 MCP 工具",
-    readOnly: false,
     risk: tool.riskLevel ?? "medium",
     argsPreview: {
       serverId,
       toolName: originalName,
-      argumentsPreview: compactValue(args),
+      argumentsPreview: argsSummary,
     },
+    operationLabel: "调用外部 MCP 工具",
+    targetSummary: `${serverId || "未知 Server"} / ${originalName}`,
+    impactSummary: "会把脱敏后的参数发送给外部 MCP Server 执行。",
+    riskReason: "外部 MCP annotations 不完全可信，默认按中风险确认。",
+    warnings: ["外部 MCP annotations 不完全可信，默认按中风险确认。"],
+    sections: [
+      { label: "MCP Server", value: serverId || "未提供" },
+      { label: "原始工具名", value: originalName },
+      { label: "参数摘要（脱敏）", value: JSON.stringify(argsSummary, null, 2) },
+    ],
     summary: [
       `MCP Server：${serverId}`,
       `MCP 工具：${originalName}`,
       "外部 MCP annotations 不作为完全可信依据，默认按中风险确认。",
     ].join("\n"),
-  };
+  });
 }
 
 function buildMcpManagementPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -504,16 +715,28 @@ function buildMcpManagementPreview(tool: NativeTool, args: Record<string, unknow
     const hasApiKey = auth ? !!auth.apiKey : false;
     const headerKeys = auth?.headers && typeof auth.headers === "object" ? Object.keys(auth.headers as Record<string, unknown>) : [];
     const envKeys = server.env && typeof server.env === "object" ? Object.keys(server.env as Record<string, unknown>) : [];
-    return {
-      toolName: tool.name,
+    const safeEndpoint = sanitizePreviewText(endpoint, 220);
+    const highRiskCommand = transport === "stdio" && /\b(rm|del|remove-item|curl|wget|powershell|sudo|chmod|reg)\b/i.test(endpoint);
+    return makePreview({
+      tool,
       title: "保存 MCP Server 配置",
-      readOnly: false,
-      risk: "medium",
-      argsPreview: { id, title, transport, endpoint, ...(authType ? { authType, hasBearerToken, hasApiKey, headerKeys } : {}), ...(envKeys.length > 0 ? { envKeys } : {}) },
+      risk: highRiskCommand ? "high" : "medium",
+      argsPreview: { id, title, transport, endpoint: safeEndpoint, ...(authType ? { authType, hasBearerToken, hasApiKey, headerKeys } : {}), ...(envKeys.length > 0 ? { envKeys } : {}) },
+      operationLabel: "保存 MCP Server 配置",
+      targetSummary: `Server ${title || id || "未提供"}`,
+      impactSummary: "会写入 MCP Server 配置；同步后可能暴露新的外部工具。",
+      riskReason: highRiskCommand ? "stdio command 包含明显高风险命令片段。" : "保存配置会改变外部 MCP 工具来源。",
+      warnings: highRiskCommand ? ["stdio command 包含明显高风险命令片段，请确认来源可信。"] : undefined,
+      sections: [
+        { label: "Server", value: `id=${id || "未提供"}\ntitle=${title || "未提供"}` },
+        { label: "Transport", value: transport || "未提供" },
+        { label: transport === "stdio" ? "stdio command" : "URL endpoint", value: safeEndpoint || "未提供" },
+        { label: "认证", value: `${authType ?? "none"}\nBearer Token：${hasBearerToken ? "已配置" : "无"}\nAPI Key：${hasApiKey ? "已配置" : "无"}\nHeader Keys：${headerKeys.join(", ") || "无"}\nEnv Keys：${envKeys.join(", ") || "无"}` },
+      ],
       summary: [
         `Server：${title || id}`,
         `传输：${transport}`,
-        endpoint ? `入口：${endpoint}` : "入口：未提供",
+        safeEndpoint ? `入口：${safeEndpoint}` : "入口：未提供",
         authType && authType !== "none" ? `认证：${authType}` : "认证：无",
         hasBearerToken ? "已包含 Bearer Token" : "",
         hasApiKey ? "已包含 API Key" : "",
@@ -521,36 +744,44 @@ function buildMcpManagementPreview(tool: NativeTool, args: Record<string, unknow
         envKeys.length > 0 ? `环境变量：${envKeys.join(", ")}` : "",
         "将写入 notebrain/mcp/servers.json。保存后仍需要同步 tools/list 才会暴露工具。",
       ].filter(Boolean).join("\n"),
-    };
+    });
   }
 
   const serverId = typeof args.serverId === "string" && args.serverId.trim() ? args.serverId.trim() : "(全部已启用)";
-  return {
-    toolName: tool.name,
+  return makePreview({
+    tool,
     title: "同步 MCP 工具索引",
-    readOnly: false,
     risk: "medium",
     argsPreview: { serverId },
+    operationLabel: "同步 MCP 工具索引",
+    targetSummary: `Server ${serverId}`,
+    impactSummary: "会调用 tools/list 并重写 notebrain/mcp/tool-index.json。",
+    riskReason: "同步会改变本轮之后可见的 MCP 工具索引。",
+    sections: [
+      { label: "目标 Server", value: serverId },
+      { label: "影响", value: "会连接外部 MCP Server，调用 tools/list，并重写 tool-index。" },
+    ],
     summary: [
       `目标 Server：${serverId}`,
       "将连接外部 MCP Server，调用 tools/list，并重写 notebrain/mcp/tool-index.json。",
       "同步工具不会直接调用具体 MCP 工具。",
     ].join("\n"),
-  };
+  });
 }
 
 function buildManageDiaryStructurePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
   const operation = typeof args.operation === "string" ? args.operation : "unknown";
 
   if (operation === "ensure_today") {
-    return {
-      toolName: tool.name,
-      title: tool.title,
-      readOnly: false,
+    return makePreview({
+      tool,
       risk: "medium",
       argsPreview: { operation },
+      operationLabel: "创建今日记录",
+      targetSummary: "今日日记",
+      impactSummary: "如不存在，将按强化日记设置创建。",
       summary: "将确保今日日记存在；如不存在，将按强化日记设置创建。",
-    };
+    });
   }
 
   const period = typeof args.period === "string" ? args.period : "day";
@@ -572,14 +803,15 @@ function buildManageDiaryStructurePreview(tool: NativeTool, args: Record<string,
   }
   parts.push("模板来自强化日记设置，不接受 AI 模板正文。");
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  return makePreview({
+    tool,
     risk: "medium",
     argsPreview,
+    operationLabel: "补全模板",
+    targetSummary: docId ? `文档 ${docId}` : `${period} / ${date ?? "默认今天"}`,
+    impactSummary: "会按强化日记设置补全模板，不接受 AI 模板正文。",
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildManageDiaryReviewPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -611,8 +843,8 @@ function buildManageDiaryReviewPreview(tool: NativeTool, args: Record<string, un
       if (labels.length > 0) parts.push(`字段：${labels.join("、")}`);
       const allContent = contentParts.join("\n");
       if (allContent) {
-        const preview = allContent.length > 200 ? `${allContent.slice(0, 197)}...` : allContent;
-        parts.push(`内容预览：${preview}`);
+        parts.push(`内容字符数：${allContent.length}`);
+        parts.push(`内容预览：${sanitizePreviewText(allContent, 200)}`);
       }
       break;
     }
@@ -628,14 +860,16 @@ function buildManageDiaryReviewPreview(tool: NativeTool, args: Record<string, un
       parts.push(`未知操作：${operation}`);
   }
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  const operationLabel = operation === "save_content" ? "保存复盘" : operation === "set_status" ? "标记复盘状态" : `未知操作：${operation}`;
+  return makePreview({
+    tool,
     risk: "medium",
     argsPreview,
+    operationLabel,
+    targetSummary: `文档 ${docId || "未提供"} / 周期 ${period || "未提供"}`,
+    impactSummary: operation === "save_content" ? `保存 ${fields.length} 个字段` : "更新复盘状态",
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildManageDiaryTaskPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -708,14 +942,25 @@ function buildManageDiaryTaskPreview(tool: NativeTool, args: Record<string, unkn
       parts.push(`未知操作：${operation}`);
   }
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  const operationLabels: Record<string, string> = {
+    create: "创建任务",
+    migrate: "迁移任务",
+    set_status: "标记任务状态",
+    update: "更新任务",
+    postpone: "延期任务",
+    delete: "删除任务",
+  };
+  return makePreview({
+    tool,
     risk: operation === "delete" ? "high" : "medium",
     argsPreview,
+    operationLabel: operationLabels[operation] ?? `未知操作：${operation}`,
+    targetSummary: blockId || taskId ? `任务 ${blockId || taskId}` : "日记任务",
+    impactSummary: parts.join("；"),
+    riskReason: operation === "delete" ? "删除任务不可由 Agent 自动回滚。" : undefined,
+    warnings: operation === "delete" ? ["删除类日记操作为高风险。"] : undefined,
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildManageDiaryRecordPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -737,9 +982,9 @@ function buildManageDiaryRecordPreview(tool: NativeTool, args: Record<string, un
         parts.push(`分类：${categoryTitle}`);
       }
       if (content) {
-        const preview = content.length > 200 ? `${content.slice(0, 197)}...` : content;
         argsPreview.content = `(${content.length} 字)`;
-        parts.push(`内容预览：${preview}`);
+        parts.push(`内容字符数：${content.length}`);
+        parts.push(`内容预览：${sanitizePreviewText(content, 200)}`);
       }
       break;
     }
@@ -749,9 +994,9 @@ function buildManageDiaryRecordPreview(tool: NativeTool, args: Record<string, un
       argsPreview.date = date;
       parts.push(`修改记录 ${recordId || headingBlockId}（${date}）`);
       if (content) {
-        const preview = content.length > 200 ? `${content.slice(0, 197)}...` : content;
         argsPreview.content = `(${content.length} 字)`;
-        parts.push(`新内容预览：${preview}`);
+        parts.push(`内容字符数：${content.length}`);
+        parts.push(`新内容预览：${sanitizePreviewText(content, 200)}`);
       }
       break;
     }
@@ -766,14 +1011,22 @@ function buildManageDiaryRecordPreview(tool: NativeTool, args: Record<string, un
       parts.push(`未知操作：${operation}`);
   }
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  const recordOperationLabels: Record<string, string> = {
+    add: "新增记录",
+    update: "更新记录",
+    delete: "删除记录",
+  };
+  return makePreview({
+    tool,
     risk: operation === "delete" ? "high" : "medium",
     argsPreview,
+    operationLabel: recordOperationLabels[operation] ?? `未知操作：${operation}`,
+    targetSummary: `日期 ${date}${categoryTitle ? ` / 分类 ${categoryTitle}` : ""}`,
+    impactSummary: parts.join("；"),
+    riskReason: operation === "delete" ? "删除记录不可由 Agent 自动回滚。" : undefined,
+    warnings: operation === "delete" ? ["删除类日记操作为高风险。"] : undefined,
     summary: parts.join("\n"),
-  };
+  });
 }
 
 function buildGenericTaskDiaryWritePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -816,19 +1069,20 @@ function buildGenericTaskDiaryWritePreview(tool: NativeTool, args: Record<string
     parts.push(`分类：${categoryTitle}`);
   }
   if (content) {
-    const preview = content.length > 200 ? `${content.slice(0, 197)}...` : content;
     argsPreview.content = `(${content.length} 字)`;
-    parts.push(`内容预览：${preview}`);
+    parts.push(`内容字符数：${content.length}`);
+    parts.push(`内容预览：${sanitizePreviewText(content, 200)}`);
   }
 
-  return {
-    toolName: tool.name,
-    title: tool.title,
-    readOnly: false,
+  return makePreview({
+    tool,
     risk: "medium",
     argsPreview,
+    operationLabel: tool.title,
+    targetSummary: docId || blockId || taskId || period || "日记",
+    impactSummary: parts.join("；"),
     summary: parts.length > 0 ? parts.join("\n") : undefined,
-  };
+  });
 }
 
 const SIYUAN_ACTION_PREVIEW_TITLES: Record<string, string> = {
@@ -957,6 +1211,14 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
     risk: isHighRisk ? "high" : "medium",
     argsPreview,
     summary: [`操作：${action}`, `目标：${targetLines.split("\n")[0]}`, `影响：${impactLines[0]}`].join("\n"),
+    operationLabel: action,
+    targetSummary: targetLines.split("\n")[0],
+    impactSummary: impactLines.join("；"),
+    riskReason: isHighRisk ? "该动作会修改或删除思源数据/结构，系统不会自动回滚。" : undefined,
+    warnings: isHighRisk ? ["高风险思源动作，请确认目标 ID/路径来自读取结果。"] : undefined,
+    missingPreviewReason: /目标由工具参数指定|: [A-Za-z0-9_-]{8,}/.test(targetLines) && !/(title|name|path|label|oldLabel|newLabel):/i.test(targetLines)
+      ? "目标缺少标题或路径说明，请确认 ID 来自读取结果。"
+      : undefined,
     sections: [
       { label: "操作", value: action },
       { label: "目标", value: targetLines },
@@ -972,7 +1234,9 @@ function redactHeadersForPreview(headers: Record<string, string> | undefined): R
   if (!headers || Object.keys(headers).length === 0) return {};
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(headers)) {
-    out[k] = SENSITIVE_HEADER_KEYS.has(k.toLowerCase()) ? "[REDACTED]" : v;
+    out[k] = SENSITIVE_HEADER_KEYS.has(k.toLowerCase()) || SENSITIVE_QUERY_KEYS.test(k)
+      ? "[REDACTED]"
+      : sanitizePreviewText(v, 160);
   }
   return out;
 }
@@ -981,13 +1245,13 @@ function redactHeadersForPreview(headers: Record<string, string> | undefined): R
 function redactJsonBodyForPreview(value: unknown, depth: number = 0): unknown {
   if (depth > 5) return "[嵌套过深，已省略]";
   if (value === null || value === undefined) return value;
-  if (typeof value === "string") return value.length > 200 ? `${value.slice(0, 197)}...` : value;
+  if (typeof value === "string") return sanitizePreviewText(value, 200);
   if (typeof value === "number" || typeof value === "boolean") return value;
   if (Array.isArray(value)) return value.slice(0, 10).map((v) => redactJsonBodyForPreview(v, depth + 1));
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_HEADER_KEYS.has(k.toLowerCase())) {
+      if (SENSITIVE_HEADER_KEYS.has(k.toLowerCase()) || SENSITIVE_QUERY_KEYS.test(k)) {
         out[k] = "[REDACTED]";
       } else {
         out[k] = redactJsonBodyForPreview(v, depth + 1);
@@ -1018,16 +1282,22 @@ function buildWebHttpPostPreview(tool: NativeTool, args: Record<string, unknown>
     bodyPreview = raw.length > 500 ? `${raw.slice(0, 497)}...` : raw;
     bodyCharCount = raw.length;
   } else if (textBody !== undefined) {
-    bodyPreview = textBody.length > 500 ? `${textBody.slice(0, 497)}...` : textBody;
+    bodyPreview = sanitizePreviewText(textBody, 500);
     bodyCharCount = textBody.length;
   }
 
   let urlDisplay = url;
   try {
     const parsed = new URL(url);
+    for (const key of Array.from(parsed.searchParams.keys())) {
+      if (SENSITIVE_QUERY_KEYS.test(key)) parsed.searchParams.set(key, "[REDACTED]");
+    }
     urlDisplay = `${parsed.protocol}//${parsed.hostname}${parsed.pathname}`;
     if (parsed.search) urlDisplay += parsed.search;
-  } catch { /* use raw url */ }
+    urlDisplay = urlDisplay.replace(/%5BREDACTED%5D/gi, "[REDACTED]");
+  } catch {
+    urlDisplay = sanitizePreviewText(url, 240);
+  }
 
   const sections: Array<{ label: string; value: string }> = [
     { label: "请求方法", value: "POST" },
@@ -1066,6 +1336,11 @@ function buildWebHttpPostPreview(tool: NativeTool, args: Record<string, unknown>
     risk: "medium",
     argsPreview,
     summary: `HTTP POST → ${urlDisplay}（${bodyType}，${bodyCharCount} 字符）`,
+    operationLabel: "发送 HTTP POST 请求",
+    targetSummary: urlDisplay,
+    impactSummary: `会向外部服务器发送 ${bodyType}，${bodyCharCount} 字符。`,
+    riskReason: "会向外部服务器发送数据，可能产生副作用。",
+    warnings: ["请确认 URL、headers 和 body 正确无误；敏感字段已在预览中脱敏。"],
     sections,
   };
 }

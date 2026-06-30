@@ -27,7 +27,7 @@
   import DocContentEditConfirmationModal from "../common/doc-content-edit-confirmation-modal.svelte";
   import AgentToolPermissionModal from "../common/agent-tool-permission-modal.svelte";
   import { openEditDiffPreviewDialog } from "../common/edit-diff-dialog";
-  import type { EditDiffPreview } from "../../services/doc-content-edit/doc-content-edit-types";
+  import type { DocContentEditArrowFlow, EditDiffPreview } from "../../services/doc-content-edit/doc-content-edit-types";
   import { setDocContentEditConfirmationHandler } from "../../services/doc-content-edit/doc-content-edit-confirmation-bridge";
   import { removeDocContentEditConfirmation } from "../../services/doc-content-edit/doc-content-edit-confirmation-store";
   import { RegisteredConfirmationBridge } from "../../services/agent-core/permissions/confirmation-bridge";
@@ -90,9 +90,17 @@
     title: string;
     risk: "low" | "medium" | "high";
     summary?: string;
+    operationLabel?: string;
+    targetSummary?: string;
+    impactSummary?: string;
+    riskReason?: string;
+    warnings?: string[];
+    missingPreviewReason?: string;
     argsPreview: Record<string, unknown>;
     displayMode?: "summary" | "block_diff" | "arrow_flow";
+    confirmationId?: string;
     editDiffPreview?: EditDiffPreview;
+    arrowFlow?: DocContentEditArrowFlow;
     /** 结构化详情段落（如 URL/Headers/Body），来源于 ToolPermissionPreview.sections */
     sections?: Array<{ label: string; value: string }>;
   } | null = null;
@@ -301,6 +309,19 @@
     activeDocContentEditConfirmationId = null;
   }
 
+  async function cleanupNativePermissionConfirmation(confirmationId?: string): Promise<void> {
+    if (!confirmationId) return;
+    try {
+      await removeDocContentEditConfirmation(confirmationId);
+    } catch {
+      pushAgentDebugEvent(
+        "NATIVE_PERMISSION_CONFIRMATION_CLEANUP_FAILED",
+        { hasConfirmationId: true },
+        "warn",
+      );
+    }
+  }
+
   function handleStop() {
     kbSessionStore.stop();
     void cancelPendingDocContentEditConfirmation("用户已取消操作。");
@@ -320,21 +341,25 @@
   }
 
   function handleNativePermissionCancel() {
+    const confirmationId = nativePermissionPreview?.confirmationId;
     if (nativePermissionResolve) {
       nativePermissionResolve({ type: "deny", reason: "用户取消了操作。" });
       nativePermissionResolve = null;
     }
     nativePermissionModalOpen = false;
     nativePermissionPreview = null;
+    void cleanupNativePermissionConfirmation(confirmationId);
   }
 
   function cancelPendingNativePermission(reason = "用户已取消操作。") {
+    const confirmationId = nativePermissionPreview?.confirmationId;
     if (nativePermissionResolve) {
       nativePermissionResolve({ type: "deny", reason });
       nativePermissionResolve = null;
     }
     nativePermissionModalOpen = false;
     nativePermissionPreview = null;
+    void cleanupNativePermissionConfirmation(confirmationId);
   }
 
   function handleQuoteSelection(e: CustomEvent<{ text: string }>) {
@@ -1186,23 +1211,53 @@
 
         if (displayMode === "block_diff" && preview.editDiffPreview) {
           // Open block diff dialog via svelteDialog
-          nativePermissionResolve = resolve;
-          openEditDiffPreviewDialog(preview.editDiffPreview).then((result) => {
-            if (nativePermissionResolve === resolve) {
-              nativePermissionResolve = null;
-            }
-            resolve(result);
-          });
-        } else {
-          // Default: summary modal
           nativePermissionPreview = {
             toolName: preview.toolName,
             title: preview.title,
             risk: preview.risk,
             summary: preview.summary,
+            operationLabel: preview.operationLabel,
+            targetSummary: preview.targetSummary,
+            impactSummary: preview.impactSummary,
+            riskReason: preview.riskReason,
+            warnings: preview.warnings,
+            missingPreviewReason: preview.missingPreviewReason,
             argsPreview: preview.argsPreview,
             displayMode,
+            confirmationId: preview.confirmationId,
             editDiffPreview: preview.editDiffPreview,
+            arrowFlow: preview.arrowFlow,
+            sections: preview.sections,
+          };
+          nativePermissionResolve = resolve;
+          openEditDiffPreviewDialog(preview.editDiffPreview).then((result) => {
+            if (nativePermissionResolve === resolve) {
+              nativePermissionResolve = null;
+            }
+            if (result.type === "deny") {
+              void cleanupNativePermissionConfirmation(preview.confirmationId);
+            }
+            nativePermissionPreview = null;
+            resolve(result);
+          });
+        } else {
+          // Summary and arrow flow share the lightweight native permission modal.
+          nativePermissionPreview = {
+            toolName: preview.toolName,
+            title: preview.title,
+            risk: preview.risk,
+            summary: preview.summary,
+            operationLabel: preview.operationLabel,
+            targetSummary: preview.targetSummary,
+            impactSummary: preview.impactSummary,
+            riskReason: preview.riskReason,
+            warnings: preview.warnings,
+            missingPreviewReason: preview.missingPreviewReason,
+            argsPreview: preview.argsPreview,
+            displayMode,
+            confirmationId: preview.confirmationId,
+            editDiffPreview: preview.editDiffPreview,
+            arrowFlow: preview.arrowFlow,
             sections: preview.sections,
           };
           nativePermissionModalOpen = true;
@@ -1387,8 +1442,15 @@
   title={nativePermissionPreview?.title ?? ""}
   risk={nativePermissionPreview?.risk ?? "medium"}
   summary={nativePermissionPreview?.summary ?? ""}
+  operationLabel={nativePermissionPreview?.operationLabel ?? ""}
+  targetSummary={nativePermissionPreview?.targetSummary ?? ""}
+  impactSummary={nativePermissionPreview?.impactSummary ?? ""}
+  riskReason={nativePermissionPreview?.riskReason ?? ""}
+  warnings={nativePermissionPreview?.warnings ?? []}
+  missingPreviewReason={nativePermissionPreview?.missingPreviewReason ?? ""}
   argsPreview={nativePermissionPreview?.argsPreview ?? {}}
   sections={nativePermissionPreview?.sections ?? []}
+  arrowFlow={nativePermissionPreview?.arrowFlow}
   on:confirmed={handleNativePermissionConfirm}
   on:cancel={handleNativePermissionCancel}
 />

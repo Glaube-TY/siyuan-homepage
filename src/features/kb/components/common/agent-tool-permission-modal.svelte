@@ -1,12 +1,21 @@
 <script lang="ts">
+  import type { DocContentEditArrowFlow } from "../../services/doc-content-edit/doc-content-edit-types";
+
   export let open = false;
   export let toolName = "";
   export let title = "";
   export let risk: "low" | "medium" | "high" = "medium";
   export let summary = "";
+  export let operationLabel = "";
+  export let targetSummary = "";
+  export let impactSummary = "";
+  export let riskReason = "";
+  export let warnings: string[] = [];
+  export let missingPreviewReason = "";
   export let argsPreview: Record<string, unknown> = {};
   /** Structured sections for detailed preview (e.g. URL, Headers, Body). */
   export let sections: Array<{ label: string; value: string }> = [];
+  export let arrowFlow: DocContentEditArrowFlow | undefined = undefined;
 
   import { createEventDispatcher } from "svelte";
   const dispatch = createEventDispatcher();
@@ -27,12 +36,16 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") handleCancel();
-    if (e.key === "Enter") handleConfirm();
+    if (e.key === "Enter" && (e.target as HTMLElement).dataset.confirmButton === "true") handleConfirm();
   }
 
   $: riskLabel = { low: "低风险", medium: "中风险", high: "高风险" }[risk] ?? "未知";
   $: riskClass = { low: "risk-low", medium: "risk-medium", high: "risk-high" }[risk] ?? "risk-medium";
   $: argsStr = JSON.stringify(argsPreview, null, 2);
+  $: firstSummaryLine = summary.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  $: displayOperation = operationLabel || firstSummaryLine;
+  $: shouldShowArgs = Object.keys(argsPreview).length > 0 && sections.length === 0;
+  $: confirmLabel = risk === "high" ? "确认执行高风险操作" : "确认执行";
 </script>
 
 {#if open}
@@ -50,11 +63,59 @@
           <span class="label">工具：</span>
           <span class="value">{title || toolName}</span>
         </div>
-        {#if summary}
+        {#if displayOperation}
           <div class="info-row">
             <span class="label">操作：</span>
-            <span class="value">{summary}</span>
+            <span class="value">{displayOperation}</span>
           </div>
+        {/if}
+        {#if targetSummary}
+          <div class="info-row">
+            <span class="label">目标：</span>
+            <span class="value">{targetSummary}</span>
+          </div>
+        {/if}
+        {#if impactSummary}
+          <div class="info-row">
+            <span class="label">影响：</span>
+            <span class="value">{impactSummary}</span>
+          </div>
+        {/if}
+        {#if riskReason}
+          <div class="info-row risk-reason-row">
+            <span class="label">风险：</span>
+            <span class="value">{riskReason}</span>
+          </div>
+        {/if}
+        {#if risk === "high"}
+          <div class="risk-callout">高风险操作执行后请以工具结果和当前思源内容为准，系统不会自动回滚。</div>
+        {/if}
+        {#if arrowFlow}
+          <div class="arrow-flow" aria-label="变更流向">
+            <div class="arrow-node">
+              <div class="arrow-node-label">{arrowFlow.fromLabel}</div>
+              {#if arrowFlow.fromDescription}
+                <div class="arrow-node-desc">{arrowFlow.fromDescription}</div>
+              {/if}
+            </div>
+            <div class="arrow-icon" aria-hidden="true">→</div>
+            <div class="arrow-node">
+              <div class="arrow-node-label">{arrowFlow.toLabel}</div>
+              {#if arrowFlow.toDescription}
+                <div class="arrow-node-desc">{arrowFlow.toDescription}</div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+        {#if warnings.length > 0}
+          <div class="warning-block">
+            {#each warnings as warning}
+              <div class="warning-item">{warning}</div>
+            {/each}
+          </div>
+        {/if}
+        {#if missingPreviewReason}
+          <div class="missing-preview">{missingPreviewReason}</div>
         {/if}
         {#if sections.length > 0}
           <div class="sections-block">
@@ -66,9 +127,9 @@
             {/each}
           </div>
         {/if}
-        {#if Object.keys(argsPreview).length > 0 && sections.length === 0}
+        {#if shouldShowArgs}
           <div class="args-section">
-            <span class="label">参数：</span>
+            <span class="label">参数摘要：</span>
             <pre class="args-preview">{argsStr}</pre>
           </div>
         {/if}
@@ -76,7 +137,7 @@
 
       <div class="modal-footer">
         <button class="btn btn-cancel" on:click={handleCancel}>取消</button>
-        <button class="btn btn-confirm" on:click={handleConfirm}>确认执行</button>
+        <button class="btn btn-confirm" data-confirm-button="true" on:click={handleConfirm}>{confirmLabel}</button>
       </div>
     </div>
   </div>
@@ -102,9 +163,12 @@
     background: var(--b3-theme-background);
     border-radius: $kb-radius-lg;
     width: 90%;
-    max-width: 480px;
+    max-width: 560px;
+    max-height: min(86vh, 720px);
     box-shadow: $kb-shadow-modal;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .modal-header {
@@ -134,6 +198,7 @@
 
   .modal-body {
     padding: $kb-space-lg $kb-space-xl;
+    overflow: auto;
   }
 
   .info-row {
@@ -153,6 +218,86 @@
     color: var(--b3-theme-on-surface);
     word-break: break-all;
     white-space: pre-wrap;
+  }
+
+  .risk-reason-row .value {
+    color: var(--b3-theme-error, #c62828);
+  }
+
+  .risk-callout,
+  .missing-preview,
+  .warning-block {
+    margin: $kb-space-sm 0;
+    padding: $kb-space-sm $kb-space-md;
+    border-radius: $kb-radius-md;
+    line-height: 1.45;
+    font-size: $kb-fs-md;
+  }
+
+  .risk-callout {
+    border: 1px solid color-mix(in srgb, var(--b3-theme-error, #c62828) 45%, var(--b3-border-color));
+    background: color-mix(in srgb, var(--b3-theme-error, #c62828) 10%, transparent);
+    color: var(--b3-theme-error, #c62828);
+  }
+
+  .missing-preview {
+    border: 1px solid color-mix(in srgb, var(--b3-card-warning-color, #e6a817) 45%, var(--b3-border-color));
+    background: color-mix(in srgb, var(--b3-card-warning-color, #e6a817) 12%, transparent);
+    color: var(--b3-theme-on-surface);
+  }
+
+  .warning-block {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border: 1px solid color-mix(in srgb, var(--b3-card-warning-color, #e6a817) 45%, var(--b3-border-color));
+    background: color-mix(in srgb, var(--b3-card-warning-color, #e6a817) 8%, transparent);
+  }
+
+  .warning-item {
+    color: var(--b3-theme-on-surface);
+    word-break: break-word;
+  }
+
+  .arrow-flow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: stretch;
+    gap: $kb-space-sm;
+    margin: $kb-space-md 0;
+  }
+
+  .arrow-node {
+    min-width: 0;
+    padding: $kb-space-sm $kb-space-md;
+    border: 1px solid var(--b3-border-color);
+    border-radius: $kb-radius-md;
+    background: var(--b3-theme-surface);
+  }
+
+  .arrow-node-label {
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+
+  .arrow-node-desc {
+    margin-top: 4px;
+    font-size: $kb-fs-sm;
+    color: var(--b3-theme-on-surface-light);
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+
+  .arrow-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    color: var(--b3-theme-primary);
+    font-size: 22px;
+    font-weight: 600;
   }
 
   .args-section {
@@ -240,6 +385,34 @@
     &:hover {
       opacity: 0.9;
       box-shadow: $kb-shadow-raised;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .modal-content {
+      width: calc(100% - 24px);
+      max-height: 90vh;
+    }
+
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+      padding-left: $kb-space-md;
+      padding-right: $kb-space-md;
+    }
+
+    .info-row {
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .arrow-flow {
+      grid-template-columns: 1fr;
+    }
+
+    .arrow-icon {
+      transform: rotate(90deg);
+      min-height: 24px;
     }
   }
 </style>

@@ -63,6 +63,20 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
         if (typeof data?.summary === "string") preview.summary = data.summary;
         if (typeof data?.title === "string") preview.title = data.title;
         if (typeof data?.risk === "string") preview.risk = data.risk as ToolPermissionPreview["risk"];
+        if (typeof data?.operationLabel === "string") preview.operationLabel = data.operationLabel;
+        if (typeof data?.targetSummary === "string") preview.targetSummary = data.targetSummary;
+        if (typeof data?.impactSummary === "string") preview.impactSummary = data.impactSummary;
+        if (typeof data?.riskReason === "string") preview.riskReason = data.riskReason;
+        if (Array.isArray(data?.warnings)) preview.warnings = data.warnings.filter((item): item is string => typeof item === "string");
+        if (typeof data?.missingPreviewReason === "string") preview.missingPreviewReason = data.missingPreviewReason;
+        if (Array.isArray(data?.sections)) {
+          preview.sections = data.sections.filter((item): item is { label: string; value: string } => (
+            !!item
+            && typeof item === "object"
+            && typeof (item as { label?: unknown }).label === "string"
+            && typeof (item as { value?: unknown }).value === "string"
+          ));
+        }
         if (data?.permissionAction === "deny") {
           return {
             decision: {

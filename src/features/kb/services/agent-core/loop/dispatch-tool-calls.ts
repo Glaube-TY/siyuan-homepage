@@ -37,15 +37,65 @@ function buildUnknownToolHint(toolName: string): string {
   return `Tool is not registered: ${toolName}`;
 }
 
+const SENSITIVE_KEY_PATTERN = /(^|[_-])(token|api[_-]?key|apikey|secret|password|authorization|bearer|cookie|credential|private[_-]?key)([_-]|$)/i;
+const SENSITIVE_QUERY_KEY_PATTERN = /^(token|key|api[_-]?key|apikey|secret|password|authorization|bearer|cookie|credential|private[_-]?key)$/i;
+const LOCAL_PATH_PATTERN = /([A-Za-z]:\\(?:[^\\\s]+\\)*[^\\\s]*|\/(?:home|mnt\/data|data|workspace|Users|var|tmp|opt|root)(?:\/[^\s"'`<>]*)?)/g;
+const URL_PATTERN = /\bhttps?:\/\/[^\s"'`<>]+/gi;
+
+function redactUrlQuery(urlText: string): string {
+  try {
+    const url = new URL(urlText);
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (SENSITIVE_QUERY_KEY_PATTERN.test(key)) url.searchParams.set(key, "[REDACTED]");
+    }
+    return url.toString().replace(/%5BREDACTED%5D/gi, "[REDACTED]");
+  } catch {
+    return urlText.replace(/([?&])([^=\s&]+)=([^&\s]+)/g, (match, prefix: string, key: string) => (
+      SENSITIVE_QUERY_KEY_PATTERN.test(key) ? `${prefix}${key}=[REDACTED]` : match
+    ));
+  }
+}
+
+function redactPreviewText(value: string, max = 120): string {
+  const protectedUrls: string[] = [];
+  let text = value
+    .replace(URL_PATTERN, (match) => {
+      const index = protectedUrls.push(redactUrlQuery(match)) - 1;
+      return `__NB_URL_${index}__`;
+    })
+    .replace(/Authorization\s*:\s*Bearer\s+[^\s,;"']+/gi, "Authorization: [REDACTED]")
+    .replace(/\b(token|api_key|apikey|password|secret)=([^&\s]+)/gi, "$1=[REDACTED]")
+    .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]+=*/gi, "$1 [REDACTED]")
+    .replace(LOCAL_PATH_PATTERN, "[path]");
+
+  text = text.replace(/__NB_URL_(\d+)__/g, (_, rawIndex: string) => protectedUrls[Number(rawIndex)] ?? "");
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 3))}...` : text;
+}
+
 function argsPreview(args: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      out[key] = "[REDACTED]";
+      continue;
+    }
     if (typeof value === "string") {
-      out[key] = value.length > 120 ? `${value.slice(0, 117)}...` : value;
+      out[key] = redactPreviewText(value);
     } else if (Array.isArray(value)) {
-      out[key] = value.slice(0, 10);
+      out[key] = value.slice(0, 8).map((item) => (
+        typeof item === "string"
+          ? redactPreviewText(item)
+          : typeof item === "number" || typeof item === "boolean" || item == null
+            ? item
+            : "[object]"
+      ));
+      if (value.length > 8) {
+        (out[key] as unknown[]).push(`...还有 ${value.length - 8} 项`);
+      }
     } else if (typeof value === "number" || typeof value === "boolean" || value == null) {
       out[key] = value;
+    } else if (typeof value === "object") {
+      out[key] = "[object]";
     }
   }
   return out;
@@ -155,6 +205,20 @@ async function executeOne(params: {
       toolName: tool.name,
       code: "duplicate_read_call_blocked",
       message: "本轮同一工具同一参数已调用过，请使用前一次结果回答，不要重复调用。",
+      stepIndex: params.stepIndex,
+      startedAt,
+      onEvent: params.onEvent,
+    });
+  }
+
+  if (params.stormBreaker.shouldBlockSimilarTrajectory(tool, params.call, parsed.args)) {
+    params.stormBreaker.recordTrajectoryBlock();
+    return finishToolFailure({
+      call: params.call,
+      toolName: tool.name,
+      code: "trajectory_repetition_detected",
+      message: "你正在重复相似探索。请停止继续调用相似工具，基于已有结果总结，或明确换策略/缩小范围。",
+      recoverable: true,
       stepIndex: params.stepIndex,
       startedAt,
       onEvent: params.onEvent,
@@ -346,6 +410,14 @@ export async function dispatchToolCalls(params: {
         stepCount: params.calls.length,
         fatalErrorCode: "repeated_unknown_tool",
         fatalErrorMessage: "模型重复调用了未注册工具，本轮已停止。请先使用 mcp_list_tools 查看实际可用工具名。",
+      };
+    }
+    if (content?.code === "trajectory_repetition_detected" && stormBreaker.shouldFatalAfterTrajectoryBlock()) {
+      return {
+        toolMessages,
+        stepCount: params.calls.length,
+        fatalErrorCode: "trajectory_repetition_detected",
+        fatalErrorMessage: "模型多次重复相似探索，本轮已停止，请缩小范围或总结已有结果。",
       };
     }
   }

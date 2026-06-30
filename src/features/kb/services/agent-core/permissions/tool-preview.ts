@@ -7,6 +7,12 @@ export interface ToolPermissionPreview {
   risk: "low" | "medium" | "high";
   argsPreview: Record<string, unknown>;
   summary?: string;
+  operationLabel?: string;
+  targetSummary?: string;
+  impactSummary?: string;
+  riskReason?: string;
+  warnings?: string[];
+  missingPreviewReason?: string;
   /** Structured detail sections for the confirmation modal (e.g. URL, Headers, Body). */
   sections?: Array<{ label: string; value: string }>;
   /** UI routing hint: how to display the confirmation dialog */
@@ -23,4 +29,3 @@ export interface ToolPermissionDecision {
   type: "allow" | "deny";
   reason?: string;
 }
-

@@ -19,6 +19,32 @@ const parameters = {
   required: ["command"],
 };
 
+function redactCommandPreviewText(value: unknown, max = 240): string {
+  const protectedUrls: string[] = [];
+  const text = String(value ?? "")
+    .replace(/\bhttps?:\/\/[^\s"'`<>]+/gi, (match) => {
+      try {
+        const url = new URL(match);
+        for (const key of Array.from(url.searchParams.keys())) {
+          if (/(^|[_-])(token|api[_-]?key|apikey|secret|password|authorization|bearer|cookie|credential|private[_-]?key)([_-]|$)/i.test(key)) {
+            url.searchParams.set(key, "[REDACTED]");
+          }
+        }
+        const index = protectedUrls.push(url.toString().replace(/%5BREDACTED%5D/gi, "[REDACTED]")) - 1;
+        return `__NB_COMMAND_URL_${index}__`;
+      } catch {
+        const index = protectedUrls.push(match) - 1;
+        return `__NB_COMMAND_URL_${index}__`;
+      }
+    })
+    .replace(/Authorization\s*:\s*Bearer\s+[^\s,;"']+/gi, "Authorization: Bearer [REDACTED]")
+    .replace(/\b(token|api_key|apikey|password|secret)=([^&\s]+)/gi, "$1=[REDACTED]")
+    .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]+=*/gi, "$1 [REDACTED]")
+    .replace(/([A-Za-z]:\\(?:[^\\\s]+\\)*[^\\\s]*|\/(?:home|mnt\/data|data|workspace|Users|var|tmp|opt|root)(?:\/[^\s"'`<>]*)?)/g, "[path]")
+    .replace(/__NB_COMMAND_URL_(\d+)__/g, (_, rawIndex: string) => protectedUrls[Number(rawIndex)] ?? "");
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 3))}...` : text;
+}
+
 export function createRunNotebrainCommandNativeTool(
   settings: NotebrainAgentWorkspaceSettings,
   runtimeToolsSettings?: RuntimeToolsSettings,
@@ -47,11 +73,13 @@ export function createRunNotebrainCommandNativeTool(
         allowAbsolutePaths: settings.allowAbsolutePaths === true,
       });
       const cwd = toProjectDefaultRelativePath(args.cwd ?? ".");
+      const safeCommand = redactCommandPreviewText(command, 500);
+      const safeCwd = redactCommandPreviewText(cwd, 180);
       const riskDisplayLevel = risk.level;
       const riskLabel = riskDisplayLevel === "high" ? "⚠ 高风险" : riskDisplayLevel === "medium" ? "中风险" : "低风险";
       const summaryParts = [
-        `命令：${command}`,
-        `cwd：${cwd}`,
+        `命令：${safeCommand}`,
+        `cwd：${safeCwd}`,
         `风险：${riskLabel}`,
         ...risk.reasons.map((r) => `- ${r}`),
         settings.commandStrictWorkspaceMode !== false ? "严格模式：是" : "严格模式：否",
@@ -66,9 +94,25 @@ export function createRunNotebrainCommandNativeTool(
           : policy.action === "deny"
             ? `命令匹配 deny 规则：${policy.matchedRule ?? ""}`
             : undefined,
+        operationLabel: "执行 Notebrain 本地命令",
+        targetSummary: `cwd=${safeCwd}`,
+        impactSummary: "将在 notebrain/projects/default 限制工作区内执行非交互式命令。",
+        riskReason: risk.reasons.length > 0 ? risk.reasons.join("；") : "本地命令不是系统级沙箱，仅有 cwd 限制。",
+        warnings: [
+          "这不是系统级沙箱，只限制 cwd。",
+          ...risk.reasons,
+          ...(risk.hardDeny ? ["严格模式已拒绝，不进入确认执行。"] : []),
+        ],
+        sections: [
+          { label: "命令", value: safeCommand },
+          { label: "cwd", value: safeCwd },
+          { label: "执行限制", value: `${settings.commandStrictWorkspaceMode !== false ? "严格模式：开启" : "严格模式：关闭"}\n不是系统级沙箱，仅限制 cwd。` },
+          { label: "运行参数", value: [`timeout=${args.timeoutMs ?? settings.defaultCommandTimeoutMs}`, `maxOutputChars=${args.maxOutputChars ?? settings.maxCommandOutputChars}`].join("\n") },
+          { label: "风险类别", value: risk.categories.length > 0 ? risk.categories.join("、") : "未标记" },
+        ],
         argsPreview: {
-          command,
-          cwd,
+          command: safeCommand,
+          cwd: safeCwd,
           timeoutMs: args.timeoutMs ?? settings.defaultCommandTimeoutMs,
           maxOutputChars: args.maxOutputChars ?? settings.maxCommandOutputChars,
           matchedRule: policy.matchedRule,
@@ -191,4 +235,3 @@ export function createRunNotebrainCommandNativeTool(
     },
   };
 }
-

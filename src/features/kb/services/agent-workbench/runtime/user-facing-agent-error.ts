@@ -188,6 +188,14 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
+  if (code === "trajectory_repetition_detected") {
+    return {
+      title: "多次重复探索后已停止",
+      message: "模型多次调用高度相似的搜索或读取工具，本轮已停止。",
+      suggestion: "可以缩小范围、指定文档，或让 AI 先总结已获得结果。",
+    };
+  }
+
   // 写入前置条件变化
   if (code === "write_precondition_changed") {
     return {
@@ -270,10 +278,11 @@ export function mapAgentErrorToUserFacing(input: {
 export function buildCompletedStepsSummary(events: Array<{
   type: string;
   ok?: boolean;
-  result?: { ok?: boolean };
+  result?: { ok?: boolean; code?: string; errorCode?: string };
   toolCallId?: string;
   readOnly?: boolean;
   toolName?: string;
+  code?: string;
 }>): CompletedStepsSummary | undefined {
   // Build a map: toolCallId -> readOnly from native tool_start events.
   const readOnlyMap = new Map<string, boolean>();
@@ -285,24 +294,50 @@ export function buildCompletedStepsSummary(events: Array<{
 
   let readOnlySuccess = 0;
   let writeSuccess = 0;
+  let failedTools = 0;
+  const readOnlyToolNames = new Set<string>();
+  const writeToolNames = new Set<string>();
+  const failureCodes = new Set<string>();
 
   for (const e of events) {
+    if (e.type === "error") {
+      const code = e.code;
+      if (code) failureCodes.add(code);
+      continue;
+    }
     const ok = e.ok === true || e.result?.ok === true;
-    if (e.type !== "tool_result" || !ok || !e.toolCallId) continue;
+    if (e.type !== "tool_result" || !e.toolCallId) continue;
     const ro = readOnlyMap.get(e.toolCallId);
-    if (ro === false) {
-      writeSuccess++;
+    if (ok) {
+      if (ro === false) {
+        writeSuccess++;
+        if (e.toolName) writeToolNames.add(e.toolName);
+      } else {
+        // readOnly === true or no matching tool_start (fallback to read-only)
+        readOnlySuccess++;
+        if (e.toolName) readOnlyToolNames.add(e.toolName);
+      }
     } else {
-      // readOnly === true or no matching tool_start (fallback to read-only)
-      readOnlySuccess++;
+      failedTools++;
+      const code = e.result?.code ?? e.result?.errorCode;
+      if (code) failureCodes.add(code);
     }
   }
 
-  const total = readOnlySuccess + writeSuccess;
-  if (total === 0) return undefined;
-
-  if (writeSuccess > 0) {
-    return { text: `本轮已完成 ${total} 个工具步骤，其中写入操作 ${writeSuccess} 个。` };
+  const lines: string[] = [];
+  if (readOnlySuccess > 0) {
+    lines.push(`已完成只读步骤 ${readOnlySuccess} 个${readOnlyToolNames.size > 0 ? `：${Array.from(readOnlyToolNames).slice(0, 5).join("、")}` : ""}。`);
   }
-  return { text: `本轮已完成 ${total} 个只读步骤，没有成功执行写入操作。` };
+  if (writeSuccess > 0) {
+    lines.push(`已完成写入步骤 ${writeSuccess} 个${writeToolNames.size > 0 ? `：${Array.from(writeToolNames).slice(0, 5).join("、")}` : ""}。`);
+    lines.push("请以工具结果和当前思源内容为准；系统不会自动回滚。");
+  }
+  if (failedTools > 0 || failureCodes.size > 0) {
+    lines.push(`失败工具 ${failedTools} 个${failureCodes.size > 0 ? `，主要错误：${Array.from(failureCodes).slice(0, 5).join("、")}` : ""}。`);
+  }
+  if (["tool_call_limit_reached", "tool_call_limit_exceeded", "repeated_unknown_tool", "trajectory_repetition_detected"].some((c) => failureCodes.has(c))) {
+    lines.push("可以缩小范围、指定文档或让 AI 先总结已获得结果。");
+  }
+
+  return lines.length > 0 ? { text: lines.join("\n") } : undefined;
 }
