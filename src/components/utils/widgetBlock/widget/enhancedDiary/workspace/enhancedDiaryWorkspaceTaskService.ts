@@ -23,6 +23,7 @@ import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { formatDiaryDate, isEnhancedDiarySystemTaskMarkdown } from "../enhancedDiaryUtils";
 import { getDayWorkspaceSections } from "../enhancedDiaryWorkspaceSections";
 import { addDays, daysBetweenLocalDates, formatLocalDate } from "./enhancedDiaryWorkspaceDate";
+import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
 
 export type EnhancedDiaryWorkspaceTaskSourceKind = "new" | "migrated" | "normal";
 
@@ -64,10 +65,6 @@ interface SourceDocInfo {
     attrDate?: string;
 }
 
-function escapeSqlString(value: string): string {
-    return value.replace(/'/g, "''");
-}
-
 function firstTaskLine(markdown: string): string {
     return (markdown || "").split("\n\n")[0]?.split("\n")[0]?.trim() || "";
 }
@@ -104,9 +101,15 @@ async function querySourceDocs(rootIds: string[]): Promise<Map<string, SourceDoc
     const uniqueIds = Array.from(new Set(rootIds.filter(Boolean)));
     if (uniqueIds.length === 0) return new Map();
 
-    const quotedIds = uniqueIds.map((id) => `'${escapeSqlString(id)}'`).join(",");
-    const rows = await sql(
-        `SELECT id, content, ial FROM blocks WHERE type = 'd' AND id IN (${quotedIds})`
+    const rows = await selectByIdsBatched(
+        uniqueIds,
+        (escapedIds) => `
+            SELECT id, content, ial
+            FROM blocks
+            WHERE type = 'd'
+            AND id IN (${escapedIds})
+        `,
+        64,
     );
     const result = new Map<string, SourceDocInfo>();
 

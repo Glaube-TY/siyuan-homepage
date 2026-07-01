@@ -16,7 +16,6 @@
 
     const parsed = $derived(JSON.parse(contentTypeJson));
     const isMobilePlacement = $derived(placement === "mobile");
-    const mobilePendingCount = $derived(displayedTasks.filter((task) => !task.checked).length);
 
     // 原始数据
     let recentTasks: RecentTasksInfo[] = $state([]);
@@ -34,10 +33,23 @@
         hpath: string;
     }> = $state([]);
 
-    onMount(async () => {
-        recentTasks = await getLatestTasks(parsed.data?.tasksNotebookId);
-        showTasksDetails = parsed.data?.showTasksDetails ?? true;
-        TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
+    const mobilePendingCount = $derived(displayedTasks.filter((task) => !task.checked).length);
+
+    // 组件销毁后丢弃异步结果，避免更新已卸载状态
+    let isDestroyed = false;
+
+    onMount(() => {
+        isDestroyed = false;
+        getLatestTasks(parsed.data?.tasksNotebookId).then((tasks) => {
+            if (isDestroyed) return;
+            recentTasks = tasks;
+            showTasksDetails = parsed.data?.showTasksDetails ?? true;
+            TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
+        });
+
+        return () => {
+            isDestroyed = true;
+        };
     });
 
 

@@ -63,27 +63,11 @@
     let searchText = $state("");
     let floatDocTimeout: number | null = $state(null);
     let mouseLeaveTimeout: number | null = $state(null);
-
-    const parsedContent = $derived(parseContent(contentTypeJson));
-    const config = $derived(normalizeConfig(parsedContent.data || {}));
-    const summary = $derived(getReviewSummary(allItems, config.reviewDocsFutureDays));
-    const categories = $derived(
-        Object.keys(summary.categories).sort((a, b) => a.localeCompare(b, "zh-CN"))
-    );
-    const visibleItems = $derived(filterAndSortReviewItems(allItems, {
-        view: currentView,
-        sortBy: currentSortBy,
-        showDocs: config.reviewDocsShowDocs,
-        showBlocks: config.reviewDocsShowBlocks,
-        showFuture: config.reviewDocsShowFuture,
-        futureDays: config.reviewDocsFutureDays,
-        category: selectedCategory,
-        priority: selectedPriority,
-        search: searchText,
-        limit: config.reviewDocsLimit,
-    }));
+    // 组件销毁后丢弃异步 SQL 结果，避免更新已卸载状态
+    let isDestroyed = false;
 
     onMount(() => {
+        isDestroyed = false;
         advancedEnabled = Boolean(plugin?.ADVANCED);
         currentView = config.reviewDocsDefaultView;
         currentSortBy = config.reviewDocsSortBy;
@@ -96,6 +80,7 @@
         void initialize();
 
         return () => {
+            isDestroyed = true;
             clearFloatDocTimeouts();
         };
     });
@@ -107,6 +92,7 @@
             parsedContent.blockId,
             parsedContent
         );
+        if (isDestroyed) return;
         effectiveDatabaseId = resolved.databaseId || config.reviewDocsDatabaseId;
         await refreshAll();
     }
@@ -131,18 +117,24 @@
     }
 
     async function refreshAll() {
-        if (!advancedEnabled) return;
+        if (!advancedEnabled || isDestroyed) return;
         isRefreshing = true;
         try {
-            allItems = await loadAllReviewItems();
+            const items = await loadAllReviewItems();
+            if (isDestroyed) return;
+            allItems = items;
             const stats = await loadReviewLogStats(effectiveDatabaseId);
+            if (isDestroyed) return;
             todayReviewed = stats.todayReviewed;
             logStatusMessage = stats.statusMessage;
         } catch (error) {
+            if (isDestroyed) return;
             showMessage(error instanceof Error ? error.message : "复习文档加载失败", 4000);
         } finally {
-            isLoading = false;
-            isRefreshing = false;
+            if (!isDestroyed) {
+                isLoading = false;
+                isRefreshing = false;
+            }
         }
     }
 
@@ -156,6 +148,25 @@
             mouseLeaveTimeout = null;
         }
     }
+
+    const parsedContent = $derived(parseContent(contentTypeJson));
+    const config = $derived(normalizeConfig(parsedContent.data || {}));
+    const summary = $derived(getReviewSummary(allItems, config.reviewDocsFutureDays));
+    const categories = $derived(
+        Object.keys(summary.categories).sort((a, b) => a.localeCompare(b, "zh-CN"))
+    );
+    const visibleItems = $derived(filterAndSortReviewItems(allItems, {
+        view: currentView,
+        sortBy: currentSortBy,
+        showDocs: config.reviewDocsShowDocs,
+        showBlocks: config.reviewDocsShowBlocks,
+        showFuture: config.reviewDocsShowFuture,
+        futureDays: config.reviewDocsFutureDays,
+        category: selectedCategory,
+        priority: selectedPriority,
+        search: searchText,
+        limit: config.reviewDocsLimit,
+    }));
 
     function openReviewItem(item: ReviewItem) {
         if (config.reviewDocsShowFloatDoc && !plugin.isMobile) {

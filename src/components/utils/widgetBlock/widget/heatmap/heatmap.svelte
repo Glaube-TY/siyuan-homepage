@@ -45,34 +45,66 @@
     // 会员锁定状态
     let isLocked = $state(false);
 
-    onMount(async () => {
-        // 根据 heatmapCountType 获取相应数据
-        let blocks: any[], textBlocks: any[], counts: Record<string, number>;
-        if (heatmapCountType === "words") {
-            textBlocks = await getTextBlocks();
-            counts = countWordsPerDay(textBlocks);
-        } else {
-            blocks = await getblocks();
-            counts = countBlocksPerDay(blocks);
+    // 内存短 TTL 缓存（5 分钟），key: mode|startDate|endDate|monthCount
+    const HEATMAP_CACHE_TTL_MS = 5 * 60 * 1000;
+    const heatmapCache = new Map<string, { counts: Record<string, number>; expiresAt: number }>();
+
+    function getHeatmapCacheKey(mode: string, startDate: string, endDate: string, monthCount: number): string {
+        return `${mode}|${startDate}|${endDate}|${monthCount}`;
+    }
+
+    function getCachedCounts(key: string): Record<string, number> | null {
+        const entry = heatmapCache.get(key);
+        if (entry && entry.expiresAt > Date.now()) {
+            return entry.counts;
         }
+        heatmapCache.delete(key);
+        return null;
+    }
+
+    function setCachedCounts(key: string, counts: Record<string, number>): void {
+        heatmapCache.set(key, { counts, expiresAt: Date.now() + HEATMAP_CACHE_TTL_MS });
+    }
+
+    function clampHeatmapMonthCount(value: number | null | undefined): number {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed) || parsed < 1 || parsed > 12) {
+            return 6;
+        }
+        return Math.floor(parsed);
+    }
+
+    onMount(async () => {
+        const advancedEnabled = plugin.ADVANCED;
+        if (!advancedEnabled && heatmapCountType === "words") {
+            isLocked = true;
+            return;
+        }
+
+        const monthCount = clampHeatmapMonthCount(pastMonthCount);
+        const [startDate, endDate] = getRangeByMonthCount(monthCount);
+        const cacheKey = getHeatmapCacheKey(heatmapCountType, startDate, endDate, monthCount);
+
+        let counts = getCachedCounts(cacheKey);
+        if (!counts) {
+            counts = heatmapCountType === "words"
+                ? await getWordCounts(startDate, endDate)
+                : await getBlockCounts(startDate, endDate);
+            setCachedCounts(cacheKey, counts);
+        }
+
+        if (isDestroyed) return;
 
         currentCounts = counts;
         // 生成完整日期范围的数据（包含无数据日期）
-        currentChartData = buildFullCalendarData(counts, pastMonthCount);
+        currentChartData = buildFullCalendarData(counts, monthCount);
 
         if (!chartContainer) return;
         const myChart = echarts.init(chartContainer);
         chartInstance = myChart;
 
-        initTimeoutId = setTimeout(async () => {
+        initTimeoutId = setTimeout(() => {
             if (isDestroyed) return;
-
-            const advancedEnabled = plugin.ADVANCED;
-            if (!advancedEnabled && heatmapCountType === "words") {
-                isLocked = true;
-                return;
-            }
-
             applyChartTheme();
 
             // 延后重绘，确保主题样式已稳定
@@ -417,38 +449,61 @@
         chartContainer = null;
     });
 
-    async function getblocks(): Promise<any> {
+    async function getBlockCounts(startDate: string, endDate: string): Promise<Record<string, number>> {
         try {
-            const [startDate, endDate] = getRangeByMonthCount(pastMonthCount);
+            const start = startDate.replace(/-/g, "");
+            const end = endDate.replace(/-/g, "");
             const query = `
-            SELECT *
-            FROM blocks 
-            WHERE updated BETWEEN '${startDate.replace(/-/g, "")}000000' AND '${endDate.replace(/-/g, "")}235959'
-            LIMIT 9999999999999
-        `;
-            return await sql(query);
-        } catch (error) {
-            console.error("Failed to fetch blocks:", error);
-            return [];
+                SELECT substr(updated, 1, 8) AS day, COUNT(*) AS count
+                FROM blocks
+                WHERE updated BETWEEN '${start}000000' AND '${end}235959'
+                GROUP BY substr(updated, 1, 8)
+                ORDER BY day ASC
+            `;
+            const rows = await sql(query);
+            return aggregateRowsToCounts(rows);
+        } catch {
+            return {};
         }
     }
 
-    async function getTextBlocks(): Promise<any> {
+    async function getWordCounts(startDate: string, endDate: string): Promise<Record<string, number>> {
         try {
-            const [startDate, endDate] = getRangeByMonthCount(pastMonthCount);
+            const start = startDate.replace(/-/g, "");
+            const end = endDate.replace(/-/g, "");
             const query = `
-            SELECT *
-            FROM blocks 
-            WHERE type IN ('p', 'h', 'l', 'c', 't', 'm', 'b')
-            AND updated BETWEEN '${startDate.replace(/-/g, "")}000000' AND '${endDate.replace(/-/g, "")}235959'
-            AND content IS NOT NULL AND content != ''
-            LIMIT 9999999999999
-        `;
-            return await sql(query);
-        } catch (error) {
-            console.error("Failed to fetch blocks:", error);
-            return [];
+                SELECT substr(updated, 1, 8) AS day, SUM(LENGTH(content)) AS count
+                FROM blocks
+                WHERE type IN ('p', 'h', 'l', 'c', 't', 'm', 'b')
+                AND updated BETWEEN '${start}000000' AND '${end}235959'
+                AND content IS NOT NULL AND content != ''
+                GROUP BY substr(updated, 1, 8)
+                ORDER BY day ASC
+            `;
+            const rows = await sql(query);
+            return aggregateRowsToCounts(rows);
+        } catch {
+            return {};
         }
+    }
+
+    function aggregateRowsToCounts(rows: any[]): Record<string, number> {
+        const counts: Record<string, number> = {};
+        if (!Array.isArray(rows)) return counts;
+        for (const row of rows) {
+            const day = row?.day;
+            const count = Number(row?.count) || 0;
+            if (day && count > 0) {
+                counts[formatYmdDayToDate(String(day))] = count;
+            }
+        }
+        return counts;
+    }
+
+    function formatYmdDayToDate(day: string): string {
+        const s = String(day);
+        if (s.length !== 8) return s;
+        return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
     }
 
     // 生成完整日历数据（包含范围内所有日期，无数据日期 value 为 0）
@@ -472,55 +527,16 @@
     }
 
     function getRangeByMonthCount(monthCount: number): string[] {
+        const clampedCount = Math.max(1, Math.min(12, Math.floor(Number(monthCount) || 6)));
         const now = new Date();
         const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         const start = new Date(now);
-        start.setMonth(start.getMonth() - monthCount + 1, 1);
+        start.setMonth(start.getMonth() - clampedCount + 1, 1);
 
         return [
             start.toISOString().split("T")[0],
             end.toISOString().split("T")[0],
         ];
-    }
-
-    function formatTimestampToDate(timestamp: string): string {
-        const year = timestamp.slice(0, 4);
-        const month = timestamp.slice(4, 6);
-        const day = timestamp.slice(6, 8);
-        return `${year}-${month}-${day}`;
-    }
-
-    function countBlocksPerDay(blocks: any[]): { [key: string]: number } {
-        const counts: { [key: string]: number } = {};
-
-        blocks.forEach((block) => {
-            const dateStr = formatTimestampToDate(block.updated);
-
-            if (counts[dateStr]) {
-                counts[dateStr] += 1;
-            } else {
-                counts[dateStr] = 1;
-            }
-        });
-
-        return counts;
-    }
-
-    function countWordsPerDay(blocks: any[]): { [key: string]: number } {
-        const counts: { [key: string]: number } = {};
-
-        blocks.forEach((block) => {
-            const dateStr = formatTimestampToDate(block.updated);
-            const wordCount = block.content?.length || 0;
-
-            if (counts[dateStr]) {
-                counts[dateStr] += wordCount;
-            } else {
-                counts[dateStr] = wordCount;
-            }
-        });
-
-        return counts;
     }
 
     function getColorGradient(preset, color) {

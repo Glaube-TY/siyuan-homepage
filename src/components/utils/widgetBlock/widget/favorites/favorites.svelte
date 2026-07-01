@@ -32,6 +32,9 @@
         $derived(contentTypeJsonObj.data?.favFloatDocShowTime || 0.1);
     const useBuiltinDocIcon = $derived(contentTypeJsonObj.data?.useBuiltinDocIcon ?? false);
 
+    // 组件销毁后丢弃异步 SQL 结果，避免更新已卸载状态
+    let isDestroyed = false;
+
     // 获取文档图标（优先内置图标，否则回退到前缀）
     function getDocIcon(note: any): DocIconResult {
         if (useBuiltinDocIcon) {
@@ -71,14 +74,18 @@
     }
 
     onMount(() => {
+        isDestroyed = false;
         getLatestFavoritesNotes(
             contentTypeJsonObj.data?.favoritiesSortOrder,
             contentTypeJsonObj.data?.favoritesNotebookId,
+            useBuiltinDocIcon,
         ).then((notes) => {
+            if (isDestroyed) return;
             favoritesNotes = notes;
         });
 
         return () => {
+            isDestroyed = true;
             clearFloatDocTimeouts();
         };
     });

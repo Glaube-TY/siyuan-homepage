@@ -1,16 +1,26 @@
 import { sql, getFile } from "@/api";
+import { escapeSqlString, selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
 
 export interface latestDocumentInfo {
     id: string;
     content: string;
     updated: string;
-    icon?: string;
     ial?: string;
+}
+
+// 仅包含最近文档卡片展示、排序与打开所需字段；开启内置图标时追加 ial
+function buildLatestDocFields(includeBuiltinDocIcon: boolean): string {
+    const fields = ["id", "content", "updated"];
+    if (includeBuiltinDocIcon) {
+        fields.push("ial");
+    }
+    return fields.join(", ");
 }
 
 export async function getLatestDocuments(
     docNotebookIds?: string,
-    ensureOpenDocs?: boolean
+    ensureOpenDocs?: boolean,
+    includeBuiltinDocIcon?: boolean,
 ): Promise<latestDocumentInfo[]> {
     try {
         if (ensureOpenDocs) {
@@ -25,11 +35,24 @@ export async function getLatestDocuments(
                 return [];
             }
 
-            const ids = rootIds.map((id: string) => `'${id}'`).join(',');
+            const recentDocFields = [
+                "id",
+                "content",
+                "updated",
+                "box",
+                ...(includeBuiltinDocIcon ? ["ial"] : []),
+            ].join(", ");
 
-            // 一次性从 blocks 表查询所有需要的字段（包含 ial 用于兜底提取 icon）
-            const blocksQuery = `SELECT id, content, updated, box, icon, ial FROM blocks WHERE id IN (${ids})`;
-            const blocksData = await sql(blocksQuery);
+            const blocksData = await selectByIdsBatched(
+                rootIds,
+                (escapedIds) => `
+                    SELECT ${recentDocFields}
+                    FROM blocks
+                    WHERE id IN (${escapedIds})
+                    ORDER BY updated DESC, id DESC
+                `,
+                64,
+            );
 
             // 创建 id -> blockData 的映射，方便快速查找
             const blockMap = new Map();
@@ -53,13 +76,15 @@ export async function getLatestDocuments(
                     if (!block) {
                         return null;
                     }
-                    return {
+                    const result: latestDocumentInfo = {
                         id: doc.rootID,
                         content: block.content || "(无标题)",
                         updated: block.updated || "",
-                        icon: block.icon || "",
-                        ial: block.ial || ""
                     };
+                    if (includeBuiltinDocIcon && block.ial) {
+                        result.ial = block.ial;
+                    }
+                    return result;
                 })
                 .filter((doc: any): doc is latestDocumentInfo => doc !== null);
 
@@ -80,27 +105,25 @@ export async function getLatestDocuments(
             notebookIds = docNotebookIds.split(/[，,]/).map(id => id.trim()).filter(Boolean);
         }
 
-        let query = `
-            SELECT *
+        const boxFilter = notebookIds.length > 0
+            ? `AND box IN (${notebookIds.map(id => `'${escapeSqlString(id)}'`).join(", ")})`
+            : "";
+        const fields = buildLatestDocFields(Boolean(includeBuiltinDocIcon));
+
+        const query = `
+            SELECT ${fields}
             FROM blocks
             WHERE type = 'd'
               AND content != 'daily note'
               AND hpath NOT LIKE '/daily note/%'
-        `;
-
-        if (notebookIds.length > 0) {
-            query += ` AND box IN (${notebookIds.map(id => `'${id}'`).join(', ')})`;
-        }
-
-        query += `
-            ORDER BY updated DESC
-            LIMIT 100;
+            ${boxFilter}
+            ORDER BY updated DESC, id DESC
+            LIMIT 100
         `;
 
         const result = await sql(query);
-        return result;
-    } catch (error) {
-        console.error("Failed to fetch latest documents:", error);
+        return Array.isArray(result) ? result : [];
+    } catch {
         return [];
     }
 }

@@ -40,6 +40,9 @@
 
     let displayedDocs: any[] = $state([]);
 
+    // 组件销毁后丢弃异步 SQL 结果，避免更新已卸载状态
+    let isDestroyed = false;
+
     // 获取文档图标（优先内置图标，否则回退到前缀）
     function getDocIcon(doc: any): DocIconResult {
         if (useBuiltinDocIcon) {
@@ -67,24 +70,30 @@
 
     // 模拟加载文档数据
     onMount(() => {
+        isDestroyed = false;
         if (conditionDocsCondition === "keyword") {
             getConditionDocsByKeyword(
                 conditionDocsKeyPosition,
                 conditionDocsKeyWord,
                 conditionDocsSortOrder,
+                useBuiltinDocIcon,
             ).then((docs) => {
+                if (isDestroyed) return;
                 displayedDocs = docs;
             });
         } else if (conditionDocsCondition === "tag") {
             getConditionDocsByTag(
                 conditionDocsTag,
                 conditionDocsSortOrder,
+                useBuiltinDocIcon,
             ).then((docs) => {
+                if (isDestroyed) return;
                 displayedDocs = docs;
             });
         }
 
         return () => {
+            isDestroyed = true;
             clearFloatDocTimeouts();
         };
     });

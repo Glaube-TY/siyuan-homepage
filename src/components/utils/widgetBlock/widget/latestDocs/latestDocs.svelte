@@ -41,7 +41,10 @@
     // 文档数据源
     let documentList: latestDocumentInfo[] = [];
     let displayedDocs: latestDocumentInfo[] = $state([]);
-    
+
+    // 组件销毁后丢弃异步 SQL 结果，避免更新已卸载状态
+    let isDestroyed = false;
+
     // 悬浮窗定时器
     let floatDocTimeout: number | null = $state(null);
     let mouseLeaveTimeout: number | null = $state(null);
@@ -60,15 +63,19 @@
 
     // 模拟加载文档数据
     onMount(() => {
+        isDestroyed = false;
         getLatestDocuments(
             parsed.data?.[0]?.docNotebookId,
             parsed.data?.[0]?.ensureOpenDocs,
+            useBuiltinDocIcon,
         ).then((docs) => {
+            if (isDestroyed) return;
             documentList = docs;
             displayedDocs = documentList.slice(0, limit);
         });
 
         return () => {
+            isDestroyed = true;
             clearFloatDocTimeouts();
         };
     });

@@ -1,29 +1,48 @@
-import { sql } from "@/api";
+import {
+    escapeSqlString,
+    normalizeSortField,
+    selectPaged,
+} from "@/components/tools/siyuanSqlPaging";
 
-export async function getLatestFavoritesNotes(sortBy: string, notebookId?: string): Promise<any[]> {
-    try {
-        let notebookIds: string[] = [];
-        if (notebookId) {
-            notebookIds = notebookId.split(/[，,]/).map(id => id.trim()).filter(Boolean);
-        }
+const ALLOWED_SORT_FIELDS = ["updated", "created", "sort"];
 
-        let query = `
-            SELECT *
-            FROM blocks 
-            WHERE type = 'd'
-            AND ial REGEXP 'custom-homepage-favorites\\s*=\\s*"true"'
-        `;
-
-        // 添加笔记本筛选条件
-        if (notebookIds.length > 0) {
-            query += ` AND box IN (${notebookIds.map(id => `'${id}'`).join(', ')})`;
-        }
-
-        query += ` ORDER BY ${sortBy} DESC`;
-        
-        return await sql(query);
-    } catch (error) {
-        console.error("Failed to fetch latest favorites notes:", error);
-        return [];
+// 仅包含收藏文档卡片展示、排序与打开所需字段；
+// sortOrder 为 sort 时追加 sort，开启内置图标时追加 ial
+function buildFavoritesFields(sortBy: string, includeBuiltinDocIcon: boolean): string {
+    const fields = ["id", "content", "created", "updated"];
+    if (sortBy === "sort") {
+        fields.push("sort");
     }
+    if (includeBuiltinDocIcon) {
+        fields.push("ial");
+    }
+    return fields.join(", ");
+}
+
+export async function getLatestFavoritesNotes(
+    sortBy: string,
+    notebookId?: string,
+    includeBuiltinDocIcon?: boolean,
+): Promise<any[]> {
+    let notebookIds: string[] = [];
+    if (notebookId) {
+        notebookIds = notebookId.split(/[，,]/).map(id => id.trim()).filter(Boolean);
+    }
+
+    const safeSort = normalizeSortField(sortBy, ALLOWED_SORT_FIELDS, "updated");
+    const boxFilter = notebookIds.length > 0
+        ? `AND box IN (${notebookIds.map(id => `'${escapeSqlString(id)}'`).join(", ")})`
+        : "";
+    const fields = buildFavoritesFields(safeSort, Boolean(includeBuiltinDocIcon));
+
+    const query = `
+        SELECT ${fields}
+        FROM blocks
+        WHERE type = 'd'
+        AND ial REGEXP 'custom-homepage-favorites\\s*=\\s*"true"'
+        ${boxFilter}
+        ORDER BY ${safeSort} DESC, id DESC
+    `;
+
+    return selectPaged(query, { pageSize: 64, maxRows: 1000 });
 }

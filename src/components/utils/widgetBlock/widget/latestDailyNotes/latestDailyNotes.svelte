@@ -143,7 +143,8 @@
 
     onMount(async () => {
         isDestroyed = false;
-        dailyNotes = await getLatestDailyNotes();
+        dailyNotes = await getLatestDailyNotes(useBuiltinDocIcon);
+        if (isDestroyed) return;
 
         const sorted = [...dailyNotes].sort((a, b) =>
             b.created.localeCompare(a.created),
@@ -761,7 +762,7 @@
         font-weight: 600;
         margin-bottom: 0.5rem;
         padding-bottom: 0.3rem;
-        border-bottom: 1px solid var(--b3-border-color);
+        border-bottom: 1px solid var(--b3-border-color, rgba(0, 0, 0, 0.12));
         text-align: center;
         display: inline-block;
         line-height: 1.2;
@@ -799,11 +800,11 @@
                 cursor: pointer;
                 font-size: 14px;
                 transition: all 0.2s ease;
-                background-color: var(--b3-theme-surface);
+                background-color: var(--b3-theme-surface, #f7f7f7);
             }
 
             .nav-button:hover {
-                background-color: var(--b3-list-icon-hover);
+                background-color: var(--b3-list-icon-hover, rgba(0, 0, 0, 0.06));
                 transform: scale(1.1);
             }
         }
@@ -816,7 +817,7 @@
     }
 
     .fas {
-        color: var(--b3-theme-primary);
+        color: var(--b3-theme-primary, #3575f0);
     }
 
     .document-list {
@@ -834,14 +835,14 @@
         flex: 0 0 auto;
         padding: 0.5rem 0.75rem;
         margin-bottom: 0.5rem;
-        background-color: var(--b3-theme-surface);
+        background-color: var(--b3-theme-surface, #f7f7f7);
         border-radius: 6px;
         font-size: 14px;
         transition: background-color 0.2s ease;
     }
 
     .document-item:hover {
-        background-color: var(--b3-list-hover);
+        background-color: var(--b3-list-hover, rgba(0, 0, 0, 0.08));
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         text-decoration: underline;
@@ -850,7 +851,7 @@
     .document-item-content {
         margin-top: 4px;
         display: block;
-        color: var(--b3-theme-primary);
+        color: var(--b3-theme-primary, #3575f0);
         text-decoration: none;
         font-weight: bold;
         cursor: pointer;

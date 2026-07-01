@@ -3,6 +3,7 @@ import {
     setBlockAttrsChecked,
     sql,
 } from "@/api";
+import { selectPaged } from "@/components/tools/siyuanSqlPaging";
 import {
     addDaysFromToday,
     diffDays,
@@ -231,26 +232,28 @@ function normalizeBlockRow(row: any, fallbackType: ReviewTargetType): ReviewTarg
     };
 }
 
+// 仅包含编辑/操作对话框展示与日志记录所需字段
+const REVIEW_TARGET_INFO_FIELDS = [
+    "id",
+    "parent_id",
+    "root_id",
+    "box",
+    "path",
+    "hpath",
+    "name",
+    "alias",
+    "content",
+    "type",
+    "created",
+    "updated",
+].join(", ");
+
 export async function getReviewTargetInfo(
     targetId: string,
     targetType: ReviewTargetType
 ): Promise<ReviewTargetInfo> {
     const rows = await sql(`
-        SELECT
-          id,
-          parent_id,
-          root_id,
-          box,
-          path,
-          hpath,
-          name,
-          alias,
-          content,
-          fcontent,
-          markdown,
-          type,
-          created,
-          updated
+        SELECT ${REVIEW_TARGET_INFO_FIELDS}
         FROM blocks
         WHERE id = '${escapeSqlString(targetId)}'
         LIMIT 1
@@ -285,36 +288,29 @@ function rowToReviewItem(row: any): ReviewItem | null {
     };
 }
 
+// 仅包含复习卡片展示、排序、打开与本地搜索所需字段
+const REVIEW_LIST_FIELDS = [
+    "id",
+    "type",
+    "ial",
+    "content",
+    "hpath",
+    "path",
+    "created",
+    "updated",
+    "root_id",
+].join(", ");
+
 export async function loadAllReviewItems(): Promise<ReviewItem[]> {
-    const rows = await sql(`
-        SELECT
-          id,
-          parent_id,
-          root_id,
-          hash,
-          box,
-          path,
-          hpath,
-          name,
-          alias,
-          memo,
-          tag,
-          content,
-          fcontent,
-          markdown,
-          length,
-          type,
-          subtype,
-          ial,
-          sort,
-          created,
-          updated
+    const query = `
+        SELECT ${REVIEW_LIST_FIELDS}
         FROM blocks
         WHERE ial REGEXP 'custom-homepage-review-next-date\\\\s*=\\\\s*"[0-9]{4}-[0-9]{2}-[0-9]{2}"'
-        ORDER BY updated DESC
-    `);
+        ORDER BY updated DESC, id DESC
+    `;
+    const rows = await selectPaged(query, { pageSize: 64, maxRows: 10000 });
 
-    return (rows || [])
+    return rows
         .map(rowToReviewItem)
         .filter((item): item is ReviewItem => item !== null);
 }

@@ -1,8 +1,12 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { openDocs } from "@/components/tools/openDocs";
     import { sql } from "@/api";
     import { formatDateShort } from "@/components/tools/formatDate";
+    import {
+        escapeSqlLike,
+        normalizeSortField,
+    } from "@/components/tools/siyuanSqlPaging";
     import {
         createFloatingDocPopup,
         setMouseOnTrigger,
@@ -28,6 +32,22 @@
     const useBuiltinDocIcon = $derived(parsed.data?.useBuiltinDocIcon ?? false);
 
     let displayedDocs: any[] = $state([]);
+    let isDestroyed = false;
+
+    const ALLOWED_SORT_FIELDS = ["updated", "created", "sort"];
+
+    // 仅包含子文档卡片展示、排序与打开所需字段；
+    // 按 sort 排序时追加 sort，开启内置图标时追加 ial
+    function buildChildDocsFields(sortOrder: string, includeBuiltinDocIcon: boolean): string {
+        const fields = ["id", "content", "created", "updated"];
+        if (sortOrder === "sort") {
+            fields.push("sort");
+        }
+        if (includeBuiltinDocIcon) {
+            fields.push("ial");
+        }
+        return fields.join(", ");
+    }
 
     // 获取文档图标（优先内置图标，否则回退到前缀）
     function getDocIcon(doc: any): DocIconResult {
@@ -59,19 +79,42 @@
         getChildDocs();
 
         return () => {
+            isDestroyed = true;
             clearFloatDocTimeouts();
         };
     });
 
+    onDestroy(() => {
+        isDestroyed = true;
+        clearFloatDocTimeouts();
+    });
+
     async function getChildDocs() {
+        const parentId = String(childDocsParentId || "").trim();
+        if (!parentId) {
+            if (!isDestroyed) {
+                displayedDocs = [];
+            }
+            return;
+        }
+
+        const safeSort = normalizeSortField(childDocsSortOrder, ALLOWED_SORT_FIELDS, "updated");
+        const escapedId = escapeSqlLike(parentId);
+        const fields = buildChildDocsFields(safeSort, useBuiltinDocIcon);
+
         const query = `
-            SELECT *
+            SELECT ${fields}
             FROM blocks
             WHERE type = 'd'
-            AND path LIKE '%/${childDocsParentId}/%'
-            ORDER BY ${childDocsSortOrder} DESC
+            AND path LIKE '%/${escapedId}/%' ESCAPE '\\'
+            ORDER BY ${safeSort} DESC
+            LIMIT 1000
         `;
-        displayedDocs = await sql(query);
+        const rows = await sql(query);
+
+        if (!isDestroyed) {
+            displayedDocs = Array.isArray(rows) ? rows : [];
+        }
     }
 </script>
 

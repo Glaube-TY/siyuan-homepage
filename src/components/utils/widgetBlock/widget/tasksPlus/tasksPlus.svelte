@@ -20,6 +20,8 @@
     let tasksList: any[] = [];
     let tasksListFormat: any = $state();
     let reminderCheckInterval: number | null = null;
+    // 组件销毁后丢弃异步结果，避免更新已卸载状态
+    let isDestroyed = false;
 
     function showSystemNotification(title: string, body: string) {
         if (!("Notification" in window)) {
@@ -298,7 +300,9 @@
     }
 
     onMount(async () => {
+        isDestroyed = false;
         tasksList = await gettasksList();
+        if (isDestroyed) return;
         tasksListFormat = await formatTasksList(
             tasksList,
             internalFilter,
@@ -306,6 +310,7 @@
             customFilter,
             tasksSort,
         );
+        if (isDestroyed) return;
 
         tasksListFormat = tasksListFormat.map((task) => ({
             ...task,
@@ -315,11 +320,13 @@
         setupReminderChecker(tasksListFormat);
 
         for (const task of tasksListFormat) {
+            if (isDestroyed) return;
             await updateTaskBasedOnRecurrence(task);
         }
     });
 
     onDestroy(() => {
+        isDestroyed = true;
         if (reminderCheckInterval !== null) {
             clearInterval(reminderCheckInterval);
         }

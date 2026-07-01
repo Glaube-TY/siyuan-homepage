@@ -1,7 +1,14 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import { Protyle } from "siyuan";
     import { sql } from "@/api";
+
+    // 组件销毁后丢弃异步结果，避免更新已卸载状态
+    let isDestroyed = false;
+
+    onDestroy(() => {
+        isDestroyed = true;
+    });
 
     interface Props {
         plugin: any;
@@ -33,11 +40,14 @@
     });
 
     let divProtyle: HTMLDivElement = $state();
+    // 保留 Protyle 实例引用，防止编辑器被垃圾回收
     let protyle: any;
 
     onMount(async () => {
+        isDestroyed = false;
         if (isRandomDoc) {
             await getRandomDocID();
+            if (isDestroyed) return;
         }
         protyle = await initProtyle(); // 初始化编辑器
     });
@@ -50,11 +60,18 @@
     }
 
     async function getRandomDocID() {
-        const query =
-            "SELECT * FROM blocks WHERE type = 'd' order by random() limit 1";
-        const response = await sql(query);
-        const randomDocID = response[0].id;
-        blockID = randomDocID;
+        const countRows = await sql("SELECT COUNT(*) AS count FROM blocks WHERE type = 'd'");
+        if (isDestroyed) return;
+        const count = Number(countRows?.[0]?.count) || 0;
+        if (count === 0) {
+            return;
+        }
+        const offset = Math.floor(Math.random() * count);
+        const rows = await sql(`SELECT id FROM blocks WHERE type = 'd' ORDER BY id LIMIT 1 OFFSET ${offset}`);
+        if (isDestroyed) return;
+        if (rows?.[0]?.id) {
+            blockID = rows[0].id;
+        }
     }
 </script>
 

@@ -324,6 +324,8 @@
         const container = getComponentSectionContainer(sectionId);
         if (!container) return;
         if (!force && restoredComponentSectionIds.has(sectionId)) return;
+        // 分区导航模式下，只 restore 当前 active section，避免非当前分区组件挂载请求数据
+        if (effectiveComponentSectionsEnabled && sectionId !== activeComponentSectionId) return;
 
         await restoreLayout(
             plugin,

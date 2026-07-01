@@ -3,7 +3,8 @@
     import { showMessage } from "siyuan";
     import DOMPurify from "dompurify";
     import { MD2HTML } from "@/components/tools/MD2HTML";
-    import { getChildBlocks, sql, deleteBlock } from "@/api";
+    import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
+    import { getChildBlocks, deleteBlock } from "@/api";
 
     interface Props {
         plugin: any;
@@ -52,11 +53,11 @@
             });
 
         if (quickNotesSort === "UPD" && quickNotesList.length > 0) {
-            const blockIds = quickNotesList
-                .map((note) => `'${note.id}'`)
-                .join(",");
-            const sqlStmt = `SELECT id, updated FROM blocks WHERE id IN (${blockIds})`;
-            const result = await sql(sqlStmt);
+            const result = await selectByIdsBatched(
+                quickNotesList.map((note) => note.id),
+                (escapedIds) => `SELECT id, updated FROM blocks WHERE id IN (${escapedIds})`,
+                64,
+            );
 
             const updatedMap = {};
             result.forEach((row) => {
@@ -70,11 +71,11 @@
 
             quickNotesList.sort((a, b) => b.updated.localeCompare(a.updated));
         } else if (quickNotesSort === "CRE" && quickNotesList.length > 0) {
-            const blockIds = quickNotesList
-                .map((note) => `'${note.id}'`)
-                .join(",");
-            const sqlStmt = `SELECT id, created FROM blocks WHERE id IN (${blockIds})`;
-            const result = await sql(sqlStmt);
+            const result = await selectByIdsBatched(
+                quickNotesList.map((note) => note.id),
+                (escapedIds) => `SELECT id, created FROM blocks WHERE id IN (${escapedIds})`,
+                64,
+            );
 
             const createdMap = {};
             result.forEach((row) => {

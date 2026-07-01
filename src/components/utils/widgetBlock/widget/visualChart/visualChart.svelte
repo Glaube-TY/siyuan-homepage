@@ -1,6 +1,7 @@
 <script lang="ts">
     import { showMessage, openTab } from "siyuan";
     import { sql, getTag } from "@/api";
+    import { selectPaged } from "@/components/tools/siyuanSqlPaging";
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import "echarts-wordcloud";
@@ -358,14 +359,17 @@
     }
 
     async function getTasks() {
+        // 仅包含图表任务解析与展示所需字段
         const query = `
-        SELECT *
-        FROM blocks 
-        WHERE subtype = 't' AND type != 'l' AND markdown LIKE '- [ ]%'
-        ORDER BY updated DESC
-        LIMIT 9999999999999;
-    `;
-        const response = await sql(query);
+            SELECT
+                id,
+                markdown,
+                created
+            FROM blocks
+            WHERE subtype = 't' AND type != 'l' AND markdown LIKE '- [ ]%'
+            ORDER BY updated DESC, id DESC
+        `;
+        const response = await selectPaged(query, { pageSize: 64, maxRows: 5000 });
 
         const tasks = response
             .map((task) => {
@@ -514,9 +518,11 @@
     }
 
     onMount(async () => {
+        isDestroyed = false;
         const savedConfig = await plugin.loadData(
             `widget-${parsedContent.blockId}.json`,
         );
+        if (isDestroyed) return;
 
         if (savedConfig?.data?.progressBars) {
             progressBars = await Promise.all(
@@ -623,6 +629,7 @@
         }
 
         tasks = await getTasks();
+        if (isDestroyed) return;
 
         onMountTimeout = setTimeout(async () => {
             if (isDestroyed) return;

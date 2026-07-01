@@ -1,4 +1,4 @@
-import { sql } from "@/api";
+import { selectPaged } from "@/components/tools/siyuanSqlPaging";
 
 export interface RecentTasksInfo {
     id: string;
@@ -9,20 +9,23 @@ export interface RecentTasksInfo {
     hpath: string;
 }
 
-export async function gettasksList(): Promise<any> {
-    try {
-        let query = `
-            SELECT *
-            FROM blocks 
-            WHERE subtype = 't' AND type != 'l'
-            ORDER BY updated DESC
-            LIMIT 9999999999999
-        `;
-        return await sql(query);
-    } catch (error) {
-        console.error("Failed to fetch latest tasks:", error);
-        return [];
-    }
+// 仅包含任务解析、排序、来源与状态更新所需字段
+const TASK_FIELDS = [
+    "id",
+    "markdown",
+    "updated",
+    "hpath",
+    "box",
+].join(", ");
+
+export async function gettasksList(): Promise<any[]> {
+    const query = `
+        SELECT ${TASK_FIELDS}
+        FROM blocks
+        WHERE subtype = 't' AND type != 'l'
+        ORDER BY updated DESC, id DESC
+    `;
+    return selectPaged(query, { pageSize: 64, maxRows: 10000 });
 }
 
 export async function formatTasksList(
