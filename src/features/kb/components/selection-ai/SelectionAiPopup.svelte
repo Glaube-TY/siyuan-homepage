@@ -6,7 +6,7 @@
     SELECTION_AI_ACTION_LABELS,
     SELECTION_AI_ACTION_TOOLTIPS,
   } from "../../services/selection-ai/selection-ai-defaults";
-  import { mdToHtml } from "../../utils/md-to-html";
+  import { mdToHtml } from "@/components/tools/mdToHtml";
   import type {
     SelectionAiRect,
     SelectionAiRequest,

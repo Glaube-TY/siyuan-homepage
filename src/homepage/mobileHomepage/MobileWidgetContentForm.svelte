@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
-    import { getNotebooks } from "@/components/tools/getNotebooks";
+    import { lsNotebooks } from "@/api";
     import {
         getMobileWidgetActiveTab,
         getMobileWidgetLabel,
@@ -481,7 +481,8 @@
 
     async function initialize(): Promise<void> {
         try {
-            notebooks = await getNotebooks(plugin);
+            const result = await lsNotebooks();
+            notebooks = result.notebooks;
         } catch (error) {
             notebooks = [];
             console.warn("[mobile content form] 读取笔记本失败", error);

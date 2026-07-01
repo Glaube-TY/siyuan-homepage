@@ -2,7 +2,7 @@
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import { checkExistingMusicPlayer } from "./widget/musicPlayer/musicPlayerInstanceGuard";
-    import { getNotebooks } from "@/components/tools/getNotebooks";
+    import { lsNotebooks } from "@/api";
     import FavoritesSet from "./widget/favorites/favoritesSet.svelte";
     import FocusSet from "./widget/focus/focusSet.svelte";
 
@@ -529,7 +529,8 @@
             `widget-${currentBlockId}.json`,
         );
 
-        notebooks = await getNotebooks(plugin);
+        const result = await lsNotebooks();
+        notebooks = result.notebooks;
 
         if (settingData && !forceInitialContentType) {
             let parsedData: any;

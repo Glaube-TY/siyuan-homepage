@@ -1,9 +1,8 @@
 <script lang="ts">
+  import { escapeHtml } from "@/components/tools/mdToHtml";
   import type { EditDiffPreview, EditBlockDiffEntry, InlineDiffPart } from "../../services/doc-content-edit/doc-content-edit-types";
 
   export let editDiffPreview: EditDiffPreview | null = null;
-
-  let scrollEl: HTMLDivElement;
 
   function isCollapsedPlaceholder(entry: EditBlockDiffEntry): boolean {
     return entry.status === "unchanged" && entry.oldBlock?.id === "__collapsed__";
@@ -56,9 +55,6 @@
     return result || escapeHtml(lineText);
   }
 
-  function escapeHtml(text: string): string {
-    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
 </script>
 
 {#if editDiffPreview}
@@ -79,7 +75,7 @@
     </div>
 
     <!-- Scrollable body -->
-    <div class="diff-body" bind:this={scrollEl}>
+    <div class="diff-body">
       {#if !hasChanges()}
         <div class="no-changes-hint">
           未检测到内容变化，当前内容与拟写入内容相同。
@@ -122,7 +118,7 @@
                 </div>
               {/each}
             {:else}
-              {#each splitLines(entry.oldBlock?.text ?? entry.newBlock?.text ?? "") as line, i}
+              {#each splitLines(entry.oldBlock?.text ?? entry.newBlock?.text ?? "") as line}
                 <div class="diff-line line-unchanged">
                   <span class="line-prefix">&nbsp;</span>
                   <span class="line-content">{line}</span>

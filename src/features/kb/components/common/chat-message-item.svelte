@@ -4,7 +4,7 @@
   import type { AgentWorkbenchEvent } from "../../services/agent-workbench";
   import type { KbAssistantActionAlignment, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
   import { navigateToReference, navigateToDocId } from "../../services/siyuan/reference-navigation";
-  import { mdToHtml } from "../../utils/md-to-html";
+  import { mdToHtml } from "@/components/tools/mdToHtml";
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import { mapAgentErrorToUserFacing } from "../../services/agent-workbench/runtime/user-facing-agent-error";
   import ChatAvatar from "./chat-avatar.svelte";

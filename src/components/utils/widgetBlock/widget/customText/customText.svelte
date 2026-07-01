@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { MD2HTML } from "@/components/tools/MD2HTML";
+    import { mdToHtml } from "@/components/tools/mdToHtml";
 
     interface Props {
         contentTypeJson?: string;
@@ -20,7 +20,7 @@
                 typeof data.data[0]?.customText === "string"
             ) {
                 customTextContent = data.data[0].customText;
-                htmlContent = MD2HTML(customTextContent);
+                htmlContent = mdToHtml(customTextContent);
             }
         } catch (e) {
             console.error("无法解析 contentTypeJson", e);

@@ -36,7 +36,7 @@
         reRegisterAllShortcuts,
         unregisterAllShortcuts,
     } from "./header/quick-button";
-    import { MD2HTML } from "@/components/tools/MD2HTML";
+    import { mdToHtml } from "@/components/tools/mdToHtml";
     import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
     import {
         updateCursorStyle,
@@ -2033,7 +2033,7 @@
                             >
                         </div>
                     {:else}
-                        {@html MD2HTML(footerContent)}
+                        {@html mdToHtml(footerContent)}
                     {/if}
                 </div>
             </div>

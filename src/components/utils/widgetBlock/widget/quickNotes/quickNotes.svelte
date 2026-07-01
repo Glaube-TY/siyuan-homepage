@@ -2,7 +2,7 @@
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import DOMPurify from "dompurify";
-    import { MD2HTML } from "@/components/tools/MD2HTML";
+    import { mdToHtml } from "@/components/tools/mdToHtml";
     import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
     import { getChildBlocks, deleteBlock } from "@/api";
 
@@ -43,7 +43,7 @@
         quickNotesList = quickNotes
             .filter((note) => note.markdown && note.markdown.trim() !== "")
             .map((note) => {
-                const rawHtml = MD2HTML(note.markdown);
+                const rawHtml = mdToHtml(note.markdown);
                 return {
                     ...note,
                     htmlContent: DOMPurify.sanitize(rawHtml).trimEnd(),
