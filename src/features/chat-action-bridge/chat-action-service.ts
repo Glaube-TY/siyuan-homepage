@@ -333,7 +333,7 @@ export async function startChatActionBridgeIfNeeded(options: { restart?: boolean
     onStatusChange: (next, detail) => {
       if (next === "connecting") setStatus({ code: "connecting", message: "正在连接本地网关" });
       if (next === "connected") setStatus({ code: "connected", message: "本地网关已连接" });
-      if (next === "gateway_unavailable") setStatus({ code: "gateway_unavailable", message: detail || "本地飞书网关未启动" });
+      if (next === "gateway_unavailable") setStatus({ code: "gateway_unavailable", message: detail || "本地网关暂不可用，正在自动重试" });
       if (next === "connection_failed") setStatus({ code: "connection_failed", message: "连接失败", detail });
       if (next === "stopped") setStatus({ code: "stopped", message: "已停止" });
     },
@@ -347,7 +347,7 @@ export async function startChatActionBridgeIfNeeded(options: { restart?: boolean
     if ((error as any)?.code === "gateway_unavailable") {
       setStatus({
         code: "gateway_unavailable",
-        message: "飞书 Node SDK 不能在思源前端环境中直接运行，请启动本地飞书网关。",
+        message: "本地网关暂不可用，正在自动重试",
       });
       return status;
     }

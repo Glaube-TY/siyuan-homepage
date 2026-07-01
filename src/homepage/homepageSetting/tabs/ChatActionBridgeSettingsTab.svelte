@@ -67,10 +67,10 @@
                 ? "网关已连接，等待飞书私聊绑定"
                 : runtimeStatus.code === "connecting"
                     ? "正在连接本地网关"
-                    : gatewayConnected
+                    : runtimeStatus.code === "connected"
                         ? "本地网关已连接"
                         : runtimeStatus.message.includes("本地飞书网关已")
-                            ? "本地网关已连接"
+                            ? "本地网关已启动，待连接"
                         : "本地网关未启动"
     );
 
@@ -301,7 +301,7 @@
             {/if}
             {#if runtimeStatus.code === "gateway_unavailable"}
                 <div class="cab-warning">
-                    飞书 Node SDK 不能在思源前端环境中直接运行，请启动本地飞书网关。
+                    正在自动重试；如果长时间不可用，请启动本地飞书网关或检查端口是否被占用。
                 </div>
             {/if}
             <div class="cab-status-grid">
@@ -344,6 +344,7 @@
             </div>
             <div class="cab-help">
                 <p>本地网关只监听 127.0.0.1，插件与网关通信会携带本地 token。token 不会写入控制台。</p>
+                <p>思源窗口后台时，网关会先暂存消息；恢复前台后插件会继续处理。彻底关闭思源后，自动启动的网关也会停止。</p>
                 {#if !gatewayAutoStartSupported}
                     <p>当前环境不支持自动启动本地进程，请复制命令到终端运行。</p>
                 {/if}

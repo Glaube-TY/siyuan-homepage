@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global process, Buffer, URL */
+/* global process, Buffer, URL, setTimeout, clearTimeout */
 import http from "node:http";
 import * as FeishuSdk from "@larksuiteoapi/node-sdk";
 
@@ -134,8 +134,16 @@ async function main() {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) fail("无效的 --port。");
 
   const pendingEvents = [];
+  const pendingWaiters = [];
   const recentMessageIds = new Map();
   const recentMessageTtlMs = 24 * 60 * 60 * 1000;
+  const messageTtlMs = 24 * 60 * 60 * 1000;
+  const MAX_QUEUE_LENGTH = 1000;
+  const TARGET_QUEUE_LENGTH = 500;
+  const DEFAULT_EVENTS_LIMIT = 20;
+  const MAX_EVENTS_LIMIT = 50;
+  const DEFAULT_EVENTS_WAIT_MS = 25000;
+  const MAX_EVENTS_WAIT_MS = 30000;
 
   function pruneRecentMessageIds(now) {
     for (const [messageId, expiresAt] of recentMessageIds) {
@@ -153,6 +161,75 @@ async function main() {
     return true;
   }
 
+  function prunePendingEvents(now) {
+    const cutoff = now - messageTtlMs;
+    let removed = 0;
+    while (pendingEvents.length > 0 && pendingEvents[0].receivedAt < cutoff) {
+      pendingEvents.shift();
+      removed += 1;
+    }
+    if (pendingEvents.length > MAX_QUEUE_LENGTH) {
+      const excess = pendingEvents.length - TARGET_QUEUE_LENGTH;
+      pendingEvents.splice(0, excess);
+    }
+    return removed;
+  }
+
+  function enqueueMessage(message) {
+    const now = Date.now();
+    if (!rememberMessageId(message.messageId)) return;
+    prunePendingEvents(now);
+    pendingEvents.push(message);
+    if (pendingEvents.length > MAX_QUEUE_LENGTH) {
+      pendingEvents.splice(0, pendingEvents.length - TARGET_QUEUE_LENGTH);
+    }
+    // Wake any waiting long-poll requests with the newest messages
+    while (pendingWaiters.length > 0) {
+      const waiter = pendingWaiters.shift();
+      try {
+        waiter.resolve();
+      } catch {
+        // ignore waiter errors
+      }
+    }
+  }
+
+  function ackMessages(messageIds) {
+    const idSet = new Set(messageIds);
+    for (let i = pendingEvents.length - 1; i >= 0; i -= 1) {
+      if (idSet.has(pendingEvents[i].messageId)) {
+        pendingEvents.splice(i, 1);
+      }
+    }
+  }
+
+  function peekPendingMessages(limit) {
+    if (pendingEvents.length === 0) return [];
+    return pendingEvents.slice(0, Math.min(limit, pendingEvents.length));
+  }
+
+  function clampNumber(value, defaultValue, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return defaultValue;
+    return Math.min(max, Math.max(min, number));
+  }
+
+  function parseEventsQuery(url) {
+    const limit = clampNumber(
+      url.searchParams.get("limit") ?? DEFAULT_EVENTS_LIMIT,
+      DEFAULT_EVENTS_LIMIT,
+      1,
+      MAX_EVENTS_LIMIT,
+    );
+    const waitMs = clampNumber(
+      url.searchParams.get("waitMs") ?? DEFAULT_EVENTS_WAIT_MS,
+      DEFAULT_EVENTS_WAIT_MS,
+      0,
+      MAX_EVENTS_WAIT_MS,
+    );
+    return { limit, waitMs };
+  }
+
   const client = new FeishuSdk.Client({
     appId,
     appSecret,
@@ -163,9 +240,7 @@ async function main() {
     "im.message.receive_v1": async (data) => {
       const message = normalizeFeishuMessage(data);
       if (!message) return;
-      if (!rememberMessageId(message.messageId)) return;
-      pendingEvents.push(message);
-      if (pendingEvents.length > 200) pendingEvents.splice(0, pendingEvents.length - 200);
+      enqueueMessage(message);
     },
   });
   const wsClient = new FeishuSdk.WSClient({
@@ -201,12 +276,72 @@ async function main() {
     try {
       const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
       if (req.method === "GET" && url.pathname === "/health") {
-        sendJson(res, 200, { ok: true });
+        prunePendingEvents(Date.now());
+        sendJson(res, 200, { ok: true, queueLength: pendingEvents.length });
         return;
       }
       if (req.method === "GET" && url.pathname === "/events") {
-        const messages = pendingEvents.splice(0, pendingEvents.length);
-        sendJson(res, 200, { ok: true, messages });
+        prunePendingEvents(Date.now());
+        const { limit, waitMs } = parseEventsQuery(url);
+        let messages = peekPendingMessages(limit);
+        if (messages.length > 0) {
+          sendJson(res, 200, { ok: true, messages, queueLength: pendingEvents.length });
+          return;
+        }
+        if (waitMs <= 0) {
+          sendJson(res, 200, { ok: true, messages: [], queueLength: pendingEvents.length });
+          return;
+        }
+        // Long-polling: wait up to waitMs for new messages
+        let timer = null;
+        let waiter = null;
+        let closed = false;
+        function cleanupWaiter() {
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          if (waiter) {
+            const index = pendingWaiters.indexOf(waiter);
+            if (index >= 0) pendingWaiters.splice(index, 1);
+            try {
+              waiter.resolve();
+            } catch {
+              // ignore
+            }
+            waiter = null;
+          }
+        }
+        function onReqClose() {
+          closed = true;
+          cleanupWaiter();
+        }
+        const waitPromise = new Promise((resolve) => {
+          waiter = { resolve };
+          pendingWaiters.push(waiter);
+          timer = setTimeout(() => {
+            cleanupWaiter();
+            resolve();
+          }, waitMs);
+        });
+        req.once("close", onReqClose);
+        try {
+          await waitPromise;
+        } finally {
+          cleanupWaiter();
+          req.removeListener("close", onReqClose);
+        }
+        if (closed || res.writableEnded) return;
+        messages = peekPendingMessages(limit);
+        sendJson(res, 200, { ok: true, messages, queueLength: pendingEvents.length });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/ack") {
+        prunePendingEvents(Date.now());
+        const body = await readJsonBody(req);
+        const messageIds = Array.isArray(body.messageIds) ? body.messageIds : [];
+        ackMessages(messageIds);
+        sendJson(res, 200, { ok: true, queueLength: pendingEvents.length });
         return;
       }
       if (req.method === "POST" && url.pathname === "/reply") {
