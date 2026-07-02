@@ -1,4 +1,26 @@
 import { lsNotebooks, sql, getTag } from "@/api";
+import { selectPaged } from "@/components/tools/siyuanSqlPaging";
+
+/**
+ * 拉取任务块 markdown，用于在 JS 中统计完成/未完成数量。
+ * 避免使用 markdown LIKE 造成大库扫描；最多处理前 10000 条任务。
+ */
+async function loadTaskMarkdownRows(): Promise<{ id: string; markdown: string }[]> {
+    const query = `
+        SELECT id, markdown
+        FROM blocks
+        WHERE subtype = 't' AND type != 'l'
+        ORDER BY updated DESC, id DESC
+    `;
+    return selectPaged(query, { pageSize: 64, maxRows: 10000 }) as Promise<{ id: string; markdown: string }[]>;
+}
+
+function getFirstTaskCheckboxState(markdown: string): "done" | "undone" | null {
+    const firstLine = markdown.split("\n")[0]?.trim() ?? "";
+    if (/^[-*]\s+\[[xX]\]/.test(firstLine)) return "done";
+    if (/^[-*]\s+\[\s\]/.test(firstLine)) return "undone";
+    return null;
+}
 
 export async function getStatisticalData(statisticalType: string, _plugin: any) {
     let statisticalCount = 0;
@@ -19,11 +41,11 @@ export async function getStatisticalData(statisticalType: string, _plugin: any) 
         const res = await sql("SELECT COUNT(*) AS totalTasks FROM blocks WHERE subtype = 't' AND type != 'l'");
         statisticalCount = res[0]?.totalTasks || 0;
     } else if (statisticalType === "doneTasksCount") {
-        const res = await sql("SELECT COUNT(*) AS doneTasks FROM blocks WHERE subtype = 't' AND type != 'l' AND markdown LIKE '%[x]%'");
-        statisticalCount = res[0]?.doneTasks || 0;
+        const rows = await loadTaskMarkdownRows();
+        statisticalCount = rows.filter((row) => getFirstTaskCheckboxState(row.markdown) === "done").length;
     } else if (statisticalType === "undoneTasksCount") {
-        const res = await sql("SELECT COUNT(*) AS undoneTasks FROM blocks WHERE subtype = 't' AND type != 'l' AND markdown LIKE '%[ ]%'");
-        statisticalCount = res[0]?.undoneTasks || 0;
+        const rows = await loadTaskMarkdownRows();
+        statisticalCount = rows.filter((row) => getFirstTaskCheckboxState(row.markdown) === "undone").length;
     } else if (statisticalType === "dailynotesCount") {
         const res = await sql("SELECT COUNT(*) AS dailynotes FROM blocks WHERE type = 'd' AND ial LIKE '%custom-dailynote-%'");
         statisticalCount = res[0]?.dailynotes || 0;

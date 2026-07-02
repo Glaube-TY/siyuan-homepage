@@ -1,5 +1,8 @@
 import type { CountdownEventRecord } from "@/components/utils/widgetBlock/widget/countdown/countdownData";
+import { formatLocalDate } from "@/components/tools/date-utils";
 import type { CountdownNotifyRule } from "./types";
+
+export { formatLocalDate };
 
 export function getNextAnniversary(eventDate: string, now: Date): Date {
   const [m, d] = eventDate.split("-").slice(1).map(Number);
@@ -92,9 +95,4 @@ export function shouldRunDailyRuleAt(rule: CountdownNotifyRule, now: Date, catch
   return diffMs >= 0 && diffMs <= catchUpWindowMinutes * 60 * 1000;
 }
 
-export function formatLocalDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
+

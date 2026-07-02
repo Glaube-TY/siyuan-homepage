@@ -150,7 +150,6 @@ export default class PluginHomepage extends Plugin {
         if (compositeSig !== undefined) {
             this.lastAppliedCompositeSignature = compositeSig;
         }
-        console.debug('[Homepage] 已应用签名已更新');
     }
 
     // 获取当前已应用签名
@@ -166,7 +165,6 @@ export default class PluginHomepage extends Plugin {
     public triggerHomepageFullReload(reason: string): void {
         if (this.homepageReloadTriggered) {
             this.pendingHomepageHotReloadReason = reason;
-            console.debug(`[Homepage] 热刷新正在执行中，记录待处理刷新: ${reason}`);
             return;
         }
 
@@ -240,10 +238,8 @@ export default class PluginHomepage extends Plugin {
         }
 
         if (!this.isHomepageMountedHealthy()) {
-            console.debug(`[Homepage] 主页未健康挂载，先恢复再刷新 (${reason})`);
             this.ensureHomepageMounted(`flush-pending:${reason}`);
             if (!this.isHomepageMountedHealthy()) {
-                console.debug(`[Homepage] 主页尚未连接，保留待处理刷新 (${reason})`);
                 return;
             }
         }
@@ -252,7 +248,6 @@ export default class PluginHomepage extends Plugin {
         this.homepageReloadTriggered = true;
         this.activeHomepageHotReloadReason = pendingReason;
         this.startHomepageHotReloadWatchdog(pendingReason);
-        console.debug(`[Homepage] 触发热刷新: ${pendingReason}`);
 
         window.setTimeout(() => {
             if (!this.homepageReloadTriggered) {
@@ -378,7 +373,6 @@ export default class PluginHomepage extends Plugin {
                 }
             }
 
-            console.debug(`[Homepage] plugin 侧检测到签名变化: ${reason}`);
             this.triggerHomepageFullReload(`plugin-signature-changed: ${reason}`);
             return true;
         } catch (e) {
@@ -633,7 +627,6 @@ export default class PluginHomepage extends Plugin {
             // 主页：只在重新连接后自愈，不在断开时销毁实例。
             if (this.homepageTabDiv && this.homepageTabDiv.isConnected) {
                 if (!this.isHomepageMountedHealthy()) {
-                    console.debug('[Homepage] MutationObserver: tab div 已连接，恢复挂载');
                     this.ensureHomepageMounted('mutation-reconnect');
                 }
             }
@@ -681,7 +674,6 @@ export default class PluginHomepage extends Plugin {
             async init() {
                 // 轻量保护：确保 custom tab 上下文完整
                 if (!this.element) {
-                    console.debug('[Homepage] Tab init: element 未就绪');
                     return;
                 }
 
@@ -694,10 +686,7 @@ export default class PluginHomepage extends Plugin {
                 }
 
                 // plugin 侧检查签名变化；若已变化，触发局部热刷新但不阻止挂载
-                const sigChanged = await self.checkHomepageSignatureAndReload('customTab.init');
-                if (sigChanged) {
-                    console.debug('[Homepage] customTab.init 检测到签名变化，已排队热刷新');
-                }
+                await self.checkHomepageSignatureAndReload('customTab.init');
             },
         });
 
@@ -705,7 +694,6 @@ export default class PluginHomepage extends Plugin {
             type: ENHANCED_DIARY_WORKSPACE_TAB_TYPE,
             async init() {
                 if (!this.element) {
-                    console.debug('[Homepage] EnhancedDiary workspace tab init: element 未就绪');
                     return;
                 }
 
@@ -821,17 +809,14 @@ export default class PluginHomepage extends Plugin {
     // 确保主页已挂载：若缺失则重建，若部分损坏则先销毁再重建
     public ensureHomepageMounted(reason: string): void {
         if (!this.homepageTabDiv || !this.homepageTabDiv.isConnected) {
-            console.debug(`[Homepage] ensureHomepageMounted 跳过: tab div 未连接 (${reason})`);
             return;
         }
         if (!this.homepageInstance) {
-            console.debug(`[Homepage] 创建主页实例 (${reason})`);
             this.createHomepageInstance();
             this.scheduleFlushPendingHomepageHotReload(`ensure-created:${reason}`);
             return;
         }
         if (!this.homepageTabDiv.querySelector(".homepage-container")) {
-            console.debug(`[Homepage] 主页容器缺失，重建实例 (${reason})`);
             this.destroyHomepageInstance();
             this.createHomepageInstance();
             this.scheduleFlushPendingHomepageHotReload(`ensure-recreated:${reason}`);
@@ -840,7 +825,6 @@ export default class PluginHomepage extends Plugin {
         if (this.pendingHomepageHotReloadReason) {
             this.scheduleFlushPendingHomepageHotReload(`ensure-healthy:${reason}`);
         }
-        console.debug(`[Homepage] 主页已健康挂载 (${reason})`);
     }
 
     private scheduleHomepageMountedEnsure(reason: string): void {
@@ -854,11 +838,10 @@ export default class PluginHomepage extends Plugin {
     }
 
     // 标记热刷新完成，释放短期锁
-    public markHomepageHotReloadFinished(reason?: string): void {
+    public markHomepageHotReloadFinished(_reason?: string): void {
         this.clearHomepageHotReloadWatchdog();
         this.homepageReloadTriggered = false;
         this.activeHomepageHotReloadReason = null;
-        console.debug(`[Homepage] 热刷新锁已释放${reason ? `: ${reason}` : ""}`);
         if (this.pendingHomepageHotReloadReason) {
             this.scheduleFlushPendingHomepageHotReload("hot-reload-finished");
         }
@@ -949,7 +932,6 @@ export default class PluginHomepage extends Plugin {
             this.createHomepageInstance();
             this.ensureHomepageMounted('reloadHomepageInstance');
         } else {
-            console.debug('[Homepage] reloadHomepageInstance: tab div 未连接，销毁实例并等待下次连接');
             this.destroyHomepageInstance();
         }
     }
@@ -1134,10 +1116,7 @@ export default class PluginHomepage extends Plugin {
 
         this.scheduleHomepageMountedEnsure('openHomepage');
         window.setTimeout(async () => {
-            const sigChanged = await this.checkHomepageSignatureAndReload('openHomepage');
-            if (sigChanged) {
-                console.debug('[Homepage] openHomepage 检测到签名变化，已排队热刷新');
-            }
+            await this.checkHomepageSignatureAndReload('openHomepage');
         }, 0);
     }
 
@@ -1836,15 +1815,6 @@ export default class PluginHomepage extends Plugin {
 
         const docId = this.resolveDocTreeMenuDocId(detail);
         if (!docId) {
-            if (import.meta.env.DEV) {
-                console.debug("[Homepage][DocTreeMenu]", {
-                    type: detail?.type ?? "(undefined)",
-                    hasMenu: !!detail?.menu,
-                    hasElements: Array.isArray(detail?.elements),
-                    resolvedDocId: null,
-                    focusedNavigationFile: !!document.querySelector('.b3-list-item--focus[data-type="navigation-file"]')
-                });
-            }
             return;
         }
 
@@ -1882,9 +1852,6 @@ export default class PluginHomepage extends Plugin {
         }
 
         if (!blockId) {
-            if (import.meta.env.DEV) {
-                console.debug("[Homepage][BlockIconMenu] 无法获取块 ID", detail);
-            }
             return;
         }
 
@@ -1893,7 +1860,6 @@ export default class PluginHomepage extends Plugin {
 
     private handleEditorTitleIconMenu({ detail }: any) {
         if (!detail) {
-            console.debug('[EditorTitleIconMenu] 事件详情为空');
             return;
         }
 
@@ -1911,7 +1877,6 @@ export default class PluginHomepage extends Plugin {
         }
 
         if (!docId) {
-            console.debug('[EditorTitleIconMenu] 无法获取当前文档ID');
             return;
         }
 

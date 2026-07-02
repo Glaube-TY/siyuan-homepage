@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Knowledge Base Search Core
  *
  * 共享只读检索核心，为 Workbench search_scope 和手动文档搜索提供统一检索能力。
@@ -9,7 +9,7 @@
  * - 输出统一结构：blockHits、docResults、channelStats
  * - scope 支持 whole_kb / notebook / doc_tree / doc
  * - 不读取文档全文，不输出正文片段
- * - 所有 SQL 只读，LIKE 使用 escapeSqlLike + ESCAPE '\\'
+ * - 所有 SQL 只读；正文检索使用 blocks_fts MATCH，path 等元数据 LIKE 仍保留
  * - 不做自然语言理解、关键词表、特殊词补丁
  * - 不触发 Agent，不写 workspace
  * - search_scope 0 命中后仍由 Agent 决定下一步
@@ -23,6 +23,7 @@ import {
 
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { escapeSqlLike } from "../siyuan-sql-retrieval/sql-utils";
+import { buildFtsMatchClause } from "@/components/tools/siyuanSqlPaging";
 import { sqlSelectReadonlyPaged, fullTextSearchBlockAllPagesReadonly } from "./read-only-kernel";
 
 export type RetrievalChannelName =
@@ -191,8 +192,12 @@ async function searchViaTitleCatalog(
   const hits: KernelSearchHit[] = [];
   const escaped = escapeSqlLike(query);
   const likePattern = `%${escaped}%`;
+  const titleTerms = query.trim().split(/\s+/).filter((t) => t.length > 0);
+  const contentFtsClause = titleTerms.length > 0
+    ? buildFtsMatchClause(titleTerms, ["content"], { limit })
+    : "1=0";
 
-  let whereClause = `type = 'd' AND (content LIKE '${likePattern}' ESCAPE '\\' OR path LIKE '${likePattern}' ESCAPE '\\')`;
+  let whereClause = `type = 'd' AND (${contentFtsClause} OR path LIKE '${likePattern}' ESCAPE '\\')`;
 
   if (scope.type === "notebook") {
     const escapedBox = scope.notebookId.replace(/'/g, "''");
@@ -209,7 +214,7 @@ async function searchViaTitleCatalog(
   try {
     const rows = await sqlSelectReadonlyPaged<TitleHitRow>(
       `SELECT id, content, box, path, updated FROM blocks WHERE ${whereClause} ORDER BY updated DESC, id DESC`,
-      { maxRows: limit, allowedTables: ["blocks"] }
+      { maxRows: limit, allowedTables: ["blocks", "blocks_fts"] }
     );
     for (const r of rows ?? []) {
       hits.push({

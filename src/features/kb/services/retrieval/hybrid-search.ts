@@ -464,8 +464,8 @@ class KeywordChannel implements RetrievalChannel {
  * FTS 检索通道
  * 
  * 说明：
- * - 使用 siyuan-sql-retrieval 的 searchBlocksFuzzy（LIKE 模糊匹配）
- * - 思源 SQL blocks 表不支持 FTS5，使用 LIKE 作为替代
+ * - 使用 siyuan-sql-retrieval 的 searchBlocksFuzzy（blocks_fts MATCH）
+ * - 正文检索走 FTS5，不再使用 content LIKE；tag/path 等元数据可能仍使用 LIKE
  * - 支持按 scope 过滤
  */
 class FtsChannel implements RetrievalChannel {
@@ -480,7 +480,7 @@ class FtsChannel implements RetrievalChannel {
   private async searchWithSql(query: string, scope: SearchScope | null, limit: number): Promise<SearchHit[]> {
     if (!query.trim()) return [];
 
-    // 使用思源 SQL 模糊检索（替代 FTS）
+    // 使用思源 SQL 全文检索（blocks_fts MATCH）
     const variants = buildRetrievalQueryVariants(query);
     const primaryQuery = variants[0] || query;
     const hits = await searchBlocksFuzzy({ 

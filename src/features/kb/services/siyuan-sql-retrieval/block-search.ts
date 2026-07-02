@@ -20,6 +20,7 @@ import {
   buildScopeWhere,
   buildExcludeWhere,
 } from "./sql-utils";
+import { buildFtsMatchClause } from "@/components/tools/siyuanSqlPaging";
 import { sqlSelectReadonlyPaged } from "../siyuan/read-only-kernel";
 
 export interface SearchBlocksParams {
@@ -50,12 +51,7 @@ export async function searchBlocksKeyword(params: SearchBlocksParams): Promise<B
   whereParts.push(...buildScopeWhere(scope));
   whereParts.push(...buildExcludeWhere(exclude));
 
-  const termClauses = terms.map((term) => {
-    const safeTerm = escapeSqlLike(term);
-    return `(content LIKE '%${safeTerm}%' ESCAPE '\\' OR tag LIKE '%${safeTerm}%' ESCAPE '\\')`;
-  });
-
-  whereParts.push(`(${termClauses.join(" AND ")})`);
+  whereParts.push(buildFtsMatchClause(terms, ["content", "tag"], { limit: safeLimit }));
 
   const sqlStmt = `
     select id, root_id, parent_id, box, path, type, subtype, content, tag, created, updated, hash
@@ -65,7 +61,7 @@ export async function searchBlocksKeyword(params: SearchBlocksParams): Promise<B
   `;
 
   try {
-    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks"] });
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks", "blocks_fts"] });
     return mapRowsToHits(rows, "keyword");
   } catch (e) {
     console.error("[searchBlocksKeyword] SQL error:", e);
@@ -74,7 +70,7 @@ export async function searchBlocksKeyword(params: SearchBlocksParams): Promise<B
 }
 
 /**
- * 模糊检索：完整 query 在 content 或 tag 中 LIKE
+ * 模糊检索：完整 query 在 content 或 tag 中 FTS MATCH
  */
 export async function searchBlocksFuzzy(params: SearchBlocksParams): Promise<BlockSearchHit[]> {
   const { query, scope, exclude, limit } = params;
@@ -94,8 +90,8 @@ export async function searchBlocksFuzzy(params: SearchBlocksParams): Promise<Blo
   whereParts.push(...buildScopeWhere(scope));
   whereParts.push(...buildExcludeWhere(exclude));
 
-  const safeQuery = escapeSqlLike(cleaned);
-  whereParts.push(`(content LIKE '%${safeQuery}%' ESCAPE '\\' OR tag LIKE '%${safeQuery}%' ESCAPE '\\')`);
+  const fuzzyTerms = cleaned.split(/\s+/).filter((t) => t.length > 0);
+  whereParts.push(buildFtsMatchClause(fuzzyTerms, ["content", "tag"], { limit: safeLimit }));
 
   const sqlStmt = `
     select id, root_id, parent_id, box, path, type, subtype, content, tag, created, updated, hash
@@ -105,7 +101,7 @@ export async function searchBlocksFuzzy(params: SearchBlocksParams): Promise<Blo
   `;
 
   try {
-    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks"] });
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks", "blocks_fts"] });
     return mapRowsToHits(rows, "fuzzy");
   } catch (e) {
     console.error("[searchBlocksFuzzy] SQL error:", e);
@@ -114,7 +110,7 @@ export async function searchBlocksFuzzy(params: SearchBlocksParams): Promise<Blo
 }
 
 /**
- * 文档标题检索：查询 type=d 的块，content LIKE 匹配
+ * 文档标题检索：查询 type=d 的块，content FTS MATCH 匹配
  */
 export async function searchDocsByTitle(params: SearchBlocksParams): Promise<BlockSearchHit[]> {
   const { query, scope, exclude, limit } = params;
@@ -135,11 +131,7 @@ export async function searchDocsByTitle(params: SearchBlocksParams): Promise<Blo
   whereParts.push(...buildScopeWhere(scope));
   whereParts.push(...buildExcludeWhere(exclude));
 
-  // 多词 AND 条件：每个 term 都要求 content LIKE
-  for (const term of terms) {
-    const safeTerm = escapeSqlLike(term);
-    whereParts.push(`content LIKE '%${safeTerm}%' ESCAPE '\\'`);
-  }
+  whereParts.push(buildFtsMatchClause(terms, ["content"], { limit: safeLimit }));
 
   const sqlStmt = `
     select id, root_id, parent_id, box, path, type, subtype, content, tag, created, updated, hash
@@ -149,7 +141,7 @@ export async function searchDocsByTitle(params: SearchBlocksParams): Promise<Blo
   `;
 
   try {
-    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks"] });
+    const rows = await sqlSelectReadonlyPaged(sqlStmt, { maxRows: safeLimit, allowedTables: ["blocks", "blocks_fts"] });
     return mapRowsToHits(rows, "keyword");
   } catch (e) {
     console.error("[searchDocsByTitle] SQL error:", e);

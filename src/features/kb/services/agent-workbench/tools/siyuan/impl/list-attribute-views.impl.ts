@@ -1,6 +1,7 @@
 import { getAttributeView, searchAttributeView } from "@/api";
 import { sqlSelectReadonly } from "../../../../siyuan/read-only-kernel";
 import { escapeSqlLike } from "../../../../siyuan/safe-sql";
+import { buildFtsMatchClause } from "@/components/tools/siyuanSqlPaging";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
 import type { ListAttributeViewsInput, ListAttributeViewsOutput } from "../contracts/list-attribute-views.contract";
 
@@ -196,12 +197,16 @@ async function querySqlCandidates(keyword: string, limit: number): Promise<Candi
   const conditions = ["type = 'av'"];
   if (keyword) {
     const escaped = escapeSqlLike(keyword);
-    conditions.push(`(content LIKE '%${escaped}%' ESCAPE '\\' OR ial LIKE '%${escaped}%' ESCAPE '\\')`);
+    const terms = keyword.trim().split(/\s+/).filter((t) => t.length > 0);
+    const contentFtsClause = terms.length > 0
+      ? buildFtsMatchClause(terms, ["content"], { limit })
+      : "1=0";
+    conditions.push(`(${contentFtsClause} OR ial LIKE '%${escaped}%' ESCAPE '\\')`);
   }
 
   const rows = await sqlSelectReadonly<Record<string, string | undefined>>(
     `SELECT id, content, hpath, ial FROM blocks WHERE ${conditions.join(" AND ")} ORDER BY updated DESC LIMIT ${limit}`,
-    { maxLimit: limit, allowedTables: ["blocks"] },
+    { maxLimit: limit, allowedTables: ["blocks", "blocks_fts"] },
   );
 
   // SQL 返回的是 blocks 表的 id，即数据库块 blockId，不一定是真实 avID。

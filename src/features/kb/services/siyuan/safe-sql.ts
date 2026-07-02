@@ -38,13 +38,87 @@ const COMMENT_PATTERNS = ["--", "/*", "*/"];
 const DEFAULT_MAX_LIMIT = 500;
 
 function hasWriteKeyword(stmt: string): string | null {
+  const masked = maskSqlStringLiterals(stmt);
   for (const keyword of WRITE_KEYWORDS) {
     const re = new RegExp(`\\b${keyword}\\b`, "i");
-    if (re.test(stmt)) {
+    if (re.test(masked)) {
       return keyword;
     }
   }
   return null;
+}
+
+/**
+ * 将 SQL 字符串字面量内容替换为空格，避免把字面量里的文本误判为 SQL 关键字/字段。
+ * 同时 mask 单引号、双引号、反引号，用于写关键词/多语句检测。
+ */
+function maskSqlStringLiterals(stmt: string): string {
+  let out = "";
+  let quote: "'" | "\"" | "`" | null = null;
+  for (let i = 0; i < stmt.length; i++) {
+    const ch = stmt[i];
+    if (!quote && (ch === "'" || ch === "\"" || ch === "`")) {
+      quote = ch;
+      out += " ";
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) {
+        const next = stmt[i + 1];
+        if ((quote === "'" || quote === "\"") && next === quote) {
+          i++;
+          out += "  ";
+          continue;
+        }
+        quote = null;
+      }
+      out += " ";
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * 只 mask 单引号字符串字面量；保留双引号/反引号/方括号标识符，供危险字段 LIKE 检测。
+ */
+function maskSqlSingleQuotedStringLiterals(stmt: string): string {
+  let out = "";
+  let inside = false;
+  for (let i = 0; i < stmt.length; i++) {
+    const ch = stmt[i];
+    if (!inside && ch === "'") {
+      inside = true;
+      out += " ";
+      continue;
+    }
+    if (inside) {
+      if (ch === "'") {
+        const next = stmt[i + 1];
+        if (next === "'") {
+          i++;
+          out += "  ";
+          continue;
+        }
+        inside = false;
+      }
+      out += " ";
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * 检测是否对正文字段（content/markdown/fcontent）使用 LIKE/NOT LIKE。
+ * path/ial/tag/bookmark 等元数据 LIKE 不在拦截范围内。
+ */
+function hasDangerousContentLike(stmt: string): boolean {
+  const masked = maskSqlSingleQuotedStringLiterals(stmt);
+  const pattern = /(?:^|[^A-Za-z0-9_])(?:[A-Za-z_][\w]*\.)?(?:["'`\[])?(content|markdown|fcontent)(?:["'`\]])?\s+(?:COLLATE\s+\w+\s+)?(?:NOT\s+)?LIKE\b/i;
+  return pattern.test(masked);
 }
 
 function extractTableNames(stmt: string): string[] {
@@ -114,8 +188,17 @@ export function validateSafeSelectSql(
     return { ok: false, reason: `Keyword '${badKeyword}' is not allowed` };
   }
 
-  if (trimmed.includes(";") && trimmed.split(";").filter((s) => s.trim()).length > 1) {
+  const maskedForParsing = maskSqlStringLiterals(trimmed);
+  if (maskedForParsing.includes(";") && maskedForParsing.split(";").filter((s) => s.trim()).length > 1) {
     return { ok: false, reason: "Multiple statements are not allowed" };
+  }
+
+  // 禁止对正文字段使用 LIKE 全表扫描（path/ial/tag/bookmark 等元数据 LIKE 不在此列）
+  if (hasDangerousContentLike(trimmed)) {
+    return {
+      ok: false,
+      reason: "content/markdown/fcontent LIKE may scan large databases; use blocks_fts MATCH or narrow structured conditions.",
+    };
   }
 
   const maxLimit = options?.maxLimit ?? DEFAULT_MAX_LIMIT;

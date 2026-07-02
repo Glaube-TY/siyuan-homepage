@@ -1,4 +1,5 @@
 import { getBookmark, removeBookmark, renameBookmark, sqlChecked } from "../../../../../../../api";
+import { buildFtsMatchClause, escapeSqlLike } from "@/components/tools/siyuanSqlPaging";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanBookmarkManageInput } from "../contracts/siyuan-bookmark-manage.contract";
 import { outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
@@ -14,8 +15,12 @@ export async function executeSiyuanBookmarkManage(args: SiyuanBookmarkManageInpu
       const keyword = args.keyword?.trim();
       let stmt: string;
       if (keyword) {
-        const safeKw = keyword.replace(/'/g, "''");
-        stmt = `SELECT id, content, created, updated, bookmark FROM blocks WHERE bookmark IS NOT NULL AND bookmark != '' AND (bookmark LIKE '%${safeKw}%' OR content LIKE '%${safeKw}%') ORDER BY updated DESC LIMIT ${maxItems}`;
+        const safeKw = escapeSqlLike(keyword);
+        const terms = keyword.split(/\s+/).filter((t) => t.length > 0);
+        const contentFtsClause = terms.length > 0
+          ? buildFtsMatchClause(terms, ["content"], { limit: maxItems })
+          : "1=0";
+        stmt = `SELECT id, content, created, updated, bookmark FROM blocks WHERE bookmark IS NOT NULL AND bookmark != '' AND (bookmark LIKE '%${safeKw}%' ESCAPE '\\' OR ${contentFtsClause}) ORDER BY updated DESC LIMIT ${maxItems}`;
       } else {
         stmt = `SELECT id, content, created, updated, bookmark FROM blocks WHERE bookmark IS NOT NULL AND bookmark != '' ORDER BY updated DESC LIMIT ${maxItems}`;
       }

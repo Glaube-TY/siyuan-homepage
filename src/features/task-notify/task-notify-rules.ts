@@ -1,6 +1,9 @@
 import { customFilterTasks, formatTasksList, gettasksList } from "@/components/utils/widgetBlock/widget/tasksPlus/tasksPlus";
 import { isTaskCompleted } from "@/components/utils/widgetBlock/widget/tasksPlus/tasksPlusParser";
+import { formatLocalDate, formatLocalDateTime } from "@/components/tools/date-utils";
 import type { TaskNotifyRule, TaskNotifyTask } from "./types";
+
+export { formatLocalDate, formatLocalDateTime };
 
 function parseLocalDate(dateText: string | undefined): Date | null {
   if (!dateText) return null;
@@ -12,14 +15,6 @@ function parseLocalDate(dateText: string | undefined): Date | null {
 
 function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-export function formatLocalDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-export function formatLocalDateTime(date: Date): string {
-  return `${formatLocalDate(date)} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 export function isWithinLocalDay(date: Date, target: Date): boolean {

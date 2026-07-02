@@ -3,21 +3,16 @@ import { getDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/e
 import { getCompletionMarker } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryUtils";
 import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
 import { DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
+import { formatLocalDate, formatLocalDateTime } from "@/components/tools/date-utils";
 import type { EnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
 import type { EnhancedDiaryNotifyRule } from "./types";
+
+export { formatLocalDate, formatLocalDateTime };
 
 let pluginInstance: any = null;
 
 export function setEnhancedDiaryNotifyRulesPlugin(plugin: any): void {
   pluginInstance = plugin;
-}
-
-export function formatLocalDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-export function formatLocalDateTime(date: Date): string {
-  return `${formatLocalDate(date)} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 export function isWithinLocalDay(date: Date, target: Date): boolean {

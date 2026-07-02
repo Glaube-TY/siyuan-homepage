@@ -1,9 +1,6 @@
-export function formatLocalDate(date: Date): string {
-    const year = date.getFullYear();
-    const month = `${date.getMonth() + 1}`.padStart(2, "0");
-    const day = `${date.getDate()}`.padStart(2, "0");
-    return `${year}-${month}-${day}`;
-}
+import { formatLocalDate } from "@/components/tools/date-utils";
+
+export { formatLocalDate };
 
 export function parseLocalDate(dateStr: string): Date {
     const [year, month, day] = dateStr.split("-").map(Number);

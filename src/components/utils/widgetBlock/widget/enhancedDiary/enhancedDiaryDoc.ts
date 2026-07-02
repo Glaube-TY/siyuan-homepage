@@ -592,9 +592,9 @@ async function findLegacyCompletionMarkerBlock(
 ): Promise<{ id: string; markdown: string } | null> {
     const keyword = getCompletionMarkerKeyword(period);
     const escapedDocId = escapeSqlString(docId);
-    const escapedKeyword = escapeSqlString(keyword);
 
-    const query = `SELECT id, markdown FROM blocks WHERE root_id = '${escapedDocId}' AND markdown LIKE '%${escapedKeyword}%' ORDER BY created DESC LIMIT 20`;
+    // 先按 root_id 范围拉取有限块，再在 JS 中匹配标记，避免 markdown LIKE 全表扫描
+    const query = `SELECT id, markdown FROM blocks WHERE root_id = '${escapedDocId}' ORDER BY created DESC, id DESC LIMIT 200`;
 
     try {
         const results = await sql(query);
@@ -606,6 +606,7 @@ async function findLegacyCompletionMarkerBlock(
 
         for (const row of results) {
             const md = row.markdown as string;
+            if (!md.includes(keyword)) continue;
             if (
                 md.includes(legacyUnchecked) ||
                 md.includes(legacyChecked) ||
@@ -626,9 +627,9 @@ async function findSkipMarkerBlock(
 ): Promise<{ id: string; markdown: string } | null> {
     const keyword = getSkipMarkerKeyword(period);
     const escapedDocId = escapeSqlString(docId);
-    const escapedKeyword = escapeSqlString(keyword);
 
-    const query = `SELECT id, markdown FROM blocks WHERE root_id = '${escapedDocId}' AND markdown LIKE '%${escapedKeyword}%' ORDER BY created DESC LIMIT 20`;
+    // 先按 root_id 范围拉取有限块，再在 JS 中匹配标记，避免 markdown LIKE 全表扫描
+    const query = `SELECT id, markdown FROM blocks WHERE root_id = '${escapedDocId}' ORDER BY created DESC, id DESC LIMIT 200`;
 
     try {
         const results = await sql(query);
@@ -639,6 +640,7 @@ async function findSkipMarkerBlock(
 
         for (const row of results) {
             const md = row.markdown as string;
+            if (!md.includes(keyword)) continue;
             if (md.includes(skip) || md.includes(skipUpper)) {
                 return { id: row.id as string, markdown: md };
             }

@@ -21,16 +21,6 @@ export async function request(url: string, data: any) {
     return res;
 }
 
-export async function debugAttributeViewRequest(url: string, payload: any, label: string): Promise<IWebSocketData> {
-    console.groupCollapsed(`[AV debug] ${label}`);
-    console.log("url", url);
-    console.log("payload", JSON.parse(JSON.stringify(payload)));
-    const response = await requestRaw(url, payload);
-    console.log("response", response);
-    console.groupEnd();
-    return response;
-}
-
 export async function requestRaw(url: string, data: any): Promise<IWebSocketData> {
     return await fetchSyncPost(url, data);
 }

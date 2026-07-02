@@ -15,12 +15,14 @@ export function escapeSqlString(value: string): string {
 }
 
 /**
- * 转义 SQL LIKE 表达式中的 % 和 _
+ * 转义 SQL LIKE 表达式中的 \、% 和 _
  * 配合 ESCAPE '\\' 使用
  */
 export function escapeSqlLike(value: string): string {
-  const escaped = escapeSqlString(value);
-  return escaped.replace(/%/g, "\\%").replace(/_/g, "\\_");
+  return escapeSqlString(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
 }
 
 /**

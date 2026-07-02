@@ -2,6 +2,17 @@
 
 本项目的所有功能都必须以"不破坏用户原有环境"为第一前提。插件可以增强思源的使用体验，但不能改变思源本体、用户主题、其他插件或用户文档的既有行为；任何功能、样式、数据读写和自动化操作，都必须限定在明确的插件作用域内，并且尽量可解释、可回退、可关闭。
 
+## Kernel / SQL 查询安全原则
+
+大库环境下，对 `blocks.content`、`blocks.markdown`、`blocks.fcontent` 使用 `LIKE '%关键词%'` 会触发全表扫描，导致 kernel 内存和 CPU 压力显著上涨。本条为全局高优先级限制：
+
+1. 插件内置 SQL、后台任务、主页组件、Agent 工具等不得使用 `blocks.content`、`blocks.markdown`、`blocks.fcontent` 的 `LIKE '%关键词%'` 作为正文搜索条件。
+2. `LIMIT`、分页、字段收窄只能减少返回结果量，不能避免数据库扫描成本，不能作为 `content LIKE` / `markdown LIKE` / `fcontent LIKE` 的安全替代。
+3. 正文关键词搜索必须优先使用 `blocks_fts` 的 `MATCH` 查询，或使用思源官方搜索 API 的分页能力。SiYuan 的 `blocks_fts` 已使用 `tokenize='siyuan_case_insensitive'`，无需再使用 `blocks_fts_case_insensitive`。
+4. 任务状态、历史标记等结构性判断应使用窄范围查询（如 `subtype = 't'`、`root_id = '...'`）后在前端解析，禁止用全库 `markdown LIKE` 做前缀/子串扫描。
+5. `path`、`ial`、`tag`、`bookmark` 等非正文元数据字段使用 `LIKE` 时必须限定业务范围、转义输入、设置返回上限，并确认不会形成大库正文扫描。
+6. Agent SQL 工具也必须遵守本条；对违反上述限制的只读 SQL 应拒绝执行并提示改用 FTS 或更窄的结构化条件。
+
 ## 样式隔离原则
 
 插件样式只能影响插件自己的界面，不能污染思源全局样式、默认主题样式、用户自定义主题或其他插件界面。

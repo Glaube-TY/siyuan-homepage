@@ -385,9 +385,6 @@
     // ResizeObserver for custom-content container
     let customContentResizeObserver: ResizeObserver | null = null;
 
-    // 前台同步检测定时器
-    let foregroundSyncWatchTimer: ReturnType<typeof setInterval> | null = null;
-
     // 首次初始化标记：用于确保只在启动期写盘动作完成后记录一次签名基线
     let initialSignaturesRecorded = false;
     let homepageComponentDestroyed = false;
@@ -545,9 +542,6 @@
             if (config.advanced && config.FallEffectsEnabled) {
                 startFallingEffects();
             }
-        } else {
-            // 页面不可见时停止前台检测
-            stopForegroundSyncWatch();
         }
     }
 
@@ -651,14 +645,6 @@
         }
     }
 
-    // 停止前台同步检测
-    function stopForegroundSyncWatch(): void {
-        if (foregroundSyncWatchTimer) {
-            clearInterval(foregroundSyncWatchTimer);
-            foregroundSyncWatchTimer = null;
-        }
-    }
-
     // 外部同步变化时局部热刷新：不整页 reload，局部刷新配置、布局和组件内容
     async function handleExternalSyncChanged(event: CustomEvent<{ reason: string }>): Promise<void> {
         const reason = event.detail?.reason || "unknown";
@@ -722,7 +708,6 @@
             const latestSectionsEnabledForSig = isComponentSectionsEffectiveForConfig(latestConfig);
             const compositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayoutForSig, deviceIdForSig, latestSectionsEnabledForSig);
             plugin.updateAppliedSignatures("", "", compositeSig);
-            console.debug(`[Homepage] 局部热刷新完成: ${reason}`);
         } catch (e) {
             console.warn("[Homepage] 局部热刷新失败:", e);
 
@@ -1094,7 +1079,6 @@
                 profiles: {},
             });
             if (homepageComponentDestroyed) return;
-            console.info("[Homepage] 已初始化 widgetLayout.json");
         }
 
         // 注册当前设备到同步配置（必须在加载配置之前，确保设备 profile 已就绪）
@@ -1181,7 +1165,6 @@
             "visibilitychange",
             handleVisibilityChange,
         );
-        stopForegroundSyncWatch();
         unregisterAllShortcuts();
         cleanupMouseEffects();
         cleanupHomepageBackgroundImageStyle();
@@ -1358,11 +1341,8 @@
     let statusAiCachedText = "";
     let statusAiAbortController: AbortController | null = null;
 
-    function setStatusAiRuntimeState(state: HomepageStatusAiRuntimeState, message = ""): void {
+    function setStatusAiRuntimeState(state: HomepageStatusAiRuntimeState, _message = ""): void {
         statusAiRuntimeState = state;
-        if (message) {
-            console.debug(`[Homepage] AI 状态语状态: ${statusAiRuntimeState} - ${message}`);
-        }
     }
 
     function sanitizeStatusAiDiagnosticMessage(value: unknown): string {

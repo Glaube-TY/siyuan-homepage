@@ -359,14 +359,14 @@
     }
 
     async function getTasks() {
-        // 仅包含图表任务解析与展示所需字段
+        // 仅包含图表任务解析与展示所需字段；不在 SQL 里用 markdown LIKE，避免大库扫描
         const query = `
             SELECT
                 id,
                 markdown,
                 created
             FROM blocks
-            WHERE subtype = 't' AND type != 'l' AND markdown LIKE '- [ ]%'
+            WHERE subtype = 't' AND type != 'l'
             ORDER BY updated DESC, id DESC
         `;
         const response = await selectPaged(query, { pageSize: 64, maxRows: 5000 });
@@ -376,12 +376,12 @@
                 const lines = task.markdown.split("\n");
                 const firstLine = lines[0].trim();
 
+                const taskCheckMatch = firstLine.match(/^([*-]\s\[( |X|x)\])/);
+                if (!taskCheckMatch || taskCheckMatch[2] !== " ") return null;
+
                 if (!firstLine.includes("📅")) return null;
 
-                const taskCheckMatch = firstLine.match(/^([*-]\s\[( |X|x)\])/);
-                const taskCheck = taskCheckMatch
-                    ? taskCheckMatch[0].trim()
-                    : "";
+                const taskCheck = taskCheckMatch[0].trim();
 
                 const taskname = firstLine
                     .replace(taskCheck, "")

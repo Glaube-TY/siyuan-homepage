@@ -1,4 +1,5 @@
 import {
+    buildFtsMatchClause,
     escapeSqlLike,
     normalizeSortField,
     selectByIdsBatched,
@@ -50,12 +51,23 @@ function buildPositionWhere(position: string): string {
     }
 }
 
-function buildContentLikeClause(position: string, keyword: string): string {
-    const escaped = escapeSqlLike(keyword);
-    if (position === "DocTitle") {
-        return `content LIKE '${escaped}%' ESCAPE '\\'`;
+function splitSearchTerms(keyword: string): string[] {
+    return keyword
+        .trim()
+        .split(/\s+/)
+        .filter((t) => t.length > 0)
+        .slice(0, 8);
+}
+
+function buildContentFtsClause(position: string, keyword: string): string {
+    const terms = splitSearchTerms(keyword);
+    if (terms.length === 0) {
+        return "1=0";
     }
-    return `content LIKE '%${escaped}%' ESCAPE '\\'`;
+    return buildFtsMatchClause(terms, ["content"], {
+        prefix: position === "DocTitle",
+        limit: 2000,
+    });
 }
 
 async function searchContentRows(
@@ -64,13 +76,13 @@ async function searchContentRows(
     sortOrder: string,
 ): Promise<any[]> {
     const safeSort = normalizeConditionSortOrder(sortOrder);
-    const likeClause = buildContentLikeClause(position, keyword);
+    const ftsClause = buildContentFtsClause(position, keyword);
     const positionWhere = buildPositionWhere(position);
 
     const query = `
         SELECT id, root_id, type
         FROM blocks
-        WHERE ${likeClause}
+        WHERE ${ftsClause}
         ${positionWhere}
         ORDER BY ${safeSort} DESC, id DESC
     `;
@@ -83,14 +95,14 @@ async function searchDocTitleRows(
     includeBuiltinDocIcon: boolean,
 ): Promise<any[]> {
     const safeSort = normalizeConditionSortOrder(sortOrder);
-    const escaped = escapeSqlLike(keyword);
     const fields = buildDocFields(safeSort, includeBuiltinDocIcon);
+    const ftsClause = buildContentFtsClause("DocTitle", keyword);
 
     const query = `
         SELECT ${fields}
         FROM blocks
         WHERE type = 'd'
-        AND content LIKE '${escaped}%' ESCAPE '\\'
+        AND ${ftsClause}
         ORDER BY ${safeSort} DESC, id DESC
     `;
     return selectPaged(query, { pageSize: 64, maxRows: 2000 });
