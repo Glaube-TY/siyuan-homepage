@@ -6,8 +6,15 @@ import {
   updateTaskListItemMarkerChecked,
 } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
-import type { SiyuanBlockStateInput } from "../contracts/siyuan-block-state.contract";
+import type { SiyuanBlockStateInput, TaskMarkerItemInput } from "../contracts/siyuan-block-state.contract";
 import { outputForAction, requireString, requireStringArray } from "./siyuan-tool-impl-utils.impl";
+
+function taskMarkerItemsFromArgs(args: SiyuanBlockStateInput): TaskMarkerItemInput[] {
+  if (args.items?.length) {
+    return args.items.map((item) => ({ id: item.id, marker: item.marker ?? args.marker ?? "x" }));
+  }
+  return requireStringArray(args.ids, "ids", 50).map((id) => ({ id, marker: args.marker ?? "x" }));
+}
 
 export async function executeSiyuanBlockState(args: SiyuanBlockStateInput): Promise<{ output: SiyuanToolOutput }> {
   let data: unknown;
@@ -28,7 +35,7 @@ export async function executeSiyuanBlockState(args: SiyuanBlockStateInput): Prom
       data = null;
       break;
     case "batch_update_task_marker":
-      await batchUpdateTaskListItemMarkerChecked(requireStringArray(args.ids, "ids", 50), args.marker ?? "x");
+      await batchUpdateTaskListItemMarkerChecked(taskMarkerItemsFromArgs(args), args.marker ?? "x");
       data = null;
       break;
   }

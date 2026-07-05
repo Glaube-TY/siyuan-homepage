@@ -26,7 +26,7 @@ export interface RuntimeToolContextCapabilities {
  * On PC/Electron:
  * - Returns empty string if neither sandbox nor MCP is enabled.
  * - If only MCP is enabled, tools are described as MCP stdio helpers only.
- * - If only sandbox is enabled, tools are described as run_notebrain_command reference.
+ * - If only sandbox is enabled, tools are described as notebrain_file.run_command reference.
  * - If both are enabled, tools serve both purposes.
  */
 export function buildRuntimeToolContextInstructions(
@@ -59,11 +59,11 @@ export function buildRuntimeToolContextInstructions(
   const lines = ["# Runtime Environment", "运行在 PC/Electron 桌面端。"];
 
   if (localCmd && mcp) {
-    lines.push("", "# Local Runtime Tools", "The following local tools are available. They can be used as environment reference for run_notebrain_command and MCP stdio command resolution.", status);
+    lines.push("", "# Local Runtime Tools", "The following local tools are available. They can be used as environment reference for notebrain_file.run_command and MCP stdio command resolution.", status);
   } else if (localCmd) {
-    lines.push("", "# Local Runtime Tools", "The following local tools are available on this machine. These commands can be used as environment reference for run_notebrain_command.", status);
+    lines.push("", "# Local Runtime Tools", "The following local tools are available on this machine. These commands can be used as environment reference for notebrain_file.run_command.", status);
   } else if (mcp) {
-    lines.push("", "# Local Runtime Tools", "The following local tools are available on this machine. They are used only for MCP stdio command resolution. The Agent cannot execute local commands directly unless run_notebrain_command is in the tool list.", status);
+    lines.push("", "# Local Runtime Tools", "The following local tools are available on this machine. They are used only for MCP stdio command resolution. The Agent cannot execute local commands directly unless notebrain_file.run_command is in the tool list.", status);
   }
 
   return lines.join("\n");

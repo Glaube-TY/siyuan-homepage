@@ -9,7 +9,13 @@ export const DEFAULT_TEMPERATURE = 0.3;
 
 /** 默认全局工具设置 */
 export const DEFAULT_TOOL_SETTINGS: KbToolSettings = {
-  disabledGlobalToolNames: [],
+  disabledGlobalToolNames: [
+    "siyuan_doc_edit",
+    "siyuan_tree",
+    "siyuan_meta",
+    "siyuan_asset",
+    "siyuan_riff",
+  ],
 };
 
 /** 默认全局记忆设置 */
@@ -83,20 +89,8 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
 };
 
 export const DEFAULT_SKILL_SETTINGS: KbSkillSettings = {
-  disabledBuiltinSkillNames: [
-    "builtin_doc_content_editing",
-    "builtin_notebook_doc_tree",
-    "builtin_tag_bookmark_outline",
-    "builtin_asset_management",
-    "builtin_riff_review",
-  ],
-  initializedDefaultDisabledBuiltinSkillNames: [
-    "builtin_doc_content_editing",
-    "builtin_notebook_doc_tree",
-    "builtin_tag_bookmark_outline",
-    "builtin_asset_management",
-    "builtin_riff_review",
-  ],
+  disabledBuiltinSkillNames: [],
+  initializedDefaultDisabledBuiltinSkillNames: [],
 };
 
 export const DEFAULT_KB_SETTINGS: KbSettings = {
@@ -109,7 +103,7 @@ export const DEFAULT_KB_SETTINGS: KbSettings = {
   previewMatchWeight: 3,
   agentReadMaxCharsPerDoc: 12000,
   agentThinkingEnabled: false,
-  agentMaxToolCallsPerTurn: 10,
+  agentMaxToolCallsPerTurn: 20,
   /** 聊天模型提供商列表（默认为空，用户需从预设添加） */
   chatProviders: [],
   /** 当前选中的聊天提供商 ID（默认为空） */

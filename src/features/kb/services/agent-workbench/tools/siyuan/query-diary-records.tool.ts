@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   queryDiaryRecordsInputSchema,
   queryDiaryRecordsOutputSchema,
@@ -32,7 +32,7 @@ export function createQueryDiaryRecordsTool(
     source: "builtin",
     inputHint: "date 查询单日；或同时传 startDate/endDate 查询范围。category、keyword、limit 可选。日期格式 YYYY-MM-DD。",
     boundary: "只读；不新增、不修改、不删除快速记录，不转任务。范围查询沿用现有最近 90 天保护。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

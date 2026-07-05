@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   createDocInputSchema,
   createDocOutputSchema,
@@ -23,7 +23,7 @@ export function createCreateDocTool(deps: CreateDocDeps): ToolContract<CreateDoc
     source: "builtin",
     inputHint: "notebookId（目标笔记本 ID），path（文档路径，如 \"/父文档/子文档\"），markdown（初始 Markdown 内容，可选）",
     boundary: "只能基于明确给出的真实 notebookId 和 path 创建文档。path 是笔记本内的文档路径，可表示层级；不编造 ID 或路径。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: createDocInputJsonSchemaOverride,
 
     availability() {

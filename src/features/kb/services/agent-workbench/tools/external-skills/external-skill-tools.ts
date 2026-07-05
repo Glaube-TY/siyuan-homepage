@@ -48,16 +48,16 @@ async function findSkillEntry(id: string, settings: ExternalSkillSettings): Prom
     ?? null;
 }
 
-export function createSkillListTool(settings: ExternalSkillSettings): ToolContract {
+export function createListActionTool(settings: ExternalSkillSettings): ToolContract {
   return {
-    name: "skill_list",
-    title: "列出外部/用户 Skill",
-    description: "列出已安装的外部 Skill 或用户自定义 Skill 的简短索引，不返回全文。内置 Skill 不在此列——内置 Skill 是否可用请根据当前上下文中的技能路由说明判断，不要用本工具探测。需要使用外部 Skill 时再调用 skill_read。",
+    name: "list_action",
+    title: "列出外部/用户 Skill（action）",
+    description: "skill_manage.list 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: skillListInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "local",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return settings.enabled ? { available: true } : {
         available: false,
@@ -94,16 +94,16 @@ export function createSkillListTool(settings: ExternalSkillSettings): ToolContra
   };
 }
 
-export function createSkillReadTool(settings: ExternalSkillSettings): ToolContract<z.infer<typeof skillReadInputSchema>> {
+export function createReadActionTool(settings: ExternalSkillSettings): ToolContract<z.infer<typeof skillReadInputSchema>> {
   return {
-    name: "skill_read",
-    title: "读取 Skill 入口说明",
-    description: "按需读取指定外部 Skill 的入口文件 SKILL.md。用于理解第三方或用户 Skill 的使用说明。",
+    name: "read_action",
+    title: "读取 Skill 入口说明（action）",
+    description: "skill_manage.read 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: skillReadInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "local",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return settings.enabled ? { available: true } : {
         available: false,
@@ -126,7 +126,7 @@ export function createSkillReadTool(settings: ExternalSkillSettings): ToolContra
       const envVarNote = requiredEnvVars.length > 0
         ? `requiredEnvVars [${requiredEnvVars.join(", ")}] 需要用户显式配置，不要在系统环境变量中查找密钥。`
         : "";
-      const apiNote = "如果 Skill 需要调用 HTTP API，优先使用 web_http_get / web_http_post。";
+      const apiNote = "如果 Skill 需要调用 HTTP API，优先使用 web_fetch.http_get / web_fetch.http_post。";
       return {
         ok: true,
         data: {
@@ -140,7 +140,7 @@ export function createSkillReadTool(settings: ExternalSkillSettings): ToolContra
           chars: read.chars,
           requiredEnvVars,
           note: [
-            read.truncated ? "内容已截断，可用 skill_read_file 继续读取相关子文档。" : "",
+            read.truncated ? "内容已截断，可用 skill_manage.read_file 继续读取相关子文档。" : "",
             envVarNote,
             apiNote,
           ].filter(Boolean).join(" "),
@@ -154,16 +154,16 @@ export function createSkillReadTool(settings: ExternalSkillSettings): ToolContra
   };
 }
 
-export function createSkillReadFileTool(settings: ExternalSkillSettings): ToolContract<z.infer<typeof skillReadFileInputSchema>> {
+export function createReadFileActionTool(settings: ExternalSkillSettings): ToolContract<z.infer<typeof skillReadFileInputSchema>> {
   return {
-    name: "skill_read_file",
-    title: "读取 Skill 子文件",
-    description: "读取指定外部 Skill 下 docs/examples/resources 中的相对文件，不能逃逸 Skill 根目录。",
+    name: "read_file_action",
+    title: "读取 Skill 子文件（action）",
+    description: "skill_manage.read_file 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: skillReadFileInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "local",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return settings.enabled ? { available: true } : {
         available: false,
@@ -184,7 +184,7 @@ export function createSkillReadFileTool(settings: ExternalSkillSettings): ToolCo
         return {
           ok: false,
           data: null,
-          error: { code: "unsupported_skill_file", message: "用户自定义 Skill 只有入口文件，请使用 skill_read。", recoverable: true },
+          error: { code: "unsupported_skill_file", message: "用户自定义 Skill 只有入口文件，请使用 skill_manage.read。", recoverable: true },
         };
       }
       let safePath: string;
@@ -218,16 +218,16 @@ export function createSkillReadFileTool(settings: ExternalSkillSettings): ToolCo
   };
 }
 
-export function createSkillInstallTool(settings: ExternalSkillSettings): ToolContract<z.infer<typeof skillInstallInputSchema>> {
+export function createInstallActionTool(settings: ExternalSkillSettings): ToolContract<z.infer<typeof skillInstallInputSchema>> {
   return {
-    name: "skill_install",
-    title: "安装外部 Skill",
-    description: "从 GitHub URL、owner/repo 或 zip URL 安装外部 Skill 到 notebrain/skills/installed，并更新 Skill 索引。安装写入前必须用户确认。",
+    name: "install_action",
+    title: "安装外部 Skill（action）",
+    description: "skill_manage.install 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: skillInstallInputSchema,
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.skills" },
     source: "local",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       if (!settings.enabled || !settings.autoInstallEnabled) {
         return {
@@ -249,7 +249,7 @@ export function createSkillInstallTool(settings: ExternalSkillSettings): ToolCon
               result.requiredEnvVars.length > 0
                 ? `该 Skill 可能需要配置环境变量：${result.requiredEnvVars.join(", ")}。请让用户显式配置，不要在系统中查找隐私信息。`
                 : "",
-              "如果 Skill 需要调用 HTTP API，优先使用 web_http_get / web_http_post。",
+              "如果 Skill 需要调用 HTTP API，优先使用 web_fetch.http_get / web_fetch.http_post。",
             ].filter(Boolean).join(" "),
           },
         };
@@ -273,16 +273,16 @@ export function createSkillInstallTool(settings: ExternalSkillSettings): ToolCon
   };
 }
 
-export function createSkillUninstallTool(settings: ExternalSkillSettings): ToolContract<z.infer<typeof skillUninstallInputSchema>> {
+export function createUninstallActionTool(settings: ExternalSkillSettings): ToolContract<z.infer<typeof skillUninstallInputSchema>> {
   return {
-    name: "skill_uninstall",
-    title: "停用外部 Skill",
-    description: "停用指定外部 Skill。默认不永久删除文件，仅从索引中标记 disabled。",
+    name: "uninstall_action",
+    title: "停用外部 Skill（action）",
+    description: "skill_manage.uninstall 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: skillUninstallInputSchema,
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.skills" },
     source: "local",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return settings.enabled ? { available: true } : {
         available: false,
@@ -324,16 +324,16 @@ export function createSkillUninstallTool(settings: ExternalSkillSettings): ToolC
   };
 }
 
-export function createSkillReindexTool(settings: ExternalSkillSettings): ToolContract {
+export function createReindexActionTool(settings: ExternalSkillSettings): ToolContract {
   return {
-    name: "skill_reindex",
-    title: "重建外部 Skill 索引",
-    description: "扫描 notebrain/skills/installed 下的 SKILL.md 并重建 skills/index.json。该操作会写索引，需要确认。",
+    name: "reindex_action",
+    title: "重建外部 Skill 索引（action）",
+    description: "skill_manage.reindex 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: skillReindexInputSchema,
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.skills" },
     source: "local",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return settings.enabled ? { available: true } : {
         available: false,
@@ -354,4 +354,3 @@ export function createSkillReindexTool(settings: ExternalSkillSettings): ToolCon
     },
   };
 }
-

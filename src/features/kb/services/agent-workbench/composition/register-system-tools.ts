@@ -4,6 +4,8 @@
 
 import { ToolRegistry } from "../registries/tool-registry";
 import { createEditGlobalMemoryTool } from "../tools/system/edit-global-memory.tool";
+import { createAgentToolHelpTool, type AvailableToolSnapshot } from "../tools/aggregate/agent-tool-help.tool";
+import type { ExternalSkillSettings } from "../../../types/settings";
 
 export interface SystemToolOptions {
   /** When present and not disabled, registers edit_global_memory. */
@@ -13,7 +15,10 @@ export interface SystemToolOptions {
   };
   globalToolAccess?: {
     editGlobalMemory: boolean;
+    agentToolHelp?: boolean;
   };
+  externalSkillSettings?: ExternalSkillSettings;
+  agentToolHelpAvailableTools?: readonly AvailableToolSnapshot[];
 }
 
 export function registerSystemTools(
@@ -25,6 +30,17 @@ export function registerSystemTools(
     toolRegistry.ensureTool(createEditGlobalMemoryTool({
       docId: options.globalMemoryToolDeps.docId,
       maxMemoryChars: options.globalMemoryToolDeps.maxMemoryChars,
+    }));
+  }
+
+  if (
+    options.globalToolAccess?.agentToolHelp !== false &&
+    options.externalSkillSettings &&
+    options.agentToolHelpAvailableTools
+  ) {
+    toolRegistry.ensureTool(createAgentToolHelpTool({
+      externalSkillSettings: options.externalSkillSettings,
+      availableTools: options.agentToolHelpAvailableTools,
     }));
   }
 }

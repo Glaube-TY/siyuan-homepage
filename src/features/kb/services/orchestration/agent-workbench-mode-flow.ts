@@ -48,6 +48,12 @@ import { showMessage } from "siyuan";
 import type { KbSessionState } from "../../types/session";
 import type { ContextUsageSnapshot } from "../../types/context-usage";
 import type { AgentMessage } from "../agent-core/messages/agent-message";
+import {
+  createTurnJournal,
+  checkpointTurnJournal,
+  completeTurnJournal,
+  failTurnJournal,
+} from "../agent-workbench/runtime/in-flight-turn-journal";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -345,6 +351,32 @@ function getPersistedAgentSessionMessages(state: KbSessionState): AgentMessage[]
   return conversation?.agentSession?.messages;
 }
 
+function pruneAgentSessionMessagesForExistingUser(
+  messages: AgentMessage[] | undefined,
+  question: string,
+): { messages: AgentMessage[] | undefined; pruned: boolean; beforeCount: number; afterCount: number } {
+  const beforeCount = messages?.length ?? 0;
+  if (!messages || messages.length === 0) {
+    return { messages, pruned: false, beforeCount, afterCount: beforeCount };
+  }
+
+  const normalizedQuestion = question.trim();
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role === "user" && message.content.trim() === normalizedQuestion) {
+      const prunedMessages = messages.slice(0, index);
+      return {
+        messages: prunedMessages,
+        pruned: true,
+        beforeCount,
+        afterCount: prunedMessages.length,
+      };
+    }
+  }
+
+  return { messages, pruned: false, beforeCount, afterCount: beforeCount };
+}
+
 function persistAgentSessionMessages(
   state: KbSessionState,
   conversationId: string | undefined,
@@ -456,6 +488,8 @@ export async function runAgentWorkbenchModeFlow(
   } = params;
 
   const assistantMessageId = createMessageId();
+  let flushPendingAgentStreams: (() => void) | undefined;
+  let cancelPendingAgentStreams: (() => void) | undefined;
 
   try {
     const trimmed = question.trim();
@@ -647,6 +681,14 @@ export async function runAgentWorkbenchModeFlow(
       agentStatus: "正在分析问题...",
     });
 
+    // ── Create in-flight turn journal for crash survival ──
+    createTurnJournal({
+      conversationId: params.conversationId ?? actualUserMessageId,
+      userMessageId: actualUserMessageId,
+      assistantMessageId,
+      questionPreview: trimmed,
+    });
+
     pushAgentDebugEvent("ASSISTANT_RUN_MESSAGE_CREATED", {
       contentChars: 0,
       isComplete: false,
@@ -668,10 +710,112 @@ export async function runAgentWorkbenchModeFlow(
     }
 
     let streamingContent = "";
+    let latestFullContent = "";
+    let answerFlushTimer: ReturnType<typeof setTimeout> | undefined;
     let liveWorkbenchEvents: AgentWorkbenchEvent[] = [];
     let reasoningContent = "";
     let reasoningPartCount = 0;
+    let reasoningFlushTimer: ReturnType<typeof setTimeout> | undefined;
     const userThinkingMode = thinkingMode ?? "off";
+    const persistedAgentSessionMessages = getPersistedAgentSessionMessages(stateAfterCompression);
+    let agentSessionMessages = persistedAgentSessionMessages;
+    const isExistingUserTurn = !!params.existingUserMessageId;
+    if (isExistingUserTurn) {
+      const pruneResult = pruneAgentSessionMessagesForExistingUser(persistedAgentSessionMessages, trimmed);
+      agentSessionMessages = pruneResult.messages;
+      if (pruneResult.pruned) {
+        pushAgentDebugEvent("AGENT_SESSION_EXISTING_USER_PRUNED_SAFE", {
+          beforeCount: pruneResult.beforeCount,
+          afterCount: pruneResult.afterCount,
+          pruned: true,
+          reason: "existing_user_message",
+          existingUserMessageIdPresent: true,
+        }, "info");
+      } else if (pruneResult.beforeCount > 0) {
+        pushAgentDebugEvent("AGENT_SESSION_EXISTING_USER_PRUNE_SKIPPED_SAFE", {
+          beforeCount: pruneResult.beforeCount,
+          reason: "matching_user_not_found",
+        }, "info");
+      }
+    }
+
+    const cancelAnswerFlush = (): void => {
+      if (answerFlushTimer !== undefined) {
+        clearTimeout(answerFlushTimer);
+        answerFlushTimer = undefined;
+      }
+    };
+
+    const flushAnswerContent = (): void => {
+      cancelAnswerFlush();
+      if (!setMessages) return;
+      const nextContent = latestFullContent;
+      setMessages((messages) =>
+        messages.map((m) => {
+          if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+          return { ...m, content: nextContent, agentStatus: undefined, isComplete: false };
+        })
+      );
+    };
+
+    const scheduleAnswerFlush = (): void => {
+      if (!setMessages || answerFlushTimer !== undefined) return;
+      answerFlushTimer = setTimeout(() => {
+        answerFlushTimer = undefined;
+        const nextContent = latestFullContent;
+        setMessages((messages) =>
+          messages.map((m) => {
+            if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+            return { ...m, content: nextContent, agentStatus: undefined, isComplete: false };
+          })
+        );
+      }, 40);
+    };
+
+    const cancelReasoningFlush = (): void => {
+      if (reasoningFlushTimer !== undefined) {
+        clearTimeout(reasoningFlushTimer);
+        reasoningFlushTimer = undefined;
+      }
+    };
+
+    const flushReasoningContent = (status: "streaming" | "done"): void => {
+      cancelReasoningFlush();
+      if (!setMessages) return;
+      setMessages((messages) =>
+        messages.map((m) => {
+          if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+          const finalReasoning = status === "done" && reasoningContent.trim().length === 0
+            ? undefined
+            : { content: reasoningContent, status, partCount: reasoningPartCount, chars: reasoningContent.length };
+          return { ...m, reasoning: finalReasoning };
+        })
+      );
+    };
+
+    const scheduleReasoningFlush = (): void => {
+      if (!setMessages || reasoningFlushTimer !== undefined) return;
+      reasoningFlushTimer = setTimeout(() => {
+        reasoningFlushTimer = undefined;
+        setMessages((messages) =>
+          messages.map((m) => {
+            if (m.id !== assistantMessageId || m.role !== "assistant") return m;
+            return { ...m, reasoning: { content: reasoningContent, status: "streaming", partCount: reasoningPartCount, chars: reasoningContent.length } };
+          })
+        );
+      }, 40);
+    };
+
+    flushPendingAgentStreams = () => {
+      flushAnswerContent();
+      if (userThinkingMode === "on") {
+        flushReasoningContent("streaming");
+      }
+    };
+    cancelPendingAgentStreams = () => {
+      cancelAnswerFlush();
+      cancelReasoningFlush();
+    };
 
     // Agent Workbench runtime path.
     // 真实聊天只走 Agent Workbench。
@@ -688,20 +832,17 @@ export async function runAgentWorkbenchModeFlow(
       thinkingMode: userThinkingMode,
       globalMemory: globalMemoryText,
       conversationId: params.conversationId ?? actualUserMessageId,
-      agentSessionMessages: getPersistedAgentSessionMessages(stateAfterCompression),
+      agentSessionMessages,
       kbSettings,
       onReasoningDelta: (event) => {
         // Only process reasoning when thinkingMode=on
         if (userThinkingMode !== "on") {
-          pushAgentDebugEvent("REASONING_RECEIVED_WHEN_OFF_SAFE", {
-            type: event.type,
-            action: "discarded",
-          }, "info");
           return;
         }
         if (event.type === "reasoning-start") {
           reasoningContent = "";
           reasoningPartCount = 0;
+          cancelReasoningFlush();
           if (setMessages) {
             setMessages((messages) =>
               messages.map((m) => {
@@ -713,29 +854,13 @@ export async function runAgentWorkbenchModeFlow(
         } else if (event.type === "reasoning-delta" && event.delta) {
           reasoningContent += event.delta;
           reasoningPartCount++;
-          if (setMessages) {
-            setMessages((messages) =>
-              messages.map((m) => {
-                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-                return { ...m, reasoning: { content: reasoningContent, status: "streaming", partCount: reasoningPartCount, chars: reasoningContent.length } };
-              })
-            );
-          }
+          scheduleReasoningFlush();
         } else if (event.type === "reasoning-end") {
-          if (setMessages) {
-            setMessages((messages) =>
-              messages.map((m) => {
-                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-                const finalReasoning = reasoningContent.trim().length > 0
-                  ? { content: reasoningContent, status: "done" as const, partCount: reasoningPartCount, chars: reasoningContent.length }
-                  : undefined;
-                return { ...m, reasoning: finalReasoning };
-              })
-            );
-          }
+          flushReasoningContent("done");
         } else if (event.type === "reasoning-reset") {
           reasoningContent = "";
           reasoningPartCount = 0;
+          cancelReasoningFlush();
           if (setMessages) {
             setMessages((messages) =>
               messages.map((m) => {
@@ -748,16 +873,58 @@ export async function runAgentWorkbenchModeFlow(
       },
       onAnswerChunk: ({ fullContent }) => {
         streamingContent = fullContent;
-        if (setMessages) {
-          setMessages((messages) =>
-            messages.map((m) => {
-              if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-              return { ...m, content: fullContent, agentStatus: undefined, isComplete: false };
-            })
-          );
-        }
+        latestFullContent = fullContent;
+        scheduleAnswerFlush();
       },
       onWorkbenchEvent: (event) => {
+        // ── Journal checkpoint for crash survival ──
+        {
+          const immEvTypes = new Set(["tool_start","permission_required","permission_resolved","tool_result","assistant_final","done","error","notice"]);
+          if (immEvTypes.has(event.type) || event.type === "assistant_text_delta") {
+            let safeEvent: import("../agent-workbench/runtime/in-flight-turn-journal").SafeWorkbenchEvent | undefined;
+            if (event.type === "tool_start" || event.type === "tool_result") {
+              safeEvent = {
+                type: event.type,
+                stepIndex: event.stepIndex,
+                toolName: "toolName" in event ? event.toolName : undefined,
+                ok: event.type === "tool_result" ? event.result.ok : undefined,
+                errorCode: event.type === "tool_result" ? (event.result.errorCode ?? event.result.code) : undefined,
+                outputSummary: event.type === "tool_result" ? event.result.summary : undefined,
+                argsPreview: "argsPreview" in event ? event.argsPreview : undefined,
+              };
+            } else if (event.type === "error") {
+              safeEvent = { type: "error", errorCode: event.code };
+            } else if (event.type === "done") {
+              safeEvent = { type: "done", stepIndex: event.stepIndex };
+            } else if (event.type === "permission_required") {
+              safeEvent = { type: "permission_required", stepIndex: event.stepIndex, toolName: event.preview.toolName };
+            } else if (event.type === "permission_resolved") {
+              safeEvent = { type: "permission_resolved", stepIndex: event.stepIndex, ok: event.approved };
+            } else if (event.type === "notice" || event.type === "assistant_final") {
+              safeEvent = { type: event.type, stepIndex: event.stepIndex };
+            }
+            checkpointTurnJournal({
+              eventType: event.type,
+              stepIndex: event.stepIndex,
+              toolName: "toolName" in event ? event.toolName : undefined,
+              errorCode: event.type === "error" ? event.code : event.type === "tool_result" ? (event.result.errorCode ?? event.result.code) : undefined,
+              permissionState: event.type === "permission_required" ? "required" : event.type === "permission_resolved" ? (event.approved ? "allowed" : "denied") : undefined,
+              answerPreview: event.type === "assistant_final" ? event.answer.slice(0, 4000) : undefined,
+              safeWorkbenchEvent: safeEvent,
+            });
+          }
+        }
+
+        if (event.type === "assistant_text_reset") {
+          latestFullContent = "";
+          streamingContent = "";
+          cancelAnswerFlush();
+        } else if (event.type === "assistant_final" || event.type === "done") {
+          flushAnswerContent();
+          if (userThinkingMode === "on" && event.type === "done") {
+            flushReasoningContent("done");
+          }
+        }
         liveWorkbenchEvents = [...liveWorkbenchEvents, event];
         if (setMessages) {
           setMessages((messages) =>
@@ -782,6 +949,9 @@ export async function runAgentWorkbenchModeFlow(
         }
       },
       onAnswerFinish: (fullContent) => {
+        streamingContent = fullContent;
+        latestFullContent = fullContent;
+        flushAnswerContent();
         if (fullContent.trim().length > 0 && setMessages) {
           setMessages((messages) =>
             messages.map((m) =>
@@ -846,6 +1016,7 @@ export async function runAgentWorkbenchModeFlow(
     }
 
     if (abortSignal?.aborted) {
+      flushPendingAgentStreams?.();
       if (setMessages) {
         setMessages((messages) =>
           messages.map((m) => {
@@ -872,10 +1043,13 @@ export async function runAgentWorkbenchModeFlow(
         agentStatus: undefined,
       }));
 
+      failTurnJournal({ reason: "user_aborted" });
+
       return { success: true };
     }
 
     if (setMessages) {
+      flushPendingAgentStreams?.();
       const agentMemory = buildAgentTurnMemory({
         turnId: assistantMessageId,
         userQuestion: trimmed,
@@ -935,8 +1109,14 @@ export async function runAgentWorkbenchModeFlow(
       agentStatus: undefined,
     }));
 
+    completeTurnJournal();
+
     return { success: true };
   } catch (err) {
+    failTurnJournal({ reason: "exception" });
+
+    flushPendingAgentStreams?.();
+    cancelPendingAgentStreams?.();
     if (isAbortLikeError(err, abortSignal)) {
       if (setMessages) {
         setMessages((messages) =>

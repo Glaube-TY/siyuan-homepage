@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   renameDocInputSchema,
   renameDocOutputSchema,
@@ -23,7 +23,7 @@ export function createRenameDocTool(deps: RenameDocDeps): ToolContract<RenameDoc
     source: "builtin",
     inputHint: "docId（目标文档 ID），title（新标题）",
     boundary: "只能基于明确给出的真实 docId 重命名文档。不编造 ID。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: renameDocInputJsonSchemaOverride,
 
     availability() {

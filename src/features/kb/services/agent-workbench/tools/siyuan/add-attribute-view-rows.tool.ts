@@ -29,7 +29,7 @@ export function createAddAttributeViewRowsTool(
     source: "builtin",
     inputHint: "databaseId 必填；databaseBlockId 可选，来自 list_attribute_views 的 blockId；blockIds 是要加入数据库的已有块，最多 20 个；defaultValues 使用真实 keyId 更可靠。",
     boundary: "只添加条目，不删除、不移除绑定块、不批量替换整库。已有块和脱离块语义不同。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

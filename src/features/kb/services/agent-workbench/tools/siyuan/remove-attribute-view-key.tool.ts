@@ -29,7 +29,7 @@ export function createRemoveAttributeViewKeyTool(
     source: "builtin",
     inputHint: "databaseId 和 keyId 必须真实；expectedKeyName 可选用于安全校验。",
     boundary: "只删除字段，不删除数据库、不删除条目。主字段/block 字段不允许删除。relation/rollup 字段暂不开放删除。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

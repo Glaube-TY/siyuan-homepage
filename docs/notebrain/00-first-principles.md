@@ -24,7 +24,7 @@ There is no separate structured planning protocol in the main Agent path.
 
 ## Tools
 
-Tools are independent executable capabilities. Every tool — whether global or Skill-linked — follows the same contract:
+Provider-visible built-in tools are aggregate tools. The model sees a small stable tool list, and selects an `action` inside the chosen tool. Every executable tool follows the same contract:
 
 - name, title, description
 - input JSON schema with parameter descriptions
@@ -40,15 +40,14 @@ The final response is not a native Agent tool. Final answers are provider assist
 
 ## Skills
 
-Skills are instruction packages. A skill can:
+Skills are instruction packages. Built-in Agent capabilities are not managed as independent Skills. External and custom Skills can:
 
-- control whether a related group of tools is registered for the current turn
 - describe domain boundaries, terminology, evidence rules, and general response preferences
 - provide heuristic usage suggestions to help the model use tools more effectively
 
 Skills do not own tools, execute code, choose tools for the model, prescribe tool order, force a fixed flow, or replace runtime permission checks.
 
-When a Skill is disabled, its linked tools are not registered and not shown in the tool settings UI. The Skill's suggestions are advisory, not mandatory sequences.
+There is no keyword Skill router. The runtime does not detect a primary Skill from keyword lists, does not filter tools by Skill route, and does not inject a special primary-Skill mode. Built-in capability visibility is controlled by aggregate tool settings.
 
 There is no separate structured planning protocol in the main Agent path. No JSON Planner, final_answer tool, custom JSON Planner, control plane JSON, invalid_json, or stream_json.
 

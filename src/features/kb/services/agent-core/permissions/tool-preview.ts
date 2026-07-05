@@ -28,4 +28,6 @@ export interface ToolPermissionPreview {
 export interface ToolPermissionDecision {
   type: "allow" | "deny";
   reason?: string;
+  /** 当拒绝是由系统安全策略/权限策略自动触发而非用户手动取消时，使用具体错误码（如 safety_blocked）。 */
+  reasonCode?: string;
 }

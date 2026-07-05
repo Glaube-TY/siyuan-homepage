@@ -32,6 +32,11 @@ import {
   createEmptySecretDecryptDiagnostics,
 } from "./kb-sensitive-secret-crypto";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
+import { AGGREGATE_TOOL_NAMES } from "../agent-workbench/tools/aggregate/aggregate-tool-metadata";
+import {
+  BUILTIN_SKILL_TO_AGGREGATE_TOOL,
+  OLD_TOOL_TO_AGGREGATE_TOOL,
+} from "../agent-workbench/tools/aggregate/aggregate-tool-migration";
 
 const SETTINGS_KEY = "kb-settings";
 const MAX_AVATAR_DATA_URL_LENGTH = 1_572_864;
@@ -61,6 +66,18 @@ function normalizeIntegerSetting(
     return defaultValue;
   }
   return clampNumber(val, min, max);
+}
+
+function normalizeAgentMaxToolCallsPerTurn(raw: unknown): number {
+  const value = normalizeIntegerSetting(
+    raw,
+    DEFAULT_KB_SETTINGS.agentMaxToolCallsPerTurn,
+    0,
+    50,
+  );
+  return value === 0 || value === 20 || value === 50
+    ? value
+    : DEFAULT_KB_SETTINGS.agentMaxToolCallsPerTurn;
 }
 
 /**
@@ -159,18 +176,9 @@ function normalizeStringArray(raw: unknown): string[] {
   )];
 }
 
-const DEFAULT_DISABLED_BUILTIN_SKILL_NAMES = [
-  "builtin_doc_content_editing",
-  "builtin_notebook_doc_tree",
-  "builtin_tag_bookmark_outline",
-  "builtin_asset_management",
-  "builtin_riff_review",
-];
-
 /**
  * 归一化 Skill 设置
- * - disabledBuiltinSkillNames 只保留合法 string，去重
- * - 对新增内置 Skill 做一次性默认关闭迁移：旧配置首次加载时自动关闭，用户手动开启后不再重置
+ * - 内置 Skill 已不再作为独立管理项，字段仅保留旧配置迁移用
  */
 function normalizeSkillSettings(raw: unknown): KbSkillSettings {
   if (!raw || typeof raw !== "object") {
@@ -191,44 +199,54 @@ function normalizeSkillSettings(raw: unknown): KbSkillSettings {
     initialized = [...new Set(initialized)];
   }
 
-  // 一次性迁移：新增默认关闭 Skill 首次加载时自动关闭，用户手动开启后不再重置
-  for (const skillName of DEFAULT_DISABLED_BUILTIN_SKILL_NAMES) {
-    if (!initialized.includes(skillName)) {
-      if (!names.includes(skillName)) {
-        names.push(skillName);
-      }
-      initialized.push(skillName);
-    }
-  }
-
   return {
     disabledBuiltinSkillNames: names,
     initializedDefaultDisabledBuiltinSkillNames: initialized,
   };
 }
 
+function toAggregateGlobalToolName(rawName: unknown): KbToolSettings["disabledGlobalToolNames"][number] | null {
+  if (typeof rawName !== "string") return null;
+  const name = rawName === "append_global_memory" ? "edit_global_memory" : rawName;
+  if ((AGGREGATE_TOOL_NAMES as readonly string[]).includes(name)) {
+    return name as KbToolSettings["disabledGlobalToolNames"][number];
+  }
+  const migrated = OLD_TOOL_TO_AGGREGATE_TOOL[name];
+  return migrated ? migrated as KbToolSettings["disabledGlobalToolNames"][number] : null;
+}
+
+function migrateDisabledBuiltinSkillsToTools(
+  skillSettings: KbSkillSettings | undefined,
+): KbToolSettings["disabledGlobalToolNames"] {
+  const migrated: KbToolSettings["disabledGlobalToolNames"] = [];
+  for (const skillName of skillSettings?.disabledBuiltinSkillNames ?? []) {
+    const toolName = BUILTIN_SKILL_TO_AGGREGATE_TOOL[skillName];
+    if (toolName) migrated.push(toolName as KbToolSettings["disabledGlobalToolNames"][number]);
+  }
+  return [...new Set(migrated)];
+}
+
 /**
  * 归一化全局工具设置
- * - 只保留合法全局工具名 read_docs / web_read_page
+ * - 只保留合法聚合工具名
+ * - 迁移旧全局小工具名和旧内置 Skill 禁用项到聚合工具
  * - 去重
  * - 旧设置缺失时回退默认值
  */
-function normalizeToolSettings(raw: unknown): KbToolSettings {
-  if (!raw || typeof raw !== "object") {
-    return { ...DEFAULT_TOOL_SETTINGS };
-  }
-  const s = raw as Record<string, unknown>;
+function normalizeToolSettings(raw: unknown, skillSettings?: KbSkillSettings): KbToolSettings {
+  const hasRawToolSettings = !!raw && typeof raw === "object";
+  const hasLegacySkillSettings = (skillSettings?.disabledBuiltinSkillNames?.length ?? 0) > 0;
+  const s = hasRawToolSettings ? raw as Record<string, unknown> : {};
   const rawNames = s.disabledGlobalToolNames;
-  const validNames: KbToolSettings["disabledGlobalToolNames"] = ["read_docs", "web_read_page", "edit_global_memory", "get_doc_info", "web_http_get", "web_http_post"];
-  let names: KbToolSettings["disabledGlobalToolNames"] = [];
+  let names: KbToolSettings["disabledGlobalToolNames"] = hasRawToolSettings || hasLegacySkillSettings
+    ? []
+    : [...DEFAULT_TOOL_SETTINGS.disabledGlobalToolNames];
   if (Array.isArray(rawNames)) {
     names = rawNames
-      .map((n) => (n === "append_global_memory" ? "edit_global_memory" : n))
-      .filter((n): n is KbToolSettings["disabledGlobalToolNames"][number] =>
-        typeof n === "string" && validNames.includes(n as KbToolSettings["disabledGlobalToolNames"][number])
-      );
-    names = [...new Set(names)];
+      .map(toAggregateGlobalToolName)
+      .filter((n): n is KbToolSettings["disabledGlobalToolNames"][number] => !!n);
   }
+  names = [...new Set([...names, ...migrateDisabledBuiltinSkillsToTools(skillSettings)])];
 
   // 归一化旧字段 disabledDangerousSkillToolConfirmationNames（迁移用）
   const validDangerousToolNames: KbDangerousSkillToolName[] = [
@@ -965,6 +983,8 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
   );
   const finalSelectedProviderId = selectedConfig.selectedProviderId;
   const finalSelectedModelId = selectedConfig.selectedModelId;
+  const legacySkillSettings = normalizeSkillSettings(normalized.skillSettings);
+  const skillSettings = { ...DEFAULT_SKILL_SETTINGS };
 
   // 第四步：显式构造 KbSettings 返回对象
   return {
@@ -979,18 +999,13 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     agentThinkingEnabled: typeof normalized.agentThinkingEnabled === "boolean"
       ? normalized.agentThinkingEnabled
       : DEFAULT_KB_SETTINGS.agentThinkingEnabled,
-    agentMaxToolCallsPerTurn: normalizeIntegerSetting(
-      normalized.agentMaxToolCallsPerTurn,
-      DEFAULT_KB_SETTINGS.agentMaxToolCallsPerTurn,
-      1,
-      50,
-    ),
+    agentMaxToolCallsPerTurn: normalizeAgentMaxToolCallsPerTurn(normalized.agentMaxToolCallsPerTurn),
     chatProviders,
     selectedChatProviderId: finalSelectedProviderId,
     selectedChatModelId: finalSelectedModelId,
     webSearch: normalizeWebSearchSettings(normalized.webSearch),
-    skillSettings: normalizeSkillSettings(normalized.skillSettings),
-    toolSettings: normalizeToolSettings(normalized.toolSettings),
+    skillSettings,
+    toolSettings: normalizeToolSettings(normalized.toolSettings, legacySkillSettings),
     globalMemory: normalizeGlobalMemorySettings(normalized.globalMemory),
     quickPrompts: normalizeQuickPromptsSettings(normalized.quickPrompts),
     notebrainWorkspace: normalizeNotebrainWorkspaceSettings(normalized.notebrainWorkspace),

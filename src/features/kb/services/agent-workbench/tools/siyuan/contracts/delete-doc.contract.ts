@@ -1,4 +1,4 @@
-﻿import { z } from "zod";
+import { z } from "zod";
 
 export const deleteDocInputSchema = z.object({
   docId: z.string().trim().min(1).max(256),
@@ -13,6 +13,7 @@ export const deleteDocOutputSchema = z.object({
     docId: z.string(),
     title: z.string().optional(),
   }).optional(),
+  errorCode: z.string().optional(),
 }).strict();
 
 export type DeleteDocOutput = z.infer<typeof deleteDocOutputSchema>;
@@ -31,6 +32,8 @@ export interface PreparedDeleteDocConfirmation {
   riskLevel: "low" | "medium" | "high";
   warnings?: string[];
   message: string;
+  /** 当确认准备阶段即被安全策略拦截时，携带具体错误码。 */
+  errorCode?: string;
 }
 
 export const deleteDocInputJsonSchemaOverride = {

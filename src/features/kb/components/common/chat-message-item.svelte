@@ -261,8 +261,14 @@
     query: "关键词",
     limit: "数量",
     docIds: "文档",
+    docIdsCount: "文档数量",
     blockIds: "块",
+    blockIdsCount: "块数量",
+    idsCount: "ID 数量",
     maxChars: "最大字数",
+    action: "操作",
+    innerAction: "内层操作",
+    id: "ID",
     view: "视图",
     maxDepth: "层级",
     rootDocId: "根文档",
@@ -271,6 +277,17 @@
     docId: "文档 ID",
     path: "路径",
     markdown: "正文",
+    markdownChars: "正文字数",
+    markdownDigest: "正文指纹",
+    contentChars: "内容字数",
+    contentDigest: "内容指纹",
+    valueTextChars: "文本字数",
+    valueTextDigest: "文本指纹",
+    argsDigest: "参数指纹",
+    keyDigest: "调用指纹",
+    firstStepIndex: "首次步骤",
+    previousErrorCode: "上次错误",
+    rawArgumentsChars: "原始参数",
     summary: "摘要",
     title: "标题",
     blockId: "内容块 ID",
@@ -282,6 +299,7 @@
     item_id: "记忆条目",
     target_id: "目标条目",
     position: "位置",
+    marker: "任务状态",
     text: "内容",
     chunkChars: "块大小",
     chunkCount: "总块数",
@@ -309,13 +327,23 @@
     if (value == null) return undefined;
     if (key === "query" && typeof value === "string") return `“${value}”`;
     if (key === "docIds" && Array.isArray(value)) return `${value.length} 个文档`;
+    if (key === "docIdsCount" && typeof value === "number") return `${value} 个文档`;
     if (key === "blockIds" && Array.isArray(value)) return `${value.length} 个块`;
+    if (key === "blockIdsCount" && typeof value === "number") return `${value} 个块`;
+    if (key === "idsCount" && typeof value === "number") return `${value} 个`;
     if (key === "cursor" && typeof value === "string") return "继续读取位置";
     if (key === "view" && typeof value === "string") return VIEW_LABELS[value] ?? value;
     if (key === "maxDepth" && typeof value === "number") return `${value} 层`;
     if (key === "limit" && typeof value === "number") return `${value}`;
     if (key === "maxChars" && typeof value === "number") return `${value}`;
-    if (key === "rootDocId" || key === "centerDocId" || key === "notebookId") return "已指定";
+    if (key === "markdownChars" || key === "contentChars" || key === "valueTextChars" || key === "rawArgumentsChars") {
+      return typeof value === "number" ? `${value} 字符` : undefined;
+    }
+    if (key === "firstStepIndex" && typeof value === "number") return `第 ${value} 步`;
+    if (key === "argsDigest" || key === "keyDigest" || key === "markdownDigest" || key === "contentDigest" || key === "valueTextDigest") {
+      return typeof value === "string" ? value : undefined;
+    }
+    if (key === "rootDocId" || key === "centerDocId" || key === "notebookId" || key === "docId" || key === "blockId" || key === "id") return "已指定";
     if (key === "includeTags" || key === "includeLinkedDocs") return value ? "是" : "否";
     if (key === "url" && typeof value === "string") return value.length > 40 ? `${value.slice(0, 37)}...` : value;
     if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -334,6 +362,15 @@
       })
       .filter(Boolean);
     return parts.length > 0 ? parts.join("；") : "参数已省略。";
+  }
+
+  function formatFailureSummary(event: Extract<AgentWorkbenchEvent, { type: "tool_result" }>, hasToolStart: boolean): string {
+    const base = event.result.summary || `失败：${event.result.errorCode || event.result.code || "未知错误"}`;
+    if (hasToolStart || !event.argsPreview) return base;
+    const preview = formatArgsPreview(event.argsPreview);
+    return preview && preview !== "无参数。" && preview !== "参数已省略。"
+      ? `${base}；重复参数：${preview}`
+      : base;
   }
 
   function formatResultSummary(toolName: string | undefined, outputSummary: string | undefined): string {
@@ -481,7 +518,7 @@
         step.summary = formatResultSummary(event.toolName, event.result.summary);
       } else {
         step.title = `${formatToolDisplayName(event.toolName)}失败`;
-        step.summary = event.result.summary || `失败：${event.result.errorCode || event.result.code || "未知错误"}`;
+        step.summary = formatFailureSummary(event, !!existing);
       }
       if (!existing) {
         byKey.set(key, step);

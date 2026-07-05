@@ -29,7 +29,7 @@ export function createFindAttributeViewRowsTool(
     source: "builtin",
     inputHint: "databaseId 必填；query/fieldName/fieldValue 可选；fieldName 必须能在 schema 中唯一匹配。",
     boundary: "只读本地过滤有限行数据，不执行写入。字段名不存在或重名时会要求先读取 schema/keyId。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

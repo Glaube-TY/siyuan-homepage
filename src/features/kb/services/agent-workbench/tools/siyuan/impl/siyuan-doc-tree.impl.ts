@@ -32,19 +32,19 @@ export async function executeSiyuanDocTree(args: SiyuanDocTreeInput): Promise<{ 
       break;
     case "move_by_id":
       data = await moveDocsByID(compactPayload({
-        ids: requireStringArray(args.ids, "ids", 50),
-        targetID: args.targetID,
-        toNotebook: args.toNotebook,
-        toPath: args.toPath,
-      }, ["ids", "targetID", "toNotebook", "toPath"]));
+        fromIDs: requireStringArray(args.ids, "ids", 50),
+        toID: requireString(args.targetID, "targetID"),
+      }, ["fromIDs", "toID"]));
       break;
-    case "duplicate":
+    case "duplicate": {
+      const duplicateId = args.id ?? args.ids?.[0];
       data = await duplicateDoc(compactPayload({
-        id: args.ids?.[0],
-        notebook: args.notebook,
-        path: args.path,
+        id: requireString(duplicateId, "id"),
+        notebook: requireString(args.notebook, "notebook"),
+        path: requireString(args.path, "path"),
       }, ["id", "notebook", "path"]));
       break;
+    }
     case "sort":
       data = await changeSort(compactPayload({
         notebook: requireString(args.notebook, "notebook"),

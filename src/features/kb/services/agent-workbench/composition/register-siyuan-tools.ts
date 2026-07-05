@@ -124,7 +124,6 @@ import {
 import { createSiyuanOutlineTool, type SiyuanOutlineDeps } from "../tools/siyuan/siyuan-outline.tool";
 import { createSiyuanRefTool, type SiyuanRefDeps } from "../tools/siyuan/siyuan-ref.tool";
 import { createSiyuanSearchExtraTool, type SiyuanSearchExtraDeps } from "../tools/siyuan/siyuan-search-extra.tool";
-import { createSiyuanSqlSelectTool, type SiyuanSqlSelectDeps } from "../tools/siyuan/siyuan-sql-select.tool";
 import { createSiyuanBlockReadTool, type SiyuanBlockReadDeps } from "../tools/siyuan/siyuan-block-read.tool";
 import { createSiyuanBlockAttrTool, type SiyuanBlockAttrDeps } from "../tools/siyuan/siyuan-block-attr.tool";
 import { createSiyuanBlockRefTool, type SiyuanBlockRefDeps } from "../tools/siyuan/siyuan-block-ref.tool";
@@ -178,7 +177,6 @@ import { executeManageDiaryReview } from "../tools/siyuan/impl/manage-diary-revi
 import { executeSiyuanOutline } from "../tools/siyuan/impl/siyuan-outline.impl";
 import { executeSiyuanRef } from "../tools/siyuan/impl/siyuan-ref.impl";
 import { executeSiyuanSearchExtra } from "../tools/siyuan/impl/siyuan-search-extra.impl";
-import { executeSiyuanSqlSelect } from "../tools/siyuan/impl/siyuan-sql-select.impl";
 import { executeSiyuanBlockRead } from "../tools/siyuan/impl/siyuan-block-read.impl";
 import { executeSiyuanBlockAttr } from "../tools/siyuan/impl/siyuan-block-attr.impl";
 import { executeSiyuanBlockRef } from "../tools/siyuan/impl/siyuan-block-ref.impl";
@@ -196,6 +194,8 @@ import { executeSiyuanAssetManage } from "../tools/siyuan/impl/siyuan-asset-mana
 import { executeSiyuanWorkspaceFile } from "../tools/siyuan/impl/siyuan-workspace-file.impl";
 import { executeSiyuanRiffDeck } from "../tools/siyuan/impl/siyuan-riff-deck.impl";
 import { executeSiyuanRiffCard } from "../tools/siyuan/impl/siyuan-riff-card.impl";
+import { createAggregateTool, type AggregateActionBinding } from "../tools/aggregate/aggregate-tool-factory";
+import { findAggregateToolMeta } from "../tools/aggregate/aggregate-tool-metadata";
 
 export interface SiyuanToolRegistrationOptions {
   kbRetrievalToolDeps: SiyuanToolDeps;
@@ -210,10 +210,7 @@ export interface SiyuanToolRegistrationOptions {
     assetManagement: boolean;
     riffReview: boolean;
   };
-  globalToolAccess?: {
-    readDocs: boolean;
-    getDocInfo: boolean;
-  };
+  globalToolAccess?: Record<string, boolean>;
 }
 
 function createSiyuanToolDeps(deps: SiyuanToolDeps) {
@@ -289,7 +286,6 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   const siyuanOutlineDeps: SiyuanOutlineDeps = { executeSiyuanOutline };
   const siyuanRefDeps: SiyuanRefDeps = { executeSiyuanRef };
   const siyuanSearchExtraDeps: SiyuanSearchExtraDeps = { executeSiyuanSearchExtra };
-  const siyuanSqlSelectDeps: SiyuanSqlSelectDeps = { executeSiyuanSqlSelect };
   const siyuanBlockReadDeps: SiyuanBlockReadDeps = { executeSiyuanBlockRead };
   const siyuanBlockAttrDeps: SiyuanBlockAttrDeps = { executeSiyuanBlockAttr };
   const siyuanBlockRefDeps: SiyuanBlockRefDeps = { executeSiyuanBlockRef };
@@ -315,7 +311,7 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
     updateAttributeViewCellDeps, addAttributeViewRowsDeps, addAttributeViewKeyDeps, removeAttributeViewKeyDeps, removeAttributeViewRowsDeps,
     clearAttributeViewCellDeps,
     manageDiaryStructureDeps, manageDiaryTaskDeps, manageDiaryRecordDeps, manageDiaryReviewDeps,
-    siyuanOutlineDeps, siyuanRefDeps, siyuanSearchExtraDeps, siyuanSqlSelectDeps,
+    siyuanOutlineDeps, siyuanRefDeps, siyuanSearchExtraDeps,
     siyuanBlockReadDeps, siyuanBlockAttrDeps, siyuanBlockRefDeps, siyuanBlockStateDeps, siyuanDocTransformDeps,
     siyuanDatabaseExtraReadDeps, siyuanDatabaseViewDeps,
     siyuanNotebookManageDeps, siyuanDocTreeDeps, siyuanDocPathDeps,
@@ -340,7 +336,7 @@ export function registerSiyuanTools(
     manageDiaryStructureDeps,
     manageDiaryTaskDeps,
     manageDiaryRecordDeps, manageDiaryReviewDeps,
-    siyuanOutlineDeps, siyuanRefDeps, siyuanSearchExtraDeps, siyuanSqlSelectDeps,
+    siyuanOutlineDeps, siyuanRefDeps, siyuanSearchExtraDeps,
     siyuanBlockReadDeps, siyuanBlockAttrDeps, siyuanBlockRefDeps, siyuanBlockStateDeps, siyuanDocTransformDeps,
     siyuanDatabaseExtraReadDeps, siyuanDatabaseViewDeps,
     siyuanNotebookManageDeps, siyuanDocTreeDeps, siyuanDocPathDeps,
@@ -349,94 +345,156 @@ export function registerSiyuanTools(
     siyuanRiffDeckDeps, siyuanRiffCardDeps,
   } = createSiyuanToolDeps(deps);
 
-  // read_docs is a global read-only tool
-  if (options.globalToolAccess?.readDocs !== false) {
-    toolRegistry.ensureTool(createReadDocsTool(readDeps));
-  }
-
-  // get_doc_info is a global read-only tool
-  if (options.globalToolAccess?.getDocInfo !== false) {
-    toolRegistry.ensureTool(createGetDocInfoTool(getDocInfoDeps));
-  }
-
   if (options.builtinCapabilityAccess?.knowledgeBase !== false) {
-    toolRegistry.ensureTool(createListKnowledgeMapTool(lkmDeps));
-    toolRegistry.ensureTool(createSearchScopeTool(searchDeps));
-    toolRegistry.ensureTool(createListItemsByTimeTool(listItemsByTimeDeps));
-    toolRegistry.ensureTool(createSiyuanOutlineTool(siyuanOutlineDeps));
-    toolRegistry.ensureTool(createSiyuanRefTool(siyuanRefDeps));
-    toolRegistry.ensureTool(createSiyuanSearchExtraTool(siyuanSearchExtraDeps));
-    toolRegistry.ensureTool(createSiyuanSqlSelectTool(siyuanSqlSelectDeps));
+    const meta = findAggregateToolMeta("siyuan_kb");
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "siyuan_kb",
+      title: meta?.title ?? "思源知识库",
+      description: meta?.description ?? "搜索、读取和分析思源知识库资料。",
+      boundary: meta?.boundary ?? "只读知识库工具。",
+      actions: [
+        { action: "search", tool: createSearchScopeTool(searchDeps) },
+        { action: "read_docs", tool: createReadDocsTool(readDeps) },
+        { action: "get_doc_info", tool: createGetDocInfoTool(getDocInfoDeps) },
+        { action: "list_map", tool: createListKnowledgeMapTool(lkmDeps) },
+        { action: "list_by_time", tool: createListItemsByTimeTool(listItemsByTimeDeps) },
+        { action: "outline", tool: createSiyuanOutlineTool(siyuanOutlineDeps) },
+        { action: "refs", tool: createSiyuanRefTool(siyuanRefDeps) },
+        { action: "extra_search", tool: createSiyuanSearchExtraTool(siyuanSearchExtraDeps) },
+      ],
+    }));
   }
 
   if (options.builtinCapabilityAccess?.scheduleTaskDiary !== false) {
-    toolRegistry.ensureTool(createGetDailyWorkspaceOverviewTool(overviewDeps));
-    toolRegistry.ensureTool(createQueryTasksTool(taskDeps));
-    toolRegistry.ensureTool(createQueryDiaryRecordsTool(recordDeps));
-    toolRegistry.ensureTool(createFindDiaryDocsTool(diaryDocDeps));
-    // Write tools: task/diary management
-    toolRegistry.ensureTool(createManageDiaryStructureTool(manageDiaryStructureDeps));
-    toolRegistry.ensureTool(createManageDiaryTaskTool(manageDiaryTaskDeps));
-    toolRegistry.ensureTool(createManageDiaryRecordTool(manageDiaryRecordDeps));
-    toolRegistry.ensureTool(createManageDiaryReviewTool(manageDiaryReviewDeps));
+    const meta = findAggregateToolMeta("diary_task");
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "diary_task",
+      title: meta?.title ?? "日记任务",
+      description: meta?.description ?? "查询和管理强化日记、任务、快速记录与复盘。",
+      boundary: meta?.boundary ?? "写入日记任务前需要确认。",
+      actions: [
+        { action: "overview", tool: createGetDailyWorkspaceOverviewTool(overviewDeps) },
+        { action: "query_tasks", tool: createQueryTasksTool(taskDeps) },
+        { action: "query_records", tool: createQueryDiaryRecordsTool(recordDeps) },
+        { action: "find_docs", tool: createFindDiaryDocsTool(diaryDocDeps) },
+        { action: "ensure_structure", tool: createManageDiaryStructureTool(manageDiaryStructureDeps) },
+        { action: "manage_task", tool: createManageDiaryTaskTool(manageDiaryTaskDeps) },
+        { action: "manage_record", tool: createManageDiaryRecordTool(manageDiaryRecordDeps) },
+        { action: "manage_review", tool: createManageDiaryReviewTool(manageDiaryReviewDeps) },
+      ],
+    }));
   }
 
   if (options.builtinCapabilityAccess?.databaseAssistant !== false) {
-    toolRegistry.ensureTool(createListAttributeViewsTool(listAttributeViewsDeps));
-    toolRegistry.ensureTool(createReadAttributeViewTool(readAttributeViewDeps));
-    toolRegistry.ensureTool(createFindAttributeViewRowsTool(findAttributeViewRowsDeps));
-    toolRegistry.ensureTool(createUpdateAttributeViewCellTool(updateAttributeViewCellDeps));
-    toolRegistry.ensureTool(createAddAttributeViewRowsTool(addAttributeViewRowsDeps));
-    toolRegistry.ensureTool(createAddAttributeViewKeyTool(addAttributeViewKeyDeps));
-    toolRegistry.ensureTool(createRemoveAttributeViewKeyTool(removeAttributeViewKeyDeps));
-    toolRegistry.ensureTool(createRemoveAttributeViewRowsTool(removeAttributeViewRowsDeps));
-    toolRegistry.ensureTool(createClearAttributeViewCellTool(clearAttributeViewCellDeps));
-    toolRegistry.ensureTool(createSiyuanDatabaseExtraReadTool(siyuanDatabaseExtraReadDeps));
-    toolRegistry.ensureTool(createSiyuanDatabaseViewTool(siyuanDatabaseViewDeps));
+    const meta = findAggregateToolMeta("siyuan_database");
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "siyuan_database",
+      title: meta?.title ?? "思源数据库",
+      description: meta?.description ?? "查询和操作思源数据库/属性视图。",
+      boundary: meta?.boundary ?? "写入数据库前需要确认。",
+      actions: [
+        { action: "list", tool: createListAttributeViewsTool(listAttributeViewsDeps) },
+        { action: "read", tool: createReadAttributeViewTool(readAttributeViewDeps) },
+        { action: "find_rows", tool: createFindAttributeViewRowsTool(findAttributeViewRowsDeps) },
+        { action: "update_cell", tool: createUpdateAttributeViewCellTool(updateAttributeViewCellDeps) },
+        { action: "add_rows", tool: createAddAttributeViewRowsTool(addAttributeViewRowsDeps) },
+        { action: "add_key", tool: createAddAttributeViewKeyTool(addAttributeViewKeyDeps) },
+        { action: "remove_key", tool: createRemoveAttributeViewKeyTool(removeAttributeViewKeyDeps) },
+        { action: "remove_rows", tool: createRemoveAttributeViewRowsTool(removeAttributeViewRowsDeps) },
+        { action: "clear_cell", tool: createClearAttributeViewCellTool(clearAttributeViewCellDeps) },
+        { action: "extra_read", tool: createSiyuanDatabaseExtraReadTool(siyuanDatabaseExtraReadDeps) },
+        { action: "view", tool: createSiyuanDatabaseViewTool(siyuanDatabaseViewDeps) },
+      ],
+    }));
   }
 
   if (options.builtinCapabilityAccess?.docContentEditing === true) {
-    toolRegistry.ensureTool(createReadDocBlocksTool(readDocBlocksDeps));
-    toolRegistry.ensureTool(createSiyuanBlockReadTool(siyuanBlockReadDeps));
-    toolRegistry.ensureTool(createSiyuanBlockAttrTool(siyuanBlockAttrDeps));
-    toolRegistry.ensureTool(createSiyuanBlockRefTool(siyuanBlockRefDeps));
-    toolRegistry.ensureTool(createSiyuanBlockStateTool(siyuanBlockStateDeps));
-    toolRegistry.ensureTool(createSiyuanDocTransformTool(siyuanDocTransformDeps));
+    const meta = findAggregateToolMeta("siyuan_doc_edit");
+    const actions: AggregateActionBinding[] = [
+      { action: "read_blocks", tool: createReadDocBlocksTool(readDocBlocksDeps) },
+      { action: "block_read", tool: createSiyuanBlockReadTool(siyuanBlockReadDeps) },
+      { action: "block_attr", tool: createSiyuanBlockAttrTool(siyuanBlockAttrDeps) },
+      { action: "block_ref", tool: createSiyuanBlockRefTool(siyuanBlockRefDeps) },
+      { action: "block_state", tool: createSiyuanBlockStateTool(siyuanBlockStateDeps) },
+      { action: "doc_transform", tool: createSiyuanDocTransformTool(siyuanDocTransformDeps) },
+    ];
     if (options.conversationId) {
       const writeDeps = { ...deps, conversationId: options.conversationId };
-      toolRegistry.ensureTool(createUpdateBlockTool({ executeUpdateBlock: (args, abortSignal) => executeUpdateBlock({ ...writeDeps, abortSignal }, args) }));
-      toolRegistry.ensureTool(createInsertBlockTool({ executeInsertBlock: (args, abortSignal) => executeInsertBlock({ ...writeDeps, abortSignal }, args) }));
-      toolRegistry.ensureTool(createDeleteBlocksTool({ executeDeleteBlocks: (args, abortSignal) => executeDeleteBlocks({ ...writeDeps, abortSignal }, args) }));
-      toolRegistry.ensureTool(createMoveBlockTool({ executeMoveBlock: (args, abortSignal) => executeMoveBlock({ ...writeDeps, abortSignal }, args) }));
-      toolRegistry.ensureTool(createCreateDocTool({ executeCreateDoc: (args, abortSignal) => executeCreateDoc({ ...writeDeps, abortSignal }, args) }));
-      toolRegistry.ensureTool(createRenameDocTool({ executeRenameDoc: (args, abortSignal) => executeRenameDoc({ ...writeDeps, abortSignal }, args) }));
-      toolRegistry.ensureTool(createDeleteDocTool({ executeDeleteDoc: (args, abortSignal) => executeDeleteDoc({ ...writeDeps, abortSignal }, args) }));
-      toolRegistry.ensureTool(createReplaceDocContentTool({ executeReplaceDocContent: (args, abortSignal) => executeReplaceDocContent({ ...writeDeps, abortSignal }, args) }));
+      actions.push(
+        { action: "update_block", tool: createUpdateBlockTool({ executeUpdateBlock: (args, abortSignal) => executeUpdateBlock({ ...writeDeps, abortSignal }, args) }) },
+        { action: "insert_block", tool: createInsertBlockTool({ executeInsertBlock: (args, abortSignal) => executeInsertBlock({ ...writeDeps, abortSignal }, args) }) },
+        { action: "delete_blocks", tool: createDeleteBlocksTool({ executeDeleteBlocks: (args, abortSignal) => executeDeleteBlocks({ ...writeDeps, abortSignal }, args) }) },
+        { action: "move_block", tool: createMoveBlockTool({ executeMoveBlock: (args, abortSignal) => executeMoveBlock({ ...writeDeps, abortSignal }, args) }) },
+        { action: "create_doc", tool: createCreateDocTool({ executeCreateDoc: (args, abortSignal) => executeCreateDoc({ ...writeDeps, abortSignal }, args) }) },
+        { action: "rename_doc", tool: createRenameDocTool({ executeRenameDoc: (args, abortSignal) => executeRenameDoc({ ...writeDeps, abortSignal }, args) }) },
+        { action: "delete_doc", tool: createDeleteDocTool({ executeDeleteDoc: (args, abortSignal) => executeDeleteDoc({ ...writeDeps, abortSignal }, args) }) },
+        { action: "replace_doc_content", tool: createReplaceDocContentTool({ executeReplaceDocContent: (args, abortSignal) => executeReplaceDocContent({ ...writeDeps, abortSignal }, args) }) },
+      );
     }
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "siyuan_doc_edit",
+      title: meta?.title ?? "思源文档编辑",
+      description: meta?.description ?? "读取块信息，并对文档和内容块执行受控编辑。",
+      boundary: meta?.boundary ?? "写入文档前需要确认。",
+      actions,
+    }));
   }
 
   if (options.builtinCapabilityAccess?.notebookDocTree === true) {
-    toolRegistry.ensureTool(createSiyuanNotebookManageTool(siyuanNotebookManageDeps));
-    toolRegistry.ensureTool(createSiyuanDocTreeTool(siyuanDocTreeDeps));
-    toolRegistry.ensureTool(createSiyuanDocPathTool(siyuanDocPathDeps));
+    const meta = findAggregateToolMeta("siyuan_tree");
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "siyuan_tree",
+      title: meta?.title ?? "思源树与笔记本",
+      description: meta?.description ?? "管理笔记本、文档树和路径解析。",
+      boundary: meta?.boundary ?? "文档树写入前需要确认。",
+      actions: [
+        { action: "notebook", tool: createSiyuanNotebookManageTool(siyuanNotebookManageDeps) },
+        { action: "doc_tree", tool: createSiyuanDocTreeTool(siyuanDocTreeDeps) },
+        { action: "doc_path", tool: createSiyuanDocPathTool(siyuanDocPathDeps) },
+      ],
+    }));
   }
 
   if (options.builtinCapabilityAccess?.tagBookmarkOutline === true) {
-    toolRegistry.ensureTool(createSiyuanTagManageTool(siyuanTagManageDeps));
-    toolRegistry.ensureTool(createSiyuanBookmarkManageTool(siyuanBookmarkManageDeps));
-    toolRegistry.ensureTool(createSiyuanOutlineTool(siyuanOutlineDeps));
-    toolRegistry.ensureTool(createSiyuanBlockAttrTool(siyuanBlockAttrDeps));
-    toolRegistry.ensureTool(createSiyuanDocPathTool(siyuanDocPathDeps));
+    const meta = findAggregateToolMeta("siyuan_meta");
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "siyuan_meta",
+      title: meta?.title ?? "思源标签书签",
+      description: meta?.description ?? "管理标签和书签。",
+      boundary: meta?.boundary ?? "标签或书签写入前需要确认。",
+      actions: [
+        { action: "tag", tool: createSiyuanTagManageTool(siyuanTagManageDeps) },
+        { action: "bookmark", tool: createSiyuanBookmarkManageTool(siyuanBookmarkManageDeps) },
+      ],
+    }));
   }
 
   if (options.builtinCapabilityAccess?.assetManagement === true) {
-    toolRegistry.ensureTool(createSiyuanAssetReadTool(siyuanAssetReadDeps));
-    toolRegistry.ensureTool(createSiyuanAssetManageTool(siyuanAssetManageDeps));
-    toolRegistry.ensureTool(createSiyuanWorkspaceFileTool(siyuanWorkspaceFileDeps));
+    const meta = findAggregateToolMeta("siyuan_asset");
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "siyuan_asset",
+      title: meta?.title ?? "思源资源",
+      description: meta?.description ?? "读取和管理 assets 以及受限工作区文件。",
+      boundary: meta?.boundary ?? "资源和文件写入前需要确认。",
+      actions: [
+        { action: "read", tool: createSiyuanAssetReadTool(siyuanAssetReadDeps) },
+        { action: "manage", tool: createSiyuanAssetManageTool(siyuanAssetManageDeps) },
+        { action: "workspace_file", tool: createSiyuanWorkspaceFileTool(siyuanWorkspaceFileDeps) },
+      ],
+    }));
   }
 
   if (options.builtinCapabilityAccess?.riffReview === true) {
-    toolRegistry.ensureTool(createSiyuanRiffDeckTool(siyuanRiffDeckDeps));
-    toolRegistry.ensureTool(createSiyuanRiffCardTool(siyuanRiffCardDeps));
+    const meta = findAggregateToolMeta("siyuan_riff");
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "siyuan_riff",
+      title: meta?.title ?? "思源闪卡",
+      description: meta?.description ?? "查询和管理 Riff deck/card。",
+      boundary: meta?.boundary ?? "闪卡写入前需要确认。",
+      actions: [
+        { action: "deck", tool: createSiyuanRiffDeckTool(siyuanRiffDeckDeps) },
+        { action: "card", tool: createSiyuanRiffCardTool(siyuanRiffCardDeps) },
+      ],
+    }));
   }
 }

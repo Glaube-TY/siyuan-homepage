@@ -1,5 +1,4 @@
 import {
-  copyFileChecked,
   getFileChecked,
   getUniqueFilenameChecked,
   putFileChecked,
@@ -33,6 +32,22 @@ function contentToBlob(content: string, encoding: "text" | "base64" | undefined)
   return new Blob([content], { type: "text/plain;charset=utf-8" });
 }
 
+function valueToBlob(value: unknown): Blob {
+  if (value instanceof Blob) {
+    return value;
+  }
+  if (value instanceof ArrayBuffer) {
+    return new Blob([value]);
+  }
+  if (value instanceof Uint8Array) {
+    return new Blob([value as BlobPart]);
+  }
+  if (typeof value === "string") {
+    return new Blob([value], { type: "text/plain;charset=utf-8" });
+  }
+  return new Blob([String(value)]);
+}
+
 export async function executeSiyuanWorkspaceFile(args: SiyuanWorkspaceFileInput): Promise<{ output: SiyuanToolOutput }> {
   let data: unknown;
   switch (args.action) {
@@ -49,13 +64,14 @@ export async function executeSiyuanWorkspaceFile(args: SiyuanWorkspaceFileInput)
       data = null;
       break;
     }
-    case "copy_file":
-      await copyFileChecked({
-        path: checkedPath(args.path, "path"),
-        targetPath: checkedPath(args.targetPath, "targetPath"),
-      });
+    case "copy_file": {
+      const srcPath = checkedPath(args.path, "path");
+      const dstPath = checkedPath(args.targetPath, "targetPath");
+      const content = await getFileChecked(srcPath);
+      await putFileChecked(dstPath, false, valueToBlob(content));
       data = null;
       break;
+    }
     case "rename_file":
       await renameFileChecked(checkedPath(args.path, "path"), checkedPath(args.targetPath, "targetPath"));
       data = null;

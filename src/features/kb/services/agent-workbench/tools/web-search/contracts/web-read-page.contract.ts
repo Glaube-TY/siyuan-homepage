@@ -1,5 +1,5 @@
-﻿/**
- * Web read page contract — input/output schemas for web_read_page tool.
+/**
+ * Web read page contract — input/output schemas for web_fetch.read_page action.
  * Pure types and schemas. No side effects. No runtime logic.
  */
 import { z } from "zod";

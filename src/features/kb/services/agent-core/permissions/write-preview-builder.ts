@@ -1,5 +1,6 @@
 import type { NativeTool } from "../tools/native-tool";
 import type { ToolPermissionPreview } from "./tool-preview";
+import { isDangerousCommand } from "../../agent-workbench/mcp/mcp-safety";
 
 /** Header keys whose values must be redacted in logs/debug/permission previews. */
 const SENSITIVE_HEADER_KEYS = new Set([
@@ -188,24 +189,48 @@ function buildEditGlobalMemoryPreview(tool: NativeTool, args: Record<string, unk
   const memoryChars = normalized.length;
   const memoryLineCount = normalized ? normalized.split("\n").filter((l) => l.trim()).length : 0;
 
+  // The provider-visible JSON schema carries the current maxMemoryChars as maxLength.
+  const memorySchema = tool.parameters && typeof tool.parameters === "object"
+    ? (tool.parameters as Record<string, unknown>).properties
+    : undefined;
+  const memoryFieldSchema = memorySchema && typeof memorySchema === "object"
+    ? (memorySchema as Record<string, unknown>).memory
+    : undefined;
+  const maxMemoryChars = typeof memoryFieldSchema === "object" && memoryFieldSchema !== null
+    ? Number((memoryFieldSchema as Record<string, unknown>).maxLength)
+    : NaN;
+  const maxMemoryCharsDisplay = Number.isFinite(maxMemoryChars) ? maxMemoryChars : "当前设置";
+
   const previewParts: string[] = [];
   if (!normalized) {
-    previewParts.push("将清空全局记忆");
+    previewParts.push("将清空全局记忆（此操作会被 Agent 拒绝）");
   } else {
-    previewParts.push(`将全量替换全局记忆`);
-    previewParts.push(`新记忆：${memoryChars} 字符，${memoryLineCount} 条`);
+    previewParts.push("将完整替换全局记忆（不是追加/补丁）");
+    previewParts.push(`新记忆：${memoryChars} 字符 / 上限 ${maxMemoryCharsDisplay} 字符，${memoryLineCount} 条`);
     const preview = sanitizePreviewText(normalized, 400);
     previewParts.push(`预览：${preview}`);
+  }
+
+  const warnings: string[] = [
+    "此操作会用新内容完全覆盖当前全局记忆，不是增量更新。",
+    `当前写入上限为 ${maxMemoryCharsDisplay} 字符；超过上限的内容会在确认前被拒绝。`,
+  ];
+  if (memoryLineCount <= 1 && memoryChars > 0) {
+    warnings.push("新内容条目数很少，可能导致原有记忆大量丢失，请确认这是完整原文。");
+  }
+  if (Number.isFinite(maxMemoryChars) && memoryChars > maxMemoryChars) {
+    warnings.push(`新内容 ${memoryChars} 字符已超过当前上限 ${maxMemoryChars} 字符，确认前会被拒绝。`);
   }
 
   return makePreview({
     tool,
     risk: "high",
-    argsPreview: { memory: memoryChars > 0 ? `(${memoryChars} 字符)` : "(清空)" },
-    operationLabel: normalized ? "全量替换全局记忆" : "清空全局记忆",
+    argsPreview: { memory: memoryChars > 0 ? `(${memoryChars} 字符 / 上限 ${maxMemoryCharsDisplay}，${memoryLineCount} 条)` : "(清空/将被拒绝)" },
+    operationLabel: normalized ? "完整替换全局记忆" : "清空全局记忆（将被拒绝）",
     targetSummary: "Notebrain 全局记忆",
-    impactSummary: normalized ? `${memoryChars} 字符，约 ${memoryLineCount} 条` : "全局记忆会被清空",
+    impactSummary: normalized ? `${memoryChars} 字符 / 上限 ${maxMemoryCharsDisplay}，约 ${memoryLineCount} 条` : "全局记忆会被清空（此操作会被拒绝）",
     riskReason: "会覆盖全局记忆内容，后续回答可能受影响。",
+    warnings,
     summary: previewParts.join("\n"),
   });
 }
@@ -540,68 +565,6 @@ const TASK_DIARY_WRITE_TOOLS = new Set([
   "manage_diary_review",
 ]);
 
-function buildRunNotebrainCommandPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
-  const command = typeof args.command === "string" ? args.command : "";
-  const cwd = typeof args.cwd === "string" && args.cwd.trim() ? args.cwd.trim() : ".";
-  const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined;
-  const maxOutputChars = typeof args.maxOutputChars === "number" ? args.maxOutputChars : undefined;
-  const riskLevel = typeof args.riskLevel === "string" ? args.riskLevel : (args as any)?.riskLevel;
-  const riskReasons = Array.isArray((args as any)?.riskReasons) ? (args as any).riskReasons as string[] : [];
-  const riskCategories = Array.isArray((args as any)?.riskCategories) ? (args as any).riskCategories as string[] : [];
-  const strictMode = (args as any)?.strictWorkspaceMode !== false;
-  const hardDeny = (args as any)?.hardDeny === true;
-
-  const parts = [
-    "不是系统级沙箱，仅限制 cwd 为 notebrain/projects/default；命令本身仍可能读取系统信息、环境变量或访问绝对路径。",
-    `命令：${sanitizePreviewText(command, 240)}`,
-    `cwd：${sanitizePreviewText(cwd, 160)}`,
-    strictMode ? "严格模式：开启" : "严格模式：关闭",
-  ];
-
-  if (riskLevel) parts.push(`风险等级：${riskLevel === "high" ? "⚠ 高风险" : riskLevel === "medium" ? "中风险" : "低风险"}`);
-  for (const reason of riskReasons) {
-    parts.push(`⚠ ${reason}`);
-  }
-
-  // Category-specific impact statements
-  if (riskCategories.includes("system_info")) parts.push("可能读取系统信息（systeminfo/wmic/ipconfig/whoami 等）");
-  if (riskCategories.includes("absolute_path") || riskCategories.includes("parent_path")) parts.push("可能访问工作区外路径");
-  if (riskCategories.includes("file_ops")) parts.push("可能修改或删除文件");
-  if (riskCategories.includes("network")) parts.push("可能发起外部网络请求");
-
-  if (hardDeny) {
-    parts.push("⛔ 严格模式下已拒绝：不进入确认执行。");
-  }
-
-  if (timeoutMs) parts.push(`timeout：${timeoutMs}ms`);
-  if (maxOutputChars) parts.push(`输出预览上限：${maxOutputChars} 字符`);
-  parts.push("命令不支持交互式 TTY 或后台常驻进程，执行日志会写入 notebrain/logs/commands。");
-
-  return makePreview({
-    tool,
-    title: `执行本地命令${riskLevel === "high" ? " ⚠ 高风险" : ""}`,
-    risk: "high",
-    argsPreview: { command: sanitizePreviewText(command, 240), cwd: sanitizePreviewText(cwd, 160), timeoutMs, maxOutputChars, riskLevel, riskReasons, riskCategories, strictMode, hardDeny },
-    operationLabel: "执行 Notebrain 本地命令",
-    targetSummary: `cwd=${sanitizePreviewText(cwd, 120)}`,
-    impactSummary: "将在 notebrain/projects/default 限制工作区内执行非交互式命令。",
-    riskReason: riskReasons.length > 0 ? riskReasons.join("；") : "本地命令不是系统级沙箱，仅有 cwd 限制。",
-    warnings: [
-      "这不是系统级沙箱，只限制 cwd。",
-      ...riskReasons,
-      ...(hardDeny ? ["严格模式已拒绝，不进入确认执行。"] : []),
-    ],
-    sections: [
-      { label: "命令", value: sanitizePreviewText(command, 500) },
-      { label: "cwd", value: sanitizePreviewText(cwd, 200) },
-      { label: "执行限制", value: `${strictMode ? "严格模式：开启" : "严格模式：关闭"}\n不是系统级沙箱，仅限制 cwd。` },
-      { label: "运行参数", value: [`timeout=${timeoutMs ?? "默认"}`, `maxOutputChars=${maxOutputChars ?? "默认"}`].join("\n") },
-      { label: "风险类别", value: riskCategories.length > 0 ? riskCategories.join("、") : "未标记" },
-    ],
-    summary: parts.join("\n"),
-  });
-}
-
 function buildSkillInstallPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
   const source = typeof args.source === "string" ? sanitizePreviewText(args.source, 220) : "";
   const targetSkillId = typeof args.targetSkillId === "string" ? args.targetSkillId : "(自动生成)";
@@ -623,9 +586,9 @@ function buildSkillInstallPreview(tool: NativeTool, args: Record<string, unknown
   });
 }
 
-function buildSkillMaintenancePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+function buildSkillMaintenancePreview(tool: NativeTool, args: Record<string, unknown>, actionHint?: string): ToolPermissionPreview {
   const id = typeof args.id === "string" ? args.id : "";
-  const isReindex = tool.name === "skill_reindex";
+  const isReindex = actionHint === "reindex";
   return makePreview({
     tool,
     title: isReindex ? "重建外部 Skill 索引" : "停用外部 Skill",
@@ -642,10 +605,14 @@ function buildSkillMaintenancePreview(tool: NativeTool, args: Record<string, unk
   });
 }
 
-function buildNotebrainFileWritePreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
+function buildNotebrainFileWritePreview(
+  tool: NativeTool,
+  args: Record<string, unknown>,
+  actionHint?: string,
+): ToolPermissionPreview {
   const path = typeof args.path === "string" ? sanitizePreviewText(args.path, 180) : "";
   const content = typeof args.content === "string" ? args.content : "";
-  const isDelete = tool.name === "delete_notebrain_path";
+  const isDelete = actionHint === "delete_path";
   const overwrite = args.overwrite === true || args.createOnly === false;
   return makePreview({
     tool,
@@ -700,37 +667,52 @@ function buildMcpToolPreview(tool: NativeTool, args: Record<string, unknown>): T
   });
 }
 
-function buildMcpManagementPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
-  if (tool.name === "mcp_save_server") {
+function buildMcpManagementPreview(tool: NativeTool, args: Record<string, unknown>, actionHint?: string): ToolPermissionPreview {
+  if (actionHint === "save_server") {
     const server = args.server && typeof args.server === "object" ? args.server as Record<string, unknown> : {};
     const id = typeof server.id === "string" ? server.id : "";
     const transport = typeof server.transport === "string" ? server.transport : "";
     const title = typeof server.title === "string" ? server.title : id;
-    const endpoint = transport === "stdio"
-      ? (typeof server.command === "string" ? server.command : "")
-      : (typeof server.url === "string" ? server.url : "");
+    const enabled = typeof server.enabled === "boolean" ? server.enabled : true;
+    const command = transport === "stdio" && typeof server.command === "string" ? server.command : undefined;
+    const url = transport !== "stdio" && typeof server.url === "string" ? server.url : undefined;
+    const argsList = Array.isArray(server.args) ? server.args.filter((a): a is string => typeof a === "string") : [];
     const auth = server.auth && typeof server.auth === "object" ? server.auth as Record<string, unknown> : undefined;
     const authType = auth ? String(auth.type ?? "none") : undefined;
     const hasBearerToken = auth ? !!auth.bearerToken : false;
     const hasApiKey = auth ? !!auth.apiKey : false;
     const headerKeys = auth?.headers && typeof auth.headers === "object" ? Object.keys(auth.headers as Record<string, unknown>) : [];
     const envKeys = server.env && typeof server.env === "object" ? Object.keys(server.env as Record<string, unknown>) : [];
-    const safeEndpoint = sanitizePreviewText(endpoint, 220);
-    const highRiskCommand = transport === "stdio" && /\b(rm|del|remove-item|curl|wget|powershell|sudo|chmod|reg)\b/i.test(endpoint);
+    const safeEndpoint = sanitizePreviewText(command ?? url ?? "", 220);
+    const safeArgsPreview = argsList.length > 0 ? argsList.map((a) => sanitizePreviewText(a, 120)).slice(0, 10) : undefined;
+    const highRiskCommand = transport === "stdio" && command
+      ? isDangerousCommand(command, argsList).hardDeny
+      : false;
     return makePreview({
       tool,
       title: "保存 MCP Server 配置",
       risk: highRiskCommand ? "high" : "medium",
-      argsPreview: { id, title, transport, endpoint: safeEndpoint, ...(authType ? { authType, hasBearerToken, hasApiKey, headerKeys } : {}), ...(envKeys.length > 0 ? { envKeys } : {}) },
+      argsPreview: {
+        id,
+        title,
+        transport,
+        enabled,
+        ...(command !== undefined ? { command: safeEndpoint } : {}),
+        ...(safeArgsPreview !== undefined ? { argsPreview: safeArgsPreview } : {}),
+        ...(url !== undefined ? { url: safeEndpoint } : {}),
+        ...(authType ? { authType, hasBearerToken, hasApiKey, headerKeys } : {}),
+        ...(envKeys.length > 0 ? { envKeys } : {}),
+      },
       operationLabel: "保存 MCP Server 配置",
       targetSummary: `Server ${title || id || "未提供"}`,
       impactSummary: "会写入 MCP Server 配置；同步后可能暴露新的外部工具。",
-      riskReason: highRiskCommand ? "stdio command 包含明显高风险命令片段。" : "保存配置会改变外部 MCP 工具来源。",
-      warnings: highRiskCommand ? ["stdio command 包含明显高风险命令片段，请确认来源可信。"] : undefined,
+      riskReason: highRiskCommand ? "stdio command/args 被安全策略判定为高危命令。" : "保存配置会改变外部 MCP 工具来源。",
+      warnings: highRiskCommand ? ["stdio command/args 被安全策略判定为高危命令，保存前将被拦截。"] : undefined,
       sections: [
-        { label: "Server", value: `id=${id || "未提供"}\ntitle=${title || "未提供"}` },
+        { label: "Server", value: `id=${id || "未提供"}\ntitle=${title || "未提供"}\nenabled=${enabled}` },
         { label: "Transport", value: transport || "未提供" },
         { label: transport === "stdio" ? "stdio command" : "URL endpoint", value: safeEndpoint || "未提供" },
+        ...(safeArgsPreview !== undefined ? [{ label: "Args 预览", value: safeArgsPreview.join("\n") }] : []),
         { label: "认证", value: `${authType ?? "none"}\nBearer Token：${hasBearerToken ? "已配置" : "无"}\nAPI Key：${hasApiKey ? "已配置" : "无"}\nHeader Keys：${headerKeys.join(", ") || "无"}\nEnv Keys：${envKeys.join(", ") || "无"}` },
       ],
       summary: [
@@ -743,6 +725,43 @@ function buildMcpManagementPreview(tool: NativeTool, args: Record<string, unknow
         headerKeys.length > 0 ? `附加 Header：${headerKeys.join(", ")}` : "",
         envKeys.length > 0 ? `环境变量：${envKeys.join(", ")}` : "",
         "将写入 notebrain/mcp/servers.json。保存后仍需要同步 tools/list 才会暴露工具。",
+      ].filter(Boolean).join("\n"),
+    });
+  }
+
+  if (actionHint === "delete_server") {
+    const serverId = typeof args.serverId === "string" ? args.serverId : "";
+    const title = typeof args.title === "string" ? args.title : undefined;
+    const transport = typeof args.transport === "string" ? args.transport : undefined;
+    const isDisposable = serverId.startsWith("nb-agent-temp-mcp-");
+    return makePreview({
+      tool,
+      title: "删除 MCP Server 配置",
+      risk: isDisposable ? "medium" : "high",
+      argsPreview: {
+        serverId,
+        ...(title !== undefined ? { title } : {}),
+        ...(transport !== undefined ? { transport } : {}),
+      },
+      operationLabel: "删除 MCP Server 配置",
+      targetSummary: `Server ${serverId}`,
+      impactSummary: "会从配置中永久删除该 Server，已同步的工具索引不会自动清理。",
+      riskReason: isDisposable ? undefined : "删除非测试 Server 可能影响现有工作流。",
+      warnings: isDisposable
+        ? undefined
+        : ["注意：这不是测试 Server，删除后可能影响现有工具索引。", "如需清理残留工具索引，删除后请调用 mcp_manage.cleanup_stale_tools。"],
+      sections: [
+        { label: "Server ID", value: serverId || "未提供" },
+        ...(title !== undefined ? [{ label: "Title", value: title }] : []),
+        ...(transport !== undefined ? [{ label: "Transport", value: transport }] : []),
+        { label: "类型", value: isDisposable ? "disposable 测试 Server" : "普通 Server" },
+      ],
+      summary: [
+        `Server ID：${serverId || "未提供"}`,
+        title ? `Title：${title}` : "",
+        transport ? `Transport：${transport}` : "",
+        isDisposable ? "删除对象为本轮 disposable 测试 Server。" : "警告：这不是本轮 disposable 测试 Server，删除需谨慎！",
+        "删除后如需清理残留工具索引，请调用 mcp_manage.cleanup_stale_tools。",
       ].filter(Boolean).join("\n"),
     });
   }
@@ -1185,6 +1204,11 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
       const cardDues = Array.isArray(args.cardDues) ? args.cardDues as Record<string, unknown>[] : [];
       const previewItems = cardDues.slice(0, 3).map((cd) => `${typeof cd.id === "string" ? cd.id.slice(0, 12) : "?"}=${cd.due ?? "?"}`).join("、");
       impactLines.push(`设到期时间：共 ${cardDues.length} 张卡片${cardDues.length > 0 ? `，前 ${Math.min(3, cardDues.length)} 项：${previewItems}` : ""}。`);
+    } else if (riffAction === "move_cards") {
+      const fromDeckID = typeof args.fromDeckID === "string" ? args.fromDeckID.slice(0, 20) : "?";
+      const toDeckID = typeof args.toDeckID === "string" ? args.toDeckID.slice(0, 20) : "?";
+      const count = Array.isArray(args.blockIDs) ? (args.blockIDs as unknown[]).length : "?";
+      impactLines.push(`将 ${count} 张闪卡从 Deck ${fromDeckID} 移动到 Deck ${toDeckID}，会改变闪卡归属。`);
     }
     if (!["due_cards", "tree_due_cards", "notebook_due_cards", "list_cards", "tree_cards", "notebook_cards", "cards_by_block_ids"].includes(riffAction)) {
       impactLines.push("执行后应以工具结果为准，拒绝/取消/失败时不能声称成功。");
@@ -1227,7 +1251,7 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
   };
 }
 
-// ── web_http_post confirmation preview ──
+// ── web_fetch.http_post confirmation preview ──
 
 /** Redact sensitive header keys and values for safe display. */
 function redactHeadersForPreview(headers: Record<string, string> | undefined): Record<string, string> {
@@ -1346,23 +1370,24 @@ function buildWebHttpPostPreview(tool: NativeTool, args: Record<string, unknown>
 }
 
 export function buildToolPermissionPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
-  if (tool.name === "web_http_post") {
-    return buildWebHttpPostPreview(tool, args);
+  const action = typeof args.action === "string" ? args.action : "";
+  const nestedArgs = args.args && typeof args.args === "object"
+    ? args.args as Record<string, unknown>
+    : {};
+  if (tool.name === "web_fetch" && action === "http_post") {
+    return buildWebHttpPostPreview(tool, nestedArgs);
   }
-  if (tool.name === "run_notebrain_command") {
-    return buildRunNotebrainCommandPreview(tool, args);
+  if (tool.name === "skill_manage" && action === "install") {
+    return buildSkillInstallPreview(tool, nestedArgs);
   }
-  if (tool.name === "skill_install") {
-    return buildSkillInstallPreview(tool, args);
+  if (tool.name === "skill_manage" && (action === "uninstall" || action === "reindex")) {
+    return buildSkillMaintenancePreview(tool, nestedArgs, action);
   }
-  if (tool.name === "skill_uninstall" || tool.name === "skill_reindex") {
-    return buildSkillMaintenancePreview(tool, args);
+  if (tool.name === "notebrain_file" && (action === "write_file" || action === "delete_path")) {
+    return buildNotebrainFileWritePreview(tool, nestedArgs, action);
   }
-  if (tool.name === "write_notebrain_file" || tool.name === "delete_notebrain_path") {
-    return buildNotebrainFileWritePreview(tool, args);
-  }
-  if (tool.name === "mcp_save_server" || tool.name === "mcp_sync_tools") {
-    return buildMcpManagementPreview(tool, args);
+  if (tool.name === "mcp_manage" && (action === "save_server" || action === "delete_server" || action === "sync_tools")) {
+    return buildMcpManagementPreview(tool, nestedArgs, action);
   }
   if (tool.name.startsWith("mcp__")) {
     return buildMcpToolPreview(tool, args);

@@ -36,6 +36,8 @@ import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.s
 import { setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
 import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
 import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage";
+import { saveData, loadData, removeData } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
+import { setPluginStorage } from "@/features/kb/services/agent-workbench/runtime/in-flight-turn-journal";
 import { setNotifyBridgePlugin } from "@/features/notify-bridge";
 import { destroyChatActionBridge, setChatActionBridgePlugin, startChatActionBridgeIfNeeded } from "@/features/chat-action-bridge";
 import { destroyTaskNotifyScheduler, setTaskNotifyHistoryPlugin, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
@@ -387,6 +389,7 @@ export default class PluginHomepage extends Plugin {
         setKbSettingsPlugin(this);
         setReferenceNavigationPlugin(this);
         setNotebrainPlugin(this);
+        setPluginStorage({ saveData, loadData, removeData });
         setNotifyBridgePlugin(this);
         setChatActionBridgePlugin(this);
         setTaskNotifyPlugin(this);

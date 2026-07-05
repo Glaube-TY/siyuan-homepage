@@ -11,6 +11,13 @@
   import { askByMode } from "../../services/orchestration/ask-by-mode";
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import { getCurrentDocumentId, resolveDocMetaForAttachment } from "../../services/siyuan/current-doc-service";
+  import {
+    writeLastKnownState,
+    checkpointTurnJournal,
+    asyncFlushJournal,
+    readTurnJournal,
+    clearLastKnownState,
+  } from "../../services/agent-workbench/runtime/in-flight-turn-journal";
   import { showMessage } from "siyuan";
   import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "../../services/settings/kb-settings-service";
   import { DEFAULT_CHAT_APPEARANCE_SETTINGS } from "../../constants/default-settings";
@@ -334,6 +341,41 @@
   }
 
   function handleNativePermissionConfirm() {
+    // Checkpoint before resolving — in case crash happens right after
+    const toolName = nativePermissionPreview?.toolName ?? "";
+    const action = nativePermissionPreview?.argsPreview?.["action"] as string | undefined;
+    const innerAction = nativePermissionPreview?.argsPreview?.["innerAction"] as string | undefined;
+    const argsPreview = nativePermissionPreview?.argsPreview ?? {};
+    const confirmationId = nativePermissionPreview?.confirmationId;
+    // Build a stable argsDigest from the actual argsPreview
+    const digestParts: string[] = [];
+    if (action) digestParts.push(`action:${action}`);
+    if (innerAction) digestParts.push(`innerAction:${innerAction}`);
+    if (confirmationId) digestParts.push(`confirmationId:${confirmationId}`);
+    const argsDigest = digestParts.length > 0 ? digestParts.join("|") : undefined;
+    checkpointTurnJournal({
+      eventType: "permission_confirm_clicked",
+      stepIndex: 0,
+      toolName,
+      action,
+      innerAction,
+      argsDigest,
+      confirmationId,
+      permissionState: "allowed",
+    });
+    void asyncFlushJournal();
+    writeLastKnownState({
+      asking: $kbSessionStore.asking,
+      activeConversationId: ($kbSessionStore as ExtendedKbSessionState).activeConversationId ?? "",
+      nativePermissionModalOpen: false,
+      nativePermissionToolName: toolName,
+      nativePermissionTitle: nativePermissionPreview?.title,
+      nativePermissionAction: action,
+      nativePermissionArgsPreview: argsPreview,
+      permissionConfirmClicked: true,
+      lastJournalEvent: "permission_confirm_clicked",
+      updatedAt: Date.now(),
+    });
     if (nativePermissionResolve) {
       nativePermissionResolve({ type: "allow" });
       nativePermissionResolve = null;
@@ -343,7 +385,24 @@
   }
 
   function handleNativePermissionCancel() {
+    const toolName = nativePermissionPreview?.toolName ?? "";
+    const action = nativePermissionPreview?.argsPreview?.["action"] as string | undefined;
+    const innerAction = nativePermissionPreview?.argsPreview?.["innerAction"] as string | undefined;
     const confirmationId = nativePermissionPreview?.confirmationId;
+    const digestParts: string[] = [];
+    if (action) digestParts.push(`action:${action}`);
+    if (innerAction) digestParts.push(`innerAction:${innerAction}`);
+    if (confirmationId) digestParts.push(`confirmationId:${confirmationId}`);
+    const argsDigest = digestParts.length > 0 ? digestParts.join("|") : undefined;
+    checkpointTurnJournal({
+      eventType: "permission_cancel_clicked",
+      toolName,
+      action,
+      innerAction,
+      argsDigest,
+      confirmationId,
+      permissionState: "denied",
+    });
     if (nativePermissionResolve) {
       nativePermissionResolve({ type: "deny", reason: "用户取消了操作。" });
       nativePermissionResolve = null;
@@ -1180,6 +1239,19 @@
     // 同步 flush：清除 debounce 定时器，立即持久化当前会话
     // sendBeacon 不可用（需要 JSON body），改为同步触发
     void kbSessionStore.persistConversationsNow();
+
+    // Write last-known state for crash diagnosis
+    writeLastKnownState({
+      asking: $kbSessionStore.asking,
+      activeConversationId: ($kbSessionStore as ExtendedKbSessionState).activeConversationId ?? "",
+      nativePermissionModalOpen,
+      nativePermissionToolName: nativePermissionPreview?.toolName,
+      nativePermissionTitle: nativePermissionPreview?.title,
+      nativePermissionAction: nativePermissionPreview?.argsPreview?.["action"] as string | undefined,
+      nativePermissionArgsPreview: nativePermissionPreview?.argsPreview,
+      lastJournalEvent: readTurnJournal()?.lastEventType,
+      updatedAt: Date.now(),
+    });
   }
 
   onMount(() => {

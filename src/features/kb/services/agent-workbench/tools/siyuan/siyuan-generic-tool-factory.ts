@@ -35,7 +35,7 @@ export function createGenericSiyuanTool<TArgs>(
     source: "builtin",
     inputHint: options.inputHint,
     boundary: options.boundary,
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: options.inputJsonSchemaOverride,
 
     availability() {

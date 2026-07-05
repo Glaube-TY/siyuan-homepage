@@ -1,33 +1,6 @@
 <script lang="ts">
   import type { KbSettings, KbGlobalToolName } from "../../../types/settings";
   import { globalToolCatalog } from "../../../services/agent-workbench/tools/global-tool-catalog";
-  import { skillToolCatalog } from "../../../services/agent-workbench/tools/skill-tool-catalog";
-  import { BUILTIN_KB_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/knowledge-base-qa.skill";
-  import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/schedule-task-diary.skill";
-  import { BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/database-assistant.skill";
-  import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/doc-content-editing.skill";
-  import { BUILTIN_NOTEBOOK_DOC_TREE_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/notebook-doc-tree.skill";
-  import { BUILTIN_TAG_BOOKMARK_OUTLINE_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/tag-bookmark-outline.skill";
-  import { BUILTIN_ASSET_MANAGEMENT_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/asset-management.skill";
-  import { BUILTIN_RIFF_REVIEW_SKILL_NAME } from "../../../services/agent-workbench/skills/builtin/riff-review.skill";
-  import type { BuiltinSkillToolCategoryId } from "../../../services/agent-workbench/tools/skill-tool-catalog";
-
-  const CATEGORY_TO_SKILL: Record<BuiltinSkillToolCategoryId, string> = {
-    knowledge_base: BUILTIN_KB_SKILL_NAME,
-    schedule_task_diary: BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME,
-    database_assistant: BUILTIN_DATABASE_ASSISTANT_SKILL_NAME,
-    doc_content_editing: BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME,
-    notebook_doc_tree: BUILTIN_NOTEBOOK_DOC_TREE_SKILL_NAME,
-    tag_bookmark_outline: BUILTIN_TAG_BOOKMARK_OUTLINE_SKILL_NAME,
-    asset_management: BUILTIN_ASSET_MANAGEMENT_SKILL_NAME,
-    riff_review: BUILTIN_RIFF_REVIEW_SKILL_NAME,
-  };
-
-  function isSkillCategoryEnabled(categoryId: BuiltinSkillToolCategoryId): boolean {
-    const skillName = CATEGORY_TO_SKILL[categoryId];
-    if (!skillName) return true;
-    return !(settings.skillSettings?.disabledBuiltinSkillNames ?? []).includes(skillName);
-  }
 
   export let settings: KbSettings;
 
@@ -77,10 +50,6 @@
 
 <div class="tools-settings-tab">
   <div class="section">
-    <div class="section-header">
-      <h2 class="section-title">全局工具</h2>
-      <p class="section-description">控制全局工具是否对 AI 可用。</p>
-    </div>
     <div class="tools-list">
       {#each globalToolCatalog as tool}
         <div class="tool-card">
@@ -130,59 +99,6 @@
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-header">
-      <h2 class="section-title">Skill 专属工具</h2>
-      <p class="section-description">
-        这些工具随对应内置 Skill 启用或隐藏；关闭 Skill 后不会注册给 Agent，也不会在这里显示。
-      </p>
-    </div>
-
-    {#each skillToolCatalog.filter(c => isSkillCategoryEnabled(c.id)) as category}
-      <div class="skill-category">
-        <div class="skill-category-header">
-          <span class="skill-category-title">{category.title}</span>
-          <span class="skill-category-desc">{category.description}</span>
-        </div>
-        <div class="tools-list">
-          {#each category.tools as tool}
-            <div class="tool-card">
-              <div class="tool-main">
-                <div class="tool-info">
-                  <div class="tool-title-row">
-                    <span class="tool-title">{tool.title}</span>
-                    {#if tool.readOnly}
-                      <span class="tag tag-readonly">只读</span>
-                    {:else if !isWriteToolConfirmationEnabled(tool.name)}
-                      <span class="tag tag-trusted">已信任免确认</span>
-                    {:else}
-                      <span class="tag tag-confirm">需要确认</span>
-                    {/if}
-                  </div>
-                  <span class="tool-description">{tool.description}</span>
-                </div>
-                {#if !tool.readOnly}
-                  <div class="toggle-group">
-                    <div class="toggle-item">
-                      <span class="toggle-label">确认</span>
-                      <label class="switch switch-small">
-                        <input
-                          type="checkbox"
-                          checked={isWriteToolConfirmationEnabled(tool.name)}
-                          on:change={() => toggleWriteToolConfirmation(tool.name)}
-                        />
-                        <span class="slider"></span>
-                      </label>
-                    </div>
-                  </div>
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {/each}
-  </div>
 </div>
 
 <style lang="scss">
@@ -200,28 +116,6 @@
     display: flex;
     flex-direction: column;
     gap: $kb-space-md;
-  }
-
-  .section-header {
-    display: flex;
-    flex-direction: column;
-    gap: $kb-space-xs;
-  }
-
-  .section-title {
-    margin: 0;
-    font-size: $kb-fs-lg;
-    font-weight: 600;
-    color: var(--b3-theme-on-surface);
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--b3-border-color);
-  }
-
-  .section-description {
-    margin: 0;
-    font-size: 13px;
-    color: var(--b3-theme-on-surface);
-    opacity: 0.7;
   }
 
   .tools-list {
@@ -323,31 +217,6 @@
   input:disabled + .slider {
     cursor: not-allowed;
     opacity: 0.5;
-  }
-
-  .skill-category {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .skill-category-header {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding-top: 4px;
-  }
-
-  .skill-category-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--b3-theme-primary);
-  }
-
-  .skill-category-desc {
-    font-size: 12px;
-    color: var(--b3-theme-on-surface);
-    opacity: 0.6;
   }
 
   .tag {

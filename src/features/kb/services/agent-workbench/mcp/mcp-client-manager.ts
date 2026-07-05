@@ -1,5 +1,6 @@
 import type { McpServerConfig, McpServerCwdInfo, McpToolIndexEntry } from "./mcp-types";
 import { normalizeMcpToolEntry, replaceMcpToolsForServer } from "./mcp-tool-index";
+import { redactMcpSyncError } from "./mcp-result-normalizer";
 import { appendNotebrainLog, createNotebrainLogId } from "../workspace/notebrain-log-service";
 import { resolveForSpawn } from "../runtime-tools/runtime-tool-resolver";
 import { quoteWindowsCmdArg } from "../runtime-tools/runtime-tool-detector";
@@ -203,12 +204,17 @@ function redactMcpSecretText(text: string): string {
     .replace(/enc:v1:[A-Za-z0-9+/=]+/g, "enc:v1:***");
 }
 
+/** Redact a local absolute path for debug output. Keeps empty string unchanged. */
+function redactLocalPath(value: string): string {
+  return value ? "[已脱敏]" : "";
+}
+
 /**
  * Redact a debug value that may contain object/array/string.
- * For strings, applies redactMcpSecretText. For objects/arrays, redacts recursively.
+ * For strings, applies redactMcpSyncError. For objects/arrays, redacts recursively.
  */
 function redactMcpDebugValue(value: unknown): unknown {
-  if (typeof value === "string") return redactMcpSecretText(value);
+  if (typeof value === "string") return redactMcpSyncError(value);
   if (Array.isArray(value)) return value.map(redactMcpDebugValue);
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
@@ -680,13 +686,13 @@ class StdioMcpConnection implements MinimalMcpConnection {
       serverId: this.config.id,
       transport: "stdio",
       command: rawCommand,
-      resolvedCommand: resolvedPath,
+      resolvedCommand: redactLocalPath(resolvedPath),
       argsPreview: redactMcpArgsPreview(originalArgs),
-      spawnExecutable: spawnCmd,
+      spawnExecutable: redactLocalPath(spawnCmd),
       spawnArgsPreview: redactMcpArgsPreview(spawnArgs.slice(0, 5)),
-      cwd: resolvedCwd ?? "",
-      notebrainRootAbsolutePath: resolvedCwd ?? "",
-      envPathHead: (mergedPATH || "").split(/[;:]/)[0] ?? "",
+      cwd: redactLocalPath(resolvedCwd ?? ""),
+      notebrainRootAbsolutePath: redactLocalPath(resolvedCwd ?? ""),
+      envPathHead: redactLocalPath((mergedPATH || "").split(/[;:]/)[0] ?? ""),
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -728,7 +734,7 @@ class StdioMcpConnection implements MinimalMcpConnection {
           if (exitBeforeSpawn) {
             settled = true;
             const errMsg = exitStderr
-              ? `MCP stdio 进程启动后立即退出，code=${exitCode ?? "null"}，stderr=${redactMcpSecretText(exitStderr)}`
+              ? `MCP stdio 进程启动后立即退出，code=${exitCode ?? "null"}，stderr=${redactMcpSyncError(exitStderr)}`
               : `MCP stdio 进程启动后立即退出，code=${exitCode ?? "null"}`;
             reject(new Error(errMsg));
             return;
@@ -745,8 +751,8 @@ class StdioMcpConnection implements MinimalMcpConnection {
           serverId: this.config.id,
           transport: "stdio",
           command: rawCommand,
-          resolvedCommand: resolvedPath,
-          rawError: redactMcpSecretText(this.spawnError.message),
+          resolvedCommand: redactLocalPath(resolvedPath),
+          rawError: redactMcpSyncError(this.spawnError.message),
         });
         if (!settled) {
           settled = true;
@@ -764,11 +770,11 @@ class StdioMcpConnection implements MinimalMcpConnection {
             transport: "stdio",
             command: rawCommand,
             exitCode: code,
-            stderrPreview: redactMcpSecretText(this.stderr.slice(-500)),
+            stderrPreview: redactMcpSyncError(this.stderr.slice(-500)),
           });
         }
         const exitErr = this.spawnError
-          ?? new Error(`MCP stdio 进程已退出，code=${code ?? "null"}${this.stderr ? `，stderr=${redactMcpSecretText(this.stderr.slice(-500))}` : ""}`);
+          ?? new Error(`MCP stdio 进程已退出，code=${code ?? "null"}${this.stderr ? `，stderr=${redactMcpSyncError(this.stderr.slice(-500))}` : ""}`);
         // Reject all pending requests
         for (const [id, pending] of this.pending) {
           clearTimeout(pending.timer);
@@ -836,7 +842,7 @@ class StdioMcpConnection implements MinimalMcpConnection {
     const result = new Promise<any>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`MCP ${method} timeout after ${this.timeoutMs}ms${this.stderr ? `，stderr=${redactMcpSecretText(this.stderr)}` : ""}`));
+        reject(new Error(`MCP ${method} timeout after ${this.timeoutMs}ms${this.stderr ? `，stderr=${redactMcpSyncError(this.stderr)}` : ""}`));
       }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });

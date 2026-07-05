@@ -240,7 +240,7 @@ function buildWebReadAccess(
   settings: BuildConversationContextParams["webSearchSettings"],
   _override?: "off" | "smart" | "required",
 ): ConversationContextSnapshot["currentTurn"]["webReadAccess"] {
-  // web_read_page is a global read-only tool, independent of the off/smart/required search mode
+  // web_fetch.read_page is independent of the off/smart/required search mode
   // and independent of the webSearch.enabled toggle. It is available whenever webSearch settings
   // exist so that the Agent can read explicit URLs even when web search is turned off.
   if (!settings) return undefined;

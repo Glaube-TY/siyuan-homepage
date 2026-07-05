@@ -31,8 +31,8 @@ export function createManageDiaryTaskTool(
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true },
     source: "builtin",
     inputHint: "operation（必填）：create/migrate/set_status/update/postpone/delete；target 用于定位已有任务；task 用于任务字段。priority 用数字 1-4（1=❗低 2=❗❗中 3=❗❗❗高 4=❗❗❗❗最高），不要传中文。clearFields 用于 update 操作清空指定字段。",
-    boundary: "迁移/修改/推迟/删除前必须通过 query_tasks 获取真实 blockId/taskId；不编造 ID；不能用 create 冒充 migrate；priority 必须是 1-4 数字。",
-    providerVisible: true,
+    boundary: "迁移/修改/推迟/删除前必须通过 query_tasks 获取真实 blockId/taskId；不编造 ID；不能用 create 冒充 migrate；priority 必须是 1-4 数字。delete 可操作任意查询到的任务，默认 deleteMode=log（记录日志后删除），deleteMode=delete 会直接删除且属高风险；测试时只允许删除本轮创建的 disposable 任务。",
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

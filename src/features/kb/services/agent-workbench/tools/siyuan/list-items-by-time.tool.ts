@@ -31,7 +31,7 @@ export function createListItemsByTimeTool(deps: ListItemsByTimeDeps): ToolContra
     source: "builtin",
     inputHint: "itemType（必填，doc/block）；sortBy（可选，默认 updated）；order（可选，默认 desc）；limit（可选，默认 20，范围 1-100）；startTime/endTime（可选，YYYY-MM-DD 等格式）；blockTypes（可选，仅 block 模式可用，如 [\"p\",\"h\",\"l\"]）。",
     boundary: "只返回时间排序的状态列表，不读取正文。blockTypes 仅在 itemType=\"block\" 时有效。范围由聊天框当前知识库范围限定。需要正文证据时请使用 read_doc_blocks 或 read_docs。",
-    providerVisible: true,
+    providerVisible: false,
 
     inputJsonSchemaOverride: {
       type: "object",

@@ -139,6 +139,12 @@ export async function upsertMcpServer(server: McpServerConfig): Promise<McpServe
   return saveMcpServers(next);
 }
 
+export async function deleteMcpServer(serverId: string): Promise<McpServerConfigFile> {
+  const current = await loadMcpServers();
+  const next = current.servers.filter((item) => item.id !== serverId);
+  return saveMcpServers(next);
+}
+
 // ==================== Encryption helpers ====================
 
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|password|authorization)/i;

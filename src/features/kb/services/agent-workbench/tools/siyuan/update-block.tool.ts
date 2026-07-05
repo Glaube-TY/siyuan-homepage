@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   updateBlockInputSchema,
   updateBlockOutputSchema,
@@ -23,7 +23,7 @@ export function createUpdateBlockTool(deps: UpdateBlockDeps): ToolContract<Updat
     source: "builtin",
     inputHint: "blockId（目标块 ID），markdown（更新后的 Markdown 内容）",
     boundary: "只能更新已经明确给出的真实 blockId。不编造 ID。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: updateBlockInputJsonSchemaOverride,
 
     availability() {

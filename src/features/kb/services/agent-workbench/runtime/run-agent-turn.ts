@@ -29,19 +29,7 @@ import {
 } from "./user-facing-agent-error";
 import { hydrateAttachedDocsForTurn } from "../adapters/siyuan/attached-doc-hydration";
 import { readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
-import { BUILTIN_KB_SKILL_NAME } from "../skills/builtin/knowledge-base-qa.skill";
 import { setMcpRuntimeSettings } from "../mcp/mcp-client-manager";
-import { BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME } from "../skills/builtin/schedule-task-diary.skill";
-import { BUILTIN_DATABASE_ASSISTANT_SKILL_NAME } from "../skills/builtin/database-assistant.skill";
-import { BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME } from "../skills/builtin/doc-content-editing.skill";
-import { BUILTIN_NOTEBOOK_DOC_TREE_SKILL_NAME } from "../skills/builtin/notebook-doc-tree.skill";
-import { BUILTIN_TAG_BOOKMARK_OUTLINE_SKILL_NAME } from "../skills/builtin/tag-bookmark-outline.skill";
-import { BUILTIN_ASSET_MANAGEMENT_SKILL_NAME } from "../skills/builtin/asset-management.skill";
-import { BUILTIN_RIFF_REVIEW_SKILL_NAME } from "../skills/builtin/riff-review.skill";
-import { createAnySearchProvider } from "../tools/web-search/providers/anysearch.provider";
-import { createCustomJsonProvider } from "../tools/web-search/providers/custom-json.provider";
-import { createTavilyProvider } from "../tools/web-search/providers/tavily.provider";
-import type { WebSearchProvider } from "../tools/web-search/web-search-provider";
 import { buildAgentSystemPrompt } from "../../agent-core/prompts/system-prefix";
 import { createProviderAdapterForKbModel } from "../../agent-core/providers/agent-provider-factory";
 import { normalizeProviderError } from "../../agent-core/providers/provider-error";
@@ -56,38 +44,6 @@ import type { AgentMessage } from "../../agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
 import { buildSafeTurnStageSummary } from "../memory/build-safe-turn-stage-summary";
-
-function createWebSearchProvider(ws: {
-  provider: string;
-  apiKey?: string;
-  searchEndpoint?: string;
-  anySearchZone?: "cn" | "intl";
-  anySearchLanguage?: string;
-  timeoutMs: number;
-}): WebSearchProvider | null {
-  try {
-    switch (ws.provider) {
-      case "anysearch":
-        return createAnySearchProvider({
-          apiKey: ws.apiKey,
-          anySearchZone: ws.anySearchZone,
-          anySearchLanguage: ws.anySearchLanguage,
-          timeoutMs: ws.timeoutMs,
-        });
-      case "custom_json":
-        return createCustomJsonProvider({
-          searchEndpoint: ws.searchEndpoint,
-          timeoutMs: ws.timeoutMs,
-        });
-      case "tavily":
-        return createTavilyProvider({ apiKey: ws.apiKey, timeoutMs: ws.timeoutMs });
-      default:
-        return null;
-    }
-  } catch {
-    return null;
-  }
-}
 
 export interface RunAgentTurnParams {
   question: string;
@@ -123,6 +79,10 @@ function toWorkbenchEvent(event: AgentStreamEvent): AgentWorkbenchEvent {
   return { ...event, at: Date.now() } as AgentWorkbenchEvent;
 }
 
+function shouldStoreWorkbenchEvent(event: AgentStreamEvent): boolean {
+  return event.type !== "assistant_text_delta" && event.type !== "assistant_reasoning_delta";
+}
+
 function toTraceEvents(events: AgentWorkbenchEvent[]) {
   return events.map((event) => ({
     type: event.type,
@@ -130,7 +90,7 @@ function toTraceEvents(events: AgentWorkbenchEvent[]) {
     toolName: "toolName" in event ? event.toolName : undefined,
     ok: event.type === "tool_result" ? event.result.ok : undefined,
     durationMs: event.type === "tool_result" ? event.durationMs : undefined,
-    argsPreview: event.type === "tool_start" ? event.argsPreview : undefined,
+    argsPreview: event.type === "tool_start" || event.type === "tool_result" ? event.argsPreview : undefined,
     outputSummary: event.type === "tool_result" ? event.result.summary : undefined,
     message: "message" in event ? event.message : event.type === "assistant_final" ? event.answer : undefined,
     status: event.type === "done" ? event.status : undefined,
@@ -211,33 +171,17 @@ export async function runAgentTurn(
     const localCommandToolEnabled = sandboxEnabled && settings.notebrainWorkspace.commandExecutionEnabled === true;
     const mcpClientEnabled = settings.mcp.enabled === true;
 
-    let webSearchToolDeps: AgentWorkbenchRuntimeOptions["webSearchToolDeps"] | undefined;
     let webReadPageToolDeps: AgentWorkbenchRuntimeOptions["webReadPageToolDeps"] | undefined;
-
-    const webSearchAccess = params.conversationContext?.currentTurn?.webAccess;
-    if (webSearchAccess?.enabled && ws.enabled) {
-      const provider = createWebSearchProvider(ws);
-      if (provider) {
-        webSearchToolDeps = {
-          getProvider: () => provider,
-          maxResults: webSearchAccess.maxResults,
-          timeoutMs: ws.timeoutMs,
-        };
-      }
-    }
 
     const disabledGlobalTools = new Set(settings.toolSettings?.disabledGlobalToolNames ?? []);
     const globalToolAccess = {
-      readDocs: !disabledGlobalTools.has("read_docs"),
-      webReadPage: !disabledGlobalTools.has("web_read_page"),
       editGlobalMemory: !disabledGlobalTools.has("edit_global_memory"),
-      getDocInfo: !disabledGlobalTools.has("get_doc_info"),
-      webHttpGet: !disabledGlobalTools.has("web_http_get"),
-      webHttpPost: !disabledGlobalTools.has("web_http_post"),
+      agentToolHelp: !disabledGlobalTools.has("agent_tool_help"),
+      webFetch: !disabledGlobalTools.has("web_fetch"),
     };
 
     const webReadAccess = params.conversationContext?.currentTurn?.webReadAccess;
-    if (webReadAccess?.enabled && globalToolAccess.webReadPage) {
+    if (webReadAccess?.enabled && globalToolAccess.webFetch) {
       webReadPageToolDeps = {
         readProxyEndpoint: ws.readProxyEndpoint || undefined,
         readPageMaxChars: ws.readPageMaxChars,
@@ -269,21 +213,19 @@ export async function runAgentTurn(
         ? { docId: memoryDocId, maxMemoryChars: settings.globalMemory?.maxChars ?? 8000 }
         : undefined;
 
-    const disabledBuiltinSkills = new Set(settings.skillSettings?.disabledBuiltinSkillNames ?? []);
     const builtinCapabilityAccess = {
-      knowledgeBase: !disabledBuiltinSkills.has(BUILTIN_KB_SKILL_NAME),
-      scheduleTaskDiary: !disabledBuiltinSkills.has(BUILTIN_SCHEDULE_TASK_DIARY_SKILL_NAME),
-      databaseAssistant: !disabledBuiltinSkills.has(BUILTIN_DATABASE_ASSISTANT_SKILL_NAME),
-      docContentEditing: !disabledBuiltinSkills.has(BUILTIN_DOC_CONTENT_EDITING_SKILL_NAME),
-      notebookDocTree: !disabledBuiltinSkills.has(BUILTIN_NOTEBOOK_DOC_TREE_SKILL_NAME),
-      tagBookmarkOutline: !disabledBuiltinSkills.has(BUILTIN_TAG_BOOKMARK_OUTLINE_SKILL_NAME),
-      assetManagement: !disabledBuiltinSkills.has(BUILTIN_ASSET_MANAGEMENT_SKILL_NAME),
-      riffReview: !disabledBuiltinSkills.has(BUILTIN_RIFF_REVIEW_SKILL_NAME),
+      knowledgeBase: !disabledGlobalTools.has("siyuan_kb"),
+      scheduleTaskDiary: !disabledGlobalTools.has("diary_task"),
+      databaseAssistant: !disabledGlobalTools.has("siyuan_database"),
+      docContentEditing: !disabledGlobalTools.has("siyuan_doc_edit"),
+      notebookDocTree: !disabledGlobalTools.has("siyuan_tree"),
+      tagBookmarkOutline: !disabledGlobalTools.has("siyuan_meta"),
+      assetManagement: !disabledGlobalTools.has("siyuan_asset"),
+      riffReview: !disabledGlobalTools.has("siyuan_riff"),
     };
 
     const wb = createAgentWorkbenchRuntime({
       kbRetrievalToolDeps: deps,
-      webSearchToolDeps,
       webReadPageToolDeps,
       builtinCapabilityAccess,
       globalToolAccess,
@@ -296,14 +238,11 @@ export async function runAgentTurn(
     });
 
     pushAgentDebugEvent("WEB_TOOL_REGISTRATION_SAFE", {
-      mode: webSearchAccess?.mode ?? "off",
-      webSearchRegistered: !!webSearchToolDeps,
       webReadPageRegistered: !!webReadPageToolDeps,
       settingsEnabled: ws.enabled,
-      webHttpGetRegistered: !disabledGlobalTools.has("web_http_get"),
-      webHttpPostRegistered: !disabledGlobalTools.has("web_http_post"),
-      webSearchDisabledReason: !ws.enabled ? "web_search_disabled"
-        : !webSearchAccess?.enabled ? "web_access_off"
+      webFetchRegistered: globalToolAccess.webFetch,
+      webFetchDisabledReason: !globalToolAccess.webFetch ? "web_fetch_disabled"
+        : !webReadPageToolDeps ? "web_read_access_off"
         : undefined,
     }, "info");
 
@@ -453,7 +392,6 @@ export async function runAgentTurn(
       question: params.question,
       conversationId,
       abortSignal: params.abortSignal,
-      docContentEditingEnabled: builtinCapabilityAccess.docContentEditing,
       notebrainWorkspaceSettings: settings.notebrainWorkspace,
       mcpSettings: settings.mcp,
       runtimeToolsSettings: settings.runtimeTools,
@@ -465,7 +403,6 @@ export async function runAgentTurn(
       observationLog: wb.observationLog,
       question: params.question,
       abortSignal: params.abortSignal,
-      userDisabledSkillNames: settings.skillSettings?.disabledBuiltinSkillNames ?? [],
       conversationContext: params.conversationContext,
       globalMemory: globalMemoryText,
       attachedDocs: params.attachedDocs,
@@ -477,40 +414,6 @@ export async function runAgentTurn(
         mcpClientEnabled,
       },
     });
-
-    // Record skill routing info for debug
-    const skillRoute = wb.skillRegistry.getLastRoute();
-    if (skillRoute) {
-      pushAgentDebugEvent("SKILL_ROUTE", {
-        primarySkillId: skillRoute.primarySkillName,
-        primarySkillTitle: skillRoute.primarySkillTitle,
-        matchedSkillIds: skillRoute.matchedSkillIds,
-        reason: skillRoute.reason,
-        isTestSkillMode: skillRoute.isTestSkillMode,
-        injectedSkillCount: context.skillSections.length,
-      }, "info");
-
-      // Strict skill test mode: restrict provider-visible tools to primary + helper
-      if (skillRoute.isTestSkillMode && skillRoute.primarySkillName) {
-        const primarySkill = wb.skillRegistry.getRegisteredSkill(skillRoute.primarySkillName);
-
-        if (primarySkill) {
-          const allowedNames = [
-            ...(primarySkill.primaryToolNames ?? []),
-            ...(primarySkill.helperToolNames ?? []),
-          ];
-          const allVisibleTools = nativeToolRegistry.listProviderVisible().map((t) => t.name);
-          const filteredOut = allVisibleTools.filter((n) => !allowedNames.includes(n));
-          nativeToolRegistry.setProviderVisibleAllowList(new Set(allowedNames));
-
-          pushAgentDebugEvent("SKILL_ROUTE_FILTER_APPLIED", {
-            primarySkillId: skillRoute.primarySkillName,
-            allowedToolNames: allowedNames,
-            filteredOutToolNames: filteredOut,
-          }, "info");
-        }
-      }
-    }
 
     const initialMessages = params.agentSessionMessages ?? [];
     const safeInitialMessages = initialMessages.length > 0
@@ -542,9 +445,11 @@ export async function runAgentTurn(
       autoAllowedToolNames,
       abortSignal: params.abortSignal,
       question: params.question,
-      maxToolCalls: settings.agentMaxToolCallsPerTurn ?? 10,
+      maxToolCalls: settings.agentMaxToolCallsPerTurn ?? 20,
       onEvent: (event) => {
-        emitNativeEvent(event);
+        if (shouldStoreWorkbenchEvent(event)) {
+          emitNativeEvent(event);
+        }
         if (event.type === "assistant_text_delta") {
           params.onAnswerChunk?.({ chunk: event.delta, fullContent: event.fullContent });
         } else if (event.type === "assistant_reasoning_delta") {

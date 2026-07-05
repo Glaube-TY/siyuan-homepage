@@ -32,7 +32,7 @@ export function createManageDiaryRecordTool(
     source: "builtin",
     inputHint: "operation（必填）：add/update/delete；add 需要 categoryTitle 和 content；update/delete 需要 target 中的 recordId 或 headingBlockId。",
     boundary: "修改/删除前必须通过 query_diary_records 获取真实 recordId/headingBlockId/date；不编造 ID；不用通用 block 操作冒充快速记录方法。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

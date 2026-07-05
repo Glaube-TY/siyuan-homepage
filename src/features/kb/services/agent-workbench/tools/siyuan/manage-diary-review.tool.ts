@@ -24,7 +24,7 @@ export function createManageDiaryReviewTool(
   return {
     name: "manage_diary_review",
     title: "管理复盘内容",
-    description: "统一管理日记复盘：保存复盘字段（save_content）、标记完成/未完成/跳过/恢复（set_status）。",
+    description: "统一管理日记复盘：保存复盘字段（save_content）、标记复盘状态（set_status：completed/pending/skipped）。",
     inputSchema: manageDiaryReviewInputSchema,
     outputSchema: manageDiaryReviewOutputSchema,
     readOnly: false,
@@ -32,7 +32,7 @@ export function createManageDiaryReviewTool(
     source: "builtin",
     inputHint: "operation（必填）：save_content/set_status；docId 和 period 必填；save_content 需要 fields（label 必须来自模板字段）；set_status 需要 status：completed/pending/skipped。",
     boundary: "docId 必须来自 find_diary_docs 或 grounding 上下文，不编造；保存复盘前应确认文档中已有对应复盘根区块；缺失时先用 manage_diary_structure operation=append_template 补模板。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

@@ -17,10 +17,6 @@ export interface SkillRuntimeContext {
   observations: readonly SkillContextEvidence[];
   userEnabledSkillNames?: readonly string[];
   userDisabledSkillNames?: readonly string[];
-  /** Name of the primary skill detected for the current turn, if any. */
-  primarySkillName?: string;
-  /** Whether the user asked to "test" a specific skill. */
-  isTestSkillMode?: boolean;
 }
 
 export interface SkillContextEvidence {
@@ -47,14 +43,6 @@ export interface SkillPromptSection {
   meta?: {
     skillName: string;
     bytesEstimate: number;
-    /** Tool names this skill considers primary. */
-    primaryToolNames?: readonly string[];
-    /** Tool names this skill may use as helpers. */
-    helperToolNames?: readonly string[];
-    /** Whether this is the detected primary skill for the current turn. */
-    isPrimary?: boolean;
-    /** Whether the current turn is a skill test. */
-    isTestSkillMode?: boolean;
   };
 }
 
@@ -64,14 +52,6 @@ export interface SkillContract {
   description: string;
   priority: number;
   enabledByDefault: boolean;
-  /** Keywords for matching user intent to this skill. */
-  intentKeywords?: readonly string[];
-  /** Tool names this skill primarily uses. */
-  primaryToolNames?: readonly string[];
-  /** Tool names this skill may use as helpers. */
-  helperToolNames?: readonly string[];
-  /** Tool names this skill should avoid unless the user explicitly asks. */
-  avoidToolNames?: readonly string[];
   /** Concise usage rules for the model. */
   usageRules?: readonly string[];
   /** Example tasks (natural language). */

@@ -22,6 +22,7 @@ import {
 import { estimateContextUsage } from "../types/context-usage";
 import { pushAgentDebugEvent } from "../services/agent-workbench/debug/workbench-debug";
 import { executeCompression as doCompress } from "../services/context-compression";
+import { readTurnJournalAsync, recoverTurnJournal, readLastKnownState, clearLastKnownState } from "../services/agent-workbench/runtime/in-flight-turn-journal";
 
 /** 生成会话唯一 id */
 function generateConversationId(): string {
@@ -882,6 +883,153 @@ function createKbSessionStore() {
 
         // Hydration 成功完成，允许 schedulePersist 运行
         hydrationCompleted = true;
+
+        // ── In-flight turn journal recovery ──
+        try {
+          const journal = await readTurnJournalAsync();
+          if (journal && (journal.status === "running" || journal.status === "failed")) {
+            const lastKnown = readLastKnownState();
+            const wasPermissionConfirm = lastKnown?.permissionConfirmClicked === true;
+
+            update((state) => {
+              // 1. Locate target conversation by journal.conversationId first, fallback to active
+              const targetConvId = state.conversations.some((c) => c.id === journal.conversationId)
+                ? journal.conversationId
+                : state.activeConversationId;
+              const targetConv = state.conversations.find((c) => c.id === targetConvId);
+              if (!targetConv) return state;
+
+              const targetConvMessages = targetConvId === state.activeConversationId
+                ? state.messages
+                : targetConv.messages;
+
+              // 2. Build recovery content with details
+              const detailParts: string[] = [];
+              if (wasPermissionConfirm) {
+                detailParts.push("中断发生在确认写工具后");
+                if (lastKnown?.nativePermissionToolName) {
+                  detailParts.push(`工具：${lastKnown.nativePermissionToolName}`);
+                }
+                if (lastKnown?.nativePermissionAction) {
+                  detailParts.push(`操作：${lastKnown.nativePermissionAction}`);
+                }
+              } else {
+                if (journal.lastToolName) detailParts.push(`工具：${journal.lastToolName}`);
+                if (journal.lastAction) detailParts.push(`操作：${journal.lastAction}`);
+                if (journal.lastInnerAction) detailParts.push(`子操作：${journal.lastInnerAction}`);
+                if (journal.lastArgsDigest) detailParts.push(`参数摘要：${journal.lastArgsDigest}`);
+              }
+              const detailStr = detailParts.length > 0 ? `（${detailParts.join("，")}）` : "";
+              let recoveryContent = "上次回答过程中断，已恢复中断前的工具执行记录。";
+              if (wasPermissionConfirm) {
+                recoveryContent = `上次中断发生在确认某个写工具后，工具是否执行成功未知，请以思源当前状态为准。${detailStr}请重新发起测试或让我继续分析。`;
+              } else if (journal.lastToolName) {
+                recoveryContent = `上次回答在工具执行期间中断。${detailStr}已恢复中断前的工具执行记录。请重新发起测试或让我继续分析。`;
+              } else {
+                recoveryContent = `上次回答过程中断，已恢复中断前的工具执行记录。请重新发起测试或让我继续分析。`;
+              }
+
+              const safeWorkbenchEvents = journal.workbenchEvents.map((e) => ({
+                ...e,
+                at: Date.now(),
+              })) as any;
+
+              const hasAssistantMsg = targetConvMessages.some(
+                (m: any) => m.role === "assistant" && m.id === journal.assistantMessageId
+              );
+
+              let updatedConvMessages: any[];
+              if (hasAssistantMsg) {
+                updatedConvMessages = targetConvMessages.map((m: any) =>
+                  m.id === journal.assistantMessageId && m.role === "assistant"
+                    ? { ...m, content: recoveryContent, isComplete: true, workbenchEvents: safeWorkbenchEvents, agentStatus: undefined }
+                    : m
+                );
+              } else {
+                const userMsgIndex = targetConvMessages.findIndex(
+                  (m: any) => m.role === "user" && m.id === journal.userMessageId
+                );
+                const recoveryMsg = {
+                  id: `recovery-${journal.assistantMessageId}-${Date.now()}`,
+                  role: "assistant" as const,
+                  content: recoveryContent,
+                  createdAt: Date.now(),
+                  isComplete: true,
+                  workbenchEvents: safeWorkbenchEvents,
+                };
+                if (userMsgIndex >= 0) {
+                  updatedConvMessages = [
+                    ...targetConvMessages.slice(0, userMsgIndex + 1),
+                    recoveryMsg,
+                    ...targetConvMessages.slice(userMsgIndex + 1),
+                  ];
+                } else {
+                  updatedConvMessages = [...targetConvMessages, recoveryMsg];
+                }
+              }
+
+              // 3. Update both top-level messages AND conversations[].messages
+              const updatedConversations = state.conversations.map((c) =>
+                c.id === targetConvId
+                  ? { ...c, messages: updatedConvMessages, updatedAt: Date.now() }
+                  : c
+              );
+
+              if (targetConvId === state.activeConversationId) {
+                return {
+                  ...state,
+                  messages: updatedConvMessages,
+                  conversations: updatedConversations,
+                  asking: false,
+                  agentStatus: undefined,
+                };
+              }
+              return {
+                ...state,
+                conversations: updatedConversations,
+                asking: false,
+                agentStatus: undefined,
+              };
+            });
+
+            // 4. Persist recovery immediately so it survives subsequent refreshes
+            try {
+              if (hydrationCompleted) {
+                const currentState = get({ subscribe });
+                const ac = currentState.conversations.find((c) => c.id === currentState.activeConversationId);
+                if (ac) {
+                  const snap = {
+                    ...ac,
+                    messages: currentState.messages,
+                    stageSummaries: currentState.stageSummaries ?? [],
+                    compressedContextSummary: currentState.compressedContextSummary,
+                    compressionState: currentState.compressionState,
+                    thinkingMode: currentState.thinkingMode ?? "off",
+                    webAccessMode: currentState.webAccessMode ?? "off",
+                    updatedAt: Date.now(),
+                  };
+                  const convs = currentState.conversations.map((c) =>
+                    c.id === currentState.activeConversationId ? snap : c
+                  );
+                  void saveKbChatSessionStorage({
+                    activeConversationId: currentState.activeConversationId,
+                    conversations: convs,
+                    selectedMode: currentState.selectedMode,
+                  });
+                }
+              }
+            } catch {
+              // Persist failure is non-blocking
+            }
+
+            recoverTurnJournal();
+            clearLastKnownState();
+          } else {
+            clearLastKnownState();
+          }
+        } catch {
+          // Recovery failure must not break hydration.
+        }
       } catch (e) {
         console.warn("[KbSessionStore] Failed to hydrate conversations:", e);
         // 保持默认会话，标记 hydration 完成（允许持久化默认会话）

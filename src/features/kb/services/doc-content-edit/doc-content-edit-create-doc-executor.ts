@@ -85,7 +85,7 @@ export async function executeConfirmedCreateDoc(
       return {
         ok: false,
         status: "failed",
-        message: "文档创建失败：官方接口未返回有效文档 ID。",
+        message: "文档创建失败：createDocWithMd 返回了无效文档 ID。",
       };
     }
     await removeDocContentEditConfirmation(confirmationId);

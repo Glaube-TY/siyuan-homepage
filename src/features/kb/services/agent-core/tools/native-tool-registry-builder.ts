@@ -1,11 +1,8 @@
 import type { ToolResultLog } from "../../agent-workbench/runtime/tool-result-log";
 import type { ToolRegistry } from "../../agent-workbench/registries/tool-registry";
 import { createNativeToolRegistryFromWorkbench } from "./workbench-tool-adapter";
-import { registerNativeSiyuanWriteTools } from "./siyuan/native-siyuan-write-tools";
 import type { NativeToolRegistry } from "./native-tool-registry";
-import { registerNativeLocalTools } from "./local/register-native-local-tools";
 import type { NotebrainAgentWorkspaceSettings, McpSettings, RuntimeToolsSettings } from "../../../types/settings";
-import { registerNativeMcpTools } from "./mcp/register-native-mcp-tools";
 
 export interface BuildNativeToolRegistryForTurnParams {
   toolRegistry: ToolRegistry;
@@ -13,12 +10,9 @@ export interface BuildNativeToolRegistryForTurnParams {
   question: string;
   conversationId: string;
   abortSignal?: AbortSignal;
-  docContentEditingEnabled?: boolean;
   notebrainWorkspaceSettings?: NotebrainAgentWorkspaceSettings;
   mcpSettings?: McpSettings;
   runtimeToolsSettings?: RuntimeToolsSettings;
-  /** When set, only tools in this list are exposed to the provider (strict skill test mode). */
-  providerVisibleAllowList?: string[];
 }
 
 /**
@@ -31,36 +25,12 @@ export interface BuildNativeToolRegistryForTurnParams {
 export async function buildNativeToolRegistryForTurn(
   params: BuildNativeToolRegistryForTurnParams,
 ): Promise<NativeToolRegistry> {
-  const registry = createNativeToolRegistryFromWorkbench({
+  return createNativeToolRegistryFromWorkbench({
     toolRegistry: params.toolRegistry,
     observationLog: params.observationLog,
     question: params.question,
     abortSignal: params.abortSignal,
+    mcpSettings: params.mcpSettings,
+    notebrainWorkspaceSettings: params.notebrainWorkspaceSettings,
   });
-
-  if (params.docContentEditingEnabled === true) {
-    registerNativeSiyuanWriteTools(registry, {
-      conversationId: params.conversationId,
-    });
-  }
-
-  if (params.notebrainWorkspaceSettings) {
-    registerNativeLocalTools(registry, params.notebrainWorkspaceSettings, params.runtimeToolsSettings);
-  }
-
-  if (params.mcpSettings) {
-    await registerNativeMcpTools({
-      registry,
-      settings: params.mcpSettings,
-      question: params.question,
-      runtimeToolsSettings: params.runtimeToolsSettings,
-    });
-  }
-
-  // Apply provider-visible allowList for strict skill test mode
-  if (params.providerVisibleAllowList) {
-    registry.setProviderVisibleAllowList(new Set(params.providerVisibleAllowList));
-  }
-
-  return registry;
 }

@@ -22,7 +22,6 @@
 
   let envStatus = getNotebrainRuntimeEnvironment();
   let resolvedRoot = "";
-  let resolveMessage = "";
 
   // Runtime tools state
   let runtimeReport: RuntimeToolReport | null = null;
@@ -37,7 +36,6 @@
   $: sandboxEnabled = workspace.enabled && envStatus.isPcElectron;
   $: commandEnabled = sandboxEnabled && workspace.commandExecutionEnabled;
   $: mcpEnabled = settings.mcp?.enabled === true;
-  $: exposeToAgentEffective = runtimeTools.enabled && runtimeTools.exposeToAgent && (commandEnabled || mcpEnabled);
   $: canDetectRuntimeTools = runtimeTools.enabled && (commandEnabled || mcpEnabled);
 
   onMount(async () => {
@@ -45,10 +43,8 @@
     const resolved = await resolveNotebrainAbsolutePath("");
     if (resolved.ok) {
       resolvedRoot = resolved.rootAbsolutePath;
-      resolveMessage = "";
     } else {
       resolvedRoot = "";
-      resolveMessage = resolved.message;
     }
     // Run initial detection only when runtime tools is enabled AND
     // either local command tool or MCP is active.
@@ -260,7 +256,7 @@
     <div class="setting-row">
       <div class="setting-text">
         <span class="setting-title">启用本地命令工具</span>
-        <span class="setting-desc">关闭后 `run_notebrain_command` 不会注册给 Agent。</span>
+        <span class="setting-desc">关闭后 `notebrain_file.run_command` 不会注册给 Agent。</span>
       </div>
       <label class="switch">
         <input
@@ -275,7 +271,7 @@
     <div class="setting-row">
       <div class="setting-text">
         <span class="setting-title">启用文件写入/删除工具</span>
-        <span class="setting-desc">关闭后 `write_notebrain_file` 和 `delete_notebrain_path` 不会注册。读取/列目录不受影响。skill_install 内部写入不受此开关控制。</span>
+        <span class="setting-desc">关闭后 `notebrain_file.write_file` 和 `notebrain_file.delete_path` 不会注册。读取/列目录不受影响。`skill_manage.install` 内部写入不受此开关控制。</span>
       </div>
       <label class="switch">
         <input

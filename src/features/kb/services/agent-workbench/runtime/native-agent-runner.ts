@@ -16,7 +16,7 @@ export interface RunNativeAgentLoopParams {
   abortSignal?: AbortSignal;
   onEvent?: (event: AgentStreamEvent) => void;
   question: string;
-  /** Maximum tool calls per turn (defaults to 10). */
+  /** Maximum tool calls per turn (defaults to 20; 0 disables this limit). */
   maxToolCalls?: number;
 }
 

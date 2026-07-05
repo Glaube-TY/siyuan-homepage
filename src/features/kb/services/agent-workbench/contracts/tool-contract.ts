@@ -74,6 +74,15 @@ export interface ToolRuntimeContext {
 }
 
 /** Tool contract — thin interface */
+export interface AggregateActionHelp {
+  action: string;
+  argsSchema?: unknown;
+  inputHint?: string;
+  boundary?: string;
+  readOnly?: boolean;
+  requiresConfirmation?: boolean;
+}
+
 export interface ToolContract<TArgs = unknown, TResult = unknown> {
   name: string;
   title: string;
@@ -107,6 +116,19 @@ export interface ToolContract<TArgs = unknown, TResult = unknown> {
    * parameter contract (e.g. mutual exclusion, oneOf constraints).
    */
   inputJsonSchemaOverride?: unknown;
+
+  /**
+   * Optional: aggregate action help metadata, only for agent_tool_help.
+   * Not included in provider manifest and does not participate in execution.
+   */
+  aggregateActionHelp?: Record<string, AggregateActionHelp>;
+
+  /**
+   * Optional: validate raw input before showing a write confirmation preview.
+   * Returns a ToolResult-like object; on failure the runtime can skip the
+   * confirmation dialog and return a safe deny/error result instead.
+   */
+  validateInputForPreview?(rawArgs: unknown): { ok: boolean; error?: { message: string; details?: unknown } };
 }
 
 /** Provider-visible tool manifest (no execute/summarize — JSON-compatible only) */

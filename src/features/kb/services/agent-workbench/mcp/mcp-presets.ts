@@ -1,8 +1,8 @@
 /**
  * MCP Server presets — known-good configurations for common MCP servers.
  *
- * These are templates the AI can discover via mcp_list_presets.
- * The AI must call mcp_save_server with the resolved config to actually create the server.
+ * These are templates the AI can discover via mcp_manage.list_presets.
+ * The AI must call mcp_manage.save_server with the resolved config to actually create the server.
  * Presets do NOT auto-create servers.
  */
 
@@ -44,7 +44,7 @@ export const MCP_SERVER_PRESETS: McpServerPreset[] = [
 
 /**
  * Known-bad or non-existent MCP package names that the AI might hallucinate.
- * mcp_save_server should warn if these appear in args.
+ * mcp_manage.save_server should warn if these appear in args.
  */
 export const KNOWN_BAD_MCP_PACKAGES: string[] = [
   "@modelcontextprotocol/server-fetch",

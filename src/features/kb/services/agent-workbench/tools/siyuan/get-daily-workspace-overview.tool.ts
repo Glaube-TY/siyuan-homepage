@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   getDailyWorkspaceOverviewInputSchema,
   getDailyWorkspaceOverviewOutputSchema,
@@ -32,7 +32,7 @@ export function createGetDailyWorkspaceOverviewTool(
     source: "builtin",
     inputHint: "date 可选，YYYY-MM-DD，默认本地今天；include 可选，选择 summary/tasks/records/projects/notifications/reviews/carryover。",
     boundary: "只读；不创建日记，不补模板，不写入任务，不迁移任务，不修改记录。输出按数量和字符数限制截断。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   moveBlockInputSchema,
   moveBlockOutputSchema,
@@ -23,7 +23,7 @@ export function createMoveBlockTool(deps: MoveBlockDeps): ToolContract<MoveBlock
     source: "builtin",
     inputHint: "blockId（要移动的块 ID），previousID（移动到该块后，可选），parentID（移动到该块下，可选）",
     boundary: "只能移动明确给出的真实 blockId；previousID 和 parentID 至少提供一个。不编造 ID。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: moveBlockInputJsonSchemaOverride,
 
     availability() {

@@ -80,6 +80,7 @@ export interface ToolResultEvent extends AgentWorkbenchEventBase {
   toolName: string;
   result: ToolExecutionResult;
   durationMs: number;
+  argsPreview?: Record<string, unknown>;
 }
 
 export interface AssistantFinalEvent extends AgentWorkbenchEventBase {

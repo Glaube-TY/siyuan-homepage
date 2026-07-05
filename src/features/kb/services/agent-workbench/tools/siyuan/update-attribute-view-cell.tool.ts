@@ -29,7 +29,7 @@ export function createUpdateAttributeViewCellTool(
     source: "builtin",
     inputHint: "单个模式：databaseId + rowId + keyId + valueText；批量模式：databaseId + updates[]（最多 20 项）。字段名、标题和 boundBlockId 不能代替 keyId/条目 ID。",
     boundary: "更新一个或多个单元格；不删除数据库、字段或行；写入前必须已读取 schema。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

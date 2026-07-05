@@ -18,6 +18,31 @@ function escapeSqlId(id: string): string {
   return id.replace(/'/g, "''");
 }
 
+const PROTECTED_DIARY_DOC_MARKER = /custom-dailynote-\d{8}/;
+
+/**
+ * 检查文档是否为强化日记管理文档（日/周/月/年记）。
+ * 优先使用思源 daily note 属性标记 custom-dailynote-YYYYMMDD，避免全库正文 LIKE。
+ */
+async function checkIsProtectedDiaryDoc(docId: string): Promise<{ protected: boolean; reason?: string }> {
+  const rows = await sql(`SELECT id, type, ial, content FROM blocks WHERE id = '${escapeSqlId(docId)}' LIMIT 1`);
+  const block = rows[0] as { id?: string; type?: string; ial?: string; content?: string } | undefined;
+  if (!block) {
+    return { protected: false };
+  }
+  if (block.type !== "d") {
+    return { protected: false };
+  }
+  const ial = block.ial || "";
+  if (PROTECTED_DIARY_DOC_MARKER.test(ial)) {
+    return {
+      protected: true,
+      reason: `文档 "${block.content || docId}" 是强化日记管理文档（ial 含 custom-dailynote 标记），Agent 不允许通过 delete_doc 删除。`,
+    };
+  }
+  return { protected: false };
+}
+
 /**
  * 内部确认准备能力：生成 pending confirmation，不实际写入思源文档。
  */
@@ -26,6 +51,20 @@ export async function prepareDeleteDocConfirmation(
   args: DeleteDocInput,
 ): Promise<{ prepareResult: PreparedDeleteDocConfirmation }> {
   const docId = args.docId.trim();
+
+  // 0. 强化日记文档硬保护：必须在确认弹窗出现前拦截
+  const protection = await checkIsProtectedDiaryDoc(docId);
+  if (protection.protected) {
+    const prepareResult: PreparedDeleteDocConfirmation = {
+      confirmationId: "",
+      action: "delete_doc",
+      target: { docId },
+      riskLevel: "high",
+      errorCode: "protected_diary_doc_delete_blocked",
+      message: protection.reason || "这是强化日记管理文档，Agent 不允许通过 delete_doc 删除。请在思源 UI 或专门的回收/恢复流程中处理。",
+    };
+    return { prepareResult };
+  }
 
   // 1. 确认目标文档存在并读取当前标题
   const rows = await sql(`SELECT * FROM blocks WHERE id = '${escapeSqlId(docId)}' AND type = 'd'`);
@@ -129,13 +168,14 @@ export async function executeDeleteDoc(
     };
   }
 
-  // 若目标文档不存在，prepareResult.confirmationId 为空字符串
+  // 若目标文档不存在或被安全策略拦截，prepareResult.confirmationId 为空字符串
   if (!prepareResult.confirmationId) {
     return {
       output: {
         status: "failed",
         message: prepareResult.message,
         target: { docId },
+        errorCode: prepareResult.errorCode,
       },
     };
   }

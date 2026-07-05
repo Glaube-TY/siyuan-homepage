@@ -29,7 +29,7 @@ export function createClearAttributeViewCellTool(
     source: "builtin",
     inputHint: "databaseId、rowId、keyId 必须真实；rowId 必须是 itemID。",
     boundary: "只清空单元格值，不删除字段、不删除条目。block 主字段不允许清空。relation/rollup 暂不支持。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

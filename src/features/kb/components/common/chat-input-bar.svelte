@@ -11,7 +11,7 @@
   import { searchDocsForChatAttachment, type ChatDocSearchResult } from "../../services/siyuan/search-docs-for-chat";
   import { getCurrentDocumentId, resolveDocMetaForAttachment } from "../../services/siyuan/current-doc-service";
   import { navigateToDocId } from "../../services/siyuan/reference-navigation";
-  import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
+  import { getIsVerboseStreamDebugEnabled, pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
   import { listQuickPromptItems, createQuickPromptItem, updateQuickPromptItemInDoc, deleteQuickPromptItemInDoc } from "../../services/quick-prompts/quick-prompts-doc";
@@ -85,6 +85,19 @@
   let contextPopoverEl: HTMLElement | undefined;
   let contextPopoverCloseTimer: ReturnType<typeof setTimeout> | null = null;
   let contextPopoverTrigger: "hover" | "focus" | "click" = "hover";
+  const CONTEXT_POPOVER_POSITION_DEBUG_THROTTLE_MS = 500;
+  let lastContextPopoverPositionTraceAt = 0;
+  let lastContextPopoverPositionTraceKey = "";
+
+  function handleContextPopoverPositionUpdate(info: { placement: string; flipped: boolean; shifted: boolean }) {
+    const key = `${info.placement}:${info.flipped}:${info.shifted}`;
+    const now = Date.now();
+    if (key === lastContextPopoverPositionTraceKey && now - lastContextPopoverPositionTraceAt < CONTEXT_POPOVER_POSITION_DEBUG_THROTTLE_MS) return;
+    lastContextPopoverPositionTraceKey = key;
+    lastContextPopoverPositionTraceAt = now;
+    if (!getIsVerboseStreamDebugEnabled()) return;
+    pushAgentDebugEvent("CONTEXT_FLOATING_POPOVER_POSITION_SAFE", info, "debug");
+  }
 
   $: canCompress = (() => {
     if (asking) return false;
@@ -1291,7 +1304,7 @@
           <span
             class="context-usage-popover"
             bind:this={contextPopoverEl}
-            use:floatingPopoverAction={{ referenceEl: contextRingEl, placement: "top-end", offset: 8, shiftPadding: 8, open: showContextPopover, onPositionUpdate: (info) => { pushAgentDebugEvent("CONTEXT_FLOATING_POPOVER_POSITION_SAFE", info, "debug"); } }}
+            use:floatingPopoverAction={{ referenceEl: contextRingEl, placement: "top-end", offset: 8, shiftPadding: 8, open: showContextPopover, onPositionUpdate: handleContextPopoverPositionUpdate }}
             on:mouseenter={onPopoverMouseEnter}
             on:mouseleave={onPopoverMouseLeave}
             on:click|stopPropagation

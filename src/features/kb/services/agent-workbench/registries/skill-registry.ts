@@ -10,14 +10,6 @@ import type {
 
 export type SkillSource = "builtin" | "user" | "mcp";
 
-export interface SkillRouteResult {
-  primarySkillName: string | null;
-  primarySkillTitle: string | null;
-  matchedSkillIds: string[];
-  reason: "explicit_skill_name" | "intent_keyword" | "default" | "none";
-  isTestSkillMode: boolean;
-}
-
 interface RegisteredSkill {
   skill: SkillContract;
   source: SkillSource;
@@ -113,148 +105,21 @@ export class SkillRegistry {
     return this.skills.get(name)?.skill;
   }
 
-  /**
-   * Detect the primary skill for the current turn based on the user's question.
-   * Returns null if no clear primary skill is identified.
-   */
-  detectPrimarySkill(ctx: SkillRuntimeContext): SkillRouteResult {
-    const question = ctx.question?.trim() ?? "";
-    const enabledSkills = this.getEnabledSkills(ctx);
-    const isTestSkill = /测试|试验|验证/.test(question) && /skill|技能|能力/.test(question);
-
-    // Phase 1: Check for explicit skill name mention
-    for (const skill of enabledSkills) {
-      const titleMatch = question.includes(skill.title);
-      if (titleMatch) {
-        return {
-          primarySkillName: skill.name,
-          primarySkillTitle: skill.title,
-          matchedSkillIds: [skill.name],
-          reason: "explicit_skill_name",
-          isTestSkillMode: isTestSkill,
-        };
-      }
-    }
-
-    // Phase 2: Check intentKeywords
-    const questionLower = question.toLowerCase().replace(/\s+/g, "");
-    const matches: Array<{ skill: SkillContract; score: number }> = [];
-    for (const skill of enabledSkills) {
-      const keywords = skill.intentKeywords ?? [];
-      let score = 0;
-      for (const kw of keywords) {
-        if (questionLower.includes(kw.toLowerCase().replace(/\s+/g, ""))) {
-          score += kw.length;
-        }
-      }
-      if (score > 0) {
-        matches.push({ skill, score });
-      }
-    }
-    matches.sort((a, b) => b.score - a.score);
-
-    // If a single clear winner, use it
-    if (matches.length === 1) {
-      return {
-        primarySkillName: matches[0].skill.name,
-        primarySkillTitle: matches[0].skill.title,
-        matchedSkillIds: matches.map((m) => m.skill.name),
-        reason: "intent_keyword",
-        isTestSkillMode: isTestSkill,
-      };
-    }
-
-    // If multiple matches, pick top 1-2
-    if (matches.length >= 2) {
-      const top = matches.slice(0, 2);
-      return {
-        primarySkillName: top[0].skill.name,
-        primarySkillTitle: top[0].skill.title,
-        matchedSkillIds: top.map((m) => m.skill.name),
-        reason: "intent_keyword",
-        isTestSkillMode: isTestSkill,
-      };
-    }
-
-    // Phase 3: No match — return enabled
-    return {
-      primarySkillName: null,
-      primarySkillTitle: null,
-      matchedSkillIds: enabledSkills.map((s) => s.name),
-      reason: "default",
-      isTestSkillMode: false,
-    };
-  }
-
   buildSkillPromptSections(ctx: SkillRuntimeContext): SkillPromptSection[] {
-    const route = this.detectPrimarySkill(ctx);
-    const primaryName = route.primarySkillName;
     const enabledSkills = this.getEnabledSkills(ctx);
-    const primarySkill = primaryName ? enabledSkills.find((s) => s.name === primaryName) : null;
 
-    // Inject routing info into ctx for skill buildPromptSection access
-    const routingCtx: SkillRuntimeContext = {
-      ...ctx,
-      primarySkillName: primaryName ?? undefined,
-      isTestSkillMode: route.isTestSkillMode,
-    };
-
-    const sections: SkillPromptSection[] = [];
-
-    // Primary skill: full injection first
-    if (primarySkill) {
-      const section = primarySkill.buildPromptSection(routingCtx);
-      sections.push({
-        ...section,
-        meta: { ...section.meta, isPrimary: true, isTestSkillMode: route.isTestSkillMode },
-      });
-    }
-
-    // Other enabled skills: short summary only (1-2 lines), unless test mode forces full injection for matched
-    for (const skill of enabledSkills) {
-      if (skill.name === primaryName) continue; // Already injected
-      const isMatched = route.matchedSkillIds.includes(skill.name);
-
-      if (isMatched && route.reason !== "default") {
-        // Secondary match: short summary
-        const tools = [
-          ...(skill.primaryToolNames ?? []).slice(0, 3),
-          ...(skill.helperToolNames ?? []).slice(0, 2),
-        ];
-        sections.push({
-          title: skill.title,
-          body: `辅助 Skill：${skill.description} 主工具：${tools.join(", ")}。`,
-          priority: skill.priority - 50, // Lower priority than primary
+    return enabledSkills
+      .map((skill) => {
+        const section = skill.buildPromptSection(ctx);
+        return {
+          ...section,
           meta: {
-            skillName: skill.name,
-            bytesEstimate: 0,
-            primaryToolNames: skill.primaryToolNames ? [...skill.primaryToolNames] : undefined,
-            helperToolNames: skill.helperToolNames ? [...skill.helperToolNames] : undefined,
-            isPrimary: false,
+            ...section.meta,
+            skillName: section.meta?.skillName ?? skill.name,
           },
-        });
-      } else {
-        // Non-matched: very brief
-        sections.push({
-          title: skill.title,
-          body: `${skill.description}`,
-          priority: skill.priority - 80,
-          meta: {
-            skillName: skill.name,
-            bytesEstimate: 0,
-            isPrimary: false,
-          },
-        });
-      }
-    }
-
-    // Store route info for debug access
-    (this as any)._lastRoute = route;
-    return sections;
-  }
-
-  getLastRoute(): SkillRouteResult | null {
-    return (this as any)._lastRoute ?? null;
+        };
+      })
+      .sort((a, b) => b.priority - a.priority);
   }
 
   getSkillPromptSection(name: string, ctx: SkillRuntimeContext): SkillPromptSection | undefined {

@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   replaceDocContentInputSchema,
   replaceDocContentOutputSchema,
@@ -23,7 +23,7 @@ export function createReplaceDocContentTool(deps: ReplaceDocContentDeps): ToolCo
     source: "builtin",
     inputHint: "docId（目标文档 ID），markdown（替换后的 Markdown 正文，允许空字符串）",
     boundary: "只能替换明确给出的真实 docId 对应文档的整篇正文。不编造 ID。需要局部编辑（删除/修改某一段/某个标题下内容）时，应先使用 read_doc_blocks 获取 blockId，再用 delete_blocks / update_block / insert_block / move_block。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: replaceDocContentInputJsonSchemaOverride,
 
     availability() {

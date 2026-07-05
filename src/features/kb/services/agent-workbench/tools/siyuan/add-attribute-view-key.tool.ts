@@ -30,7 +30,7 @@ export function createAddAttributeViewKeyTool(
     source: "builtin",
     inputHint: "databaseId 必须真实；keyName 1-50 字；keyType 使用白名单类型。",
     boundary: "只新增字段，不删除字段、不删除行、不修改布局或分组。字段名重复时拒绝。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

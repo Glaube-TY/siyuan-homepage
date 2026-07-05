@@ -1,5 +1,6 @@
-﻿/**
- * web_read_page Tool — reads a web page and returns cleaned Markdown by chunk.
+/**
+ * web_fetch.read_page 内部 action 契约。
+ * 读取网页并返回清洗后的 Markdown。
  * Pure factory function. No side effects at module level.
  */
 
@@ -115,24 +116,22 @@ function splitIntoExactChunkCount(text: string, chunkCount: number): { chunks: s
   return { chunks, metas };
 }
 
-export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebReadPageInput, WebReadPageOutput> {
+export function createReadPageActionTool(deps: WebReadPageDeps): ToolContract<WebReadPageInput, WebReadPageOutput> {
   // Per-turn cache: avoids re-fetching the same URL when reading subsequent chunks.
   const pageCache = new Map<string, PageCacheEntry>();
   // Per-turn failure cache: avoids re-requesting the same failed URL within one turn.
   const failedPageCache = new Map<string, { code: string; message: string; hint?: string }>();
 
   return {
-    name: "web_read_page",
-    title: "读取网页",
-    description: "读取指定 URL 的网页正文并转换为 Markdown。成功返回的正文可作为 grounding evidence。",
+    name: "read_page_action",
+    title: "读取网页（action）",
+    description: "web_fetch.read_page 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: webReadPageInputSchema,
     outputSchema: webReadPageOutputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "builtin",
-    inputHint: "url（必填，真实明确的 http/https URL）。长网页继续读取时使用 chunkIndex（可选，默认1）/ chunkChars（可选，默认12000）/ chunkCount。",
-    boundary: "只读取公开 http/https 网页 URL；拒绝本机、内网、链路本地和云元数据地址。不能把自然语言问题、网站名、书名、标题猜成 URL；不自动搜索 URL；不自动跟随链接、不递归抓取、不整站抓取、不执行 JS、不绕过登录。",  
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: webReadPageInputJsonSchemaOverride,
 
     availability() {
@@ -166,7 +165,7 @@ export function createWebReadPageTool(deps: WebReadPageDeps): ToolContract<WebRe
             code: cachedFailure.code,
             message: cachedFailure.message,
             recoverable: true,
-            hint: "该 URL 本轮已读取失败，可换用明确的 http/https URL；若仍无可靠正文来源，应说明限制。", 
+            hint: "该 URL 本轮已读取失败，可换用明确的 http/https URL；若仍无可靠正文来源，应说明限制。",
           },
         };
       }

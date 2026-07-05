@@ -49,7 +49,7 @@ export async function loadUserSkillsAsExternalEntries(): Promise<ExternalSkillIn
   return index.skills.map((entry) => ({
     id: `user_${entry.id}`,
     title: entry.title || entry.id,
-    description: "用户自定义 Skill。需要使用时先 skill_read 读取完整说明。",
+    description: "用户自定义 Skill。需要使用时先通过 skill_manage.read 读取完整说明。",
     sourceType: "user",
     source: `notebrain/skills/user/${entry.filename}`,
     rootDir: "skills/user",
@@ -163,9 +163,9 @@ export function renderExternalSkillIndexPrompt(entries: readonly ExternalSkillIn
   const lines = [
     "# 可按需读取的外部 Skill",
     "",
-    "以下 Skill 不会默认全文注入。需要使用时，请先调用 skill_read 读取入口说明；需要子文档时调用 skill_read_file。",
+    "以下 Skill 不会默认全文注入。需要使用时，请调用 skill_manage，action=read 读取入口说明；需要子文档时使用 action=read_file。",
     "",
-    "如果 Skill 需要调用 HTTP API，优先使用 web_http_get / web_http_post；不要默认用 run_notebrain_command 写 Python/node 脚本发 HTTP 请求。",
+    "如果 Skill 需要调用 HTTP API，优先使用 web_fetch 的 http_get/http_post action；不要默认用 notebrain_file.run_command 写 Python/node 脚本发 HTTP 请求。",
     "",
   ];
   for (const entry of entries.slice(0, 40)) {
@@ -173,7 +173,7 @@ export function renderExternalSkillIndexPrompt(entries: readonly ExternalSkillIn
     lines.push(`- ${entry.id}：${entry.title}。${entry.description}${hints ? ` 触发线索：${hints}。` : ""} source=${entry.sourceType}, trusted=${entry.trusted}`);
   }
   if (entries.length > 40) {
-    lines.push(`- 其余 ${entries.length - 40} 个 Skill 可通过 skill_list 查看。`);
+    lines.push(`- 其余 ${entries.length - 40} 个 Skill 可通过 skill_manage.list 查看。`);
   }
   return lines.join("\n");
 }
@@ -274,4 +274,3 @@ export async function deleteInstalledExternalSkill(entry: ExternalSkillIndexEntr
 
   return { removedCount, deletedRootDir: normalizedRootDir, directoryAlreadyMissing };
 }
-

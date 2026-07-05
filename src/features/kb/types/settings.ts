@@ -141,8 +141,22 @@ export type KbSkillSettings = {
   initializedDefaultDisabledBuiltinSkillNames?: string[];
 };
 
-/** 全局工具名称 */
-export type KbGlobalToolName = "read_docs" | "web_read_page" | "edit_global_memory" | "get_doc_info" | "web_http_get" | "web_http_post";
+/** Provider-visible aggregate Agent tool names. */
+export type KbGlobalToolName =
+  | "siyuan_kb"
+  | "diary_task"
+  | "siyuan_database"
+  | "siyuan_doc_edit"
+  | "siyuan_tree"
+  | "siyuan_meta"
+  | "siyuan_asset"
+  | "siyuan_riff"
+  | "skill_manage"
+  | "mcp_manage"
+  | "notebrain_file"
+  | "web_fetch"
+  | "edit_global_memory"
+  | "agent_tool_help";
 
 /** 内置危险写工具名称 */
 export type KbDangerousSkillToolName =
@@ -201,7 +215,7 @@ export type NotebrainAgentWorkspaceSettings = {
   commandAllowRules: string[];
   commandAskRules: string[];
   commandDenyRules: string[];
-  /** 是否注册 notebrain 文件写入/删除工具（write_notebrain_file、delete_notebrain_path）。不影响 skill_install 内部写入。 */
+  /** 是否注册 notebrain 文件写入/删除工具（notebrain_file.write_file、notebrain_file.delete_path）。不影响 skill_manage.install 内部写入。 */
   fileWriteToolsEnabled: boolean;
   /** 严格工作区模式：开启后拒绝访问系统信息、绝对路径、管道重定向等高风险命令（默认 true）。 */
   commandStrictWorkspaceMode: boolean;
@@ -269,7 +283,7 @@ export type KbSettings = {
   /**
    * Agent 每轮最大工具调用次数。控制一次提问中 Agent 最多能调用多少次工具。
    * 数值越大越适合复杂 MCP / 多工具任务，但也可能增加耗时和费用。
-   * 范围 1-50，默认 10。
+   * 0 表示无限制；常用值 20/50，默认 20。
    */
   agentMaxToolCallsPerTurn: number;
   /**

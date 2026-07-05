@@ -52,7 +52,7 @@ export function getNotebrainRuntimeEnvironment(): RuntimeCapabilityStatus {
     platformLabel: "non_pc",
     reasonCode: "pc_electron_required",
     message: "本地命令执行仅支持 PC/Electron 环境。",
-    aiHint: "本地命令（run_notebrain_command）、MCP stdio、运行时工具检测仅支持 PC/Electron；当前环境不能启动本地进程。请改用 HTTP/SSE MCP Server，或在 PC 桌面端执行本任务。",
+    aiHint: "本地命令（notebrain_file.run_command）、MCP stdio、运行时工具检测仅支持 PC/Electron；当前环境不能启动本地进程。请改用 HTTP/SSE MCP Server，或在 PC 桌面端执行本任务。",
     userHint: "当前运行环境不支持本地命令和 MCP stdio，这些能力仅在 PC/Electron 桌面端可用。",
     unsupportedCapabilities: ["local_command", "mcp_stdio", "runtime_detection"],
   };

@@ -1,5 +1,5 @@
 /**
- * URL safety validator for web_read_page.
+ * URL safety validator for web_fetch.read_page.
  * Pure function — no side effects, no network calls, no DNS resolution.
  * This is a plugin-side first-line defense; it does not claim to block all possible
  * internal network access (e.g. DNS rebinding), but rejects obvious unsafe targets.

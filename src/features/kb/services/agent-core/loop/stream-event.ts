@@ -11,7 +11,7 @@ export type AgentStreamEvent =
   | { type: "tool_start"; stepIndex: number; toolCallId: string; toolName: string; argsPreview: Record<string, unknown>; readOnly: boolean; startedAt: number }
   | { type: "permission_required"; stepIndex: number; toolCallId: string; preview: ToolPermissionPreview }
   | { type: "permission_resolved"; stepIndex: number; toolCallId: string; approved: boolean; reason?: string }
-  | { type: "tool_result"; stepIndex: number; toolCallId: string; toolName: string; result: ToolExecutionResult; durationMs: number }
+  | { type: "tool_result"; stepIndex: number; toolCallId: string; toolName: string; result: ToolExecutionResult; durationMs: number; argsPreview?: Record<string, unknown> }
   | { type: "assistant_final"; answer: string }
   | { type: "notice"; message: string }
   | { type: "error"; code: string; message: string }

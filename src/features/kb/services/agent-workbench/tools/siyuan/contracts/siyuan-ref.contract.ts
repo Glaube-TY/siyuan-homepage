@@ -9,6 +9,29 @@ export const siyuanRefInputSchema = z.object({
   beforeLen: z.number().int().min(0).max(2000).optional(),
   containChildren: z.boolean().optional(),
   maxItems: maxItemsSchema,
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (value.action === "refresh_backlink") return;
+  if (value.action === "backlink" && !value.id && !value.docId) {
+    ctx.addIssue({
+      code: "custom",
+      message: "refs.backlink 需要 id 或 docId；id 可以是真实 blockId 或 docId。",
+      path: ["id"],
+    });
+  }
+  if ((value.action === "backlink_doc" || value.action === "backmention_doc") && !value.docId && !value.id) {
+    ctx.addIssue({
+      code: "custom",
+      message: "refs.backlink_doc/backmention_doc 需要 docId 或 id，建议优先使用真实 docId。",
+      path: ["docId"],
+    });
+  }
+  if (value.action === "search_ref_block" && !value.keyword && !value.id) {
+    ctx.addIssue({
+      code: "custom",
+      message: "refs.search_ref_block 需要 keyword 或 id，避免无关键词且无范围的空查。",
+      path: ["keyword"],
+    });
+  }
+});
 
 export type SiyuanRefInput = z.infer<typeof siyuanRefInputSchema>;

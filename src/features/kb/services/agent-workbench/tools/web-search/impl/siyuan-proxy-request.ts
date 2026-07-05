@@ -4,7 +4,7 @@
  * Pure function. No side effects at module level.
  */
 
-import { forwardProxy } from "../../../../../../../api";
+import { forwardProxyChecked } from "../../../../../../../api";
 import { pushWebApiDebugEvent } from "../../../debug/workbench-debug";
 
 export interface ProxyRequestOptions {
@@ -75,7 +75,7 @@ export async function requestViaSiyuanProxy(
   const startedAt = Date.now();
   let proxyResult;
   try {
-    proxyResult = await forwardProxy(
+    proxyResult = await forwardProxyChecked(
       url,
       opts.method,
       payload,
@@ -87,22 +87,23 @@ export async function requestViaSiyuanProxy(
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string }).code ?? "proxy_network_error";
     pushWebApiDebugEvent({
       method: opts.method,
       urlHost,
       path: urlPath,
       status: 0,
       durationMs: Date.now() - startedAt,
-      errorCode: "proxy_network_error",
+      errorCode: code,
       bodyPreview: message.slice(0, 200),
     });
     throw err;
   }
 
-  const durationMs = proxyResult.elapsed ?? (Date.now() - startedAt);
+  const durationMs = proxyResult?.elapsed ?? (Date.now() - startedAt);
   const status = proxyResult?.status ?? 0;
 
-  if (!proxyResult || !proxyResult.body) {
+  if (!proxyResult?.body) {
     pushWebApiDebugEvent({
       method: opts.method,
       urlHost,

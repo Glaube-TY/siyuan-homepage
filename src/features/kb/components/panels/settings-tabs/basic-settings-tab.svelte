@@ -27,12 +27,27 @@
     { value: "auto", label: "自动" },
   ];
 
+  const toolCallLimitOptions: Array<{ value: number; label: string }> = [
+    { value: 20, label: "20" },
+    { value: 50, label: "50" },
+    { value: 0, label: "无限制" },
+  ];
+
+  function getAgentMaxToolCallsPerTurn(): number {
+    const value = settings.agentMaxToolCallsPerTurn;
+    return value === 0 || value === 50 ? value : 20;
+  }
+
   function setWorkbenchProcessMode(value: KbProcessDisplayMode) {
     settings = { ...settings, workbenchProcessDisplayMode: value };
   }
 
   function setReasoningProcessMode(value: KbProcessDisplayMode) {
     settings = { ...settings, reasoningProcessDisplayMode: value };
+  }
+
+  function setAgentMaxToolCallsPerTurn(value: number) {
+    settings = { ...settings, agentMaxToolCallsPerTurn: value };
   }
 </script>
 
@@ -109,19 +124,21 @@
       <div class="setting-copy">
         <div class="setting-title">Agent 每轮最大工具调用次数</div>
         <div class="setting-desc">
-          控制一次提问中 Agent 最多能调用多少次工具。
+          控制一次提问中 Agent 最多能调用多少次工具；无限制仍保留权限确认和重复写防护。
         </div>
       </div>
       <div class="setting-action">
-        <input
-          class="number-input"
-          type="number"
-          min="1"
-          max="50"
-          step="1"
-          value={settings.agentMaxToolCallsPerTurn}
-          on:input={(e) => settings = { ...settings, agentMaxToolCallsPerTurn: Number(e.currentTarget.value) || 10 }}
-        />
+        <div class="segmented-control" role="group" aria-label="Agent 每轮最大工具调用次数">
+          {#each toolCallLimitOptions as option}
+            <button
+              type="button"
+              class:active={getAgentMaxToolCallsPerTurn() === option.value}
+              on:click={() => setAgentMaxToolCallsPerTurn(option.value)}
+            >
+              <span>{option.label}</span>
+            </button>
+          {/each}
+        </div>
       </div>
     </div>
   </section>
@@ -180,18 +197,6 @@
 
   .setting-action .segmented-control {
     width: 100%;
-  }
-
-  .setting-action .number-input {
-    width: 100%;
-    padding: 6px 8px;
-    border: 1px solid var(--b3-border-color);
-    border-radius: 6px;
-    background: var(--b3-theme-background);
-    color: var(--b3-theme-on-surface);
-    font-size: 13px;
-    text-align: center;
-    box-sizing: border-box;
   }
 
   .setting-title {

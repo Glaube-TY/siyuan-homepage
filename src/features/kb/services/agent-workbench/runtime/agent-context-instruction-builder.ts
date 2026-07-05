@@ -8,7 +8,7 @@ import { renderContextInstructions } from "../../agent-core/prompts/context-inst
 import { renderSkillInstructions } from "../../agent-core/prompts/skill-instruction-renderer";
 import type { RuntimeToolsSettings } from "../../../types/settings";
 import { buildRuntimeToolContextInstructions } from "../runtime-tools/runtime-tool-context";
-import { pushAgentDebugEvent } from "../debug/workbench-debug";
+import { pushAgentDebugEvent, setLastToolManifestCount } from "../debug/workbench-debug";
 
 export interface BuildAgentContextInstructionsParams {
   toolRegistry: ToolRegistry;
@@ -108,6 +108,7 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
     toolManifestCount: skillToolManifest.length,
     toolNames: skillToolManifest.map((tool) => tool.name),
   }, "info");
+  setLastToolManifestCount(skillToolManifest.length);
 
   const contextInstructions = [
     renderContextInstructions({

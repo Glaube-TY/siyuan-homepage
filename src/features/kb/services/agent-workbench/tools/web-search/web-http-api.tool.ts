@@ -1,6 +1,6 @@
 /**
- * web_http_get / web_http_post — general-purpose HTTP API request tools.
- * For external Skills and Agent to call third-party APIs.
+ * web_fetch.http_get / web_fetch.http_post 内部 action 契约。
+ * 供外部 Skills 和 Agent 调用第三方 HTTP API。
  * Pure factory functions. No side effects at module level.
  */
 
@@ -37,20 +37,19 @@ function headersToArray(headers?: Record<string, string>): Array<Record<string, 
   return [headers];
 }
 
-// ── web_http_get ──
+// ── http_get_action ──
 
-export function createWebHttpGetTool(deps: { timeoutMs: number }): ToolContract {
+export function createHttpGetActionTool(deps: { timeoutMs: number }): ToolContract {
   return {
-    name: "web_http_get",
-    title: "HTTP GET 请求",
-    description: "发送 HTTP GET 请求到指定 URL，返回响应内容。适用于调用公开 REST API。支持自定义 header 和查询参数。",
+    name: "http_get_action",
+    title: "HTTP GET 请求（action）",
+    description: "web_fetch.http_get 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: webHttpGetInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "builtin",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: webHttpGetInputJsonSchema,
-    boundary: "只请求公开 http/https URL；拒绝本机、内网和元数据地址。不自动跟随重定向链、不递归请求。",
 
     availability() {
       return { available: true };
@@ -128,20 +127,19 @@ export function createWebHttpGetTool(deps: { timeoutMs: number }): ToolContract 
   };
 }
 
-// ── web_http_post ──
+// ── http_post_action ──
 
-export function createWebHttpPostTool(deps: { timeoutMs: number }): ToolContract {
+export function createHttpPostActionTool(deps: { timeoutMs: number }): ToolContract {
   return {
-    name: "web_http_post",
-    title: "HTTP POST 请求",
-    description: "发送 HTTP POST 请求到指定 URL，支持 JSON 或纯文本请求体。适用于调用需要提交数据的 REST API。",
+    name: "http_post_action",
+    title: "HTTP POST 请求（action）",
+    description: "web_fetch.http_post 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: webHttpPostInputSchema,
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "web.http_post" },
     source: "builtin",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: webHttpPostInputJsonSchema,
-    boundary: "只请求公开 http/https URL；拒绝本机、内网和元数据地址。POST 有副作用，需要用户确认。",
 
     availability() {
       return { available: true };

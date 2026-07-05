@@ -1,5 +1,5 @@
 /**
- * Web HTTP API contract — input/output schemas for web_http_get and web_http_post.
+ * Web HTTP API contract — input/output schemas for web_fetch.http_get / web_fetch.http_post actions.
  * Pure types and schemas. No side effects. No runtime logic.
  */
 import { z } from "zod";
@@ -10,7 +10,7 @@ export const httpHeaderSchema = z.record(z.string(), z.string());
 
 export const responseModeSchema = z.enum(["json", "text"]);
 
-// ── web_http_get input ──
+// ── http_get input ──
 
 export const webHttpGetInputSchema = z.object({
   url: z.string().trim().min(1).max(2048).refine(
@@ -26,7 +26,7 @@ export const webHttpGetInputSchema = z.object({
 
 export type WebHttpGetInput = z.infer<typeof webHttpGetInputSchema>;
 
-// ── web_http_post input ──
+// ── http_post input ──
 
 export const webHttpPostInputSchema = z.object({
   url: z.string().trim().min(1).max(2048).refine(

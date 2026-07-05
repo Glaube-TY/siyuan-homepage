@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 将 Agent Workbench 内部错误码 / 错误消息映射为用户可读提示。
  *
  * 原则：
@@ -184,7 +184,7 @@ export function mapAgentErrorToUserFacing(input: {
     return {
       title: "工具未注册且被重复调用",
       message: "模型重复调用了当前未注册的工具，本轮已停止。",
-      suggestion: "可以重新同步 MCP 工具，或让 AI 先使用 mcp_list_tools 查看实际可用工具名。",
+      suggestion: "可以重新同步 MCP 工具，或让 AI 先使用 mcp_manage.list_tools 查看实际可用工具名。",
     };
   }
 

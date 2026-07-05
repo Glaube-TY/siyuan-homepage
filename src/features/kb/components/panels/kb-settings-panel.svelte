@@ -101,7 +101,7 @@
       case "retrieval":
         return "检索数量、上下文窗口和文档读取限制。";
       case "skills":
-        return "内置与自定义 Skill 的启用和编辑。";
+        return "外部与自定义 Skill 说明包。";
       case "tools":
         return "控制 AI 可用工具和写入确认。";
       case "mcp":

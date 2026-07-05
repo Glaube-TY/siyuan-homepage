@@ -1,51 +1,26 @@
 /**
- * 全局工具目录（只读元数据）
+ * 全局聚合工具目录（只读 UI 元数据）
  *
  * 仅用于 UI / 设置展示，不参与 ToolRegistry 业务流程。
  */
 
+import {
+  AGGREGATE_TOOL_CATALOG,
+  type AggregateToolName,
+} from "./aggregate/aggregate-tool-metadata";
+
 export interface GlobalToolMeta {
-  name: "read_docs" | "web_read_page" | "edit_global_memory" | "get_doc_info" | "web_http_get" | "web_http_post";
+  name: AggregateToolName;
   title: string;
   description: string;
   readOnly: boolean;
+  requiresConfirmation: boolean;
 }
 
-export const globalToolCatalog: GlobalToolMeta[] = [
-  {
-    name: "read_docs",
-    title: "读取本地文档正文",
-    description: "读取思源笔记中指定文档或内容块的正文，供 AI 参考。",
-    readOnly: true,
-  },
-  {
-    name: "web_read_page",
-    title: "读取网页正文",
-    description: "读取指定网页的正文内容，供 AI 参考。",
-    readOnly: true,
-  },
-  {
-    name: "edit_global_memory",
-    title: "编辑全局记忆",
-    description: "用修改后的完整记忆内容替换当前全局记忆，不暴露记忆文档 ID。",
-    readOnly: false,
-  },
-  {
-    name: "get_doc_info",
-    title: "查看文档信息",
-    description: "查看指定文档的标题、路径、笔记本、创建时间、更新时间和标签等信息，不读取正文内容。",
-    readOnly: true,
-  },
-  {
-    name: "web_http_get",
-    title: "HTTP GET 请求",
-    description: "发送 HTTP GET 请求到指定 URL，返回响应内容。适用于调用公开 REST API。",
-    readOnly: true,
-  },
-  {
-    name: "web_http_post",
-    title: "HTTP POST 请求",
-    description: "发送 HTTP POST 请求到指定 URL，支持 JSON 或纯文本请求体。有副作用，需要确认。",
-    readOnly: false,
-  },
-];
+export const globalToolCatalog: GlobalToolMeta[] = AGGREGATE_TOOL_CATALOG.map((tool) => ({
+  name: tool.name,
+  title: tool.title,
+  description: tool.description,
+  readOnly: tool.readOnly,
+  requiresConfirmation: tool.requiresConfirmation === true,
+}));

@@ -6,6 +6,7 @@ import type { EnhancedDiaryPeriod } from "@/components/utils/widgetBlock/widget/
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryStructureInput, ManageDiaryStructureOutput } from "../contracts/manage-diary-structure.contract";
 import { loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
+import { sql } from "@/api";
 
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryStructureOutput; errorCode?: string };
 
@@ -14,6 +15,47 @@ const ENSURE_ERROR_CODE_MAP: Record<string, string> = {
   create_failed: "diary_create_failed",
   read_failed: "diary_create_failed",
 };
+
+const DIARY_DOC_MARKER = /custom-dailynote-\d{8}/;
+
+function escapeSqlId(id: string): string {
+  return id.replace(/'/g, "''");
+}
+
+/**
+ * 校验传入 docId 是否为强化日记体系中的真实日记文档。
+ * 不校验正文 content，只检查 blocks 元数据：存在性、type='d'、ial 含 custom-dailynote 标记。
+ */
+async function validateAppendTemplateDocId(docId: string): Promise<
+  | { ok: true }
+  | { ok: false; errorCode: "diary_doc_not_found" | "invalid_diary_doc"; message: string }
+> {
+  const rows = await sql(`SELECT id, type, ial, content FROM blocks WHERE id = '${escapeSqlId(docId)}' LIMIT 1`);
+  const block = rows[0] as { id?: string; type?: string; ial?: string; content?: string } | undefined;
+  if (!block) {
+    return {
+      ok: false,
+      errorCode: "diary_doc_not_found",
+      message: `docId "${docId}" 对应的文档不存在。`,
+    };
+  }
+  if (block.type !== "d") {
+    return {
+      ok: false,
+      errorCode: "invalid_diary_doc",
+      message: `docId "${docId}" 不是文档（type=${block.type ?? "unknown"}），append_template 只能用于日记文档。`,
+    };
+  }
+  const ial = block.ial || "";
+  if (!DIARY_DOC_MARKER.test(ial)) {
+    return {
+      ok: false,
+      errorCode: "invalid_diary_doc",
+      message: `docId "${docId}"（${block.content || "未命名"}）不是强化日记体系中的日记/周记/月记/年记文档，无法补充模板。`,
+    };
+  }
+  return { ok: true };
+}
 
 async function executeEnsureToday(deps: KbRetrievalToolDeps): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
@@ -46,7 +88,16 @@ async function executeAppendTemplate(deps: KbRetrievalToolDeps, args: { operatio
   const date = args.date ? parseLocalDate(args.date) : new Date();
 
   let docId = args.docId;
-  if (!docId) {
+  if (docId) {
+    const validation = await validateAppendTemplateDocId(docId);
+    if (validation.ok === false) {
+      return {
+        ok: false,
+        errorCode: validation.errorCode,
+        safeOutput: { operation: "append_template", changed: false, docId, period, reason: validation.errorCode, message: validation.message },
+      };
+    }
+  } else {
     const doc = await getDiaryDocumentForDate(date);
     if (!doc) {
       return {

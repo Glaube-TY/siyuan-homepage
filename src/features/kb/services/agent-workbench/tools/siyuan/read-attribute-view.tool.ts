@@ -29,7 +29,7 @@ export function createReadAttributeViewTool(
     source: "builtin",
     inputHint: "databaseId 必须是真实属性视图 ID；viewId 可选且不能当 databaseId；rowLimit 默认 30，最大 100。",
     boundary: "只读读取数据库结构和有限行摘要；不会写入、删除或修改数据库。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

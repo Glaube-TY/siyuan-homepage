@@ -32,7 +32,7 @@ export function createManageDiaryStructureTool(
     source: "builtin",
     inputHint: "operation（必填）：ensure_today 只需 operation，不接受 period/date/docId；append_template 必须有 period，date/docId 可选。",
     boundary: "模板必须来自强化日记设置，不接受 AI 传入的模板正文；不重复插入。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

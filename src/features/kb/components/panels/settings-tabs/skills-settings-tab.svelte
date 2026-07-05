@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { builtinSkills } from "../../../services/agent-workbench/skills/builtin/skill-catalog";
   import type { KbSettings } from "../../../types/settings";
   import type { UserSkillIndex, UserSkillIndexEntry } from "../../../services/agent-workbench/storage/user-skill-store";
   import {
@@ -237,28 +236,6 @@
     }
   }
 
-  // 内置 Skill 启停
-  function isBuiltinEnabled(name: string): boolean {
-    return !(settings.skillSettings?.disabledBuiltinSkillNames ?? []).includes(name);
-  }
-
-  function toggleBuiltinSkill(name: string) {
-    const disabled = new Set(settings.skillSettings?.disabledBuiltinSkillNames ?? []);
-    if (disabled.has(name)) {
-      disabled.delete(name);
-    } else {
-      disabled.add(name);
-    }
-    const existing = settings.skillSettings ?? { disabledBuiltinSkillNames: [] };
-    settings = {
-      ...settings,
-      skillSettings: {
-        ...existing,
-        disabledBuiltinSkillNames: [...disabled],
-      },
-    };
-  }
-
   // 用户 Skill 启停
   async function toggleUserSkill(entry: UserSkillIndexEntry) {
     const index = await loadUserSkillIndex();
@@ -415,53 +392,6 @@ ${guidance.trim()}`;
 </script>
 
 <div class="skills-settings-tab">
-  <!-- 内置 Skill -->
-  <div class="section">
-    <div class="section-header">
-      <h2 class="section-title">内置 Skill</h2>
-      <p class="section-description">系统预置的能力说明，可启用或停用。</p>
-    </div>
-    <div class="skills-list">
-      {#each builtinSkills as skill}
-        <div class="skill-card">
-          <div class="skill-main">
-            <div class="skill-info">
-              <div class="skill-title-row">
-                <span class="skill-title">{skill.title}</span>
-                <span class="skill-badge builtin">内置</span>
-              </div>
-              <span class="skill-description">{skill.description}</span>
-            </div>
-            <div class="toggle-wrap">
-              <span class="toggle-label">{isBuiltinEnabled(skill.name) ? "已启用" : "已停用"}</span>
-              <label class="switch">
-                <input
-                  type="checkbox"
-                  checked={isBuiltinEnabled(skill.name)}
-                  on:change={() => toggleBuiltinSkill(skill.name)}
-                />
-                <span class="slider"></span>
-              </label>
-            </div>
-          </div>
-          <details class="skill-details">
-            <summary class="details-summary">详情</summary>
-            <div class="details-body">
-              <div class="detail-block">
-                <span class="detail-label">能力边界</span>
-                <p class="detail-content">{skill.boundary}</p>
-              </div>
-              <div class="detail-block">
-                <span class="detail-label">使用策略</span>
-                <p class="detail-content">{skill.guidance}</p>
-              </div>
-            </div>
-          </details>
-        </div>
-      {/each}
-    </div>
-  </div>
-
   <!-- 外部 Skill -->
   <div class="section">
     <div class="section-header with-actions">
@@ -478,7 +408,7 @@ ${guidance.trim()}`;
       <label class="setting-card">
         <span class="setting-main">
           <span class="setting-title">启用外部 Skill</span>
-          <span class="setting-desc">关闭后 `skill_list` / `skill_read` 等工具不可用，外部 Skill 索引也不会注入。</span>
+          <span class="setting-desc">关闭后 `skill_manage` 不再提供外部 Skill 读取和安装能力，外部 Skill 索引也不会注入。</span>
         </span>
         <span class="switch">
           <input
@@ -530,7 +460,7 @@ ${guidance.trim()}`;
           value={settings.externalSkills?.maxSkillReadChars ?? 20000}
           on:input={(event) => patchExternalSkillSettings({ maxSkillReadChars: Number(event.currentTarget.value) || 20000 })}
         />
-        <span class="setting-desc">`skill_read` 和 `skill_read_file` 的最大读取字符数。</span>
+        <span class="setting-desc">`skill_manage` 读取入口说明和子文件时的最大字符数。</span>
       </label>
     </div>
 
@@ -544,7 +474,7 @@ ${guidance.trim()}`;
     {#if loadingExternalSkills}
       <p class="empty-state">加载中...</p>
     {:else if installedExternalSkills.length === 0}
-      <p class="empty-state">暂无已安装第三方 Skill。可让 Agent 通过 `skill_install` 安装，或将 Skill 包放入 notebrain/skills/installed 后重建索引。</p>
+      <p class="empty-state">暂无已安装第三方 Skill。可让 Agent 通过 `skill_manage.install` 安装，或将 Skill 包放入 notebrain/skills/installed 后重建索引。</p>
     {:else}
       <div class="skills-list">
         {#each sortedInstalledExternalSkills as entry (entry.id)}
@@ -1000,11 +930,6 @@ ${guidance.trim()}`;
     padding: 1px 6px;
     border-radius: $kb-radius-sm;
     font-weight: 500;
-
-    &.builtin {
-      color: var(--b3-theme-on-surface);
-      background: var(--b3-theme-surface-light);
-    }
 
     &.user {
       color: #ffffff;

@@ -229,6 +229,22 @@ export function clearSchemaSanity(): void {
   _schemaSanityResult = null;
 }
 
+// ─── Last Tool Manifest Count ────────────────────────────────────────────────
+
+let _lastToolManifestCount: number | null = null;
+
+export function setLastToolManifestCount(count: number): void {
+  _lastToolManifestCount = count;
+}
+
+export function getLastToolManifestCount(): number | null {
+  return _lastToolManifestCount;
+}
+
+export function clearLastToolManifestCount(): void {
+  _lastToolManifestCount = null;
+}
+
 // ─── MCP Debug Event Ring Buffer ────────────────────────────────────────────
 
 /** Parameters for pushMcpDebugEvent — time is auto-set. */
@@ -417,6 +433,7 @@ export function setupAgentDebug(): void {
       clearTurnTraces();
       clearLifecycleEvents();
       clearSchemaSanity();
+      clearLastToolManifestCount();
       clearMcpEvents();
       clearWebApiEvents();
       return { cleared: true };
@@ -432,6 +449,7 @@ export function setupAgentDebug(): void {
       hasSchemaSanity: _schemaSanityResult !== null,
       lastTurnStatus: getLastTurnTrace()?.status,
       lastTurnSteps: getLastTurnTrace()?.steps,
+      toolManifestCount: getLastToolManifestCount(),
       runtimeCapabilityEventCount: buildRuntimeCapabilitySummary().runtimeCapabilityEventCount,
     };
 

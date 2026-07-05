@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   deleteBlocksInputSchema,
   deleteBlocksOutputSchema,
@@ -23,7 +23,7 @@ export function createDeleteBlocksTool(deps: DeleteBlocksDeps): ToolContract<Del
     source: "builtin",
     inputHint: "blockIds（目标块 ID 列表，最多 50 个，必须属于同一文档）",
     boundary: "只能删除明确给出的真实 blockId。blockIds 必须属于同一文档。不编造 ID。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: deleteBlocksInputJsonSchemaOverride,
 
     availability() {

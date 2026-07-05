@@ -271,6 +271,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
         at: event.at,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
+        argsPreview: toPersistedArgsPreview(event.argsPreview),
         ok: event.result.ok,
         outputSummary: sanitizePersistedSummaryText(event.result.summary, 300),
         errorCode: truncatePersistedText(event.result.errorCode ?? event.result.code, 80),
@@ -340,6 +341,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
           errorCode: event.errorCode,
           safeTargetPreview: event.safeTargetPreview,
         },
+        argsPreview: toPersistedArgsPreview(event.argsPreview),
         durationMs: event.durationMs ?? 0,
       };
     case "error":

@@ -24,6 +24,15 @@ export interface ToolExecutionResult {
   };
 }
 
+export interface ToolArgsValidationResult {
+  ok: boolean;
+  error?: {
+    code?: string;
+    message: string;
+    details?: unknown;
+  };
+}
+
 export interface NativeTool {
   name: string;
   title: string;
@@ -36,6 +45,7 @@ export interface NativeTool {
   source: ToolSource;
   safety: ToolSafetyInfo;
   execute(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolExecutionResult>;
+  preflightValidate?(args: Record<string, unknown>): ToolArgsValidationResult | Promise<ToolArgsValidationResult>;
+  isReadOnlyCall?(args: Record<string, unknown>): boolean;
   preview?(args: Record<string, unknown>): Promise<unknown>;
 }
-

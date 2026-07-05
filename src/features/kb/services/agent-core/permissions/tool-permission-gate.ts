@@ -82,6 +82,7 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
             decision: {
               type: "deny",
               reason: typeof data.permissionReason === "string" ? data.permissionReason : "工具权限策略拒绝执行。",
+              reasonCode: typeof data.permissionReasonCode === "string" ? data.permissionReasonCode : undefined,
             },
             preview,
           };

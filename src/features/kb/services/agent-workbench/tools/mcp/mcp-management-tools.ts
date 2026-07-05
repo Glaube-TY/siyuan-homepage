@@ -1,15 +1,19 @@
+import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import { z } from "zod";
 import type { McpSettings, RuntimeToolsSettings } from "../../../../types/settings";
 import type { ToolContract, ToolResult } from "../../contracts/tool-contract";
-import type { McpServerConfig } from "../../mcp/mcp-types";
+import type { McpServerConfig, McpToolIndexEntry } from "../../mcp/mcp-types";
 import {
+  deleteMcpServer,
   loadMcpServers,
   normalizeMcpServerConfig,
   upsertMcpServer,
 } from "../../mcp/mcp-config-store";
 import { loadMcpToolIndex, MCP_TOOL_INDEX_PATH, removeStaleServerTools } from "../../mcp/mcp-tool-index";
-import { syncMcpServerTools, diagnoseStdioCommand } from "../../mcp/mcp-client-manager";
+import { callMcpTool, syncMcpServerTools, diagnoseStdioCommand } from "../../mcp/mcp-client-manager";
+import { normalizeMcpResultContent, redactMcpSyncError } from "../../mcp/mcp-result-normalizer";
 import { MCP_SERVER_PRESETS, findKnownBadPackage } from "../../mcp/mcp-presets";
+import { isDangerousCommand } from "../../mcp/mcp-safety";
 import { getNotebrainRuntimeEnvironment } from "../../workspace/notebrain-runtime-env";
 
 const serverConfigSchema = z.object({
@@ -44,6 +48,9 @@ const serverConfigSchema = z.object({
 const saveServerInputSchema = z.object({
   server: serverConfigSchema,
 }).strict();
+const deleteServerInputSchema = z.object({
+  serverId: z.string().min(1).describe("要删除的 MCP Server ID"),
+}).strict();
 const syncToolsInputSchema = z.object({
   serverId: z.string().min(1).optional(),
 }).strict();
@@ -54,6 +61,11 @@ const listToolsInputSchema = z.object({
 }).strict();
 const readToolInputSchema = z.object({
   name: z.string().min(1).describe("内部工具名，例如 mcp__server__tool。"),
+}).strict();
+const callToolInputSchema = z.object({
+  serverId: z.string().min(1),
+  toolName: z.string().min(1).describe("MCP 工具名，可用内部名或原始名。"),
+  args: z.record(z.string(), z.unknown()),
 }).strict();
 const emptyInputSchema = z.object({}).strict();
 
@@ -138,23 +150,70 @@ function sanitizeMcpServerForToolResult(server: McpServerConfig): Record<string,
   return result;
 }
 
-function redactMcpSyncError(message: string): string {
-  return message
-    .replace(/(["']?\s*Authorization\s*:\s*Bearer\s+)\S+/gi, "$1***")
-    .replace(/(\b(token|api[_-]?key|apiKey|secret|password|access_token|refresh_token|client_secret|accessToken|refreshToken|clientSecret)\s*[:=]\s*)([^\s,;"'}]+)/gi, "$1***")
-    .replace(/enc:v1:[A-Za-z0-9+/=]+/g, "enc:v1:***");
+function validateMcpServerSafety(rawServer: unknown): { ok: true } | { ok: false; error: { code: string; message: string; hint: string } } {
+  const normalized = normalizeMcpServerConfig(rawServer);
+  if (!normalized) return { ok: true };
+  if (normalized.transport === "stdio" && normalized.command) {
+    const danger = isDangerousCommand(normalized.command, normalized.args || []);
+    if (danger.hardDeny) {
+      return {
+        ok: false,
+        error: {
+          code: "high_risk_command_blocked",
+          message: `MCP Server 命令被安全策略拒绝，不会保存配置：${danger.reasons.join("；")}。`,
+          hint: "请使用已知安全的 MCP Server 预设（mcp_manage.list_presets）或移除危险命令/参数。",
+        },
+      };
+    }
+  }
+  return { ok: true };
 }
 
-export function createMcpListServersTool(settings: McpSettings): ToolContract {
+function compileMcpArgsValidator(schema: unknown): ValidateFunction | null {
+  try {
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    const candidate = schema && typeof schema === "object"
+      ? schema as Record<string, unknown>
+      : { type: "object", properties: {}, additionalProperties: true };
+    return ajv.compile(candidate);
+  } catch {
+    return null;
+  }
+}
+
+function ajvErrorsToMessage(errors: ErrorObject[] | null | undefined): string {
+  if (!Array.isArray(errors) || errors.length === 0) return "参数校验失败。";
+  return errors.slice(0, 5)
+    .map((err) => `${err.instancePath || "/"} ${err.message || ""}`.trim())
+    .join("; ");
+}
+
+function findCallableMcpTool(params: {
+  tools: readonly McpToolIndexEntry[];
+  serverId: string;
+  toolName: string;
+  settings: McpSettings;
+}): McpToolIndexEntry | null {
+  const disabledTools = new Set(params.settings.disabledToolNames ?? []);
+  return params.tools.find((tool) =>
+    tool.serverId === params.serverId &&
+    tool.enabled !== false &&
+    !disabledTools.has(tool.internalName) &&
+    !disabledTools.has(tool.originalName) &&
+    (tool.internalName === params.toolName || tool.originalName === params.toolName)
+  ) ?? null;
+}
+
+export function createListServersActionTool(settings: McpSettings): ToolContract {
   return {
-    name: "mcp_list_servers",
-    title: "列出 MCP Server",
-    description: "列出 Notebrain 已配置的 MCP Server，不连接外部进程。",
+    name: "list_servers_action",
+    title: "列出 MCP Server（action）",
+    description: "mcp_manage.list_servers 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: emptyInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "mcp",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return mcpEnabled(settings) ? { available: true } : {
         available: false,
@@ -170,16 +229,31 @@ export function createMcpListServersTool(settings: McpSettings): ToolContract {
   };
 }
 
-export function createMcpSaveServerTool(settings: McpSettings): ToolContract<z.infer<typeof saveServerInputSchema>> {
+export function createSaveServerActionTool(settings: McpSettings): ToolContract<z.infer<typeof saveServerInputSchema>> {
   return {
-    name: "mcp_save_server",
-    title: "保存 MCP Server 配置",
-    description: "新增或更新 Notebrain MCP Server 配置，写入 notebrain/mcp/servers.json。可保存带认证的远程 MCP（Bearer Token / API Key / 自定义 Headers / OAuth），密钥会加密保存。保存后还需要 mcp_sync_tools 同步工具。",
+    name: "save_server_action",
+    title: "保存 MCP Server 配置（action）",
+    description: "mcp_manage.save_server 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: saveServerInputSchema,
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.mcp" },
     source: "mcp",
-    providerVisible: true,
+    providerVisible: false,
+    validateInputForPreview(rawArgs) {
+      const parsed = saveServerInputSchema.safeParse(rawArgs);
+      if (!parsed.success) return { ok: true };
+      const safety = validateMcpServerSafety(parsed.data.server);
+      if (safety.ok === false) {
+        return {
+          ok: false,
+          error: {
+            message: safety.error.message,
+            details: { code: safety.error.code, hint: safety.error.hint },
+          },
+        };
+      }
+      return { ok: true };
+    },
     availability() {
       return mcpEnabled(settings) ? { available: true } : {
         available: false,
@@ -188,6 +262,19 @@ export function createMcpSaveServerTool(settings: McpSettings): ToolContract<z.i
       };
     },
     async execute(_ctx, args): Promise<ToolResult> {
+      const safety = validateMcpServerSafety(args.server);
+      if (safety.ok === false) {
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: safety.error.code,
+            message: safety.error.message,
+            recoverable: true,
+            hint: safety.error.hint,
+          },
+        };
+      }
       const normalized = normalizeMcpServerConfig(args.server);
       if (!normalized) {
         return {
@@ -225,7 +312,7 @@ export function createMcpSaveServerTool(settings: McpSettings): ToolContract<z.i
             data: null,
             error: {
               code: "mcp_bad_package",
-              message: `包 "${badPkg}" 不是已知的 MCP npm 包，可能不存在。已知可用的 MCP 包：@modelcontextprotocol/server-filesystem。请使用 mcp_list_presets 查看可用预设。`,
+              message: `包 "${badPkg}" 不是已知的 MCP npm 包，可能不存在。已知可用的 MCP 包：@modelcontextprotocol/server-filesystem。请使用 mcp_manage.list_presets 查看可用预设。`,
               recoverable: true,
             },
           };
@@ -250,16 +337,99 @@ export function createMcpSaveServerTool(settings: McpSettings): ToolContract<z.i
   };
 }
 
-export function createMcpSyncToolsTool(settings: McpSettings, runtimeTools?: RuntimeToolsSettings): ToolContract<z.infer<typeof syncToolsInputSchema>> {
+export function createDeleteServerActionTool(settings: McpSettings): ToolContract<z.infer<typeof deleteServerInputSchema>> {
   return {
-    name: "mcp_sync_tools",
-    title: "同步 MCP 工具",
-    description: "连接已配置 MCP Server，调用 tools/list，同步工具索引到 notebrain/mcp/tool-index.json。会访问外部进程或网络，需要确认。",
+    name: "delete_server_action",
+    title: "删除 MCP Server（action）",
+    description: "mcp_manage.delete_server 聚合 action 的内部执行契约。不单独对 provider 暴露。",
+    inputSchema: deleteServerInputSchema,
+    readOnly: false,
+    safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.mcp" },
+    source: "mcp",
+    providerVisible: false,
+    availability() {
+      return mcpEnabled(settings) ? { available: true } : {
+        available: false,
+        reasonCode: "permission_denied",
+        hint: "MCP Client 未启用。",
+      };
+    },
+    async execute(_ctx, args): Promise<ToolResult> {
+      const current = await loadMcpServers();
+      const serverToDelete = current.servers.find((s) => s.id === args.serverId);
+      if (!serverToDelete) {
+        return {
+          ok: false,
+          data: null,
+          error: { code: "mcp_server_not_found", message: `MCP Server "${args.serverId}" 不存在。`, recoverable: true },
+        };
+      }
+      const file = await deleteMcpServer(args.serverId);
+      return {
+        ok: true,
+        data: {
+          serverId: args.serverId,
+          deleted: true,
+          total: file.servers.length,
+          title: serverToDelete.title,
+          transport: serverToDelete.transport,
+        },
+      };
+    },
+  };
+}
+
+function classifyMcpSyncError(err: unknown): {
+  error: string;
+  code?: string;
+  exitCode?: number;
+  errorKind?: string;
+  shortMessage: string;
+} {
+  const raw = err instanceof Error ? err.message : String(err);
+  const error = redactMcpSyncError(raw);
+  const errWithCode = err instanceof Error ? (err as { code?: unknown }) : undefined;
+  const code = typeof errWithCode?.code === "string" ? errWithCode.code : undefined;
+
+  let exitCode: number | undefined;
+  const exitMatch = raw.match(/\b(?:exit\s*code|code)\s*[=:]?\s*(\d{1,3})\b/i);
+  if (exitMatch) {
+    const n = Number(exitMatch[1]);
+    if (n >= 0 && n <= 255) exitCode = n;
+  }
+
+  let errorKind: string | undefined;
+  let shortMessage: string;
+  if (/MODULE_NOT_FOUND/.test(raw)) {
+    errorKind = "MODULE_NOT_FOUND";
+    shortMessage = "MCP stdio 进程找不到入口文件或依赖模块。";
+  } else if (/ENOENT/.test(raw)) {
+    errorKind = "ENOENT";
+    shortMessage = "MCP stdio 命令不存在或无法访问。";
+  } else if (/EACCES/.test(raw)) {
+    errorKind = "EACCES";
+    shortMessage = "MCP stdio 命令无执行权限。";
+  } else if (exitCode !== undefined && exitCode !== 0) {
+    errorKind = "PROCESS_EXITED";
+    shortMessage = `MCP stdio 进程退出，exitCode=${exitCode}。`;
+  } else {
+    errorKind = "SYNC_FAILED";
+    shortMessage = "MCP 工具同步失败。";
+  }
+
+  return { error, code, exitCode, errorKind, shortMessage };
+}
+
+export function createSyncToolsActionTool(settings: McpSettings, runtimeTools?: RuntimeToolsSettings): ToolContract<z.infer<typeof syncToolsInputSchema>> {
+  return {
+    name: "sync_tools_action",
+    title: "同步 MCP 工具（action）",
+    description: "mcp_manage.sync_tools 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: syncToolsInputSchema,
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.mcp" },
     source: "mcp",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return mcpEnabled(settings) ? { available: true } : {
         available: false,
@@ -269,8 +439,10 @@ export function createMcpSyncToolsTool(settings: McpSettings, runtimeTools?: Run
     },
     async execute(_ctx, args): Promise<ToolResult> {
       const file = await loadMcpServers();
+      const disabledServers = new Set(settings.disabledServerIds ?? []);
       const servers = file.servers
         .filter((server) => server.enabled !== false)
+        .filter((server) => !disabledServers.has(server.id))
         .filter((server) => !args.serverId || server.id === args.serverId);
       if (servers.length === 0) {
         return {
@@ -279,8 +451,22 @@ export function createMcpSyncToolsTool(settings: McpSettings, runtimeTools?: Run
           error: { code: "mcp_server_not_found", message: "没有可同步的 MCP Server。", recoverable: true },
         };
       }
-      const results = [];
-      const errors = [];
+      const results: Array<{
+        serverId: string;
+        synced: number;
+        indexUpdatedAt: number;
+        cwdInfo?: { cwd: string; notebrainRoot: string; allowedDirHint: string };
+      }> = [];
+      const errors: Array<{
+        serverId: string;
+        error: string;
+        shortMessage?: string;
+        code?: string;
+        exitCode?: number;
+        errorKind?: string;
+        recoverable?: boolean;
+        [key: string]: unknown;
+      }> = [];
       const env = getNotebrainRuntimeEnvironment();
       for (const server of servers) {
         // Pre-check stdio command availability
@@ -289,7 +475,9 @@ export function createMcpSyncToolsTool(settings: McpSettings, runtimeTools?: Run
             errors.push({
               serverId: server.id,
               error: "MCP stdio Server 仅支持 PC/Electron 环境，当前环境不能启动本地进程。请改用 HTTP/SSE MCP Server 或在 PC 桌面端执行。",
+              shortMessage: "当前环境不支持 MCP stdio。",
               code: "pc_electron_required",
+              recoverable: true,
               environment: env.platformLabel,
               platformLabel: env.platformLabel,
               reasonCode: env.reasonCode,
@@ -301,15 +489,14 @@ export function createMcpSyncToolsTool(settings: McpSettings, runtimeTools?: Run
           }
           const diag = diagnoseStdioCommand(server.command, runtimeTools);
           if (diag) {
-            errors.push({ serverId: server.id, error: diag });
+            errors.push({ serverId: server.id, ...classifyMcpSyncError(new Error(diag)) });
             continue;
           }
         }
         try {
           results.push(await syncMcpServerTools(server, runtimeTools));
         } catch (err) {
-          const message = err instanceof Error ? redactMcpSyncError(err.message) : "同步 MCP 工具失败。";
-          errors.push({ serverId: server.id, error: message });
+          errors.push({ serverId: server.id, ...classifyMcpSyncError(err) });
         }
       }
       // After syncing, auto-clean stale tool index entries.
@@ -332,7 +519,7 @@ export function createMcpSyncToolsTool(settings: McpSettings, runtimeTools?: Run
           data: { errors },
           error: {
             code: "mcp_sync_failed",
-            message: errors.map((e) => `[${e.serverId}] ${e.error}`).join("\n"),
+            message: errors.map((e) => `[${e.serverId}] ${e.shortMessage ?? e.error}`).join("\n"),
             recoverable: true,
           },
         };
@@ -354,16 +541,16 @@ export function createMcpSyncToolsTool(settings: McpSettings, runtimeTools?: Run
   };
 }
 
-export function createMcpListToolsTool(settings: McpSettings): ToolContract<z.infer<typeof listToolsInputSchema>> {
+export function createListToolsActionTool(settings: McpSettings): ToolContract<z.infer<typeof listToolsInputSchema>> {
   return {
-    name: "mcp_list_tools",
-    title: "列出 MCP 工具索引",
-    description: "列出已同步的 MCP 工具索引缓存，不调用外部 MCP Server。",
+    name: "list_tools_action",
+    title: "列出 MCP 工具索引（action）",
+    description: "mcp_manage.list_tools 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: listToolsInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "mcp",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return mcpEnabled(settings) ? { available: true } : {
         available: false,
@@ -380,6 +567,7 @@ export function createMcpListToolsTool(settings: McpSettings): ToolContract<z.in
       const activeServerIds = new Set(
         serversFile.servers
           .filter((s) => s.enabled !== false)
+          .filter((s) => !(settings.disabledServerIds ?? []).includes(s.id))
           .map((s) => s.id),
       );
       // Build server transport map for runtime availability
@@ -443,16 +631,16 @@ export function createMcpListToolsTool(settings: McpSettings): ToolContract<z.in
   };
 }
 
-export function createMcpReadToolTool(settings: McpSettings): ToolContract<z.infer<typeof readToolInputSchema>> {
+export function createReadToolActionTool(settings: McpSettings): ToolContract<z.infer<typeof readToolInputSchema>> {
   return {
-    name: "mcp_read_tool",
-    title: "读取 MCP 工具详情",
-    description: "读取某个已同步 MCP 工具的名称、来源和 JSON Schema。",
+    name: "read_tool_action",
+    title: "读取 MCP 工具详情（action）",
+    description: "mcp_manage.read_tool 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: readToolInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "mcp",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return mcpEnabled(settings) ? { available: true } : {
         available: false,
@@ -468,12 +656,16 @@ export function createMcpReadToolTool(settings: McpSettings): ToolContract<z.inf
       const activeServerIds = new Set(
         serversFile.servers
           .filter((s) => s.enabled !== false)
+          .filter((s) => !(settings.disabledServerIds ?? []).includes(s.id))
           .map((s) => s.id),
       );
+      const disabledTools = new Set(settings.disabledToolNames ?? []);
       const tool = index.tools.find(
         (entry) =>
           (entry.internalName === args.name || entry.originalName === args.name) &&
-          activeServerIds.has(entry.serverId),
+          activeServerIds.has(entry.serverId) &&
+          !disabledTools.has(entry.internalName) &&
+          !disabledTools.has(entry.originalName),
       );
       if (!tool) {
         return {
@@ -508,16 +700,153 @@ export function createMcpReadToolTool(settings: McpSettings): ToolContract<z.inf
   };
 }
 
-export function createMcpListPresetsTool(settings: McpSettings): ToolContract {
+export function createCallToolActionTool(
+  settings: McpSettings,
+  runtimeTools?: RuntimeToolsSettings,
+): ToolContract<z.infer<typeof callToolInputSchema>> {
   return {
-    name: "mcp_list_presets",
-    title: "列出 MCP Server 预设",
-    description: "列出已知可用的 MCP Server 预设配置（如 filesystem）。使用预设中的参数模板调用 mcp_save_server 来创建 server。",
+    name: "call_tool_action",
+    title: "调用 MCP 工具（action）",
+    description: "mcp_manage.call_tool 聚合 action 的内部执行契约。不单独对 provider 暴露。",
+    inputSchema: callToolInputSchema,
+    readOnly: false,
+    safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.mcp" },
+    source: "mcp",
+    providerVisible: false,
+    availability() {
+      return mcpEnabled(settings) ? { available: true } : {
+        available: false,
+        reasonCode: "permission_denied",
+        hint: "MCP Client 未启用。",
+      };
+    },
+    async execute(_ctx, args): Promise<ToolResult> {
+      const [serversFile, index] = await Promise.all([
+        loadMcpServers(),
+        loadMcpToolIndex(),
+      ]);
+      const disabledServers = new Set(settings.disabledServerIds ?? []);
+      const server = serversFile.servers.find(
+        (item) =>
+          item.id === args.serverId &&
+          item.enabled !== false &&
+          !disabledServers.has(item.id),
+      );
+      if (!server) {
+        return {
+          ok: false,
+          data: null,
+          error: { code: "mcp_server_not_found", message: "未找到可调用的 MCP Server。", recoverable: true },
+        };
+      }
+      const tool = findCallableMcpTool({
+        tools: index.tools,
+        serverId: server.id,
+        toolName: args.toolName,
+        settings,
+      });
+      if (!tool) {
+        return {
+          ok: false,
+          data: null,
+          error: { code: "mcp_tool_not_found", message: "未找到可调用的 MCP 工具。", recoverable: true },
+        };
+      }
+      const env = getNotebrainRuntimeEnvironment();
+      if (server.transport === "stdio" && !env.isPcElectron) {
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: "pc_electron_required",
+            message: "该 MCP stdio 工具只在 PC/Electron 桌面端可用，当前环境不能调用。",
+            recoverable: true,
+            details: {
+              serverId: server.id,
+              toolName: tool.originalName,
+              environment: env.platformLabel,
+              platformLabel: env.platformLabel,
+              aiHint: env.aiHint,
+              userHint: env.userHint,
+              unsupportedCapabilities: env.unsupportedCapabilities,
+            },
+          },
+        };
+      }
+      const validate = compileMcpArgsValidator(tool.inputSchema);
+      if (validate && !validate(args.args)) {
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: "invalid_args",
+            message: "MCP 工具参数不符合 inputSchema。",
+            recoverable: true,
+            details: {
+              serverId: server.id,
+              toolName: tool.originalName,
+              message: ajvErrorsToMessage(validate.errors),
+            },
+          },
+        };
+      }
+      try {
+        const result = await callMcpTool({
+          server,
+          tool,
+          args: args.args,
+        }, runtimeTools);
+        const normalized = normalizeMcpResultContent(result);
+        let message = normalized.summary;
+        const readMediaHint = !normalized.ok && tool.originalName === "read_media_file"
+          ? "read_media_file 只适合图片/音频/视频等媒体文件。文本文件请使用 read_text_file。"
+          : undefined;
+        if (readMediaHint) {
+          message = "read_media_file 只适合图片/音频/视频等媒体文件，当前输入不是媒体文件或 MCP 返回了不兼容内容。";
+        }
+        const data = {
+          serverId: server.id,
+          toolName: tool.originalName,
+          result: normalized.data,
+          textPreview: normalized.contentText,
+          truncated: normalized.truncated,
+          ...(readMediaHint ? { hint: readMediaHint } : {}),
+        };
+        return normalized.ok
+          ? { ok: true, data }
+          : {
+            ok: false,
+            data: null,
+            error: {
+              code: "mcp_tool_error",
+              message,
+              recoverable: true,
+              details: data,
+            },
+          };
+      } catch (err) {
+        const rawMessage = err instanceof Error ? err.message : "MCP 工具调用失败。";
+        const message = redactMcpSyncError(rawMessage);
+        return {
+          ok: false,
+          data: null,
+          error: { code: "mcp_call_failed", message, recoverable: true },
+        };
+      }
+    },
+  };
+}
+
+export function createListPresetsActionTool(settings: McpSettings): ToolContract {
+  return {
+    name: "list_presets_action",
+    title: "列出 MCP Server 预设（action）",
+    description: "mcp_manage.list_presets 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: emptyInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "mcp",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return mcpEnabled(settings) ? { available: true } : {
         available: false,
@@ -566,16 +895,16 @@ export function createMcpListPresetsTool(settings: McpSettings): ToolContract {
   };
 }
 
-export function createMcpCleanupStaleToolsTool(settings: McpSettings): ToolContract {
+export function createCleanupStaleToolsActionTool(settings: McpSettings): ToolContract {
   return {
-    name: "mcp_cleanup_stale_tools",
-    title: "清理过时 MCP 工具",
-    description: "删除不再存在或已禁用的 MCP Server 的旧工具索引条目。不会影响当前有效 server 的工具。通常不需要手动调用——同步时会自动清理。",
+    name: "cleanup_stale_tools_action",
+    title: "清理过时 MCP 工具（action）",
+    description: "mcp_manage.cleanup_stale_tools 聚合 action 的内部执行契约。不单独对 provider 暴露。",
     inputSchema: emptyInputSchema,
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.mcp" },
     source: "mcp",
-    providerVisible: true,
+    providerVisible: false,
     availability() {
       return mcpEnabled(settings) ? { available: true } : {
         available: false,
@@ -604,4 +933,3 @@ export function createMcpCleanupStaleToolsTool(settings: McpSettings): ToolContr
     },
   };
 }
-

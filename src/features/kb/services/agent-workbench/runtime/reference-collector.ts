@@ -57,6 +57,17 @@ const REASON_TO_READ_LEVEL: Record<ReferenceReason, ReadLevel> = {
   search_candidate: "candidate",
 };
 
+const AGGREGATE_REFERENCE_ACTION_TOOL_NAMES = new Map<string, string>([
+  ["siyuan_kb:read_docs", "read_docs"],
+  ["siyuan_kb:list_map", "list_knowledge_map"],
+  ["siyuan_kb:search", "search_scope"],
+  ["diary_task:overview", "get_daily_workspace_overview"],
+  ["diary_task:query_tasks", "query_tasks"],
+  ["diary_task:query_records", "query_diary_records"],
+  ["diary_task:find_docs", "find_diary_docs"],
+  ["web_fetch:read_page", "web_fetch:read_page"],
+]);
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -67,6 +78,18 @@ function readString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function unwrapAggregateObservation(entry: ToolResultEntry): { toolName?: string; content: unknown } {
+  const content = asRecord(entry.content);
+  const action = readString(content?.action);
+  if (action && Object.prototype.hasOwnProperty.call(content, "result")) {
+    return {
+      toolName: AGGREGATE_REFERENCE_ACTION_TOOL_NAMES.get(`${entry.toolName}:${action}`) ?? entry.toolName,
+      content: content.result,
+    };
+  }
+  return { toolName: entry.toolName, content: entry.content };
 }
 
 function normalizeSourceType(
@@ -149,7 +172,7 @@ export interface BuildGroundingSetParams {
  * citedReferences / agentMemory / conversationContext.
  *
  * Trusted sources:
- * 1. Current turn tool observation (read_docs / attached_doc_hydration / web_read_page)
+ * 1. Current turn tool observation (aggregate results, attached_doc_hydration, legacy tool observations)
  * 2. Historical references in conversationContext — ONLY if ref.grounded === true
  * 3. User-attached docs
  * 4. Current scope docId/rootDocId/docIds
@@ -331,7 +354,7 @@ export function normalizeAnswerReferences(
         }, "info");
         continue;
       }
-      // Only content-level evidence (from web_read_page) can be a footer reference
+      // Only content-level web evidence can be a footer reference
       if (evidence.readLevel !== "content") {
         rejectedInsufficientLevelCount++;
         pushAgentDebugEvent("REFERENCE_DROPPED_INSUFFICIENT_LEVEL", {
@@ -431,24 +454,25 @@ export function collectObservationReferences(
       continue;
     }
     if (entry.kind !== "tool_executed" && entry.kind !== "tool_observation") continue;
-    if (entry.toolName === "read_docs") {
-      collectReadDocsReferences(entry.content, refs);
-    } else if (entry.toolName === "list_knowledge_map") {
-      collectKnowledgeMapReferences(entry.content, refs);
-    } else if (entry.toolName === "search_scope") {
-      collectSearchScopeReferences(entry.content, refs);
-    } else if (entry.toolName === "get_daily_workspace_overview") {
-      collectDailyWorkspaceOverviewReferences(entry.content, refs);
-    } else if (entry.toolName === "query_tasks") {
-      collectAgendaTaskReferences(entry.content, refs);
-    } else if (entry.toolName === "query_diary_records") {
-      collectAgendaRecordReferences(entry.content, refs);
-    } else if (entry.toolName === "find_diary_docs") {
-      collectDiaryDocReferences(entry.content, refs);
-    } else if (entry.toolName === "web_search") {
-      collectWebSearchReferences(entry.content, refs);
-    } else if (entry.toolName === "web_read_page") {
-      collectWebReadPageReferences(entry.content, refs);
+    const observed = unwrapAggregateObservation(entry);
+    if (observed.toolName === "read_docs") {
+      collectReadDocsReferences(observed.content, refs);
+    } else if (observed.toolName === "list_knowledge_map") {
+      collectKnowledgeMapReferences(observed.content, refs);
+    } else if (observed.toolName === "search_scope") {
+      collectSearchScopeReferences(observed.content, refs);
+    } else if (observed.toolName === "get_daily_workspace_overview") {
+      collectDailyWorkspaceOverviewReferences(observed.content, refs);
+    } else if (observed.toolName === "query_tasks") {
+      collectAgendaTaskReferences(observed.content, refs);
+    } else if (observed.toolName === "query_diary_records") {
+      collectAgendaRecordReferences(observed.content, refs);
+    } else if (observed.toolName === "find_diary_docs") {
+      collectDiaryDocReferences(observed.content, refs);
+    } else if (observed.toolName === "web_search") {
+      collectWebSearchReferences(observed.content, refs);
+    } else if (observed.toolName === "web_fetch:read_page") {
+      collectWebReadPageReferences(observed.content, refs);
     }
     if (refs.length >= MAX_OBSERVATION_REFERENCES) break;
   }
@@ -796,7 +820,7 @@ function collectWebSearchReferences(content: unknown, refs: CollectedReference[]
     const url = readString(item.url);
     const title = readString(item.title);
     if (!url || !title) continue;
-    // web_search candidates are search_candidate only — NOT footer references
+    // Web search candidates are search_candidate only — NOT footer references
     if (!pushReference(refs, {
       sourceType: "web_page",
       url,

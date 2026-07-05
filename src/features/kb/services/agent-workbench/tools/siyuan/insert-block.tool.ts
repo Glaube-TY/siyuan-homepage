@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   insertBlockInputSchema,
   insertBlockOutputSchema,
@@ -23,7 +23,7 @@ export function createInsertBlockTool(deps: InsertBlockDeps): ToolContract<Inser
     source: "builtin",
     inputHint: "referenceBlockId（参考块 ID），position（插入位置：before/after/child），markdown（要插入的 Markdown 内容）",
     boundary: "只能基于明确给出的真实 referenceBlockId 插入内容。不编造 ID。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: insertBlockInputJsonSchemaOverride,
 
     availability() {

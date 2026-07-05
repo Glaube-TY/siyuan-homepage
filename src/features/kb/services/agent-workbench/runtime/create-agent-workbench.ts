@@ -10,8 +10,6 @@ import { ToolResultLog } from "./tool-result-log";
 import { SkillRegistry } from "../registries/skill-registry";
 import { ToolRegistry } from "../registries/tool-registry";
 import type { SiyuanToolDeps } from "../tools/siyuan/siyuan-tool-deps";
-import type { WebSearchProvider } from "../tools/web-search/web-search-provider";
-import { registerBuiltinSkills, type BuiltinCapabilityAccess } from "../composition/register-builtin-skills";
 import { registerSystemTools } from "../composition/register-system-tools";
 import { registerSiyuanTools } from "../composition/register-siyuan-tools";
 import { registerWebTools } from "../composition/register-web-tools";
@@ -23,6 +21,7 @@ import {
   DEFAULT_MCP_SETTINGS,
 } from "../../../constants/default-settings";
 import type { ExternalSkillSettings, McpSettings, NotebrainAgentWorkspaceSettings, RuntimeToolsSettings } from "../../../types/settings";
+import type { AvailableToolSnapshot } from "../tools/aggregate/agent-tool-help.tool";
 
 // User skill loader (uses new agent-workbench contracts directly)
 import { MarkdownSkillLoader } from "../skills/user/markdown-skill-loader";
@@ -43,17 +42,20 @@ export interface AgentWorkbenchRuntime {
   observationLog: ToolResultLog;
 }
 
-export type { BuiltinCapabilityAccess };
+export interface BuiltinCapabilityAccess {
+  knowledgeBase: boolean;
+  scheduleTaskDiary: boolean;
+  databaseAssistant: boolean;
+  docContentEditing: boolean;
+  notebookDocTree: boolean;
+  tagBookmarkOutline: boolean;
+  assetManagement: boolean;
+  riffReview: boolean;
+}
 
 export interface AgentWorkbenchRuntimeOptions {
   kbRetrievalToolDeps?: SiyuanToolDeps;
-  /** Optional: web search runtime deps. When present + mode smart/required, registers web_search. */
-  webSearchToolDeps?: {
-    getProvider(): WebSearchProvider;
-    maxResults: number;
-    timeoutMs: number;
-  };
-  /** Optional: web read page runtime deps. When present, registers global web_read_page. */
+  /** Optional: web read page runtime deps. When present, registers web_fetch.read_page. */
   webReadPageToolDeps?: {
     readProxyEndpoint?: string;
     readPageMaxChars: number;
@@ -61,14 +63,11 @@ export interface AgentWorkbenchRuntimeOptions {
   };
   /** Built-in capability visibility from settings. Not a business controller — just composition-root gate. */
   builtinCapabilityAccess?: BuiltinCapabilityAccess;
-  /** Global tool visibility from settings. Controls whether read_docs / web_read_page / edit_global_memory / web_http_get / web_http_post are registered. */
+  /** Global tool visibility from settings. Controls aggregate and system tool registration. */
   globalToolAccess?: {
-    readDocs: boolean;
-    webReadPage: boolean;
+    webFetch: boolean;
     editGlobalMemory: boolean;
-    getDocInfo: boolean;
-    webHttpGet: boolean;
-    webHttpPost: boolean;
+    agentToolHelp: boolean;
   };
   /** Optional: global memory tool deps. When present, registers edit_global_memory. */
   globalMemoryToolDeps?: {
@@ -89,9 +88,7 @@ export function createAgentWorkbenchRuntime(
   // Per-turn registries, no global state.
   const skillRegistry = new SkillRegistry();
   const toolRegistry = new ToolRegistry();
-
-  // Register built-in skills based on capability access (settings-level visibility gate)
-  registerBuiltinSkills(skillRegistry, options.builtinCapabilityAccess);
+  const externalSkillSettings = options.externalSkillSettings ?? DEFAULT_EXTERNAL_SKILL_SETTINGS;
 
   // Register system tools (edit_global_memory)
   registerSystemTools(toolRegistry, {
@@ -109,22 +106,54 @@ export function createAgentWorkbenchRuntime(
     });
   }
 
-  // Register web tools (web_search, web_read_page)
+  // Register web_fetch aggregate tool.
   registerWebTools(toolRegistry, {
-    webSearchToolDeps: options.webSearchToolDeps,
     webReadPageToolDeps: options.webReadPageToolDeps,
     globalToolAccess: options.globalToolAccess,
   });
 
-  registerLocalTools(toolRegistry, options.notebrainWorkspaceSettings);
+  registerLocalTools(toolRegistry, options.notebrainWorkspaceSettings, options.runtimeToolsSettings);
   registerExternalSkillTools(
     toolRegistry,
-    options.externalSkillSettings ?? DEFAULT_EXTERNAL_SKILL_SETTINGS,
+    externalSkillSettings,
   );
   // ponytail: MCP management tools only registered when mcp.enabled=true
   const effectiveMcpSettings = options.mcpSettings ?? DEFAULT_MCP_SETTINGS;
   if (effectiveMcpSettings.enabled) {
     registerMcpManagementTools(toolRegistry, effectiveMcpSettings, options.runtimeToolsSettings);
+  }
+
+  if (options.globalToolAccess?.agentToolHelp !== false) {
+    const helpSnapshotCtx = { question: "", callCounts: {} };
+    const currentProviderVisibleTools: AvailableToolSnapshot[] = toolRegistry.getToolManifest(helpSnapshotCtx)
+      .filter((manifest) => manifest.availability.available === true)
+      .map((manifest) => {
+        const contract = toolRegistry.getTool(manifest.name);
+        return {
+          name: manifest.name,
+          actions: extractManifestActionEnum(manifest.inputJsonSchema),
+          actionHelp: contract?.aggregateActionHelp,
+          argsSchema: manifest.inputJsonSchema,
+        };
+      });
+    registerSystemTools(toolRegistry, {
+      globalToolAccess: options.globalToolAccess,
+      externalSkillSettings,
+      agentToolHelpAvailableTools: [...currentProviderVisibleTools, { name: "agent_tool_help" }],
+    });
+  }
+
+  function extractManifestActionEnum(schema: unknown): string[] | undefined {
+    if (!schema || typeof schema !== "object") return undefined;
+    const properties = (schema as Record<string, unknown>).properties;
+    if (!properties || typeof properties !== "object") return undefined;
+    const actionSchema = (properties as Record<string, unknown>).action;
+    if (!actionSchema || typeof actionSchema !== "object") return undefined;
+    const enumValues = (actionSchema as Record<string, unknown>).enum;
+    if (Array.isArray(enumValues) && enumValues.every((v) => typeof v === "string")) {
+      return enumValues as string[];
+    }
+    return undefined;
   }
 
   // Single debug entry point — no console output by default

@@ -29,7 +29,7 @@ export function createListAttributeViewsTool(
     source: "builtin",
     inputHint: "keyword 可选；limit 默认 20，最大 50。返回候选后应使用 read_attribute_view 确认 schema。",
     boundary: "只读搜索数据库候选；SQL 兜底结果只是候选，不等同于完整数据库事实。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

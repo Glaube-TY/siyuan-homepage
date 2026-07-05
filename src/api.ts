@@ -176,6 +176,19 @@ export async function setNotebookConf(notebook: NotebookId, conf: NotebookConf):
 
 
 // **************************************** File Tree ****************************************
+function summarizeSafeApiData(value: unknown): string {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (typeof value === "string") return `string(length=${value.length})`;
+    if (typeof value === "number" || typeof value === "boolean") return typeof value;
+    if (Array.isArray(value)) return `array(length=${value.length})`;
+    if (typeof value === "object") {
+        const keys = Object.keys(value as Record<string, unknown>).slice(0, 8);
+        return `object(keys=${keys.join(",") || "none"})`;
+    }
+    return typeof value;
+}
+
 export async function createDocWithMd(notebook: NotebookId, path: string, markdown: string): Promise<DocumentId> {
     let data = {
         notebook: notebook,
@@ -183,7 +196,14 @@ export async function createDocWithMd(notebook: NotebookId, path: string, markdo
         markdown: markdown,
     };
     let url = '/api/filetree/createDocWithMd';
-    return request(url, data);
+    const response = await requestRaw(url, data);
+    if (response.code !== 0) {
+        throw new Error(`[createDocWithMd] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
+    }
+    if (typeof response.data !== "string" || response.data.trim() === "") {
+        throw new Error(`[createDocWithMd] 接口成功但 data 不是有效文档 ID：received=${summarizeSafeApiData(response.data)}`);
+    }
+    return response.data.trim();
 }
 
 export async function createDailyNote(notebook: string, app: string): Promise<any> {
@@ -686,6 +706,61 @@ export async function forwardProxy(
     }
     let url1 = '/api/network/forwardProxy';
     return request(url1, data);
+}
+
+/**
+ * Raw forwardProxy wrapper — returns the full IWebSocketData response.
+ * Caller must check response.code and response.data itself.
+ */
+export async function forwardProxyRaw(
+    url: string, method: string = 'GET', payload: any = {},
+    headers: any[] = [], timeout: number = 7000, contentType: string = "text/html",
+    payloadEncoding?: string, responseEncoding?: string
+): Promise<IWebSocketData> {
+    let data: any = {
+        url: url,
+        method: method,
+        timeout: timeout,
+        contentType: contentType,
+        headers: headers,
+        payload: payload
+    };
+    if (payloadEncoding) {
+        data.payloadEncoding = payloadEncoding;
+    }
+    if (responseEncoding) {
+        data.responseEncoding = responseEncoding;
+    }
+    return requestRaw('/api/network/forwardProxy', data);
+}
+
+/**
+ * Checked forwardProxy wrapper for Notebrain web_fetch tools.
+ * Throws a structured Error when the kernel proxy call fails or returns empty data,
+ * so callers cannot mistake API failures for success and cannot crash on null.
+ */
+export async function forwardProxyChecked(
+    url: string, method: string = 'GET', payload: any = {},
+    headers: any[] = [], timeout: number = 7000, contentType: string = "text/html",
+    payloadEncoding?: string, responseEncoding?: string
+): Promise<IResForwardProxy> {
+    const response = await forwardProxyRaw(
+        url, method, payload, headers, timeout, contentType, payloadEncoding, responseEncoding
+    );
+    if (response.code !== 0) {
+        const error: Error & { code?: string; siyuanCode?: number } = new Error(
+            response.msg ? `思源 forwardProxy 调用失败：${response.msg}` : "思源 forwardProxy 调用失败"
+        ) as Error & { code?: string; siyuanCode?: number };
+        error.code = "proxy_request_failed";
+        error.siyuanCode = response.code;
+        throw error;
+    }
+    if (!response.data) {
+        const error: Error & { code?: string } = new Error("思源 forwardProxy 返回空响应体。") as Error & { code?: string };
+        error.code = "proxy_empty_response";
+        throw error;
+    }
+    return response.data as IResForwardProxy;
 }
 
 // endpoint: /api/network/forwardProxy (图片专用封装)
@@ -1212,7 +1287,7 @@ export async function updateTaskListItemMarker(id: BlockId, marker: TaskMarker):
  */
 export async function batchUpdateTaskListItemMarker(ids: BlockId[], marker: TaskMarker): Promise<boolean> {
     const url = '/api/block/batchUpdateTaskListItemMarker';
-    const data = { ids, marker };
+    const data = { items: ids.map((id) => ({ id, marker })) };
     const res = await request(url, data);
     return res?.code === 0 || false;
 }
@@ -1236,8 +1311,16 @@ export async function updateTaskListItemMarkerChecked(id: BlockId, marker: TaskM
     await requestChecked('/api/block/updateTaskListItemMarker', { id, marker }, 'updateTaskListItemMarker');
 }
 
-export async function batchUpdateTaskListItemMarkerChecked(ids: BlockId[], marker: TaskMarker): Promise<void> {
-    await requestChecked('/api/block/batchUpdateTaskListItemMarker', { ids, marker }, 'batchUpdateTaskListItemMarker');
+export async function batchUpdateTaskListItemMarkerChecked(
+    idsOrItems: BlockId[] | Array<{ id: BlockId; marker?: TaskMarker }>,
+    marker: TaskMarker = "x",
+): Promise<void> {
+    const items = idsOrItems.map((item) => (
+        typeof item === "string"
+            ? { id: item, marker }
+            : { id: item.id, marker: item.marker ?? marker }
+    ));
+    await requestChecked('/api/block/batchUpdateTaskListItemMarker', { items }, 'batchUpdateTaskListItemMarker');
 }
 
 export async function getBlockAttrsChecked(id: BlockId): Promise<{ [key: string]: string }> {
@@ -1602,12 +1685,12 @@ export async function getBookmark(): Promise<any> {
     return requestChecked('/api/bookmark/getBookmark', {}, 'getBookmark');
 }
 
-export async function renameBookmark(oldLabel: string, newLabel: string): Promise<any> {
-    return requestChecked('/api/bookmark/renameBookmark', { oldLabel, newLabel }, 'renameBookmark');
+export async function renameBookmark(oldBookmark: string, newBookmark: string): Promise<any> {
+    return requestChecked('/api/bookmark/renameBookmark', { oldBookmark, newBookmark }, 'renameBookmark');
 }
 
-export async function removeBookmark(label: string): Promise<any> {
-    return requestChecked('/api/bookmark/removeBookmark', { label }, 'removeBookmark');
+export async function removeBookmark(bookmark: string): Promise<any> {
+    return requestChecked('/api/bookmark/removeBookmark', { bookmark }, 'removeBookmark');
 }
 
 export async function resolveAssetPath(path: string): Promise<any> {

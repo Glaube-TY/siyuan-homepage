@@ -29,7 +29,7 @@ export function createRemoveAttributeViewRowsTool(
     source: "builtin",
     inputHint: "databaseId 和 rowIds 必须真实；rowIds 必须是 read_attribute_view 返回的 rowId/itemID。",
     boundary: "只删除条目，不删除数据库、不删除字段。一次最多删除 20 行。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: {
       type: "object",
       properties: {

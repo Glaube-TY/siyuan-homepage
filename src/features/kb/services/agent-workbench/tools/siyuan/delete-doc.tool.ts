@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   deleteDocInputSchema,
   deleteDocOutputSchema,
@@ -23,7 +23,7 @@ export function createDeleteDocTool(deps: DeleteDocDeps): ToolContract<DeleteDoc
     source: "builtin",
     inputHint: "docId（目标文档 ID）",
     boundary: "只能删除明确给出的真实 docId 对应文档。不编造 ID。",
-    providerVisible: true,
+    providerVisible: false,
     inputJsonSchemaOverride: deleteDocInputJsonSchemaOverride,
 
     availability() {
@@ -53,9 +53,9 @@ export function createDeleteDocTool(deps: DeleteDocDeps): ToolContract<DeleteDoc
           ok: false,
           data: null,
           error: {
-            code: "write_operation_failed",
+            code: data.errorCode || "write_operation_failed",
             message: data.message || "写入操作失败。",
-            recoverable: false,
+            recoverable: data.errorCode === "protected_diary_doc_delete_blocked" ? true : false,
             details: data.target ? { target: data.target } : undefined,
           },
         };

@@ -7,6 +7,11 @@ export function stringifyToolResultContent(input: {
   code?: string;
   message?: string;
   recoverable?: boolean;
+  field?: string;
+  hint?: string;
+  expected?: string;
+  received?: string;
+  details?: unknown;
 }): string {
   const envelope: Record<string, unknown> = {
     ok: input.ok,
@@ -18,6 +23,11 @@ export function stringifyToolResultContent(input: {
     envelope.code = input.code ?? "unknown_error";
     envelope.message = input.message ?? "Tool execution failed.";
     if (input.recoverable !== undefined) envelope.recoverable = input.recoverable;
+    if (input.field !== undefined) envelope.field = input.field;
+    if (input.hint !== undefined) envelope.hint = input.hint;
+    if (input.expected !== undefined) envelope.expected = input.expected;
+    if (input.received !== undefined) envelope.received = input.received;
+    if (input.details !== undefined) envelope.details = input.details;
   }
   const json = JSON.stringify(envelope);
   // Prefix failed results so the model can easily spot them when summarising tool outcomes.
@@ -63,6 +73,11 @@ export function createToolExecutionFailure(params: {
   code: string;
   message: string;
   recoverable?: boolean;
+  field?: string;
+  hint?: string;
+  expected?: string;
+  received?: string;
+  details?: unknown;
 }): ToolExecutionResult {
   return {
     ok: false,
@@ -75,7 +90,11 @@ export function createToolExecutionFailure(params: {
       code: params.code,
       message: params.message,
       recoverable: params.recoverable ?? true,
+      field: params.field,
+      hint: params.hint,
+      expected: params.expected,
+      received: params.received,
+      details: params.details,
     }),
   };
 }
-

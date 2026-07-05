@@ -2,7 +2,7 @@
 .vscode
 .DS_Store
 package-lock.json
-package.zip
+*.zip
 node_modules
 dev
 dist

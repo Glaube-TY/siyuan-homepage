@@ -1,4 +1,4 @@
-﻿import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import {
   getDocInfoInputSchema,
   getDocInfoOutputSchema,
@@ -30,7 +30,7 @@ export function createGetDocInfoTool(deps: GetDocInfoDeps): ToolContract<GetDocI
     source: "builtin",
     inputHint: "docId（必填，文档 ID，必须来自工具返回或用户显式附加的真实 ID）。",
     boundary: "只返回文档元信息（标题、路径、笔记本、时间、标签），不读取正文。docId 必须来自真实资源 ID。",
-    providerVisible: true,
+    providerVisible: false,
 
     inputJsonSchemaOverride: {
       type: "object",

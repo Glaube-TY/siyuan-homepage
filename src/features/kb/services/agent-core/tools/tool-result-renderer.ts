@@ -67,15 +67,28 @@ export function executionOutcomeToNativeResult(
     };
   }
 
+  const errorCode = typeof error?.code === "string"
+    ? error.code
+    : outcome.observation.reasonCode ?? "tool_execution_failed";
+  const errorMessage = typeof error?.message === "string"
+    ? error.message
+    : outcome.observation.summary ?? "Tool execution failed.";
+
   return {
     ok: false,
     summary: outcome.observation.summary ?? "Tool execution failed.",
-    errorCode: outcome.observation.reasonCode ?? (typeof error?.code === "string" ? error.code : "tool_execution_failed"),
+    errorCode: outcome.observation.reasonCode ?? errorCode,
     content: stringifyToolResultContent({
       ok: false,
       toolName: outcome.toolName,
-      code: (error && typeof error.code === "string" ? error.code : null) ?? outcome.observation.reasonCode ?? "tool_execution_failed",
-      message: outcome.observation.summary ?? "Tool execution failed.",
+      code: errorCode,
+      message: errorMessage,
+      recoverable: typeof error?.recoverable === "boolean" ? error.recoverable : undefined,
+      field: typeof error?.field === "string" ? error.field : undefined,
+      hint: typeof error?.hint === "string" ? error.hint : undefined,
+      expected: typeof error?.expected === "string" ? error.expected : undefined,
+      received: typeof error?.received === "string" ? error.received : undefined,
+      details: error?.details,
     }),
     data,
     safeTargetPreview: {
@@ -84,4 +97,3 @@ export function executionOutcomeToNativeResult(
     },
   };
 }
-
