@@ -154,7 +154,7 @@
         const action = button.action || "";
         if (action === "search" || button.label?.includes("搜索笔记")) return "search";
         if (action === "diary" || button.label?.includes("今日日记")) return "diary";
-        if (action === "aiKnowledgeBase" || button.label?.includes("AI 知识库") || button.label?.includes("AI知识库")) return "iconSparkles";
+        if (action === "aiKnowledgeBase" || button.label?.includes("AI 知识库") || button.label?.includes("AI知识库")) return "iconNotebrain";
         if (action === "addWidget" || button.label?.includes("添加组件")) return "create";
         if (action === "settings" || button.label?.includes("主页设置")) return "settings";
         if (action === "cleanEmptyDocs" || button.label?.includes("清理空文档")) return "delete";

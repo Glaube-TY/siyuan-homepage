@@ -86,6 +86,13 @@ const SPARKLES_ICON_SVG = `<symbol id="iconSparkles" viewBox="0 0 1024 1024">
     <path d="M224 640l28 92 92 28-92 28-28 92-28-92-92-28 92-28z" fill="currentColor"></path>
 </symbol>`;
 
+const NOTEBRAIN_ICON_SVG = `<symbol id="iconNotebrain" viewBox="0 0 1024 1024">
+    <path d="M304.64 140.8h546.56v324.48a40.32 40.32 0 0 1-80.64 0V223.36H304.64c-88.704 0-160 73.6-160 164.48v181.12c0 90.88 71.296 163.84 160 163.84h207.68a41.28 41.28 0 0 1 0 82.56H304.64C171.52 815.36 64 705.28 64 568.96V387.84C64 251.52 171.52 140.8 304.64 140.8z" fill="#262626"></path>
+    <path d="M262.784 361.92m62.208 0l0.064 0q62.208 0 62.208 62.208l0 86.4q0 62.208-62.208 62.208l-0.064 0q-62.208 0-62.208-62.208l0-86.4q0-62.208 62.208-62.208Z" fill="#262626"></path>
+    <path d="M512 355.84m62.208 0l0.064 0q62.208 0 62.208 62.208l0 86.4q0 62.208-62.208 62.208l-0.064 0q-62.208 0-62.208-62.208l0-86.4q0-62.208 62.208-62.208Z" fill="#262626"></path>
+    <path d="M761.088 647.36a39.36 39.36 0 1 1 78.72 0v81.728h81.728a39.36 39.36 0 1 1 0 78.72h-81.728v81.728a39.36 39.36 0 1 1-78.72 0v-81.728h-81.728a39.36 39.36 0 1 1 0-78.72h81.728v-81.728z" fill="#1890FF"></path>
+</symbol>`;
+
 interface PluginConfig {
     quickNotesEnabled?: boolean;
     quickNotesPosition?: string;
@@ -988,6 +995,7 @@ export default class PluginHomepage extends Plugin {
         this.addIconIfMissing("iconhomepage", HOMEPAGE_ICON_SVG);
         this.addIconIfMissing("iconTask", TASK_ICON_SVG);
         this.addIconIfMissing("iconSparkles", SPARKLES_ICON_SVG);
+        this.addIconIfMissing("iconNotebrain", NOTEBRAIN_ICON_SVG);
     }
 
     private addIconIfMissing(symbolId: string, svg: string): void {
@@ -1073,7 +1081,7 @@ export default class PluginHomepage extends Plugin {
 
         if (config.aiKbTabEnabled ?? true) {
             const kbTopBar = this.addTopBar({
-                icon: "iconSparkles",
+                icon: "iconNotebrain",
                 title: "打开 AI 知识库",
                 position: "left",
                 callback: () => this.openKbChatTab(),
@@ -1189,7 +1197,7 @@ export default class PluginHomepage extends Plugin {
         openTab({
             app: this.app,
             custom: {
-                icon: "iconSparkles",
+                icon: "iconNotebrain",
                 title: "AI 知识库",
                 data: { text: "AI 知识库对话" },
                 id: KB_CHAT_TAB_ID,
@@ -1517,7 +1525,7 @@ export default class PluginHomepage extends Plugin {
             config: {
                 position: "RightTop",
                 size: { width: 360, height: 0 },
-                icon: "iconSparkles",
+                icon: "iconNotebrain",
                 title: "AI 知识库对话",
             },
             data: {},
