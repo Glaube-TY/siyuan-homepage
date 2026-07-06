@@ -1,6 +1,11 @@
 // latestDailyNotes.ts
 
-import { sql } from "@/api";
+import {
+    getLatestDailyNotesResult as getLatestDailyNotesDataResult,
+    getRecentDailyNotesApi,
+    type ComponentDataResult,
+} from "@/components/tools/siyuanComponentDataApi";
+import { ENHANCED_DIARY_CONFIG_FILE } from "../enhancedDiary/enhancedDiaryTypes";
 
 /**
  * 定义日记文档的接口
@@ -13,34 +18,29 @@ export interface DailyNoteInfo {
     ial?: string;     // 内置图标解析来源
 }
 
-// 仅包含日记卡片展示、排序与打开所需字段；开启内置图标时追加 ial
-function buildDailyNoteFields(includeBuiltinDocIcon: boolean): string {
-    const fields = ["id", "content", "created", "updated"];
-    if (includeBuiltinDocIcon) {
-        fields.push("ial");
-    }
-    return fields.join(", ");
-}
-
 /**
  * 查询最近的日记文档
- * 条件：blocks.ial 中包含以 'custom-dailynote-' 开头的字段
  */
 export async function getLatestDailyNotes(
     includeBuiltinDocIcon?: boolean,
 ): Promise<DailyNoteInfo[]> {
     try {
-        const fields = buildDailyNoteFields(Boolean(includeBuiltinDocIcon));
-        const query = `
-            SELECT ${fields}
-            FROM blocks
-            WHERE type = 'd'
-            AND ial LIKE '%custom-dailynote-%'
-            ORDER BY created DESC
-            LIMIT 100;
-        `;
-        return await sql(query);
+        return await getRecentDailyNotesApi(Boolean(includeBuiltinDocIcon)) as DailyNoteInfo[];
     } catch {
         return [];
     }
+}
+
+export async function getLatestDailyNotesWithStatus(
+    plugin: any,
+    includeBuiltinDocIcon?: boolean,
+): Promise<ComponentDataResult<DailyNoteInfo>> {
+    let dailyNotebookId = "";
+    try {
+        const config = await plugin?.loadData?.(ENHANCED_DIARY_CONFIG_FILE);
+        dailyNotebookId = String(config?.dailyNotebookId || "").trim();
+    } catch {
+        dailyNotebookId = "";
+    }
+    return getLatestDailyNotesDataResult(Boolean(includeBuiltinDocIcon), dailyNotebookId) as Promise<ComponentDataResult<DailyNoteInfo>>;
 }

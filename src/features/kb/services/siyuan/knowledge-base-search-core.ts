@@ -4,27 +4,27 @@
  * 共享只读检索核心，为 Workbench search_scope 和手动文档搜索提供统一检索能力。
  *
  * 职责：
- * - 三通道检索：siyuan_kernel_search → title_catalog_search → project_hybrid_search
+ * - 主通道检索：siyuan_kernel_search
+ * - title_catalog_search / project_hybrid_search 暂时退役，仅保留 channelStats 可观测性
  * - 输入：query、scope、limit、channels、caller
  * - 输出统一结构：blockHits、docResults、channelStats
  * - scope 支持 whole_kb / notebook / doc_tree / doc
  * - 不读取文档全文，不输出正文片段
- * - 所有 SQL 只读；正文检索使用 blocks_fts MATCH，path 等元数据 LIKE 仍保留
+ * - 默认检索链路不调用 SQL；正文检索使用思源 fullTextSearchBlock
  * - 不做自然语言理解、关键词表、特殊词补丁
  * - 不触发 Agent，不写 workspace
  * - search_scope 0 命中后仍由 Agent 决定下一步
  */
 
-import {
-  searchHybridInScope,
-  calculateDocAggregateScore,
-  type AnyRetrievalScope,
-} from "../retrieval/hybrid-search";
+import type { AnyRetrievalScope } from "../retrieval/hybrid-search";
 
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
-import { escapeSqlLike } from "../siyuan-sql-retrieval/sql-utils";
-import { buildFtsMatchClause } from "@/components/tools/siyuanSqlPaging";
-import { sqlSelectReadonlyPaged, fullTextSearchBlockAllPagesReadonly } from "./read-only-kernel";
+import {
+  fullTextSearchBlockAllPagesReadonly,
+  getBlockInfoReadonly,
+  getHPathByIDReadonly,
+  getPathByIDReadonly,
+} from "./read-only-kernel";
 
 export type RetrievalChannelName =
   | "siyuan_kernel_search"
@@ -72,6 +72,7 @@ export interface ChannelStats {
   success: boolean;
   enabled: boolean;
   errorCode?: string;
+  retiredByKernelApi?: boolean;
 }
 
 export interface RetrievalCoreResult {
@@ -91,35 +92,38 @@ interface KernelSearchHit {
   path: string;
   hPath?: string;
   type: string;
+  content: string;
   score: number;
 }
 
-interface TitleHitRow {
-  id: string;
-  content: string;
+interface AggregatedDocInfo {
+  hitCount: number;
+  maxScore: number;
   box: string;
   path: string;
-  updated: string;
-}
-
-interface DocMetaRow {
-  id: string;
-  content: string;
-  box: string;
-  path: string;
-  updated: string;
+  hPath?: string;
+  title: string;
+  titlePriority: number;
+  channel: RetrievalChannelName;
 }
 
 const DEFAULT_CHANNELS: Record<RetrievalChannelName, boolean> = {
   siyuan_kernel_search: true,
-  title_catalog_search: true,
-  project_hybrid_search: true,
+  title_catalog_search: false,
+  project_hybrid_search: false,
 };
+
+const DOC_INFO_HPATH_API_LIMIT = 10;
+const DOC_INFO_PATH_API_LIMIT = 10;
+const DOC_INFO_BLOCK_API_LIMIT = 10;
 
 function isChannelEnabled(
   channels: Partial<Record<RetrievalChannelName, boolean>> | undefined,
   name: RetrievalChannelName
 ): boolean {
+  if (name === "title_catalog_search" || name === "project_hybrid_search") {
+    return false;
+  }
   if (!channels) return DEFAULT_CHANNELS[name];
   if (channels[name] === false) return false;
   return true;
@@ -150,6 +154,89 @@ function isKernelHitInScope(
   return true;
 }
 
+function stripSearchMarkup(value: string): string {
+  return value
+    .replace(/<\/?mark>/gi, "")
+    .replace(/&lt;\/?mark&gt;/gi, "")
+    .trim();
+}
+
+function getLastPathSegment(value: string | undefined): string {
+  if (!value) return "";
+  const parts = value.split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
+  const last = parts[parts.length - 1] || "";
+  return stripSearchMarkup(last.replace(/\.sy$/i, ""));
+}
+
+function getTitleCandidateFromHit(hit: KernelSearchHit): { title: string; priority: number } {
+  const hPathTitle = getLastPathSegment(hit.hPath);
+  if (hPathTitle) {
+    return { title: hPathTitle, priority: 3 };
+  }
+
+  if (hit.type === "d") {
+    const docTitle = stripSearchMarkup(hit.content || "");
+    if (docTitle) {
+      return { title: docTitle, priority: 2 };
+    }
+  }
+
+  const pathTitle = getLastPathSegment(hit.path);
+  if (pathTitle) {
+    return { title: pathTitle, priority: 1 };
+  }
+
+  return { title: "", priority: 0 };
+}
+
+function readStringField(value: unknown, keys: string[]): string {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.trim();
+    }
+  }
+  return "";
+}
+
+function readPathByIdResult(value: unknown): { box: string; path: string } {
+  if (typeof value === "string") {
+    return { box: "", path: value };
+  }
+  return {
+    box: readStringField(value, ["box", "notebook", "notebookId"]),
+    path: readStringField(value, ["path", "filePath"]),
+  };
+}
+
+function joinSearchBoxPath(box: string, path: string): string {
+  const cleanBox = box.trim();
+  const cleanPath = path.trim();
+  if (!cleanBox) return "";
+  if (!cleanPath) return cleanBox;
+  return `${cleanBox}${cleanPath.startsWith("/") ? "" : "/"}${cleanPath}`;
+}
+
+async function buildKernelSearchPaths(scope: AnyRetrievalScope): Promise<string[] | undefined> {
+  if (scope.type === "notebook") {
+    return [scope.notebookId];
+  }
+
+  if (scope.type !== "doc_tree") {
+    return undefined;
+  }
+
+  try {
+    const pathInfo = readPathByIdResult(await getPathByIDReadonly(scope.rootDocId));
+    const searchPath = joinSearchBoxPath(pathInfo.box || scope.box, pathInfo.path);
+    return searchPath ? [searchPath] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function searchViaKernelApi(
   query: string,
   limit: number,
@@ -157,26 +244,43 @@ async function searchViaKernelApi(
 ): Promise<KernelSearchHit[]> {
   const hits: KernelSearchHit[] = [];
   try {
-    const result = await fullTextSearchBlockAllPagesReadonly(query, { maxPages: 5, maxRows: limit * 2 });
-    if (!result || !result.blocks) return hits;
+    const paths = await buildKernelSearchPaths(scope);
+    const searchOptions = {
+      pageSize: 64,
+      maxPages: 3,
+      maxRows: Math.min(150, Math.max(limit, 64)),
+      method: 0,
+      orderBy: 7,
+      groupBy: 0,
+    };
+    const collectScopedHits = (blocks: NonNullable<Awaited<ReturnType<typeof fullTextSearchBlockAllPagesReadonly>>["blocks"]>) => {
+      for (const block of blocks) {
+        const docId = block.rootID || (block.type === "d" ? block.id : "");
+        if (!docId) continue;
 
-    for (const block of result.blocks) {
-      const docId = block.rootID || (block.type === "d" ? block.id : "");
-      if (!docId) continue;
+        const hit: KernelSearchHit = {
+          blockId: block.id,
+          rootId: docId,
+          box: block.box || "",
+          path: block.path || "",
+          hPath: block.hPath,
+          type: block.type,
+          content: block.content || "",
+          score: typeof block.score === "number" ? block.score : 1.0,
+        };
 
-      const hit: KernelSearchHit = {
-        blockId: block.id,
-        rootId: docId,
-        box: block.box || "",
-        path: block.path || "",
-        hPath: block.hPath,
-        type: block.type,
-        score: typeof block.score === "number" ? block.score : 1.0,
-      };
+        if (!isKernelHitInScope(hit, scope)) continue;
 
-      if (!isKernelHitInScope(hit, scope)) continue;
+        hits.push(hit);
+      }
+    };
 
-      hits.push(hit);
+    const result = await fullTextSearchBlockAllPagesReadonly(query, { ...searchOptions, paths });
+    collectScopedHits(result?.blocks ?? []);
+
+    if (hits.length === 0 && paths && paths.length > 0) {
+      const fallbackResult = await fullTextSearchBlockAllPagesReadonly(query, searchOptions);
+      collectScopedHits(fallbackResult?.blocks ?? []);
     }
   } catch {
     // kernel API unavailable
@@ -184,84 +288,97 @@ async function searchViaKernelApi(
   return hits.slice(0, limit);
 }
 
-async function searchViaTitleCatalog(
-  query: string,
-  limit: number,
-  scope: AnyRetrievalScope
-): Promise<KernelSearchHit[]> {
-  const hits: KernelSearchHit[] = [];
-  const escaped = escapeSqlLike(query);
-  const likePattern = `%${escaped}%`;
-  const titleTerms = query.trim().split(/\s+/).filter((t) => t.length > 0);
-  const contentFtsClause = titleTerms.length > 0
-    ? buildFtsMatchClause(titleTerms, ["content"], { limit })
-    : "1=0";
-
-  let whereClause = `type = 'd' AND (${contentFtsClause} OR path LIKE '${likePattern}' ESCAPE '\\')`;
-
-  if (scope.type === "notebook") {
-    const escapedBox = scope.notebookId.replace(/'/g, "''");
-    whereClause += ` AND box = '${escapedBox}'`;
-  } else if (scope.type === "doc_tree") {
-    const escapedBox = scope.box.replace(/'/g, "''");
-    const escapedRootId = scope.rootDocId.replace(/'/g, "''");
-    whereClause += ` AND box = '${escapedBox}' AND (id = '${escapedRootId}' OR path LIKE '%/${escapedRootId}/%')`;
-  } else if (scope.type === "doc") {
-    const escapedDocId = scope.docId.replace(/'/g, "''");
-    whereClause += ` AND id = '${escapedDocId}'`;
-  }
-
-  try {
-    const rows = await sqlSelectReadonlyPaged<TitleHitRow>(
-      `SELECT id, content, box, path, updated FROM blocks WHERE ${whereClause} ORDER BY updated DESC, id DESC`,
-      { maxRows: limit, allowedTables: ["blocks", "blocks_fts"] }
-    );
-    for (const r of rows ?? []) {
-      hits.push({
-        blockId: r.id,
-        rootId: r.id,
-        box: r.box || "",
-        path: r.path || "",
-        type: "d",
-        score: 0.5,
-      });
-    }
-  } catch {
-    // SQL failed
-  }
-  return hits;
-}
-
-async function resolveDocTitlesByIds(
-  docIds: string[]
-): Promise<Map<string, { title: string; box: string; path: string; updated: string }>> {
-  const result = new Map<string, { title: string; box: string; path: string; updated: string }>();
+async function resolveDocInfoByApi(
+  docIds: string[],
+  docMap: Map<string, AggregatedDocInfo>,
+  caller: RetrievalCaller
+): Promise<Map<string, { title: string; box: string; path: string; updated: string; hPath?: string }>> {
+  const result = new Map<string, { title: string; box: string; path: string; updated: string; hPath?: string }>();
   if (docIds.length === 0) return result;
 
-  // Batch by 64 to avoid SiYuan's default query result limit.
-  const BATCH_SIZE = 64;
-  for (let i = 0; i < docIds.length; i += BATCH_SIZE) {
-    const batch = docIds.slice(i, i + BATCH_SIZE);
-    const idPlaceholders = batch
-      .map((id) => `'${id.replace(/'/g, "''")}'`)
-      .join(",");
-    try {
-      const rows = await sqlSelectReadonlyPaged<DocMetaRow>(
-        `SELECT id, content, box, path, updated FROM blocks WHERE type = 'd' AND id IN (${idPlaceholders}) ORDER BY updated DESC, id DESC`,
-        { maxRows: batch.length, allowedTables: ["blocks"] }
-      );
-      for (const r of rows ?? []) {
-        result.set(r.id, {
-          title: r.content || "",
-          box: r.box || "",
-          path: r.path || "",
-          updated: r.updated || "",
-        });
-      }
-    } catch {
-      // title resolution failed for this batch
-    }
+  for (const docId of docIds) {
+    const info = docMap.get(docId);
+    result.set(docId, {
+      title: info?.title || "",
+      box: info?.box || "",
+      path: info?.path || "",
+      updated: "",
+      hPath: info?.hPath,
+    });
   }
+
+  let hPathRequestCount = 0;
+  let hPathSuccessCount = 0;
+  let pathRequestCount = 0;
+  let pathSuccessCount = 0;
+  let blockInfoRequestCount = 0;
+  let blockInfoSuccessCount = 0;
+
+  for (const docId of docIds) {
+    const current = result.get(docId) || { title: "", box: "", path: "", updated: "" };
+
+    if (!current.title && hPathRequestCount < DOC_INFO_HPATH_API_LIMIT) {
+      hPathRequestCount++;
+      try {
+        const hPath = await getHPathByIDReadonly(docId);
+        if (hPath) {
+          hPathSuccessCount++;
+          current.hPath = hPath;
+          const hPathTitle = getLastPathSegment(hPath);
+          if (hPathTitle) {
+            current.title = hPathTitle;
+          }
+        }
+      } catch {
+        // hPath is optional for search result display
+      }
+    }
+
+    if ((!current.path || !current.box) && pathRequestCount < DOC_INFO_PATH_API_LIMIT) {
+      pathRequestCount++;
+      try {
+        const pathInfo = readPathByIdResult(await getPathByIDReadonly(docId));
+        if (pathInfo.path || pathInfo.box) {
+          pathSuccessCount++;
+        }
+        current.path = pathInfo.path || current.path;
+        current.box = pathInfo.box || current.box;
+      } catch {
+        // path fallback handled below
+      }
+    }
+
+    if ((!current.title || !current.box || !current.path) && blockInfoRequestCount < DOC_INFO_BLOCK_API_LIMIT) {
+      blockInfoRequestCount++;
+      try {
+        const blockInfo = await getBlockInfoReadonly(docId);
+        blockInfoSuccessCount++;
+        current.title = current.title || readStringField(blockInfo, ["content", "title", "name"]);
+        current.box = current.box || readStringField(blockInfo, ["box", "notebook", "notebookId"]);
+        current.path = current.path || readStringField(blockInfo, ["path", "filePath"]);
+        current.updated = current.updated || readStringField(blockInfo, ["updated", "updatedAt"]);
+      } catch {
+        // block info is best-effort metadata
+      }
+    }
+
+    if (!current.title) {
+      current.title = getLastPathSegment(current.path) || docId;
+    }
+
+    result.set(docId, current);
+  }
+
+  pushAgentDebugEvent("RETRIEVAL_DOC_INFO_API_COMPLETION_SAFE", {
+    caller,
+    docCount: docIds.length,
+    hPathRequestCount,
+    hPathSuccessCount,
+    pathRequestCount,
+    pathSuccessCount,
+    blockInfoRequestCount,
+    blockInfoSuccessCount,
+  }, "debug");
 
   return result;
 }
@@ -269,15 +386,23 @@ async function resolveDocTitlesByIds(
 function aggregateHitsToDocs(
   hits: KernelSearchHit[],
   channel: RetrievalChannelName
-): Map<string, { hitCount: number; maxScore: number; box: string; path: string; hPath?: string; channel: RetrievalChannelName }> {
-  const docMap = new Map<string, { hitCount: number; maxScore: number; box: string; path: string; hPath?: string; channel: RetrievalChannelName }>();
+): Map<string, AggregatedDocInfo> {
+  const docMap = new Map<string, AggregatedDocInfo>();
 
   for (const hit of hits) {
     const docId = hit.rootId;
+    const titleCandidate = getTitleCandidateFromHit(hit);
     const existing = docMap.get(docId);
     if (existing) {
       existing.hitCount++;
       if (hit.score > existing.maxScore) existing.maxScore = hit.score;
+      if (!existing.box && hit.box) existing.box = hit.box;
+      if (!existing.path && hit.path) existing.path = hit.path;
+      if (!existing.hPath && hit.hPath) existing.hPath = hit.hPath;
+      if (titleCandidate.title && titleCandidate.priority > existing.titlePriority) {
+        existing.title = titleCandidate.title;
+        existing.titlePriority = titleCandidate.priority;
+      }
     } else {
       docMap.set(docId, {
         hitCount: 1,
@@ -285,6 +410,8 @@ function aggregateHitsToDocs(
         box: hit.box,
         path: hit.path,
         hPath: hit.hPath,
+        title: titleCandidate.title,
+        titlePriority: titleCandidate.priority,
         channel,
       });
     }
@@ -298,6 +425,14 @@ const CHANNEL_SCORE_BASELINE: Record<RetrievalChannelName, number> = {
   title_catalog_search: 50,
   project_hybrid_search: 10,
 };
+
+function createInitialChannelStats(): Record<RetrievalChannelName, ChannelStats> {
+  return {
+    siyuan_kernel_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: false, enabled: false },
+    title_catalog_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: true, enabled: false, retiredByKernelApi: true },
+    project_hybrid_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: true, enabled: false, retiredByKernelApi: true },
+  };
+}
 
 export async function searchKnowledgeBaseCore(
   input: RetrievalCoreInput
@@ -322,11 +457,8 @@ export async function searchKnowledgeBaseCore(
   }, "debug");
 
   if (!trimmed) {
-    const emptyStats: Record<RetrievalChannelName, ChannelStats> = {
-      siyuan_kernel_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: true, enabled: false },
-      title_catalog_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: true, enabled: false },
-      project_hybrid_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: true, enabled: false },
-    };
+    const emptyStats = createInitialChannelStats();
+    emptyStats.siyuan_kernel_search.success = true;
     return {
       blockHits: [],
       docResults: [],
@@ -338,17 +470,14 @@ export async function searchKnowledgeBaseCore(
     };
   }
 
-  const channelStats: Record<RetrievalChannelName, ChannelStats> = {
-    siyuan_kernel_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: false, enabled: false },
-    title_catalog_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: false, enabled: false },
-    project_hybrid_search: { rawHitCount: 0, docHitCount: 0, durationMs: 0, success: false, enabled: false },
-  };
-
+  const channelStats = createInitialChannelStats();
   const mergedDocMap = new Map<string, DocResult>();
   const allBlockHits: BlockHit[] = [];
 
-  // Channel 1: siyuan_kernel_search
   let kernelDocCount = 0;
+  const titleDocCount = 0;
+  const hybridDocCount = 0;
+
   if (isChannelEnabled(input.channels, "siyuan_kernel_search")) {
     channelStats.siyuan_kernel_search.enabled = true;
     const startMs = Date.now();
@@ -371,17 +500,17 @@ export async function searchKnowledgeBaseCore(
 
       if (kernelDocMap.size > 0) {
         const docIds = Array.from(kernelDocMap.keys());
-        const titleMap = await resolveDocTitlesByIds(docIds);
+        const titleMap = await resolveDocInfoByApi(docIds, kernelDocMap, caller);
 
         for (const [docId, info] of kernelDocMap) {
           const titleInfo = titleMap.get(docId);
           mergedDocMap.set(docId, {
             docId,
-            title: titleInfo?.title || "",
+            title: titleInfo?.title || info.title || docId,
             box: titleInfo?.box || info.box || "",
             path: titleInfo?.path || info.path || "",
             updated: titleInfo?.updated || "",
-            hPath: info.hPath,
+            hPath: titleInfo?.hPath || info.hPath,
             hitCount: info.hitCount,
             score: info.maxScore * CHANNEL_SCORE_BASELINE.siyuan_kernel_search,
             bestChannel: "siyuan_kernel_search",
@@ -414,187 +543,6 @@ export async function searchKnowledgeBaseCore(
       docHitCount: channelStats.siyuan_kernel_search.docHitCount,
       durationMs: channelStats.siyuan_kernel_search.durationMs,
       success: channelStats.siyuan_kernel_search.success,
-    }, "debug");
-  }
-
-  // Channel 2: title_catalog_search
-  let titleDocCount = 0;
-  if (isChannelEnabled(input.channels, "title_catalog_search")) {
-    channelStats.title_catalog_search.enabled = true;
-    const startMs = Date.now();
-    try {
-      const titleHits = await searchViaTitleCatalog(trimmed, limit, scope);
-      const titleDocMap = aggregateHitsToDocs(titleHits, "title_catalog_search");
-      titleDocCount = titleDocMap.size;
-
-      for (const hit of titleHits) {
-        allBlockHits.push({
-          blockId: hit.blockId,
-          docId: hit.rootId,
-          type: hit.type,
-          score: hit.score,
-          channel: "title_catalog_search",
-          box: hit.box,
-          path: hit.path,
-        });
-      }
-
-      if (titleDocMap.size > 0) {
-        const docIds = Array.from(titleDocMap.keys()).filter((id) => !mergedDocMap.has(id));
-        if (docIds.length > 0) {
-          const titleMap = await resolveDocTitlesByIds(docIds);
-
-          for (const [docId, info] of titleDocMap) {
-            if (mergedDocMap.has(docId)) continue;
-            const titleInfo = titleMap.get(docId);
-            mergedDocMap.set(docId, {
-              docId,
-              title: titleInfo?.title || "",
-              box: titleInfo?.box || info.box || "",
-              path: titleInfo?.path || info.path || "",
-              updated: titleInfo?.updated || "",
-              hitCount: info.hitCount,
-              score: CHANNEL_SCORE_BASELINE.title_catalog_search,
-              bestChannel: "title_catalog_search",
-            });
-          }
-        }
-      }
-
-      const titleContentHitCount = titleHits.filter((h) => h.type === "d").length;
-      const titlePathHitCount = titleHits.filter((h) => h.path).length;
-
-      channelStats.title_catalog_search = {
-        rawHitCount: titleHits.length,
-        docHitCount: titleDocMap.size,
-        durationMs: Date.now() - startMs,
-        success: true,
-        enabled: true,
-      };
-
-      pushAgentDebugEvent("RETRIEVAL_CORE_CHANNEL_RESULT_SAFE", {
-        caller,
-        channel: "title_catalog_search",
-        rawHitCount: titleHits.length,
-        docHitCount: titleDocMap.size,
-        durationMs: channelStats.title_catalog_search.durationMs,
-        success: true,
-        titleContentHitCount,
-        titlePathHitCount,
-      }, "debug");
-    } catch {
-      channelStats.title_catalog_search = {
-        rawHitCount: 0,
-        docHitCount: 0,
-        durationMs: Date.now() - startMs,
-        success: false,
-        enabled: true,
-        errorCode: "title_catalog_failed",
-      };
-
-      pushAgentDebugEvent("RETRIEVAL_CORE_CHANNEL_RESULT_SAFE", {
-        caller,
-        channel: "title_catalog_search",
-        rawHitCount: 0,
-        docHitCount: 0,
-        durationMs: channelStats.title_catalog_search.durationMs,
-        success: false,
-        errorCode: "title_catalog_failed",
-      }, "warn");
-    }
-  }
-
-  // Channel 3: project_hybrid_search
-  let hybridDocCount = 0;
-  if (isChannelEnabled(input.channels, "project_hybrid_search")) {
-    channelStats.project_hybrid_search.enabled = true;
-    const startMs = Date.now();
-    try {
-      const hybridResult = await searchHybridInScope(
-        query,
-        scope,
-        {
-          limit: limit * 2,
-          channels: {
-            keyword: { enabled: true, weight: 1.0 },
-            fts: { enabled: true, weight: 0.8 },
-          },
-          channelEnabled: {
-            keyword: true,
-            fts: true,
-          },
-        }
-      );
-
-      const candidateCount = hybridResult.candidates.length;
-      hybridDocCount = hybridResult.docScores.size;
-
-      for (const c of hybridResult.candidates) {
-        allBlockHits.push({
-          blockId: c.sourceBlockIds[0] || c.docId,
-          docId: c.docId,
-          type: c.type,
-          score: c.score,
-          channel: "project_hybrid_search",
-          box: c.box,
-          path: c.path,
-        });
-      }
-
-      if (hybridResult.docScores.size > 0) {
-        const docMetaMap = new Map<string, { title: string; box: string; path: string }>();
-        for (const c of hybridResult.candidates) {
-          if (!docMetaMap.has(c.docId)) {
-            docMetaMap.set(c.docId, {
-              title: c.title || "",
-              box: c.box || "",
-              path: c.path || "",
-            });
-          }
-        }
-
-        for (const [docId, scoreInfo] of hybridResult.docScores) {
-          if (mergedDocMap.has(docId)) continue;
-          const meta = docMetaMap.get(docId);
-          const aggregateScore = calculateDocAggregateScore(docId, hybridResult.docScores);
-          mergedDocMap.set(docId, {
-            docId,
-            title: meta?.title || "",
-            box: meta?.box || "",
-            path: meta?.path || "",
-            updated: "",
-            hitCount: scoreInfo.hitCount,
-            score: aggregateScore * CHANNEL_SCORE_BASELINE.project_hybrid_search,
-            bestChannel: "project_hybrid_search",
-          });
-        }
-      }
-
-      channelStats.project_hybrid_search = {
-        rawHitCount: candidateCount,
-        docHitCount: hybridDocCount,
-        durationMs: Date.now() - startMs,
-        success: true,
-        enabled: true,
-      };
-    } catch {
-      channelStats.project_hybrid_search = {
-        rawHitCount: 0,
-        docHitCount: 0,
-        durationMs: Date.now() - startMs,
-        success: false,
-        enabled: true,
-        errorCode: "hybrid_failed",
-      };
-    }
-
-    pushAgentDebugEvent("RETRIEVAL_CORE_CHANNEL_RESULT_SAFE", {
-      caller,
-      channel: "project_hybrid_search",
-      rawHitCount: channelStats.project_hybrid_search.rawHitCount,
-      docHitCount: channelStats.project_hybrid_search.docHitCount,
-      durationMs: channelStats.project_hybrid_search.durationMs,
-      success: channelStats.project_hybrid_search.success,
     }, "debug");
   }
 

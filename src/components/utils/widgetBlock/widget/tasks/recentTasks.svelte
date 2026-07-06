@@ -5,6 +5,8 @@
     import { getLatestTasks, type RecentTasksInfo } from "./recentTasks";
     import { openDocs } from "@/components/tools/openDocs";
     import { updateTaskListItemMarker } from "@/api";
+    import { updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
+    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
 
     interface Props {
         plugin: any;
@@ -21,6 +23,8 @@
     let recentTasks: RecentTasksInfo[] = $state([]);
     let showTasksDetails: boolean = $state();
     let TaskManTitle: string = $state();
+    let taskDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
+    let taskStatusMessage = $state("任务全库扫描已停用。请配置任务范围，或点击“建立任务索引”。");
 
     // 最终显示的任务列表
     let displayedTasks: Array<{
@@ -40,9 +44,11 @@
 
     onMount(() => {
         isDestroyed = false;
-        getLatestTasks(parsed.data?.tasksNotebookId).then((tasks) => {
+        getLatestTasks(parsed.data?.tasksNotebookId, plugin).then((result) => {
             if (isDestroyed) return;
-            recentTasks = tasks;
+            recentTasks = result.items;
+            taskDataStatus = result.status;
+            taskStatusMessage = result.message || "";
             showTasksDetails = parsed.data?.showTasksDetails ?? true;
             TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
         });
@@ -96,6 +102,13 @@
             task.content = task.markdown
                 .replace(/-\s*\[\s*[Xx]?\s*\]\s*/, "")
                 .trim();
+            await updateTaskIndexItem({
+                ...task,
+                markdown: task.markdown,
+                content: task.content,
+                checked: isChecked,
+                source: "plugin",
+            });
         } catch (err) {
             console.error("更新任务失败:", err);
             // 回滚复选框状态
@@ -233,7 +246,16 @@
                     </div>
                 {/each}
             {:else}
-                <div class="mobile-task-empty">暂无任务</div>
+                {#if taskDataStatus === "disabled"}
+                    <HomepageGlobalSqlEmptyState
+                        title="任务全库扫描已停用"
+                        message={taskStatusMessage}
+                        {plugin}
+                        hint="配置任务范围、建立索引，或在主页设置开启全库 SQL 兼容模式。"
+                    />
+                {:else}
+                    <div class="mobile-task-empty">{taskStatusMessage}</div>
+                {/if}
             {/if}
         </div>
     </div>
@@ -285,7 +307,19 @@
                     </li>
                 {/each}
             {:else}
-                <p>暂无任务记录</p>
+                {#if taskDataStatus === "disabled"}
+                    <HomepageGlobalSqlEmptyState
+                        title="任务全库扫描已停用"
+                        message={taskStatusMessage}
+                        {plugin}
+                        hint="配置任务范围、建立索引，或在主页设置开启全库 SQL 兼容模式。"
+                    />
+                {:else}
+                    <div class="task-empty-state">
+                        <strong>{taskDataStatus === "disabled" ? "任务全库扫描已停用" : "没有可显示的任务"}</strong>
+                        <span>{taskStatusMessage || "请配置任务范围，或点击“建立任务索引”。"}</span>
+                    </div>
+                {/if}
             {/if}
         </ul>
     </div>
@@ -376,6 +410,25 @@
 
         .task-content:hover {
             text-decoration: underline;
+        }
+
+        .task-empty-state {
+            grid-column: 1 / -1;
+            min-height: 120px;
+            padding: 16px;
+            border: 1px dashed var(--b3-border-color);
+            border-radius: 8px;
+            color: var(--b3-theme-secondary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-align: center;
+
+            strong {
+                color: var(--b3-theme-on-surface);
+            }
         }
     }
 

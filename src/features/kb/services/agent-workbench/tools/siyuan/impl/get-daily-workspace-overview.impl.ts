@@ -5,6 +5,7 @@ import type {
   GetDailyWorkspaceOverviewOutput,
 } from "../contracts/get-daily-workspace-overview.contract";
 import {
+  createDiaryToolPluginAdapter,
   formatAgendaDate,
   mapAgendaCarryover,
   mapAgendaNotification,
@@ -38,11 +39,7 @@ export async function executeGetDailyWorkspaceOverview(
   const date = parseAgendaDate(args.date);
   const include = new Set(args.include ?? DEFAULT_INCLUDE);
   const state = await loadEnhancedDiaryWorkspaceState(
-    {
-      async loadData(file: string): Promise<unknown> {
-        return deps.loadPluginData ? deps.loadPluginData(file) : null;
-      },
-    },
+    createDiaryToolPluginAdapter(deps),
     { date },
   );
 

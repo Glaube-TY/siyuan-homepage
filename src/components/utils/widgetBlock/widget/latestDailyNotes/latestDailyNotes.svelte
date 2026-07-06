@@ -2,7 +2,7 @@
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import {
-        getLatestDailyNotes,
+        getLatestDailyNotesWithStatus,
         type DailyNoteInfo,
     } from "./latestDailyNotes";
     import { openDocs } from "@/components/tools/openDocs";
@@ -51,6 +51,8 @@
 
     // 原始数据
     let dailyNotes: DailyNoteInfo[] = [];
+    let dailyNotesModeLabel = $state("近似模式");
+    let dailyNotesStatusMessage = $state("未配置日记目录，最近更新 API 也未返回可识别日记。");
 
     // 最终显示的笔记
     let displayedDocs: DailyNoteInfo[] = $state([]);
@@ -143,8 +145,11 @@
 
     onMount(async () => {
         isDestroyed = false;
-        dailyNotes = await getLatestDailyNotes(useBuiltinDocIcon);
+        const result = await getLatestDailyNotesWithStatus(plugin, useBuiltinDocIcon);
         if (isDestroyed) return;
+        dailyNotes = result.items;
+        dailyNotesModeLabel = result.mode === "scoped_filetree" ? "目录模式" : "近似模式";
+        dailyNotesStatusMessage = result.message || dailyNotesStatusMessage;
 
         const sorted = [...dailyNotes].sort((a, b) =>
             b.created.localeCompare(a.created),
@@ -731,7 +736,10 @@
                     </li>
                 {/each}
             {:else}
-                <p>暂无日记记录</p>
+                <div class="daily-empty-state">
+                    <strong>暂无可显示的日记</strong>
+                    <span>{dailyNotesStatusMessage}</span>
+                </div>
             {/if}
         </ul>
     {:else}
@@ -829,6 +837,25 @@
         padding-left: 0;
         margin: 0;
         overflow-y: auto;
+    }
+
+    .daily-empty-state {
+        width: 100%;
+        min-height: 120px;
+        padding: 16px;
+        border: 1px dashed var(--b3-border-color);
+        border-radius: 8px;
+        color: var(--b3-theme-secondary);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        text-align: center;
+
+        strong {
+            color: var(--b3-theme-on-surface);
+        }
     }
 
     .document-item {

@@ -51,6 +51,25 @@ export async function loadAgendaEnhancedDiaryConfig(
   });
 }
 
+/**
+ * Create a minimal plugin-like adapter from Agent tool deps.
+ * Provides loadData/saveData for functions that need plugin.loadData(...)
+ * (e.g. loadHomepageSettingConfig, loadEnhancedDiaryConfig).
+ * Does NOT use AgentScope — AgentScope is not a plugin instance.
+ */
+export function createDiaryToolPluginAdapter(deps: KbRetrievalToolDeps) {
+  return {
+    async loadData(file: string): Promise<unknown> {
+      return deps.loadPluginData ? deps.loadPluginData(file) : null;
+    },
+    async saveData(file: string, data: unknown): Promise<void> {
+      if (deps.savePluginData) {
+        await deps.savePluginData(file, data);
+      }
+    },
+  };
+}
+
 export function mapAgendaTask(task: EnhancedDiaryWorkspaceTask): AgendaTask {
   return {
     taskId: task.id,

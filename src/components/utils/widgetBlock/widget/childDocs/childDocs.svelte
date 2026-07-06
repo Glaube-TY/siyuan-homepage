@@ -1,12 +1,9 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
     import { openDocs } from "@/components/tools/openDocs";
-    import { sql } from "@/api";
     import { formatDateShort } from "@/components/tools/formatDate";
-    import {
-        escapeSqlLike,
-        normalizeSortField,
-    } from "@/components/tools/siyuanSqlPaging";
+    import { normalizeSortField } from "@/components/tools/siyuanSqlPaging";
+    import { getChildDocumentsByFileTree } from "@/components/tools/siyuanComponentDataApi";
     import {
         createFloatingDocPopup,
         setMouseOnTrigger,
@@ -35,19 +32,6 @@
     let isDestroyed = false;
 
     const ALLOWED_SORT_FIELDS = ["updated", "created", "sort"];
-
-    // 仅包含子文档卡片展示、排序与打开所需字段；
-    // 按 sort 排序时追加 sort，开启内置图标时追加 ial
-    function buildChildDocsFields(sortOrder: string, includeBuiltinDocIcon: boolean): string {
-        const fields = ["id", "content", "created", "updated"];
-        if (sortOrder === "sort") {
-            fields.push("sort");
-        }
-        if (includeBuiltinDocIcon) {
-            fields.push("ial");
-        }
-        return fields.join(", ");
-    }
 
     // 获取文档图标（优先内置图标，否则回退到前缀）
     function getDocIcon(doc: any): DocIconResult {
@@ -99,18 +83,7 @@
         }
 
         const safeSort = normalizeSortField(childDocsSortOrder, ALLOWED_SORT_FIELDS, "updated");
-        const escapedId = escapeSqlLike(parentId);
-        const fields = buildChildDocsFields(safeSort, useBuiltinDocIcon);
-
-        const query = `
-            SELECT ${fields}
-            FROM blocks
-            WHERE type = 'd'
-            AND path LIKE '%/${escapedId}/%' ESCAPE '\\'
-            ORDER BY ${safeSort} DESC
-            LIMIT 1000
-        `;
-        const rows = await sql(query);
+        const rows = await getChildDocumentsByFileTree(parentId, safeSort, useBuiltinDocIcon);
 
         if (!isDestroyed) {
             displayedDocs = Array.isArray(rows) ? rows : [];

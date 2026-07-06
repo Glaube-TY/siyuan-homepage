@@ -1,8 +1,14 @@
 <script lang="ts">
-    import { onMount, onDestroy } from "svelte";
+    import { onMount, onDestroy, tick } from "svelte";
     import * as echarts from "echarts";
-    import { sql } from "@/api";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
+    import {
+        getRecentHeatmapCountsResult,
+        type ComponentDataMode,
+        type ComponentCountsResult,
+    } from "@/components/tools/siyuanComponentDataApi";
+    import { getHomepageGlobalSqlPolicy } from "@/components/tools/siyuanComponentDataApi";
 
     interface Props {
         plugin: any;
@@ -42,28 +48,32 @@
     // 缓存当前图表数据，用于重绘
     let currentChartData: [string, number][] = [];
     let currentCounts: Record<string, number> = {};
+    let hasHeatmapData = $state(false);
+    let heatmapStatusMessage = $state("当前热力图为无全库 SQL 近似模式，最近更新 API 未返回可统计数据。");
+    let heatmapDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
+    let heatmapDataMode: ComponentDataMode | undefined = $state(undefined);
     // 会员锁定状态
     let isLocked = $state(false);
 
     // 内存短 TTL 缓存（5 分钟），key: mode|startDate|endDate|monthCount
     const HEATMAP_CACHE_TTL_MS = 5 * 60 * 1000;
-    const heatmapCache = new Map<string, { counts: Record<string, number>; expiresAt: number }>();
+    const heatmapCache = new Map<string, { result: ComponentCountsResult; expiresAt: number }>();
 
-    function getHeatmapCacheKey(mode: string, startDate: string, endDate: string, monthCount: number): string {
-        return `${mode}|${startDate}|${endDate}|${monthCount}`;
+    function getHeatmapCacheKey(mode: string, startDate: string, endDate: string, monthCount: number, allowGlobalSql: boolean): string {
+        return `${mode}|${startDate}|${endDate}|${monthCount}|${allowGlobalSql}`;
     }
 
-    function getCachedCounts(key: string): Record<string, number> | null {
+    function getCachedResult(key: string): ComponentCountsResult | null {
         const entry = heatmapCache.get(key);
         if (entry && entry.expiresAt > Date.now()) {
-            return entry.counts;
+            return entry.result;
         }
         heatmapCache.delete(key);
         return null;
     }
 
-    function setCachedCounts(key: string, counts: Record<string, number>): void {
-        heatmapCache.set(key, { counts, expiresAt: Date.now() + HEATMAP_CACHE_TTL_MS });
+    function setCachedResult(key: string, result: ComponentCountsResult): void {
+        heatmapCache.set(key, { result, expiresAt: Date.now() + HEATMAP_CACHE_TTL_MS });
     }
 
     function clampHeatmapMonthCount(value: number | null | undefined): number {
@@ -81,25 +91,58 @@
             return;
         }
 
+        const policy = await getHomepageGlobalSqlPolicy(plugin);
+        const allowGlobalSql = policy.allowGlobalSql;
+
         const monthCount = clampHeatmapMonthCount(pastMonthCount);
         const [startDate, endDate] = getRangeByMonthCount(monthCount);
-        const cacheKey = getHeatmapCacheKey(heatmapCountType, startDate, endDate, monthCount);
+        const cacheKey = getHeatmapCacheKey(heatmapCountType, startDate, endDate, monthCount, allowGlobalSql);
 
-        let counts = getCachedCounts(cacheKey);
-        if (!counts) {
-            counts = heatmapCountType === "words"
-                ? await getWordCounts(startDate, endDate)
-                : await getBlockCounts(startDate, endDate);
-            setCachedCounts(cacheKey, counts);
+        let result = getCachedResult(cacheKey);
+        if (!result) {
+            result = heatmapCountType === "words"
+                ? await getWordCounts(startDate, endDate, plugin)
+                : await getBlockCounts(startDate, endDate, plugin);
+            setCachedResult(cacheKey, result);
         }
 
         if (isDestroyed) return;
 
+        const counts = result.counts;
         currentCounts = counts;
-        // 生成完整日期范围的数据（包含无数据日期）
-        currentChartData = buildFullCalendarData(counts, monthCount);
+        heatmapStatusMessage = result.message || heatmapStatusMessage;
+        heatmapDataStatus = result.status;
+        heatmapDataMode = result.mode;
 
-        if (!chartContainer) return;
+        const hasPositiveData = Object.values(counts).some((value) => Number(value) > 0);
+        const shouldRenderHeatmap = hasPositiveData || result.mode === "global_sql_compat";
+
+        if (shouldRenderHeatmap && result.status !== "disabled" && result.status !== "error") {
+            currentChartData = buildFullCalendarData(counts, monthCount);
+            hasHeatmapData = true;
+
+            await tick();
+
+            initHeatmapChartWithRetry();
+        }
+    });
+
+    function initHeatmapChartWithRetry(maxAttempts = 5) {
+        if (isDestroyed) return;
+
+        if (!chartContainer || chartContainer.clientWidth === 0 || chartContainer.clientHeight === 0) {
+            if (maxAttempts > 0) {
+                setTimeout(() => initHeatmapChartWithRetry(maxAttempts - 1), 100);
+            }
+            return;
+        }
+
+        // 避免重复初始化
+        if (chartInstance) {
+            chartInstance.dispose();
+            chartInstance = null;
+        }
+
         const myChart = echarts.init(chartContainer);
         chartInstance = myChart;
 
@@ -107,17 +150,15 @@
             if (isDestroyed) return;
             applyChartTheme();
 
-            // 延后重绘，确保主题样式已稳定
             redrawTimeoutId = setTimeout(() => {
                 if (!isDestroyed && chartInstance) {
                     applyChartTheme();
                 }
             }, 100);
 
-            // 监听主题变化
             setupThemeObserver();
         }, 0);
-    });
+    }
 
     function applyChartTheme() {
         if (!chartInstance) return;
@@ -160,7 +201,7 @@
                 visualMap: {
                     show: showLabel,
                     min: 0,
-                    max: Math.max(0, ...(Object.values(currentCounts) as number[])),
+                    max: Math.max(1, ...(Object.values(currentCounts) as number[])),
                     type: "piecewise",
                     orient: "horizontal",
                     left: "center",
@@ -449,61 +490,12 @@
         chartContainer = null;
     });
 
-    async function getBlockCounts(startDate: string, endDate: string): Promise<Record<string, number>> {
-        try {
-            const start = startDate.replace(/-/g, "");
-            const end = endDate.replace(/-/g, "");
-            const query = `
-                SELECT substr(updated, 1, 8) AS day, COUNT(*) AS count
-                FROM blocks
-                WHERE updated BETWEEN '${start}000000' AND '${end}235959'
-                GROUP BY substr(updated, 1, 8)
-                ORDER BY day ASC
-            `;
-            const rows = await sql(query);
-            return aggregateRowsToCounts(rows);
-        } catch {
-            return {};
-        }
+    async function getBlockCounts(startDate: string, endDate: string, plugin: any) {
+        return getRecentHeatmapCountsResult(startDate, endDate, "block", undefined, plugin);
     }
 
-    async function getWordCounts(startDate: string, endDate: string): Promise<Record<string, number>> {
-        try {
-            const start = startDate.replace(/-/g, "");
-            const end = endDate.replace(/-/g, "");
-            const query = `
-                SELECT substr(updated, 1, 8) AS day, SUM(LENGTH(content)) AS count
-                FROM blocks
-                WHERE type IN ('p', 'h', 'l', 'c', 't', 'm', 'b')
-                AND updated BETWEEN '${start}000000' AND '${end}235959'
-                AND content IS NOT NULL AND content != ''
-                GROUP BY substr(updated, 1, 8)
-                ORDER BY day ASC
-            `;
-            const rows = await sql(query);
-            return aggregateRowsToCounts(rows);
-        } catch {
-            return {};
-        }
-    }
-
-    function aggregateRowsToCounts(rows: any[]): Record<string, number> {
-        const counts: Record<string, number> = {};
-        if (!Array.isArray(rows)) return counts;
-        for (const row of rows) {
-            const day = row?.day;
-            const count = Number(row?.count) || 0;
-            if (day && count > 0) {
-                counts[formatYmdDayToDate(String(day))] = count;
-            }
-        }
-        return counts;
-    }
-
-    function formatYmdDayToDate(day: string): string {
-        const s = String(day);
-        if (s.length !== 8) return s;
-        return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+    async function getWordCounts(startDate: string, endDate: string, plugin: any) {
+        return getRecentHeatmapCountsResult(startDate, endDate, "word", undefined, plugin);
     }
 
     // 生成完整日历数据（包含范围内所有日期，无数据日期 value 为 0）
@@ -580,9 +572,25 @@
             />
         </div>
     {:else}
-    <div class="heatmap-content-container">
-        <div bind:this={chartContainer} style="width: 100%; height: 100%;"></div>
-    </div>
+        {#if hasHeatmapData}
+            <div class="heatmap-content-container">
+                <div bind:this={chartContainer} style="width: 100%; height: 100%;"></div>
+            </div>
+        {:else}
+            {#if heatmapDataStatus === "disabled"}
+                <HomepageGlobalSqlEmptyState
+                    title="热力图全库统计已停用"
+                    message={heatmapStatusMessage}
+                    {plugin}
+                    hint="在主页设置开启全库 SQL 兼容模式以恢复精确热力图。"
+                />
+            {:else}
+                <div class="heatmap-empty-state">
+                    <strong>{heatmapStatusMessage}</strong>
+                    <span>当前热力图为近似模式；可在主页设置开启全库 SQL 兼容模式以恢复精确热力图。</span>
+                </div>
+            {/if}
+        {/if}
     {/if}
 </div>
 
@@ -615,5 +623,27 @@
         flex: none;
         position: relative;
         overflow: auto;
+    }
+
+    .heatmap-empty-state {
+        width: 100%;
+        height: 100%;
+        min-height: 140px;
+        padding: 16px;
+        box-sizing: border-box;
+        border: 1px dashed var(--b3-border-color);
+        border-radius: 8px;
+        color: var(--b3-theme-secondary);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        text-align: center;
+
+        strong {
+            color: var(--b3-theme-on-surface);
+            font-weight: 600;
+        }
     }
 </style>

@@ -9,7 +9,7 @@ import { getDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/e
 import { formatDiaryDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryUtils";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryRecordInput, ManageDiaryRecordOutput } from "../contracts/manage-diary-record.contract";
-import { loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
+import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
 
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryRecordOutput; errorCode?: string };
 
@@ -53,10 +53,10 @@ async function executeAdd(
   args: ManageDiaryRecordInput,
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const plugin = deps.getScope?.() ?? {};
+  const pluginAdapter = createDiaryToolPluginAdapter(deps);
   const date = formatDiaryDate(new Date());
 
-  const result = await addWorkspaceQuickRecord(plugin, config, args.categoryTitle!, args.content!);
+  const result = await addWorkspaceQuickRecord(pluginAdapter, config, args.categoryTitle!, args.content!);
   if (!result.ok) {
     return {
       ok: false,

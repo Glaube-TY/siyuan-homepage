@@ -262,7 +262,7 @@ export async function loadEnhancedDiaryWorkspaceState(
               taskManagementEnabled,
           )
         : EMPTY_SUMMARY;
-    const tasks = taskManagementEnabled ? await queryWorkspaceTasks(config, date) : [];
+    const tasks = taskManagementEnabled ? await queryWorkspaceTasks(config, date, plugin) : [];
     const records = todayDiary
         ? await queryTodayQuickRecords(
             todayDiary.id,

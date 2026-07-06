@@ -28,6 +28,7 @@ import TasksEditingDialog from "./components/utils/widgetBlock/widget/tasksPlus/
 import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/quickNotesDialog.svelte";
 import ReviewDocsDialog from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocsDialog.svelte";
 import { clearReviewTarget } from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
+import { updateFavoriteIndex } from "./components/tools/siyuanComponentDataApi";
 import { resolveDatabaseIdFromExistingWidgets } from "./components/utils/widgetBlock/widget/sharedDatabaseId";
 import type { ReviewMenuTarget } from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
 import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
@@ -1794,6 +1795,7 @@ export default class PluginHomepage extends Plugin {
                             await setBlockAttrs(docId, {
                                 "custom-homepage-favorites": "true"
                             });
+                            await updateFavoriteIndex(docId, true);
                             showMessage("已收藏");
                         } catch (err) {
                             console.error("收藏失败", err);
@@ -1809,6 +1811,7 @@ export default class PluginHomepage extends Plugin {
                             await setBlockAttrs(docId, {
                                 "custom-homepage-favorites": ""
                             });
+                            await updateFavoriteIndex(docId, false);
                             showMessage("已取消收藏");
                         } catch (err) {
                             console.error("取消收藏失败", err);

@@ -5,7 +5,7 @@ import { parseLocalDate } from "@/components/utils/widgetBlock/widget/enhancedDi
 import type { EnhancedDiaryPeriod } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryStructureInput, ManageDiaryStructureOutput } from "../contracts/manage-diary-structure.contract";
-import { loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
+import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
 import { sql } from "@/api";
 
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryStructureOutput; errorCode?: string };
@@ -59,8 +59,8 @@ async function validateAppendTemplateDocId(docId: string): Promise<
 
 async function executeEnsureToday(deps: KbRetrievalToolDeps): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const plugin = deps.getScope?.() ?? {};
-  const result = await getOrCreateTodayDiaryDocument(plugin, config);
+  const pluginAdapter = createDiaryToolPluginAdapter(deps);
+  const result = await getOrCreateTodayDiaryDocument(pluginAdapter, config);
 
   if (!result.ok || !result.docId) {
     const reason = result.reason || "unknown";

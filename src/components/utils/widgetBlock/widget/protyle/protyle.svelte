@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onDestroy, onMount } from "svelte";
     import { Protyle } from "siyuan";
-    import { sql } from "@/api";
+    import { getRootDocumentCandidates } from "@/components/tools/siyuanComponentDataApi";
 
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
     let isDestroyed = false;
@@ -60,18 +60,11 @@
     }
 
     async function getRandomDocID() {
-        const countRows = await sql("SELECT COUNT(*) AS count FROM blocks WHERE type = 'd'");
-        if (isDestroyed) return;
-        const count = Number(countRows?.[0]?.count) || 0;
-        if (count === 0) {
+        const docs = await getRootDocumentCandidates(200);
+        if (isDestroyed || docs.length === 0) {
             return;
         }
-        const offset = Math.floor(Math.random() * count);
-        const rows = await sql(`SELECT id FROM blocks WHERE type = 'd' ORDER BY id LIMIT 1 OFFSET ${offset}`);
-        if (isDestroyed) return;
-        if (rows?.[0]?.id) {
-            blockID = rows[0].id;
-        }
+        blockID = docs[Math.floor(Math.random() * docs.length)].id;
     }
 </script>
 

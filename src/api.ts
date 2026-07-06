@@ -516,17 +516,56 @@ export interface FullTextSearchBlockResult {
     score?: number;
 }
 
-export interface FullTextSearchResponse {
-    blocks: FullTextSearchBlockResult[];
-    matchCount: number;
-    docCount: number;
+export interface FullTextSearchBlockOptions {
+    page?: number;
+    pageSize?: number;
+    method?: number;
+    orderBy?: number;
+    groupBy?: number;
+    types?: Record<string, boolean>;
+    subTypes?: Record<string, boolean>;
+    paths?: string[];
 }
 
-export async function fullTextSearchBlock(query: string, page: number = 0): Promise<FullTextSearchResponse | null> {
-    const data = {
+export interface FullTextSearchResponse {
+    blocks: FullTextSearchBlockResult[];
+    matchCount?: number;
+    docCount?: number;
+    matchedBlockCount?: number;
+    matchedRootCount?: number;
+    pageCount?: number;
+    docMode?: boolean;
+}
+
+function normalizeSearchPage(page: number | undefined): number {
+    if (!Number.isFinite(page) || (page ?? 0) <= 0) {
+        return 1;
+    }
+    return Math.floor(page as number);
+}
+
+export async function fullTextSearchBlock(
+    query: string,
+    pageOrOptions: number | FullTextSearchBlockOptions = 1,
+): Promise<FullTextSearchResponse | null> {
+    const options: FullTextSearchBlockOptions =
+        typeof pageOrOptions === "number" ? { page: pageOrOptions } : pageOrOptions;
+
+    if (options.method === 2) {
+        throw new Error("fullTextSearchBlock 禁止使用 method=2 SQL 模式");
+    }
+
+    const data: Record<string, unknown> = {
         query: query,
-        page: page,
+        page: normalizeSearchPage(options.page),
     };
+    if (typeof options.pageSize === "number") data.pageSize = options.pageSize;
+    if (typeof options.method === "number") data.method = options.method;
+    if (typeof options.orderBy === "number") data.orderBy = options.orderBy;
+    if (typeof options.groupBy === "number") data.groupBy = options.groupBy;
+    if (options.types) data.types = options.types;
+    if (options.subTypes) data.subTypes = options.subTypes;
+    if (options.paths) data.paths = options.paths;
     const url = '/api/search/fullTextSearchBlock';
     return request(url, data);
 }

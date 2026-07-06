@@ -104,6 +104,10 @@ export function normalizeComponentSectionsNavAlign(value: unknown): ComponentSec
     return DEFAULT_COMPONENT_SECTIONS_NAV_ALIGN;
 }
 
+export function normalizeAllowHomepageGlobalSqlQuery(value: unknown): boolean {
+    return value === true;
+}
+
 function normalizeComponentSectionId(value: unknown): string {
     if (typeof value !== "string") return "";
     return value.trim().replace(/[^a-zA-Z0-9_-]/g, "");
@@ -227,6 +231,7 @@ export interface HomepageSettingConfig {
     aiKbDockEnabled?: boolean;
     aiKbTabEnabled?: boolean;
     selectionAiToolbar?: SelectionAiToolbarSettings;
+    allowHomepageGlobalSqlQuery?: boolean;
 }
 
 export async function loadHomepageSettingConfig(plugin: any): Promise<HomepageSettingConfig | null> {

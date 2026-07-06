@@ -119,7 +119,7 @@ async function queryTasks(scope: "today" | "overdue", limit = 10): Promise<ChatA
   try {
     const config = await loadEnhancedDiaryConfig(getPlugin());
     const today = new Date();
-    const matched = (await queryWorkspaceTasks(config, today))
+    const matched = (await queryWorkspaceTasks(config, today, getPlugin()))
       .filter((task) => scope === "today" ? task.isTodayTask : task.isOverdue)
       .sort((a, b) => {
         const openDelta = Number(a.completed) - Number(b.completed);

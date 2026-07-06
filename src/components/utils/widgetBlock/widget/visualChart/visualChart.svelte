@@ -1,7 +1,7 @@
 <script lang="ts">
     import { showMessage, openTab } from "siyuan";
     import { sql, getTag } from "@/api";
-    import { selectPaged } from "@/components/tools/siyuanSqlPaging";
+    import { getTaskIndexResult } from "@/components/tools/siyuanComponentDataApi";
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import "echarts-wordcloud";
@@ -34,6 +34,9 @@
     let newStartDate = $state("");
     let newEndDate = $state("");
     let tasks = $state([]);
+    let taskDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
+    let taskStatusMessage = $state("任务全库扫描已停用。请配置任务范围，或点击“建立任务索引”。");
+    let tagCloudEmptyMessage = $state("");
     let selectedTasks: any = $state();
     let addedTaskIds = $state(new Set());
 
@@ -359,19 +362,11 @@
     }
 
     async function getTasks() {
-        // 仅包含图表任务解析与展示所需字段；不在 SQL 里用 markdown LIKE，避免大库扫描
-        const query = `
-            SELECT
-                id,
-                markdown,
-                created
-            FROM blocks
-            WHERE subtype = 't' AND type != 'l'
-            ORDER BY updated DESC, id DESC
-        `;
-        const response = await selectPaged(query, { pageSize: 64, maxRows: 5000 });
+        const result = await getTaskIndexResult([]);
+        taskDataStatus = result.status;
+        taskStatusMessage = result.message || "";
 
-        const tasks = response
+        const tasks = result.items
             .map((task) => {
                 const lines = task.markdown.split("\n");
                 const firstLine = lines[0].trim();
@@ -421,17 +416,35 @@
 
     async function getTagData() {
         const tagsList = await getTag(1, true, "homepageVisualChart");
-        const tagData = tagsList.map((tag: { label: string; count: number }) => ({
-            name: tag.label,
-            count: tag.count,
-        }));
+        const tagData = tagsList
+            .map((tag: { label: string; count: number }) => ({
+                name: String(tag.label || "").trim(),
+                count: Number(tag.count) || 0,
+            }))
+            .filter((tag) => tag.name && tag.count > 0);
         return tagData;
     }
 
+    function stableTagColor(name: string): string {
+        const palette = ["#2563eb", "#16a34a", "#dc2626", "#9333ea", "#0891b2", "#ca8a04", "#db2777", "#4b5563"];
+        let hash = 0;
+        for (let i = 0; i < name.length; i += 1) {
+            hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+        }
+        return palette[hash % palette.length];
+    }
+
     function getTagCloudOption(tagData) {
+        const sizeRange = tagData.length <= 3 ? [14, 32] : [12, 40];
         return {
             tooltip: {
                 show: true,
+            },
+            grid: {
+                left: 12,
+                right: 12,
+                top: 12,
+                bottom: 12,
             },
             toolbox: {
                 feature: {
@@ -442,22 +455,23 @@
                 {
                     name: "标签",
                     type: "wordCloud",
-                    sizeRange: [10, 50],
-                    rotationRange: [-45, 90],
+                    sizeRange,
+                    rotationRange: [-30, 30],
+                    gridSize: 12,
+                    left: "center",
+                    top: "center",
+                    width: "92%",
+                    height: "88%",
                     textPadding: 0,
                     autoSize: {
                         enable: true,
-                        minSize: 6,
+                        minSize: 10,
                     },
                     data: tagData.map((tag) => ({
                         name: tag.name,
                         value: tag.count,
                         textStyle: {
-                            color: `rgb(
-                                ${Math.round(Math.random() * 160)},
-                                ${Math.round(Math.random() * 160)},
-                                ${Math.round(Math.random() * 160)}
-                            )`,
+                            color: stableTagColor(tag.name),
                         },
                     })),
                 },
@@ -681,6 +695,11 @@
         } else if (visualChartType === "tagCloud") {
             const tagData = await getTagData();
             if (!tagCloudContainer) return;
+            if (tagData.length === 0) {
+                tagCloudEmptyMessage = "暂无可显示标签。";
+                return;
+            }
+            tagCloudEmptyMessage = "";
 
             const myChart = echarts.init(tagCloudContainer);
             const option = getTagCloudOption(tagData);
@@ -720,6 +739,12 @@
             const myChart = echarts.getInstanceByDom(tagCloudContainer);
             if (myChart) {
                 getTagData().then((tagData) => {
+                    if (tagData.length === 0) {
+                        tagCloudEmptyMessage = "暂无可显示标签。";
+                        myChart.clear();
+                        return;
+                    }
+                    tagCloudEmptyMessage = "";
                     const option = getTagCloudOption(tagData);
                     myChart.setOption(option);
                     myChart.resize();
@@ -1003,7 +1028,10 @@
                     <p>使用前请先了解“任务管理 Plus”</p>
                     <div class="task-list">
                         {#if tasks.length === 0}
-                            <p>暂无符合条件的未完成任务</p>
+                            <div class="chart-empty-state">
+                                <strong>{taskDataStatus === "disabled" ? "任务全库扫描已停用" : "暂无符合条件的未完成任务"}</strong>
+                                <span>{taskStatusMessage}</span>
+                            </div>
                         {:else}
                             {#each tasks as task}
                                 {#if !addedTaskIds?.has(task.Id)}
@@ -1025,7 +1053,14 @@
             </div>
         </div>
     {:else if visualChartType === "tagCloud"}
-        <div bind:this={tagCloudContainer} class="chart-container"></div>
+        {#if tagCloudEmptyMessage}
+            <div class="chart-empty-state">
+                <strong>{tagCloudEmptyMessage}</strong>
+                <span>标签词云不会在空数据时初始化图表。</span>
+            </div>
+        {:else}
+            <div bind:this={tagCloudContainer} class="chart-container"></div>
+        {/if}
     {/if}
 </div>
 
@@ -1178,6 +1213,26 @@
                         }
                     }
                 }
+            }
+        }
+
+        .chart-empty-state {
+            width: 100%;
+            min-height: 120px;
+            padding: 16px;
+            box-sizing: border-box;
+            border: 1px dashed var(--b3-border-color);
+            border-radius: 8px;
+            color: var(--b3-theme-secondary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-align: center;
+
+            strong {
+                color: var(--b3-theme-on-surface);
             }
         }
     }

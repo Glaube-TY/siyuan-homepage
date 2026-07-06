@@ -9,6 +9,7 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
     import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
 
     interface Props {
         plugin: any;
@@ -22,6 +23,8 @@
     const isMobilePlacement = $derived(placement === "mobile");
 
     let favoritesNotes: any[] = $state([]);
+    let favoritesDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
+    let favoritesStatusMessage = $state("旧版收藏依赖全库属性扫描，已停用。请从文档树右键重新收藏，或执行一次手动迁移。");
     const favoritiesTitle =
         $derived(contentTypeJsonObj.data?.favoritiesTitle || "💖收藏文档");
     const showNoteMeta = $derived(contentTypeJsonObj.data?.showNoteMeta ?? true);
@@ -79,9 +82,12 @@
             contentTypeJsonObj.data?.favoritiesSortOrder,
             contentTypeJsonObj.data?.favoritesNotebookId,
             useBuiltinDocIcon,
-        ).then((notes) => {
+            plugin,
+        ).then((result) => {
             if (isDestroyed) return;
-            favoritesNotes = notes;
+            favoritesNotes = result.items;
+            favoritesDataStatus = result.status;
+            favoritesStatusMessage = result.message || favoritesStatusMessage;
         });
 
         return () => {
@@ -124,7 +130,16 @@
                     </button>
                 {/each}
             {:else}
-                <div class="mobile-favorites-empty">暂无收藏文档</div>
+                {#if favoritesDataStatus === "disabled"}
+                    <HomepageGlobalSqlEmptyState
+                        title="收藏全库扫描已停用"
+                        message={favoritesStatusMessage}
+                        {plugin}
+                        hint="从文档树右键重新收藏，或在主页设置开启全库 SQL 兼容模式。"
+                    />
+                {:else}
+                    <div class="mobile-favorites-empty">{favoritesStatusMessage}</div>
+                {/if}
             {/if}
         </div>
     </div>
@@ -206,7 +221,19 @@
                     {/each}
                 </ul>
             {:else}
-                <p>暂无收藏的文档，可在文档树上右键选择收藏</p>
+                {#if favoritesDataStatus === "disabled"}
+                    <HomepageGlobalSqlEmptyState
+                        title="收藏全库扫描已停用"
+                        message={favoritesStatusMessage}
+                        {plugin}
+                        hint="从文档树右键重新收藏，或在主页设置开启全库 SQL 兼容模式。"
+                    />
+                {:else}
+                    <div class="favorites-empty-state">
+                        <strong>收藏索引为空</strong>
+                        <span>{favoritesStatusMessage}</span>
+                    </div>
+                {/if}
             {/if}
         </div>
     </div>
@@ -291,6 +318,24 @@
             height: 1.2em;
             vertical-align: middle;
             margin-right: 0.3em;
+        }
+
+        .favorites-empty-state {
+            min-height: 120px;
+            padding: 16px;
+            border: 1px dashed var(--b3-border-color);
+            border-radius: 8px;
+            color: var(--b3-theme-secondary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-align: center;
+
+            strong {
+                color: var(--b3-theme-on-surface);
+            }
         }
     }
 

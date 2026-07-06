@@ -3,7 +3,7 @@
  *
  * 职责：
  * - 为聊天输入框提供只读文档搜索能力
- * - 使用共享检索核心 (searchKnowledgeBaseCore) 三通道搜索
+ * - 使用共享检索核心 (searchKnowledgeBaseCore) 的 kernel search 通道
  * - 只返回轻量元信息，不读取正文
  * - 这是 UI 搜索服务，不写入 Agent Workbench 运行态
  * - 不触发 Agent
@@ -11,7 +11,7 @@
 
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { searchKnowledgeBaseCore, type DocResult } from "./knowledge-base-search-core";
-import { sqlSelectReadonly, fullTextSearchBlockReadonly } from "./read-only-kernel";
+import { fullTextSearchBlockReadonly } from "./read-only-kernel";
 
 export interface ChatDocSearchResult {
   docId: string;
@@ -36,47 +36,26 @@ export interface DocSelectionResult {
 let healthChecked = false;
 
 interface HealthCheckResult {
-  totalDocCount: number;
-  totalBlockCount: number;
   hasKernelSearchApi: boolean;
-  canReadBlocksTable: boolean;
 }
 
 async function checkSearchHealth(): Promise<HealthCheckResult> {
-  let totalDocCount = 0;
-  let totalBlockCount = 0;
   let hasKernelSearchApi = false;
-  let canReadBlocksTable = false;
 
   try {
-    const docRows = await sqlSelectReadonly<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM blocks WHERE type = 'd'`,
-      { maxLimit: 1, allowedTables: ["blocks"] }
-    );
-    totalDocCount = docRows?.[0]?.cnt ?? 0;
-    canReadBlocksTable = true;
-  } catch {
-    canReadBlocksTable = false;
-  }
-
-  try {
-    const blockRows = await sqlSelectReadonly<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM blocks`,
-      { maxLimit: 1, allowedTables: ["blocks"] }
-    );
-    totalBlockCount = blockRows?.[0]?.cnt ?? 0;
-  } catch {
-    // ignore
-  }
-
-  try {
-    const testResult = await fullTextSearchBlockReadonly("", 0);
+    const testResult = await fullTextSearchBlockReadonly("", {
+      page: 1,
+      pageSize: 1,
+      method: 0,
+      orderBy: 7,
+      groupBy: 0,
+    });
     hasKernelSearchApi = testResult !== null;
   } catch {
     hasKernelSearchApi = false;
   }
 
-  return { totalDocCount, totalBlockCount, hasKernelSearchApi, canReadBlocksTable };
+  return { hasKernelSearchApi };
 }
 
 function mapDocResultToChatDocSearchResult(doc: DocResult): ChatDocSearchResult {
@@ -109,17 +88,11 @@ export async function searchDocumentsForSelectionCore(
     try {
       const health = await checkSearchHealth();
       pushAgentDebugEvent("MANUAL_DOC_SEARCH_HEALTH_SAFE", {
-        totalDocCount: health.totalDocCount,
-        totalBlockCount: health.totalBlockCount,
         hasKernelSearchApi: health.hasKernelSearchApi,
-        canReadBlocksTable: health.canReadBlocksTable,
       }, "info");
     } catch {
       pushAgentDebugEvent("MANUAL_DOC_SEARCH_HEALTH_SAFE", {
-        totalDocCount: 0,
-        totalBlockCount: 0,
         hasKernelSearchApi: false,
-        canReadBlocksTable: false,
         errorCode: "health_check_failed",
       }, "warn");
     }
@@ -136,8 +109,8 @@ export async function searchDocumentsForSelectionCore(
     limit: safeLimit,
     channels: {
       siyuan_kernel_search: true,
-      title_catalog_search: true,
-      project_hybrid_search: true,
+      title_catalog_search: false,
+      project_hybrid_search: false,
     },
     caller: "manual_doc_search",
   });
@@ -187,7 +160,6 @@ export async function searchDocsForChatAttachment(
     const selectionResult = await searchDocumentsForSelectionCore(trimmed, safeLimit);
     return selectionResult.results;
   } catch {
-    console.warn("[searchDocsForChatAttachment] service failed");
     pushAgentDebugEvent("MANUAL_DOC_SEARCH_SERVICE_START_SAFE", {
       queryChars: trimmed.length,
       limit: safeLimit,

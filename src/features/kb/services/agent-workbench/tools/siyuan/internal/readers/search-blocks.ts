@@ -3,21 +3,15 @@
  *
  * 职责：
  * - 在 AgentScope 限定范围内检索候选块/候选结果
- * - 使用共享检索核心 (searchKnowledgeBaseCore) 的 kernel + title 通道
- * - 保留 searchHybridInScope 的完整检索策略控制
+ * - 使用共享检索核心 (searchKnowledgeBaseCore) 的 kernel search 通道
  * - AgentScope 从 agent-workbench/scope/types 导入
- * - SiyuanSearchStrategy 从 agent-workbench/tools/search-types 导入
  * - 不导入写入 API，不直接导入 @/api
  * - 不暴露 raw SQL action 参数
  * - 不使用 hpath/name/alias 作为核心检索字段
  * - metadata 保留 backend/sourceBlockIds/type 作为内部候选来源信息，不写入 memory
  */
 
-import {
-  searchHybridInScope,
-  type AnyRetrievalScope,
-  type RetrievalCandidate,
-} from "../../../../../retrieval/hybrid-search";
+import type { AnyRetrievalScope } from "../../../../../retrieval/hybrid-search";
 
 import {
   searchKnowledgeBaseCore,
@@ -31,7 +25,6 @@ import { getKbSettings } from "../../../../../settings/kb-settings-service";
 import type { AgentScope } from "../../../../scope/types";
 import type {
   SiyuanSearchHit,
-  SiyuanSearchStrategy,
   SearchKnowledgeBlocksParams,
   SiyuanSearchResult,
   SiyuanDocHit,
@@ -124,26 +117,6 @@ function convertCoreDocResultToSiyuanDocHit(doc: DocResult): SiyuanDocHit {
   };
 }
 
-function convertRetrievalCandidateToSiyuanHit(candidate: RetrievalCandidate): SiyuanSearchHit {
-  const blockId = candidate.sourceBlockIds[0] || candidate.docId;
-
-  return {
-    docId: candidate.docId,
-    docTitle: candidate.title,
-    blockId,
-    content: candidate.preview,
-    score: candidate.score,
-    box: candidate.box,
-    path: candidate.path,
-    source: "keyword_fuzzy",
-    metadata: {
-      backend: candidate.backend,
-      sourceBlockIds: candidate.sourceBlockIds,
-      type: candidate.type,
-    },
-  };
-}
-
 function getHitKey(hit: SiyuanSearchHit): string {
   if (hit.blockId) {
     return hit.blockId;
@@ -151,86 +124,10 @@ function getHitKey(hit: SiyuanSearchHit): string {
   return `${hit.docId}:placeholder`;
 }
 
-interface ModeStrategyDefaults {
-  enabled: { keyword: boolean; fts: boolean };
-  weightMultipliers: { keyword: number; fts: number };
-}
-
-const MODE_DEFAULTS: Record<NonNullable<SiyuanSearchStrategy["mode"]>, ModeStrategyDefaults> = {
-  balanced: {
-    enabled: { keyword: true, fts: true },
-    weightMultipliers: { keyword: 1.0, fts: 1.0 },
-  },
-  keyword_first: {
-    enabled: { keyword: true, fts: true },
-    weightMultipliers: { keyword: 1.3, fts: 1.3 },
-  },
-  exact_only: {
-    enabled: { keyword: true, fts: true },
-    weightMultipliers: { keyword: 1.3, fts: 1.3 },
-  },
-};
-
-function resolveRetrievalStrategyOptions(
-  strategy: SiyuanSearchStrategy | undefined,
-  trace: boolean
-): {
-  channelQueries: { keyword?: string; fts?: string };
-  channelEnabled: { keyword?: boolean; fts?: boolean };
-  channelWeightMultipliers: { keyword?: number; fts?: number };
-  debugDetail: string;
-} {
-  const channelQueries: { keyword?: string; fts?: string } = {};
-  const channelEnabled: { keyword?: boolean; fts?: boolean } = {};
-  const channelWeightMultipliers: { keyword?: number; fts?: number } = {};
-
-  if (!strategy) {
-    return { channelQueries, channelEnabled, channelWeightMultipliers, debugDetail: "no strategy" };
-  }
-
-  if (strategy.queries) {
-    if (strategy.queries.keyword) channelQueries.keyword = strategy.queries.keyword;
-    if (strategy.queries.fts) channelQueries.fts = strategy.queries.fts;
-  }
-
-  const mode = strategy.mode || "balanced";
-  const modeDefaults = MODE_DEFAULTS[mode] ?? MODE_DEFAULTS.balanced;
-  channelEnabled.keyword = modeDefaults.enabled.keyword;
-  channelEnabled.fts = modeDefaults.enabled.fts;
-  channelWeightMultipliers.keyword = modeDefaults.weightMultipliers.keyword;
-  channelWeightMultipliers.fts = modeDefaults.weightMultipliers.fts;
-
-  if (strategy.channels) {
-    if (typeof strategy.channels.keyword === "boolean") channelEnabled.keyword = strategy.channels.keyword;
-    if (typeof strategy.channels.fts === "boolean") channelEnabled.fts = strategy.channels.fts;
-  }
-
-  const anyEnabled = channelEnabled.keyword || channelEnabled.fts;
-  if (!anyEnabled) {
-    const balanced = MODE_DEFAULTS.balanced;
-    channelEnabled.keyword = balanced.enabled.keyword;
-    channelEnabled.fts = balanced.enabled.fts;
-  }
-
-  const enabledNames: string[] = [];
-  if (channelEnabled.keyword) enabledNames.push("keyword");
-  if (channelEnabled.fts) enabledNames.push("fuzzy");
-  const enabledStr = enabledNames.join(",") || "none";
-  const detail = `mode=${mode}, channels=[${enabledStr}]`;
-
-  if (trace) {
-    const mainQuery = strategy.queries?.keyword || strategy.queries?.fts || "";
-    const queryChars = mainQuery.length;
-    pushAgentDebugEvent("RETRIEVAL_STRATEGY", { detail, queryChars }, "debug");
-  }
-
-  return { channelQueries, channelEnabled, channelWeightMultipliers, debugDetail: detail };
-}
-
 export async function searchKnowledgeBlocks(
   params: SearchKnowledgeBlocksParams
 ): Promise<SiyuanSearchResult> {
-  const { scope, query, limit, trace = false, excludeDocIds, includeDocIds, retrievalStrategy } = params;
+  const { scope, query, limit, trace = false, excludeDocIds, includeDocIds } = params;
   const warnings: string[] = [];
   const excludeSet = new Set(excludeDocIds ?? []);
 
@@ -315,11 +212,10 @@ export async function searchKnowledgeBlocks(
     };
   }
 
-  const { channelQueries, channelEnabled, channelWeightMultipliers } = resolveRetrievalStrategyOptions(retrievalStrategy, trace);
-
   pushAgentDebugEvent("SEARCH_SCOPE_CHANNELS_RESOLVED", {
-    keywordEnabled: channelEnabled.keyword !== false,
-    fuzzyEnabled: channelEnabled.fts !== false,
+    kernelSearchEnabled: true,
+    titleCatalogSearchEnabled: false,
+    projectHybridSearchEnabled: false,
   }, "debug");
 
   const hitMap = new Map<string, SiyuanSearchHit>();
@@ -328,7 +224,7 @@ export async function searchKnowledgeBlocks(
   let lexicalSearched = false;
   let totalLexicalHits = 0;
 
-  // ---- Shared retrieval core: kernel + title channels ----
+  // ---- Shared retrieval core: kernel search channel ----
   let kernelDocCount = 0;
   let titleDocCount = 0;
   try {
@@ -338,7 +234,7 @@ export async function searchKnowledgeBlocks(
       limit: searchLimit,
       channels: {
         siyuan_kernel_search: true,
-        title_catalog_search: true,
+        title_catalog_search: false,
         project_hybrid_search: false,
       },
       caller: "search_scope_tool",
@@ -379,76 +275,10 @@ export async function searchKnowledgeBlocks(
 
     candidateDocCount += coreResult.docResults.length;
   } catch {
-    warnings.push("共享检索核心 (kernel+title) 失败");
+    warnings.push("共享检索核心 (kernel) 失败");
   }
 
-  // ---- Hybrid search channel (with full retrieval strategy) ----
-  let hybridDocCount = 0;
-  try {
-    if (trace) {
-      const qChars = query.length;
-      pushAgentDebugEvent("HYBRID_CHANNEL", {
-        scope: scope.type,
-        queryChars: qChars,
-        limit: searchLimit,
-      }, "debug");
-    }
-
-    const result = await searchHybridInScope(query, retrievalScope, {
-      limit: searchLimit,
-      trace,
-      channelQueries: Object.keys(channelQueries).length > 0 ? channelQueries : undefined,
-      channelEnabled: Object.keys(channelEnabled).length > 0 ? channelEnabled : undefined,
-      channelWeightMultipliers: Object.keys(channelWeightMultipliers).length > 0 ? channelWeightMultipliers : undefined,
-    });
-
-    const rawHits = result.candidates || [];
-    hybridDocCount = result.docScores?.size || 0;
-    lexicalSearched = rawHits.some(h => h.backend === "keyword" || h.backend === "fts") || rawHits.length === 0;
-
-    for (const candidate of rawHits) {
-      const hit = convertRetrievalCandidateToSiyuanHit(candidate);
-
-      if (excludeSet.has(hit.docId)) continue;
-      if (resolvedIncludeDocIds && !resolvedIncludeDocIds.includes(hit.docId)) continue;
-
-      const key = getHitKey(hit);
-      const existing = hitMap.get(key);
-      if (!existing || (hit.score ?? 0) > (existing.score ?? 0)) {
-        hitMap.set(key, hit);
-      }
-    }
-
-    for (const [docId, scoreInfo] of result.docScores ?? []) {
-      if (excludeSet.has(docId)) continue;
-      if (resolvedIncludeDocIds && !resolvedIncludeDocIds.includes(docId)) continue;
-
-      const existingDocHit = docHitMap.get(docId);
-      const candidate = rawHits.find(c => c.docId === docId);
-      const hybridScore = (scoreInfo as any)?.aggregateScore ?? (scoreInfo as any)?.score ?? candidate?.score ?? 0;
-
-      if (!existingDocHit) {
-        docHitMap.set(docId, {
-          docId,
-          docTitle: candidate?.title || "",
-          box: candidate?.box,
-          path: candidate?.path,
-          score: hybridScore,
-          source: "hybrid_doc",
-          metadata: {
-            bestChannel: "project_hybrid_search",
-            hitCount: (scoreInfo as any)?.hitCount ?? 1,
-            type: "doc_candidate",
-          },
-        });
-      }
-    }
-
-    candidateDocCount += hybridDocCount;
-  } catch {
-    warnings.push("hybrid 检索失败");
-    lexicalSearched = false;
-  }
+  const hybridDocCount = 0;
 
   if (resolvedIncludeDocIds) {
     const hitDocIds = new Set(Array.from(hitMap.values()).map((h) => h.docId));

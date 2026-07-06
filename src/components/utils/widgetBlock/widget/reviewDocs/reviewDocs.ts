@@ -3,7 +3,6 @@ import {
     setBlockAttrsChecked,
     sql,
 } from "@/api";
-import { selectPaged } from "@/components/tools/siyuanSqlPaging";
 import {
     addDaysFromToday,
     diffDays,
@@ -16,6 +15,13 @@ import {
     toLocalDateString,
 } from "./reviewDocsSchedule";
 import { appendReviewLog } from "./reviewDocsData";
+import {
+    getHomepageGlobalSqlPolicy,
+    getReviewIndexResult,
+    removeReviewIndexItem,
+    updateReviewIndexItem,
+    type ComponentDataResult,
+} from "@/components/tools/siyuanComponentDataApi";
 import type {
     CompleteReviewParams,
     PostponeReviewParams,
@@ -267,52 +273,38 @@ export async function getReviewTargetInfo(
     return normalizeBlockRow(row, targetType);
 }
 
-function rowToReviewItem(row: any): ReviewItem | null {
-    const attrs = parseReviewAttrsFromIAL(row?.ial || "");
-    if (!attrs) return null;
-
-    const targetType = attrs.targetType || (row?.type === "d" ? "doc" : "block");
-    const info = normalizeBlockRow(row, targetType);
-    const today = toLocalDateString();
-    const daysFromToday = diffDays(attrs.nextDate, today);
-    const dueStatus = daysFromToday < 0 ? "overdue" : daysFromToday === 0 ? "today" : "future";
-
-    return {
-        ...info,
-        attrs: {
-            ...attrs,
-            targetType,
-        },
-        dueStatus,
-        overdueDays: daysFromToday < 0 ? Math.abs(daysFromToday) : 0,
-    };
+export async function loadAllReviewItems(plugin?: any): Promise<ReviewItem[]> {
+    const result = await loadAllReviewItemsResult(plugin);
+    return result.items;
 }
 
-// 仅包含复习卡片展示、排序、打开与本地搜索所需字段
-const REVIEW_LIST_FIELDS = [
-    "id",
-    "type",
-    "ial",
-    "content",
-    "hpath",
-    "path",
-    "created",
-    "updated",
-    "root_id",
-].join(", ");
+function reviewItemsFromGlobalSqlRows(rows: any[]): ReviewItem[] {
+    const items: ReviewItem[] = [];
+    for (const row of rows) {
+        const attrs = parseReviewAttrsFromIAL(row?.ial);
+        if (!attrs?.nextDate) continue;
+        const type: ReviewTargetType = row?.type === "d" ? "doc" : "block";
+        const target = normalizeBlockRow(row, type);
+        items.push(reviewItemFromTarget(target, attrs));
+    }
+    return items;
+}
 
-export async function loadAllReviewItems(): Promise<ReviewItem[]> {
-    const query = `
-        SELECT ${REVIEW_LIST_FIELDS}
-        FROM blocks
-        WHERE ial REGEXP 'custom-homepage-review-next-date\\\\s*=\\\\s*"[0-9]{4}-[0-9]{2}-[0-9]{2}"'
-        ORDER BY updated DESC, id DESC
-    `;
-    const rows = await selectPaged(query, { pageSize: 64, maxRows: 10000 });
-
-    return rows
-        .map(rowToReviewItem)
-        .filter((item): item is ReviewItem => item !== null);
+export async function loadAllReviewItemsResult(plugin?: any): Promise<ComponentDataResult<ReviewItem>> {
+    const policy = plugin ? await getHomepageGlobalSqlPolicy(plugin) : undefined;
+    const result = await getReviewIndexResult<any>(policy, plugin);
+    if (result.mode === "global_sql_compat") {
+        const items = reviewItemsFromGlobalSqlRows(result.items);
+        return {
+            items,
+            status: items.length > 0 ? "ok" : "empty",
+            mode: result.mode,
+            message: items.length > 0
+                ? result.message
+                : "兼容模式未解析到有效复习计划，请检查属性格式。",
+        };
+    }
+    return result as ComponentDataResult<ReviewItem>;
 }
 
 function matchesView(item: ReviewItem, view: ReviewView, futureDays: number): boolean {
@@ -477,6 +469,18 @@ function buildLogEntry(
     };
 }
 
+function reviewItemFromTarget(target: ReviewTargetInfo, attrs: ReviewAttrs): ReviewItem {
+    const today = toLocalDateString();
+    const daysFromToday = diffDays(attrs.nextDate, today);
+    const dueStatus = daysFromToday < 0 ? "overdue" : daysFromToday === 0 ? "today" : "future";
+    return {
+        ...target,
+        attrs,
+        dueStatus,
+        overdueDays: daysFromToday < 0 ? Math.abs(daysFromToday) : 0,
+    };
+}
+
 async function appendLogSafely(
     databaseId: string | undefined,
     entry: ReviewLogEntry
@@ -519,6 +523,7 @@ export async function markReviewTarget(params: ReviewPlanOperationParams): Promi
     });
 
     await setBlockAttrsChecked(params.targetId, createReviewAttrsMap(after));
+    await updateReviewIndexItem(reviewItemFromTarget(target, after));
     const logWarning = await appendLogSafely(
         params.databaseId,
         buildLogEntry(before.reviewId ? "update" : "create", target, before, after)
@@ -558,6 +563,7 @@ export async function updateReviewTarget(params: ReviewPlanOperationParams): Pro
     };
 
     await setBlockAttrsChecked(params.targetId, createReviewAttrsMap(after));
+    await updateReviewIndexItem(reviewItemFromTarget(target, after));
     const logWarning = await appendLogSafely(
         params.databaseId,
         buildLogEntry("update", target, before, after)
@@ -616,6 +622,7 @@ export async function completeReviewOnce(params: CompleteReviewParams): Promise<
     };
 
     await setBlockAttrsChecked(params.targetId, createReviewAttrsMap(after));
+    await updateReviewIndexItem(reviewItemFromTarget(target, after));
     const logWarning = await appendLogSafely(
         params.databaseId,
         buildLogEntry("review", target, before, after)
@@ -646,6 +653,7 @@ export async function postponeReviewTarget(params: PostponeReviewParams): Promis
     };
 
     await setBlockAttrsChecked(params.targetId, createReviewAttrsMap(after));
+    await updateReviewIndexItem(reviewItemFromTarget(target, after));
     const logWarning = await appendLogSafely(
         params.databaseId,
         buildLogEntry("postpone", target, before, after)
@@ -667,6 +675,7 @@ export async function finishReviewTarget(params: ReviewOperationParams): Promise
 
     const after = attrsAfterClear();
     await setBlockAttrsChecked(params.targetId, createClearReviewAttrsMap());
+    await removeReviewIndexItem(params.targetId);
     const logWarning = await appendLogSafely(
         params.databaseId,
         buildLogEntry("finish", target, before, after)
@@ -685,6 +694,7 @@ export async function clearReviewTarget(params: ReviewOperationParams): Promise<
     const after = attrsAfterClear();
 
     await setBlockAttrsChecked(params.targetId, createClearReviewAttrsMap());
+    await removeReviewIndexItem(params.targetId);
     const logWarning = await appendLogSafely(
         params.databaseId,
         buildLogEntry("remove", target, before, after)

@@ -3,6 +3,8 @@
     import { openDocs } from "@/components/tools/openDocs";
     import { gettasksList, formatTasksList } from "./tasksPlus";
     import { updateTaskListItemMarker, updateBlock } from "@/api";
+    import { updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
+    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
 
     interface Props {
         plugin: any;
@@ -19,6 +21,8 @@
     let tasksSort = $derived(parsed.data?.tasksSort || "startdate");
     let tasksList: any[] = [];
     let tasksListFormat: any = $state();
+    let taskDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
+    let taskStatusMessage = $state("任务全库扫描已停用。请配置任务范围，或点击“建立任务索引”。");
     let reminderCheckInterval: number | null = null;
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
     let isDestroyed = false;
@@ -122,6 +126,16 @@
                 /\[([xX ]?)\]/,
                 `[${marker}]`,
             );
+            await updateTaskIndexItem({
+                id: task.id,
+                markdown: task.initmarkdown,
+                content: task.taskname,
+                hpath: task.hpath,
+                box: task.box,
+                updated: task.updated,
+                checked: isChecked,
+                source: "plugin",
+            });
         } catch (err) {
             console.error("更新任务状态失败:", err);
             task.taskCheck = isChecked ? " " : "X";
@@ -271,6 +285,16 @@
             task.taskCheck = "- [ ]";
             task.parsed.deadline = formattedNewDate;
             task.initmarkdown = newMarkdown;
+            await updateTaskIndexItem({
+                id: task.id,
+                markdown: newMarkdown,
+                content: task.taskname,
+                hpath: task.hpath,
+                box: task.box,
+                updated: new Date().toISOString(),
+                checked: false,
+                source: "plugin",
+            });
         } catch (err) {
             console.error("❌ 更新任务失败:", err);
         }
@@ -301,8 +325,11 @@
 
     onMount(async () => {
         isDestroyed = false;
-        tasksList = await gettasksList();
+        const taskResult = await gettasksList(plugin);
         if (isDestroyed) return;
+        taskDataStatus = taskResult.status;
+        taskStatusMessage = taskResult.message || "";
+        tasksList = taskResult.items;
         tasksListFormat = await formatTasksList(
             tasksList,
             internalFilter,
@@ -417,7 +444,19 @@
                 </div>
             {/each}
         {:else}
-            <div class="empty-tips">暂无待办事项</div>
+            {#if taskDataStatus === "disabled"}
+                <HomepageGlobalSqlEmptyState
+                    title="任务全库扫描已停用"
+                    message={taskStatusMessage}
+                    {plugin}
+                    hint="配置任务范围、建立索引，或在主页设置开启全库 SQL 兼容模式。"
+                />
+            {:else}
+                <div class="empty-tips">
+                    <strong>没有可显示的任务</strong>
+                    <span>{taskStatusMessage || "请配置任务范围，或点击“建立任务索引”。"}</span>
+                </div>
+            {/if}
         {/if}
     </div>
 </div>
@@ -543,6 +582,18 @@
                 text-align: center;
                 color: var(--b3-theme-secondary);
                 padding: 1rem;
+                display: flex;
+                min-height: 120px;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                border: 1px dashed var(--b3-border-color);
+                border-radius: 8px;
+
+                strong {
+                    color: var(--b3-theme-on-surface);
+                }
             }
         }
     }

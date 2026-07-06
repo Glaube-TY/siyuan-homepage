@@ -7,12 +7,13 @@
  * - 只导出只读函数，命名加 Readonly 后缀
  * - 不导出、不包装、不引用任何写入 API
  * - getBlockByIdReadonly 通过 safeSqlSelect 查询，不使用 api.ts 的不安全 getBlockByID
- * - 不使用 hpath 相关 API
+ * - 只包装少量只读块/路径 API，用于检索结果补全
  * - raw SQL 调用通过 safe-sql.ts 封装
  */
 
 import {
   exportMdContent,
+  getBlockInfo,
   getBlockKramdown,
   getBlockAttrs,
   getNotebookConf,
@@ -21,12 +22,15 @@ import {
   listDocsByPath,
   getChildBlocks,
   fullTextSearchBlock,
+  getHPathByIDChecked,
+  getPathByID,
   getBacklink,
   getTag,
   searchTag,
   type GetBacklinkPayload,
   type GetTagPayload,
   type Tag,
+  type FullTextSearchBlockOptions,
 } from "@/api";
 import { safeSqlSelect, safeSqlSelectPaged, escapeSqlString, type SafeSqlSelectOptions, type SafeSqlPagedOptions } from "./safe-sql";
 
@@ -80,6 +84,18 @@ export async function getChildBlocksReadonly(id: BlockId) {
   return getChildBlocks(id);
 }
 
+export async function getBlockInfoReadonly(id: BlockId) {
+  return getBlockInfo(id);
+}
+
+export async function getHPathByIDReadonly(id: BlockId) {
+  return getHPathByIDChecked(id);
+}
+
+export async function getPathByIDReadonly(id: BlockId) {
+  return getPathByID(id);
+}
+
 export async function getBlockByIdReadonly(blockId: string): Promise<Record<string, unknown> | undefined> {
   const safeId = escapeSqlString(blockId);
   const rows = await safeSqlSelect(
@@ -89,14 +105,73 @@ export async function getBlockByIdReadonly(blockId: string): Promise<Record<stri
   return rows.length > 0 ? rows[0] : undefined;
 }
 
-export async function fullTextSearchBlockReadonly(query: string, page: number = 0) {
-  return fullTextSearchBlock(query, page);
+const KERNEL_SEARCH_DEFAULT_PAGE_SIZE = 64;
+const KERNEL_SEARCH_MAX_PAGE_SIZE = 64;
+const KERNEL_SEARCH_DEFAULT_MAX_PAGES = 3;
+const KERNEL_SEARCH_MAX_PAGES = 3;
+const KERNEL_SEARCH_DEFAULT_MAX_ROWS = 150;
+const KERNEL_SEARCH_MAX_ROWS = 150;
+
+function clampPositiveInteger(value: number | undefined, fallback: number, max: number): number {
+  if (!Number.isFinite(value) || (value ?? 0) <= 0) {
+    return fallback;
+  }
+  return Math.min(Math.floor(value as number), max);
 }
 
-export interface FullTextSearchPagedOptions {
-  /** Maximum number of pages to fetch. Default 5. */
+export interface KernelSearchReadonlyOptions extends FullTextSearchBlockOptions {
+  query: string;
+}
+
+export async function kernelSearchReadonly(options: KernelSearchReadonlyOptions) {
+  const method = options.method ?? 0;
+  if (method === 2) {
+    throw new Error("kernelSearchReadonly 禁止使用 method=2 SQL 模式");
+  }
+
+  const page = clampPositiveInteger(options.page, 1, Number.MAX_SAFE_INTEGER);
+  const pageSize = clampPositiveInteger(
+    options.pageSize,
+    KERNEL_SEARCH_DEFAULT_PAGE_SIZE,
+    KERNEL_SEARCH_MAX_PAGE_SIZE,
+  );
+
+  const searchOptions: FullTextSearchBlockOptions = {
+    page,
+    pageSize,
+    method,
+    orderBy: options.orderBy ?? 7,
+    groupBy: options.groupBy ?? 0,
+    types: options.types,
+    subTypes: options.subTypes,
+    paths: options.paths,
+  };
+
+  const result = await fullTextSearchBlock(options.query, searchOptions);
+  if (result === null && options.orderBy === undefined && searchOptions.orderBy === 7) {
+    const fallbackOptions: FullTextSearchBlockOptions = {
+      ...searchOptions,
+      orderBy: undefined,
+    };
+    return fullTextSearchBlock(options.query, fallbackOptions);
+  }
+  return result;
+}
+
+export async function fullTextSearchBlockReadonly(
+  query: string,
+  pageOrOptions: number | Omit<KernelSearchReadonlyOptions, "query"> = 1,
+) {
+  if (typeof pageOrOptions === "number") {
+    return kernelSearchReadonly({ query, page: pageOrOptions });
+  }
+  return kernelSearchReadonly({ query, ...pageOrOptions });
+}
+
+export interface FullTextSearchPagedOptions extends Omit<KernelSearchReadonlyOptions, "query" | "page"> {
+  /** Maximum number of pages to fetch. Default 3, hard-capped at 3. */
   maxPages?: number;
-  /** Maximum total block results to collect. Default 200. */
+  /** Maximum total block results to collect. Default 150, hard-capped at 150. */
   maxRows?: number;
 }
 
@@ -109,23 +184,48 @@ export async function fullTextSearchBlockAllPagesReadonly(
   query: string,
   options?: FullTextSearchPagedOptions,
 ) {
-  const maxPages = options?.maxPages ?? 5;
-  const maxRows = options?.maxRows ?? 200;
+  const maxPages = clampPositiveInteger(
+    options?.maxPages,
+    KERNEL_SEARCH_DEFAULT_MAX_PAGES,
+    KERNEL_SEARCH_MAX_PAGES,
+  );
+  const maxRows = clampPositiveInteger(
+    options?.maxRows,
+    KERNEL_SEARCH_DEFAULT_MAX_ROWS,
+    KERNEL_SEARCH_MAX_ROWS,
+  );
+  const pageSize = clampPositiveInteger(
+    options?.pageSize,
+    KERNEL_SEARCH_DEFAULT_PAGE_SIZE,
+    KERNEL_SEARCH_MAX_PAGE_SIZE,
+  );
 
   const seen = new Set<string>();
   const allBlocks: NonNullable<Awaited<ReturnType<typeof fullTextSearchBlock>>["blocks"]> = [];
   let totalMatchCount = 0;
   let totalDocCount = 0;
+  let totalPageCount = 0;
 
-  for (let page = 0; page < maxPages; page++) {
-    const result = await fullTextSearchBlock(query, page);
+  for (let page = 1; page <= maxPages; page++) {
+    const result = await kernelSearchReadonly({
+      query,
+      page,
+      pageSize,
+      method: options?.method ?? 0,
+      orderBy: options?.orderBy ?? 7,
+      groupBy: options?.groupBy ?? 0,
+      types: options?.types,
+      subTypes: options?.subTypes,
+      paths: options?.paths,
+    });
     if (!result || !result.blocks || result.blocks.length === 0) {
       break;
     }
 
-    if (page === 0) {
-      totalMatchCount = result.matchCount ?? 0;
-      totalDocCount = result.docCount ?? 0;
+    if (page === 1) {
+      totalMatchCount = result.matchedBlockCount ?? result.matchCount ?? 0;
+      totalDocCount = result.matchedRootCount ?? result.docCount ?? 0;
+      totalPageCount = result.pageCount ?? 0;
     }
 
     let addedThisPage = 0;
@@ -142,8 +242,11 @@ export async function fullTextSearchBlockAllPagesReadonly(
       break;
     }
 
-    // If the page returned fewer than a full page (64), no more results likely.
-    if (result.blocks.length < 64) {
+    if (result.pageCount && page >= result.pageCount) {
+      break;
+    }
+
+    if (result.blocks.length < pageSize) {
       break;
     }
   }
@@ -152,6 +255,9 @@ export async function fullTextSearchBlockAllPagesReadonly(
     blocks: allBlocks,
     matchCount: totalMatchCount,
     docCount: totalDocCount,
+    matchedBlockCount: totalMatchCount,
+    matchedRootCount: totalDocCount,
+    pageCount: totalPageCount,
   };
 }
 

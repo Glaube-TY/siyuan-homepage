@@ -1,4 +1,8 @@
-import { selectPaged } from "@/components/tools/siyuanSqlPaging";
+import {
+    getHomepageGlobalSqlPolicy,
+    getTaskIndexResult,
+    type ComponentDataResult,
+} from "@/components/tools/siyuanComponentDataApi";
 
 export interface RecentTasksInfo {
     id: string;
@@ -9,23 +13,9 @@ export interface RecentTasksInfo {
     hpath: string;
 }
 
-// 仅包含任务解析、排序、来源与状态更新所需字段
-const TASK_FIELDS = [
-    "id",
-    "markdown",
-    "updated",
-    "hpath",
-    "box",
-].join(", ");
-
-export async function gettasksList(): Promise<any[]> {
-    const query = `
-        SELECT ${TASK_FIELDS}
-        FROM blocks
-        WHERE subtype = 't' AND type != 'l'
-        ORDER BY updated DESC, id DESC
-    `;
-    return selectPaged(query, { pageSize: 64, maxRows: 10000 });
+export async function gettasksList(plugin?: any): Promise<ComponentDataResult<any>> {
+    const policy = plugin ? await getHomepageGlobalSqlPolicy(plugin) : undefined;
+    return getTaskIndexResult([], policy, plugin);
 }
 
 export async function formatTasksList(

@@ -3,7 +3,6 @@ import {
     deleteBlock,
     getBlockKramdown,
     moveBlock,
-    sql,
     updateBlock,
 } from "@/api";
 import {
@@ -24,6 +23,11 @@ import { formatDiaryDate, isEnhancedDiarySystemTaskMarkdown } from "../enhancedD
 import { getDayWorkspaceSections } from "../enhancedDiaryWorkspaceSections";
 import { addDays, daysBetweenLocalDates, formatLocalDate } from "./enhancedDiaryWorkspaceDate";
 import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
+import {
+    getTaskIndexResult,
+    removeTaskIndexItem,
+    updateTaskIndexItem,
+} from "@/components/tools/siyuanComponentDataApi";
 
 export type EnhancedDiaryWorkspaceTaskSourceKind = "new" | "migrated" | "normal";
 
@@ -158,16 +162,12 @@ async function getTodaySectionTaskSets(
 
 export async function queryWorkspaceTasks(
     config: EnhancedDiaryConfig,
-    today: Date
+    today: Date,
+    plugin?: any,
 ): Promise<EnhancedDiaryWorkspaceTask[]> {
     const todayStr = formatDiaryDate(today);
-    const rows = await sql(`
-        SELECT id, root_id, box, hpath, markdown, content, created, updated
-        FROM blocks
-        WHERE subtype = 't' AND type != 'l'
-        ORDER BY updated DESC
-        LIMIT 2000
-    `);
+    const taskResult = await getTaskIndexResult([], undefined, plugin);
+    const rows = taskResult.items;
 
     const sourceDocs = await querySourceDocs((rows || []).map((row) => row.root_id));
     const todaySets = await getTodaySectionTaskSets(today, config);
@@ -258,6 +258,22 @@ async function updateTaskFirstLine(
 
     try {
         await updateBlock("markdown", lines.join("\n"), task.blockId);
+        try {
+            await updateTaskIndexItem({
+                id: task.blockId,
+                rootID: task.rootId || task.blockId,
+                root_id: task.rootId || task.blockId,
+                box: task.box,
+                hpath: task.hpath,
+                markdown: newFirstLine,
+                content: parseTaskLine(newFirstLine).taskname || newFirstLine,
+                checked: isTaskCompleted(newFirstLine),
+                updated: new Date().toISOString(),
+                source: "plugin",
+            });
+        } catch {
+            // 索引同步失败不影响已完成的块更新。
+        }
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceTaskService] update task failed", err);
@@ -382,6 +398,11 @@ export async function deleteWorkspaceTask(
 
     try {
         await deleteBlock(task.blockId);
+        try {
+            await removeTaskIndexItem(task.blockId);
+        } catch {
+            // 索引同步失败不影响已完成的块删除。
+        }
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceTaskService] delete task failed", err);
@@ -446,6 +467,22 @@ export async function migrateWorkspaceTaskToToday(
             reason: "move_failed",
             message: "移动任务失败，原任务已保留。",
         };
+    }
+    try {
+        await updateTaskIndexItem({
+            id: task.blockId,
+            rootID: todayDoc.docId,
+            root_id: todayDoc.docId,
+            box: task.box,
+            hpath: task.hpath,
+            markdown: task.markdown,
+            content: task.taskname,
+            checked: task.completed,
+            updated: new Date().toISOString(),
+            source: "plugin",
+        });
+    } catch {
+        // 索引同步失败不影响已完成的块移动。
     }
 
     try {

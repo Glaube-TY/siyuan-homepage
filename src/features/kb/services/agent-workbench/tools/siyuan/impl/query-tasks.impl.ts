@@ -7,6 +7,7 @@ import type {
 } from "../contracts/query-tasks.contract";
 import {
   countTaskPriority,
+  createDiaryToolPluginAdapter,
   formatAgendaDate,
   loadAgendaEnhancedDiaryConfig,
   mapAgendaTask,
@@ -128,7 +129,7 @@ export async function executeQueryTasks(
   const date = parseAgendaDate(input.date);
   const dateText = formatAgendaDate(date);
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const tasks = await queryWorkspaceTasks(config, date);
+  const tasks = await queryWorkspaceTasks(config, date, createDiaryToolPluginAdapter(deps));
 
   const matched = tasks
     .filter((task) => taskMatchesScope(task, input.scope, dateText))

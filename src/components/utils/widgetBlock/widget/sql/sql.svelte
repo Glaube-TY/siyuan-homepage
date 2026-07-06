@@ -22,6 +22,8 @@
 
     let filteredData: any[] = $state([]);
     let notebooksList: any[] = [];
+    let sqlStatus = $state<"idle" | "empty_config" | "success_empty" | "success" | "error">("idle");
+    let sqlStatusMessage = $state("");
 
     const hiddenFields = $derived(
         parsed.data?.hiddenFields
@@ -114,8 +116,25 @@
     }
 
     async function runSql() {
-        const result = await sql(sqlInput);
-        filteredData = result.map(processItem);
+        const statement = String(sqlInput || "").trim();
+        if (!statement) {
+            filteredData = [];
+            sqlStatus = "empty_config";
+            sqlStatusMessage = "这是用户自定义 SQL 组件，需要在组件设置中填写 SQL 语句；主页全库 SQL 兼容模式不会自动为此组件生成查询。";
+            return;
+        }
+        try {
+            const result = await sql(statement);
+            filteredData = Array.isArray(result) ? result.map(processItem) : [];
+            sqlStatus = filteredData.length > 0 ? "success" : "success_empty";
+            sqlStatusMessage = filteredData.length > 0
+                ? "用户自定义 SQL 可能触发全库扫描"
+                : "查询成功，但没有结果。";
+        } catch (error) {
+            filteredData = [];
+            sqlStatus = "error";
+            sqlStatusMessage = error instanceof Error ? error.message : "SQL 执行失败";
+        }
     }
 
     async function getNotebooks() {
@@ -192,7 +211,12 @@
                 </tbody>
             </table>
         {:else}
-            <p>无查询结果</p>
+            <div class="sql-empty-state" class:error={sqlStatus === "error"}>
+                <strong>{sqlStatus === "empty_config" ? "未配置 SQL 查询" : sqlStatus === "success_empty" ? "查询成功，但没有结果" : sqlStatus === "error" ? "SQL 执行失败" : "暂无结果"}</strong>
+                {#if sqlStatusMessage}
+                    <span class="sql-status-detail">{sqlStatusMessage}</span>
+                {/if}
+            </div>
         {/if}
     </div>
 </div>
@@ -271,12 +295,32 @@
                 }
             }
 
-            // 空状态提示美化
-            p {
+            .sql-empty-state {
                 text-align: center;
-                color: var(--text-secondary);
+                color: var(--b3-theme-secondary);
                 padding: 1.5rem;
-                font-style: italic;
+                min-height: 120px;
+                border: 1px dashed var(--b3-border-color);
+                border-radius: 8px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+
+                strong {
+                    color: var(--b3-theme-on-surface);
+                }
+
+                &.error strong {
+                    color: #d14343;
+                }
+
+                .sql-status-detail {
+                    font-size: 12px;
+                    line-height: 1.4;
+                    max-width: 280px;
+                }
             }
         }
     }

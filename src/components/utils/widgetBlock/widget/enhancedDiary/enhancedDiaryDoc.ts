@@ -42,19 +42,7 @@ export function formatDiaryAttrDate(date: Date): string {
 }
 
 export async function findDiaryDocumentByDate(date: Date): Promise<{ id: string; title?: string } | null> {
-    const yyyymmdd = formatDiaryAttrDate(date);
-    const query = `SELECT id, content FROM blocks WHERE type = 'd' AND ial LIKE '%custom-dailynote-${yyyymmdd}%' ORDER BY created DESC LIMIT 1`;
-    try {
-        const results = await sql(query);
-        if (results && results.length > 0) {
-            return {
-                id: results[0].id,
-                title: results[0].content,
-            };
-        }
-    } catch (err) {
-        console.warn("[enhancedDiaryDoc] findDiaryDocumentByDate failed", err);
-    }
+    void date;
     return null;
 }
 

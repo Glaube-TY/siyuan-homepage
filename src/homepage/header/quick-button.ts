@@ -262,7 +262,7 @@ export function reRegisterAllShortcuts(buttonsList: ButtonItem[]): void {
     });
 }
 
-function createOpenHomepageSetting(plugin: any) {
+export function createOpenHomepageSetting(plugin: any) {
     return function OpenHomepageSetting() {
         const dialog = svelteDialog({
             title: "主页设置",

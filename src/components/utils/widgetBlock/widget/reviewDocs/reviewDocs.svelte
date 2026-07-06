@@ -9,6 +9,7 @@
         setMouseOnTrigger,
     } from "@/components/tools/floatingDoc";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
     import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
     import ReviewDocsDialog from "./reviewDocsDialog.svelte";
     import ReviewDatePickerDialog from "./ReviewDatePickerDialog.svelte";
@@ -20,7 +21,7 @@
         finishReviewTarget,
         getDefaultManualNextDate,
         getReviewSummary,
-        loadAllReviewItems,
+        loadAllReviewItemsResult,
         postponeReviewTarget,
         updateReviewTarget,
         type ReviewOperationResult,
@@ -50,12 +51,13 @@
 
     let advancedEnabled = $state(false);
     let isLoading = $state(true);
-    let isRefreshing = $state(false);
     let actionTargetId = $state("");
     let allItems = $state<ReviewItem[]>([]);
     let effectiveDatabaseId = $state("");
     let logStatusMessage = $state("");
     let todayReviewed = $state<number | null>(null);
+    let reviewIndexStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
+    let reviewIndexMessage = $state("复习文档全库扫描已停用；新加入复习的文档会进入索引。");
     let currentView = $state<ReviewView>("due");
     let currentSortBy = $state<ReviewSortBy>("dueAsc");
     let selectedCategory = $state("");
@@ -118,11 +120,12 @@
 
     async function refreshAll() {
         if (!advancedEnabled || isDestroyed) return;
-        isRefreshing = true;
         try {
-            const items = await loadAllReviewItems();
+            const result = await loadAllReviewItemsResult(plugin);
             if (isDestroyed) return;
-            allItems = items;
+            allItems = result.items;
+            reviewIndexStatus = result.status;
+            reviewIndexMessage = result.message || reviewIndexMessage;
             const stats = await loadReviewLogStats(effectiveDatabaseId);
             if (isDestroyed) return;
             todayReviewed = stats.todayReviewed;
@@ -133,7 +136,6 @@
         } finally {
             if (!isDestroyed) {
                 isLoading = false;
-                isRefreshing = false;
             }
         }
     }
@@ -523,10 +525,19 @@
             {#if isLoading}
                 <div class="empty-state">加载复习计划...</div>
             {:else if visibleItems.length === 0}
-                <div class="empty-state">
-                    <strong>暂无需要复习的内容。</strong>
-                    <span>你可以在文档树、文档标题或正文块右键菜单中选择「加入复习计划」。</span>
-                </div>
+                {#if reviewIndexStatus === "disabled"}
+                    <HomepageGlobalSqlEmptyState
+                        title="复习文档全库扫描已停用"
+                        message={reviewIndexMessage}
+                        {plugin}
+                        hint="新增复习计划会进入索引，或在主页设置开启全库 SQL 兼容模式。"
+                    />
+                {:else}
+                    <div class="empty-state">
+                        <strong>暂无可显示的复习计划</strong>
+                        <span>{reviewIndexMessage}</span>
+                    </div>
+                {/if}
             {:else}
                 {#each visibleItems as item}
                     <article

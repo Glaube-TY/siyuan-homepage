@@ -6,6 +6,7 @@
     import "./homepageSettingStyle/homepageSetting.scss"
     import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
     import {
+        normalizeAllowHomepageGlobalSqlQuery,
         normalizeBannerGlassBlur,
         normalizeBannerGlassColor,
         normalizeBannerGlassColorMode,
@@ -72,6 +73,7 @@
     let tempAutoOpenHomepage = $state(true);
     let sidebarEnabled = $state(false);
     let autoOpenMobileHomepage = $state(false);
+    let allowHomepageGlobalSqlQuery = $state(false);
     let settingsActiveTab = $state<HomepageSettingSubTab>("behavior");
     // 横幅区域相关配置变量
     let bannerEnabled = true;
@@ -480,6 +482,8 @@
             sidebarEnabled = savedConfig.sidebarEnabled ?? false;
             autoOpenMobileHomepage =
                 savedConfig.autoOpenMobileHomepage ?? false;
+            allowHomepageGlobalSqlQuery =
+                normalizeAllowHomepageGlobalSqlQuery(savedConfig.allowHomepageGlobalSqlQuery);
 
             // 横幅配置
             bannerEnabled = savedConfig.bannerEnabled ?? true;
@@ -948,6 +952,7 @@
             autoOpenHomepage: tempAutoOpenHomepage,
             sidebarEnabled: sidebarEnabled,
             autoOpenMobileHomepage: autoOpenMobileHomepage,
+            allowHomepageGlobalSqlQuery: normalizeAllowHomepageGlobalSqlQuery(allowHomepageGlobalSqlQuery),
 
             // 横幅配置
             bannerEnabled: tempBannerEnabled,
@@ -1170,10 +1175,12 @@
                             tempAutoOpenHomepage={tempAutoOpenHomepage}
                             sidebarEnabled={sidebarEnabled}
                             autoOpenMobileHomepage={autoOpenMobileHomepage}
+                            allowHomepageGlobalSqlQuery={allowHomepageGlobalSqlQuery}
                             showMobilePreview={!plugin?.isMobile}
                             onTempAutoOpenHomepageChange={(value) => tempAutoOpenHomepage = value}
                             onSidebarEnabledChange={(value) => sidebarEnabled = value}
                             onAutoOpenMobileHomepageChange={(value) => autoOpenMobileHomepage = value}
+                            onAllowHomepageGlobalSqlQueryChange={(value) => allowHomepageGlobalSqlQuery = value}
                             onOpenMobileHomepagePreview={openMobileHomepagePreviewDialog}
                         />
                     {/if}

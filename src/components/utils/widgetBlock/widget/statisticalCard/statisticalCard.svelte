@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
     import { getStatisticalData } from "../../../../tools/statisticalAPI";
     import { sql } from "@/api";
 
@@ -24,7 +25,9 @@
         $derived(parsedContent.data?.statisticalCardCountColor || "#000000");
     let customSQLCount = $derived(parsedContent.data?.customSQLCount || "");
 
-    let statisticalCount = $state(0);
+    let statisticalCount = $state<number | null>(null);
+    let statisticalStatus = $state<"ok" | "disabled" | "unsupported" | "error" | "empty">("empty");
+    let statisticalMessage = $state("");
 
     let advancedEnabled = $state(false);
 
@@ -32,13 +35,30 @@
         advancedEnabled = plugin.ADVANCED;
 
         if (statisticalCardContent === "customSQLCount") {
-            const res = await sql(customSQLCount);
-            statisticalCount = res.length;
+            if (!String(customSQLCount || "").trim()) {
+                statisticalCount = null;
+                statisticalStatus = "empty";
+                statisticalMessage = "未配置 SQL";
+                return;
+            }
+            try {
+                const res = await sql(customSQLCount);
+                statisticalCount = Array.isArray(res) ? res.length : 0;
+                statisticalStatus = "ok";
+                statisticalMessage = "用户自定义 SQL 可能触发全库扫描";
+            } catch (error) {
+                statisticalCount = null;
+                statisticalStatus = "error";
+                statisticalMessage = error instanceof Error ? error.message : "SQL 执行失败";
+            }
         } else {
-            statisticalCount = await getStatisticalData(
+            const result = await getStatisticalData(
                 statisticalCardContent,
                 plugin,
             );
+            statisticalCount = result.value;
+            statisticalStatus = result.status;
+            statisticalMessage = result.message || "";
         }
     });
 </script>
@@ -54,12 +74,33 @@
             </div>
         </div>
         <div class="card-body">
-            <div
-                class="statistical-count"
-                style="font-size: {statisticalCardCountSize}rem; color: {statisticalCardCountColor};"
-            >
-                {statisticalCount}
-            </div>
+            {#if statisticalCount === null}
+                {#if statisticalStatus === "disabled"}
+                    <HomepageGlobalSqlEmptyState
+                        title="全库统计已停用"
+                        message={statisticalMessage}
+                        {plugin}
+                        hint="在主页设置开启全库 SQL 兼容模式可恢复统计，但大库可能影响性能。"
+                    />
+                {:else}
+                    <div class="statistical-disabled">
+                        <strong>{statisticalStatus === "empty" ? "未配置 SQL" : "已停用全库统计"}</strong>
+                        {#if statisticalMessage}
+                            <span>{statisticalMessage}</span>
+                        {/if}
+                    </div>
+                {/if}
+            {:else}
+                <div
+                    class="statistical-count"
+                    style="font-size: {statisticalCardCountSize}rem; color: {statisticalCardCountColor};"
+                >
+                    {statisticalCount}
+                </div>
+                {#if statisticalMessage && statisticalStatus !== "ok"}
+                    <div class="statistical-hint">{statisticalMessage}</div>
+                {/if}
+            {/if}
         </div>
     {:else}
         <div class="content-not-advanced">
@@ -104,14 +145,48 @@
         .card-body {
             flex: 1;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             padding-top: 0.5rem;
-            word-break: break-all;
+            gap: 4px;
 
             .statistical-count {
                 font-size: 2.5rem;
                 font-weight: 700;
+                white-space: nowrap;
+                word-break: normal;
+                line-height: 1;
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .statistical-disabled {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                text-align: center;
+                line-height: 1.5;
+
+                strong {
+                    color: var(--b3-theme-on-surface);
+                    font-size: 16px;
+                }
+
+                span {
+                    color: var(--b3-theme-secondary);
+                    font-size: 12px;
+                }
+            }
+
+            .statistical-hint {
+                margin-top: 6px;
+                color: var(--b3-theme-secondary);
+                font-size: 12px;
+                text-align: center;
             }
         }
 

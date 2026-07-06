@@ -6,10 +6,12 @@
         tempAutoOpenHomepage: boolean;
         sidebarEnabled: boolean;
         autoOpenMobileHomepage: boolean;
+        allowHomepageGlobalSqlQuery: boolean;
         showMobilePreview?: boolean;
         onTempAutoOpenHomepageChange: (value: boolean) => void;
         onSidebarEnabledChange: (value: boolean) => void;
         onAutoOpenMobileHomepageChange: (value: boolean) => void;
+        onAllowHomepageGlobalSqlQueryChange: (value: boolean) => void;
         onOpenMobileHomepagePreview?: () => void;
     }
 
@@ -17,10 +19,12 @@
         tempAutoOpenHomepage,
         sidebarEnabled,
         autoOpenMobileHomepage,
+        allowHomepageGlobalSqlQuery,
         showMobilePreview = false,
         onTempAutoOpenHomepageChange,
         onSidebarEnabledChange,
         onAutoOpenMobileHomepageChange,
+        onAllowHomepageGlobalSqlQueryChange,
         onOpenMobileHomepagePreview
     }: Props = $props();
 </script>
@@ -59,6 +63,18 @@
             class="b3-switch fn__flex-center"
             checked={autoOpenMobileHomepage}
             onchange={(e) => onAutoOpenMobileHomepageChange((e.currentTarget as HTMLInputElement).checked)}
+        />
+    </SettingRow>
+
+    <SettingRow
+        title="允许主页组件使用全库 SQL 兼容模式"
+        description="开启后，任务、收藏、复习、热力图、统计等组件可使用全库 SQL 查询以显示完整数据；大库可能增加 kernel 内存和 CPU 压力。"
+    >
+        <input
+            type="checkbox"
+            class="b3-switch fn__flex-center"
+            checked={allowHomepageGlobalSqlQuery}
+            onchange={(e) => onAllowHomepageGlobalSqlQueryChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
 

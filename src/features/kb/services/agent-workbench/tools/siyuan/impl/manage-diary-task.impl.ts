@@ -10,7 +10,7 @@ import { addNewTaskToDiary, getOrCreateTodayDiaryDocument } from "@/components/u
 import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryTaskInput, ManageDiaryTaskOutput } from "../contracts/manage-diary-task.contract";
-import { loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
+import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
 
 /** 将优先级数字 1-4 转为任务管理 Plus 的 ❗ 格式 */
 function priorityToSymbols(level: number | undefined): string | undefined {
@@ -21,13 +21,15 @@ function priorityToSymbols(level: number | undefined): string | undefined {
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryTaskOutput; errorCode?: string };
 
 async function findTask(
+  deps: KbRetrievalToolDeps,
   config: Awaited<ReturnType<typeof loadAgendaEnhancedDiaryConfig>>,
   target: { blockId?: string; taskId?: string },
 ): Promise<{ task: EnhancedDiaryWorkspaceTask | undefined; errorCode?: string; message?: string }> {
   if (!target.blockId && !target.taskId) {
     return { task: undefined, errorCode: "invalid_input", message: "必须提供 target.blockId 或 target.taskId。" };
   }
-  const tasks = await queryWorkspaceTasks(config, new Date());
+  const pluginAdapter = createDiaryToolPluginAdapter(deps);
+  const tasks = await queryWorkspaceTasks(config, new Date(), pluginAdapter);
   const task = tasks.find(
     (t) =>
       (target.blockId && t.blockId === target.blockId) ||
@@ -56,8 +58,8 @@ async function executeCreate(
   args: ManageDiaryTaskInput,
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const plugin = deps.getScope?.() ?? {};
-  const doc = await ensureTodayDoc(plugin, config);
+  const pluginAdapter = createDiaryToolPluginAdapter(deps);
+  const doc = await ensureTodayDoc(pluginAdapter, config);
   if (!doc.docId) {
     return { ok: false, errorCode: doc.errorCode, safeOutput: { operation: "create", changed: false, message: doc.message! } };
   }
@@ -97,16 +99,16 @@ async function executeMigrate(
   args: ManageDiaryTaskInput,
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const plugin = deps.getScope?.() ?? {};
+  const pluginAdapter = createDiaryToolPluginAdapter(deps);
 
   // 先找任务，找不到直接失败，不创建今日日记
-  const found = await findTask(config, args.target!);
+  const found = await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "migrate", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
 
   // migrateWorkspaceTaskToToday 内部会创建/获取今日日记
-  const result = await migrateWorkspaceTaskToToday(plugin, config, found.task);
+  const result = await migrateWorkspaceTaskToToday(pluginAdapter, config, found.task);
   if (!result.ok) {
     return {
       ok: false,
@@ -126,7 +128,7 @@ async function executeSetStatus(
   args: ManageDiaryTaskInput,
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const found = await findTask(config, args.target!);
+  const found = await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "set_status", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
@@ -162,7 +164,7 @@ async function executeUpdate(
   args: ManageDiaryTaskInput,
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const found = await findTask(config, args.target!);
+  const found = await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "update", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
@@ -202,7 +204,7 @@ async function executePostpone(
   args: ManageDiaryTaskInput,
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const found = await findTask(config, args.target!);
+  const found = await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "postpone", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
@@ -230,15 +232,15 @@ async function executeDelete(
   args: ManageDiaryTaskInput,
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const plugin = deps.getScope?.() ?? {};
-  const found = await findTask(config, args.target!);
+  const pluginAdapter = createDiaryToolPluginAdapter(deps);
+  const found = await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "delete", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
 
   const task = found.task;
   const mode = args.deleteMode || "log";
-  const result = await deleteWorkspaceTask(plugin, config, task, mode);
+  const result = await deleteWorkspaceTask(pluginAdapter, config, task, mode);
 
   if (!result.ok) {
     return {

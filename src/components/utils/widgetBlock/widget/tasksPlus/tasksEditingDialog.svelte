@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { sql, getBlockKramdown, updateBlock as updateBlockAPI } from "@/api";
+    import { updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
 
     interface Props {
         blockId: string;
@@ -189,6 +190,7 @@
         await getParentBlock();
 
         let updatedMarkdown = generateTaskMarkdown();
+        const originalBlockId = blockId;
 
         if (parentBlockType != "d") {
             blockId = parentBlockId;
@@ -197,6 +199,16 @@
         }
 
         await updateBlockAPI("markdown", updatedMarkdown, blockId);
+        await updateTaskIndexItem({
+            id: originalBlockId,
+            rootID: blockId,
+            root_id: blockId,
+            markdown: updatedMarkdown,
+            content: taskData.taskname,
+            checked: /\[[xX]\]/.test(taskData.taskCheck),
+            updated: new Date().toISOString(),
+            source: "plugin",
+        });
 
         close();
     }

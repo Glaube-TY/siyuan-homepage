@@ -1,4 +1,3 @@
-import { sql } from "@/api";
 import { getStatisticalData } from "../../components/tools/statisticalAPI";
 
 function parseDateToTimestamp(dateStr: string): number | null {
@@ -86,10 +85,13 @@ export async function parseDurationExpression(expression: string, plugin: any) {
 export async function loadStatsData(statisticalContent: string, plugin: any) {
     try {
         let res: any;
+        const loadStatValue = async (type: string) => {
+            const result = await getStatisticalData(type, plugin);
+            return result.value ?? "已停用全库统计";
+        };
 
         if (statisticalContent === "startDate") { // 获取第一个文档的创建时间
-            const startDateResult = await sql("SELECT created AS startDate FROM blocks WHERE type = 'd' ORDER BY created ASC LIMIT 1;");
-            res = formatSiYuanTime(startDateResult[0]?.startDate || "未知");
+            res = "未知";
         } else if (statisticalContent === "nowDate") { // 获取当前日期时间
             const today = new Date();
             const year = String(today.getFullYear());
@@ -101,29 +103,29 @@ export async function loadStatsData(statisticalContent: string, plugin: any) {
             const nowDate = `${year}年${month}月${day}日 ${hours}:${minutes}:${seconds}`;
             res = nowDate;
         } else if (statisticalContent === "docsCount") { // 获取文档数量
-            res = await getStatisticalData("docsCount", plugin);
+            res = await loadStatValue("docsCount");
         } else if (statisticalContent === "notebooksCount") { // 获取笔记本数量
-            res = await getStatisticalData("notebooksCount", plugin);
+            res = await loadStatValue("notebooksCount");
         } else if (statisticalContent === "blocksCount") { // 获取块数量
-            res = await getStatisticalData("blocksCount", plugin);
+            res = await loadStatValue("blocksCount");
         } else if (statisticalContent === "wordsCount") { // 获取字数量
-            res = await getStatisticalData("wordsCount", plugin);
+            res = await loadStatValue("wordsCount");
         } else if (statisticalContent === "tasksCount") { // 获取任务数量
-            res = await getStatisticalData("tasksCount", plugin);
+            res = await loadStatValue("tasksCount");
         } else if (statisticalContent === "doneTasksCount") { // 获取已完成任务数量
-            res = await getStatisticalData("doneTasksCount", plugin);
+            res = await loadStatValue("doneTasksCount");
         } else if (statisticalContent === "undoneTasksCount") { // 获取未完成任务数量
-            res = await getStatisticalData("undoneTasksCount", plugin);
+            res = await loadStatValue("undoneTasksCount");
         } else if (statisticalContent === "dailynotesCount") { // 获取日记数量
-            res = await getStatisticalData("dailynotesCount", plugin);
+            res = await loadStatValue("dailynotesCount");
         } else if (statisticalContent === "tagsCount") { // 获取标签数量
-            res = await getStatisticalData("tagsCount", plugin);
+            res = await loadStatValue("tagsCount");
         } else if (statisticalContent === "codeBlocksCount") { // 获取代码块数量
-            res = await getStatisticalData("codeBlocksCount", plugin);
+            res = await loadStatValue("codeBlocksCount");
         } else if (statisticalContent === "mathBlocksCount") { // 获取数学块数量
-            res = await getStatisticalData("mathBlocksCount", plugin);
+            res = await loadStatValue("mathBlocksCount");
         } else if (statisticalContent === "citationCount") { // 获取引用数量
-            res = await getStatisticalData("citationCount", plugin);
+            res = await loadStatValue("citationCount");
         } else {
             res = "未知";
         }
@@ -134,13 +136,4 @@ export async function loadStatsData(statisticalContent: string, plugin: any) {
         return "未知";
     }
 
-    function formatSiYuanTime(timestamp: string): string {
-        if (!timestamp || timestamp === "未知") return "未知";
-
-        const year = timestamp.substring(0, 4);
-        const month = timestamp.substring(4, 6);
-        const day = timestamp.substring(6, 8);
-
-        return `${year}年${month}月${day}日`;
-    }
 }
