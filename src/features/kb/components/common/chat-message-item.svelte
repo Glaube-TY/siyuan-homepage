@@ -1400,6 +1400,9 @@
   .message-text {
     user-select: text;
     -webkit-user-select: text;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .user-bubble {
