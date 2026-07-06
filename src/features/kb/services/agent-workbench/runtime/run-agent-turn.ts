@@ -176,7 +176,8 @@ export async function runAgentTurn(
     const disabledGlobalTools = new Set(settings.toolSettings?.disabledGlobalToolNames ?? []);
     const globalToolAccess = {
       editGlobalMemory: !disabledGlobalTools.has("edit_global_memory"),
-      agentToolHelp: !disabledGlobalTools.has("agent_tool_help"),
+      // agent_tool_help 是系统必需工具，不受用户 disabledGlobalToolNames 影响，始终启用。
+      agentToolHelp: true,
       webFetch: !disabledGlobalTools.has("web_fetch"),
     };
 
@@ -434,6 +435,19 @@ export async function runAgentTurn(
       ...(settings.toolSettings?.disabledWriteToolConfirmationNames ?? []),
       ...(settings.mcp?.trustedToolNames ?? []),
     ];
+    // Append action-level trusted entries (encoded as "toolName:actionName")
+    // from toolActionConfirmOverrides. Only false values mean trusted.
+    const actionOverrides = settings.toolSettings?.toolActionConfirmOverrides;
+    if (actionOverrides && typeof actionOverrides === "object") {
+      for (const [toolName, actionMap] of Object.entries(actionOverrides)) {
+        if (!actionMap || typeof actionMap !== "object") continue;
+        for (const [actionName, flag] of Object.entries(actionMap)) {
+          if (flag === false) {
+            autoAllowedToolNames.push(`${toolName}:${actionName}`);
+          }
+        }
+      }
+    }
 
     const loopResult = await runNativeAgentLoop({
       provider,

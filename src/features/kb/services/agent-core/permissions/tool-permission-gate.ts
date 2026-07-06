@@ -18,9 +18,16 @@ export interface ToolPermissionGate {
  * Default permission gate — for readOnly tools returns allow immediately,
  * for write tools delegates to the bridge.
  *
- * `autoAllowedToolNames`: tool names that the user has explicitly trusted
- * and should skip the confirmation dialog. These tools still go through
- * preview (to obtain confirmationId) and all safety guards.
+ * `autoAllowedToolNames`: trusted entries that skip the confirmation dialog.
+ * Each entry may be either:
+ *   - A bare tool name (e.g. "edit_global_memory"): trusted at tool level.
+ *     Used for direct tools without action and for backwards compatibility.
+ *   - A "toolName:actionName" pair (e.g. "siyuan_doc_edit:delete_blocks"):
+ *     trusted at action level. Only matched when args.action === actionName.
+ *
+ * Trusted entries still go through preview (to obtain confirmationId),
+ * safety checks, duplicate-write guards and validateInputForPreview.
+ * A safety/deny verdict returned by preview is never bypassed by trust.
  */
 export class DefaultToolPermissionGate implements ToolPermissionGate {
   private readonly autoAllowedNames: Set<string>;
@@ -105,8 +112,14 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
       return { decision: { type: "allow" }, preview };
     }
 
-    // User-trusted tools: auto-allow after preview
-    if (this.autoAllowedNames.has(params.tool.name)) {
+    // User-trusted entries: auto-allow after preview.
+    // Resolve args.action for aggregate tools so trust can be configured at action level.
+    const actionName = typeof params.args.action === "string" ? params.args.action : undefined;
+    const toolLevelTrusted = this.autoAllowedNames.has(params.tool.name);
+    const actionLevelTrusted = actionName
+      ? this.autoAllowedNames.has(`${params.tool.name}:${actionName}`)
+      : false;
+    if (toolLevelTrusted || actionLevelTrusted) {
       return { decision: { type: "allow" }, preview };
     }
 

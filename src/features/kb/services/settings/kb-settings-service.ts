@@ -32,7 +32,7 @@ import {
   createEmptySecretDecryptDiagnostics,
 } from "./kb-sensitive-secret-crypto";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
-import { AGGREGATE_TOOL_NAMES } from "../agent-workbench/tools/aggregate/aggregate-tool-metadata";
+import { AGGREGATE_TOOL_NAMES, AGGREGATE_TOOL_CATALOG, findAggregateToolMeta } from "../agent-workbench/tools/aggregate/aggregate-tool-metadata";
 import {
   BUILTIN_SKILL_TO_AGGREGATE_TOOL,
   OLD_TOOL_TO_AGGREGATE_TOOL,
@@ -215,6 +215,80 @@ function toAggregateGlobalToolName(rawName: unknown): KbToolSettings["disabledGl
   return migrated ? migrated as KbToolSettings["disabledGlobalToolNames"][number] : null;
 }
 
+/**
+ * 系统必需、固定启用、用户不可关闭的内置工具。
+ * 这些工具不会进入 disabledGlobalToolNames；设置页应展示为只读固定卡片。
+ */
+const SYSTEM_REQUIRED_TOOL_NAMES = new Set<string>(["agent_tool_help"]);
+
+/** 无 action 的直接写工具：仍使用 disabledWriteToolConfirmationNames（工具级确认开关）。 */
+const DIRECT_WRITE_TOOL_NAMES = new Set<string>(
+  AGGREGATE_TOOL_CATALOG
+    .filter((tool) => tool.actions.length === 0 && !tool.readOnly)
+    .map((tool) => tool.name),
+);
+
+/** 返回某聚合工具下所有 requiresConfirmation=true 的 action 名称（仅写入 action）。 */
+function writeActionsOf(toolName: string): string[] {
+  const meta = findAggregateToolMeta(toolName);
+  if (!meta) return [];
+  return meta.actions.filter((a) => !a.readOnly).map((a) => a.name);
+}
+
+/**
+ * 归一化 action 级确认覆盖配置。
+ * - 仅保留合法 (toolName, actionName) 组合
+ * - 仅对聚合工具且有 actions 的工具生效；无 action 工具直接忽略
+ * - 仅保留 requiresConfirmation=true 的 action（只读 action 永远不弹确认，无需覆盖）
+ * - 旧 tool 级 disabledWriteToolConfirmationNames 中属于聚合工具的，迁移到该工具所有写入 action，值为 false
+ *   只读 action 不受迁移影响
+ * - 旧字段中属于无 action 直接工具的，仍由调用方保留在 disabledWriteToolConfirmationNames
+ */
+function normalizeToolActionConfirmOverrides(
+  raw: unknown,
+  legacyWriteConfirmationNames: readonly string[],
+): NonNullable<KbToolSettings["toolActionConfirmOverrides"]> {
+  const result: Record<string, Record<string, boolean>> = {};
+  const aggregateToolNames: Set<string> = new Set(
+    AGGREGATE_TOOL_CATALOG.filter((t) => t.actions.length > 0).map((t) => t.name),
+  );
+
+  // 1. 解析 raw overrides
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const entries = raw as Record<string, unknown>;
+    for (const [toolName, actionMap] of Object.entries(entries)) {
+      if (!aggregateToolNames.has(toolName)) continue;
+      const validActions = new Set(writeActionsOf(toolName));
+      if (!actionMap || typeof actionMap !== "object" || Array.isArray(actionMap)) continue;
+      const actionEntries = actionMap as Record<string, unknown>;
+      for (const [actionName, flag] of Object.entries(actionEntries)) {
+        if (!validActions.has(actionName)) continue;
+        if (typeof flag !== "boolean") continue;
+        if (!result[toolName]) result[toolName] = {};
+        result[toolName][actionName] = flag;
+      }
+    }
+  }
+
+  // 2. 迁移旧 tool 级 disabledWriteToolConfirmationNames
+  //    属于聚合工具的，迁移到该工具所有写入 action，值为 false（trusted）
+  //    属于无 action 直接工具的，由调用方保留在原字段，不在此处理
+  for (const name of legacyWriteConfirmationNames) {
+    if (!aggregateToolNames.has(name)) continue;
+    const actions = writeActionsOf(name);
+    if (actions.length === 0) continue;
+    if (!result[name]) result[name] = {};
+    for (const actionName of actions) {
+      // 只在用户未显式覆盖时设为 false；已存在值不覆盖
+      if (result[name][actionName] === undefined) {
+        result[name][actionName] = false;
+      }
+    }
+  }
+
+  return result;
+}
+
 function migrateDisabledBuiltinSkillsToTools(
   skillSettings: KbSkillSettings | undefined,
 ): KbToolSettings["disabledGlobalToolNames"] {
@@ -230,8 +304,11 @@ function migrateDisabledBuiltinSkillsToTools(
  * 归一化全局工具设置
  * - 只保留合法聚合工具名
  * - 迁移旧全局小工具名和旧内置 Skill 禁用项到聚合工具
+ * - 系统必需工具（agent_tool_help）永远不进入 disabledGlobalToolNames，历史配置中存在也会被过滤
  * - 去重
  * - 旧设置缺失时回退默认值
+ * - 旧 tool 级 disabledWriteToolConfirmationNames 中属于聚合工具的，迁移到 toolActionConfirmOverrides
+ *   仅保留属于无 action 直接工具的条目在 disabledWriteToolConfirmationNames
  */
 function normalizeToolSettings(raw: unknown, skillSettings?: KbSkillSettings): KbToolSettings {
   const hasRawToolSettings = !!raw && typeof raw === "object";
@@ -247,6 +324,8 @@ function normalizeToolSettings(raw: unknown, skillSettings?: KbSkillSettings): K
       .filter((n): n is KbToolSettings["disabledGlobalToolNames"][number] => !!n);
   }
   names = [...new Set([...names, ...migrateDisabledBuiltinSkillsToTools(skillSettings)])];
+  // 系统必需工具永远固定启用：从 disabledGlobalToolNames 中移除
+  names = names.filter((n) => !SYSTEM_REQUIRED_TOOL_NAMES.has(n));
 
   // 归一化旧字段 disabledDangerousSkillToolConfirmationNames（迁移用）
   const validDangerousToolNames: KbDangerousSkillToolName[] = [
@@ -281,11 +360,22 @@ function normalizeToolSettings(raw: unknown, skillSettings?: KbSkillSettings): K
   }
   writeConfirmationNames = [...new Set(writeConfirmationNames)];
 
+  // 归一化 toolActionConfirmOverrides + 迁移旧 tool 级 trusted（聚合工具部分）
+  const rawOverrides = s.toolActionConfirmOverrides;
+  const overrides = normalizeToolActionConfirmOverrides(rawOverrides, writeConfirmationNames);
+
+  // writeConfirmationNames 仅保留无 action 的直接工具（如 edit_global_memory）
+  // 聚合工具的 trusted 已迁移到 overrides，不再保留在 writeConfirmationNames
+  const directWriteConfirmationNames = writeConfirmationNames.filter((n) => DIRECT_WRITE_TOOL_NAMES.has(n));
+
   const result: KbToolSettings = {
     disabledGlobalToolNames: names,
   };
-  if (writeConfirmationNames.length > 0) {
-    result.disabledWriteToolConfirmationNames = writeConfirmationNames;
+  if (directWriteConfirmationNames.length > 0) {
+    result.disabledWriteToolConfirmationNames = directWriteConfirmationNames;
+  }
+  if (Object.keys(overrides).length > 0) {
+    result.toolActionConfirmOverrides = overrides;
   }
   // 保留旧字段存储（下次合并时仍可读取）
   if (dangerousNames.length > 0) {

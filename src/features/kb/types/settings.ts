@@ -171,12 +171,26 @@ export type KbDangerousSkillToolName =
 
 /** 全局工具设置 */
 export type KbToolSettings = {
-  /** 被禁用的全局工具名称列表 */
+  /** 被禁用的全局工具名称列表。agent_tool_help 永远不在此列表中（系统必需，固定启用）。 */
   disabledGlobalToolNames: KbGlobalToolName[];
   /** 保留旧设置迁移用；已合并到 disabledWriteToolConfirmationNames */
   disabledDangerousSkillToolConfirmationNames?: KbDangerousSkillToolName[];
-  /** 已被用户设为"可信免确认"的写工具名称列表 */
+  /**
+   * 旧字段：工具级"可信免确认"写工具名称列表。
+   * 仅对无 action 的直接工具（如 edit_global_memory）继续生效。
+   * 有 action 的聚合工具应使用 toolActionConfirmOverrides 进行 action 级覆盖。
+   * 历史值会在归一化时迁移到 toolActionConfirmOverrides。
+   */
   disabledWriteToolConfirmationNames?: string[];
+  /**
+   * action 级确认覆盖配置。
+   * 结构：{ [toolName]: { [actionName]: boolean } }
+   * - true  表示需要确认（即便 metadata 默认 requiresConfirmation=false 也强制确认；当前仅对 requiresConfirmation=true 的 action 生效）
+   * - false 表示用户已设为可信免确认（仍会经过 preview / safety guards / validateInputForPreview，但不弹用户确认）
+   * 只对聚合工具（有 actions）且 metadata 标记 requiresConfirmation=true 的 action 生效。
+   * 无 action 的直接工具仍使用 disabledWriteToolConfirmationNames。
+   */
+  toolActionConfirmOverrides?: Record<string, Record<string, boolean>>;
 };
 
 /** 快捷提示语设置 */
