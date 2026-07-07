@@ -1,6 +1,7 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, tick, onDestroy } from "svelte";
     import Quill from "quill";
+    import "quill/dist/quill.snow.css";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
@@ -15,119 +16,108 @@
 
     let editor: any;
     let editorContainer: HTMLDivElement = $state();
-    let toolbarContainer: HTMLDivElement = $state();
     let backgroundImage: string = $state("");
     let customColor: string = $state("");
+    let errorMessage: string = $state("");
 
     let advancedEnabled = $state(false);
 
-    onMount(() => {
-        advancedEnabled = plugin.ADVANCED;
+    const STIKYNOT_TOOLBAR_OPTIONS = [
+        [{ header: 1 }, { header: 2 }, { header: 3 }],
+        ["bold", "italic", "underline", "strike"],
+        [{ list: "ordered" }, { list: "bullet" }],
+        [{ script: "sub" }, { script: "super" }],
+        [{ color: [] }, { background: [] }],
+        ["blockquote", "code-block"],
+        ["link", "image", "clean"],
+    ];
 
-        if (advancedEnabled && !plugin.isMobile) {
-            if (!editorContainer || !toolbarContainer) {
-                console.error("编辑器或工具栏容器未找到");
-                return;
-            }
+    onMount(async () => {
+        advancedEnabled = Boolean(plugin?.ADVANCED);
+        if (!advancedEnabled || plugin?.isMobile) {
+            return;
+        }
 
-            if (typeof Quill === "undefined") {
-                console.error("Quill 未正确加载");
-                return;
-            }
+        errorMessage = "";
+        await tick();
 
-            // 初始化 Quill 编辑器
+        if (!editorContainer) {
+            errorMessage = "便签编辑器加载失败";
+            return;
+        }
+
+        if (typeof Quill === "undefined") {
+            errorMessage = "便签编辑器加载失败";
+            return;
+        }
+
+        try {
             editor = new Quill(editorContainer, {
                 theme: "snow",
                 bounds: editorContainer,
                 modules: {
-                    toolbar: {
-                        container: toolbarContainer,
-                    },
+                    toolbar: STIKYNOT_TOOLBAR_OPTIONS,
                 },
                 placeholder: "输入你的便签内容...",
             });
-
-            // 加载保存的内容
-            plugin
-                .loadData(`widget-${parsedContent.blockId}.json`)
-                .then((saved) => {
-                    if (saved && saved.html) {
-                        editor.root.innerHTML = saved.html;
-                    }
-                });
-
-            // 自动保存逻辑
-            editor.on("text-change", () => {
-                autoSaveContent();
-            });
-
-            setBackground();
-
-            (window as any).stikynot = { getContent };
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            const truncated = msg.length > 80 ? msg.slice(0, 80) + "..." : msg;
+            errorMessage = `便签编辑器加载失败：${truncated}`;
+            return;
         }
 
-        return () => {
-            // 清理自动保存 timeout
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
+        plugin
+            .loadData(`widget-${parsedContent.blockId}.json`)
+            .then((saved: any) => {
+                if (saved && saved.html) {
+                    editor.root.innerHTML = saved.html;
+                }
+            });
 
-            // 移除 window.stikynot（只移除自己挂载的）
-            if ((window as any).stikynot?.getContent === getContent) {
-                delete (window as any).stikynot;
-            }
+        editor.on("text-change", () => {
+            autoSaveContent();
+        });
 
-            // 释放 editor 引用
-            editor = null;
-        };
+        setBackground();
+    });
+
+    onDestroy(() => {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+        editor = null;
     });
 
     function setBackground() {
-        if (stikynotStyle === "kraftPaper") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/kraftPaper.jpg`;
-            customColor = "black";
-        } else if (stikynotStyle === "marble") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/marble.jpg`;
-            customColor = "black";
-        } else if (stikynotStyle === "BlueSky") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/BlueSky.jpg`;
-            customColor = "black";
-        } else if (stikynotStyle === "waterDrop") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/waterDrop.jpg`;
-            customColor = "black";
-        } else if (stikynotStyle === "Stars") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/Stars.jpg`;
-            customColor = "white";
-        } else if (stikynotStyle === "Ink") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/Ink.jpg`;
-            customColor = "black";
-        } else if (stikynotStyle === "sunsetHeart") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/sunsetHeart.jpg`;
-            customColor = "black";
-        } else if (stikynotStyle === "PinkPorcelain") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/PinkPorcelain.jpg`;
-            customColor = "black";
-        } else if (stikynotStyle === "beach") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/beach.jpg`;
-            customColor = "black";
-        } else if (stikynotStyle === "wood") {
-            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/wood.jpg`;
-            customColor = "white";
+        const bgMap: Record<string, { image: string; color: string }> = {
+            kraftPaper: { image: "kraftPaper.jpg", color: "black" },
+            marble: { image: "marble.jpg", color: "black" },
+            BlueSky: { image: "BlueSky.jpg", color: "black" },
+            waterDrop: { image: "waterDrop.jpg", color: "black" },
+            Stars: { image: "Stars.jpg", color: "white" },
+            Ink: { image: "Ink.jpg", color: "black" },
+            sunsetHeart: { image: "sunsetHeart.jpg", color: "black" },
+            PinkPorcelain: { image: "PinkPorcelain.jpg", color: "black" },
+            beach: { image: "beach.jpg", color: "black" },
+            wood: { image: "wood.jpg", color: "white" },
+        };
+        const preset = bgMap[stikynotStyle];
+        if (preset) {
+            backgroundImage = `/plugins/siyuan-homepage/asset/stikynotimg/${preset.image}`;
+            customColor = preset.color;
         }
-    }
-
-    function getContent() {
-        return editor?.root?.innerHTML || "";
     }
 
     let timeoutId: number | null = null;
     async function autoSaveContent() {
+        if (!editor) return;
         if (timeoutId) {
             clearTimeout(timeoutId);
         }
         timeoutId = window.setTimeout(async () => {
-            const html = editor.root.innerHTML;
+            const html = editor?.root?.innerHTML || "";
             const saveconf = {
                 ...parsedContent,
                 html,
@@ -141,44 +131,12 @@
 </script>
 
 <div
-    class="content-display"
-    style="background-image: url({backgroundImage}); color: {customColor};"
+    class="stikynot-display"
+    style:background-image={backgroundImage ? `url(${backgroundImage})` : undefined}
+    style:color={customColor || undefined}
 >
-    <div bind:this={editorContainer} class="stikynot-content"></div>
-    <div bind:this={toolbarContainer} class="stikynot-toolbar">
-        <span class="ql-formats">
-            <button class="ql-header" value="1">H1</button>
-            <button class="ql-header" value="2">H2</button>
-            <button class="ql-header" value="3">H3</button>
-            <button class="ql-header" value="4">H4</button>
-            <button class="ql-header" value="5">H5</button>
-            <button class="ql-header" value="6">H6</button>
-            <button class="ql-size" value="small">小</button>
-            <button class="ql-size" value="large">中</button>
-            <button class="ql-size" value="huge">大</button>
-            <button class="ql-bold" title="粗体"></button>
-            <button class="ql-italic" title="斜体"></button>
-            <button class="ql-underline" title="下划线"></button>
-            <button class="ql-strike" title="删除线"></button>
-            <button class="ql-list" value="ordered" title="有序列表"></button>
-            <button class="ql-script" value="sub" title="下标"></button>
-            <button class="ql-script" value="super" title="上标"></button>
-            <select class="ql-color" title="文字颜色"></select>
-            <select class="ql-background" title="背景颜色"></select>
-            <button class="ql-blockquote" title="引用"></button>
-            <button class="ql-code-block" title="代码块"></button>
-            <button class="ql-indent" value="+1" title="增加缩进"></button>
-            <button class="ql-indent" value="-1" title="减少缩进"></button>
-            <button class="ql-direction" value="rtl" title="文字方向"></button>
-            <button class="ql-link" title="链接"></button>
-            <button class="ql-image" title="图片"></button>
-            <button class="ql-video" title="视频"></button>
-            <button class="ql-formula" title="公式"></button>
-            <button class="ql-clean" title="清除格式"></button>
-        </span>
-    </div>
     {#if !advancedEnabled}
-        <div class="content-not-advanced">
+        <div class="stikynot-lock">
             <AdvancedFeatureLock
                 title="便签"
                 subtitle="快速记录灵感和备忘，支持富文本编辑。"
@@ -193,38 +151,32 @@
             />
         </div>
     {:else if plugin.isMobile}
-        <div>移动端无法使用该功能</div>
+        <div class="stikynot-lock">移动端无法使用该功能</div>
+    {:else if errorMessage}
+        <div class="stikynot-error">{errorMessage}</div>
+    {:else}
+        <div class="stikynot-editor-shell">
+            <div bind:this={editorContainer} class="stikynot-content"></div>
+        </div>
     {/if}
 </div>
 
 <style lang="scss">
-    .content-display {
+    .stikynot-display {
         width: 100%;
-        height: calc(100%);
+        height: 100%;
         display: flex;
         flex-direction: column;
         box-sizing: border-box;
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        overflow-y: auto;
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
         background-blend-mode: overlay;
+        overflow: hidden;
 
-        .stikynot-toolbar {
-            display: none !important;
-
-            &:hover {
-                display: block !important;
-            }
-        }
-
-        .stikynot-content:focus-within + .stikynot-toolbar {
-            display: block !important;
-        }
-
-        .content-not-advanced {
+        .stikynot-lock {
             width: 100%;
             height: 100%;
             display: flex;
@@ -232,6 +184,93 @@
             align-items: center;
             justify-content: center;
             gap: 1rem;
+        }
+
+        .stikynot-error {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            color: var(--b3-theme-on-surface, #5f6368);
+            padding: 1rem;
+        }
+
+        .stikynot-editor-shell {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 0;
+        }
+
+        /* ---- editor area (order:1) ---- */
+        :global(.ql-container.ql-snow) {
+            order: 1;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+            border: none !important;
+        }
+
+        :global(.ql-editor) {
+            min-height: 0;
+            padding: 8px 12px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        :global(.ql-editor img) {
+            max-width: 100%;
+            height: auto;
+        }
+
+        :global(.ql-editor.ql-blank::before) {
+            font-style: italic;
+            color: var(--b3-theme-on-surface-light, #9ca3af);
+        }
+
+        /* ---- toolbar at bottom (order:2) ---- */
+        :global(.ql-toolbar.ql-snow) {
+            order: 2;
+            border: none !important;
+            padding: 2px 4px;
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            overflow-y: visible;
+            white-space: nowrap;
+            flex-shrink: 0;
+            min-height: 32px;
+        }
+
+        :global(.ql-toolbar.ql-snow .ql-formats) {
+            display: inline-flex;
+            align-items: center;
+            flex-wrap: nowrap;
+            gap: 0;
+            margin-right: 6px;
+        }
+
+        :global(.ql-toolbar.ql-snow button) {
+            width: 26px;
+            height: 26px;
+            flex-shrink: 0;
+        }
+
+        :global(.ql-toolbar.ql-snow button svg) {
+            width: 16px;
+            height: 16px;
+        }
+
+        :global(.ql-toolbar.ql-snow .ql-picker) {
+            flex-shrink: 0;
+        }
+
+        :global(.ql-toolbar.ql-snow .ql-picker-options) {
+            min-width: auto;
+            font-size: 12px;
         }
     }
 </style>
