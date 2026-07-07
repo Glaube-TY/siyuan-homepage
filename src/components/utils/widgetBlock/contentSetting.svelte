@@ -55,6 +55,11 @@
         syncDatabaseIdToSameTypeWidgets,
         type DatabaseWidgetType,
     } from "./widget/sharedDatabaseId";
+    import {
+        loadHomepageSettingConfig,
+        normalizeNotebookOptions,
+    } from "@/homepage/homepageSetting/config";
+    import type { NotebookOption } from "./widget/common/componentMigrationTypes";
     type CountdownEventForm = Partial<CountdownEventRecord> & {
         name: string;
         date: string;
@@ -165,8 +170,9 @@
     let internalFilter: string = $state("all");
     let customFilter: string = $state("");
     let tasksSort: string = $state("startdate");
+    let tasksPlusSelectedNotebookIds: NotebookOption[] = $state([]);
 
-    // 快速笔记相关变量
+        // 快速笔记相关变量
     let quickNotesTitle: string = $state("快速笔记");
     let quickNotesSort: string = $state("DOC_ASC");
 
@@ -396,6 +402,7 @@
     let reviewDocsShowFloatDoc: boolean = $state(true);
     let reviewDocsFloatDocShowTime: number = $state(0.1);
     let reviewDocsDefaultIntervals: string = $state("0,1,2,4,7,15,30,60");
+    let reviewDocsSelectedNotebookIds: NotebookOption[] = $state([]);
 
     let advancedEnabled = $state(false);
 
@@ -531,6 +538,11 @@
 
         const result = await lsNotebooks();
         notebooks = result.notebooks;
+
+        // 加载全局配置（迁移状态等）
+        const homepageConfig = await loadHomepageSettingConfig(plugin);
+        if (homepageConfig) {
+        }
 
         if (settingData && !forceInitialContentType) {
             let parsedData: any;
@@ -795,6 +807,9 @@
                     parsedData.data?.internalFilter || internalFilter;
                 customFilter = parsedData.data?.customFilter || customFilter;
                 tasksSort = parsedData.data?.tasksSort || tasksSort;
+                tasksPlusSelectedNotebookIds = normalizeNotebookOptions(
+                    parsedData.data?.tasksPlusSelectedNotebookIds,
+                );
             } else if (parsedData.type === "quick-notes") {
                 quickNotesTitle =
                     parsedData.data?.quickNotesTitle || quickNotesTitle;
@@ -1024,6 +1039,9 @@
                     parsedData.data?.reviewDocsFloatDocShowTime || reviewDocsFloatDocShowTime;
                 reviewDocsDefaultIntervals =
                     parsedData.data?.reviewDocsDefaultIntervals || reviewDocsDefaultIntervals;
+                reviewDocsSelectedNotebookIds = normalizeNotebookOptions(
+                    parsedData.data?.reviewDocsSelectedNotebookIds,
+                );
             } else if (parsedData.type === "conditionDocs") {
                 conditionDocsTitle =
                     parsedData.data?.conditionDocsTitle || conditionDocsTitle;
@@ -1430,6 +1448,8 @@
                         bind:internalFilter
                         bind:customFilter
                         bind:tasksSort
+                        bind:tasksPlusSelectedNotebookIds
+                        {notebooks}
                     />
                 {:else if selectedContentType === "quick-notes"}
                     <QuickNotesSet bind:quickNotesTitle bind:quickNotesSort />
@@ -1476,6 +1496,8 @@
                         bind:reviewDocsShowFloatDoc
                         bind:reviewDocsFloatDocShowTime
                         bind:reviewDocsDefaultIntervals
+                        bind:reviewDocsSelectedNotebookIds
+                        {notebooks}
                     />
                 {:else if selectedContentType === "enhancedDiary"}
                     <EnhancedDiarySet {plugin} bind:draftConfig={enhancedDiaryDraftConfig} />
@@ -2059,6 +2081,7 @@
                             internalFilter,
                             customFilter,
                             tasksSort,
+                            tasksPlusSelectedNotebookIds,
                         },
                     };
                 } else if (selectedContentType === "quick-notes") {
@@ -2293,6 +2316,7 @@
                             reviewDocsShowFloatDoc,
                             reviewDocsFloatDocShowTime,
                             reviewDocsDefaultIntervals,
+                            reviewDocsSelectedNotebookIds,
                         },
                     };
                 } else if (selectedContentType === "conditionDocs") {
@@ -2329,6 +2353,7 @@
                     }
                 }
 
+                // 保存全局迁移状态到 homepageSettingConfig，避免与 widget 实例配置混淆
                 await syncCurrentDatabaseWidgetConfig(contentTypeJson);
                 onConfirm(JSON.stringify(contentTypeJson));
             }}

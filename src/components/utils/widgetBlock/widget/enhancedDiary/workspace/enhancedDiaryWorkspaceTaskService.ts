@@ -25,6 +25,9 @@ import { addDays, daysBetweenLocalDates, formatLocalDate } from "./enhancedDiary
 import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
 import {
     getTaskIndexResult,
+    ensureTaskBlockExists,
+    ensureTaskIndexInitialized,
+    refreshTaskIndexFromRecentDocuments,
     removeTaskIndexItem,
     updateTaskIndexItem,
 } from "@/components/tools/siyuanComponentDataApi";
@@ -166,7 +169,9 @@ export async function queryWorkspaceTasks(
     plugin?: any,
 ): Promise<EnhancedDiaryWorkspaceTask[]> {
     const todayStr = formatDiaryDate(today);
-    const taskResult = await getTaskIndexResult([], undefined, plugin);
+    await ensureTaskIndexInitialized(plugin);
+    await refreshTaskIndexFromRecentDocuments(plugin);
+    const taskResult = await getTaskIndexResult([], plugin);
     const rows = taskResult.items;
 
     const sourceDocs = await querySourceDocs((rows || []).map((row) => row.root_id));
@@ -234,8 +239,7 @@ async function readTaskBlockMarkdown(task: EnhancedDiaryWorkspaceTask): Promise<
     try {
         const block = await getBlockKramdown(task.blockId);
         return stripKramdownAttrs(block?.kramdown || "");
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceTaskService] read task block failed", err);
+    } catch {
         return null;
     }
 }
@@ -244,6 +248,13 @@ async function updateTaskFirstLine(
     task: EnhancedDiaryWorkspaceTask,
     newFirstLine: string
 ): Promise<WorkspaceTaskActionResult> {
+    if (!(await ensureTaskBlockExists(task.blockId))) {
+        return {
+            ok: false,
+            reason: "missing_task",
+            message: "任务块已删除，已清理索引。",
+        };
+    }
     const current = await readTaskBlockMarkdown(task);
     if (!current) {
         return {
@@ -275,8 +286,7 @@ async function updateTaskFirstLine(
             // 索引同步失败不影响已完成的块更新。
         }
         return { ok: true };
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceTaskService] update task failed", err);
+    } catch {
         return {
             ok: false,
             reason: "update_failed",
@@ -369,6 +379,13 @@ export async function deleteWorkspaceTask(
     task: EnhancedDiaryWorkspaceTask,
     mode: "log" | "delete"
 ): Promise<WorkspaceTaskActionResult> {
+    if (!(await ensureTaskBlockExists(task.blockId))) {
+        return {
+            ok: false,
+            reason: "missing_task",
+            message: "任务块已删除，已清理索引。",
+        };
+    }
     if (mode === "log") {
         const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
         if (!todayDoc.ok || !todayDoc.docId) {
@@ -404,8 +421,7 @@ export async function deleteWorkspaceTask(
             // 索引同步失败不影响已完成的块删除。
         }
         return { ok: true };
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceTaskService] delete task failed", err);
+    } catch {
         return {
             ok: false,
             reason: "delete_failed",
@@ -423,6 +439,14 @@ export async function migrateWorkspaceTaskToToday(
     config: EnhancedDiaryConfig,
     task: EnhancedDiaryWorkspaceTask
 ): Promise<WorkspaceTaskActionResult> {
+    if (!(await ensureTaskBlockExists(task.blockId))) {
+        return {
+            ok: false,
+            changed: false,
+            reason: "missing_task",
+            message: "任务块已删除，已清理索引。",
+        };
+    }
     if (task.isTodayTask || task.sourceKind === "migrated") {
         return { 
             ok: false, 
@@ -459,8 +483,7 @@ export async function migrateWorkspaceTaskToToday(
 
     try {
         await moveBlock(task.blockId, anchor.previousID, anchor.parentID);
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceTaskService] move task failed", err);
+    } catch {
         return {
             ok: false,
             changed: false,
@@ -491,8 +514,7 @@ export async function migrateWorkspaceTaskToToday(
             `- 迁移来源：${buildSourceLink(task)}\n- 迁移时间：${formatNowTime()}`,
             task.blockId
         );
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceTaskService] append migrate source failed", err);
+    } catch {
         return {
             ok: false,
             changed: true,
@@ -509,8 +531,12 @@ export async function migrateWorkspaceTaskToToday(
             headingStructure: config.headingStructure,
             mapping: config.templateFieldMapping,
         });
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceTaskService] append migrate log failed", err);
+    } catch {
+        return {
+            ok: true,
+            changed: true,
+            message: "任务已迁移，但迁移日志追加失败。",
+        };
     }
 
     return { ok: true, changed: true };

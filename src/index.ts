@@ -14,7 +14,6 @@ import { loadWidgetLayoutSettings, buildHomepageAppliedSignature } from "@/compo
 import type { WidgetLayoutData } from "@/components/utils/widgetBlock/utils/layout-shared";
 import { destroyFloatingDoc } from "@/components/tools/floatingDoc";
 import { destroyFloatingMini } from "@/components/utils/widgetBlock/widget/musicPlayer/musicFloatingMiniManager";
-import { setBlockAttrs } from "@/api";
 import {
     loadHomepageConfig,
     resolveBackgroundImage,
@@ -1724,7 +1723,6 @@ export default class PluginHomepage extends Plugin {
                 4000,
             );
         } catch (error) {
-            console.error("取消复习计划失败", error);
             showMessage(error instanceof Error ? error.message : "取消复习计划失败", 4000);
         }
     }
@@ -1792,14 +1790,10 @@ export default class PluginHomepage extends Plugin {
                     label: "收藏文档",
                     click: async () => {
                         try {
-                            await setBlockAttrs(docId, {
-                                "custom-homepage-favorites": "true"
-                            });
                             await updateFavoriteIndex(docId, true);
                             showMessage("已收藏");
                         } catch (err) {
-                            console.error("收藏失败", err);
-                            showMessage("收藏失败，请查看控制台日志");
+                            showMessage(err instanceof Error ? err.message : "收藏失败");
                         }
                     }
                 },
@@ -1808,14 +1802,10 @@ export default class PluginHomepage extends Plugin {
                     label: "取消收藏",
                     click: async () => {
                         try {
-                            await setBlockAttrs(docId, {
-                                "custom-homepage-favorites": ""
-                            });
                             await updateFavoriteIndex(docId, false);
                             showMessage("已取消收藏");
                         } catch (err) {
-                            console.error("取消收藏失败", err);
-                            showMessage("取消收藏失败，请查看控制台日志");
+                            showMessage(err instanceof Error ? err.message : "取消收藏失败");
                         }
                     }
                 },

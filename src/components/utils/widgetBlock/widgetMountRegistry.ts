@@ -112,6 +112,8 @@ const widgetNeedsPlugin: Set<string> = new Set([
 export interface WidgetRuntimeContext {
     placement?: "homepage" | "sidebar" | "mobile" | "preview" | "dock";
     previewMode?: boolean;
+    forceIndexRefresh?: boolean;
+    refreshReason?: "initial" | "manual" | "settings";
 }
 
 export function mountWidgetContent(
@@ -160,6 +162,8 @@ export function mountWidgetContent(
     props.runtimeContext = {
         placement,
         previewMode: runtimeContext.previewMode ?? false,
+        forceIndexRefresh: runtimeContext.forceIndexRefresh === true,
+        refreshReason: runtimeContext.refreshReason || "initial",
     };
     props.previewMode = runtimeContext.previewMode ?? false;
 

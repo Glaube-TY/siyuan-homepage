@@ -2,19 +2,26 @@
     import { run } from 'svelte/legacy';
 
     import { onMount } from "svelte";
+    import { showMessage } from "siyuan";
     import { getLatestTasks, type RecentTasksInfo } from "./recentTasks";
     import { openDocs } from "@/components/tools/openDocs";
     import { updateTaskListItemMarker } from "@/api";
-    import { updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
-    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
+    import {
+        ensureTaskBlockExists,
+        ensureTaskIndexInitialized,
+        refreshTaskIndexFromRecentDocuments,
+        updateTaskIndexItem,
+    } from "@/components/tools/siyuanComponentDataApi";
+    import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
         placement?: string;
+        runtimeContext?: WidgetRuntimeContext;
     }
 
-    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage", runtimeContext = {} }: Props = $props();
 
     const parsed = $derived(JSON.parse(contentTypeJson));
     const isMobilePlacement = $derived(placement === "mobile");
@@ -23,8 +30,9 @@
     let recentTasks: RecentTasksInfo[] = $state([]);
     let showTasksDetails: boolean = $state();
     let TaskManTitle: string = $state();
-    let taskDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let taskStatusMessage = $state("任务全库扫描已停用。请配置任务范围，或点击“建立任务索引”。");
+    let taskDataStatus = $state<"ok" | "empty" | "limited" | "unsupported" | "error">("empty");
+    let taskStatusMessage = $state("任务索引为空，请到主页设置 > 检索管理中建立任务索引或刷新最近文档增量索引。");
+    let isInitializing = $state(false);
 
     // 最终显示的任务列表
     let displayedTasks: Array<{
@@ -42,16 +50,46 @@
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
     let isDestroyed = false;
 
+    async function loadTasks() {
+        await refreshTaskIndexFromRecentDocuments(plugin, {
+            force: runtimeContext.forceIndexRefresh === true,
+        });
+        const result = await getLatestTasks(parsed.data?.tasksNotebookId, plugin);
+        if (isDestroyed) return;
+        recentTasks = result.items;
+        taskDataStatus = result.status === "disabled" ? "empty" : result.status;
+        taskStatusMessage = result.message || "";
+        showTasksDetails = parsed.data?.showTasksDetails ?? true;
+        TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
+    }
+
     onMount(() => {
         isDestroyed = false;
-        getLatestTasks(parsed.data?.tasksNotebookId, plugin).then((result) => {
-            if (isDestroyed) return;
-            recentTasks = result.items;
-            taskDataStatus = result.status;
-            taskStatusMessage = result.message || "";
-            showTasksDetails = parsed.data?.showTasksDetails ?? true;
-            TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
-        });
+        isInitializing = true;
+        taskStatusMessage = "正在初始化任务索引...";
+        ensureTaskIndexInitialized(plugin)
+            .then((initResult) => {
+                if (isDestroyed) return;
+                if (initResult.initialized && initResult.status.lastStatus !== "success") {
+                    taskDataStatus = "error";
+                    taskStatusMessage = `${initResult.status.lastMessage || "任务索引初始化失败"}，请到主页设置 > 检索管理中手动重建索引。`;
+                    isInitializing = false;
+                    showTasksDetails = parsed.data?.showTasksDetails ?? true;
+                    TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
+                    return;
+                }
+                return loadTasks().finally(() => {
+                    if (!isDestroyed) isInitializing = false;
+                });
+            })
+            .catch(() => {
+                if (isDestroyed) return;
+                taskDataStatus = "error";
+                taskStatusMessage = "任务索引初始化失败，请到主页设置 > 检索管理中手动重建索引。";
+                isInitializing = false;
+                showTasksDetails = parsed.data?.showTasksDetails ?? true;
+                TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
+            });
 
         return () => {
             isDestroyed = true;
@@ -91,6 +129,13 @@
         const marker = isChecked ? "X" : " ";
 
         try {
+            const exists = await ensureTaskBlockExists(task.id);
+            if (!exists) {
+                showMessage("任务块已删除，已清理索引", 3000);
+                displayedTasks = displayedTasks.filter((item) => item.id !== task.id);
+                event.preventDefault();
+                return;
+            }
             await updateTaskListItemMarker(task.id, marker);
 
             // 更新本地数据
@@ -109,11 +154,11 @@
                 checked: isChecked,
                 source: "plugin",
             });
-        } catch (err) {
-            console.error("更新任务失败:", err);
+        } catch {
             // 回滚复选框状态
             task.checked = !isChecked;
             event.preventDefault();
+            showMessage("更新任务失败", 3000);
         }
     }
 
@@ -205,8 +250,7 @@
                     // 如果类型不是 TaskMan，默认仍然显示所有任务
                     displayedTasks = [...pendingTasks, ...completedTasks];
                 }
-            } catch (e) {
-                console.error("解析 contentTypeJson 出错", e);
+            } catch {
                 // 解析失败时也显示全部任务
                 displayedTasks = [...pendingTasks, ...completedTasks];
             }
@@ -224,7 +268,9 @@
         </header>
 
         <div class="mobile-task-list">
-            {#if displayedTasks.length > 0}
+            {#if isInitializing}
+                <div class="mobile-task-empty">正在初始化任务索引...</div>
+            {:else if displayedTasks.length > 0}
                 {#each displayedTasks as task (task.id + "-" + task.updated)}
                     <div class="mobile-task-row" class:completed={task.checked}>
                         <label class="mobile-task-check" aria-label="切换任务完成状态">
@@ -246,16 +292,7 @@
                     </div>
                 {/each}
             {:else}
-                {#if taskDataStatus === "disabled"}
-                    <HomepageGlobalSqlEmptyState
-                        title="任务全库扫描已停用"
-                        message={taskStatusMessage}
-                        {plugin}
-                        hint="配置任务范围、建立索引，或在主页设置开启全库 SQL 兼容模式。"
-                    />
-                {:else}
-                    <div class="mobile-task-empty">{taskStatusMessage}</div>
-                {/if}
+                <div class="mobile-task-empty">{taskStatusMessage}</div>
             {/if}
         </div>
     </div>
@@ -263,7 +300,11 @@
     <div class="content-display">
         <h3 class="widget-title">{TaskManTitle}</h3>
         <ul class="task-list">
-            {#if displayedTasks.length > 0}
+            {#if isInitializing}
+                <div class="task-empty-state">
+                    <strong>正在初始化任务索引...</strong>
+                </div>
+            {:else if displayedTasks.length > 0}
                 {#each displayedTasks as task (task.id + "-" + task.updated)}
                     <li class="task-item" class:completed={task.checked}>
                         <div class="task-header">
@@ -307,19 +348,10 @@
                     </li>
                 {/each}
             {:else}
-                {#if taskDataStatus === "disabled"}
-                    <HomepageGlobalSqlEmptyState
-                        title="任务全库扫描已停用"
-                        message={taskStatusMessage}
-                        {plugin}
-                        hint="配置任务范围、建立索引，或在主页设置开启全库 SQL 兼容模式。"
-                    />
-                {:else}
-                    <div class="task-empty-state">
-                        <strong>{taskDataStatus === "disabled" ? "任务全库扫描已停用" : "没有可显示的任务"}</strong>
-                        <span>{taskStatusMessage || "请配置任务范围，或点击“建立任务索引”。"}</span>
-                    </div>
-                {/if}
+                <div class="task-empty-state">
+                    <strong>{taskDataStatus === "empty" ? "任务索引为空" : "没有可显示的任务"}</strong>
+                    <span>{taskStatusMessage || "请到主页设置 > 检索管理中维护任务索引。"}</span>
+                </div>
             {/if}
         </ul>
     </div>

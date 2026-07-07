@@ -1,6 +1,6 @@
 import { unmount } from "svelte";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
-import { mountWidgetContent } from "../../components/utils/widgetBlock/widgetMountRegistry";
+import { mountWidgetContent, type WidgetRuntimeContext } from "../../components/utils/widgetBlock/widgetMountRegistry";
 import { stringifyWidgetConfigForMount } from "../../components/utils/widgetBlock/utils/layout-shared";
 
 type MobileWidgetEventName =
@@ -161,9 +161,8 @@ export class WidgetBlock {
         }
     }
 
-    public updateContent(contentTypeJson?: string): void {
+    public updateContent(contentTypeJson?: string, runtimeContext: WidgetRuntimeContext = {}): void {
         if (!contentTypeJson) {
-            console.warn("未提供有效的 content 数据");
             return;
         }
 
@@ -172,6 +171,7 @@ export class WidgetBlock {
         this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson, {
             placement: "mobile",
             previewMode: this.previewMode,
+            ...runtimeContext,
         });
         this.setupChromeEventListeners();
     }
@@ -179,15 +179,16 @@ export class WidgetBlock {
     public async refreshContent(): Promise<void> {
         const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
         if (!widgetConfig) {
-            console.warn("未找到对应的 widget 配置");
             return;
         }
         const contentJson = stringifyWidgetConfigForMount(widgetConfig);
         if (!contentJson) {
-            console.warn("无法解析对应的 widget 配置");
             return;
         }
-        this.updateContent(contentJson);
+        this.updateContent(contentJson, {
+            forceIndexRefresh: true,
+            refreshReason: "manual",
+        });
         this.dispatchMobileEvent("mobile-widget-refreshed");
     }
 }

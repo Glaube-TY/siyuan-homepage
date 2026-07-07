@@ -2,20 +2,22 @@
     import { onMount, onDestroy, tick } from "svelte";
     import * as echarts from "echarts";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
-    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
+    import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
     import {
+        ensureHeatmapIndexInitialized,
         getRecentHeatmapCountsResult,
-        type ComponentDataMode,
+        refreshHeatmapIndexFromRecentDocuments,
         type ComponentCountsResult,
     } from "@/components/tools/siyuanComponentDataApi";
-    import { getHomepageGlobalSqlPolicy } from "@/components/tools/siyuanComponentDataApi";
+    import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        runtimeContext?: WidgetRuntimeContext;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
     const parsedContent = $derived(JSON.parse(contentTypeJson));
 
     const heatmapTitle = $derived(parsedContent?.data?.heatmapTitle || "");
@@ -49,9 +51,9 @@
     let currentChartData: [string, number][] = [];
     let currentCounts: Record<string, number> = {};
     let hasHeatmapData = $state(false);
-    let heatmapStatusMessage = $state("当前热力图为无全库 SQL 近似模式，最近更新 API 未返回可统计数据。");
+    let heatmapStatusMessage = $state("热力图索引为空，请到主页设置 > 检索管理中刷新或手动重建索引。");
     let heatmapDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let heatmapDataMode: ComponentDataMode | undefined = $state(undefined);
+    let isInitializing = $state(false);
     // 会员锁定状态
     let isLocked = $state(false);
 
@@ -59,8 +61,8 @@
     const HEATMAP_CACHE_TTL_MS = 5 * 60 * 1000;
     const heatmapCache = new Map<string, { result: ComponentCountsResult; expiresAt: number }>();
 
-    function getHeatmapCacheKey(mode: string, startDate: string, endDate: string, monthCount: number, allowGlobalSql: boolean): string {
-        return `${mode}|${startDate}|${endDate}|${monthCount}|${allowGlobalSql}`;
+    function getHeatmapCacheKey(mode: string, startDate: string, endDate: string, monthCount: number): string {
+        return `${mode}|${startDate}|${endDate}|${monthCount}`;
     }
 
     function getCachedResult(key: string): ComponentCountsResult | null {
@@ -84,21 +86,16 @@
         return Math.floor(parsed);
     }
 
-    onMount(async () => {
-        const advancedEnabled = plugin.ADVANCED;
-        if (!advancedEnabled && heatmapCountType === "words") {
-            isLocked = true;
-            return;
-        }
-
-        const policy = await getHomepageGlobalSqlPolicy(plugin);
-        const allowGlobalSql = policy.allowGlobalSql;
-
+    async function loadHeatmapData() {
         const monthCount = clampHeatmapMonthCount(pastMonthCount);
         const [startDate, endDate] = getRangeByMonthCount(monthCount);
-        const cacheKey = getHeatmapCacheKey(heatmapCountType, startDate, endDate, monthCount, allowGlobalSql);
+        const forceIndexRefresh = runtimeContext.forceIndexRefresh === true;
+        await refreshHeatmapIndexFromRecentDocuments(plugin, {
+            force: forceIndexRefresh,
+        });
+        const cacheKey = getHeatmapCacheKey(heatmapCountType, startDate, endDate, monthCount);
 
-        let result = getCachedResult(cacheKey);
+        let result = forceIndexRefresh ? null : getCachedResult(cacheKey);
         if (!result) {
             result = heatmapCountType === "words"
                 ? await getWordCounts(startDate, endDate, plugin)
@@ -112,10 +109,9 @@
         currentCounts = counts;
         heatmapStatusMessage = result.message || heatmapStatusMessage;
         heatmapDataStatus = result.status;
-        heatmapDataMode = result.mode;
 
         const hasPositiveData = Object.values(counts).some((value) => Number(value) > 0);
-        const shouldRenderHeatmap = hasPositiveData || result.mode === "global_sql_compat";
+        const shouldRenderHeatmap = hasPositiveData || result.mode === "index";
 
         if (shouldRenderHeatmap && result.status !== "disabled" && result.status !== "error") {
             currentChartData = buildFullCalendarData(counts, monthCount);
@@ -124,6 +120,35 @@
             await tick();
 
             initHeatmapChartWithRetry();
+        }
+    }
+
+    onMount(async () => {
+        const advancedEnabled = plugin.ADVANCED;
+        if (!advancedEnabled && heatmapCountType === "words") {
+            isLocked = true;
+            return;
+        }
+
+        const monthCount = clampHeatmapMonthCount(pastMonthCount);
+        const [startDate, endDate] = getRangeByMonthCount(monthCount);
+        isInitializing = true;
+        heatmapStatusMessage = "正在初始化热力图索引...";
+        try {
+            const initResult = await ensureHeatmapIndexInitialized(plugin, startDate, endDate);
+            if (isDestroyed) return;
+            if (initResult.initialized && initResult.status.lastStatus !== "success") {
+                heatmapDataStatus = "error";
+                heatmapStatusMessage = `${initResult.status.lastMessage || "热力图索引初始化失败"}，请到主页设置 > 检索管理中手动重建索引。`;
+                return;
+            }
+            await loadHeatmapData();
+        } catch (error) {
+            if (isDestroyed) return;
+            heatmapDataStatus = "error";
+            heatmapStatusMessage = error instanceof Error ? error.message : "热力图索引初始化失败，请到主页设置 > 检索管理中手动重建索引。";
+        } finally {
+            if (!isDestroyed) isInitializing = false;
         }
     });
 
@@ -491,11 +516,11 @@
     });
 
     async function getBlockCounts(startDate: string, endDate: string, plugin: any) {
-        return getRecentHeatmapCountsResult(startDate, endDate, "block", undefined, plugin);
+        return getRecentHeatmapCountsResult(startDate, endDate, "block", plugin);
     }
 
     async function getWordCounts(startDate: string, endDate: string, plugin: any) {
-        return getRecentHeatmapCountsResult(startDate, endDate, "word", undefined, plugin);
+        return getRecentHeatmapCountsResult(startDate, endDate, "word", plugin);
     }
 
     // 生成完整日历数据（包含范围内所有日期，无数据日期 value 为 0）
@@ -572,22 +597,26 @@
             />
         </div>
     {:else}
-        {#if hasHeatmapData}
+        {#if isInitializing}
+            <div class="heatmap-empty-state">
+                <strong>正在初始化热力图索引...</strong>
+            </div>
+        {:else if hasHeatmapData}
             <div class="heatmap-content-container">
                 <div bind:this={chartContainer} style="width: 100%; height: 100%;"></div>
             </div>
         {:else}
             {#if heatmapDataStatus === "disabled"}
-                <HomepageGlobalSqlEmptyState
-                    title="热力图全库统计已停用"
-                    message={heatmapStatusMessage}
+                <LocalIndexEmptyState
+                    title="本地索引为空"
+                    message="热力图本地索引为空，请迁移或重建索引。"
                     {plugin}
-                    hint="在主页设置开启全库 SQL 兼容模式以恢复精确热力图。"
+                    hint="请到主页设置 > 检索管理中刷新最近文档增量索引，或手动重建本地索引。"
                 />
             {:else}
                 <div class="heatmap-empty-state">
                     <strong>{heatmapStatusMessage}</strong>
-                    <span>当前热力图为近似模式；可在主页设置开启全库 SQL 兼容模式以恢复精确热力图。</span>
+                    <span>可到主页设置 > 检索管理中刷新最近文档增量索引，或手动重建当前范围索引。</span>
                 </div>
             {/if}
         {/if}

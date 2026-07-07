@@ -9,7 +9,7 @@
         setMouseOnTrigger,
     } from "@/components/tools/floatingDoc";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
-    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
+    import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
     import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
     import ReviewDocsDialog from "./reviewDocsDialog.svelte";
     import ReviewDatePickerDialog from "./ReviewDatePickerDialog.svelte";
@@ -33,6 +33,7 @@
         parseIntervalsText,
         shouldUseIntervalSchedule,
     } from "./reviewDocsSchedule";
+    import { ensureReviewIndexInitialized } from "@/components/tools/siyuanComponentDataApi";
     import {
         DEFAULT_REVIEW_DOCS_CONFIG,
         type ReviewDocsConfig,
@@ -57,7 +58,7 @@
     let logStatusMessage = $state("");
     let todayReviewed = $state<number | null>(null);
     let reviewIndexStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let reviewIndexMessage = $state("复习文档全库扫描已停用；新加入复习的文档会进入索引。");
+    let reviewIndexMessage = $state("复习索引为空；可新增复习计划，或到主页设置 > 检索管理中迁移旧属性。");
     let currentView = $state<ReviewView>("due");
     let currentSortBy = $state<ReviewSortBy>("dueAsc");
     let selectedCategory = $state("");
@@ -102,8 +103,7 @@
     function parseContent(value: string): any {
         try {
             return JSON.parse(value || "{}");
-        } catch (error) {
-            console.warn("[reviewDocs] 无法解析组件配置", error);
+        } catch {
             return {};
         }
     }
@@ -121,7 +121,9 @@
     async function refreshAll() {
         if (!advancedEnabled || isDestroyed) return;
         try {
-            const result = await loadAllReviewItemsResult(plugin);
+            await ensureReviewIndexInitialized(plugin);
+            if (isDestroyed) return;
+            const result = await loadAllReviewItemsResult(plugin, reviewDocsSelectedNotebookIds);
             if (isDestroyed) return;
             allItems = result.items;
             reviewIndexStatus = result.status;
@@ -153,6 +155,9 @@
 
     const parsedContent = $derived(parseContent(contentTypeJson));
     const config = $derived(normalizeConfig(parsedContent.data || {}));
+    const reviewDocsSelectedNotebookIds = $derived<string[]>(
+        (parsedContent.data?.reviewDocsSelectedNotebookIds ?? []).map((item: { value?: string }) => item.value).filter(Boolean)
+    );
     const summary = $derived(getReviewSummary(allItems, config.reviewDocsFutureDays));
     const categories = $derived(
         Object.keys(summary.categories).sort((a, b) => a.localeCompare(b, "zh-CN"))
@@ -526,11 +531,11 @@
                 <div class="empty-state">加载复习计划...</div>
             {:else if visibleItems.length === 0}
                 {#if reviewIndexStatus === "disabled"}
-                    <HomepageGlobalSqlEmptyState
-                        title="复习文档全库扫描已停用"
-                        message={reviewIndexMessage}
+                    <LocalIndexEmptyState
+                        title="本地索引为空"
+                        message="复习本地索引为空，请迁移或重建索引。"
                         {plugin}
-                        hint="新增复习计划会进入索引，或在主页设置开启全库 SQL 兼容模式。"
+                        hint="新增复习计划会进入本地索引；旧复习属性请到主页设置 > 检索管理中迁移。"
                     />
                 {:else}
                     <div class="empty-state">

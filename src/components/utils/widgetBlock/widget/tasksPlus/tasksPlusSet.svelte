@@ -1,6 +1,8 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import NotebookMultiSelectRow from "../../shared/NotebookMultiSelectRow.svelte";
+    import type { NotebookOption } from "../common/componentMigrationTypes";
 
     interface Props {
         TaskManPlusTitle?: string;
@@ -8,6 +10,8 @@
         internalFilter?: string;
         customFilter?: string;
         tasksSort?: string;
+        tasksPlusSelectedNotebookIds?: NotebookOption[];
+        notebooks?: any[];
     }
 
     let {
@@ -15,7 +19,9 @@
         isCustomFilter = $bindable(false),
         internalFilter = $bindable("all"),
         customFilter = $bindable(""),
-        tasksSort = $bindable("startdate")
+        tasksSort = $bindable("startdate"),
+        tasksPlusSelectedNotebookIds = $bindable<NotebookOption[]>([]),
+        notebooks = []
     }: Props = $props();
 </script>
 
@@ -66,6 +72,16 @@
             <option value="priority">优先级❗</option>
         </select>
     </SettingRow>
+</SettingSection>
+
+<SettingSection title="范围配置">
+    <NotebookMultiSelectRow
+        title="任务笔记本范围"
+        description="留空表示不限制范围；选择后只从本地任务索引中按笔记本过滤。"
+        notebooks={notebooks}
+        bind:selected={tasksPlusSelectedNotebookIds}
+        placeholder="选择笔记本..."
+    />
 </SettingSection>
 
 <style lang="scss">

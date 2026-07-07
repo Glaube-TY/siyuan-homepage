@@ -1,7 +1,8 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { showMessage } from "siyuan";
     import { sql, getBlockKramdown, updateBlock as updateBlockAPI } from "@/api";
-    import { updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
+    import { ensureTaskBlockExists, updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
 
     interface Props {
         blockId: string;
@@ -12,6 +13,10 @@
 
     let parentBlockId = "";
     let parentBlockType = "";
+    let taskRootId = "";
+    let taskBox = "";
+    let taskHpath = "";
+    let taskPath = "";
     let originalParentMarkdown = "";
     let taskLines: string[] = [];
 
@@ -191,6 +196,12 @@
 
         let updatedMarkdown = generateTaskMarkdown();
         const originalBlockId = blockId;
+        const exists = await ensureTaskBlockExists(originalBlockId);
+        if (!exists) {
+            showMessage("任务块已删除，已清理索引", 3000);
+            close();
+            return;
+        }
 
         if (parentBlockType != "d") {
             blockId = parentBlockId;
@@ -201,8 +212,11 @@
         await updateBlockAPI("markdown", updatedMarkdown, blockId);
         await updateTaskIndexItem({
             id: originalBlockId,
-            rootID: blockId,
-            root_id: blockId,
+            rootID: taskRootId || originalBlockId,
+            root_id: taskRootId || originalBlockId,
+            box: taskBox,
+            path: taskPath,
+            hpath: taskHpath,
             markdown: updatedMarkdown,
             content: taskData.taskname,
             checked: /\[[xX]\]/.test(taskData.taskCheck),
@@ -214,13 +228,17 @@
     }
 
     async function getParentBlock() {
-        const parentBlockID = await sql(
-            `select parent_id from blocks where id = "${blockId}"`,
+        const blockRows = await sql(
+            `select parent_id, root_id, box, path, hpath from blocks where id = "${blockId}"`,
         );
-        parentBlockId = parentBlockID[0].parent_id;
+        parentBlockId = blockRows[0].parent_id;
+        taskRootId = blockRows[0].root_id || blockId;
+        taskBox = blockRows[0].box || "";
+        taskPath = blockRows[0].path || "";
+        taskHpath = blockRows[0].hpath || "";
 
         const getParentBlockType = await sql(
-            `select type from blocks where id = "${parentBlockID[0].parent_id}"`,
+            `select type from blocks where id = "${blockRows[0].parent_id}"`,
         );
         parentBlockType = getParentBlockType[0].type;
 

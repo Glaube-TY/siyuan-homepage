@@ -120,7 +120,7 @@
         if (!statement) {
             filteredData = [];
             sqlStatus = "empty_config";
-            sqlStatusMessage = "这是用户自定义 SQL 组件，需要在组件设置中填写 SQL 语句；主页全库 SQL 兼容模式不会自动为此组件生成查询。";
+            sqlStatusMessage = "这是用户自定义 SQL 组件，需要在组件设置中填写 SQL 语句；请自行确认 SQL 范围和性能影响。";
             return;
         }
         try {

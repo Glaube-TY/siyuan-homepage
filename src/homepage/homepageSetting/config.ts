@@ -2,6 +2,11 @@ import type { ButtonItem } from './types';
 import type { DeviceProfilesMap } from '../utils/deviceProfile';
 import type { HomepageStatusTextMode } from '../status-text-config';
 import type { SelectionAiToolbarSettings } from '@/features/kb/services/selection-ai/selection-ai-types';
+import type {
+    ComponentMigrationStatus,
+    NotebookOption,
+} from '@/components/utils/widgetBlock/widget/common/componentMigrationTypes';
+export type { ComponentMigrationStatus, NotebookOption };
 
 export type DocPreviewMode = "preview" | "wysiwyg";
 export type HomepageTitleAlign = "left" | "center" | "right";
@@ -104,8 +109,36 @@ export function normalizeComponentSectionsNavAlign(value: unknown): ComponentSec
     return DEFAULT_COMPONENT_SECTIONS_NAV_ALIGN;
 }
 
-export function normalizeAllowHomepageGlobalSqlQuery(value: unknown): boolean {
-    return value === true;
+export function normalizeNotebookOptions(value: unknown): NotebookOption[] {
+    if (!Array.isArray(value)) return [];
+    return value
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+            label: typeof item.label === "string" ? item.label : "",
+            value: typeof item.value === "string" ? item.value : "",
+        }))
+        .filter((item) => item.value);
+}
+
+export function normalizeComponentMigrationStatus(value: unknown): ComponentMigrationStatus {
+    if (!value || typeof value !== "object") {
+        return { lastStatus: "idle" };
+    }
+    const raw = value as Record<string, unknown>;
+    const status = raw.lastStatus;
+    const normalizedStatus: ComponentMigrationStatus["lastStatus"] =
+        status === "success" || status === "error" ? status : "idle";
+    return {
+        lastRunAt: typeof raw.lastRunAt === "string" ? raw.lastRunAt : undefined,
+        lastStatus: normalizedStatus,
+        lastMessage: typeof raw.lastMessage === "string" ? raw.lastMessage : undefined,
+        migratedCount: typeof raw.migratedCount === "number" ? Math.max(0, raw.migratedCount) : undefined,
+        skippedCount: typeof raw.skippedCount === "number" ? Math.max(0, raw.skippedCount) : undefined,
+        cleanedCount: typeof raw.cleanedCount === "number" ? Math.max(0, raw.cleanedCount) : undefined,
+        cleanupFailedCount: typeof raw.cleanupFailedCount === "number" ? Math.max(0, raw.cleanupFailedCount) : undefined,
+        refreshedCount: typeof raw.refreshedCount === "number" ? Math.max(0, raw.refreshedCount) : undefined,
+        removedCount: typeof raw.removedCount === "number" ? Math.max(0, raw.removedCount) : undefined,
+    };
 }
 
 function normalizeComponentSectionId(value: unknown): string {
@@ -231,7 +264,17 @@ export interface HomepageSettingConfig {
     aiKbDockEnabled?: boolean;
     aiKbTabEnabled?: boolean;
     selectionAiToolbar?: SelectionAiToolbarSettings;
-    allowHomepageGlobalSqlQuery?: boolean;
+
+    // 范围配置
+    tasksPlusSelectedNotebookIds?: NotebookOption[];
+    reviewDocsSelectedNotebookIds?: NotebookOption[];
+
+    // 迁移状态
+    favoritesMigrationStatus?: ComponentMigrationStatus;
+    reviewDocsMigrationStatus?: ComponentMigrationStatus;
+    taskIndexMigrationStatus?: ComponentMigrationStatus;
+    heatmapIndexStatus?: ComponentMigrationStatus;
+    statIndexStatus?: ComponentMigrationStatus;
 }
 
 export async function loadHomepageSettingConfig(plugin: any): Promise<HomepageSettingConfig | null> {

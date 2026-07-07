@@ -1,5 +1,4 @@
 import {
-    getHomepageGlobalSqlPolicy,
     getTaskIndexResult,
     type ComponentDataResult,
 } from "@/components/tools/siyuanComponentDataApi";
@@ -13,9 +12,12 @@ export interface RecentTasksInfo {
     hpath: string;
 }
 
-export async function gettasksList(plugin?: any): Promise<ComponentDataResult<any>> {
-    const policy = plugin ? await getHomepageGlobalSqlPolicy(plugin) : undefined;
-    return getTaskIndexResult([], policy, plugin);
+export async function gettasksList(
+    plugin?: any,
+    notebookIds: string[] = [],
+): Promise<ComponentDataResult<any>> {
+    void plugin;
+    return getTaskIndexResult(notebookIds);
 }
 
 export async function formatTasksList(

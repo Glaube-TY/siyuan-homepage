@@ -3,6 +3,7 @@
     import NotebookMultiSelectRow from "../../shared/NotebookMultiSelectRow.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import type { NotebookOption } from "../common/componentMigrationTypes";
 
     interface Props {
         // 收藏文档相关变量
@@ -12,10 +13,7 @@
         favoritiesDocPrefix?: string;
         useBuiltinDocIcon?: boolean;
         favoritesNotebookId?: string;
-        selectedFavoritesNotebookIds?: {
-        label: string;
-        value: string;
-    }[];
+        selectedFavoritesNotebookIds?: NotebookOption[];
         showFavFloatDoc?: boolean;
         favFloatDocShowTime?: number;
         // 笔记本列表
@@ -29,7 +27,7 @@
         favoritiesDocPrefix = $bindable("❤"),
         useBuiltinDocIcon = $bindable(false),
         favoritesNotebookId = $bindable(""),
-        selectedFavoritesNotebookIds = $bindable([]),
+        selectedFavoritesNotebookIds = $bindable<NotebookOption[]>([]),
         showFavFloatDoc = $bindable(true),
         favFloatDocShowTime = $bindable(0.1),
         notebooks = []

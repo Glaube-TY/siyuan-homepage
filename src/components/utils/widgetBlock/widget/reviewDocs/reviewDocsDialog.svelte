@@ -1,12 +1,11 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
-    import { getBlockAttrs } from "@/api";
     import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
     import {
         getReviewTargetInfo,
         markReviewTarget,
-        parseReviewAttrsFromBlockAttrs,
+        readCurrentReviewAttrs,
         updateReviewTarget,
     } from "./reviewDocs";
     import {
@@ -57,7 +56,7 @@
             effectiveDatabaseId = databaseId;
             intervalsText = defaultIntervalsText || DEFAULT_REVIEW_INTERVALS_TEXT;
             targetInfo = await getReviewTargetInfo(targetId, targetType);
-            const attrs = parseReviewAttrsFromBlockAttrs(await getBlockAttrs(targetId));
+            const attrs = await readCurrentReviewAttrs(targetId);
             if (attrs) {
                 nextDate = attrs.nextDate || nextDate;
                 plan = attrs.plan || "manual";

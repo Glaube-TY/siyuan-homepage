@@ -1,5 +1,4 @@
 import {
-    getHomepageGlobalSqlPolicy,
     getTaskIndexResult,
     splitNotebookIds,
     type ComponentDataResult,
@@ -18,6 +17,6 @@ export async function getLatestTasks(
     tasksNotebookId: string | undefined,
     plugin?: any,
 ): Promise<ComponentDataResult<RecentTasksInfo>> {
-    const policy = plugin ? await getHomepageGlobalSqlPolicy(plugin) : undefined;
-    return getTaskIndexResult(splitNotebookIds(tasksNotebookId), policy, plugin) as Promise<ComponentDataResult<RecentTasksInfo>>;
+    void plugin;
+    return getTaskIndexResult(splitNotebookIds(tasksNotebookId)) as Promise<ComponentDataResult<RecentTasksInfo>>;
 }

@@ -9,7 +9,8 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
     import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
-    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
+    import { ensureFavoritesIndexInitialized } from "@/components/tools/siyuanComponentDataApi";
+    import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
 
     interface Props {
         plugin: any;
@@ -24,7 +25,7 @@
 
     let favoritesNotes: any[] = $state([]);
     let favoritesDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let favoritesStatusMessage = $state("旧版收藏依赖全库属性扫描，已停用。请从文档树右键重新收藏，或执行一次手动迁移。");
+    let favoritesStatusMessage = $state("收藏索引为空，可重新收藏文档，或到主页设置 > 检索管理中迁移旧收藏属性。");
     const favoritiesTitle =
         $derived(contentTypeJsonObj.data?.favoritiesTitle || "💖收藏文档");
     const showNoteMeta = $derived(contentTypeJsonObj.data?.showNoteMeta ?? true);
@@ -78,16 +79,19 @@
 
     onMount(() => {
         isDestroyed = false;
-        getLatestFavoritesNotes(
-            contentTypeJsonObj.data?.favoritiesSortOrder,
-            contentTypeJsonObj.data?.favoritesNotebookId,
-            useBuiltinDocIcon,
-            plugin,
-        ).then((result) => {
+        ensureFavoritesIndexInitialized(plugin).finally(() => {
             if (isDestroyed) return;
-            favoritesNotes = result.items;
-            favoritesDataStatus = result.status;
-            favoritesStatusMessage = result.message || favoritesStatusMessage;
+            getLatestFavoritesNotes(
+                contentTypeJsonObj.data?.favoritiesSortOrder,
+                contentTypeJsonObj.data?.favoritesNotebookId,
+                useBuiltinDocIcon,
+                plugin,
+            ).then((result) => {
+                if (isDestroyed) return;
+                favoritesNotes = result.items;
+                favoritesDataStatus = result.status;
+                favoritesStatusMessage = result.message || favoritesStatusMessage;
+            });
         });
 
         return () => {
@@ -131,11 +135,11 @@
                 {/each}
             {:else}
                 {#if favoritesDataStatus === "disabled"}
-                    <HomepageGlobalSqlEmptyState
-                        title="收藏全库扫描已停用"
-                        message={favoritesStatusMessage}
+                    <LocalIndexEmptyState
+                        title="本地索引为空"
+                        message="收藏本地索引为空，请迁移或重建索引。"
                         {plugin}
-                        hint="从文档树右键重新收藏，或在主页设置开启全库 SQL 兼容模式。"
+                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中迁移旧收藏属性。"
                     />
                 {:else}
                     <div class="mobile-favorites-empty">{favoritesStatusMessage}</div>
@@ -222,11 +226,11 @@
                 </ul>
             {:else}
                 {#if favoritesDataStatus === "disabled"}
-                    <HomepageGlobalSqlEmptyState
-                        title="收藏全库扫描已停用"
-                        message={favoritesStatusMessage}
+                    <LocalIndexEmptyState
+                        title="本地索引为空"
+                        message="收藏本地索引为空，请迁移或重建索引。"
                         {plugin}
-                        hint="从文档树右键重新收藏，或在主页设置开启全库 SQL 兼容模式。"
+                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中迁移旧收藏属性。"
                     />
                 {:else}
                     <div class="favorites-empty-state">

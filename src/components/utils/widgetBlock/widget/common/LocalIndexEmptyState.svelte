@@ -16,7 +16,7 @@
     }
 </script>
 
-<div class="homepage-global-sql-empty-state">
+<div class="local-index-empty-state">
     <strong>{title}</strong>
     <span>{message}</span>
     <button type="button" class="b3-button b3-button--text" onclick={handleOpenSettings}>
@@ -28,7 +28,7 @@
 </div>
 
 <style lang="scss">
-    .homepage-global-sql-empty-state {
+    .local-index-empty-state {
         width: 100%;
         min-height: 88px;
         padding: 16px;

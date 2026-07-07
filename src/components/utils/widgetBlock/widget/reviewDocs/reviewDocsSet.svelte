@@ -1,7 +1,9 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import NotebookMultiSelectRow from "../../shared/NotebookMultiSelectRow.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import type { NotebookOption } from "../common/componentMigrationTypes";
 
     let {
         advancedEnabled = false,
@@ -20,6 +22,8 @@
         reviewDocsShowFloatDoc = $bindable(true),
         reviewDocsFloatDocShowTime = $bindable(0.1),
         reviewDocsDefaultIntervals = $bindable("0,1,2,4,7,15,30,60"),
+        reviewDocsSelectedNotebookIds = $bindable<NotebookOption[]>([]),
+        notebooks = [],
     } = $props();
 </script>
 
@@ -137,6 +141,16 @@
                 placeholder="0,1,2,4,7,15,30,60"
             />
         </SettingRow>
+    </SettingSection>
+
+    <SettingSection title="范围配置">
+        <NotebookMultiSelectRow
+            title="复习笔记本范围"
+            description="留空表示不限制范围；选择后仅显示所选笔记本中的复习计划。"
+            notebooks={notebooks}
+            bind:selected={reviewDocsSelectedNotebookIds}
+            placeholder="选择笔记本..."
+        />
     </SettingSection>
 {:else}
     <AdvancedFeatureLock

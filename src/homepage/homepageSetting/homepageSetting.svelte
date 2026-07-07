@@ -6,7 +6,6 @@
     import "./homepageSettingStyle/homepageSetting.scss"
     import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
     import {
-        normalizeAllowHomepageGlobalSqlQuery,
         normalizeBannerGlassBlur,
         normalizeBannerGlassColor,
         normalizeBannerGlassColorMode,
@@ -21,8 +20,10 @@
         normalizeHomepageTitleAlign,
         normalizeQuickButtonStyle,
         saveHomepageSettingConfig,
+        normalizeNotebookOptions,
+        normalizeComponentMigrationStatus,
     } from "./config"
-    import type { BackgroundImageType, BannerDeviceProfile, BannerGlassColorMode, ComponentSection, ComponentSectionsNavAlign, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
+    import type { BackgroundImageType, BannerDeviceProfile, BannerGlassColorMode, ComponentMigrationStatus, ComponentSection, ComponentSectionsNavAlign, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
     import { getLocalDeviceId, isDesktopDeviceProfileEnabled, getCurrentDeviceInfo, updateDeviceProfile, findExistingDeviceByHardware, deduplicateDeviceProfiles } from "../utils/deviceProfile"
     import { ensureComponentSectionsForCurrentDevice, loadWidgetLayoutSettings, removeComponentSectionLayouts, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
@@ -40,13 +41,14 @@
     import AiKnowledgeBaseSettingsTab from "./tabs/AiKnowledgeBaseSettingsTab.svelte"
     import NotifyBridgeSettingsTab from "./tabs/NotifyBridgeSettingsTab.svelte"
     import ChatActionBridgeSettingsTab from "./tabs/ChatActionBridgeSettingsTab.svelte"
+    import IndexManagementSettingsTab from "./tabs/IndexManagementSettingsTab.svelte"
     import MainTabNav from "./layout/MainTabNav.svelte"
     import SubTabNav from "./layout/SubTabNav.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "@/features/kb/services/settings/kb-settings-service";
-    import { buildChatModelOptions, findDefaultChatModelOption } from "@/features/kb/services/settings/chat-model-options";
+    import { buildChatModelOptions } from "@/features/kb/services/settings/chat-model-options";
     import { buildChatModelKey, type ChatModelOption } from "@/features/kb/types/chat-model-selection";
     import {
         DEFAULT_STATUS_AI_MAX_CHARS,
@@ -73,7 +75,14 @@
     let tempAutoOpenHomepage = $state(true);
     let sidebarEnabled = $state(false);
     let autoOpenMobileHomepage = $state(false);
-    let allowHomepageGlobalSqlQuery = $state(false);
+    let tasksPlusSelectedNotebookIds = $state<{ label: string; value: string }[]>([]);
+    let reviewDocsSelectedNotebookIds = $state<{ label: string; value: string }[]>([]);
+    let favoritesMigrationStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
+    let reviewDocsMigrationStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
+    let taskIndexMigrationStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
+    let heatmapIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
+    let statIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
+    let advancedEnabled = $state(false);
     let settingsActiveTab = $state<HomepageSettingSubTab>("behavior");
     // 横幅区域相关配置变量
     let bannerEnabled = true;
@@ -116,7 +125,6 @@
     let statusAiModelOptions: ChatModelOption[] = $state([]);
     let statusAiAvailableModelCount = $state(0);
     let statusAiSelectedModelLabel = $state("");
-    let statusAiDefaultModelOption: ChatModelOption | null = $state(null);
 
     let buttonsList: ButtonItem[] = $state(createDefaultButtons());
 
@@ -352,7 +360,6 @@
     let ActivationCode: string = $state("");
     let activated: boolean = $state();
     let activationResult: any = $state();
-    let advancedEnabled = $state(false);
 
     // 设备管理
     let currentDeviceInfo = $state<ReturnType<typeof getCurrentDeviceInfo> | null>(null);
@@ -453,11 +460,9 @@
             const settings = await getKbSettings();
             const options = buildChatModelOptions(settings);
             statusAiModelOptions = options;
-            statusAiDefaultModelOption = findDefaultChatModelOption(settings, options) ?? null;
             syncStatusAiModelSummary(options);
         } catch {
             statusAiModelOptions = [];
-            statusAiDefaultModelOption = null;
             syncStatusAiModelSummary([]);
         }
     }
@@ -482,9 +487,6 @@
             sidebarEnabled = savedConfig.sidebarEnabled ?? false;
             autoOpenMobileHomepage =
                 savedConfig.autoOpenMobileHomepage ?? false;
-            allowHomepageGlobalSqlQuery =
-                normalizeAllowHomepageGlobalSqlQuery(savedConfig.allowHomepageGlobalSqlQuery);
-
             // 横幅配置
             bannerEnabled = savedConfig.bannerEnabled ?? true;
             bannerGlobalType = savedConfig.bannerGlobalType || "custom";
@@ -571,6 +573,15 @@
             aiKbDockEnabled = savedConfig.aiKbDockEnabled ?? true;
             aiKbTabEnabled = savedConfig.aiKbTabEnabled ?? true;
             selectionAiToolbar = normalizeSelectionAiToolbarSettings(savedConfig.selectionAiToolbar);
+
+            // 范围配置与迁移状态
+            tasksPlusSelectedNotebookIds = normalizeNotebookOptions(savedConfig.tasksPlusSelectedNotebookIds);
+            reviewDocsSelectedNotebookIds = normalizeNotebookOptions(savedConfig.reviewDocsSelectedNotebookIds);
+            favoritesMigrationStatus = normalizeComponentMigrationStatus(savedConfig.favoritesMigrationStatus);
+            reviewDocsMigrationStatus = normalizeComponentMigrationStatus(savedConfig.reviewDocsMigrationStatus);
+            taskIndexMigrationStatus = normalizeComponentMigrationStatus(savedConfig.taskIndexMigrationStatus);
+            heatmapIndexStatus = normalizeComponentMigrationStatus(savedConfig.heatmapIndexStatus);
+            statIndexStatus = normalizeComponentMigrationStatus(savedConfig.statIndexStatus);
 
             footerEnabled = savedConfig.footerEnabled ?? true;
             footerContent = savedConfig.footerContent || "";
@@ -879,6 +890,22 @@
         ActivationCode = value;
     }
 
+    function handleFavoritesMigrationStatusChange(status: ComponentMigrationStatus) {
+        favoritesMigrationStatus = status;
+    }
+    function handleReviewDocsMigrationStatusChange(status: ComponentMigrationStatus) {
+        reviewDocsMigrationStatus = status;
+    }
+    function handleTaskIndexMigrationStatusChange(status: ComponentMigrationStatus) {
+        taskIndexMigrationStatus = status;
+    }
+    function handleHeatmapIndexStatusChange(status: ComponentMigrationStatus) {
+        heatmapIndexStatus = status;
+    }
+    function handleStatIndexStatusChange(status: ComponentMigrationStatus) {
+        statIndexStatus = status;
+    }
+
     // 保存配置并关闭对话框
     async function confirmSave() {
         const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
@@ -952,7 +979,6 @@
             autoOpenHomepage: tempAutoOpenHomepage,
             sidebarEnabled: sidebarEnabled,
             autoOpenMobileHomepage: autoOpenMobileHomepage,
-            allowHomepageGlobalSqlQuery: normalizeAllowHomepageGlobalSqlQuery(allowHomepageGlobalSqlQuery),
 
             // 横幅配置
             bannerEnabled: tempBannerEnabled,
@@ -1021,6 +1047,15 @@
             aiKbDockEnabled: aiKbDockEnabled,
             aiKbTabEnabled: aiKbTabEnabled,
             selectionAiToolbar: normalizeSelectionAiToolbarSettings(selectionAiToolbar),
+
+            // 范围配置与迁移状态
+            tasksPlusSelectedNotebookIds,
+            reviewDocsSelectedNotebookIds,
+            favoritesMigrationStatus,
+            reviewDocsMigrationStatus,
+            taskIndexMigrationStatus,
+            heatmapIndexStatus,
+            statIndexStatus,
 
             // 页脚配置
             footerEnabled: footerEnabled,
@@ -1175,12 +1210,10 @@
                             tempAutoOpenHomepage={tempAutoOpenHomepage}
                             sidebarEnabled={sidebarEnabled}
                             autoOpenMobileHomepage={autoOpenMobileHomepage}
-                            allowHomepageGlobalSqlQuery={allowHomepageGlobalSqlQuery}
                             showMobilePreview={!plugin?.isMobile}
                             onTempAutoOpenHomepageChange={(value) => tempAutoOpenHomepage = value}
                             onSidebarEnabledChange={(value) => sidebarEnabled = value}
                             onAutoOpenMobileHomepageChange={(value) => autoOpenMobileHomepage = value}
-                            onAllowHomepageGlobalSqlQueryChange={(value) => allowHomepageGlobalSqlQuery = value}
                             onOpenMobileHomepagePreview={openMobileHomepagePreviewDialog}
                         />
                     {/if}
@@ -1273,6 +1306,22 @@
                         <WidgetsSettingsTab
                             state={widgetsSettingsState}
                             actions={widgetsSettingsActions}
+                        />
+                    {/if}
+
+                    {#if settingsActiveTab === "indexing"}
+                        <IndexManagementSettingsTab
+                            {plugin}
+                            bind:favoritesMigrationStatus
+                            bind:reviewDocsMigrationStatus
+                            bind:taskIndexMigrationStatus
+                            bind:heatmapIndexStatus
+                            bind:statIndexStatus
+                            onFavoritesStatusChange={handleFavoritesMigrationStatusChange}
+                            onReviewDocsStatusChange={handleReviewDocsMigrationStatusChange}
+                            onTaskIndexStatusChange={handleTaskIndexMigrationStatusChange}
+                            onHeatmapIndexStatusChange={handleHeatmapIndexStatusChange}
+                            onStatIndexStatusChange={handleStatIndexStatusChange}
                         />
                     {/if}
 

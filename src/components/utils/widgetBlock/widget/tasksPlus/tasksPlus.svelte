@@ -1,17 +1,25 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
+    import { showMessage } from "siyuan";
     import { openDocs } from "@/components/tools/openDocs";
     import { gettasksList, formatTasksList } from "./tasksPlus";
     import { updateTaskListItemMarker, updateBlock } from "@/api";
-    import { updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
-    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
+    import {
+        ensureTaskBlockExists,
+        ensureTaskIndexInitialized,
+        refreshTaskIndexFromRecentDocuments,
+        updateTaskIndexItem,
+    } from "@/components/tools/siyuanComponentDataApi";
+    import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
+    import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        runtimeContext?: WidgetRuntimeContext;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
 
     const parsed = $derived(JSON.parse(contentTypeJson));
     let TaskManPlusTitle = $derived(parsed.data?.TaskManPlusTitle || "📋任务管理Plus");
@@ -19,23 +27,27 @@
     let isCustomFilter = $derived(parsed.data?.isCustomFilter || false);
     let customFilter = $derived(parsed.data?.customFilter || "");
     let tasksSort = $derived(parsed.data?.tasksSort || "startdate");
+    let tasksPlusSelectedNotebookIds = $derived<{ label: string; value: string }[]>(
+        parsed.data?.tasksPlusSelectedNotebookIds ?? []
+    );
     let tasksList: any[] = [];
     let tasksListFormat: any = $state();
     let taskDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let taskStatusMessage = $state("任务全库扫描已停用。请配置任务范围，或点击“建立任务索引”。");
+    let taskStatusMessage = $state("任务索引为空，请到主页设置 > 检索管理中建立任务索引或刷新最近文档增量索引。");
+    let isInitializing = $state(false);
     let reminderCheckInterval: number | null = null;
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
     let isDestroyed = false;
 
     function showSystemNotification(title: string, body: string) {
         if (!("Notification" in window)) {
-            console.warn("此浏览器不支持桌面通知");
+            showMessage("此浏览器不支持桌面通知", 3000);
             return;
         }
 
         const symbol = document.querySelector("svg defs symbol#iconhomepage");
         if (!symbol) {
-            console.warn("未找到 iconhomepage 图标");
+            showMessage("未找到主页图标，无法发送桌面通知", 3000);
             return;
         }
 
@@ -119,6 +131,15 @@
         const marker = isChecked ? "X" : " ";
 
         try {
+            const exists = await ensureTaskBlockExists(task.id);
+            if (!exists) {
+                showMessage("任务块已删除，已清理索引", 3000);
+                tasksListFormat = Array.isArray(tasksListFormat)
+                    ? tasksListFormat.filter((item) => item.id !== task.id)
+                    : [];
+                event.preventDefault();
+                return;
+            }
             await updateTaskListItemMarker(task.id, marker);
 
             task.taskCheck = marker;
@@ -136,10 +157,10 @@
                 checked: isChecked,
                 source: "plugin",
             });
-        } catch (err) {
-            console.error("更新任务状态失败:", err);
+        } catch {
             task.taskCheck = isChecked ? " " : "X";
             event.preventDefault();
+            showMessage("更新任务状态失败", 3000);
         }
     }
 
@@ -280,6 +301,11 @@
         const newMarkdown = updateFirstLineOnly(task.initmarkdown, firstLine);
 
         try {
+            const exists = await ensureTaskBlockExists(task.id);
+            if (!exists) {
+                showMessage("任务块已删除，已清理索引", 3000);
+                return;
+            }
             await updateBlock("markdown", newMarkdown, task.id);
 
             task.taskCheck = "- [ ]";
@@ -295,8 +321,8 @@
                 checked: false,
                 source: "plugin",
             });
-        } catch (err) {
-            console.error("❌ 更新任务失败:", err);
+        } catch {
+            showMessage("更新循环任务失败", 3000);
         }
     }
 
@@ -323,9 +349,12 @@
         return lines.join("\n");
     }
 
-    onMount(async () => {
-        isDestroyed = false;
-        const taskResult = await gettasksList(plugin);
+    async function loadTasks() {
+        const notebookIds = tasksPlusSelectedNotebookIds.map((item) => item.value);
+        await refreshTaskIndexFromRecentDocuments(plugin, {
+            force: runtimeContext.forceIndexRefresh === true,
+        });
+        const taskResult = await gettasksList(plugin, notebookIds);
         if (isDestroyed) return;
         taskDataStatus = taskResult.status;
         taskStatusMessage = taskResult.message || "";
@@ -349,6 +378,31 @@
         for (const task of tasksListFormat) {
             if (isDestroyed) return;
             await updateTaskBasedOnRecurrence(task);
+        }
+    }
+
+    onMount(async () => {
+        isDestroyed = false;
+        isInitializing = true;
+        taskStatusMessage = "正在初始化任务索引...";
+        try {
+            const initResult = await ensureTaskIndexInitialized(plugin);
+            if (isDestroyed) return;
+            if (initResult.initialized && initResult.status.lastStatus !== "success") {
+                taskDataStatus = "error";
+                taskStatusMessage = `${initResult.status.lastMessage || "任务索引初始化失败"}，请到主页设置 > 检索管理中手动重建索引。`;
+                isInitializing = false;
+                return;
+            }
+            await loadTasks();
+        } catch {
+            if (isDestroyed) return;
+            taskDataStatus = "error";
+            taskStatusMessage = "任务索引初始化失败，请到主页设置 > 检索管理中手动重建索引。";
+            tasksList = [];
+            tasksListFormat = [];
+        } finally {
+            if (!isDestroyed) isInitializing = false;
         }
     });
 
@@ -443,18 +497,22 @@
                     </div>
                 </div>
             {/each}
+        {:else if isInitializing}
+            <div class="empty-tips">
+                <strong>正在初始化任务索引...</strong>
+            </div>
         {:else}
             {#if taskDataStatus === "disabled"}
-                <HomepageGlobalSqlEmptyState
-                    title="任务全库扫描已停用"
-                    message={taskStatusMessage}
+                <LocalIndexEmptyState
+                    title="本地索引为空"
+                    message="任务本地索引为空，请迁移或重建索引。"
                     {plugin}
-                    hint="配置任务范围、建立索引，或在主页设置开启全库 SQL 兼容模式。"
+                    hint="请到主页设置 > 检索管理中刷新最近文档增量索引，或手动重建任务索引。"
                 />
             {:else}
                 <div class="empty-tips">
                     <strong>没有可显示的任务</strong>
-                    <span>{taskStatusMessage || "请配置任务范围，或点击“建立任务索引”。"}</span>
+                    <span>{taskStatusMessage || "请到主页设置 > 检索管理中维护任务索引。"}</span>
                 </div>
             {/if}
         {/if}

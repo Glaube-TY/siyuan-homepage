@@ -5,7 +5,7 @@ import { setBlockSize } from "../widgetBlock/utils/block-size-handler";
 import { saveLayout } from "../widgetBlock/utils/layout-handler";
 import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
 import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobileHomepage_layout";
-import { mountWidgetContent } from "../widgetBlock/widgetMountRegistry";
+import { mountWidgetContent, type WidgetRuntimeContext } from "../widgetBlock/widgetMountRegistry";
 import { mount, unmount } from "svelte";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
 import { stringifyWidgetConfigForMount } from "../widgetBlock/utils/layout-shared";
@@ -148,9 +148,10 @@ export class WidgetBlock {
             updateButton.addEventListener("click", async () => {
                 const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
                 if (widgetConfig) {
-                    this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '');
-                } else {
-                    console.warn("未找到对应的 widget 配置");
+                    this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '', {
+                        forceIndexRefresh: true,
+                        refreshReason: "manual",
+                    });
                 }
             });
         }
@@ -162,9 +163,8 @@ export class WidgetBlock {
         }
     }
 
-    public updateContent(contentTypeJson?: string): void {
+    public updateContent(contentTypeJson?: string, runtimeContext: WidgetRuntimeContext = {}): void {
         if (!contentTypeJson) {
-            console.warn("未提供有效的 content 数据");
             return;
         }
 
@@ -172,7 +172,10 @@ export class WidgetBlock {
 
         this.element.innerHTML = this.renderControls(true);
 
-        this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson);
+        this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson, {
+            placement: "sidebar",
+            ...runtimeContext,
+        });
 
         // 重新绑定按钮事件（如果需要）
         this.setupEventListeners();

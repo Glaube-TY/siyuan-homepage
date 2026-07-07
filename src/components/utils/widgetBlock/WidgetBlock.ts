@@ -2,7 +2,7 @@ import { svelteDialog } from "../../../libs/dialog";
 import WidgetBlockStyle from "./styleSetting.svelte";
 import WidgetBlockContent from "./contentSetting.svelte";
 import { setBlockSize } from "./utils/block-size-handler";
-import { mountWidgetContent } from "./widgetMountRegistry";
+import { mountWidgetContent, type WidgetRuntimeContext } from "./widgetMountRegistry";
 import { mount, unmount } from "svelte";
 import { hideWidgetForCurrentDevice, deleteWidgetGlobally, loadWidgetLayoutSettings, stringifyWidgetConfigForMount } from "./utils/layout-shared";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
@@ -163,9 +163,10 @@ export class WidgetBlock {
             updateButton.addEventListener("click", async () => {
                 const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
                 if (widgetConfig) {
-                    this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '');
-                } else {
-                    console.warn("未找到对应的 widget 配置");
+                    this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '', {
+                        forceIndexRefresh: true,
+                        refreshReason: "manual",
+                    });
                 }
             });
         }
@@ -177,9 +178,8 @@ export class WidgetBlock {
         }
     }
 
-    public updateContent(contentTypeJson?: string): void {
+    public updateContent(contentTypeJson?: string, runtimeContext: WidgetRuntimeContext = {}): void {
         if (!contentTypeJson) {
-            console.warn("未提供有效的 content 数据");
             return;
         }
 
@@ -187,7 +187,7 @@ export class WidgetBlock {
 
         this.element.innerHTML = this.renderControls(true);
 
-        this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson);
+        this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson, runtimeContext);
 
         // 重新绑定按钮事件（如果需要）
         this.setupEventListeners();

@@ -1,17 +1,22 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
-    import HomepageGlobalSqlEmptyState from "../common/HomepageGlobalSqlEmptyState.svelte";
-    import { getStatisticalData } from "../../../../tools/statisticalAPI";
+    import {
+        ensureStatIndexInitialized,
+        getStatisticalData,
+        refreshStatIndexFromRecentDocuments,
+    } from "../../../../tools/statisticalAPI";
     import { sql } from "@/api";
+    import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
         placement?: string;
+        runtimeContext?: WidgetRuntimeContext;
     }
 
-    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage", runtimeContext = {} }: Props = $props();
 
     let parsedContent = $derived(JSON.parse(contentTypeJson));
     const isMobilePlacement = $derived(placement === "mobile");
@@ -26,10 +31,24 @@
     let customSQLCount = $derived(parsedContent.data?.customSQLCount || "");
 
     let statisticalCount = $state<number | null>(null);
-    let statisticalStatus = $state<"ok" | "disabled" | "unsupported" | "error" | "empty">("empty");
+    let statisticalStatus = $state<"ok" | "empty" | "unsupported" | "error">("empty");
     let statisticalMessage = $state("");
+    let isInitializing = $state(false);
 
     let advancedEnabled = $state(false);
+
+    async function loadStatisticalData() {
+        await refreshStatIndexFromRecentDocuments(plugin, {
+            force: runtimeContext.forceIndexRefresh === true,
+        });
+        const result = await getStatisticalData(
+            statisticalCardContent,
+            plugin,
+        );
+        statisticalCount = result.value;
+        statisticalStatus = result.status;
+        statisticalMessage = result.message || "";
+    }
 
     onMount(async () => {
         advancedEnabled = plugin.ADVANCED;
@@ -52,13 +71,24 @@
                 statisticalMessage = error instanceof Error ? error.message : "SQL 执行失败";
             }
         } else {
-            const result = await getStatisticalData(
-                statisticalCardContent,
-                plugin,
-            );
-            statisticalCount = result.value;
-            statisticalStatus = result.status;
-            statisticalMessage = result.message || "";
+            isInitializing = true;
+            statisticalMessage = "正在初始化统计索引...";
+            try {
+                const initResult = await ensureStatIndexInitialized(plugin);
+                if (initResult.status.lastStatus === "error") {
+                    statisticalCount = null;
+                    statisticalStatus = "error";
+                    statisticalMessage = `${initResult.status.lastMessage || "统计索引初始化失败"}，请到主页设置 > 检索管理中手动重建索引。`;
+                    return;
+                }
+                await loadStatisticalData();
+            } catch (error) {
+                statisticalCount = null;
+                statisticalStatus = "error";
+                statisticalMessage = error instanceof Error ? error.message : "统计索引初始化失败，请到主页设置 > 检索管理中手动重建索引。";
+            } finally {
+                isInitializing = false;
+            }
         }
     });
 </script>
@@ -74,22 +104,23 @@
             </div>
         </div>
         <div class="card-body">
-            {#if statisticalCount === null}
-                {#if statisticalStatus === "disabled"}
-                    <HomepageGlobalSqlEmptyState
-                        title="全库统计已停用"
-                        message={statisticalMessage}
-                        {plugin}
-                        hint="在主页设置开启全库 SQL 兼容模式可恢复统计，但大库可能影响性能。"
-                    />
-                {:else}
-                    <div class="statistical-disabled">
-                        <strong>{statisticalStatus === "empty" ? "未配置 SQL" : "已停用全库统计"}</strong>
-                        {#if statisticalMessage}
-                            <span>{statisticalMessage}</span>
-                        {/if}
-                    </div>
-                {/if}
+            {#if isInitializing}
+                <div class="statistical-disabled">
+                    <strong>正在初始化统计索引...</strong>
+                </div>
+            {:else if statisticalCount === null}
+                <div class="statistical-disabled">
+                    <strong>
+                        {statisticalStatus === "empty"
+                            ? "未配置 SQL"
+                            : statisticalStatus === "error"
+                                ? "统计索引错误"
+                                : "统计索引为空"}
+                    </strong>
+                    {#if statisticalMessage}
+                        <span>{statisticalMessage}</span>
+                    {/if}
+                </div>
             {:else}
                 <div
                     class="statistical-count"

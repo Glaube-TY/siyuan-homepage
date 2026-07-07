@@ -3,6 +3,17 @@
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
+    interface Props {
+        advancedEnabled?: boolean;
+        statisticalCardTitle?: string;
+        statisticalCardTitleSize?: number;
+        statisticalCardTitleColor?: string;
+        statisticalCardContent?: string;
+        statisticalCardCountSize?: number;
+        statisticalCardCountColor?: string;
+        customSQLCount?: string;
+    }
+
     let {
         advancedEnabled,
         statisticalCardTitle = $bindable(),
@@ -12,7 +23,7 @@
         statisticalCardCountSize = $bindable(),
         statisticalCardCountColor = $bindable(),
         customSQLCount = $bindable()
-    } = $props();
+    }: Props = $props();
 </script>
 
 {#if advancedEnabled}
