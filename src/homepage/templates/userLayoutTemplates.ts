@@ -653,6 +653,7 @@ const WIDGET_TYPE_DISPLAY_NAMES: Record<string, string> = {
     "CYBMOK": "沉浸模式",
     "countdownTimer": "计时器",
     "fixedAssets": "固定资产",
+    "accounting": "记账",
     "stikynot": "便签",
 };
 

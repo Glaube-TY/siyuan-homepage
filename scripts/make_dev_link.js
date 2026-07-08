@@ -21,13 +21,15 @@ if (targetDir === '') {
     let res = await getSiYuanDir();
 
     if (!res || res.length === 0) {
-        log('>>> Can not get SiYuan directory automatically, try to visit environment variable "SIYUAN_PLUGIN_DIR"....');
+        log('>>> 无法通过思源 Kernel API 获取工作空间，可能是思源未运行、API 授权未配置、端口不是 6806 或返回结构变化。');
+        log('>>> Try to visit environment variable "SIYUAN_PLUGIN_DIR" as fallback....');
         let env = process.env?.SIYUAN_PLUGIN_DIR;
         if (env) {
             targetDir = env;
             log(`\tGot target directory from environment variable "SIYUAN_PLUGIN_DIR": ${targetDir}`);
         } else {
             error('\tCan not get SiYuan directory from environment variable "SIYUAN_PLUGIN_DIR", failed!');
+            error('\tPlease set SIYUAN_API_TOKEN or create .siyuan-api-token.local to keep automatic workspace detection available, or set SIYUAN_PLUGIN_DIR to the data/plugins directory directly.');
             process.exit(1);
         }
     } else {

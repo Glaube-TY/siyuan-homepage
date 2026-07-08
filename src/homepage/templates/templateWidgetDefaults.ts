@@ -31,6 +31,7 @@ const WIDGET_TYPE_TO_ACTIVE_TAB: Record<string, ValidActiveTab> = {
     "CYBMOK": "tool",
     "countdownTimer": "tool",
     "fixedAssets": "tool",
+    "accounting": "tool",
     "custom-text": "custom",
     "custom-web": "custom",
     "custom-protyle": "custom",

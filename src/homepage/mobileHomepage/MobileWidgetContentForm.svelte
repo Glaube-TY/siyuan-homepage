@@ -408,6 +408,12 @@
                 fixedAssetsShowYearly: false,
                 fixedAssetsItemCostPeriod: "day",
             },
+            accounting: {
+                accountingTitle: "记账",
+                accountingHomeRecentLimit: 5,
+                accountingShowBudget: true,
+                accountingShowRecentRecords: true,
+            },
             enhancedDiary: {},
         };
 
@@ -1172,6 +1178,28 @@
                         fixedAssetsItemCostPeriod: normalizeString(
                             form.fixedAssetsItemCostPeriod,
                             "day",
+                        ),
+                    }),
+                };
+            case "accounting":
+                return {
+                    ...base,
+                    data: withExistingData({
+                        accountingTitle: normalizeString(
+                            form.accountingTitle,
+                            "记账",
+                        ),
+                        accountingHomeRecentLimit: normalizeNumber(
+                            form.accountingHomeRecentLimit,
+                            5,
+                        ),
+                        accountingShowBudget: normalizeBoolean(
+                            form.accountingShowBudget,
+                            true,
+                        ),
+                        accountingShowRecentRecords: normalizeBoolean(
+                            form.accountingShowRecentRecords,
+                            true,
                         ),
                     }),
                 };
@@ -2232,6 +2260,21 @@
                         key: "fixedAssetsShowYearly",
                         type: "switch",
                         label: "显示年费用",
+                    },
+                ];
+            case "accounting":
+                return [
+                    titleField("accountingTitle", "记账"),
+                    limitField("accountingHomeRecentLimit"),
+                    {
+                        key: "accountingShowBudget",
+                        type: "switch",
+                        label: "显示预算",
+                    },
+                    {
+                        key: "accountingShowRecentRecords",
+                        type: "switch",
+                        label: "显示最近流水",
                     },
                 ];
             case "enhancedDiary":

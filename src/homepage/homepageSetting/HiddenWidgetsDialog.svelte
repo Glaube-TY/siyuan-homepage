@@ -164,6 +164,7 @@
             "CYBMOK": "赛博木鱼",
             "countdownTimer": "倒计时器",
             "fixedAssets": "固定资产",
+            "accounting": "记账",
             "conditionDocs": "条件文档",
         };
         return typeMap[widget.contentData.type] || widget.contentData.type;

@@ -37,6 +37,7 @@
     import FixedAssetsSet from "./widget/fixedAssets/fixedAssetsSet.svelte";
     import ReviewDocsSet from "./widget/reviewDocs/reviewDocsSet.svelte";
     import EnhancedDiarySet from "./widget/enhancedDiary/enhancedDiarySet.svelte";
+    import AccountingSet from "./widget/accounting/accountingSet.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
         DEFAULT_ENHANCED_DIARY_CONFIG,
@@ -386,6 +387,12 @@
     let fixedAssetsShowYearly: boolean = $state(false);
     let fixedAssetsItemCostPeriod: string = $state("day");
 
+    // 记账配置（仅展示配置，系统设置保存在 accounting/accounting-settings.json）
+    let accountingTitle: string = $state("记账");
+    let accountingHomeRecentLimit: number = $state(5);
+    let accountingShowBudget: boolean = $state(true);
+    let accountingShowRecentRecords: boolean = $state(true);
+
     // 复习文档配置
     let reviewDocsTitle: string = $state("📚复习文档");
     let reviewDocsDatabaseId: string = $state("");
@@ -483,6 +490,7 @@
                 "CYBMOK",
                 "countdownTimer",
                 "fixedAssets",
+                "accounting",
             ].includes(contentType)
         ) {
             return "tool";
@@ -1001,6 +1009,15 @@
                     parsedData.data?.fixedAssetsShowYearly ?? fixedAssetsShowYearly;
                 fixedAssetsItemCostPeriod =
                     parsedData.data?.fixedAssetsItemCostPeriod || fixedAssetsItemCostPeriod;
+            } else if (parsedData.type === "accounting") {
+                accountingTitle =
+                    parsedData.data?.accountingTitle || parsedData.data?.title || accountingTitle;
+                accountingHomeRecentLimit =
+                    parsedData.data?.accountingHomeRecentLimit || parsedData.data?.homeRecentLimit || accountingHomeRecentLimit;
+                accountingShowBudget =
+                    parsedData.data?.accountingShowBudget ?? parsedData.data?.showBudget ?? accountingShowBudget;
+                accountingShowRecentRecords =
+                    parsedData.data?.accountingShowRecentRecords ?? parsedData.data?.showRecentRecords ?? accountingShowRecentRecords;
             } else if (parsedData.type === "reviewDocs") {
                 reviewDocsTitle =
                     parsedData.data?.reviewDocsTitle || reviewDocsTitle;
@@ -1628,6 +1645,7 @@
                     <option value="CYBMOK">赛博木鱼👑</option>
                     <option value="countdownTimer">倒计时👑</option>
                     <option value="fixedAssets">固定资产👑</option>
+                    <option value="accounting">记账👑</option>
                 </select>
             </div>
             <!-- 动态内容区域 -->
@@ -1755,6 +1773,14 @@
                         bind:fixedAssetsShowQuarterly
                         bind:fixedAssetsShowYearly
                         bind:fixedAssetsItemCostPeriod
+                    />
+                {:else if selectedContentType === "accounting"}
+                    <AccountingSet
+                        {advancedEnabled}
+                        bind:accountingTitle
+                        bind:accountingHomeRecentLimit
+                        bind:accountingShowBudget
+                        bind:accountingShowRecentRecords
                     />
                 {/if}
             </div>
@@ -2293,6 +2319,18 @@
                             fixedAssetsShowQuarterly,
                             fixedAssetsShowYearly,
                             fixedAssetsItemCostPeriod,
+                        },
+                    };
+                } else if (selectedContentType === "accounting") {
+                    contentTypeJson = {
+                        activeTab: activeTab,
+                        type: "accounting",
+                        blockId: currentBlockId,
+                        data: {
+                            accountingTitle,
+                            accountingHomeRecentLimit,
+                            accountingShowBudget,
+                            accountingShowRecentRecords,
                         },
                     };
                 } else if (selectedContentType === "reviewDocs") {

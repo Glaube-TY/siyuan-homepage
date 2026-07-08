@@ -33,6 +33,7 @@ import conditionDocs from "./widget/conditionDocs/conditionDocs.svelte";
 import fixedAssets from "./widget/fixedAssets/fixedAssets.svelte";
 import reviewDocs from "./widget/reviewDocs/reviewDocs.svelte";
 import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
+import accounting from "./widget/accounting/accounting.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
 import { sanitizeWidgetTypeClass } from "@/homepage/mobileHomepage/mobile-widget-categories";
 
@@ -71,6 +72,7 @@ const widgetRegistry: Record<string, any> = {
     "fixedAssets": fixedAssets,
     "reviewDocs": reviewDocs,
     "enhancedDiary": enhancedDiary,
+    "accounting": accounting,
     "notebrain": KbPremiumGatePanel,
 };
 
@@ -106,6 +108,7 @@ const widgetNeedsPlugin: Set<string> = new Set([
     "fixedAssets",
     "reviewDocs",
     "enhancedDiary",
+    "accounting",
     "notebrain",
 ]);
 
