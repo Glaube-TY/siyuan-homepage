@@ -38,6 +38,7 @@
     import ButtonSettingsTab from "./tabs/ButtonSettingsTab.svelte"
     import WidgetsSettingsTab from "./tabs/WidgetsSettingsTab.svelte"
     import StylesSettingsTab from "./tabs/StylesSettingsTab.svelte"
+    import MobileSettingsTab from "./tabs/MobileSettingsTab.svelte"
     import AiKnowledgeBaseSettingsTab from "./tabs/AiKnowledgeBaseSettingsTab.svelte"
     import NotifyBridgeSettingsTab from "./tabs/NotifyBridgeSettingsTab.svelte"
     import ChatActionBridgeSettingsTab from "./tabs/ChatActionBridgeSettingsTab.svelte"
@@ -66,6 +67,12 @@
     } from "@/features/kb/services/selection-ai/selection-ai-defaults";
     import { setSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
     import type { SelectionAiToolbarSettings } from "@/features/kb/services/selection-ai/selection-ai-types";
+    import {
+        DEFAULT_MOBILE_QUICK_ACTION_BUTTON_SIZE,
+        normalizeMobileQuickActionButtonSize,
+        normalizeMobileQuickActionItems,
+        type MobileQuickActionSetting,
+    } from "../mobileQuickActions/mobileQuickActionsConfig";
 
     let { plugin, close }: HomepageSettingProps = $props();
 
@@ -75,6 +82,9 @@
     let tempAutoOpenHomepage = $state(true);
     let sidebarEnabled = $state(false);
     let autoOpenMobileHomepage = $state(false);
+    let mobileQuickActionsEnabled = $state(true);
+    let mobileQuickActionsButtonSize = $state(DEFAULT_MOBILE_QUICK_ACTION_BUTTON_SIZE);
+    let mobileQuickActionItems = $state<MobileQuickActionSetting[]>(normalizeMobileQuickActionItems(undefined));
     let tasksPlusSelectedNotebookIds = $state<{ label: string; value: string }[]>([]);
     let reviewDocsSelectedNotebookIds = $state<{ label: string; value: string }[]>([]);
     let favoritesMigrationStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
@@ -487,6 +497,9 @@
             sidebarEnabled = savedConfig.sidebarEnabled ?? false;
             autoOpenMobileHomepage =
                 savedConfig.autoOpenMobileHomepage ?? false;
+            mobileQuickActionsEnabled = savedConfig.mobileQuickActionsEnabled ?? true;
+            mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(savedConfig.mobileQuickActionsButtonSize);
+            mobileQuickActionItems = normalizeMobileQuickActionItems(savedConfig.mobileQuickActionItems);
             // 横幅配置
             bannerEnabled = savedConfig.bannerEnabled ?? true;
             bannerGlobalType = savedConfig.bannerGlobalType || "custom";
@@ -979,6 +992,10 @@
             autoOpenHomepage: tempAutoOpenHomepage,
             sidebarEnabled: sidebarEnabled,
             autoOpenMobileHomepage: autoOpenMobileHomepage,
+            mobileQuickActionsEnabled: mobileQuickActionsEnabled,
+            mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
+            mobileQuickActionsPosition: existingConfig.mobileQuickActionsPosition,
+            mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),
 
             // 横幅配置
             bannerEnabled: tempBannerEnabled,
@@ -1161,6 +1178,11 @@
     }
 
     function openMobileHomepagePreviewDialog() {
+        if (!advancedEnabled) {
+            showMessage("移动端主页为高级会员专属功能，请在「会员服务」中开通后使用", 3000);
+            return;
+        }
+
         const dialogRef = svelteDialog({
             title: "手机端主页",
             width: "1120px",
@@ -1209,11 +1231,23 @@
                         <HomepageGlobalSection
                             tempAutoOpenHomepage={tempAutoOpenHomepage}
                             sidebarEnabled={sidebarEnabled}
-                            autoOpenMobileHomepage={autoOpenMobileHomepage}
-                            showMobilePreview={!plugin?.isMobile}
                             onTempAutoOpenHomepageChange={(value) => tempAutoOpenHomepage = value}
                             onSidebarEnabledChange={(value) => sidebarEnabled = value}
+                        />
+                    {/if}
+
+                    {#if settingsActiveTab === "mobile"}
+                        <MobileSettingsTab
+                            advancedEnabled={advancedEnabled}
+                            autoOpenMobileHomepage={autoOpenMobileHomepage}
+                            mobileQuickActionsEnabled={mobileQuickActionsEnabled}
+                            mobileQuickActionsButtonSize={mobileQuickActionsButtonSize}
+                            mobileQuickActionItems={mobileQuickActionItems}
+                            showMobilePreview={!plugin?.isMobile}
                             onAutoOpenMobileHomepageChange={(value) => autoOpenMobileHomepage = value}
+                            onMobileQuickActionsEnabledChange={(value) => mobileQuickActionsEnabled = value}
+                            onMobileQuickActionsButtonSizeChange={(value) => mobileQuickActionsButtonSize = value}
+                            onMobileQuickActionItemsChange={(value) => mobileQuickActionItems = value}
                             onOpenMobileHomepagePreview={openMobileHomepagePreviewDialog}
                         />
                     {/if}

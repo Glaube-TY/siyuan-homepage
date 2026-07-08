@@ -2,6 +2,7 @@ import type { ButtonItem } from './types';
 import type { DeviceProfilesMap } from '../utils/deviceProfile';
 import type { HomepageStatusTextMode } from '../status-text-config';
 import type { SelectionAiToolbarSettings } from '@/features/kb/services/selection-ai/selection-ai-types';
+import type { MobileQuickActionSetting, MobileQuickActionsPosition } from '../mobileQuickActions/mobileQuickActionsConfig';
 import type {
     ComponentMigrationStatus,
     NotebookOption,
@@ -196,6 +197,10 @@ export interface HomepageSettingConfig {
     autoOpenHomepage: boolean;
     sidebarEnabled: boolean;
     autoOpenMobileHomepage: boolean;
+    mobileQuickActionsEnabled?: boolean;
+    mobileQuickActionsButtonSize?: number;
+    mobileQuickActionsPosition?: MobileQuickActionsPosition;
+    mobileQuickActionItems?: MobileQuickActionSetting[];
     bannerEnabled: boolean;
     bannerGlobalType: string;
     bingApiType: string;

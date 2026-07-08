@@ -53,6 +53,20 @@ import type { SelectionAiToolbarSettings } from "@/features/kb/services/selectio
 import { pushAgentDebugEvent } from "@/features/kb/services/agent-workbench/debug/workbench-debug";
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
+import MobileQuickActions from "./homepage/mobileQuickActions/MobileQuickActions.svelte";
+import MobileQuickActionsSettingsDialog from "./homepage/mobileQuickActions/MobileQuickActionsSettingsDialog.svelte";
+import {
+    MOBILE_QUICK_ACTION_DEFINITIONS,
+    normalizeMobileQuickActionButtonSize,
+    normalizeMobileQuickActionItems,
+    normalizeMobileQuickActionsPosition,
+} from "./homepage/mobileQuickActions/mobileQuickActionsConfig";
+import type {
+    MobileQuickActionId,
+    MobileQuickActionSetting,
+    MobileQuickActionsPosition,
+} from "./homepage/mobileQuickActions/mobileQuickActionsConfig";
+import { openAccountingDetailDialogFromPlugin } from "./components/utils/widgetBlock/widget/accounting/openAccountingDetailDialog";
 
 type HomepageMenuItem = {
     icon?: string;
@@ -60,6 +74,14 @@ type HomepageMenuItem = {
     click?: () => void;
     type?: "submenu";
     submenu?: HomepageMenuItem[];
+};
+
+type MobileQuickAction = {
+    id: MobileQuickActionId;
+    label: string;
+    description: string;
+    icon: string;
+    run: () => void | Promise<void>;
 };
 
 const STORAGE_NAME = "menu-config";
@@ -101,6 +123,10 @@ interface PluginConfig {
     taskEditorEnabled?: boolean;
     sidebarEnabled?: boolean;
     autoOpenMobileHomepage?: boolean;
+    mobileQuickActionsEnabled?: boolean;
+    mobileQuickActionsButtonSize?: number;
+    mobileQuickActionsPosition?: MobileQuickActionsPosition;
+    mobileQuickActionItems?: MobileQuickActionSetting[];
     autoOpenHomepage?: boolean;
     aiKbDockEnabled?: boolean;
     aiKbTabEnabled?: boolean;
@@ -114,6 +140,7 @@ export default class PluginHomepage extends Plugin {
     isMobile = false;
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
     private currentMobileKbDialog: ReturnType<typeof svelteDialog> | null = null;
+    private currentMobileSettingsDialog: ReturnType<typeof svelteDialog> | null = null;
     private homepageInstance: Record<string, any> | null = null;
     private homepageTabDiv: HTMLDivElement | null = null;
     private enhancedDiaryWorkspaceInstance: Record<string, any> | null = null;
@@ -124,6 +151,10 @@ export default class PluginHomepage extends Plugin {
     private kbDockInstance: Record<string, any> | null = null;
     private kbDockRegistered = false;
     private sidebarDockInstance: Record<string, any> | null = null;
+    private mobileQuickActionsHost: HTMLDivElement | null = null;
+    private mobileQuickActionsInstance: Record<string, any> | null = null;
+    private mobileQuickActionsPositionSaveTimer: number | null = null;
+    private pendingMobileQuickActionsPosition: MobileQuickActionsPosition | null = null;
     private homepageTabObserver: MutationObserver | null = null;
     private customTabsRegistered = false;
     private homepageTopBarElement: HTMLElement | null = null;
@@ -461,17 +492,35 @@ export default class PluginHomepage extends Plugin {
 
     private async handleHomepageSettingsSaved(): Promise<void> {
         await this.applyGlobalBackgroundImageStyle();
+        const config = await this.getPluginConfig();
+        this.mountMobileQuickActions(config);
     }
 
     private async handleHomepageAdvancedReady(): Promise<void> {
         await this.applyGlobalBackgroundImageStyle();
+        const config = await this.getPluginConfig();
+        this.mountMobileQuickActions(config);
     }
 
     private async handleHomepageAdvancedUnavailable(): Promise<void> {
         await this.applyGlobalBackgroundImageStyle();
+        if (this.currentMobileSettingsDialog) {
+            this.currentMobileSettingsDialog.close();
+            this.currentMobileSettingsDialog = null;
+        }
+        this.destroyMobileQuickActions();
     }
 
     async onunload() {
+        if (this.mobileQuickActionsPositionSaveTimer !== null) {
+            clearTimeout(this.mobileQuickActionsPositionSaveTimer);
+            this.mobileQuickActionsPositionSaveTimer = null;
+        }
+        if (this.pendingMobileQuickActionsPosition) {
+            const pendingPosition = this.pendingMobileQuickActionsPosition;
+            this.pendingMobileQuickActionsPosition = null;
+            await this.persistMobileQuickActionsPosition(pendingPosition);
+        }
         await destroyChatActionBridge();
         destroyTaskNotifyScheduler();
         destroyCountdownNotifyScheduler();
@@ -509,6 +558,11 @@ export default class PluginHomepage extends Plugin {
             this.currentMobileKbDialog.close();
             this.currentMobileKbDialog = null;
         }
+        if (this.currentMobileSettingsDialog) {
+            this.currentMobileSettingsDialog.close();
+            this.currentMobileSettingsDialog = null;
+        }
+        this.destroyMobileQuickActions();
 
         // 销毁全局悬浮预览单例（清理 DOM、样式、Protyle 等资源）
         try {
@@ -578,21 +632,28 @@ export default class PluginHomepage extends Plugin {
         this.ensureHomepageTabObserver();
 
         // 检查是否在新窗口中打开
-        const urlParams = new URLSearchParams(window.location.search);
-        const isNewWindow = urlParams.has('json');
+        const isNewWindow = this.isNewWindow();
 
         // 只在非新窗口中自动打开主页
         if (!isNewWindow) {
             const config = await this.getPluginConfig();
-            if (this.isMobile && config.autoOpenMobileHomepage === true) {
-                this.openMobileHomepage();
-            } else if (config.autoOpenHomepage === true && !this.isMobile) {
+            if (this.isMobileFrontend()) {
+                await this.verifyLicense();
+                if (this.ADVANCED && config.autoOpenMobileHomepage === true) {
+                    this.openMobileHomepage();
+                }
+                this.mountMobileQuickActions(config);
+            } else if (config.autoOpenHomepage === true) {
                 this.openHomepage();
+                void this.verifyLicense();
+            } else {
+                this.destroyMobileQuickActions();
+                void this.verifyLicense();
             }
+        } else {
+            this.destroyMobileQuickActions();
+            void this.verifyLicense();
         }
-
-        // 会员校验（非阻塞）
-        void this.verifyLicense();
     }
 
     private ensureTabContainers(): void {
@@ -1009,38 +1070,8 @@ export default class PluginHomepage extends Plugin {
         this.addCommand({
             langKey: "快速笔记",
             hotkey: "⇧⌘Q",
-            callback: async () => {
-                const config = await this.getPluginConfig();
-                const quickNotesEnabled = config.quickNotesEnabled;
-                const quickNotesPosition = config.quickNotesPosition;
-                const quickNotesTimestampEnabled = config.quickNotesTimestampEnabled;
-                const quickNotesAddPosition = config.quickNotesAddPosition;
-
-                if (!quickNotesEnabled) {
-                    showMessage("❌请先在主页设置中开启快速笔记");
-                    return;
-                } else if (!quickNotesPosition || !String(quickNotesPosition).trim()) {
-                    showMessage("❌请先在主页设置中设置快速笔记的位置");
-                    return;
-                } else {
-                    const dialog = svelteDialog({
-                        title: "快速笔记",
-                        constructor: (containerEl: HTMLElement) => {
-                            return mount(QuickNotesDialog as any, {
-                                target: containerEl,
-                                props: {
-                                    quickNotesPosition,
-                                    quickNotesTimestampEnabled,
-                                    quickNotesAddPosition,
-                                    close: () => {
-                                        dialog.close();
-                                    },
-                                },
-                            });
-                        },
-                    });
-                }
-
+            callback: () => {
+                void this.openQuickNotesDialog();
             },
         });
 
@@ -1058,6 +1089,39 @@ export default class PluginHomepage extends Plugin {
                 }
             },
         });
+    }
+
+    private async openQuickNotesDialog(): Promise<void> {
+        const config = await this.getPluginConfig();
+        const quickNotesEnabled = config.quickNotesEnabled;
+        const quickNotesPosition = config.quickNotesPosition;
+        const quickNotesTimestampEnabled = config.quickNotesTimestampEnabled;
+        const quickNotesAddPosition = config.quickNotesAddPosition;
+
+        if (!quickNotesEnabled) {
+            showMessage("❌请先在主页设置中开启快速笔记");
+            return;
+        } else if (!quickNotesPosition || !String(quickNotesPosition).trim()) {
+            showMessage("❌请先在主页设置中设置快速笔记的位置");
+            return;
+        } else {
+            const dialog = svelteDialog({
+                title: "快速笔记",
+                constructor: (containerEl: HTMLElement) => {
+                    return mount(QuickNotesDialog as any, {
+                        target: containerEl,
+                        props: {
+                            quickNotesPosition,
+                            quickNotesTimestampEnabled,
+                            quickNotesAddPosition,
+                            close: () => {
+                                dialog.close();
+                            },
+                        },
+                    });
+                },
+            });
+        }
     }
 
     private registerTopBar(config: PluginConfig) {
@@ -1110,6 +1174,127 @@ export default class PluginHomepage extends Plugin {
     private isMobileFrontend(): boolean {
         const frontEnd = getFrontend();
         return this.isMobile || frontEnd === "mobile" || frontEnd === "browser-mobile" || frontEnd.includes("mobile");
+    }
+
+    private isNewWindow(): boolean {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.has("json");
+    }
+
+    private buildMobileQuickActions(config: PluginConfig): MobileQuickAction[] {
+        const runById: Record<MobileQuickActionId, () => void | Promise<void>> = {
+            "accounting-record": () => openAccountingDetailDialogFromPlugin(this, "record"),
+            "mobile-homepage": () => this.openMobileHomepage(),
+            "ai-knowledge-base": () => this.openMobileKbChat(),
+            "quick-notes": () => this.openQuickNotesDialog(),
+            "mobile-settings": () => this.openMobileSettingsDialog(),
+        };
+        const definitionById = new Map(MOBILE_QUICK_ACTION_DEFINITIONS.map((item) => [item.id, item]));
+
+        return normalizeMobileQuickActionItems(config.mobileQuickActionItems)
+            .filter((item) => item.enabled)
+            .sort((a, b) => a.order - b.order)
+            .map((item) => {
+                const definition = definitionById.get(item.id);
+                if (!definition) return null;
+                return {
+                    id: definition.id,
+                    label: definition.label,
+                    description: definition.description,
+                    icon: definition.icon,
+                    run: runById[definition.id],
+                };
+            })
+            .filter((item): item is MobileQuickAction => item !== null);
+    }
+
+    private mountMobileQuickActions(config: PluginConfig): void {
+        if (this.isNewWindow() || !this.isMobileFrontend() || !this.ADVANCED || config.mobileQuickActionsEnabled === false) {
+            this.destroyMobileQuickActions();
+            return;
+        }
+
+        const buttonSize = normalizeMobileQuickActionButtonSize(config.mobileQuickActionsButtonSize);
+        const actions = this.buildMobileQuickActions(config);
+        if (actions.length === 0) {
+            this.destroyMobileQuickActions();
+            return;
+        }
+
+        this.destroyMobileQuickActions();
+
+        const host = document.createElement("div");
+        host.dataset.siyuanHomepageMobileQuickActions = "true";
+        host.className = "siyuan-homepage-mobile-quick-actions-host";
+        document.body.appendChild(host);
+
+        this.mobileQuickActionsHost = host;
+        this.mobileQuickActionsInstance = mount(MobileQuickActions as any, {
+            target: host,
+            props: {
+                actions,
+                buttonSize,
+                position: normalizeMobileQuickActionsPosition(config.mobileQuickActionsPosition, {
+                    viewportHeight: window.innerHeight,
+                    buttonSize,
+                }),
+                onPositionChange: (
+                    position: MobileQuickActionsPosition,
+                    options?: { immediate?: boolean },
+                ) => this.saveMobileQuickActionsPosition(position, options),
+            },
+        });
+    }
+
+    private saveMobileQuickActionsPosition(
+        position: MobileQuickActionsPosition,
+        options: { immediate?: boolean } = {},
+    ): void {
+        const normalizedPosition = normalizeMobileQuickActionsPosition(position, {
+            viewportHeight: window.innerHeight,
+        });
+        this.pendingMobileQuickActionsPosition = normalizedPosition;
+
+        if (options.immediate === true) {
+            if (this.mobileQuickActionsPositionSaveTimer !== null) {
+                clearTimeout(this.mobileQuickActionsPositionSaveTimer);
+                this.mobileQuickActionsPositionSaveTimer = null;
+            }
+            this.pendingMobileQuickActionsPosition = null;
+            void this.persistMobileQuickActionsPosition(normalizedPosition);
+            return;
+        }
+
+        if (this.mobileQuickActionsPositionSaveTimer !== null) return;
+        this.mobileQuickActionsPositionSaveTimer = window.setTimeout(() => {
+            this.mobileQuickActionsPositionSaveTimer = null;
+            const pendingPosition = this.pendingMobileQuickActionsPosition;
+            this.pendingMobileQuickActionsPosition = null;
+            if (pendingPosition) {
+                void this.persistMobileQuickActionsPosition(pendingPosition);
+            }
+        }, 160);
+    }
+
+    private async persistMobileQuickActionsPosition(position: MobileQuickActionsPosition): Promise<void> {
+        const config = await this.getPluginConfig();
+        await this.saveData("homepageSettingConfig.json", {
+            ...config,
+            mobileQuickActionsPosition: normalizeMobileQuickActionsPosition(position),
+        });
+    }
+
+    private destroyMobileQuickActions(): void {
+        if (this.mobileQuickActionsInstance) {
+            try {
+                unmount(this.mobileQuickActionsInstance);
+            } catch {
+                // ignore mobile quick actions cleanup errors
+            }
+        }
+        this.mobileQuickActionsHost?.remove();
+        this.mobileQuickActionsInstance = null;
+        this.mobileQuickActionsHost = null;
     }
 
     private async openHomepage() {
@@ -1415,6 +1600,11 @@ export default class PluginHomepage extends Plugin {
     }
 
     private openMobileHomepage() {
+        if (!this.ADVANCED) {
+            showMessage("移动端主页为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+            return;
+        }
+
         // 如果已存在对话框，先关闭
         if (this.currentMobileDialog) {
             this.currentMobileDialog.close();
@@ -1470,6 +1660,40 @@ export default class PluginHomepage extends Plugin {
             },
         });
         this.currentMobileKbDialog.dialog.element.classList.add("mobile-kb-chat-dialog");
+    }
+
+    private openMobileSettingsDialog(): void {
+        if (!this.ADVANCED) {
+            showMessage("移动端设置为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+            return;
+        }
+
+        if (this.currentMobileSettingsDialog) {
+            this.currentMobileSettingsDialog.close();
+            this.currentMobileSettingsDialog = null;
+        }
+
+        this.currentMobileSettingsDialog = svelteDialog({
+            title: "移动端设置",
+            width: "100vw",
+            height: "100dvh",
+            constructor: (containerEl: HTMLElement) => {
+                return mount(MobileQuickActionsSettingsDialog as any, {
+                    target: containerEl,
+                    props: {
+                        plugin: this,
+                        close: () => {
+                            this.currentMobileSettingsDialog?.close();
+                            this.currentMobileSettingsDialog = null;
+                        },
+                    },
+                });
+            },
+            callback: () => {
+                this.currentMobileSettingsDialog = null;
+            },
+        });
+        this.currentMobileSettingsDialog.dialog.element.classList.add("mobile-quick-actions-settings-dialog");
     }
 
     private async getPluginConfig(): Promise<PluginConfig> {
