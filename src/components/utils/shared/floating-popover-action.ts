@@ -28,6 +28,7 @@ export function floatingPopoverAction(
 
     computePosition(ref, floatingEl, {
       placement: options.placement ?? "top-end",
+      strategy: "fixed",
       middleware: [
         floatingOffset(options.offset ?? 8),
         flip(),

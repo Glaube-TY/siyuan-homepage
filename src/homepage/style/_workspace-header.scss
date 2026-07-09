@@ -173,6 +173,7 @@
 
         .more-button.hidden {
             opacity: 0;
+            pointer-events: none;
         }
 
         .more-menu {
@@ -183,10 +184,12 @@
             border: 1px solid var(--b3-theme-primary);
             border-radius: 4px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-            z-index: 20;
+            z-index: 110;
             display: flex;
             flex-direction: column;
             width: fit-content;
+            min-width: max-content;
+            max-width: min(280px, calc(100vw - 16px));
             max-height: 300px;
             overflow-y: auto;
         }
@@ -261,11 +264,14 @@
         .workspace-header .nav-buttons {
             flex-wrap: wrap;
             justify-content: flex-end;
-            margin-right: 16px;
+            margin-right: 0;
+            order: 2;
         }
 
         .workspace-header .nav-bar-right {
             flex: 0 0 auto;
+            margin-right: 16px;
+            order: 1;
         }
     }
 
@@ -340,6 +346,10 @@
         flex: 0 0 auto;
     }
 
+    .banner-title-layer .nav-bar-right {
+        margin-left: 10px;
+    }
+
     .banner-title-layer .nav-buttons {
         flex-wrap: wrap;
         gap: 10px;
@@ -409,6 +419,16 @@
         justify-content: flex-end;
     }
 
+    &.title-align-right .banner-title-layer .nav-bar-right {
+        margin-right: 10px;
+        margin-left: 0;
+        order: 1;
+    }
+
+    &.title-align-right .banner-title-layer .nav-buttons {
+        order: 2;
+    }
+
     &.quick-buttons-flat .nav-bar .nav-button {
         border-color: transparent;
         background: color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
@@ -474,6 +494,15 @@
 
         .banner-title-layer .nav-buttons {
             gap: 8px;
+        }
+
+        .banner-title-layer .nav-bar-right {
+            margin-left: 8px;
+        }
+
+        &.title-align-right .banner-title-layer .nav-bar-right {
+            margin-right: 8px;
+            margin-left: 0;
         }
 
         .banner-title-layer .nav-button {

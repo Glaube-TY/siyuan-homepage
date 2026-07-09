@@ -102,6 +102,7 @@
         findExistingDeviceByHardware,
         deduplicateDeviceProfiles,
     } from "./utils/deviceProfile";
+    import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     import "./style/homepage.scss"
@@ -226,6 +227,7 @@
     let buttonsList: ButtonItem[] = $state([]);
     let showMoreMenu = $state(false);
     let isHoveringNavBar = $state(false);
+    let moreButtonEl: HTMLButtonElement | null = $state(null);
 
     let widgetLayoutNumber = $state(4);
     let widgetGap = $state(0.2);
@@ -1607,11 +1609,10 @@
 
     // 更多按钮点击事件处理
     function handleDocumentClick(event: MouseEvent) {
-        const target = event.target as Node;
-        const isMoreButton = document
-            .querySelector(".more-button")
-            ?.contains(target);
-        if (!isMoreButton && showMoreMenu) {
+        const target = event.target;
+        const targetElement = target instanceof Element ? target : null;
+        const isWithinMoreControls = Boolean(targetElement?.closest(".more-button, .more-menu"));
+        if (!isWithinMoreControls && showMoreMenu) {
             showMoreMenu = false;
         }
     }
@@ -1777,7 +1778,8 @@
                     <div class="nav-bar-right">
                         <button
                             class="nav-button more-button"
-                            class:hidden={!isHoveringNavBar ||
+                            bind:this={moreButtonEl}
+                            class:hidden={(!isHoveringNavBar && !showMoreMenu) ||
                                 filteredButtons.length === 0}
                             onclick={() => {
                                 const newShowMoreMenu =
@@ -1789,7 +1791,16 @@
                         </button>
 
                         {#if showMoreMenu && filteredButtons.length > 0}
-                            <div class="more-menu">
+                            <div
+                                class="more-menu"
+                                use:floatingPopoverAction={{
+                                    referenceEl: moreButtonEl ?? undefined,
+                                    placement: "bottom-start",
+                                    offset: 8,
+                                    open: showMoreMenu,
+                                    shiftPadding: 8,
+                                }}
+                            >
                                 {#each filteredButtons as item}
                                     <button
                                         class="more-menu-item"
@@ -1907,7 +1918,8 @@
                 <div class="nav-bar-right">
                     <button
                         class="nav-button more-button"
-                        class:hidden={!isHoveringNavBar ||
+                        bind:this={moreButtonEl}
+                        class:hidden={(!isHoveringNavBar && !showMoreMenu) ||
                             filteredButtons.length === 0}
                         onclick={() => {
                             const newShowMoreMenu =
@@ -1919,7 +1931,16 @@
                     </button>
 
                     {#if showMoreMenu && filteredButtons.length > 0}
-                        <div class="more-menu">
+                        <div
+                            class="more-menu"
+                            use:floatingPopoverAction={{
+                                referenceEl: moreButtonEl ?? undefined,
+                                placement: "bottom-start",
+                                offset: 8,
+                                open: showMoreMenu,
+                                shiftPadding: 8,
+                            }}
+                        >
                             {#each filteredButtons as item}
                                 <button
                                     class="more-menu-item"
