@@ -1632,8 +1632,8 @@ export async function getRecentUpdatedBlocks(params: SiyuanApiPayload): Promise<
     return requestChecked('/api/block/getRecentUpdatedBlocks', params, 'getRecentUpdatedBlocks');
 }
 
-export async function getRecentDocs(): Promise<any> {
-    return requestChecked('/api/storage/getRecentDocs', {}, 'getRecentDocs');
+export async function getRecentDocs(params: SiyuanApiPayload = {}): Promise<any> {
+    return requestChecked('/api/storage/getRecentDocs', params, 'getRecentDocs');
 }
 
 export async function checkBlockExist(id: string): Promise<any> {

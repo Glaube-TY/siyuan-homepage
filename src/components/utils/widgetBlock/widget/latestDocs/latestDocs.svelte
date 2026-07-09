@@ -8,6 +8,11 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
     import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import {
+        clampRecentDocsLimit,
+        normalizeRecentDocsSortBy,
+        type RecentDocsSortBy,
+    } from "@/components/tools/siyuanComponentDataApi";
 
     interface Props {
         plugin: any;
@@ -19,9 +24,15 @@
 
     const parsed = $derived(JSON.parse(contentTypeJson));
     const isMobilePlacement = $derived(placement === "mobile");
-    const limit = $derived(parsed.data?.[0]?.limit || 5);
+    const limit = $derived(clampRecentDocsLimit(parsed.data?.[0]?.limit, 5));
     const title = $derived(parsed.data?.[0]?.latestDocsTitle || "🕒最近文档");
     const prefix = $derived(parsed.data?.[0]?.latestDocsPrefix || "📄");
+    const latestDocsSortBy = $derived(
+        normalizeRecentDocsSortBy(
+            parsed.data?.[0]?.latestDocsSortBy,
+            parsed.data?.[0]?.ensureOpenDocs ? "openAt" : "updated",
+        ),
+    );
     const showLatestDocDetails = $derived(parsed.data?.[0]?.showLatestDocDetails ?? true);
     const showLatestDocFloatDoc =
         $derived(parsed.data?.[0]?.showLatestDocFloatDoc ?? true);
@@ -68,6 +79,8 @@
             parsed.data?.[0]?.docNotebookId,
             parsed.data?.[0]?.ensureOpenDocs,
             useBuiltinDocIcon,
+            latestDocsSortBy,
+            limit,
         ).then((docs) => {
             if (isDestroyed) return;
             documentList = docs;
@@ -111,6 +124,24 @@
             return `${diffDays}天前`;
         }
     }
+
+    function getDocTime(doc: latestDocumentInfo): string {
+        return doc.recentTime || doc.updated || "";
+    }
+
+    function getTimeLabel(sortBy: RecentDocsSortBy | undefined): string {
+        switch (sortBy || latestDocsSortBy) {
+            case "viewedAt":
+                return "浏览于";
+            case "openAt":
+                return "打开于";
+            case "closedAt":
+                return "关闭于";
+            case "updated":
+            default:
+                return "修改于";
+        }
+    }
 </script>
 
 {#if isMobilePlacement}
@@ -137,7 +168,7 @@
                         <span class="mobile-doc-main">
                             <strong>{doc.content || "无标题文档"}</strong>
                             {#if showLatestDocDetails}
-                                <small>{getTimeAgo(doc.updated)}</small>
+                                <small>{getTimeLabel(doc.recentSortBy)} {getTimeAgo(getDocTime(doc))}</small>
                             {/if}
                         </span>
                     </button>
@@ -210,7 +241,7 @@
                         {#if showLatestDocDetails}
                             <div class="document-updated-container">
                                 <span class="document-updated">
-                                    更新于：📅{getTimeAgo(doc.updated)}
+                                    {getTimeLabel(doc.recentSortBy)}：📅{getTimeAgo(getDocTime(doc))}
                                 </span>
                             </div>
                         {/if}

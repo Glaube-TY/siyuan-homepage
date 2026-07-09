@@ -60,6 +60,11 @@
         loadHomepageSettingConfig,
         normalizeNotebookOptions,
     } from "@/homepage/homepageSetting/config";
+    import {
+        clampRecentDocsLimit,
+        normalizeRecentDocsSortBy,
+        type RecentDocsSortBy,
+    } from "@/components/tools/siyuanComponentDataApi";
     import type { NotebookOption } from "./widget/common/componentMigrationTypes";
     type CountdownEventForm = Partial<CountdownEventRecord> & {
         name: string;
@@ -131,6 +136,7 @@
     let ensureOpenDocs: boolean = $state(false);
     let selectedNotebookIds: { label: string; value: string }[] = $state([]);
     let docNotebookId: string = $state("");
+    let latestDocsSortBy: RecentDocsSortBy = $state("updated");
     let latestDocsTitle: string = $state("🕒最近文档");
     let latestDocsPrefix: string = $state("📄");
     let latestDocsUseBuiltinDocIcon: boolean = $state(false);
@@ -571,8 +577,12 @@
             loadedWidgetConfig = parsedData;
 
             if (parsedData.type === "latest-docs") {
-                docLimit = parsedData.data?.[0]?.limit || 5;
+                docLimit = clampRecentDocsLimit(parsedData.data?.[0]?.limit, 5);
                 ensureOpenDocs = parsedData.data?.[0]?.ensureOpenDocs || false;
+                latestDocsSortBy = normalizeRecentDocsSortBy(
+                    parsedData.data?.[0]?.latestDocsSortBy,
+                    ensureOpenDocs ? "openAt" : "updated",
+                );
                 docNotebookId = parsedData.data?.[0]?.docNotebookId || "";
                 selectedNotebookIds = docNotebookId
                     ? docNotebookId.split(",").map((id) => {
@@ -1415,9 +1425,9 @@
                 {#if selectedContentType === "latest-docs"}
                     <LatestDocsSet
                         bind:docLimit
-                        bind:ensureOpenDocs
                         bind:selectedNotebookIds
                         docNotebookId={docNotebookId}
+                        bind:latestDocsSortBy
                         bind:latestDocsTitle
                         bind:latestDocsPrefix
                         bind:useBuiltinDocIcon={latestDocsUseBuiltinDocIcon}
@@ -1841,9 +1851,10 @@
                         blockId: currentBlockId,
                         data: [
                             {
-                                limit: docLimit,
+                                limit: clampRecentDocsLimit(docLimit, 5),
                                 docNotebookId,
-                                ensureOpenDocs,
+                                ensureOpenDocs: latestDocsSortBy === "openAt",
+                                latestDocsSortBy,
                                 latestDocsTitle,
                                 latestDocsPrefix,
                                 useBuiltinDocIcon: latestDocsUseBuiltinDocIcon,

@@ -4,7 +4,6 @@ import {
     getFile,
     getPathByID,
     getRecentDocs,
-    getRecentUpdatedBlocks,
     checkBlockExist,
     listDocsByPath,
     lsNotebooks,
@@ -43,6 +42,8 @@ export interface ComponentDocInfo {
     content: string;
     created?: string;
     updated?: string;
+    recentTime?: string;
+    recentSortBy?: RecentDocsSortBy;
     sort?: number;
     ial?: string;
     icon?: string;
@@ -50,6 +51,17 @@ export interface ComponentDocInfo {
     path?: string;
     hpath?: string;
 }
+
+export type RecentDocsSortBy = "viewedAt" | "updated" | "openAt" | "closedAt";
+
+export const RECENT_DOCS_MAX_LIMIT = 20;
+
+export const RECENT_DOCS_SORT_OPTIONS: Array<{ value: RecentDocsSortBy; label: string }> = [
+    { value: "viewedAt", label: "最近浏览" },
+    { value: "updated", label: "最近修改" },
+    { value: "openAt", label: "最近打开" },
+    { value: "closedAt", label: "最近关闭" },
+];
 
 export interface ComponentTaskInfo {
     id: string;
@@ -89,7 +101,7 @@ const TASK_REBUILD_PAGE_SIZE = 1000;
 const TASK_REBUILD_MAX_ROWS = 50000;
 const HEATMAP_REBUILD_PAGE_SIZE = 2000;
 const HEATMAP_REBUILD_MAX_ROWS = 200000;
-const RECENT_DOC_REFRESH_LIMIT = 200;
+const RECENT_DOC_REFRESH_LIMIT = RECENT_DOCS_MAX_LIMIT;
 const RECENT_REFRESH_TTL_MS = 2 * 60 * 1000;
 
 export interface ComponentRecentDocSnapshotDoc {
@@ -427,6 +439,42 @@ function normalizeSiyuanTime(value: unknown): string {
     return "";
 }
 
+export function normalizeRecentDocsSortBy(value: unknown, fallback: RecentDocsSortBy = "updated"): RecentDocsSortBy {
+    return RECENT_DOCS_SORT_OPTIONS.some((option) => option.value === value)
+        ? value as RecentDocsSortBy
+        : fallback;
+}
+
+export function clampRecentDocsLimit(value: unknown, fallback = 5): number {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.min(RECENT_DOCS_MAX_LIMIT, Math.max(1, Math.floor(numeric)));
+}
+
+function getRecentDocId(record: any): string {
+    return String(record?.rootID || record?.root_id || record?.id || "").trim();
+}
+
+function getRecentDocEventTime(record: any, sortBy: RecentDocsSortBy): string {
+    switch (sortBy) {
+        case "viewedAt":
+            return normalizeSiyuanTime(record?.viewedAt) ||
+                normalizeSiyuanTime(record?.openAt) ||
+                normalizeSiyuanTime(record?.closedAt);
+        case "openAt":
+            return normalizeSiyuanTime(record?.openAt) ||
+                normalizeSiyuanTime(record?.viewedAt) ||
+                normalizeSiyuanTime(record?.closedAt);
+        case "closedAt":
+            return normalizeSiyuanTime(record?.closedAt) ||
+                normalizeSiyuanTime(record?.viewedAt) ||
+                normalizeSiyuanTime(record?.openAt);
+        case "updated":
+        default:
+            return normalizeSiyuanTime(record?.updated);
+    }
+}
+
 function readIalAttr(block: any, key: string): string {
     const ial = block?.ial;
     if (!ial) return "";
@@ -461,11 +509,56 @@ function normalizeRecentDocRecords(raw: any): any[] {
     return [];
 }
 
-async function loadRecentDocRecords(): Promise<any[]> {
+async function loadRecentDocRecords(sortBy: RecentDocsSortBy = "updated"): Promise<any[]> {
+    const records = normalizeRecentDocRecords(await getRecentDocs({ sortBy }));
+    return records.slice(0, RECENT_DOCS_MAX_LIMIT);
+}
+
+function recentDocRecordToDocInfo(record: any, sortBy: RecentDocsSortBy): ComponentDocInfo | null {
+    const id = getRecentDocId(record);
+    if (!id) return null;
+    const recentTime = getRecentDocEventTime(record, sortBy);
+    return {
+        id,
+        content: String(record?.title || record?.content || id),
+        updated: sortBy === "updated" ? recentTime : undefined,
+        recentTime: recentTime || undefined,
+        recentSortBy: sortBy,
+        icon: record?.icon,
+    };
+}
+
+async function hydrateDocBlockFields(docs: ComponentDocInfo[]): Promise<ComponentDocInfo[]> {
+    const ids = Array.from(new Set(docs.map((doc) => doc.id).filter(Boolean)));
+    if (ids.length === 0) return docs;
     try {
-        return normalizeRecentDocRecords(await getRecentDocs());
+        const escaped = ids.map((id) => `'${escapeSqlString(id)}'`).join(",");
+        const rows = await sql(`
+            SELECT id, box, path, hpath, content, created, updated, sort, ial
+            FROM blocks
+            WHERE id IN (${escaped})
+        `);
+        const byId = new Map<string, any>();
+        for (const row of Array.isArray(rows) ? rows : []) {
+            if (row?.id) byId.set(String(row.id), row);
+        }
+        return docs.map((doc) => {
+            const row = byId.get(doc.id);
+            if (!row) return doc;
+            return {
+                ...doc,
+                content: doc.content || stripSearchMarks(row?.content) || doc.id,
+                created: normalizeSiyuanTime(row?.created) || doc.created,
+                updated: doc.updated || normalizeSiyuanTime(row?.updated),
+                sort: Number(row?.sort) || doc.sort,
+                ial: normalizeIal(row?.ial) || doc.ial,
+                box: row?.box || doc.box,
+                path: row?.path || doc.path,
+                hpath: row?.hpath || doc.hpath,
+            };
+        });
     } catch {
-        return normalizeRecentDocRecords(await getFile("/data/storage/recent-doc.json"));
+        return docs;
     }
 }
 
@@ -857,7 +950,12 @@ export interface PreparedRecentDocs {
 }
 
 export async function prepareChangedRecentDocsForIndex(consumer: string): Promise<PreparedRecentDocs> {
-    const rows = await getRecentUpdatedBlocks({});
+    const records = await loadRecentDocRecords("updated");
+    const rows = await hydrateDocBlockFields(
+        records
+            .map((record) => recentDocRecordToDocInfo(record, "updated"))
+            .filter((doc): doc is ComponentDocInfo => doc !== null),
+    );
     const currentDocs = new Map<string, ComponentRecentDocSnapshotDoc>();
     for (const row of Array.isArray(rows) ? rows : []) {
         const doc = normalizeRecentDoc(row);
@@ -1069,15 +1167,21 @@ export async function ensureTaskIndexInitialized(
 export async function getRecentDocumentsApi(
     notebookIds: string[] = [],
     includeBuiltinDocIcon = false,
-    maxRows = 100,
+    maxRows = RECENT_DOCS_MAX_LIMIT,
+    sortBy: RecentDocsSortBy = "updated",
 ): Promise<ComponentDocInfo[]> {
     try {
-        const rows = await getRecentUpdatedBlocks({});
-        const docs = (Array.isArray(rows) ? rows : [])
-            .filter((block) => notebookIds.length === 0 || notebookIds.includes(block?.box))
-            .map((block) => blockToDocInfo(block))
+        const normalizedSortBy = normalizeRecentDocsSortBy(sortBy);
+        const limit = clampRecentDocsLimit(maxRows, RECENT_DOCS_MAX_LIMIT);
+        const records = await loadRecentDocRecords(normalizedSortBy);
+        const docs = records
+            .map((record) => recentDocRecordToDocInfo(record, normalizedSortBy))
             .filter((doc): doc is ComponentDocInfo => doc !== null);
-        return hydrateDocInfos(dedupeDocs(docs).slice(0, maxRows), includeBuiltinDocIcon, Math.min(20, maxRows));
+        const withBlockFields = await hydrateDocBlockFields(docs);
+        const filtered = notebookIds.length > 0
+            ? withBlockFields.filter((doc) => doc.box && notebookIds.includes(doc.box))
+            : withBlockFields;
+        return hydrateDocInfos(filtered.slice(0, limit), includeBuiltinDocIcon, includeBuiltinDocIcon ? limit : 0);
     } catch {
         return [];
     }
@@ -1086,42 +1190,9 @@ export async function getRecentDocumentsApi(
 export async function getRecentDocumentsFromStorageApi(
     notebookIds: string[] = [],
     includeBuiltinDocIcon = false,
-    maxRows = 100,
+    maxRows = RECENT_DOCS_MAX_LIMIT,
 ): Promise<ComponentDocInfo[]> {
-    try {
-        const records = await loadRecentDocRecords();
-        const sortedRecords = [...records].sort((a: any, b: any) => {
-            const av = Number(a?.viewedAt || a?.openAt || a?.closedAt || 0);
-            const bv = Number(b?.viewedAt || b?.openAt || b?.closedAt || 0);
-            return bv - av;
-        });
-        const ids = Array.from(new Set(
-            sortedRecords
-                .map((item: any) => item?.rootID || item?.id)
-                .filter(Boolean),
-        )).slice(0, maxRows);
-        const latestById = new Map<string, any>();
-        for (const item of sortedRecords) {
-            const id = item?.rootID || item?.id;
-            if (!id || latestById.has(id)) continue;
-            latestById.set(id, item);
-        }
-        const docs = ids.map((id) => {
-            const item = latestById.get(String(id));
-            return {
-                id: String(id),
-                content: item?.title || String(id),
-                updated: normalizeSiyuanTime(item?.viewedAt) || normalizeSiyuanTime(item?.openAt),
-                icon: includeBuiltinDocIcon ? item?.icon : undefined,
-            };
-        });
-        const hydrated = await hydrateDocInfos(docs, includeBuiltinDocIcon, Math.min(50, ids.length));
-        return notebookIds.length > 0
-            ? hydrated.filter((doc) => doc.box && notebookIds.includes(doc.box))
-            : hydrated;
-    } catch {
-        return [];
-    }
+    return getRecentDocumentsApi(notebookIds, includeBuiltinDocIcon, maxRows, "viewedAt");
 }
 
 export async function getChildDocumentsByFileTree(
@@ -1188,18 +1259,26 @@ export async function getRecentHeatmapCounts(
     countType: "block" | "word",
 ): Promise<Record<string, number>> {
     try {
-        const rows = await getRecentUpdatedBlocks({});
+        const records = await loadRecentDocRecords("updated");
+        const recentDocs = await hydrateDocBlockFields(
+            records
+                .map((record) => recentDocRecordToDocInfo(record, "updated"))
+                .filter((doc): doc is ComponentDocInfo => doc !== null),
+        );
+        const { blocksByRoot } = await queryHeatmapBlocksByRootIds(recentDocs.map((doc) => doc.id));
         const counts: Record<string, number> = {};
-        for (const block of Array.isArray(rows) ? rows : []) {
-            const updated = getBlockUpdatedTime(block);
-            if (updated.length < 8) continue;
-            const day = `${updated.slice(0, 4)}-${updated.slice(4, 6)}-${updated.slice(6, 8)}`;
-            if (day < startDate || day > endDate) continue;
-            const increment = countType === "word"
-                ? String(block?.content || block?.markdown || "").length
-                : 1;
-            if (increment > 0) {
-                counts[day] = (counts[day] || 0) + increment;
+        for (const blocks of blocksByRoot.values()) {
+            for (const block of blocks) {
+                const updated = getBlockUpdatedTime(block);
+                if (updated.length < 8) continue;
+                const day = `${updated.slice(0, 4)}-${updated.slice(4, 6)}-${updated.slice(6, 8)}`;
+                if (day < startDate || day > endDate) continue;
+                const increment = countType === "word"
+                    ? String(block?.content || block?.markdown || "").length
+                    : 1;
+                if (increment > 0) {
+                    counts[day] = (counts[day] || 0) + increment;
+                }
             }
         }
         return counts;
@@ -1493,12 +1572,8 @@ export async function getRecentHeatmapCountsResult(
 
 export async function getRecentDailyNotesApi(includeBuiltinDocIcon = false): Promise<ComponentDocInfo[]> {
     try {
-        const rows = await getRecentUpdatedBlocks({});
-        const docs = (Array.isArray(rows) ? rows : [])
-            .filter((block) => isDocumentType(block?.type) && normalizeIal(block?.ial)?.includes("custom-dailynote-"))
-            .map((block) => blockToDocInfo(block))
-            .filter((doc): doc is ComponentDocInfo => doc !== null);
-        return hydrateDocInfos(dedupeDocs(docs, "created").slice(0, 100), includeBuiltinDocIcon, includeBuiltinDocIcon ? 10 : 0);
+        const docs = await getRecentDocumentsApi([], includeBuiltinDocIcon, RECENT_DOCS_MAX_LIMIT, "updated");
+        return docs.filter((doc) => normalizeIal(doc.ial)?.includes("custom-dailynote-"));
     } catch {
         return [];
     }

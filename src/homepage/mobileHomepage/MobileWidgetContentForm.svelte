@@ -18,6 +18,11 @@
         syncDatabaseIdToSameTypeWidgets,
         type DatabaseWidgetType,
     } from "../../components/utils/widgetBlock/widget/sharedDatabaseId";
+    import {
+        clampRecentDocsLimit,
+        normalizeRecentDocsSortBy,
+        RECENT_DOCS_SORT_OPTIONS,
+    } from "@/components/tools/siyuanComponentDataApi";
 
     interface Props {
         plugin: any;
@@ -157,6 +162,7 @@
                 latestDocsPrefix: "📄",
                 limit: 5,
                 docNotebookId: "",
+                latestDocsSortBy: "updated",
                 ensureOpenDocs: false,
                 useBuiltinDocIcon: false,
                 showLatestDocDetails: true,
@@ -434,6 +440,14 @@
             next.customBlockId = source?.customBlockId || source?.customBlockID || "";
         }
 
+        if (type === "latest-docs") {
+            next.limit = clampRecentDocsLimit(next.limit, 5);
+            next.latestDocsSortBy = normalizeRecentDocsSortBy(
+                next.latestDocsSortBy,
+                normalizeBoolean(next.ensureOpenDocs, false) ? "openAt" : "updated",
+            );
+        }
+
         return next;
     }
 
@@ -576,9 +590,10 @@
                     ...base,
                     data: [
                         withExistingData({
-                            limit: normalizeNumber(form.limit, 5),
+                            limit: clampRecentDocsLimit(form.limit, 5),
                             docNotebookId: normalizeString(form.docNotebookId),
-                            ensureOpenDocs: normalizeBoolean(form.ensureOpenDocs, false),
+                            latestDocsSortBy: normalizeRecentDocsSortBy(form.latestDocsSortBy),
+                            ensureOpenDocs: normalizeRecentDocsSortBy(form.latestDocsSortBy) === "openAt",
                             latestDocsTitle: normalizeString(
                                 form.latestDocsTitle,
                                 "🕒最近文档",
@@ -1393,12 +1408,12 @@
             placeholder,
         });
 
-        const limitField = (key = "limit", label = "显示条数"): MobileField => ({
+        const limitField = (key = "limit", label = "显示条数", max = 50): MobileField => ({
             key,
             type: "number",
             label,
             min: 1,
-            max: 50,
+            max,
             step: 1,
         });
 
@@ -1414,13 +1429,14 @@
                 return [
                     titleField("latestDocsTitle", "🕒最近文档"),
                     { key: "latestDocsPrefix", type: "text", label: "文档前缀" },
-                    limitField(),
-                    notebookField("docNotebookId"),
+                    limitField("limit", "显示条数", 20),
                     {
-                        key: "ensureOpenDocs",
-                        type: "switch",
-                        label: "包含已打开文档",
+                        key: "latestDocsSortBy",
+                        type: "select",
+                        label: "最近文档类型",
+                        options: RECENT_DOCS_SORT_OPTIONS.map((item) => option(item.value, item.label)),
                     },
+                    notebookField("docNotebookId"),
                     {
                         key: "useBuiltinDocIcon",
                         type: "switch",

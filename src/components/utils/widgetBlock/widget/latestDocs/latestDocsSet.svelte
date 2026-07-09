@@ -3,14 +3,15 @@
     import NotebookMultiSelectRow from "../../shared/NotebookMultiSelectRow.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import { RECENT_DOCS_SORT_OPTIONS, type RecentDocsSortBy } from "@/components/tools/siyuanComponentDataApi";
 
     interface Props {
         notebooks?: any[];
         // 最近文档配置
         docLimit?: number;
-        ensureOpenDocs?: boolean;
         selectedNotebookIds?: any[];
         docNotebookId?: string;
+        latestDocsSortBy?: RecentDocsSortBy;
         latestDocsTitle?: string;
         latestDocsPrefix?: string;
         useBuiltinDocIcon?: boolean;
@@ -22,9 +23,9 @@
     let {
         notebooks = [],
         docLimit = $bindable(5),
-        ensureOpenDocs = $bindable(false),
         selectedNotebookIds = $bindable([]),
         docNotebookId = $bindable(""),
+        latestDocsSortBy = $bindable("updated"),
         latestDocsTitle = $bindable("最近文档"),
         latestDocsPrefix = $bindable(""),
         useBuiltinDocIcon = $bindable(false),
@@ -39,8 +40,6 @@
         { value: 10, label: "10条" },
         { value: 15, label: "15条" },
         { value: 20, label: "20条" },
-        { value: 50, label: "50条" },
-        { value: 100, label: "100条" },
     ];
 </script>
 
@@ -74,8 +73,12 @@
         </select>
     </SettingRow>
 
-    <SettingRow title="包含打开的文档" description="将当前打开的文档纳入列表">
-        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={ensureOpenDocs} />
+    <SettingRow title="最近文档类型" description="使用思源官方最近文档接口的四种排序">
+        <select bind:value={latestDocsSortBy} class="control-sm">
+            {#each RECENT_DOCS_SORT_OPTIONS as option}
+                <option value={option.value}>{option.label}</option>
+            {/each}
+        </select>
     </SettingRow>
 
     <SettingRow title="显示文档信息" description="显示更新时间等元信息">
