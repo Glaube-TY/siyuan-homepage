@@ -833,7 +833,7 @@
         onMoveDownButton: moveDownButton,
     };
 
-    const DELETE_INVALID_LICENSE_CODES = new Set([25, 30, 31, 40, 41, 42, 43, 44]);
+    const DELETE_INVALID_LICENSE_CODES = new Set([25, 30, 40, 41, 42, 43, 44]);
 
     async function refreshVipIdentity(): Promise<void> {
         const res = await advanced.updateVIP();
@@ -885,6 +885,33 @@
         advancedEnabled = true;
         plugin.ADVANCED = true;
         window.dispatchEvent(new CustomEvent("homepage-advanced-ready"));
+        void refreshStatusAiModelSummary();
+    }
+
+    function handleVipAdvancedReady(): void {
+        advancedEnabled = true;
+        activated = true;
+        void refreshStatusAiModelSummary();
+    }
+
+    function handleVipMembershipActivated(result: any): void {
+        activationResult = result;
+        activated = result.valid === true;
+        if (activated) {
+            advancedEnabled = true;
+            plugin.ADVANCED = true;
+            window.dispatchEvent(new CustomEvent("homepage-advanced-ready"));
+            void refreshStatusAiModelSummary();
+        }
+    }
+
+    function handleVipMembershipRevoked(): void {
+        ActivationCode = "";
+        activationResult = { valid: false, code: -1, error: "会员授权已取消" };
+        activated = false;
+        advancedEnabled = false;
+        plugin.ADVANCED = false;
+        window.dispatchEvent(new CustomEvent("homepage-advanced-unavailable"));
         void refreshStatusAiModelSummary();
     }
 
@@ -1461,6 +1488,7 @@
         {:else if activeTab === "vip"}
             <div class="content-scroll-area full-content">
                 <VipSection
+                    plugin={plugin}
                     USER_NAME={USER_NAME}
                     USER_ID={USER_ID}
                     USER_CODE={USER_CODE}
@@ -1472,6 +1500,9 @@
                     onDeactivate={handleVipDeactivate}
                     onActivate={handleVipActivate}
                     onActivationCodeChange={handleActivationCodeChange}
+                    onAdvancedReady={handleVipAdvancedReady}
+                    onMembershipActivated={handleVipMembershipActivated}
+                    onMembershipRevoked={handleVipMembershipRevoked}
                 />
             </div>
         {:else if activeTab === "aiKnowledgeBase"}

@@ -38,6 +38,8 @@ export interface LicenseUserInfo {
     remainingDays: number;
     isExpired: boolean;
     isLifetime?: boolean;
+    durationDays?: number;
+    issuedDate?: string;
 }
 
 export interface LicenseVerifyResult {
@@ -301,6 +303,8 @@ export function verifySignedLicense(
                 remainingDays,
                 isExpired: false,
                 isLifetime,
+                durationDays,
+                issuedDate: issuedDateStr,
             },
         };
     } catch (error) {

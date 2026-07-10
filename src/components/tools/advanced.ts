@@ -188,6 +188,20 @@ export async function updateVIP() {
     return VIPconf;
 }
 
+/**
+ * 只读读取本地保存的 ActivationCode。
+ * 不修改 verifyLicense / activateLicense / saveVIPConfData / SH 验签核心。
+ */
+export async function getSavedActivationCode(plugin: any): Promise<string> {
+    try {
+        const data = await plugin.loadData("license.syhomepage");
+        const code = data?.ActivationCode;
+        return typeof code === "string" ? code.trim() : "";
+    } catch {
+        return "";
+    }
+}
+
 export async function saveVIPConfData(plugin: any, ActivationCode: string): Promise<boolean> {
     try {
         const data = {
@@ -245,6 +259,8 @@ export async function verifyLicense(
         due: result.userInfo.due,
         remainingDays: result.userInfo.remainingDays,
         isLifetime: result.userInfo.isLifetime === true,
+        durationDays: result.userInfo.durationDays,
+        issuedDate: result.userInfo.issuedDate,
     }
 
     await plugin.saveData("license.syhomepage", saveData);
@@ -295,6 +311,8 @@ export async function activateLicense(
         due: result.userInfo.due,
         remainingDays: result.userInfo.remainingDays,
         isLifetime: result.userInfo.isLifetime === true,
+        durationDays: result.userInfo.durationDays,
+        issuedDate: result.userInfo.issuedDate,
     }
 
     await plugin.saveData("license.syhomepage", saveData);
