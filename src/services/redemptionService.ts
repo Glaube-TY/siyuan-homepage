@@ -11,18 +11,16 @@ import {
     DEFAULT_BASE_URL,
     DEFAULT_TIMEOUT_MS,
     MembershipServiceError,
-    assertValidBaseUrl,
     businessCodeToErrorCode,
     extractRetryAfter,
     fetchWithTimeout,
     membershipMessage,
-    normalizeBaseUrl,
     safeParseJson,
     unwrapSuccessData,
     type MembershipServiceErrorCode,
 } from "./membershipService";
 
-export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, normalizeBaseUrl };
+export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS };
 
 export interface RedeemRequest {
     /** SYHPU1 用户识别码，由插件内部自动生成 */
@@ -222,13 +220,10 @@ function parseRedeemPayload(payload: any): RedeemResponse {
 }
 
 export async function redeemMembership(
-    baseUrl: string,
     request: RedeemRequest,
 ): Promise<RedeemResponse> {
-    const normalized = assertValidBaseUrl(baseUrl);
-
     const response = await fetchWithTimeout(
-        `${normalized}/api/redeem`,
+        `${DEFAULT_BASE_URL}/api/redeem`,
         {
             method: "POST",
             headers: {

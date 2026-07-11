@@ -14,20 +14,17 @@
  */
 
 import {
+    DEFAULT_BASE_URL,
     DEFAULT_TIMEOUT_MS,
     MembershipServiceError,
-    assertValidBaseUrl,
     businessCodeToErrorCode,
     extractRetryAfter,
     fetchWithTimeout,
     membershipMessage,
-    normalizeBaseUrl,
     parseActiveMembershipProtocolFields,
     safeParseJson,
     unwrapSuccessData,
 } from "./membershipService";
-
-export { normalizeBaseUrl };
 
 export interface LicenseSyncRequest {
     userCode: string;
@@ -86,13 +83,10 @@ function syncProtocolError(message: string): MembershipServiceError {
 }
 
 export async function syncLicenseStatus(
-    baseUrl: string,
     request: LicenseSyncRequest,
 ): Promise<LicenseSyncResponse> {
-    const normalized = assertValidBaseUrl(baseUrl);
-
     const response = await fetchWithTimeout(
-        `${normalized}/api/licenses/sync`,
+        `${DEFAULT_BASE_URL}/api/licenses/sync`,
         {
             method: "POST",
             headers: {

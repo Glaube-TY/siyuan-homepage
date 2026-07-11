@@ -8,14 +8,11 @@
     import { syncLicenseStatus, type LicenseSyncResponse } from "@/services/licenseStatusService";
     import {
         MembershipServiceError,
-        normalizeBaseUrl,
         DEFAULT_BASE_URL,
-        testServiceConnection,
         confirmActivationBestEffort,
         recoverMembershipByIdentity,
         registerExistingSignedLicense,
         isServerMembershipMetadataConsistent,
-        type ServiceStatusResult,
     } from "@/services/membershipService";
     import pluginManifest from "../../../../plugin.json";
 
@@ -51,8 +48,10 @@
     const TUTORIAL_URL = "https://blog.glaube-ty.top/zhu-ye-cha-jian";
     const MEMBER_GROUP_URL = "https://qm.qq.com/q/4ebO3QB6R2";
     const MEMBER_GROUP_NUMBER = "391403097";
-    const AFDIAN_URL = "https://afdian.com/a/glaube-ty";
-    const REDEMPTION_CONFIG_KEY = "redemption-service-config.json";
+    const AFDIAN_PRODUCT_URL =
+        "https://www.ifdian.net/item/4518ec2a7c2b11f192ed5254001e7c00";
+    // 会员服务器是唯一正式云端地址，禁止由本地配置或页面输入覆盖。
+    const serviceBaseUrl = DEFAULT_BASE_URL;
     const ACCOUNT_CHANGED_NO_MUTATION =
         "当前登录账号已变化，本地会员数据未被修改。请切回原账号后点击“刷新/恢复会员状态”，不要重复提交。";
     const ACCOUNT_CHANGED_AFTER_SAVE =
@@ -68,10 +67,6 @@
     let syncing = $state(false);
     let syncMessage = $state("");
 
-    // ── 服务地址 ──
-    let serviceBaseUrl = $state(DEFAULT_BASE_URL);
-    let serviceBaseUrlInput = $state(DEFAULT_BASE_URL);
-
     // ── 实时身份快照（仅用于界面显示和按钮判断，远程请求仍需重新读取） ──
     let liveUserName = $state("");
     let liveUserId = $state("");
@@ -79,35 +74,21 @@
     // 仅用于异步结果失效，不应成为 effect 的响应式依赖。
     let identityRefreshSeq = 0;
 
-    // ── 测试连接 ──
-    let testingService = $state(false);
-    let testConnectionMessage = $state("");
-    let testConnectionStatus = $state<ServiceStatusResult["status"] | "">("");
-
-    // ── 保存地址 ──
-    let savingServiceUrl = $state(false);
     let registeringExisting = $state(false);
     let autoRegistrationPreparing = $state(false);
-    let serviceConfigLoading = $state(true);
-    let serviceConfigLoaded = $state(false);
     const autoRegistrationAttemptedKeys = new Set<string>();
     const autoRegistrationProbeCompletedKeys = new Set<string>();
 
     // ── 注销 ──
     let deactivating = $state(false);
 
-    // ── 折叠区域 ──
-    let showServiceSettings = $state(false);
     let showRenewal = $state(false);
 
     // ── 前台忙碌：后台自动登记不应阻塞前台按钮，但前台操作应阻塞后台登记 ──
     const foregroundBusy = $derived(
         redeeming ||
             syncing ||
-            testingService ||
-            savingServiceUrl ||
-            deactivating ||
-            serviceConfigLoading,
+            deactivating,
     );
 
     // busy 仅反映前台状态，后台自动登记不阻塞用户交互
@@ -229,30 +210,6 @@
         operationGeneration += 1;
     }
 
-    // ── 加载服务地址配置 ──
-    async function loadServiceConfig(): Promise<void> {
-        try {
-            const config = await plugin.loadData(REDEMPTION_CONFIG_KEY);
-            if (!componentAlive) return;
-            if (config && typeof config === "object" && config.baseUrl) {
-                const url = normalizeBaseUrl(config.baseUrl);
-                if (url) {
-                    serviceBaseUrl = url;
-                    serviceBaseUrlInput = url;
-                }
-            }
-        } catch {
-            // 使用默认地址
-        } finally {
-            if (componentAlive) {
-                serviceConfigLoading = false;
-                serviceConfigLoaded = true;
-            }
-        }
-    }
-
-    loadServiceConfig();
-
     // ── 实时身份快照 ──
     function applyLiveIdentitySnapshot(
         identity: { USER_NAME: string; USER_ID: string },
@@ -273,8 +230,6 @@
         if (liveUserId !== prevUserId) {
             redeemSuccessMessage = "";
             syncMessage = "";
-            testConnectionMessage = "";
-            testConnectionStatus = "";
             invalidateOldOperations();
             autoRegistrationAttemptedKeys.clear();
             autoRegistrationProbeCompletedKeys.clear();
@@ -323,8 +278,6 @@
             redeemError = "";
             redeemSuccessMessage = "";
             syncMessage = "";
-            testConnectionMessage = "";
-            testConnectionStatus = "";
         }
     }
 
@@ -338,17 +291,6 @@
 
     function setSyncMessage(ctx: OperationContext, message: string): void {
         if (isForegroundContextValid(ctx)) syncMessage = message;
-    }
-
-    function setTestConnection(
-        ctx: OperationContext,
-        status: ServiceStatusResult["status"],
-        message: string,
-    ): void {
-        if (isForegroundContextValid(ctx)) {
-            testConnectionStatus = status;
-            testConnectionMessage = message;
-        }
     }
 
     async function activateIfValid(ctx: OperationContext, result: LicenseVerifyResult): Promise<void> {
@@ -441,7 +383,7 @@
             // 绑定实时身份到同一 generation
             const boundCtx = bindIdentityContext(ctx, freshIdentity.userId);
 
-            const response: RedeemResponse = await redeemMembership(serviceBaseUrl, {
+            const response: RedeemResponse = await redeemMembership({
                 userCode: freshIdentity.userCodeV2,
                 redemptionCode: code,
                 pluginVersion: pluginManifest.version || "unknown",
@@ -457,11 +399,18 @@
                 return;
             }
 
+            const redemptionCodeHash = await sha256Hex(code);
             const result = await advanced.activateLicense(
                 plugin,
                 response.license,
                 freshIdentity.userName,
                 freshIdentity.userId,
+                {
+                    serverManagedSource: "redemption",
+                    serverManagedServiceOrigin: serviceBaseUrl,
+                    redemptionCodeHash,
+                    redemptionCodeHint: makeRedemptionCodeHint(code),
+                },
             );
 
             if (!isForegroundContextValid(boundCtx)) return;
@@ -485,30 +434,13 @@
                 return;
             }
 
-            // 服务器字段只作协议展示；不一致时保留已验签的 SH，也不写管理标记。
+            // 服务器字段只作协议展示；不一致时保留已验签且已原子记录来源的 SH。
             if (!isServerMetadataConsistent(result, response)) {
                 await activateIfValid(boundCtx, result);
                 setRedeemSuccess(
                     boundCtx,
                     "会员授权已保存，但服务器返回的展示信息不一致，请保留当前兑换码并联系作者。",
                 );
-                return;
-            }
-
-            const markerSaved = await advanced.markCurrentLicenseServerManaged(
-                plugin,
-                response.license,
-                "redemption",
-                serviceBaseUrl,
-            );
-
-            if (!isForegroundContextValid(boundCtx)) return;
-
-            if (!(await requireLiveIdentityContext(
-                boundCtx,
-                (message) => setRedeemError(boundCtx, message),
-                "会员授权已保存到原账号，但当前登录账号已变化。请切回原账号并重新打开会员设置，不要重新购买或重复兑换。",
-            ))) {
                 return;
             }
 
@@ -531,15 +463,12 @@
                 successMessage = "会员兑换并激活成功";
             }
 
-            if (!markerSaved) {
-                successMessage += " 服务器管理标记暂未保存，不影响会员使用，后续刷新时会再次尝试。";
-            }
             setRedeemSuccess(boundCtx, successMessage);
 
             if (!isForegroundContextValid(boundCtx)) return;
 
             // 本地保存成功后尽力确认，失败不影响本地激活
-            await confirmActivationBestEffort(serviceBaseUrl, {
+            await confirmActivationBestEffort({
                 license: response.license,
                 userId: freshIdentity.userId,
                 pluginVersion: pluginManifest.version || "unknown",
@@ -610,7 +539,7 @@
         onRequestStart?.();
 
         try {
-            const response = await registerExistingSignedLicense(ctx.serviceOrigin, {
+            const response = await registerExistingSignedLicense({
                 userCode: identity.USER_CODE_V2,
                 currentLicense: localCode,
                 pluginVersion: pluginManifest.version || "unknown",
@@ -659,6 +588,11 @@
         return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
     }
 
+    function makeRedemptionCodeHint(code: string): string {
+        const suffix = code.slice(-5);
+        return suffix ? `••••${suffix}` : "";
+    }
+
     function makeAutoRegistrationAttemptKey(
         userId: string,
         serviceOrigin: string,
@@ -668,7 +602,7 @@
     }
 
     async function autoRegisterExistingSignedLicense(): Promise<void> {
-        if (!componentAlive || !serviceConfigLoaded || foregroundBusy || autoRegistrationPreparing || registeringExisting) return;
+        if (!componentAlive || foregroundBusy || autoRegistrationPreparing || registeringExisting) return;
 
         // 从函数入口即占用准备锁，覆盖读取本地 SH、实时身份、验签、管理状态、计算哈希和实际请求
         autoRegistrationPreparing = true;
@@ -758,7 +692,6 @@
     $effect(() => {
         // 只读取业务触发条件；准备锁和请求锁仅在异步函数内部互斥使用。
         if (
-            !serviceConfigLoaded ||
             foregroundBusy ||
             !activated ||
             activationResult?.licenseVersion !== 2 ||
@@ -802,7 +735,7 @@
 
             const boundCtx = bindIdentityContext(ctx, identity.USER_ID);
 
-            const recovery = await recoverMembershipByIdentity(serviceBaseUrl, {
+            const recovery = await recoverMembershipByIdentity({
                 userCode: identity.USER_CODE_V2,
                 pluginVersion: pluginManifest.version || "unknown",
             });
@@ -822,6 +755,10 @@
                 recovery.license,
                 identity.USER_NAME,
                 identity.USER_ID,
+                {
+                    serverManagedSource: "identity_recovery",
+                    serverManagedServiceOrigin: serviceBaseUrl,
+                },
             );
 
             if (!isForegroundContextValid(boundCtx)) return;
@@ -853,33 +790,13 @@
                 return;
             }
 
-            const markerSaved = await advanced.markCurrentLicenseServerManaged(
-                plugin,
-                recovery.license,
-                "identity_recovery",
-                serviceBaseUrl,
-            );
-
-            if (!isForegroundContextValid(boundCtx)) return;
-
-            if (!(await requireLiveIdentityContext(
-                boundCtx,
-                (message) => setSyncMessage(boundCtx, message),
-                ACCOUNT_CHANGED_AFTER_SAVE,
-            ))) {
-                return;
-            }
-
             await activateIfValid(boundCtx, result);
             let successMessage = "已根据当前思源账号从服务器恢复会员授权。";
-            if (!markerSaved) {
-                successMessage += " 服务器管理标记暂未保存，不影响会员使用，后续刷新时会再次尝试。";
-            }
             setSyncMessage(boundCtx, successMessage);
 
             if (!isForegroundContextValid(boundCtx)) return;
 
-            await confirmActivationBestEffort(serviceBaseUrl, {
+            await confirmActivationBestEffort({
                 license: recovery.license,
                 userId: identity.USER_ID,
                 pluginVersion: pluginManifest.version || "unknown",
@@ -991,7 +908,7 @@
             if (!isForegroundContextValid(boundCtx)) return;
             if (!(await isSavedShContextStillValid(ctxWithSh, localCode))) return;
 
-            const response: LicenseSyncResponse = await syncLicenseStatus(serviceBaseUrl, {
+            const response: LicenseSyncResponse = await syncLicenseStatus({
                 userCode: identity.USER_CODE_V2,
                 currentLicense: localCode,
                 pluginVersion: pluginManifest.version || "unknown",
@@ -1009,7 +926,6 @@
                 }
 
                 let result: LicenseVerifyResult;
-                let markerLicense: string;
 
                 if (response.changed) {
                     result = await advanced.activateLicense(
@@ -1017,15 +933,17 @@
                         response.license,
                         identity.USER_NAME,
                         identity.USER_ID,
+                        {
+                            serverManagedSource: "license_sync",
+                            serverManagedServiceOrigin: serviceBaseUrl,
+                        },
                     );
-                    markerLicense = response.license;
                 } else {
                     result = await advanced.verifySavedSignedLicenseReadOnly(
                         plugin,
                         identity.USER_NAME,
                         identity.USER_ID,
                     );
-                    markerLicense = localCode;
                 }
 
                 if (!isForegroundContextValid(boundCtx)) return;
@@ -1057,23 +975,6 @@
                     return;
                 }
 
-                const markerSaved = await advanced.markCurrentLicenseServerManaged(
-                    plugin,
-                    markerLicense,
-                    "license_sync",
-                    serviceBaseUrl,
-                );
-
-                if (!isForegroundContextValid(boundCtx)) return;
-
-                if (!(await requireLiveIdentityContext(
-                    boundCtx,
-                    (message) => setSyncMessage(boundCtx, message),
-                    response.changed ? ACCOUNT_CHANGED_AFTER_SAVE : ACCOUNT_CHANGED_NO_MUTATION,
-                ))) {
-                    return;
-                }
-
                 await activateIfValid(boundCtx, result);
 
                 let successMessage = "";
@@ -1086,15 +987,12 @@
                 if (registrationWarning) {
                     successMessage += ` ${registrationWarning}`;
                 }
-                if (!markerSaved) {
-                    successMessage += " 服务器管理标记暂未保存，不影响会员使用，后续刷新时会再次尝试。";
-                }
                 setSyncMessage(boundCtx, successMessage.trim());
 
                 if (!isForegroundContextValid(boundCtx)) return;
 
                 if (response.changed) {
-                    await confirmActivationBestEffort(serviceBaseUrl, {
+                    await confirmActivationBestEffort({
                         license: response.license,
                         userId: identity.USER_ID,
                         pluginVersion: pluginManifest.version || "unknown",
@@ -1154,116 +1052,6 @@
         }
     }
 
-    // ── 保存服务地址 ──
-    async function handleSaveServiceUrl(): Promise<void> {
-        if (busy) return;
-
-        const ctx = beginForegroundOperation();
-        clearMessages(ctx);
-        const normalized = normalizeBaseUrl(serviceBaseUrlInput);
-        if (!normalized) {
-            if (isForegroundContextValid(ctx)) {
-                showMessage(
-                    serviceBaseUrlInput.trim()
-                        ? "服务器地址格式不正确，请检查协议和地址"
-                        : "服务器地址不能为空",
-                    3000,
-                );
-            }
-            serviceBaseUrlInput = serviceBaseUrl;
-            return;
-        }
-
-        savingServiceUrl = true;
-        try {
-            await plugin.saveData(REDEMPTION_CONFIG_KEY, { baseUrl: normalized });
-            serviceBaseUrl = normalized;
-            serviceBaseUrlInput = normalized;
-            autoRegistrationAttemptedKeys.clear();
-            autoRegistrationProbeCompletedKeys.clear();
-            // 地址切换后让旧 generation 失效，并清理旧服务器相关提示
-            invalidateOldOperations();
-            syncMessage = "";
-            testConnectionMessage = "";
-            testConnectionStatus = "";
-            if (componentAlive) showMessage("服务器地址已保存", 2000);
-        } catch {
-            if (componentAlive) showMessage("保存失败，请稍后重试", 3000);
-            serviceBaseUrlInput = serviceBaseUrl;
-        } finally {
-            savingServiceUrl = false;
-        }
-    }
-
-    // ── 恢复默认服务地址 ──
-    async function handleResetServiceUrl(): Promise<void> {
-        if (busy) return;
-
-        const ctx = beginForegroundOperation();
-        clearMessages(ctx);
-        savingServiceUrl = true;
-        try {
-            await plugin.saveData(REDEMPTION_CONFIG_KEY, { baseUrl: DEFAULT_BASE_URL });
-            serviceBaseUrl = DEFAULT_BASE_URL;
-            serviceBaseUrlInput = DEFAULT_BASE_URL;
-            autoRegistrationAttemptedKeys.clear();
-            autoRegistrationProbeCompletedKeys.clear();
-            // 地址切换后让旧 generation 失效，并清理旧服务器相关提示
-            invalidateOldOperations();
-            syncMessage = "";
-            testConnectionMessage = "";
-            testConnectionStatus = "";
-            if (componentAlive) showMessage("已恢复默认服务器地址", 2000);
-        } catch {
-            if (componentAlive) showMessage("恢复默认失败，请稍后重试", 3000);
-            serviceBaseUrlInput = serviceBaseUrl;
-        } finally {
-            savingServiceUrl = false;
-        }
-    }
-
-    // ── 测试服务连接 ──
-    async function handleTestConnection(): Promise<void> {
-        if (busy) return;
-
-        const ctx = beginForegroundOperation();
-        clearMessages(ctx);
-
-        const testedOrigin = normalizeBaseUrl(serviceBaseUrlInput);
-        if (!testedOrigin) {
-            if (isForegroundContextValid(ctx)) {
-                testConnectionStatus = "unreachable";
-                testConnectionMessage = serviceBaseUrlInput.trim()
-                    ? "服务器地址格式不正确，请检查协议和地址。"
-                    : "服务器地址不能为空。";
-            }
-            return;
-        }
-
-        testingService = true;
-        try {
-            const result: ServiceStatusResult = await testServiceConnection(testedOrigin);
-            if (
-                !componentAlive ||
-                ctx.gen !== operationGeneration ||
-                normalizeBaseUrl(serviceBaseUrlInput) !== testedOrigin
-            ) {
-                return;
-            }
-            setTestConnection(ctx, result.status, result.message);
-        } catch {
-            if (
-                componentAlive &&
-                ctx.gen === operationGeneration &&
-                normalizeBaseUrl(serviceBaseUrlInput) === testedOrigin
-            ) {
-                setTestConnection(ctx, "unreachable", "连接超时或地址错误。");
-            }
-        } finally {
-            testingService = false;
-        }
-    }
-
     async function handleDeactivate(): Promise<void> {
         if (busy) return;
 
@@ -1317,8 +1105,8 @@
 </script>
 
 {#snippet membershipPurchaseContent()}
-    <div class="purchase-heading">
-        <div>
+    <div class="membership-offer-hero">
+        <div class="membership-offer-heading">
             <SiyuanIcon name="vip" size={22} />
             <h2>{activated ? "续费会员" : "开通会员"}</h2>
         </div>
@@ -1327,68 +1115,76 @@
                 <SiyuanIcon name="iconClose" size={16} />
             </button>
         {/if}
-    </div>
-    <h3>
+        <p>
+            {activated
+                ? "新兑换码会在当前剩余时间基础上累计增加对应会员时长。"
+                : "在爱发电购买会员商品，系统会自动发送兑换码。复制兑换码并返回此页面，即可完成会员激活。"}
+        </p>
         <a
             href="https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab"
             target="_blank"
             rel="noopener noreferrer"
             class="vip-benefits-link"
         >
-            <SiyuanIcon name="vip" size={16} />
-            查看会员权益
-            <SiyuanIcon name="iconRight" size={14} />
+            查看会员权益 <SiyuanIcon name="iconRight" size={14} />
         </a>
-    </h3>
+    </div>
+
+    <div class="membership-plan-grid" aria-label="会员方案">
+        <div class="membership-plan-card">
+            <span class="plan-name">月度会员</span>
+            <strong class="plan-price">6 元</strong>
+            <p>适合短期体验和按月使用。</p>
+        </div>
+        <div class="membership-plan-card">
+            <span class="plan-name">年度会员</span>
+            <strong class="plan-price">39 元</strong>
+            <p>适合长期持续使用。</p>
+        </div>
+        <div class="membership-plan-card permanent recommended">
+            <span class="plan-badge">推荐</span>
+            <span class="plan-name">永久会员</span>
+            <strong class="plan-price">128 元</strong>
+            <p>一次开通，长期享受会员功能与后续支持。</p>
+        </div>
+    </div>
+
+    <div class="membership-purchase-action">
+        <a
+            href={AFDIAN_PRODUCT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="membership-purchase-button"
+        >
+            前往爱发电购买会员 <SiyuanIcon name="iconLink" size={16} />
+        </a>
+        <small>实际价格与商品内容以爱发电商品页面为准。</small>
+        <p>购买完成后，请复制爱发电自动发送的会员兑换码。</p>
+    </div>
+
+    <div class="membership-steps" aria-label="会员激活流程">
+        <div class="membership-step"><span>①</span>前往爱发电选择会员方案</div>
+        <div class="membership-step"><span>②</span>完成购买并复制自动发送的兑换码</div>
+        <div class="membership-step"><span>③</span>返回此处粘贴兑换码并激活</div>
+    </div>
 
     {#if liveUserName || liveUserId}
-        <div class="purchase-plan">
-            <h4><SiyuanIcon name="iconVIP" size={16} /> 订阅方案</h4>
-            <div class="plan-card">
-                <div class="plan-item monthly">
-                    <div class="plan-price"><span class="new-price">5 元</span></div>
-                    <div class="plan-duration">月度会员</div>
-                </div>
-                <div class="plan-item yearly">
-                    <div class="plan-price"><span class="new-price">35 元</span></div>
-                    <div class="plan-duration">年度会员</div>
-                </div>
-                <div class="plan-item permanent">
-                    <div class="plan-badge"><SiyuanIcon name="iconInfo" size={12} /> 限时优惠</div>
-                    <div class="plan-price">
-                        <span class="old-price">128 元</span>
-                        <span class="new-price">99 元</span>
-                    </div>
-                    <div class="plan-duration">永久会员</div>
-                    <div class="plan-urgency"><SiyuanIcon name="iconClock" size={13} /> 随时恢复原价</div>
+        <div class="redemption-card">
+            <div class="redemption-card-heading">
+                <SiyuanIcon name="iconVIP" size={18} />
+                <div>
+                    <h3>使用兑换码激活</h3>
+                    <p>兑换码会永久绑定首次兑换的思源账号，请确认当前账号无误。</p>
+                    {#if activated}
+                        <p>新兑换码会在当前剩余时间基础上累计增加对应会员时长。</p>
+                    {/if}
                 </div>
             </div>
-        </div>
-
-        <div class="purchase-address">
-            <h4><SiyuanIcon name="iconLink" size={16} /> 购买地址</h4>
-            <div class="address-card">
-                <div class="address-item">
-                    <SiyuanIcon name="iconLink" size={20} className="icon" />
-                    <div class="address-content">
-                        <strong>地址：</strong>
-                        <a href={AFDIAN_URL} target="_blank" rel="noopener noreferrer">爱发电</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <p class="redemption-desc">在爱发电购买后，复制系统自动发送的会员兑换码，在此完成兑换。</p>
-        {#if activated}
-            <p class="redemption-renewal-hint">兑换后会在当前剩余天数基础上增加对应套餐时长。</p>
-        {/if}
-
-        <div class="redemption-section">
             <div class="redemption-input-row">
                 <input
                     type="text"
                     class="redemption-code-input"
-                    placeholder="请输入会员兑换码"
+                    placeholder="粘贴爱发电自动发送的会员兑换码"
                     bind:value={redemptionCode}
                     disabled={busy}
                     onkeydown={handleKeyDown}
@@ -1437,13 +1233,6 @@
 {/snippet}
 
 <div class="vip-section">
-    {#if serviceConfigLoading}
-        <div class="service-config-loading">
-            <SiyuanIcon name="iconRefresh" size={18} />
-            正在加载激活服务配置……
-        </div>
-    {/if}
-
     <!-- ═══ 1. 当前账号 ═══ -->
     <div class="vip-info">
         {#if liveUserName || liveUserId}
@@ -1593,64 +1382,4 @@
     </div>
     {/if}
 
-    <!-- ═══ 4. 激活服务连接设置（折叠） ═══ -->
-    <div class="collapsible-section">
-        <button
-            class="collapsible-toggle"
-            onclick={() => (showServiceSettings = !showServiceSettings)}
-        >
-            <SiyuanIcon name={showServiceSettings ? "iconDown" : "iconRight"} size={14} />
-            激活服务连接设置
-        </button>
-        {#if showServiceSettings}
-            <div class="collapsible-content">
-                <div class="service-url-row">
-                    <label for="service-url-input">服务器地址</label>
-                    <span class="service-current-url">当前生效地址：{serviceBaseUrl}</span>
-                    <div class="service-url-control">
-                        <input
-                            id="service-url-input"
-                            type="text"
-                            class="service-url-input"
-                            bind:value={serviceBaseUrlInput}
-                            placeholder={DEFAULT_BASE_URL}
-                            disabled={busy}
-                        />
-                        <button
-                            class="btn"
-                            onclick={handleSaveServiceUrl}
-                            disabled={busy}
-                        >
-                            {savingServiceUrl ? "保存中……" : "保存"}
-                        </button>
-                        <button
-                            class="btn"
-                            onclick={handleResetServiceUrl}
-                            disabled={busy}
-                        >
-                            恢复默认
-                        </button>
-                    </div>
-                </div>
-                <div class="test-connection-row">
-                    <button
-                        class="btn test-connection-btn"
-                        onclick={handleTestConnection}
-                        disabled={busy}
-                    >
-                        {testingService ? "测试中……" : "测试连接"}
-                    </button>
-                    {#if testConnectionMessage}
-                        <span
-                            class="test-connection-message"
-                            class:ok={testConnectionStatus === "ok"}
-                            class:error={testConnectionStatus === "unreachable" || testConnectionStatus === "incompatible"}
-                        >
-                            {testConnectionMessage}
-                        </span>
-                    {/if}
-                </div>
-            </div>
-        {/if}
-    </div>
 </div>

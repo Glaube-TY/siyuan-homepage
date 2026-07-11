@@ -3,7 +3,6 @@
  *
  * 提供：
  * - 统一会员服务错误模型 MembershipServiceError
- * - 严格 normalizeBaseUrl（仅允许 http/https origin，拒绝凭据/query/hash）
  * - 共享 fetchWithTimeout / safeParseJson
  * - 服务连接状态探测 testServiceConnection
  * - 激活确认 best-effort confirmActivationBestEffort
@@ -12,7 +11,8 @@
  * 不得保存兑换码、SH、USER_CODE 或服务器响应。
  */
 
-export const DEFAULT_BASE_URL = "http://192.168.1.106:3001";
+/** 唯一正式会员服务器；客户端不支持切换或本地覆盖。 */
+export const DEFAULT_BASE_URL = "https://license.glaube-ty.top";
 export const DEFAULT_TIMEOUT_MS = 15000;
 export const MAX_MEMBERSHIP_RESPONSE_BYTES = 64 * 1024;
 
@@ -65,24 +65,6 @@ export class MembershipServiceError extends Error {
         this.retryAfter = details.retryAfter;
         this.businessCode = details.businessCode;
     }
-}
-
-export function normalizeBaseUrl(baseUrl: string): string {
-    const trimmed = (baseUrl || "").trim();
-    if (!trimmed) return "";
-
-    let url: URL;
-    try {
-        url = new URL(trimmed);
-    } catch {
-        return "";
-    }
-
-    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
-    if (url.username || url.password) return "";
-    if (url.search || url.hash) return "";
-
-    return url.origin;
 }
 
 export function extractRetryAfter(response: Response): number | undefined {
@@ -473,17 +455,6 @@ function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
     return result;
 }
 
-export function assertValidBaseUrl(baseUrl: string): string {
-    const normalized = normalizeBaseUrl(baseUrl);
-    if (!normalized) {
-        throw new MembershipServiceError({
-            code: "SERVER_PROTOCOL_ERROR",
-            message: "服务器地址格式不正确，请检查协议和地址。",
-        });
-    }
-    return normalized;
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -530,20 +501,10 @@ export interface ServiceStatusResult {
     };
 }
 
-export async function testServiceConnection(baseUrl: string): Promise<ServiceStatusResult> {
-    let normalized: string;
-    try {
-        normalized = assertValidBaseUrl(baseUrl);
-    } catch {
-        return {
-            status: "unreachable",
-            message: "地址格式不正确，请检查协议和地址。",
-        };
-    }
-
+export async function testServiceConnection(): Promise<ServiceStatusResult> {
     try {
         const response = await fetchWithTimeout(
-            `${normalized}/api/status`,
+            `${DEFAULT_BASE_URL}/api/status`,
             {
                 method: "GET",
                 headers: { Accept: "application/json" },
@@ -874,14 +835,12 @@ export function parseActiveMembershipProtocolFields(
  * 服务端返回的 SH 必须由调用方再经过 advanced.activateLicense() 本地验签和保存。
  */
 export async function recoverMembershipByIdentity(
-    baseUrl: string,
     request: RecoverMembershipByIdentityRequest,
 ): Promise<RecoverMembershipByIdentityResponse> {
-    const normalized = assertValidBaseUrl(baseUrl);
     let response: Response;
     try {
         response = await fetchWithTimeout(
-            `${normalized}/api/licenses/recover`,
+            `${DEFAULT_BASE_URL}/api/licenses/recover`,
             {
                 method: "POST",
                 headers: {
@@ -997,12 +956,10 @@ function registrationProtocolError(
  * 调用方须确保 currentLicense 是本地已经通过固定公钥验签的 SH。
  */
 export async function registerExistingSignedLicense(
-    baseUrl: string,
     request: RegisterExistingSignedLicenseRequest,
 ): Promise<RegisterExistingSignedLicenseResponse> {
-    const normalized = assertValidBaseUrl(baseUrl);
     const response = await fetchWithTimeout(
-        `${normalized}/api/licenses/register-existing`,
+        `${DEFAULT_BASE_URL}/api/licenses/register-existing`,
         {
             method: "POST",
             headers: {
@@ -1086,15 +1043,11 @@ export interface ConfirmActivationRequest {
  * 任何失败都静默忽略：不撤销本地激活、不显示激活失败、不删除 SH、不重试。
  */
 export async function confirmActivationBestEffort(
-    baseUrl: string,
     request: ConfirmActivationRequest
 ): Promise<void> {
-    const normalized = normalizeBaseUrl(baseUrl);
-    if (!normalized) return;
-
     try {
         const response = await fetchWithTimeout(
-            `${normalized}/api/activations/confirm`,
+            `${DEFAULT_BASE_URL}/api/activations/confirm`,
             {
                 method: "POST",
                 headers: {

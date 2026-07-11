@@ -400,6 +400,14 @@ export type ServerManagedSource =
     | "license_sync"
     | "existing_signed_sh";
 
+/** 新 SH 保存时附带的服务器管理来源；与授权在同一写入任务中持久化。 */
+export interface ActivateLicenseServerManagementOptions {
+    serverManagedSource: Exclude<ServerManagedSource, "existing_signed_sh">;
+    serverManagedServiceOrigin: string;
+    redemptionCodeHash?: string;
+    redemptionCodeHint?: string;
+}
+
 export interface SavedLicenseManagementState {
     matchesExpectedLicense: boolean;
     serverManaged: boolean;
@@ -468,6 +476,7 @@ export async function markCurrentLicenseServerManaged(
                 serverManagedSource: source,
                 serverManagedLicenseHash: getLicenseHash(normalizedExpected),
                 serverManagedServiceOrigin: serviceOrigin,
+                activationSource: source,
             });
             return true;
         });
@@ -529,7 +538,8 @@ export async function activateLicense(
     plugin: any,
     ActivationCode: string,
     USER_NAME: string,
-    USER_ID: string
+    USER_ID: string,
+    serverManagement?: ActivateLicenseServerManagementOptions,
 ): Promise<LicenseVerifyResult> {
     if (!USER_NAME || !USER_ID) {
         return invalid(1, "❌ 请先登录！");
@@ -558,6 +568,10 @@ export async function activateLicense(
         await runLicenseMutation(async () => {
             // 获取写入权后读取最新数据，避免旧登记任务覆盖刚兑换的新 SH。
             const oldData = (await plugin.loadData("license.syhomepage")) || {};
+            const hasServerManagement = Boolean(
+                serverManagement?.serverManagedSource &&
+                serverManagement.serverManagedServiceOrigin,
+            );
             await plugin.saveData("license.syhomepage", {
                 ...oldData,
                 ActivationCode: code,
@@ -573,12 +587,21 @@ export async function activateLicense(
                 isLifetime: result.userInfo!.isLifetime === true,
                 durationDays: result.userInfo!.durationDays,
                 issuedDate: result.userInfo!.issuedDate,
-                // 新 SH 不能继承旧授权的服务器管理标记。
-                serverManaged: false,
-                serverManagedAt: null,
-                serverManagedSource: "",
-                serverManagedLicenseHash: "",
-                serverManagedServiceOrigin: "",
+                // 新 SH 不能继承旧授权的服务器管理标记；传入来源时原子保存新标记。
+                serverManaged: hasServerManagement,
+                serverManagedAt: hasServerManagement ? new Date().toISOString() : null,
+                serverManagedSource: hasServerManagement ? serverManagement!.serverManagedSource : "",
+                serverManagedLicenseHash: hasServerManagement ? getLicenseHash(code) : "",
+                serverManagedServiceOrigin: hasServerManagement
+                    ? serverManagement!.serverManagedServiceOrigin
+                    : "",
+                activationSource: hasServerManagement ? serverManagement!.serverManagedSource : "",
+                redemptionCodeHash: hasServerManagement && serverManagement!.serverManagedSource === "redemption"
+                    ? String(serverManagement!.redemptionCodeHash || "")
+                    : "",
+                redemptionCodeHint: hasServerManagement && serverManagement!.serverManagedSource === "redemption"
+                    ? String(serverManagement!.redemptionCodeHint || "")
+                    : "",
             });
         });
     } catch {

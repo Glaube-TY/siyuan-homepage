@@ -8,7 +8,6 @@
         box-sizing: border-box;
         min-width: 0;
 
-        .service-config-loading,
         .activated-loading {
             display: flex;
             align-items: center;
@@ -435,18 +434,29 @@
                 border-color: color-mix(in srgb, var(--b3-theme-primary) 42%, var(--b3-border-color));
             }
 
-            .purchase-heading {
+            .membership-offer-hero {
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                gap: 0.55rem;
+                padding: 1.1rem;
+                border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 22%, var(--b3-border-color));
+                border-radius: 12px;
+                background: color-mix(in srgb, var(--b3-theme-surface) 88%, var(--b3-theme-primary));
+
+                p {
+                    margin: 0;
+                    color: var(--b3-theme-on-surface-light);
+                    font-size: 0.92rem;
+                    line-height: 1.6;
+                }
+            }
+
+            .membership-offer-heading {
                 display: flex;
                 align-items: center;
-                justify-content: space-between;
-                gap: 1rem;
-
-                > div {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.55rem;
-                    color: var(--b3-theme-primary);
-                }
+                gap: 0.55rem;
+                color: var(--b3-theme-primary);
 
                 h2 {
                     margin: 0;
@@ -456,6 +466,9 @@
             }
 
             .heading-close {
+                position: absolute;
+                top: 0.75rem;
+                right: 0.75rem;
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
@@ -474,229 +487,171 @@
                 }
             }
 
-            > h3 {
-                margin: 0.5rem 0;
-                text-align: center;
-
-                .vip-benefits-link {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 0.35rem;
-                    padding: 0.8rem 1.5rem;
-                    background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
-                    color: #fff;
-                    text-decoration: none;
-                    font-weight: bold;
-                    font-size: 1.1rem;
-                    border-radius: 8px;
-                    box-shadow: 0 4px 12px rgba(255, 170, 0, 0.3);
-                    transition: all 0.3s ease;
-                    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-
-                    &:hover {
-                        transform: translateY(-2px);
-                        box-shadow: 0 6px 16px rgba(255, 170, 0, 0.4);
-                        background: linear-gradient(135deg, #ffed4e 0%, #ffc107 100%);
-                    }
-
-                    &:active {
-                        transform: translateY(0);
-                    }
-                }
-            }
-
-            .purchase-plan {
-                margin-top: 0.5rem;
-
-                h4 {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.4rem;
-                    margin-bottom: 0.5rem;
-                    font-size: 1.1rem;
-                    color: var(--b3-theme-on-surface);
-                }
-            }
-
-            .plan-card {
-                display: flex;
-                gap: 1rem;
+            .vip-benefits-link {
+                display: inline-flex;
                 align-items: center;
-                justify-content: center;
-                flex-wrap: wrap;
-            }
-
-            .plan-item {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: 8px;
-                padding: 1rem;
-                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-                text-align: center;
-                transition: transform 0.2s ease;
-                flex: 1 1 140px;
-                min-width: 0;
-                background: var(--b3-theme-background, #fff);
+                align-self: flex-start;
+                gap: 0.25rem;
+                color: var(--b3-theme-primary);
+                font-size: 0.88rem;
+                text-decoration: none;
 
                 &:hover {
-                    transform: translateY(-4px);
+                    text-decoration: underline;
                 }
+            }
+
+            .membership-plan-grid {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 0.75rem;
+            }
+
+            .membership-plan-card {
+                display: flex;
+                position: relative;
+                min-height: 150px;
+                flex-direction: column;
+                justify-content: center;
+                gap: 0.45rem;
+                padding: 1.15rem;
+                border: 1px solid var(--b3-border-color);
+                border-radius: 12px;
+                background: var(--b3-theme-background);
+                box-sizing: border-box;
 
                 .plan-name {
+                    color: var(--b3-theme-on-surface);
                     font-size: 1rem;
-                    color: #666;
+                    font-weight: 600;
                 }
 
                 .plan-price {
-                    font-size: 1.5rem;
+                    font-size: 1.55rem;
                     color: var(--b3-theme-primary);
-                    font-weight: bold;
+                    font-weight: 700;
                 }
 
-                .plan-duration {
-                    font-size: 0.9rem;
-                    color: #999;
+                p {
+                    margin: 0;
+                    color: var(--b3-theme-on-surface-light);
+                    font-size: 0.86rem;
+                    line-height: 1.55;
                 }
             }
 
-            .plan-item.permanent {
-                position: relative;
-                background: linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%);
-                border: 2px solid #ef4444;
-                box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15);
-                flex-direction: column;
-                gap: 0.5rem;
-                padding: 1.2rem 1rem;
-
-                &:hover {
-                    transform: translateY(-6px);
-                    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.25);
-                }
-
+            .membership-plan-card.recommended {
+                border-color: color-mix(in srgb, var(--b3-theme-primary) 56%, var(--b3-border-color));
                 .plan-badge {
                     display: inline-flex;
                     align-items: center;
-                    gap: 0.2rem;
                     position: absolute;
-                    top: -10px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
-                    color: white;
+                    top: 0.7rem;
+                    right: 0.7rem;
+                    padding: 0.18rem 0.5rem;
+                    border-radius: 999px;
+                    background: color-mix(in srgb, var(--b3-theme-primary) 14%, transparent);
+                    color: var(--b3-theme-primary);
                     font-size: 0.75rem;
-                    font-weight: bold;
-                    padding: 0.2rem 0.6rem;
-                    border-radius: 12px;
-                    white-space: nowrap;
-                }
-
-                .plan-price {
-                    color: #ef4444;
-
-                    .old-price {
-                        margin-right: 0.35rem;
-                        font-size: 0.85rem;
-                        font-weight: 400;
-                        opacity: 0.65;
-                        text-decoration: line-through;
-                    }
-
-                    .new-price {
-                        font-size: 1.3rem;
-                    }
-                }
-
-                .plan-duration {
-                    color: #ef4444;
                     font-weight: 600;
+                }
+            }
+
+            .membership-plan-card.permanent {
+                border-color: color-mix(in srgb, var(--b3-theme-primary) 38%, var(--b3-border-color));
+                background: linear-gradient(145deg, var(--b3-theme-background), color-mix(in srgb, var(--b3-theme-background) 88%, var(--b3-theme-primary)));
+            }
+
+            .membership-purchase-action {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 0.5rem;
+                text-align: center;
+
+                small,
+                p {
+                    margin: 0;
+                    color: var(--b3-theme-on-surface-light);
+                    font-size: 0.82rem;
+                }
+            }
+
+            .membership-purchase-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.45rem;
+                width: min(100%, 340px);
+                padding: 0.75rem 1.25rem;
+                border-radius: 8px;
+                background: var(--b3-theme-primary);
+                color: var(--b3-theme-on-primary, #fff);
+                font-weight: 600;
+                text-decoration: none;
+                box-sizing: border-box;
+
+                &:hover {
+                    filter: brightness(1.08);
+                }
+            }
+
+            .membership-steps {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 0.6rem;
+            }
+
+            .membership-step {
+                display: flex;
+                align-items: flex-start;
+                gap: 0.4rem;
+                padding: 0.7rem;
+                border: 1px solid var(--b3-border-color);
+                border-radius: 8px;
+                color: var(--b3-theme-on-surface-light);
+                font-size: 0.84rem;
+                line-height: 1.5;
+                background: var(--b3-theme-surface);
+
+                span {
+                    color: var(--b3-theme-primary);
+                    font-weight: 700;
+                }
+            }
+
+            .redemption-card {
+                display: flex;
+                flex-direction: column;
+                gap: 0.85rem;
+                padding: 1rem;
+                border: 1px solid var(--b3-border-color);
+                border-radius: 12px;
+                background: var(--b3-theme-surface);
+            }
+
+            .redemption-card-heading {
+                display: flex;
+                align-items: flex-start;
+                gap: 0.55rem;
+                color: var(--b3-theme-primary);
+
+                h3,
+                p {
+                    margin: 0;
+                }
+
+                h3 {
+                    color: var(--b3-theme-on-surface);
                     font-size: 1rem;
                 }
 
-                .plan-urgency {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 0.25rem;
-                    color: #f97316;
-                    font-size: 0.85rem;
-                    font-weight: bold;
-                    animation: pulse 2s ease-in-out infinite;
+                p {
+                    margin-top: 0.25rem;
+                    color: var(--b3-theme-on-surface-light);
+                    font-size: 0.86rem;
+                    line-height: 1.5;
                 }
-            }
-
-            .purchase-address {
-                margin-top: 1rem;
-
-                h4 {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.4rem;
-                    margin-bottom: 0.5rem;
-                    font-size: 1.1rem;
-                    color: var(--b3-theme-on-surface);
-                }
-
-                .address-card {
-                    background: var(--b3-theme-surface);
-                    border-radius: 8px;
-                    padding: 1rem;
-                    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1rem;
-                    width: 100%;
-                    box-sizing: border-box;
-                    min-width: 0;
-                }
-
-                .address-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.8rem;
-
-                    .icon {
-                        font-size: 1.5rem;
-                        color: var(--b3-theme-primary);
-                    }
-
-                    .address-content {
-                        font-size: 0.95rem;
-                        color: var(--b3-theme-on-surface);
-
-                        a {
-                            color: var(--b3-theme-primary);
-                            text-decoration: none;
-                            font-weight: bold;
-
-                            &:hover {
-                                text-decoration: underline;
-                            }
-                        }
-                    }
-                }
-            }
-
-            .redemption-desc {
-                margin: 0.25rem 0 0;
-                font-size: 0.9rem;
-                color: var(--b3-theme-on-surface-light, #666);
-                line-height: 1.6;
-            }
-
-            .redemption-renewal-hint {
-                margin: 0;
-                font-size: 0.85rem;
-                color: var(--b3-theme-primary, #3574f0);
-                line-height: 1.5;
-            }
-
-            .redemption-section {
-                display: flex;
-                flex-direction: column;
-                gap: 0.75rem;
-                width: 100%;
-                box-sizing: border-box;
-                min-width: 0;
             }
 
             .purchase-question {
@@ -827,114 +782,6 @@
             color: var(--b3-theme-on-surface-light, #999);
         }
 
-        // ── 折叠区域通用 ──
-        .collapsible-section {
-            margin-top: 1.5rem;
-            width: 100%;
-            box-sizing: border-box;
-            min-width: 0;
-        }
-
-        .collapsible-toggle {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            width: 100%;
-            padding: 0.65rem 0.75rem;
-            border: 1px solid var(--b3-border-color, #e0e0e0);
-            border-radius: 8px;
-            background: var(--b3-theme-surface, #fafafa);
-            color: var(--b3-theme-on-surface, #333);
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-
-            &:hover {
-                background: var(--b3-theme-surface-lighter, #f0f0f0);
-            }
-        }
-
-        .collapsible-content {
-            padding: 1rem 0.75rem;
-            border: 1px solid var(--b3-border-color, #e0e0e0);
-            border-top: none;
-            border-radius: 0 0 8px 8px;
-            background: var(--b3-theme-background, #fff);
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        // ── 服务地址设置 ──
-        .service-url-row {
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
-
-            label {
-                font-size: 0.9rem;
-                color: var(--b3-theme-on-surface, #333);
-                display: block;
-                flex-direction: row;
-                gap: initial;
-            }
-        }
-
-        .service-current-url {
-            font-size: 0.8rem;
-            color: var(--b3-theme-on-surface-light, #999);
-            word-break: break-all;
-        }
-
-        .service-url-control {
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .service-url-input {
-            flex: 1;
-            min-width: 200px;
-            padding: 0.5rem 0.75rem;
-            border: 1px solid var(--b3-border-color, #ccc);
-            border-radius: 6px;
-            background: var(--b3-theme-background, #fff);
-            color: var(--b3-theme-on-surface, #333);
-            font-size: 0.9rem;
-
-            &:focus {
-                outline: none;
-                border-color: var(--b3-theme-primary, #3574f0);
-            }
-        }
-
-        .test-connection-row {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }
-
-        .test-connection-btn {
-            min-width: 80px;
-        }
-
-        .test-connection-message {
-            font-size: 0.85rem;
-            line-height: 1.4;
-
-            &.ok {
-                color: #2e7d32;
-            }
-
-            &.error {
-                color: #c62828;
-            }
-        }
-
         .btn {
             display: inline-flex;
             align-items: center;
@@ -980,17 +827,10 @@
             flex-direction: column;
             align-items: stretch;
         }
-    }
 
-    @keyframes pulse {
-
-        0%,
-        100% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.6;
+        .membership-plan-grid,
+        .membership-steps {
+            grid-template-columns: 1fr;
         }
     }
 
