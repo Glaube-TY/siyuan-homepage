@@ -13,7 +13,21 @@
  * 不得打印完整 SH。
  */
 
-const DEFAULT_TIMEOUT_MS = 15000;
+import {
+    DEFAULT_TIMEOUT_MS,
+    MembershipServiceError,
+    assertValidBaseUrl,
+    businessCodeToErrorCode,
+    extractRetryAfter,
+    fetchWithTimeout,
+    membershipMessage,
+    normalizeBaseUrl,
+    parseActiveMembershipProtocolFields,
+    safeParseJson,
+    unwrapSuccessData,
+} from "./membershipService";
+
+export { normalizeBaseUrl };
 
 export interface LicenseSyncRequest {
     userCode: string;
@@ -31,7 +45,7 @@ export interface LicenseSyncActiveResponse {
     issuedDate: string;
     isLifetime: boolean;
     remainingDays: number;
-    dueDate: string;
+    dueDate: string | null;
 }
 
 export interface LicenseSyncRevokedResponse {
@@ -56,112 +70,131 @@ export type LicenseSyncResponse =
     | LicenseSyncExpiredResponse
     | LicenseSyncUnmanagedResponse;
 
-export function normalizeBaseUrl(baseUrl: string): string {
-    const trimmed = (baseUrl || "").trim();
-    if (!trimmed) return "";
-    return trimmed.replace(/\/+$/, "");
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === "string" && value.trim().length > 0;
+}
+
+function isValidSH(value: unknown): value is string {
+    return isNonEmptyString(value) && value.trim().startsWith("SH.");
+}
+
+function syncProtocolError(message: string): MembershipServiceError {
+    return new MembershipServiceError({
+        code: "SERVER_PROTOCOL_ERROR",
+        message,
+    });
 }
 
 export async function syncLicenseStatus(
     baseUrl: string,
     request: LicenseSyncRequest,
 ): Promise<LicenseSyncResponse> {
-    const url = `${normalizeBaseUrl(baseUrl)}/api/licenses/sync`;
+    const normalized = assertValidBaseUrl(baseUrl);
 
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-
-    try {
-        const response = await fetch(url, {
+    const response = await fetchWithTimeout(
+        `${normalized}/api/licenses/sync`,
+        {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 Accept: "application/json",
             },
             body: JSON.stringify(request),
-            signal: controller.signal,
+        },
+        DEFAULT_TIMEOUT_MS,
+        "sync",
+    );
+
+    const data = await safeParseJson(response, "sync");
+
+    if (!response.ok) {
+        const businessCode =
+            data && typeof data === "object" ? String(data.code || "") : undefined;
+        const httpStatus = response.status;
+
+        if (httpStatus === 429) {
+            const retryAfter = extractRetryAfter(response);
+            throw new MembershipServiceError({
+                code: "RATE_LIMITED",
+                message: membershipMessage("RATE_LIMITED", { retryAfter, context: "sync" }),
+                httpStatus,
+                retryAfter,
+                businessCode,
+            });
+        }
+
+        const errorCode = businessCodeToErrorCode(businessCode);
+        throw new MembershipServiceError({
+            code: errorCode,
+            message: membershipMessage(errorCode, { context: "sync" }),
+            httpStatus,
+            businessCode,
         });
+    }
 
-        let data: any;
-        const contentType = response.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-            data = await response.json();
-        } else {
-            const text = await response.text();
-            try {
-                data = JSON.parse(text);
-            } catch {
-                throw new Error("服务器响应格式异常");
-            }
+    const payload = unwrapSuccessData(data, response.status);
+    if (typeof payload.status !== "string") {
+        throw syncProtocolError("服务器返回的 status 字段类型不正确。");
+    }
+    const status = payload.status;
+    const validStatuses = ["active", "revoked", "expired", "unmanaged"];
+    if (!validStatuses.includes(status)) {
+        throw syncProtocolError("服务器返回的 status 字段值无效。");
+    }
+
+    if (status === "active") {
+        if (!isValidSH(payload?.license)) {
+            throw syncProtocolError("服务器返回 active 状态但未提供有效 SH 激活码。");
+        }
+        if (typeof payload?.changed !== "boolean") {
+            throw syncProtocolError("服务器返回的 changed 字段类型不正确。");
         }
 
-        if (!response.ok) {
-            const code = data && typeof data === "object" ? data.code : undefined;
-            const serverMessage =
-                data && typeof data === "object"
-                    ? data.message || data.msg || ""
-                    : "";
-            const detail = serverMessage
-                ? `${serverMessage}${code !== undefined ? ` (code: ${code})` : ""}`
-                : `HTTP ${response.status}`;
-            throw new Error(detail);
+        const serverLicense = payload.license.trim();
+        const localLicense = request.currentLicense.trim();
+        const actuallyChanged = serverLicense !== localLicense;
+
+        if (payload.changed !== actuallyChanged) {
+            throw syncProtocolError("服务器返回的 changed 字段与授权实际变化不一致。");
         }
 
-        const payload = data?.data ?? data;
-        const status: string = String(payload?.status || "").toLowerCase();
+        const activeFields = parseActiveMembershipProtocolFields(payload, response.status);
+        return {
+            status: "active",
+            license: serverLicense,
+            changed: payload.changed,
+            ...activeFields,
+        };
+    }
 
-        if (status === "active") {
-            if (!payload?.license) {
-                throw new Error("服务器返回 active 状态但未提供激活码");
-            }
-            return {
-                status: "active",
-                license: String(payload.license),
-                changed: payload.changed === true,
-                durationDays: Number(payload.durationDays || 0),
-                issuedDate: String(payload.issuedDate || ""),
-                isLifetime: payload.isLifetime === true,
-                remainingDays: Number(payload.remainingDays || 0),
-                dueDate: String(payload.dueDate || ""),
-            };
+    if (status === "revoked") {
+        if (typeof payload?.clearLocalLicense !== "boolean") {
+            throw syncProtocolError("服务器返回的 clearLocalLicense 字段类型不正确。");
         }
+        return {
+            status: "revoked",
+            clearLocalLicense: payload.clearLocalLicense,
+            message: "服务器已取消当前会员授权，但未要求清除本地凭据。",
+        };
+    }
 
-        if (status === "revoked") {
-            return {
-                status: "revoked",
-                clearLocalLicense: payload.clearLocalLicense === true,
-                message: String(payload.message || "会员授权已被管理员取消"),
-            };
-        }
+    if (status === "expired") {
+        return {
+            status: "expired",
+            message: "服务器中未找到当前有效会员，本地授权将继续按自身有效期处理。",
+        };
+    }
 
-        if (status === "expired") {
-            return {
-                status: "expired",
-                message: payload.message ? String(payload.message) : undefined,
-            };
-        }
-
-        // unmanaged or unknown
+    if (status === "unmanaged") {
         return {
             status: "unmanaged",
-            message: payload.message ? String(payload.message) : undefined,
+            message: "当前 SH 尚未由服务器管理，本地离线会员不会受到影响。",
         };
-    } catch (error) {
-        if (error instanceof Error) {
-            if (error.name === "AbortError") {
-                throw new Error("暂时无法连接激活服务器，请稍后重试。");
-            }
-            if (
-                error.message.includes("fetch") ||
-                error.message.includes("NetworkError") ||
-                error.message.includes("Failed to fetch")
-            ) {
-                throw new Error("暂时无法连接激活服务器，请稍后重试。");
-            }
-            throw error;
-        }
-        throw new Error("暂时无法连接激活服务器，请稍后重试。");
-    } finally {
-        window.clearTimeout(timer);
     }
+
+    throw new MembershipServiceError({
+        code: "SERVER_PROTOCOL_ERROR",
+        message: "服务器返回了无法识别的会员状态。",
+        httpStatus: response.status,
+    });
 }

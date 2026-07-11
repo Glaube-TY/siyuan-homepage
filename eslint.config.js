@@ -63,7 +63,15 @@ export default [
             ...tsPlugin.configs.recommended.rules,
             // 保守规则：先不强制要求处理所有 any
             '@typescript-eslint/no-explicit-any': 'off',
-            '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+            // 关闭基座 js.configs.recommended 中与 TS 规则冲突的版本
+            'no-redeclare': 'off',
+            'no-unused-vars': 'off',
+            '@typescript-eslint/no-unused-vars': ['warn', {
+                argsIgnorePattern: '^_',
+                varsIgnorePattern: '^_',
+                destructuredArrayIgnorePattern: '^_',
+                caughtErrorsIgnorePattern: '^_',
+            }],
             // 历史代码兼容：允许 this 别名
             '@typescript-eslint/no-this-alias': 'off',
             // 历史代码兼容：允许 case 块中的声明

@@ -848,16 +848,49 @@
         if (tab === "vip") {
             activeTab = tab;
             await refreshVipIdentity();
-            activationResult = await advanced.verifyLicense(
-                plugin,
-                USER_NAME,
-                USER_ID,
-            );
+            const savedActivation = await advanced.readSavedActivationCodeState(plugin);
+            if (savedActivation.status === "error") {
+                showMessage("暂时无法读取本地会员授权，请检查思源数据目录后重试。本地会员数据未被修改。", 3000);
+                return;
+            }
+            const verifiedSnapshotCode = savedActivation.status === "found"
+                ? savedActivation.code
+                : "";
+            try {
+                activationResult = await advanced.verifyLicense(
+                    plugin,
+                    USER_NAME,
+                    USER_ID,
+                );
+            } catch {
+                showMessage("暂时无法读取本地会员授权，请检查思源数据目录后重试。本地会员数据未被修改。", 3000);
+                return;
+            }
             activated = activationResult.valid;
             if (!activated && activationResult.code != 2) {
                 showMessage(activationResult.error);
-                if (DELETE_INVALID_LICENSE_CODES.has(activationResult.code)) {
-                    await advanced.deleteLicense(plugin);
+                if (DELETE_INVALID_LICENSE_CODES.has(activationResult.code) && verifiedSnapshotCode) {
+                    try {
+                        const deleteResult = await advanced.deleteLicense(plugin, verifiedSnapshotCode);
+                        if (deleteResult === "license_changed") {
+                            const currentResult = await advanced.verifyLicense(
+                                plugin,
+                                USER_NAME,
+                                USER_ID,
+                            );
+                            activationResult = currentResult;
+                            activated = currentResult.valid;
+                            if (activated) {
+                                handleVipMembershipActivated(currentResult);
+                            } else {
+                                showMessage("本地会员授权已发生变化，请重新打开会员设置确认当前授权。", 3000);
+                            }
+                        } else {
+                            ActivationCode = "";
+                        }
+                    } catch {
+                        showMessage("本地无效会员授权删除失败，请检查思源数据目录写入权限后重试。", 3000);
+                    }
                 }
             }
         } else {
@@ -916,13 +949,13 @@
     }
 
     async function handleVipDeactivate(): Promise<void> {
-        const saveVIPConfDataResult = await advanced.saveVIPConfData(plugin, "");
-        if (saveVIPConfDataResult) {
-            activated = false;
-            advancedEnabled = false;
-            plugin.ADVANCED = false;
-            window.dispatchEvent(new CustomEvent("homepage-advanced-unavailable"));
-            await advanced.deleteLicense(plugin);
+        try {
+            const deleteResult = await advanced.deleteLicense(plugin);
+            if (deleteResult === "deleted" || deleteResult === "already_missing") {
+                handleVipMembershipRevoked();
+            }
+        } catch {
+            showMessage("本地会员授权删除失败，请检查思源数据目录写入权限后重试。", 3000);
         }
     }
 

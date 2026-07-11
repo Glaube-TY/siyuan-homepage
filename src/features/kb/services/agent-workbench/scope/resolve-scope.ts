@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Resolve Agent Workbench Scope
  *
  * 职责：
@@ -35,7 +35,7 @@ async function resolveDocMeta(docId: string): Promise<{ title?: string; box?: st
         path: rows[0].path,
       };
     }
-  } catch (e) {
+  } catch (_e) {
     pushAgentDebugEvent("SCOPE_DOC_META_FAILED", {}, "warn");
   }
   return {};

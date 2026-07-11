@@ -81,7 +81,7 @@ async function queryDocMetasByIds(docIds: string[]): Promise<SiyuanDocLite[]> {
           }
         }
       }
-    } catch (e) {
+    } catch (_e) {
       pushAgentDebugEvent("DOC_LIST_META_FAILED", {}, "warn");
     }
   }
@@ -140,7 +140,7 @@ async function enrichDocsWithTitlePaths(docs: SiyuanDocLite[]): Promise<SiyuanDo
         }
       }
     }
-  } catch (e) {
+  } catch (_e) {
     pushAgentDebugEvent("DOC_LIST_PARENT_FAILED", {}, "warn");
     return docs;
   }
@@ -287,7 +287,7 @@ export async function listSiyuanDocsForTool(
     }
 
     return docs;
-  } catch (e) {
+  } catch (_e) {
     pushAgentDebugEvent("DOC_LIST_FAILED", {}, "warn");
     return [];
   }
