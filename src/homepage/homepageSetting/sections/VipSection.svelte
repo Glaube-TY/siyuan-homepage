@@ -49,7 +49,7 @@
     const MEMBER_GROUP_URL = "https://qm.qq.com/q/4ebO3QB6R2";
     const MEMBER_GROUP_NUMBER = "391403097";
     const AFDIAN_PRODUCT_URL =
-        "https://www.ifdian.net/item/4518ec2a7c2b11f192ed5254001e7c00?utm_source=copylink&utm_medium=link";
+        "https://www.ifdian.net/a/glaube-ty?utm_source=copylink&utm_medium=link";
     const AFDIAN_STORE_QR_URL =
         "https://blog.glaube-ty.top/upload/b407e281-c44c-4086-aabc-2d0209ab1909.webp";
     // 会员服务器是唯一正式云端地址，禁止由本地配置或页面输入覆盖。

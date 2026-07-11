@@ -49,16 +49,20 @@
     }
 
     // 时间戳格式化函数
-    function formatDate(raw: string): string {
-        const year = raw.slice(0, 4);
-        const month = raw.slice(4, 6);
-        const day = raw.slice(6, 8);
+    function formatDate(raw: unknown): string {
+        const value = typeof raw === "string" ? raw : "";
+        if (value.length < 8) return "未知日期";
+
+        const year = value.slice(0, 4);
+        const month = value.slice(4, 6);
+        const day = value.slice(6, 8);
         return `${year}年${month}月${day}日`;
     }
 
-    function formatMobileDate(raw: string): string {
-        if (!raw || raw.length < 8) return "";
-        return `${raw.slice(4, 6)}/${raw.slice(6, 8)}`;
+    function formatMobileDate(raw: unknown): string {
+        const value = typeof raw === "string" ? raw : "";
+        if (value.length < 8) return "";
+        return `${value.slice(4, 6)}/${value.slice(6, 8)}`;
     }
     
     // 悬浮窗定时器
