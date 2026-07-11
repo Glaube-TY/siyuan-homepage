@@ -566,14 +566,22 @@
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                gap: 0.5rem;
-                text-align: center;
+                justify-content: center;
+                gap: 1rem;
 
-                small,
-                p {
-                    margin: 0;
-                    color: var(--b3-theme-on-surface-light);
-                    font-size: 0.82rem;
+                .membership-purchase-copy {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 0.5rem;
+                    text-align: center;
+
+                    small,
+                    p {
+                        margin: 0;
+                        color: var(--b3-theme-on-surface-light);
+                        font-size: 0.82rem;
+                    }
                 }
             }
 
@@ -593,6 +601,39 @@
 
                 &:hover {
                     filter: brightness(1.08);
+                }
+            }
+
+            .membership-qr-card {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 0.35rem;
+                width: min(100%, 536px);
+                padding: 0.65rem;
+                border: 1px solid var(--b3-border-color);
+                border-radius: 10px;
+                background: var(--b3-theme-background);
+                color: var(--b3-theme-on-surface-light);
+                font-size: 0.82rem;
+                line-height: 1.35;
+                text-align: center;
+                text-decoration: none;
+                box-sizing: border-box;
+                transition: border-color 0.2s, transform 0.2s;
+
+                img {
+                    display: block;
+                    width: 512px;
+                    height: 512px;
+                    max-width: 100%;
+                    object-fit: contain;
+                    border-radius: 5px;
+                }
+
+                &:hover {
+                    border-color: var(--b3-theme-primary);
+                    transform: translateY(-1px);
                 }
             }
 
@@ -832,6 +873,7 @@
         .membership-steps {
             grid-template-columns: 1fr;
         }
+
     }
 
     @keyframes spin {

@@ -49,7 +49,9 @@
     const MEMBER_GROUP_URL = "https://qm.qq.com/q/4ebO3QB6R2";
     const MEMBER_GROUP_NUMBER = "391403097";
     const AFDIAN_PRODUCT_URL =
-        "https://www.ifdian.net/item/4518ec2a7c2b11f192ed5254001e7c00";
+        "https://www.ifdian.net/item/4518ec2a7c2b11f192ed5254001e7c00?utm_source=copylink&utm_medium=link";
+    const AFDIAN_STORE_QR_URL =
+        "https://blog.glaube-ty.top/upload/b407e281-c44c-4086-aabc-2d0209ab1909.webp";
     // 会员服务器是唯一正式云端地址，禁止由本地配置或页面输入覆盖。
     const serviceBaseUrl = DEFAULT_BASE_URL;
     const ACCOUNT_CHANGED_NO_MUTATION =
@@ -1154,12 +1156,24 @@
             href={AFDIAN_PRODUCT_URL}
             target="_blank"
             rel="noopener noreferrer"
-            class="membership-purchase-button"
+            class="membership-qr-card"
+            aria-label="扫码或点击进入爱发电店铺购买"
         >
-            前往爱发电购买会员 <SiyuanIcon name="iconLink" size={16} />
+            <img src={AFDIAN_STORE_QR_URL} alt="爱发电店铺二维码" />
+            <span>扫码或点击进入店铺购买</span>
         </a>
-        <small>实际价格与商品内容以爱发电商品页面为准。</small>
-        <p>购买完成后，请复制爱发电自动发送的会员兑换码。</p>
+        <div class="membership-purchase-copy">
+            <a
+                href={AFDIAN_PRODUCT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="membership-purchase-button"
+            >
+                前往爱发电购买会员 <SiyuanIcon name="iconLink" size={16} />
+            </a>
+            <small>实际价格与商品内容以爱发电商品页面为准。</small>
+            <p>购买完成后，请复制爱发电自动发送的会员兑换码。</p>
+        </div>
     </div>
 
     <div class="membership-steps" aria-label="会员激活流程">
