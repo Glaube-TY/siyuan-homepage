@@ -16,3 +16,4 @@ tmp
 .codegraph
 .siyuan-api-token.local
 .siyuan-api-token.*
+.agents
