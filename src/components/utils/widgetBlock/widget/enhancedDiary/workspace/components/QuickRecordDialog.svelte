@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         mode?: "create" | "edit";
@@ -21,22 +22,21 @@
 
     let categoryTitle = $state("");
     let content = $state("");
-    let showSuggestions = $state(false);
-    let inputFocused = $state(false);
+    let customCategory = $state("");
 
-    function getFilteredCategories(): string[] {
-        const input = categoryTitle.trim().toLowerCase();
-        if (!input) return suggestedCategories;
-        return suggestedCategories.filter((cat) => cat.toLowerCase().includes(input));
-    }
+    const showCustomInput = $derived(!suggestedCategories.includes(categoryTitle) && categoryTitle !== "");
 
     function selectCategory(cat: string): void {
-        categoryTitle = cat;
-        showSuggestions = false;
+        if (categoryTitle === cat) {
+            categoryTitle = "";
+        } else {
+            categoryTitle = cat;
+            customCategory = "";
+        }
     }
 
     function submit(): void {
-        const title = categoryTitle.trim() || "未分类";
+        const title = showCustomInput ? (customCategory.trim() || categoryTitle.trim() || "未分类") : (categoryTitle.trim() || "未分类");
         onSubmit(title, content);
     }
 
@@ -50,171 +50,127 @@
     });
 </script>
 
-<div class="quick-record-form">
-    <div class="form">
-        <label>记录分类
-            <div class="category-input-group">
-                <input
-                    type="text"
-                    bind:value={categoryTitle}
-                    placeholder="默认：未分类"
-                    maxlength="30"
-                    onfocus={() => { inputFocused = true; showSuggestions = true; }}
-                    onblur={() => { inputFocused = false; setTimeout(() => { showSuggestions = false; }, 150); }}
-                    oninput={() => { showSuggestions = true; }}
-                />
-                {#if showSuggestions && inputFocused}
-                    {@const filtered = getFilteredCategories()}
-                    {#if filtered.length > 0}
-                        <div class="category-suggestions">
-                            {#each filtered as category}
-                                <button 
-                                    type="button" 
-                                    class="suggestion-item"
-                                    onmousedown={(e) => e.preventDefault()}
-                                    onclick={() => selectCategory(category)}
-                                >
-                                    {category}
-                                </button>
-                            {/each}
-                        </div>
-                    {/if}
-                {/if}
-            </div>
-        </label>
-        <label>记录内容
-            <textarea bind:value={content} placeholder="写下这条记录"></textarea>
-        </label>
+<div class="quick-record-panel">
+    <div class="panel-section">
+        <div class="section-label">分类</div>
+        <div class="wk-chip-group">
+            {#each suggestedCategories as cat}
+                <button
+                    type="button"
+                    class="wk-chip"
+                    class:selected={categoryTitle === cat}
+                    onclick={() => selectCategory(cat)}
+                >
+                    {cat}
+                </button>
+            {/each}
+        </div>
+        {#if showCustomInput}
+            <input
+                type="text"
+                class="custom-category-input"
+                bind:value={customCategory}
+                placeholder="自定义分类名称"
+                maxlength="30"
+            />
+        {/if}
     </div>
-    <footer>
-        <button type="button" onclick={onClose}>取消</button>
-        <button type="button" class="primary" onclick={submit}>
-            {mode === "edit" ? "保存" : "添加"}
+
+    <div class="panel-section panel-content">
+        <textarea
+            bind:value={content}
+            placeholder="写下这条记录..."
+            class="record-textarea"
+        ></textarea>
+    </div>
+
+    <div class="panel-footer">
+        <button type="button" class="wk-btn wk-btn-ghost" onclick={onClose}>取消</button>
+        <button type="button" class="wk-btn wk-btn-primary" onclick={submit}>
+            {mode === "edit" ? "保存更改" : "添加记录"}
         </button>
-    </footer>
+    </div>
 </div>
 
 <style>
-    .quick-record-form {
+    .quick-record-panel {
         display: flex;
         flex-direction: column;
         min-height: 0;
         width: 100%;
         box-sizing: border-box;
+    }
+
+    .panel-section {
+        padding: 16px 20px;
+    }
+
+    .panel-content {
         flex: 1;
-        min-width: 0;
-    }
-
-    .form {
         display: flex;
         flex-direction: column;
-        gap: 14px;
-        padding: 18px;
+        padding-top: 0;
+    }
+
+    .section-label {
+        font-size: var(--wk-text-xs);
+        font-weight: 600;
+        color: var(--wk-ink-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 10px;
+    }
+
+    .custom-category-input {
+        margin-top: 8px;
+        border: 1px solid var(--wk-border-light);
+        border-radius: var(--wk-radius-sm);
+        background: var(--wk-bg-card);
+        color: var(--wk-ink-secondary);
+        padding: 7px 10px;
+        font-size: var(--wk-text-base);
         width: 100%;
         box-sizing: border-box;
+        transition: border-color var(--wk-transition-fast);
     }
 
-    label {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--wk-ink-secondary);
-        opacity: 0.8;
-        min-width: 0;
-    }
-
-    .category-input-group {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-    }
-
-    input,
-    textarea {
-        border: 1px solid var(--wk-border);
-        border-radius: 7px;
-        background: var(--wk-surface);
-        color: var(--wk-ink-secondary);
-        padding: 8px 10px;
-        font-size: 13px;
-        transition: border-color 0.12s;
-        width: 100%;
-        box-sizing: border-box;
-    }
-
-    input:focus,
-    textarea:focus {
+    .custom-category-input:focus {
         outline: none;
         border-color: var(--wk-primary);
     }
 
-    textarea {
-        min-height: 150px;
-        resize: vertical;
-        line-height: 1.6;
-    }
-
-    .category-suggestions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 4px;
-    }
-
-    .suggestion-item {
-        border: 1px solid var(--wk-border);
-        border-radius: 12px;
-        background: var(--wk-background);
+    .record-textarea {
+        flex: 1;
+        min-height: 140px;
+        border: 1px solid var(--wk-border-light);
+        border-radius: var(--wk-radius-md);
+        background: var(--wk-bg-card);
         color: var(--wk-ink-secondary);
-        padding: 4px 10px;
-        font-size: 12px;
-        cursor: pointer;
-        transition: border-color 0.1s, background 0.1s;
+        padding: 14px;
+        font-size: var(--wk-text-md);
+        line-height: 1.7;
+        resize: vertical;
+        width: 100%;
+        box-sizing: border-box;
+        transition: border-color var(--wk-transition-fast);
+        font-family: inherit;
     }
 
-    .suggestion-item:hover {
+    .record-textarea:focus {
+        outline: none;
         border-color: var(--wk-primary);
-        background: color-mix(in srgb, var(--wk-primary) 8%, var(--wk-background));
     }
 
-    footer {
+    .record-textarea::placeholder {
+        color: var(--wk-ink-faint);
+    }
+
+    .panel-footer {
         display: flex;
         align-items: center;
         justify-content: flex-end;
         gap: 8px;
-        padding: 16px 18px;
-        border-top: 1px solid var(--wk-border);
-        background: var(--wk-surface);
-        width: 100%;
-        box-sizing: border-box;
-    }
-
-    footer button {
-        border: 1px solid var(--wk-border);
-        border-radius: 7px;
-        background: var(--wk-background);
-        color: var(--wk-ink);
-        padding: 7px 16px;
-        font-size: 13px;
-        cursor: pointer;
-        transition: border-color 0.1s, color 0.1s;
-    }
-
-    footer button:hover {
-        border-color: var(--wk-primary);
-        color: var(--wk-primary);
-    }
-
-    .primary {
-        border-color: var(--wk-primary) !important;
-        background: var(--wk-primary) !important;
-        color: #fff !important;
-    }
-
-    .primary:hover {
-        opacity: 0.88;
-        color: #fff !important;
+        padding: 14px 20px;
+        border-top: 1px solid var(--wk-border-light);
     }
 </style>

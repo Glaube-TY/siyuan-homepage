@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount, onDestroy } from "svelte";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
     import type { WorkspaceTaskStatusFilter, WorkspaceTaskRiskFilter } from "../enhancedDiaryWorkspaceNavigation";
     import { addDays, daysBetweenLocalDates, formatLocalDate } from "../enhancedDiaryWorkspaceDate";
@@ -256,9 +257,9 @@
 
     const todayCount = $derived(tasks.filter((t) => t.isTodayTask).length);
     const activeCount = $derived(tasks.filter((t) => !t.completed).length);
+    const completedCount = $derived(tasks.filter((t) => t.completed).length);
     const overdueCount = $derived(tasks.filter((t) => t.isOverdue).length);
     const migrateCount = $derived(tasks.filter((t) => t.shouldMigrate).length);
-    const riskCount = $derived(tasks.filter((t) => getTaskRiskScore(t) >= 30).length);
 
     let selectedTaskBlockId: string | null = $state(null);
 
@@ -353,6 +354,79 @@
         }
     });
 
+    let batchSelecting = $state(false);
+
+    function startBatchSelecting(): void {
+        batchSelecting = true;
+        selectedTaskIds = [];
+    }
+
+    function exitBatchSelecting(): void {
+        batchSelecting = false;
+        selectedTaskIds = [];
+    }
+
+    // Controlled popovers
+    let moreActionsOpen = $state(false);
+    let detailMoreActionsEl: HTMLElement | null = $state(null);
+    let advancedFiltersOpen = $state(false);
+    let advancedFiltersEl: HTMLElement | null = $state(null);
+
+    function toggleMoreActions(): void {
+        moreActionsOpen = !moreActionsOpen;
+        if (moreActionsOpen) advancedFiltersOpen = false;
+    }
+
+    function closeMoreActions(): void {
+        moreActionsOpen = false;
+    }
+
+    function toggleAdvancedFilters(): void {
+        advancedFiltersOpen = !advancedFiltersOpen;
+        if (advancedFiltersOpen) moreActionsOpen = false;
+    }
+
+    function closeAllPopovers(): void {
+        moreActionsOpen = false;
+        advancedFiltersOpen = false;
+    }
+
+    function runMoreAction(action: () => void): void {
+        closeMoreActions();
+        action();
+    }
+
+    function handlePopoverPointerdown(event: PointerEvent): void {
+        if (moreActionsOpen && detailMoreActionsEl && !detailMoreActionsEl.contains(event.target as Node)) {
+            moreActionsOpen = false;
+        }
+        if (advancedFiltersOpen && advancedFiltersEl && !advancedFiltersEl.contains(event.target as Node)) {
+            advancedFiltersOpen = false;
+        }
+    }
+
+    function handlePopoverKeydown(event: KeyboardEvent): void {
+        if (event.key === "Escape") {
+            closeAllPopovers();
+        }
+    }
+
+    onMount(() => {
+        document.addEventListener("pointerdown", handlePopoverPointerdown);
+        document.addEventListener("keydown", handlePopoverKeydown);
+    });
+
+    onDestroy(() => {
+        document.removeEventListener("pointerdown", handlePopoverPointerdown);
+        document.removeEventListener("keydown", handlePopoverKeydown);
+    });
+
+    // Close popovers when selected task or view changes
+    $effect(() => {
+        void selectedTaskBlockId; void viewMode;
+        closeAllPopovers();
+    });
+
     const kanbanGroups = $derived.by((): TaskGroup[] => {
         const groups: TaskGroup[] = [
             { key: "today", title: "今天", description: "开始、截止或写入今天的任务", tone: "primary", tasks: [] },
@@ -431,28 +505,31 @@
         riskFilter = "all";
         selectedTaskBlockId = null;
     }
-
-    function applyRiskQuickFilter(filter: WorkspaceTaskRiskFilter): void {
-        riskFilter = filter;
-        statusFilter = "all";
-        selectedTaskBlockId = null;
-    }
 </script>
 
 <section class="task-panel">
-    <div class="panel-toolbar">
-        <h2>任务中心</h2>
-        <button type="button" onclick={onCreate}>新建任务</button>
+    <div class="panel-toolbar wk-page-header">
+        <div class="wk-page-header-main">
+            <h2 class="wk-page-title">任务</h2>
+            <p class="wk-page-description">管理今天和接下来要做的事情。</p>
+        </div>
+        <button type="button" class="wk-btn wk-btn-primary" onclick={onCreate}>新建任务</button>
     </div>
 
-    <div class="filters-toolbar">
+    <div class="filters-toolbar wk-toolbar">
         <input
             type="text"
             class="search-input"
             placeholder="搜索任务、标签、来源..."
             bind:value={searchText}
         />
-        <select class="filter-select" bind:value={statusFilter}>
+        <div class="advanced-filters" bind:this={advancedFiltersEl}>
+          <button type="button" class="wk-btn wk-btn-secondary" onclick={toggleAdvancedFilters}
+            aria-expanded={advancedFiltersOpen} aria-haspopup="menu"
+          >更多筛选</button>
+          {#if advancedFiltersOpen}
+          <div class="advanced-filter-popover" role="menu">
+          <select class="filter-select" bind:value={statusFilter} aria-label="任务状态">
             <option value="all">全部任务</option>
             <option value="active">未完成</option>
             <option value="completed">已完成</option>
@@ -462,7 +539,7 @@
             <option value="new">今日新建</option>
             <option value="migrated">今日迁移</option>
         </select>
-        <select class="filter-select" bind:value={priorityFilter}>
+        <select class="filter-select" bind:value={priorityFilter} aria-label="任务优先级">
             <option value="all">全部优先级</option>
             <option value="none">无优先级</option>
             <option value="❗">❗</option>
@@ -470,14 +547,14 @@
             <option value="❗❗❗">❗❗❗</option>
             <option value="❗❗❗❗">❗❗❗❗</option>
         </select>
-        <select class="filter-select" bind:value={riskFilter}>
+        <select class="filter-select" bind:value={riskFilter} aria-label="任务风险">
             <option value="all">全部风险</option>
             <option value="risk">高风险任务</option>
             <option value="stale">停滞任务</option>
             <option value="deadline">截止风险</option>
             <option value="project">项目任务</option>
         </select>
-        <select class="filter-select" bind:value={sortKey}>
+        <select class="filter-select" bind:value={sortKey} aria-label="任务排序">
             <option value="default">默认分组</option>
             <option value="deadlineAsc">截止日期最近</option>
             <option value="startAsc">开始日期最近</option>
@@ -486,10 +563,13 @@
             <option value="riskDesc">风险最高</option>
             <option value="nameAsc">名称 A-Z</option>
         </select>
-        <button type="button" class="clear-btn" onclick={clearFilters}>清空</button>
+          <button type="button" class="clear-btn" onclick={clearFilters}>清空筛选</button>
+          </div>
+          {/if}
+        </div>
     </div>
 
-    <div class="view-mode-tabs" aria-label="任务视图">
+    <div class="view-mode-tabs wk-segmented" aria-label="任务视图">
         <button
             type="button"
             class:active={viewMode === "list"}
@@ -525,15 +605,18 @@
         <button type="button" class="stat-chip-btn" class:active={statusFilter === "today"} onclick={() => applyStatusQuickFilter("today")}>今日任务 {todayCount}</button>
         <button type="button" class="stat-chip-btn" class:active={statusFilter === "active"} onclick={() => applyStatusQuickFilter("active")}>未完成 {activeCount}</button>
         <button type="button" class="stat-chip-btn danger" class:active={statusFilter === "overdue"} onclick={() => applyStatusQuickFilter("overdue")}>逾期 {overdueCount}</button>
-        <button type="button" class="stat-chip-btn warning" class:active={statusFilter === "migrate"} onclick={() => applyStatusQuickFilter("migrate")}>建议迁移 {migrateCount}</button>
-        <button type="button" class="stat-chip-btn" class:danger={riskFilter === "risk"} class:active={riskFilter === "risk"} onclick={() => applyRiskQuickFilter("risk")}>高风险 {riskCount}</button>
+        <button type="button" class="stat-chip-btn warning" class:active={statusFilter === "migrate"} onclick={() => applyStatusQuickFilter("migrate")}>待迁移 {migrateCount}</button>
+        <button type="button" class="stat-chip-btn" class:active={statusFilter === "completed"} onclick={() => applyStatusQuickFilter("completed")}>已完成 {completedCount}</button>
     </div>
 
     <div class="result-info">
         当前显示 {filteredTasks.length} / 总计 {tasks.length} 个任务
+        <button type="button" class="batch-toggle-btn" onclick={batchSelecting ? exitBatchSelecting : startBatchSelecting}>
+            {batchSelecting ? "退出批量选择" : "批量选择"}
+        </button>
     </div>
 
-    {#if selectedBatchTasks.length > 0}
+    {#if batchSelecting && selectedBatchTasks.length > 0}
         <div class="batch-toolbar">
             <span>已选择 {selectedBatchTasks.length} 个任务</span>
             <button type="button" onclick={selectAllFilteredTasks}>全选当前结果</button>
@@ -564,29 +647,35 @@
                         <div class="task-group-list">
                             {#each group.tasks as task (task.blockId)}
                                 <article class="task-card" class:completed={task.completed} class:overdue={task.isOverdue}>
-                                    <label class="task-card-select">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedTaskIds.includes(task.blockId)}
-                                            onchange={() => toggleBatchSelection(task)}
-                                        />
-                                        <span>选择</span>
-                                    </label>
+                                    {#if batchSelecting}
+                                        <label class="task-card-select">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedTaskIds.includes(task.blockId)}
+                                                onchange={() => toggleBatchSelection(task)}
+                                            />
+                                            <span>选择</span>
+                                        </label>
+                                    {/if}
                                     <div class="task-card-main">
-                                        <input
-                                            type="checkbox"
-                                            checked={task.completed}
-                                            aria-label={task.completed ? "取消完成" : "标记完成"}
-                                            onchange={() => onToggle(task)}
-                                        />
+                                        {#if !batchSelecting}
+                                            <input
+                                                type="checkbox"
+                                                checked={task.completed}
+                                                aria-label={task.completed ? "取消完成" : "标记完成"}
+                                                onchange={() => onToggle(task)}
+                                            />
+                                        {/if}
                                         <div class="task-card-content">
                                             <strong>{task.taskname}</strong>
                                             <span>{renderTaskMeta(task)}</span>
-                                            <div class="task-risk-row">
-                                                <small class="risk-chip tone-{getTaskRiskTone(task)}">
-                                                    {getTaskRiskLabel(task)}
-                                                </small>
-                                            </div>
+                                            {#if !task.completed}
+                                                <div class="task-risk-row">
+                                                    <small class="risk-chip tone-{getTaskRiskTone(task)}">
+                                                        {getTaskRiskLabel(task)}
+                                                    </small>
+                                                </div>
+                                            {/if}
                                             {#if task.tags.length > 0}
                                                 <div class="task-card-tags">
                                                     {#each task.tags.slice(0, 4) as tag}
@@ -621,56 +710,57 @@
                 <div class="list-label">任务列表 · {filteredTasks.length} 条</div>
                 <div class="task-list-scroll">
                     {#each filteredTasks as task (task.blockId)}
+                        {@const topBadges = (()=>{const b=[];if(task.completed){b.push({cls:'mini-done',txt:'已完成'});return b;}if(task.isOverdue)b.push({cls:'mini-overdue',txt:'逾期'});else if(task.shouldMigrate)b.push({cls:'mini-mig',txt:'待迁移'});else if(task.isTodayTask)b.push({cls:'mini-today',txt:'今日'});return b.slice(0,2);})()}
                         <div
                             class="task-list-item"
                             class:selected={selectedTaskBlockId === task.blockId}
                             class:completed={task.completed}
                             role="button"
                             tabindex="0"
-                            onclick={() => selectTask(task)}
+                            onclick={() => {if (batchSelecting) {toggleBatchSelection(task)} else {selectTask(task)}}}
                             onkeydown={(event) => handleTaskListItemKeydown(event, task)}
                         >
                             <div class="list-item-row">
                                 <span class="list-item-check">
-                                    <input
-                                        type="checkbox"
-                                        checked={task.completed}
-                                        onclick={(event) => event.stopPropagation()}
-                                        onchange={() => onToggle(task)}
-                                    />
+                                    {#if batchSelecting}
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedTaskIds.includes(task.blockId)}
+                                            onclick={(event) => event.stopPropagation()}
+                                            onchange={() => toggleBatchSelection(task)}
+                                        />
+                                    {:else}
+                                        <input
+                                            type="checkbox"
+                                            checked={task.completed}
+                                            onclick={(event) => event.stopPropagation()}
+                                            onchange={() => onToggle(task)}
+                                        />
+                                    {/if}
                                 </span>
                                 <span class="list-item-name">{task.taskname}</span>
-                                <span class="list-item-badges">
-                                    {#if task.isTodayTask}<span class="mini-badge mini-today">今日</span>{/if}
-                                    {#if task.isOverdue}<span class="mini-badge mini-overdue">逾期</span>{/if}
-                                    {#if task.sourceKind === "new"}<span class="mini-badge mini-new">新建</span>{/if}
-                                    {#if task.sourceKind === "migrated"}<span class="mini-badge mini-migrated">迁移</span>{/if}
-                                    {#if task.shouldMigrate}<span class="mini-badge mini-mig">建议迁移</span>{/if}
-                                    {#if getTaskRiskTone(task) !== "normal"}<span class="mini-badge mini-risk-{getTaskRiskTone(task)}">{getTaskRiskLabel(task)}</span>{/if}
-                                    {#if task.completed}<span class="mini-badge mini-done">已完成</span>{/if}
-                                </span>
+                                {#if topBadges.length > 0}
+                                    <span class="list-item-badges">
+                                        {#each topBadges as badge}
+                                            <span class="mini-badge {badge.cls}">{badge.txt}</span>
+                                        {/each}
+                                    </span>
+                                {/if}
                             </div>
-                            <span class="batch-select">
-                                <input
-                                    type="checkbox"
-                                    checked={selectedTaskIds.includes(task.blockId)}
-                                    onclick={(event) => event.stopPropagation()}
-                                    onchange={() => toggleBatchSelection(task)}
-                                />
-                                <span>选择</span>
-                            </span>
                             <div class="list-item-meta">
-                                {#if task.priority}<span>{task.priority}</span>{/if}
-                                {#if task.startDate}<span>{task.startDate}</span>{/if}
-                                {#if task.deadline}<span>~{task.deadline}</span>{/if}
-                                {#if getTaskStagnantDays(task) > 0}<span>停滞 {getTaskStagnantDays(task)} 天</span>{/if}
-                                <span>{sourceLabel(task)}</span>
+                                {#if task.priority}<span class="meta-chip">{task.priority}</span>{/if}
+                                {#if task.deadline}<span class="meta-chip">~{task.deadline}</span>{/if}
+                                {#if task.startDate}<span class="meta-chip">{task.startDate}</span>{/if}
+                                <span class="meta-chip meta-source">{sourceLabel(task)}</span>
                             </div>
                             {#if task.tags.length > 0}
                                 <div class="list-item-tags">
-                                    {#each task.tags as tag}
+                                    {#each task.tags.slice(0, 2) as tag}
                                         <span>#{tag}#</span>
                                     {/each}
+                                    {#if task.tags.length > 2}
+                                        <span class="tag-overflow">+{task.tags.length - 2}</span>
+                                    {/if}
                                 </div>
                             {/if}
                         </div>
@@ -688,81 +778,64 @@
                                     <span class="badge badge-done">已完成</span>
                                 {:else}
                                     <span class="badge badge-active">未完成</span>
+                                    {#if selectedTask.isOverdue}<span class="badge badge-danger">逾期</span>{/if}
                                 {/if}
-                                {#if selectedTask.isOverdue}<span class="badge badge-danger">逾期</span>{/if}
-                                {#if selectedTask.isTodayTask}<span class="badge badge-today">今日</span>{/if}
-                                {#if selectedTask.shouldMigrate}<span class="badge badge-warn">建议迁移</span>{/if}
-                                <span class="badge badge-risk-{getTaskRiskTone(selectedTask)}">{getTaskRiskLabel(selectedTask)}</span>
                             </div>
                         </div>
 
-                        <div class="detail-meta-grid">
-                            <div class="meta-item">
-                                <span class="meta-label">优先级</span>
-                                <span class="meta-value">{selectedTask.priority || "-"}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">开始日期</span>
-                                <span class="meta-value">{selectedTask.startDate || "-"}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">截止日期</span>
-                                <span class="meta-value">{selectedTask.deadline || "-"}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">来源日期</span>
-                                <span class="meta-value">{selectedTask.sourceDate || "-"}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">来源文档</span>
-                                <span class="meta-value">{selectedTask.sourceDocTitle || "-"}</span>
-                            </div>
-                            <div class="meta-item">
-                                <span class="meta-label">风险判断</span>
-                                <span class="meta-value">{getTaskRiskLabel(selectedTask)}</span>
-                            </div>
+                        <div class="detail-info-line">
+                            {#if selectedTask.priority}<span class="info-chip">{selectedTask.priority}</span>{/if}
+                            {#if selectedTask.startDate}<span class="info-chip">开始 {selectedTask.startDate}</span>{/if}
+                            {#if selectedTask.deadline}<span class="info-chip">截止 {selectedTask.deadline}</span>{/if}
+                            {#if !selectedTask.completed && (selectedTask.isOverdue || selectedTask.shouldMigrate)}
+                                <span class="info-chip">{getTaskRiskLabel(selectedTask)}</span>
+                            {/if}
                         </div>
 
                         {#if selectedTask.tags.length > 0}
-                            <div class="detail-section">
-                                <div class="section-label">标签</div>
-                                <div class="detail-tags">
-                                    {#each selectedTask.tags as tag}
-                                        <span>#{tag}#</span>
-                                    {/each}
-                                </div>
+                            <div class="detail-info-line">
+                                <span class="info-label">标签</span>
+                                {#each selectedTask.tags as tag}
+                                    <span class="detail-tag">#{tag}#</span>
+                                {/each}
+                            </div>
+                        {/if}
+
+                        {#if selectedTask.sourceDocTitle || selectedTask.sourceDate}
+                            <div class="detail-info-line">
+                                <span class="info-label">来源</span>
+                                <span class="info-value">{selectedTask.sourceDocTitle || selectedTask.sourceDate || "-"}</span>
                             </div>
                         {/if}
 
                         <details class="detail-advanced">
                             <summary>高级信息</summary>
-                            <div class="detail-meta-grid">
-                                <div class="meta-item">
-                                    <span class="meta-label">重复</span>
-                                    <span class="meta-value">{selectedTask.recurrence || "-"}</span>
+                            <div class="detail-advanced-grid">
+                                <div class="adv-item">
+                                    <span class="adv-label">重复</span>
+                                    <span class="adv-value">{selectedTask.recurrence || "-"}</span>
                                 </div>
-                                <div class="meta-item">
-                                    <span class="meta-label">提醒</span>
-                                    <span class="meta-value">{selectedTask.reminder || "-"}</span>
+                                <div class="adv-item">
+                                    <span class="adv-label">提醒</span>
+                                    <span class="adv-value">{selectedTask.reminder || "-"}</span>
                                 </div>
-                                <div class="meta-item">
-                                    <span class="meta-label">地点</span>
-                                    <span class="meta-value">{selectedTask.location || "-"}</span>
+                                <div class="adv-item">
+                                    <span class="adv-label">地点</span>
+                                    <span class="adv-value">{selectedTask.location || "-"}</span>
                                 </div>
-                                <div class="meta-item">
-                                    <span class="meta-label">来源类型</span>
-                                    <span class="meta-value">{sourceLabel(selectedTask)}</span>
+                                <div class="adv-item">
+                                    <span class="adv-label">来源日期</span>
+                                    <span class="adv-value">{selectedTask.sourceDate || "-"}</span>
                                 </div>
-                                <div class="meta-item">
-                                    <span class="meta-label">停滞天数</span>
-                                    <span class="meta-value">{getTaskStagnantDays(selectedTask)} 天</span>
+                                <div class="adv-item">
+                                    <span class="adv-label">停滞天数</span>
+                                    <span class="adv-value">{getTaskStagnantDays(selectedTask)} 天</span>
                                 </div>
-                                <div class="meta-item">
-                                    <span class="meta-label">项目关联</span>
-                                    <span class="meta-value">{selectedTask.tags.length > 0 ? "已关联" : "-"}</span>
+                                <div class="adv-item">
+                                    <span class="adv-label">项目关联</span>
+                                    <span class="adv-value">{selectedTask.tags.length > 0 ? "已关联" : "-"}</span>
                                 </div>
                             </div>
-
                             <div class="detail-section">
                                 <div class="section-label">原始任务 Markdown</div>
                                 <pre class="detail-markdown">{selectedTask.markdown}</pre>
@@ -772,46 +845,73 @@
                         <div class="detail-actions">
                             <button
                                 type="button"
-                                class="btn-action"
-                                onclick={() => onToggle(selectedTask)}
-                            >{selectedTask.completed ? "取消完成" : "标记完成"}</button>
-                            <button
-                                type="button"
-                                class="btn-action"
+                                class="wk-btn wk-btn-secondary"
                                 onclick={() => onEdit(selectedTask)}
                             >编辑</button>
-                            <button
-                                type="button"
-                                class="btn-action btn-danger"
-                                onclick={() => onDelete(selectedTask)}
-                            >删除</button>
-                            <button
-                                type="button"
-                                class="btn-action {selectedTask.shouldMigrate ? 'btn-migrate' : ''}"
-                                onclick={() => onMigrate(selectedTask)}
-                                disabled={!canMigrateTask(selectedTask)}
-                                title={getMigrationTooltip(selectedTask)}
-                            >迁移到今天</button>
-                            <button
-                                type="button"
-                                class="btn-action"
-                                onclick={() => onPostpone(selectedTask, "tomorrow")}
-                            >推迟到明天</button>
-                            <button
-                                type="button"
-                                class="btn-action"
-                                onclick={() => onPostpone(selectedTask, "nextWeek")}
-                            >推迟到下周</button>
-                            <button
-                                type="button"
-                                class="btn-action"
-                                onclick={() => onOpenBlock(selectedTask.blockId)}
-                            >打开块</button>
-                            <button
-                                type="button"
-                                class="btn-action"
-                                onclick={() => onOpenDoc(selectedTask.sourceDocId)}
-                            >打开日记</button>
+                            {#if selectedTask.completed}
+                                <button
+                                    type="button"
+                                    class="wk-btn wk-btn-secondary"
+                                    onclick={() => onToggle(selectedTask)}
+                                >取消完成</button>
+                            {:else}
+                                <button
+                                    type="button"
+                                    class="wk-btn wk-btn-primary"
+                                    onclick={() => onToggle(selectedTask)}
+                                >标记完成</button>
+                            {/if}
+                            <div class="detail-more-actions" bind:this={detailMoreActionsEl}>
+                                <button
+                                    type="button"
+                                    class="wk-btn wk-btn-secondary"
+                                    onclick={toggleMoreActions}
+                                    aria-expanded={moreActionsOpen}
+                                    aria-haspopup="menu"
+                                >更多操作</button>
+                                {#if moreActionsOpen}
+                                <div class="more-actions-popover" role="menu">
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="wk-btn wk-btn-sm wk-btn-ghost"
+                                        onclick={() => runMoreAction(() => onMigrate(selectedTask))}
+                                        disabled={!canMigrateTask(selectedTask)}
+                                        title={getMigrationTooltip(selectedTask)}
+                                    >迁移到今天</button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="wk-btn wk-btn-sm wk-btn-ghost"
+                                        onclick={() => runMoreAction(() => onPostpone(selectedTask, "tomorrow"))}
+                                    >推迟到明天</button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="wk-btn wk-btn-sm wk-btn-ghost"
+                                        onclick={() => runMoreAction(() => onPostpone(selectedTask, "nextWeek"))}
+                                    >推迟到下周</button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="wk-btn wk-btn-sm wk-btn-ghost"
+                                        onclick={() => runMoreAction(() => onOpenBlock(selectedTask.blockId))}
+                                    >打开块</button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="wk-btn wk-btn-sm wk-btn-ghost"
+                                        onclick={() => runMoreAction(() => onOpenDoc(selectedTask.sourceDocId))}
+                                    >打开日记</button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="wk-btn wk-btn-sm wk-btn-danger"
+                                        onclick={() => runMoreAction(() => onDelete(selectedTask))}
+                                    >删除</button>
+                                </div>
+                                {/if}
+                            </div>
                         </div>
                     </div>
                 {:else}
@@ -852,8 +952,8 @@
         border-radius: 8px;
         background: var(--wk-background);
         border: 1px solid var(--wk-border);
-        font-size: 12px;
-        color: var(--wk-ink-secondary);
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .tag-filter-chip strong {
@@ -867,7 +967,7 @@
         border-radius: 6px;
         background: transparent;
         color: var(--wk-ink-secondary);
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         margin-left: auto;
     }
@@ -885,8 +985,8 @@
         border-radius: 8px;
         background: var(--wk-background);
         border: 1px solid var(--wk-border);
-        font-size: 12px;
-        color: var(--wk-ink-secondary);
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .date-filter-chip strong {
@@ -900,7 +1000,7 @@
         border-radius: 6px;
         background: transparent;
         color: var(--wk-ink-secondary);
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         margin-left: auto;
     }
@@ -918,60 +1018,57 @@
     }
 
     .stat-chip-btn {
-        font-size: 11px;
-        padding: 2px 8px;
+        font-size: var(--wk-text-sm);
+        padding: 4px 10px;
         border-radius: 999px;
         background: var(--wk-background);
         border: 1px solid var(--wk-border);
-        color: var(--wk-ink-secondary);
-        opacity: 0.75;
+        color: var(--wk-ink-muted);
         cursor: pointer;
-        transition: border-color 0.12s, background 0.12s, opacity 0.12s;
+        transition: border-color 0.12s, background 0.12s;
     }
 
     .stat-chip-btn:hover {
-        opacity: 1;
         border-color: var(--wk-primary);
         background: color-mix(in srgb, var(--wk-primary) 8%, var(--wk-background));
     }
 
     .stat-chip-btn.danger {
-        background: rgba(211, 47, 47, 0.06);
-        border-color: rgba(211, 47, 47, 0.25);
+        background: var(--wk-error-bg);
+        border-color: var(--wk-error-border);
         color: var(--wk-error);
     }
 
     .stat-chip-btn.danger:hover {
-        background: rgba(211, 47, 47, 0.12);
-        border-color: rgba(211, 47, 47, 0.45);
+        background: var(--wk-error-bg);
+        border-color: var(--wk-error-border);
     }
 
     .stat-chip-btn.warning {
-        background: rgba(230, 168, 23, 0.06);
-        border-color: rgba(230, 168, 23, 0.25);
-        color: #b87300;
+        background: color-mix(in srgb, var(--wk-primary) 6%, transparent);
+        border-color: color-mix(in srgb, var(--wk-primary) 25%, transparent);
+        color: var(--wk-primary);
     }
 
     .stat-chip-btn.warning:hover {
-        background: rgba(230, 168, 23, 0.12);
-        border-color: rgba(230, 168, 23, 0.45);
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        border-color: color-mix(in srgb, var(--wk-primary) 45%, transparent);
     }
 
     .stat-chip-btn.active {
-        opacity: 1;
         border-color: var(--wk-primary);
         background: color-mix(in srgb, var(--wk-primary) 12%, var(--wk-background));
         font-weight: 600;
     }
 
     .stat-chip-btn.danger.active {
-        background: rgba(211, 47, 47, 0.18);
-        border-color: rgba(211, 47, 47, 0.55);
+        background: var(--wk-error-bg);
+        border-color: var(--wk-error);
     }
 
     .stat-chip-btn.warning.active {
-        background: rgba(230, 168, 23, 0.18);
-        border-color: rgba(230, 168, 23, 0.55);
+        background: color-mix(in srgb, var(--wk-primary) 18%, transparent);
+        border-color: color-mix(in srgb, var(--wk-primary) 55%, transparent);
     }
 
     .view-mode-tabs {
@@ -989,7 +1086,7 @@
         background: var(--wk-background);
         color: var(--wk-ink-secondary);
         padding: 6px 14px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         min-width: 58px;
     }
@@ -1004,7 +1101,7 @@
 
     .view-mode-tabs button.active {
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .task-board {
@@ -1037,11 +1134,11 @@
     }
 
     .task-group.tone-warning {
-        border-top: 3px solid #e6900a;
+        border-top: 3px solid var(--wk-primary);
     }
 
     .task-group.tone-success {
-        border-top: 3px solid #22863a;
+        border-top: 3px solid var(--wk-primary);
     }
 
     .task-group-head {
@@ -1063,9 +1160,8 @@
 
     .task-group-head p {
         margin: 0;
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         line-height: 1.4;
     }
 
@@ -1083,9 +1179,8 @@
 
     .task-group-empty {
         padding: 18px 12px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.45;
-        font-size: 12px;
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
         text-align: center;
     }
 
@@ -1094,7 +1189,7 @@
         flex-direction: column;
         gap: 8px;
         padding: 10px;
-        max-height: calc(100vh - 390px);
+        max-height: 400px;
         overflow-y: auto;
     }
 
@@ -1113,8 +1208,8 @@
     }
 
     .task-card.overdue {
-        background: rgba(211, 47, 47, 0.04);
-        border-color: rgba(211, 47, 47, 0.2);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
+        border-color: color-mix(in srgb, var(--wk-error) 8%, transparent);
     }
 
     .task-card-main {
@@ -1139,7 +1234,7 @@
 
     .task-card-content strong {
         display: block;
-        font-size: 12px;
+        font-size: var(--wk-text-base);
         color: var(--wk-ink-secondary);
         line-height: 1.4;
         word-break: break-word;
@@ -1152,9 +1247,8 @@
     .task-card-content span {
         display: block;
         margin-top: 3px;
-        font-size: 10px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.55;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         line-height: 1.4;
         word-break: break-word;
     }
@@ -1167,7 +1261,7 @@
     }
 
     .task-card-tags small {
-        font-size: 10px;
+        font-size: var(--wk-text-xs);
         padding: 1px 5px;
         border-radius: 999px;
         background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
@@ -1188,7 +1282,7 @@
         background: var(--wk-surface);
         color: var(--wk-ink-secondary);
         padding: 3px 7px;
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
     }
 
@@ -1200,27 +1294,28 @@
     /* layout */
     .task-layout {
         display: grid;
-        grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
+        grid-template-columns: minmax(340px, 42%) minmax(0, 1fr);
         gap: 16px;
         align-items: start;
         min-height: 400px;
     }
 
     .task-list-col {
+        min-width: 0;
+        max-width: 100%;
         border: 1px solid var(--wk-border);
         border-radius: 10px;
         background: var(--wk-surface);
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - 400px);
+        max-height: 520px;
     }
 
     .list-label {
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: var(--wk-ink-secondary);
-        opacity: 0.45;
+        color: var(--wk-ink-muted);
         padding: 10px 14px 8px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
@@ -1229,8 +1324,10 @@
 
     .task-list-scroll {
         overflow-y: auto;
+        overflow-x: hidden;
         flex: 1;
         padding: 4px 8px 8px;
+        min-width: 0;
     }
 
     .task-list-item {
@@ -1238,6 +1335,8 @@
         flex-direction: column;
         gap: 4px;
         width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
         border: none;
         border-radius: 8px;
         background: transparent;
@@ -1287,7 +1386,7 @@
     }
 
     .list-item-name {
-        font-size: 13px;
+        font-size: var(--wk-text-base);
         font-weight: 500;
         color: var(--wk-ink-secondary);
         overflow: hidden;
@@ -1304,7 +1403,7 @@
     }
 
     .mini-badge {
-        font-size: 9px;
+        font-size: var(--wk-text-xs);
         padding: 1px 4px;
         border-radius: 999px;
         font-weight: 500;
@@ -1312,41 +1411,69 @@
     }
 
     .mini-today { background: color-mix(in srgb, var(--wk-primary) 14%, transparent); color: var(--wk-primary); }
-    .mini-overdue { background: rgba(211, 47, 47, 0.1); color: var(--wk-error); }
-    .mini-new { background: rgba(40, 167, 69, 0.1); color: #22863a; }
-    .mini-migrated { background: rgba(63, 81, 181, 0.1); color: #3f51b5; }
-    .mini-mig { background: rgba(230, 168, 23, 0.1); color: #b87300; }
-    .mini-done { background: rgba(40, 167, 69, 0.08); color: #22863a; }
+    .mini-overdue { background: color-mix(in srgb, var(--wk-error) 8%, transparent); color: var(--wk-error); }
+    .mini-new { background: color-mix(in srgb, var(--wk-primary) 10%, transparent); color: var(--wk-primary); }
+    .mini-migrated { background: color-mix(in srgb, var(--wk-primary) 10%, transparent); color: var(--wk-primary); }
+    .mini-mig { background: color-mix(in srgb, var(--wk-primary) 10%, transparent); color: var(--wk-primary); }
+    .mini-done { background: color-mix(in srgb, var(--wk-primary) 8%, transparent); color: var(--wk-primary); }
 
     .list-item-meta {
         display: flex;
         flex-wrap: wrap;
         gap: 4px;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
     }
 
-    .list-item-meta span {
-        font-size: 10px;
+    .meta-chip {
+        font-size: var(--wk-text-sm);
         padding: 1px 6px;
         border-radius: 999px;
         border: 1px solid var(--wk-border);
         background: var(--wk-background);
-        color: var(--wk-ink-secondary);
-        opacity: 0.6;
+        color: var(--wk-ink-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 160px;
+    }
+
+    .meta-source {
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .list-item-tags {
         display: flex;
         flex-wrap: wrap;
         gap: 4px;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
     }
 
     .list-item-tags span {
-        font-size: 10px;
+        font-size: var(--wk-text-xs);
         padding: 1px 6px;
         border-radius: 999px;
         background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
         color: var(--wk-primary);
         border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 120px;
+    }
+
+    .tag-overflow {
+        font-size: var(--wk-text-xs);
+        padding: 1px 5px;
+        border-radius: 999px;
+        background: var(--wk-background);
+        color: var(--wk-ink-muted);
+        border: 1px solid var(--wk-border);
+        white-space: nowrap;
     }
 
     /* detail */
@@ -1387,7 +1514,7 @@
     }
 
     .badge {
-        font-size: 10px;
+        font-size: var(--wk-text-xs);
         padding: 2px 7px;
         border-radius: 999px;
         font-weight: 500;
@@ -1395,35 +1522,110 @@
     }
 
     .badge-active { background: color-mix(in srgb, var(--wk-primary) 12%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 25%, transparent); }
-    .badge-done { background: rgba(40, 167, 69, 0.1); color: #22863a; border: 1px solid rgba(40, 167, 69, 0.25); }
-    .badge-danger { background: rgba(211, 47, 47, 0.08); color: var(--wk-error); border: 1px solid rgba(211, 47, 47, 0.25); }
-    .badge-today { background: color-mix(in srgb, var(--wk-primary) 14%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent); }
-    .badge-warn { background: rgba(230, 168, 23, 0.1); color: #b87300; border: 1px solid rgba(230, 168, 23, 0.25); }
+    .badge-done { background: color-mix(in srgb, var(--wk-primary) 10%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 25%, transparent); }
+    .badge-danger { background: var(--wk-error-bg); color: var(--wk-error); border: 1px solid var(--wk-error-border); }
 
-    .detail-meta-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* Natural info layout */
+    .detail-info-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
         gap: 8px;
     }
 
-    .meta-item {
-        border: 1px solid var(--wk-border);
-        border-radius: 7px;
-        background: var(--wk-background);
-        padding: 6px 10px;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
+    .info-chip {
+        font-size: var(--wk-text-sm);
+        padding: 3px 8px;
+        border-radius: 6px;
+        background: var(--wk-surface-2);
+        color: var(--wk-ink-secondary);
+        white-space: nowrap;
     }
 
-    .meta-label {
-        font-size: 10px;
+    .info-label {
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
+        margin-right: 4px;
+    }
+
+    .info-value {
+        font-size: var(--wk-text-base);
         color: var(--wk-ink-secondary);
-        opacity: 0.5;
+    }
+
+    .detail-tag {
+        font-size: var(--wk-text-xs);
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent);
+    }
+
+    /* Advanced info grid (collapsed) */
+    .detail-advanced-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+
+    .adv-item {
+        border: 1px solid var(--wk-border);
+        border-radius: 6px;
+        background: var(--wk-background);
+        padding: 5px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    .adv-label {
+        font-size: var(--wk-text-xs);
+        color: var(--wk-ink-muted);
+    }
+
+    .adv-value {
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-secondary);
+        word-break: break-all;
+    }
+
+    /* More actions popover */
+    .detail-more-actions {
+        position: relative;
+        display: inline-flex;
+    }
+
+    .more-actions-popover {
+        position: absolute;
+        z-index: 20;
+        bottom: calc(100% + 8px);
+        right: 0;
+        display: grid;
+        gap: 6px;
+        min-width: 180px;
+        padding: 10px;
+        border: 1px solid var(--wk-border-subtle);
+        border-radius: var(--wk-radius-md);
+        background: var(--wk-bg-card);
+        box-shadow: var(--wk-shadow-popover);
+    }
+
+    .more-actions-popover .wk-btn {
+        justify-content: flex-start;
+        text-align: left;
+    }
+
+    /* btn styles replaced by wk-btn system */
+
+    .meta-label {
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .meta-value {
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         color: var(--wk-ink-secondary);
         word-break: break-all;
     }
@@ -1436,7 +1638,7 @@
     }
 
     .detail-advanced summary {
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
         color: var(--wk-ink-secondary);
         cursor: pointer;
@@ -1453,10 +1655,9 @@
     }
 
     .section-label {
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        color: var(--wk-ink-muted);
         margin-bottom: 8px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -1469,7 +1670,7 @@
     }
 
     .detail-tags span {
-        font-size: 11px;
+        font-size: var(--wk-text-xs);
         padding: 2px 8px;
         border-radius: 999px;
         background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
@@ -1479,7 +1680,7 @@
 
     .detail-markdown {
         margin: 0;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         line-height: 1.5;
         color: var(--wk-ink-secondary);
         white-space: pre-wrap;
@@ -1497,51 +1698,19 @@
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
-        padding-top: 8px;
-        border-top: 1px solid var(--wk-border);
+        padding-top: 16px;
+        margin-top: 4px;
     }
 
-    .btn-action {
-        border: 1px solid var(--wk-border);
-        border-radius: 6px;
-        background: var(--wk-background);
-        color: var(--wk-ink);
-        padding: 5px 10px;
-        font-size: 12px;
-        cursor: pointer;
-    }
-
-    .btn-action:hover:not(:disabled) {
-        border-color: var(--wk-primary);
-        color: var(--wk-primary);
-    }
-
-    .btn-action.btn-danger {
-        color: var(--wk-error);
-        border-color: color-mix(in srgb, var(--wk-error) 40%, var(--wk-border));
-    }
-
-    .btn-action.btn-danger:hover:not(:disabled) {
-        border-color: var(--wk-error);
-    }
-
-    .btn-action.btn-migrate {
-        color: #b87300;
-        border-color: rgba(230, 168, 23, 0.45);
-    }
-
-    .btn-action.btn-migrate:hover:not(:disabled) {
-        border-color: #e6900a;
-        color: #e6900a;
-    }
+    /* detail-actions uses wk-btn system — old styles removed */
 
     .panel-toolbar button {
         border: 1px solid var(--wk-primary);
         border-radius: 7px;
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
         padding: 7px 14px;
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
     }
 
@@ -1557,6 +1726,34 @@
         align-items: center;
     }
 
+    .advanced-filters {
+        position: relative;
+        display: inline-flex;
+    }
+
+    .advanced-filter-popover {
+        position: absolute;
+        z-index: 20;
+        top: calc(100% + 8px);
+        right: 0;
+        width: min(300px, calc(100vw - 48px));
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--wk-border-subtle, var(--wk-border));
+        border-radius: var(--wk-radius-md, 10px);
+        background: var(--wk-surface-1, var(--wk-surface));
+        box-shadow: var(--wk-shadow-popover);
+    }
+
+    .advanced-filter-popover .filter-select,
+    .advanced-filter-popover .clear-btn { width: 100%; }
+
+    .task-panel :is(button, input, select, summary):focus-visible {
+        outline: 2px solid var(--wk-primary);
+        outline-offset: 2px;
+    }
+
     .search-input {
         flex: 1 1 200px;
         min-width: 160px;
@@ -1565,7 +1762,7 @@
         border-radius: 6px;
         background: var(--wk-background);
         color: var(--wk-ink);
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         outline: none;
         transition: border-color 0.12s;
     }
@@ -1580,7 +1777,7 @@
         border-radius: 6px;
         background: var(--wk-surface);
         color: var(--wk-ink-secondary);
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         outline: none;
         transition: border-color 0.12s;
@@ -1596,7 +1793,7 @@
         border-radius: 6px;
         background: var(--wk-surface);
         color: var(--wk-ink-secondary);
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         transition: all 0.12s;
     }
@@ -1607,9 +1804,27 @@
     }
 
     .result-info {
-        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
+    }
+
+    .batch-toggle-btn {
+        border: 1px solid var(--wk-border);
+        border-radius: 6px;
+        background: var(--wk-background);
         color: var(--wk-ink-secondary);
-        opacity: 0.6;
+        padding: 3px 10px;
+        font-size: var(--wk-text-sm);
+        cursor: pointer;
+        transition: border-color 0.12s, color 0.12s;
+    }
+
+    .batch-toggle-btn:hover {
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .batch-toolbar {
@@ -1624,9 +1839,8 @@
     }
 
     .batch-toolbar span {
-        font-size: 12px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.65;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         margin-right: 4px;
     }
 
@@ -1636,7 +1850,7 @@
         background: var(--wk-background);
         color: var(--wk-ink);
         padding: 5px 10px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
     }
 
@@ -1651,9 +1865,8 @@
         align-items: center;
         gap: 5px;
         width: fit-content;
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.58;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         cursor: pointer;
     }
 
@@ -1670,17 +1883,154 @@
         opacity: 0.4;
     }
 
-    @media (max-width: 760px) {
+    @container (max-width: 900px) {
         .task-layout {
             grid-template-columns: 1fr;
         }
 
         .task-list-col {
-            max-height: 300px;
+            max-height: 340px;
         }
 
         .detail-meta-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
+    }
+
+    /* Premium workspace treatment: keep task behavior, replace the admin-table appearance. */
+    .task-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        max-width: 1480px;
+        margin-inline: auto;
+    }
+
+    .task-panel .panel-toolbar {
+        padding: 0 0 6px;
+        border: 0;
+        background: transparent;
+    }
+
+    .task-panel .panel-toolbar h2 {
+        font-size: clamp(24px, 2.4vw, 32px);
+        letter-spacing: -.035em;
+    }
+
+    .task-panel .filters-toolbar {
+        padding: 8px;
+        border: 1px solid var(--wk-border-subtle);
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--wk-bg-card) 82%, transparent);
+        box-shadow: var(--wk-shadow-xs);
+    }
+
+    .task-panel .search-input {
+        min-height: 38px;
+        padding-inline: 14px;
+        border: 0;
+        background: transparent;
+        font-size: 14px;
+    }
+
+    .task-panel .view-mode-tabs {
+        width: fit-content;
+        padding: 4px;
+        border: 0;
+        border-radius: 13px;
+        background: color-mix(in srgb, var(--wk-ink-muted) 9%, transparent);
+    }
+
+    .task-panel .view-mode-tabs button {
+        min-width: 72px;
+        padding: 8px 16px;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+    }
+
+    .task-panel .view-mode-tabs button.active {
+        background: var(--wk-bg-card);
+        color: var(--wk-primary);
+        box-shadow: var(--wk-shadow-sm);
+    }
+
+    .task-panel .stats-summary { gap: 8px; }
+    .task-panel .stat-chip-btn {
+        padding: 6px 11px;
+        border-color: transparent;
+        background: var(--wk-surface-2);
+        opacity: 1;
+    }
+
+    .task-panel .result-info { margin-top: -8px; }
+
+    .task-panel .task-layout {
+        grid-template-columns: minmax(340px, 42%) minmax(0, 1fr);
+        gap: 18px;
+    }
+
+    .task-panel .task-list-col,
+    .task-panel .task-detail-col {
+        border-color: var(--wk-border-subtle);
+        border-radius: var(--wk-radius-md);
+        background: var(--b3-theme-surface);
+        box-shadow: none;
+    }
+
+    .task-panel .list-label {
+        padding: 15px 16px 11px;
+        border-color: var(--wk-divider);
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 12px;
+    }
+
+    .task-panel .task-list-scroll { padding: 8px; }
+    .task-panel .task-list-item {
+        padding: 13px 14px;
+        border-left: 0;
+        border-radius: 13px;
+        min-height: 68px;
+        justify-content: center;
+    }
+    .task-panel .task-list-item + .task-list-item { margin-top: 3px; }
+    .task-panel .task-list-item.selected {
+        background: var(--wk-primary-soft);
+        box-shadow: inset 0 0 0 1px var(--wk-primary-border);
+    }
+    .task-panel .list-item-name { font-size: 13px; font-weight: 600; }
+
+    .task-panel .detail-panel { padding: clamp(20px, 2.4vw, 32px); gap: 22px; }
+    .task-panel .detail-name { font-size: clamp(20px, 2vw, 27px); letter-spacing: -.03em; }
+    .task-panel .detail-meta-grid { gap: 10px; }
+    .task-panel .meta-item {
+        padding: 11px 13px;
+        border-color: transparent;
+        border-radius: 12px;
+        background: var(--wk-surface-2);
+    }
+    .task-panel .detail-advanced { border-color: var(--wk-divider); border-radius: 13px; }
+    .task-panel .detail-actions {
+        gap: 8px;
+        padding-top: 16px;
+        border: 0;
+    }
+    .task-panel .detail-actions .wk-btn {
+        min-height: 34px;
+        padding: 7px 12px;
+        border-radius: 10px;
+    }
+
+    @container (max-width: 900px) {
+        .task-panel .task-layout { grid-template-columns: 1fr; }
+        .task-panel .task-list-col { max-height: 340px; }
+        .task-panel .detail-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @container (max-width: 500px) {
+        .task-panel .detail-meta-grid { grid-template-columns: 1fr; }
+        .task-panel .panel-toolbar { align-items: flex-start; }
+        .task-panel .panel-toolbar button { flex-shrink: 0; }
     }
 </style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount, onDestroy } from "svelte";
     import type { EnhancedDiaryWorkspaceProject } from "../enhancedDiaryWorkspaceData";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
     import type { WorkspaceProjectStatusFilter } from "../enhancedDiaryWorkspaceNavigation";
@@ -26,10 +27,6 @@
     const totalProjectCount = $derived(projects.length);
     const projectsWithOpenTasks = $derived(projects.filter((p) => p.openTaskCount > 0).length);
     const projectsWithTodayProgress = $derived(projects.filter((p) => p.hasTodayProgress).length);
-    const todayRelatedTasks = $derived(
-        tasks.filter((t) => t.isTodayTask && t.tags.some((tag) => projects.some((p) => p.name === tag)))
-    );
-    const todayRelatedTaskCount = $derived(todayRelatedTasks.length);
 
     function getProjectTasks(projectName: string): EnhancedDiaryWorkspaceTask[] {
         return tasks.filter((task) => task.tags.includes(projectName));
@@ -111,7 +108,6 @@
             .slice(0, 8);
     }
 
-    const staleProjectCount = $derived(projects.filter((p) => isProjectStale(p.name)).length);
     const riskyProjectCount = $derived(projects.filter((p) => p.healthTone === "danger" || p.healthTone === "warning").length);
 
     function matchProjectSearch(project: EnhancedDiaryWorkspaceProject, keyword: string): boolean {
@@ -198,9 +194,6 @@
     const selectedLastActivityDate = $derived(
         selectedProject ? getProjectLastActivityDate(selectedProject.name) : ""
     );
-    const selectedInactiveDays = $derived(
-        selectedProject ? getProjectInactiveDays(selectedProject.name) : null
-    );
     const selectedProjectTimeline = $derived(
         selectedProject ? getProjectTimeline(selectedProject.name) : []
     );
@@ -217,6 +210,36 @@
         statusFilter = "all";
         sortKey = "default";
     }
+
+    // Controlled popover for advanced filters (contains selects)
+    let projectFilterOpen = $state(false);
+    let projectFilterEl: HTMLElement | null = $state(null);
+
+    function toggleProjectFilter(): void {
+        projectFilterOpen = !projectFilterOpen;
+    }
+
+    function handleProjectFilterPointerdown(event: PointerEvent): void {
+        if (projectFilterOpen && projectFilterEl && !projectFilterEl.contains(event.target as Node)) {
+            projectFilterOpen = false;
+        }
+    }
+
+    function handleProjectFilterKeydown(event: KeyboardEvent): void {
+        if (event.key === "Escape") {
+            projectFilterOpen = false;
+        }
+    }
+
+    onMount(() => {
+        document.addEventListener("pointerdown", handleProjectFilterPointerdown);
+        document.addEventListener("keydown", handleProjectFilterKeydown);
+    });
+
+    onDestroy(() => {
+        document.removeEventListener("pointerdown", handleProjectFilterPointerdown);
+        document.removeEventListener("keydown", handleProjectFilterKeydown);
+    });
 
     let lastProjectSelectVersion = $state(0);
     let lastProjectFilterVersion = $state(0);
@@ -254,10 +277,10 @@
 </script>
 
 <section class="project-panel-root">
-    <div class="panel-header">
+    <div class="panel-header wk-page-header">
         <div>
-            <h2>项目中心</h2>
-            <p class="panel-subtitle">按 Tasks Plus 标签和今日日记「项目推进」区块聚合。</p>
+            <h2 class="wk-page-title">项目</h2>
+            <p class="panel-subtitle wk-page-description">查看项目当前状态和下一步。</p>
         </div>
     </div>
 
@@ -267,31 +290,10 @@
             description="给任务添加标签，或在今日日记「项目推进」区块下添加三级项目标题后，这里会自动聚合。"
         />
     {:else}
-        <div class="overview-cards">
-            <div class="stat-card">
-                <span class="stat-label">项目总数</span>
-                <strong class="stat-value">{totalProjectCount}</strong>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">有未完成任务</span>
-                <strong class="stat-value warning">{projectsWithOpenTasks}</strong>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">今日有推进</span>
-                <strong class="stat-value primary">{projectsWithTodayProgress}</strong>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">今日相关任务</span>
-                <strong class="stat-value">{todayRelatedTaskCount}</strong>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">长期未推进</span>
-                <strong class="stat-value danger">{staleProjectCount}</strong>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">风险项目</span>
-                <strong class="stat-value danger">{riskyProjectCount}</strong>
-            </div>
+        <div class="project-pulse" aria-label="项目摘要">
+            <span><strong>{projectsWithTodayProgress}</strong> 个今天有进展</span>
+            <span><strong>{projectsWithOpenTasks}</strong> 个仍在进行</span>
+            <span class:danger={riskyProjectCount > 0}><strong>{riskyProjectCount}</strong> 个需要关注</span>
         </div>
 
         <div class="project-filter-card">
@@ -303,7 +305,13 @@
                     bind:value={searchText}
                 />
                 <button type="button" class="project-filter-clear" onclick={clearFilters}>清空筛选</button>
-                <select class="project-filter-select" bind:value={statusFilter}>
+                <div class="project-advanced-filters" bind:this={projectFilterEl}>
+                  <button type="button" onclick={toggleProjectFilter}
+                    aria-expanded={projectFilterOpen} aria-haspopup="menu"
+                  >筛选与排序</button>
+                  {#if projectFilterOpen}
+                  <div class="project-filter-popover" role="menu">
+                <select class="project-filter-select" bind:value={statusFilter} aria-label="项目状态">
                     <option value="all">全部状态</option>
                     <option value="open">有未完成任务</option>
                     <option value="todayProgress">今日有推进</option>
@@ -313,7 +321,7 @@
                     <option value="risk">风险项目</option>
                     <option value="done">全部完成</option>
                 </select>
-                <select class="project-filter-select" bind:value={sortKey}>
+                <select class="project-filter-select" bind:value={sortKey} aria-label="项目排序">
                     <option value="default">默认排序</option>
                     <option value="openDesc">未完成多优先</option>
                     <option value="todayDesc">今日活跃优先</option>
@@ -321,6 +329,9 @@
                     <option value="healthDesc">健康风险优先</option>
                     <option value="nameAsc">名称排序</option>
                 </select>
+                  </div>
+                  {/if}
+                </div>
             </div>
             <div class="project-filter-summary">
                 当前显示 <strong>{filteredProjects.length}</strong> / 总计 <strong>{totalProjectCount}</strong> 个项目
@@ -384,22 +395,10 @@
                                     {#if selectedProject.hasTodayProgress}
                                         <span class="badge badge-primary">今日有推进</span>
                                     {/if}
-                                    {#if isProjectStale(selectedProject.name)}
-                                        <span class="badge badge-danger">长期未推进</span>
-                                    {/if}
-                                    {#if selectedProject.openTaskCount > 0}
-                                        <span class="badge badge-warning">{selectedProject.openTaskCount} 未完成</span>
-                                    {:else if selectedProject.taskCount > 0}
-                                        <span class="badge badge-done">全部完成</span>
-                                    {/if}
                                 </div>
                             </div>
 
                             <div class="detail-metrics">
-                                <div class="metric-item">
-                                    <span class="metric-label">总任务</span>
-                                    <strong class="metric-value">{selectedProject.taskCount}</strong>
-                                </div>
                                 <div class="metric-item">
                                     <span class="metric-label">未完成</span>
                                     <strong class="metric-value {selectedProject.openTaskCount > 0 ? 'warn' : ''}">{selectedProject.openTaskCount}</strong>
@@ -416,19 +415,19 @@
                                     <span class="metric-label">最近推进</span>
                                     <strong class="metric-value small">{selectedLastActivityDate || "-"}</strong>
                                 </div>
-                                <div class="metric-item">
-                                    <span class="metric-label">停滞天数</span>
-                                    <strong class="metric-value {isProjectStale(selectedProject.name) ? 'danger' : ''}">{selectedInactiveDays ?? "-"}</strong>
-                                </div>
                             </div>
 
-                            <div class="project-health-box tone-{selectedProject.healthTone}">
-                                <div class="project-health-title">
-                                    <WorkspaceIcon name={selectedProject.healthTone === "danger" ? "warning" : "projects"} size={15} />
-                                    <strong>{selectedProject.healthLabel}</strong>
+                            {#if selectedProject.healthTone === "danger" || selectedProject.healthTone === "warning"}
+                                <div class="project-health-box tone-{selectedProject.healthTone}">
+                                    <div class="project-health-title">
+                                        <WorkspaceIcon name={selectedProject.healthTone === "danger" ? "warning" : "projects"} size={15} />
+                                        <strong>{selectedProject.healthLabel}</strong>
+                                    </div>
+                                    <p>{getProjectRiskDescription(selectedProject)}</p>
                                 </div>
-                                <p>{getProjectRiskDescription(selectedProject)}</p>
-                            </div>
+                            {:else if selectedProject.healthTone === "normal"}
+                                <p class="project-health-ok">{selectedProject.healthLabel} — {getProjectRiskDescription(selectedProject)}</p>
+                            {/if}
 
                             <div class="detail-section">
                                 <div class="section-label">今日推进</div>
@@ -509,6 +508,51 @@
 </section>
 
 <style>
+    .project-pulse {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 22px;
+        padding: 4px 2px;
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
+    }
+
+    .project-pulse strong {
+        color: var(--wk-ink);
+        font-size: var(--wk-text-md);
+    }
+
+    .project-pulse .danger strong { color: var(--wk-danger, var(--wk-error)); }
+
+    .project-advanced-filters { position: relative; display: inline-flex; }
+    .project-advanced-filters > button {
+        padding: 7px 12px;
+        border: 1px solid var(--wk-border-subtle, var(--wk-border));
+        border-radius: var(--wk-radius-sm, 8px);
+        background: transparent;
+        color: var(--wk-text-2, var(--wk-ink-secondary));
+        cursor: pointer;
+        font-size: var(--wk-text-sm);
+    }
+    .project-filter-popover {
+        position: absolute;
+        z-index: 20;
+        right: 0;
+        top: calc(100% + 8px);
+        display: grid;
+        gap: 8px;
+        width: 240px;
+        padding: 12px;
+        border: 1px solid var(--wk-border-subtle, var(--wk-border));
+        border-radius: var(--wk-radius-md, 10px);
+        background: var(--wk-surface-1, var(--wk-surface));
+        box-shadow: var(--wk-shadow-popover);
+    }
+    .project-filter-popover select { width: 100%; }
+    .project-panel-root :is(button, input, select):focus-visible {
+        outline: 2px solid var(--wk-primary);
+        outline-offset: 2px;
+    }
     .project-panel-root {
         display: flex;
         flex-direction: column;
@@ -524,9 +568,8 @@
 
     .panel-subtitle {
         margin: 0;
-        font-size: 12px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .overview-cards {
@@ -545,7 +588,7 @@
 
     .stat-label {
         display: block;
-        font-size: 11px;
+        font-size: 12px;
         color: var(--wk-ink-secondary);
         opacity: 0.55;
         margin-bottom: 6px;
@@ -559,7 +602,7 @@
     }
 
     .stat-value.primary { color: var(--wk-primary); }
-    .stat-value.warning { color: #e6a817; }
+    .stat-value.warning { color: var(--wk-primary); }
     .stat-value.danger { color: var(--wk-error); }
 
     /* filter card */
@@ -611,7 +654,7 @@
         border-radius: 8px;
         background: var(--wk-background);
         color: var(--wk-ink);
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         line-height: 34px;
         vertical-align: middle;
     }
@@ -646,10 +689,9 @@
     .project-filter-summary {
         width: 100%;
         box-sizing: border-box;
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         line-height: 1.5;
-        color: var(--wk-ink-secondary);
-        opacity: 0.65;
+        color: var(--wk-ink-muted);
         padding-left: 2px;
     }
 
@@ -661,7 +703,7 @@
     /* layout */
     .project-layout {
         display: grid;
-        grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+        grid-template-columns: minmax(280px, 35%) minmax(0, 1fr);
         gap: 16px;
         align-items: start;
         min-height: 400px;
@@ -674,14 +716,13 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - 360px);
+        max-height: 520px;
     }
 
     .list-label {
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: var(--wk-ink-secondary);
-        opacity: 0.45;
+        color: var(--wk-ink-muted);
         padding: 12px 14px 8px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
@@ -726,7 +767,7 @@
     }
 
     .list-item-name {
-        font-size: 13px;
+        font-size: var(--wk-text-base);
         font-weight: 500;
         color: var(--wk-ink-secondary);
         overflow: hidden;
@@ -742,7 +783,7 @@
     }
 
     .mini-badge {
-        font-size: 9px;
+        font-size: var(--wk-text-xs);
         padding: 1px 5px;
         border-radius: 999px;
         font-weight: 500;
@@ -754,27 +795,27 @@
     }
 
     .mini-warn {
-        background: rgba(230, 168, 23, 0.12);
-        color: #b87300;
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
     }
 
     .mini-danger {
-        background: rgba(211, 47, 47, 0.1);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
         color: var(--wk-error);
     }
 
     .mini-health.tone-success {
-        background: rgba(40, 167, 69, 0.1);
-        color: #22863a;
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
     }
 
     .mini-health.tone-warning {
-        background: rgba(230, 168, 23, 0.12);
-        color: #b87300;
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
     }
 
     .mini-health.tone-danger {
-        background: rgba(211, 47, 47, 0.1);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
         color: var(--wk-error);
     }
 
@@ -784,9 +825,8 @@
     }
 
     .list-item-meta {
-        font-size: 10px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.45;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         padding-left: 0;
     }
 
@@ -832,7 +872,7 @@
     }
 
     .badge {
-        font-size: 10px;
+        font-size: var(--wk-text-xs);
         padding: 2px 7px;
         border-radius: 999px;
         font-weight: 500;
@@ -846,39 +886,39 @@
     }
 
     .badge-warning {
-        background: rgba(230, 168, 23, 0.12);
-        color: #b87300;
-        border: 1px solid rgba(230, 168, 23, 0.3);
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent);
     }
 
     .badge-danger {
-        background: rgba(211, 47, 47, 0.1);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
         color: var(--wk-error);
-        border: 1px solid rgba(211, 47, 47, 0.25);
+        border: 1px solid color-mix(in srgb, var(--wk-error) 8%, transparent);
     }
 
     .badge-done {
-        background: rgba(40, 167, 69, 0.1);
-        color: #22863a;
-        border: 1px solid rgba(40, 167, 69, 0.25);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 25%, transparent);
     }
 
     .badge-health.tone-success {
-        background: rgba(40, 167, 69, 0.1);
-        color: #22863a;
-        border: 1px solid rgba(40, 167, 69, 0.25);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 25%, transparent);
     }
 
     .badge-health.tone-warning {
-        background: rgba(230, 168, 23, 0.12);
-        color: #b87300;
-        border: 1px solid rgba(230, 168, 23, 0.3);
+        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent);
     }
 
     .badge-health.tone-danger {
-        background: rgba(211, 47, 47, 0.1);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
         color: var(--wk-error);
-        border: 1px solid rgba(211, 47, 47, 0.25);
+        border: 1px solid color-mix(in srgb, var(--wk-error) 8%, transparent);
     }
 
     .badge-health.tone-normal {
@@ -888,24 +928,25 @@
     }
 
     .detail-metrics {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 28px;
+        padding-block: 12px;
+        border-block: 1px solid var(--wk-divider);
     }
 
     .metric-item {
-        border: 1px solid var(--wk-border);
-        border-radius: 8px;
-        background: var(--wk-background);
-        padding: 10px;
-        text-align: center;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        padding: 0;
+        text-align: left;
     }
 
     .metric-label {
         display: block;
-        font-size: 10px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         margin-bottom: 3px;
     }
 
@@ -922,7 +963,7 @@
         word-break: break-all;
     }
 
-    .metric-value.warn { color: #e6a817; }
+    .metric-value.warn { color: var(--wk-primary); }
     .metric-value.danger { color: var(--wk-error); }
 
     .project-health-box {
@@ -937,11 +978,18 @@
     }
 
     .project-health-box.tone-warning {
-        border-left: 3px solid #e6a817;
+        border-left: 3px solid var(--wk-primary);
     }
 
     .project-health-box.tone-success {
-        border-left: 3px solid #22863a;
+        border-left: 3px solid var(--wk-primary);
+    }
+
+    .project-health-ok {
+        margin: 0;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
+        line-height: 1.5;
     }
 
     .project-health-title {
@@ -954,10 +1002,9 @@
 
     .project-health-box p {
         margin: 6px 0 0;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         line-height: 1.5;
-        color: var(--wk-ink-secondary);
-        opacity: 0.68;
+        color: var(--wk-ink-muted);
     }
 
     .detail-section {
@@ -966,10 +1013,9 @@
     }
 
     .section-label {
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        color: var(--wk-ink-muted);
         margin-bottom: 8px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -977,10 +1023,9 @@
 
     .progress-content {
         margin: 0;
-        font-size: 12px;
+        font-size: var(--wk-text-base);
         line-height: 1.5;
         color: var(--wk-ink-secondary);
-        opacity: 0.72;
         white-space: pre-wrap;
         word-break: break-all;
         max-height: 12em;
@@ -990,9 +1035,8 @@
 
     .empty-hint {
         margin: 0;
-        font-size: 12px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.4;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .detail-task-list {
@@ -1022,7 +1066,7 @@
     }
 
     .detail-task-item.overdue {
-        background: rgba(211, 47, 47, 0.04);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
         margin: 0 -20px;
         padding-left: 20px;
         padding-right: 20px;
@@ -1065,16 +1109,14 @@
 
     .task-meta {
         flex-shrink: 0;
-        font-size: 10px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.45;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         white-space: nowrap;
     }
 
     .more-hint {
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.4;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         margin-top: 8px;
     }
 
@@ -1106,9 +1148,9 @@
         flex-shrink: 0;
     }
 
-    .timeline-item.tone-progress .timeline-dot { background: #22863a; }
+    .timeline-item.tone-progress .timeline-dot { background: var(--wk-primary); }
     .timeline-item.tone-task .timeline-dot { background: var(--wk-primary); }
-    .timeline-item.tone-done .timeline-dot { background: #22863a; }
+    .timeline-item.tone-done .timeline-dot { background: var(--wk-primary); }
     .timeline-item.tone-overdue .timeline-dot { background: var(--wk-error); }
 
     .timeline-content {
@@ -1118,25 +1160,23 @@
 
     .timeline-content strong {
         display: block;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         color: var(--wk-ink-secondary);
         margin-bottom: 2px;
     }
 
     .timeline-content span {
         display: block;
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.62;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
     .timeline-item time {
-        font-size: 10px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.45;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
     }
@@ -1156,7 +1196,7 @@
         background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
     }
 
-    @media (max-width: 1180px) {
+    @container (max-width: 1180px) {
         .project-filter-controls {
             grid-template-columns: minmax(0, 1fr) auto;
         }
@@ -1166,7 +1206,7 @@
         }
     }
 
-    @media (max-width: 520px) {
+    @container (max-width: 520px) {
         .project-filter-controls {
             grid-template-columns: 1fr;
         }
@@ -1176,7 +1216,7 @@
         }
     }
 
-    @media (max-width: 900px) {
+    @container (max-width: 900px) {
         .overview-cards {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }

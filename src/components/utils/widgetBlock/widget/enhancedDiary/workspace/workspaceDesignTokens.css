@@ -1,79 +1,179 @@
 /**
  * 强化日记工作台设计 Token 与共享工具类
  * 作用域限定在 .workspace-page 内，不污染思源全局样式。
+ *
+ * 卡片层级体系：
+ *   L0: 页面背景层 (--wk-bg-page)
+ *   L1: 主卡片层 (--wk-bg-card + --wk-shadow-card)
+ *   L2: 轻浮层/强调层 (--wk-bg-elevated + --wk-shadow-elevated)
  */
 
 .workspace-page {
-    /* Radius */
-    --wk-radius-sm: 6px;
-    --wk-radius-md: 10px;
-    --wk-radius-lg: 14px;
+    container-type: inline-size;
+    /* ── Radius ── */
+    --wk-radius-xs: 6px;
+    --wk-radius-sm: 9px;
+    --wk-radius-md: 13px;
+    --wk-radius-lg: 18px;
+    --wk-radius-xl: 26px;
     --wk-radius-pill: 999px;
 
-    /* Spacing */
+    /* ── Spacing ── */
     --wk-gap-xs: 6px;
     --wk-gap-sm: 10px;
     --wk-gap-md: 16px;
     --wk-gap-lg: 24px;
 
-    /* Typography */
-    --wk-text-xs: 11px;
-    --wk-text-sm: 12px;
-    --wk-text-base: 13px;
-    --wk-text-md: 14px;
-    --wk-text-lg: 16px;
-    --wk-text-xl: 20px;
-    --wk-text-2xl: 26px;
+    /* ── Typography ── */
+    --wk-text-xs: 12px;
+    --wk-text-sm: 13px;
+    --wk-text-base: 14px;
+    --wk-text-md: 15px;
+    --wk-text-lg: 17px;
+    --wk-text-xl: 22px;
+    --wk-text-2xl: 28px;
 
-    /* Surface */
+    /* ── Three-layer surface ── */
+    --wk-bg-page: var(--b3-theme-background);
+    --wk-bg-card: var(--b3-theme-surface);
+    --wk-bg-elevated: var(--b3-theme-surface);
+    --wk-surface-1: var(--wk-bg-card);
+    --wk-surface-2: color-mix(in srgb, var(--b3-theme-background) 70%, transparent);
+    --wk-surface-3: color-mix(in srgb, var(--b3-theme-surface) 86%, var(--b3-theme-background));
+    --wk-surface-hover: var(--b3-list-hover, color-mix(in srgb, var(--b3-theme-primary) 5%, transparent));
     --wk-surface: var(--b3-theme-surface);
     --wk-background: var(--b3-theme-background);
-    --wk-border: var(--b3-border-color);
 
-    /* Ink */
+    /* ── Border ── */
+    --wk-border: var(--b3-border-color);
+    --wk-border-light: color-mix(in srgb, var(--b3-border-color) 72%, transparent);
+    --wk-border-subtle: var(--wk-border-light);
+    --wk-divider: color-mix(in srgb, var(--b3-border-color) 64%, transparent);
+
+    /* ── Shadow hierarchy ── */
+    --wk-shadow-xs: 0 1px 2px color-mix(in srgb, var(--b3-theme-on-background) 5%, transparent);
+    --wk-shadow-sm: 0 4px 14px color-mix(in srgb, var(--b3-theme-on-background) 7%, transparent);
+    --wk-shadow-card: 0 6px 20px color-mix(in srgb, var(--b3-theme-on-background) 8%, transparent);
+    --wk-shadow-elevated: 0 10px 30px color-mix(in srgb, var(--b3-theme-on-background) 10%, transparent);
+    --wk-shadow-popover: 0 14px 38px color-mix(in srgb, var(--b3-theme-on-background) 14%, transparent);
+
+    /* ── Ink ── */
     --wk-ink: var(--b3-theme-on-background);
     --wk-ink-secondary: var(--b3-theme-on-surface);
-    --wk-ink-muted: color-mix(in srgb, var(--b3-theme-on-surface) 60%, transparent);
-    --wk-ink-faint: color-mix(in srgb, var(--b3-theme-on-surface) 42%, transparent);
+    --wk-ink-muted: var(--b3-theme-on-surface-light);
+    --wk-ink-faint: color-mix(in srgb, var(--b3-theme-on-surface-light) 82%, transparent);
 
-    /* Primary & accents */
+    /* ── Primary & accents ── */
     --wk-primary: var(--b3-theme-primary);
-    --wk-primary-contrast: #fff;
-    --wk-secondary: var(--b3-theme-secondary, #6f42c1);
-    --wk-info: var(--b3-theme-info, #0969da);
-    --wk-success: var(--b3-theme-success, #28a745);
+    --wk-primary-contrast: var(--b3-theme-on-primary);
+    --wk-primary-hover: color-mix(in srgb, var(--b3-theme-primary) 88%, var(--b3-theme-on-background));
+    --wk-primary-subtle: color-mix(in srgb, var(--b3-theme-primary) 11%, transparent);
+    --wk-primary-soft: color-mix(in srgb, var(--b3-theme-primary) 11%, var(--wk-bg-card));
+    --wk-primary-border: color-mix(in srgb, var(--b3-theme-primary) 22%, transparent);
+    --wk-secondary: var(--b3-theme-primary);
+    --wk-info: var(--b3-theme-primary);
+    --wk-success: var(--b3-theme-primary);
     --wk-success-bg: color-mix(in srgb, var(--wk-success) 10%, transparent);
     --wk-success-border: color-mix(in srgb, var(--wk-success) 25%, transparent);
-    --wk-warning: #d97706;
+    --wk-warning: var(--b3-theme-on-surface);
     --wk-warning-bg: color-mix(in srgb, var(--wk-warning) 10%, transparent);
     --wk-warning-border: color-mix(in srgb, var(--wk-warning) 30%, transparent);
-    --wk-error: var(--b3-theme-error, #dc3545);
+    --wk-error: var(--b3-theme-error);
     --wk-error-bg: color-mix(in srgb, var(--wk-error) 10%, transparent);
     --wk-error-border: color-mix(in srgb, var(--wk-error) 30%, transparent);
 
-    /* Motion */
+    /* ── Motion ── */
     --wk-transition-fast: 0.12s ease;
     --wk-transition-base: 0.18s ease;
+    --wk-transition-slow: 0.25s ease;
+
+    /* ── Number font ── */
+    --wk-number-font: "SF Mono", "Cascadia Code", "Consolas", monospace;
+
+    /* ── Dialog shadow ── */
+    --wk-shadow-dialog: 0 12px 36px color-mix(in srgb, var(--b3-theme-on-background) 16%, transparent);
 }
 
-/* Card */
+.workspace-page :is(button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--b3-theme-primary);
+    outline-offset: 2px;
+}
+
+.workspace-page :is(button, select, input:not([type="checkbox"]):not([type="radio"])) {
+    min-height: 32px;
+}
+
+.workspace-page :is(.wk-btn-primary, .wk-primary-action, .primary-btn, .btn-primary) {
+    min-height: 36px;
+    color: var(--b3-theme-on-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .workspace-page *,
+    .workspace-page *::before,
+    .workspace-page *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Cards — 3 层体系
+   ═══════════════════════════════════════════ */
+
+/* L1: 主卡片 — 微妙阴影替代硬边框 */
 .workspace-page .wk-card {
-    border: 1px solid var(--wk-border);
+    border: 1px solid var(--wk-border-subtle);
     border-radius: var(--wk-radius-lg);
-    background: var(--wk-surface);
+    background: var(--wk-bg-card);
+    box-shadow: none;
     padding: var(--wk-gap-md);
-    transition: box-shadow var(--wk-transition-base), transform var(--wk-transition-base);
+    transition: box-shadow var(--wk-transition-base), transform var(--wk-transition-base),
+        border-color var(--wk-transition-base);
 }
 
+/* L2: 浮层卡片 — 更明显阴影与微妙主色底色 */
+.workspace-page .wk-card-elevated {
+    background: var(--wk-bg-elevated);
+    box-shadow: var(--wk-shadow-elevated);
+    border: 1px solid var(--wk-border-light);
+}
+
+/* 可点击卡片 */
 .workspace-page .wk-card.clickable {
     cursor: pointer;
 }
 
 .workspace-page .wk-card.clickable:hover {
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
-    transform: translateY(-1px);
+    box-shadow: none;
+    background: var(--wk-surface-hover);
 }
 
+/* 分区标签 */
+.workspace-page .wk-section-label {
+    display: flex;
+    align-items: center;
+    gap: var(--wk-gap-xs);
+    font-size: var(--wk-text-xs);
+    font-weight: 600;
+    color: var(--wk-ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 var(--wk-gap-sm);
+    padding: 0;
+}
+
+.workspace-page .wk-section-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--wk-border-light);
+    margin-left: var(--wk-gap-xs);
+}
+
+/* ── Card header ── */
 .workspace-page .wk-card-head {
     display: flex;
     align-items: center;
@@ -93,10 +193,13 @@
 .workspace-page .wk-card-subtitle {
     margin: 2px 0 0;
     font-size: var(--wk-text-sm);
-    color: var(--wk-ink-faint);
+    color: var(--wk-ink-muted);
 }
 
-/* Buttons */
+/* ═══════════════════════════════════════════
+   Buttons — 精简保留三种层级
+   ═══════════════════════════════════════════ */
+
 .workspace-page .wk-btn {
     display: inline-flex;
     align-items: center;
@@ -118,11 +221,11 @@
 
 .workspace-page .wk-btn:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    opacity: 0.45;
 }
 
 .workspace-page .wk-btn-ghost {
-    border-color: var(--wk-border);
+    border-color: var(--wk-border-light);
     background: transparent;
     color: var(--wk-ink-secondary);
 }
@@ -130,28 +233,31 @@
 .workspace-page .wk-btn-ghost:hover:not(:disabled) {
     border-color: var(--wk-primary);
     color: var(--wk-primary);
+    background: var(--wk-primary-subtle);
 }
 
 .workspace-page .wk-btn-secondary {
-    border-color: var(--wk-border);
-    background: var(--wk-background);
-    color: var(--wk-ink);
+    border-color: var(--wk-border-light);
+    background: var(--wk-bg-card);
+    color: var(--wk-ink-secondary);
 }
 
 .workspace-page .wk-btn-secondary:hover:not(:disabled) {
     border-color: var(--wk-primary);
     color: var(--wk-primary);
+    background: var(--wk-primary-subtle);
 }
 
 .workspace-page .wk-btn-primary {
     border-color: var(--wk-primary);
     background: var(--wk-primary);
     color: var(--wk-primary-contrast);
-    box-shadow: 0 1px 4px color-mix(in srgb, var(--wk-primary) 24%, transparent);
+    box-shadow: var(--wk-shadow-sm);
 }
 
 .workspace-page .wk-btn-primary:hover:not(:disabled) {
-    opacity: 0.88;
+    background: var(--wk-primary-hover);
+    border-color: var(--wk-primary-hover);
 }
 
 .workspace-page .wk-btn-danger {
@@ -163,7 +269,7 @@
 .workspace-page .wk-btn-danger:hover:not(:disabled) {
     border-color: var(--wk-error);
     background: var(--wk-error);
-    color: #fff;
+    color: var(--b3-theme-on-error, var(--b3-theme-on-primary));
 }
 
 .workspace-page .wk-btn-sm {
@@ -172,7 +278,33 @@
     border-radius: var(--wk-radius-sm);
 }
 
-/* Badges */
+/* Pill 风格按钮 — 用于快捷操作、chip 选择 */
+.workspace-page .wk-btn-pill {
+    border-radius: var(--wk-radius-pill);
+    padding: 5px 12px;
+    font-size: var(--wk-text-sm);
+    border: 1px solid var(--wk-border-light);
+    background: transparent;
+    color: var(--wk-ink-muted);
+    font-weight: 500;
+}
+
+.workspace-page .wk-btn-pill:hover:not(:disabled) {
+    border-color: var(--wk-primary);
+    color: var(--wk-primary);
+    background: var(--wk-primary-subtle);
+}
+
+.workspace-page .wk-btn-pill.active {
+    border-color: var(--wk-primary);
+    background: var(--wk-primary);
+    color: var(--wk-primary-contrast);
+}
+
+/* ═══════════════════════════════════════════
+   Badges
+   ═══════════════════════════════════════════ */
+
 .workspace-page .wk-badge {
     display: inline-flex;
     align-items: center;
@@ -185,9 +317,9 @@
 }
 
 .workspace-page .wk-badge-ok {
-    background: color-mix(in srgb, var(--wk-success) 12%, transparent);
+    background: var(--wk-success-bg);
     color: var(--wk-success);
-    border-color: color-mix(in srgb, var(--wk-success) 28%, transparent);
+    border-color: var(--wk-success-border);
 }
 
 .workspace-page .wk-badge-warn {
@@ -205,15 +337,92 @@
 .workspace-page .wk-badge-muted {
     background: color-mix(in srgb, var(--wk-ink-secondary) 10%, transparent);
     color: var(--wk-ink-muted);
-    border-color: var(--wk-border);
+    border-color: var(--wk-border-light);
 }
 
-/* Stat item */
+/* ═══════════════════════════════════════════
+   Chips — 选择器 chip
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: var(--wk-radius-pill);
+    border: 1px solid var(--wk-border-light);
+    background: transparent;
+    color: var(--wk-ink-muted);
+    font-size: var(--wk-text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color var(--wk-transition-fast), background var(--wk-transition-fast),
+        color var(--wk-transition-fast);
+    white-space: nowrap;
+}
+
+.workspace-page .wk-chip:hover {
+    border-color: var(--wk-primary);
+    color: var(--wk-primary);
+    background: var(--wk-primary-subtle);
+}
+
+.workspace-page .wk-chip.selected {
+    border-color: var(--wk-primary);
+    background: var(--wk-primary);
+    color: var(--wk-primary-contrast);
+}
+
+.workspace-page .wk-chip-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--wk-gap-xs);
+}
+
+/* ═══════════════════════════════════════════
+   Segmented control
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-segmented {
+    display: inline-flex;
+    border-radius: var(--wk-radius-sm);
+    background: color-mix(in srgb, var(--wk-ink-muted) 10%, transparent);
+    padding: 3px;
+    gap: 1px;
+}
+
+.workspace-page .wk-segmented-item {
+    padding: 5px 12px;
+    border: none;
+    border-radius: calc(var(--wk-radius-sm) - 1px);
+    background: transparent;
+    color: var(--wk-ink-muted);
+    font-size: var(--wk-text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--wk-transition-fast), color var(--wk-transition-fast),
+        box-shadow var(--wk-transition-fast);
+}
+
+.workspace-page .wk-segmented-item:hover {
+    color: var(--wk-ink-secondary);
+}
+
+.workspace-page .wk-segmented-item.active {
+    background: var(--wk-bg-card);
+    color: var(--wk-ink-secondary);
+    box-shadow: var(--wk-shadow-sm);
+}
+
+/* ═══════════════════════════════════════════
+   Stat items (lightweight — no hard border)
+   ═══════════════════════════════════════════ */
+
 .workspace-page .wk-stat {
-    border: 1px solid var(--wk-border);
-    border-radius: var(--wk-radius-md);
-    background: var(--wk-background);
-    padding: 10px 12px;
+    border: none;
+    border-radius: var(--wk-radius-sm);
+    background: transparent;
+    padding: 6px 10px;
     text-align: center;
 }
 
@@ -221,24 +430,28 @@
     display: block;
     font-size: var(--wk-text-xs);
     color: var(--wk-ink-muted);
-    margin-bottom: 4px;
-    letter-spacing: 0.03em;
+    margin-bottom: 2px;
+    letter-spacing: 0.02em;
+    font-weight: 500;
 }
 
 .workspace-page .wk-stat-value {
     display: block;
-    font-size: var(--wk-text-xl);
+    font-size: var(--wk-text-lg);
     font-weight: 700;
     color: var(--wk-ink-secondary);
     font-variant-numeric: tabular-nums;
-    line-height: 1.1;
+    line-height: 1.15;
 }
 
 .workspace-page .wk-stat-value.primary { color: var(--wk-primary); }
 .workspace-page .wk-stat-value.warning { color: var(--wk-warning); }
 .workspace-page .wk-stat-value.danger { color: var(--wk-error); }
 
-/* Warning / info boxes */
+/* ═══════════════════════════════════════════
+   Warning / info boxes
+   ═══════════════════════════════════════════ */
+
 .workspace-page .wk-warning-box {
     display: flex;
     align-items: flex-start;
@@ -259,14 +472,17 @@
     gap: var(--wk-gap-xs);
     padding: 10px 12px;
     border-radius: var(--wk-radius-md);
-    background: color-mix(in srgb, var(--wk-primary) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--wk-primary) 22%, transparent);
+    background: var(--wk-primary-subtle);
+    border: 1px solid var(--wk-primary-border);
     color: var(--wk-ink-secondary);
     font-size: var(--wk-text-base);
     line-height: 1.5;
 }
 
-/* Lists */
+/* ═══════════════════════════════════════════
+   Lists
+   ═══════════════════════════════════════════ */
+
 .workspace-page .wk-list {
     list-style: none;
     margin: 0;
@@ -286,4 +502,362 @@
     color: var(--wk-ink-faint);
     text-align: center;
     font-size: var(--wk-text-base);
+}
+
+/* ═══════════════════════════════════════════
+   Accent dot — 替代左侧硬色条
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-accent-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.workspace-page .wk-accent-dot.tone-primary { background: var(--wk-primary); }
+.workspace-page .wk-accent-dot.tone-warning { background: var(--wk-warning); }
+.workspace-page .wk-accent-dot.tone-danger  { background: var(--wk-error); }
+.workspace-page .wk-accent-dot.tone-success { background: var(--wk-success); }
+.workspace-page .wk-accent-dot.tone-muted   { background: var(--wk-ink-muted); }
+
+/* ═══════════════════════════════════════════
+   Page Heading — 统一页面标题区
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-page-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--wk-gap-md);
+    margin-bottom: var(--wk-gap-lg);
+}
+
+.workspace-page .wk-page-title {
+    margin: 0;
+    font-size: var(--wk-text-xl);
+    font-weight: 700;
+    color: var(--wk-ink);
+    letter-spacing: -0.02em;
+}
+
+.workspace-page .wk-page-description {
+    margin: 4px 0 0;
+    font-size: var(--wk-text-base);
+    color: var(--wk-ink-muted);
+    line-height: 1.5;
+}
+
+.workspace-page .wk-page-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--wk-gap-sm);
+    flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════
+   Section — 统一区块
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-section {
+    margin-bottom: var(--wk-gap-lg);
+}
+
+.workspace-page .wk-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--wk-gap-sm);
+    margin-bottom: var(--wk-gap-sm);
+}
+
+.workspace-page .wk-section-title {
+    margin: 0;
+    font-size: var(--wk-text-md);
+    font-weight: 600;
+    color: var(--wk-ink-secondary);
+}
+
+.workspace-page .wk-section-description {
+    margin: 2px 0 0;
+    font-size: var(--wk-text-sm);
+    color: var(--wk-ink-muted);
+}
+
+/* ═══════════════════════════════════════════
+   Panels — 内容面板
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-panel {
+    border: 1px solid var(--wk-border-light);
+    border-radius: var(--wk-radius-lg);
+    background: var(--wk-bg-card);
+    padding: var(--wk-gap-md);
+}
+
+.workspace-page .wk-panel-soft {
+    border: none;
+    border-radius: var(--wk-radius-lg);
+    background: var(--wk-bg-page);
+    padding: var(--wk-gap-md);
+}
+
+.workspace-page .wk-panel-elevated {
+    border: 1px solid var(--wk-border-light);
+    border-radius: var(--wk-radius-lg);
+    background: var(--wk-bg-elevated);
+    box-shadow: var(--wk-shadow-elevated);
+    padding: var(--wk-gap-md);
+}
+
+/* ═══════════════════════════════════════════
+   Command Bar — 搜索/命令轻量条
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-command-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--wk-gap-sm);
+    padding: 7px 12px;
+    border: 1px solid var(--wk-border-light);
+    border-radius: var(--wk-radius-sm);
+    background: var(--wk-bg-card);
+    color: var(--wk-ink-muted);
+    font-size: var(--wk-text-sm);
+    cursor: text;
+    transition: border-color var(--wk-transition-fast), box-shadow var(--wk-transition-fast);
+}
+
+.workspace-page .wk-command-bar:hover {
+    border-color: var(--wk-primary-border);
+}
+
+.workspace-page .wk-command-bar:focus-within {
+    border-color: var(--wk-primary);
+    box-shadow: 0 0 0 2px var(--wk-primary-subtle);
+}
+
+.workspace-page .wk-command-bar input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--wk-ink);
+    font-size: var(--wk-text-sm);
+    outline: none;
+}
+
+/* ═══════════════════════════════════════════
+   Filter Chips — 带计数徽标的筛选芯片
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: var(--wk-radius-pill);
+    border: 1px solid var(--wk-border-light);
+    background: transparent;
+    color: var(--wk-ink-muted);
+    font-size: var(--wk-text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--wk-transition-fast);
+    white-space: nowrap;
+}
+
+.workspace-page .wk-filter-chip:hover {
+    border-color: var(--wk-primary);
+    color: var(--wk-primary);
+    background: var(--wk-primary-subtle);
+}
+
+.workspace-page .wk-filter-chip.active {
+    border-color: var(--wk-primary);
+    background: var(--wk-primary);
+    color: var(--wk-primary-contrast);
+}
+
+.workspace-page .wk-filter-chip .count {
+    font-size: var(--wk-text-xs);
+    opacity: 0.75;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════════════════════════════════════
+   Status dot — 极小状态点
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-status {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.workspace-page .wk-status.ok      { background: var(--wk-success); }
+.workspace-page .wk-status.warning { background: var(--wk-warning); }
+.workspace-page .wk-status.danger  { background: var(--wk-error); }
+.workspace-page .wk-status.info    { background: var(--wk-primary); }
+.workspace-page .wk-status.muted   { background: var(--wk-ink-muted); }
+
+/* ═══════════════════════════════════════════
+   Icon Button — 纯图标按钮
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--wk-border-light);
+    border-radius: var(--wk-radius-sm);
+    background: transparent;
+    color: var(--wk-ink-muted);
+    cursor: pointer;
+    transition: all var(--wk-transition-fast);
+}
+
+.workspace-page .wk-icon-button:hover {
+    border-color: var(--wk-primary);
+    color: var(--wk-primary);
+    background: var(--wk-primary-subtle);
+}
+
+/* ═══════════════════════════════════════════
+   Unified Actions — 统一操作按钮
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-primary-action {
+    border: 1px solid var(--wk-primary);
+    background: var(--wk-primary);
+    color: var(--wk-primary-contrast);
+    padding: 6px 14px;
+    border-radius: var(--wk-radius-sm);
+    font-size: var(--wk-text-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity var(--wk-transition-fast);
+}
+
+.workspace-page .wk-primary-action:hover {
+    opacity: 0.88;
+}
+
+.workspace-page .wk-secondary-action {
+    border: 1px solid var(--wk-border-light);
+    background: var(--wk-bg-card);
+    color: var(--wk-ink-secondary);
+    padding: 6px 14px;
+    border-radius: var(--wk-radius-sm);
+    font-size: var(--wk-text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--wk-transition-fast);
+}
+
+.workspace-page .wk-secondary-action:hover {
+    border-color: var(--wk-primary);
+    color: var(--wk-primary);
+    background: var(--wk-primary-subtle);
+}
+
+.workspace-page .wk-danger-action {
+    border: 1px solid var(--wk-error-border);
+    background: var(--wk-error-bg);
+    color: var(--wk-error);
+    padding: 6px 14px;
+    border-radius: var(--wk-radius-sm);
+    font-size: var(--wk-text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--wk-transition-fast);
+}
+
+.workspace-page .wk-danger-action:hover {
+    background: var(--wk-error);
+    color: var(--b3-theme-on-error, var(--b3-theme-on-primary));
+}
+
+/* ═══════════════════════════════════════════
+   Skeleton — 骨架屏
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wk-gap-sm);
+    padding: var(--wk-gap-md);
+}
+
+.workspace-page .wk-skeleton-line {
+    height: 12px;
+    border-radius: var(--wk-radius-pill);
+    background: color-mix(in srgb, var(--wk-ink-muted) 20%, transparent);
+    animation: wk-skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.workspace-page .wk-skeleton-line.wide   { width: 100%; }
+.workspace-page .wk-skeleton-line.medium { width: 60%; }
+.workspace-page .wk-skeleton-line.short  { width: 35%; }
+
+@keyframes wk-skeleton-pulse {
+    0%, 100% { opacity: 0.4; }
+    50%      { opacity: 0.8; }
+}
+
+/* ═══════════════════════════════════════════
+   Inline stat (compact, for daily pulse)
+   ═══════════════════════════════════════════ */
+
+.workspace-page .wk-inline-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+    font-size: var(--wk-text-sm);
+    color: var(--wk-ink-muted);
+    cursor: pointer;
+    transition: color var(--wk-transition-fast);
+}
+
+.workspace-page .wk-inline-stat:hover {
+    color: var(--wk-primary);
+}
+
+.workspace-page .wk-inline-stat-value {
+    font-weight: 700;
+    color: var(--wk-ink-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.workspace-page .wk-inline-stat:hover .wk-inline-stat-value {
+    color: var(--wk-primary);
+}
+
+/* ═══════════════════════════════════════════
+   Universal input styling — applies to all workspace inputs
+   ═══════════════════════════════════════════ */
+
+.workspace-page :is(input[type="text"], input[type="date"], input[type="number"], select, textarea) {
+    border: 1px solid var(--wk-border-subtle);
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--wk-bg-card) 88%, transparent);
+    color: var(--wk-ink);
+    box-shadow: none;
+    transition: border-color var(--wk-transition-fast), box-shadow var(--wk-transition-fast), background var(--wk-transition-fast);
+}
+
+.workspace-page :is(input, select, textarea):focus {
+    border-color: var(--wk-primary);
+    background: var(--wk-bg-card);
+    box-shadow: 0 0 0 3px var(--wk-primary-subtle);
+    outline: none;
+}
+
+@container (max-width: 760px) {
+    .workspace-page :is(.project-layout, .record-layout, .notif-layout) { grid-template-columns: 1fr; }
+    .workspace-page :is(.panel-header, .panel-toolbar, .panel-head, .settings-head, .more-head) { align-items: flex-start; }
 }

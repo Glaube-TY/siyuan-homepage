@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { tick, onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
     import type { EnhancedDiaryWorkspaceNotification } from "../enhancedDiaryWorkspaceNotifications";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
@@ -8,6 +9,7 @@
         saveSnoozedNotificationIds,
     } from "../enhancedDiaryWorkspaceNotificationState";
     import WorkspaceEmptyState from "./WorkspaceEmptyState.svelte";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         notifications: EnhancedDiaryWorkspaceNotification[];
@@ -104,22 +106,40 @@
 
     function actionLabel(action: EnhancedDiaryWorkspaceNotification["action"]): string {
         switch (action) {
-            case "migrate_task":          return "迁移";
-            case "append_template":       return "补今日模板";
-            case "create_or_open_review": return "创建/打开";
+            case "migrate_task":          return "迁移到今天";
+            case "append_template":       return "补充模板";
+            case "create_or_open_review": return "打开复盘";
             case "append_review_template":return "补复盘模板";
             case "complete_review":       return "标记完成";
             default:                      return "打开";
         }
     }
 
-    function typeLabel(type: EnhancedDiaryWorkspaceNotification["type"]): string {
+    function typeIcon(type: EnhancedDiaryWorkspaceNotification["type"]): string {
         switch (type) {
-            case "overdue_task":         return "逾期任务";
-            case "migration_suggestion": return "迁移建议";
-            case "template_missing":     return "模板缺失";
-            case "review_due":           return "复盘提醒";
-            default:                     return "通知";
+            case "overdue_task":         return "tasks";
+            case "migration_suggestion": return "tasks";
+            case "template_missing":     return "diary";
+            case "review_due":           return "review";
+            default:                     return "notifications";
+        }
+    }
+
+    function typeDescription(item: EnhancedDiaryWorkspaceNotification): string {
+        switch (item.type) {
+            case "overdue_task": {
+                const task = findTask(item.relatedTaskId);
+                if (task?.deadline) return `截止日期：${task.deadline}`;
+                return "";
+            }
+            case "migration_suggestion":
+                return "这项任务长期未推进，建议迁移到今天重新跟进。";
+            case "template_missing":
+                return "日记模板结构不够完整，补充后可以正常记录和复盘。";
+            case "review_due":
+                return "复盘还没有完成，适合在今天收尾时处理。";
+            default:
+                return item.description || "";
         }
     }
 
@@ -132,89 +152,83 @@
         return true;
     }
 
-    let searchText: string = $state("");
-    let typeFilter: string = $state("all");
-    let levelFilter: string = $state("all");
-    let actionFilter: "all" | "actionable" | "readonly" | "snoozed" = $state("all");
-    let selectedNotificationId: string | null = $state(null);
+    type NotifFilter = "all" | "actionable" | "task" | "template_missing" | "review_due" | "snoozed";
+
+    let activeFilter: NotifFilter = $state("all");
     let snoozedIds: string[] = $state(loadSnoozedNotificationIds());
 
-    function getLevelWeight(level: EnhancedDiaryWorkspaceNotification["level"]): number {
-        if (level === "danger") return 3;
-        if (level === "warning") return 2;
-        return 1;
+    // Controlled popover for "more actions" on each notification
+    let openMoreActionsId: string | null = $state(null);
+    let notifMoreActionsEl: HTMLElement | null = $state(null);
+
+    function toggleNotifMoreActions(id: string): void {
+        openMoreActionsId = openMoreActionsId === id ? null : id;
     }
+
+    function runNotifAction(action: () => void): void {
+        openMoreActionsId = null;
+        action();
+    }
+
+    function handleNotifPopoverPointerdown(event: PointerEvent): void {
+        if (openMoreActionsId && notifMoreActionsEl && !notifMoreActionsEl.contains(event.target as Node)) {
+            openMoreActionsId = null;
+        }
+    }
+
+    function handleNotifPopoverKeydown(event: KeyboardEvent): void {
+        if (event.key === "Escape") {
+            openMoreActionsId = null;
+        }
+    }
+
+    onMount(() => {
+        document.addEventListener("pointerdown", handleNotifPopoverPointerdown);
+        document.addEventListener("keydown", handleNotifPopoverKeydown);
+    });
+
+    onDestroy(() => {
+        document.removeEventListener("pointerdown", handleNotifPopoverPointerdown);
+        document.removeEventListener("keydown", handleNotifPopoverKeydown);
+    });
+
+    const actionableCount = $derived(notifications.filter((n) => hasValidAction(n) && !snoozedIds.includes(n.id)).length);
 
     const filteredNotifications = $derived.by(() => {
         let result = [...notifications];
 
-        result.sort((a, b) => getLevelWeight(b.level) - getLevelWeight(a.level));
+        // Sort: overdue first, then by type weight
+        result.sort((a, b) => {
+            const aWeight = a.type === "overdue_task" ? 0 : a.type === "template_missing" ? 1 : a.type === "migration_suggestion" ? 2 : 3;
+            const bWeight = b.type === "overdue_task" ? 0 : b.type === "template_missing" ? 1 : b.type === "migration_suggestion" ? 2 : 3;
+            return aWeight - bWeight;
+        });
 
-        if (actionFilter === "snoozed") {
+        if (activeFilter === "snoozed") {
             result = result.filter((item) => snoozedIds.includes(item.id));
-        }
-
-        if (searchText.trim()) {
-            const kw = searchText.trim().toLowerCase();
+        } else if (activeFilter === "actionable") {
+            result = result.filter((item) => hasValidAction(item) && !snoozedIds.includes(item.id));
+        } else if (activeFilter === "task") {
             result = result.filter((item) =>
-                item.title.toLowerCase().includes(kw) ||
-                item.description.toLowerCase().includes(kw) ||
-                typeLabel(item.type).toLowerCase().includes(kw) ||
-                (item.action ? actionLabel(item.action).toLowerCase().includes(kw) : false)
+                (item.type === "overdue_task" || item.type === "migration_suggestion") && !snoozedIds.includes(item.id)
             );
-        }
-
-        if (typeFilter !== "all") {
-            result = result.filter((item) => item.type === typeFilter);
-        }
-
-        if (levelFilter !== "all") {
-            result = result.filter((item) => item.level === levelFilter);
-        }
-
-        if (actionFilter === "actionable") {
-            result = result.filter((item) => hasValidAction(item));
-        } else if (actionFilter === "readonly") {
-            result = result.filter((item) => !hasValidAction(item));
+        } else if (activeFilter === "template_missing") {
+            result = result.filter((item) =>
+                item.type === "template_missing" && !snoozedIds.includes(item.id)
+            );
+        } else if (activeFilter === "review_due") {
+            result = result.filter((item) =>
+                item.type === "review_due" && !snoozedIds.includes(item.id)
+            );
+        } else {
+            // "all" — exclude snoozed
+            result = result.filter((item) => !snoozedIds.includes(item.id));
         }
 
         return result;
     });
 
-    const dangerCount = $derived(notifications.filter((n) => n.level === "danger").length);
-    const warningCount = $derived(notifications.filter((n) => n.level === "warning").length);
-    const infoCount = $derived(notifications.filter((n) => n.level === "info").length);
-    const actionableCount = $derived(notifications.filter((n) => hasValidAction(n)).length);
-    const snoozedCount = $derived(notifications.filter((n) => snoozedIds.includes(n.id)).length);
-
-    const selectedNotification = $derived(
-        selectedNotificationId
-            ? filteredNotifications.find((item) => item.id === selectedNotificationId) || null
-            : null
-    );
-    const selectedRelatedTask = $derived(
-        selectedNotification ? findTask(selectedNotification.relatedTaskId) : undefined
-    );
-
-    $effect(() => {
-        if (filteredNotifications.length === 0) {
-            selectedNotificationId = null;
-            return;
-        }
-        const found = selectedNotificationId
-            ? filteredNotifications.find((item) => item.id === selectedNotificationId)
-            : null;
-        if (!found) {
-            selectedNotificationId = filteredNotifications[0].id;
-        }
-    });
-
-    function clearFilters() {
-        searchText = "";
-        typeFilter = "all";
-        levelFilter = "all";
-        actionFilter = "all";
-    }
+    const snoozedCount = $derived(snoozedIds.length);
 
     function saveSnoozedIds(nextIds: string[]): void {
         snoozedIds = nextIds;
@@ -225,241 +239,161 @@
     function snoozeNotification(id: string): void {
         if (snoozedIds.includes(id)) return;
         saveSnoozedIds([...snoozedIds, id]);
-        selectedNotificationId = null;
     }
 
     function restoreNotification(id: string): void {
         saveSnoozedIds(snoozedIds.filter((item) => item !== id));
-        selectedNotificationId = null;
     }
 
-    let lastNotifSelectVersion = $state(0);
+    let lastSelectVersion = $state(0);
+    let highlightNotificationId = $state<string | null>(null);
+    let highlightTimeout: ReturnType<typeof setTimeout> | null = null;
+
     $effect(() => {
-        if (selectVersion <= lastNotifSelectVersion) return;
-        lastNotifSelectVersion = selectVersion;
+        if (selectVersion <= lastSelectVersion) return;
+        lastSelectVersion = selectVersion;
         if (initialSelectedNotificationId) {
             const found = notifications.find((n) => n.id === initialSelectedNotificationId);
             if (found) {
-                searchText = "";
-                typeFilter = "all";
-                levelFilter = "all";
-                actionFilter = "all";
-                selectedNotificationId = initialSelectedNotificationId;
+                activeFilter = "all";
+                highlightNotificationId = initialSelectedNotificationId;
+                // Wait for DOM update, then scroll into view
+                tick().then(() => {
+                    const el = document.getElementById(`notif-${initialSelectedNotificationId}`);
+                    if (el) {
+                        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                    }
+                });
+                // Clear highlight after animation
+                if (highlightTimeout) clearTimeout(highlightTimeout);
+                highlightTimeout = setTimeout(() => { highlightNotificationId = null; }, 2000);
             }
         }
     });
 </script>
 
 <section class="notification-panel">
-    <div class="panel-header">
+    <div class="notif-page-header">
         <div>
-            <h2>通知中心</h2>
-            <p class="panel-subtitle">{taskManagementEnabled ? "集中处理逾期任务、迁移建议、模板缺失和复盘提醒。" : "集中处理模板缺失和复盘提醒。"}</p>
+            <h2 class="wk-page-title">通知</h2>
+            <p class="wk-page-description">需要你关注的事情。</p>
         </div>
+        {#if actionableCount > 0}
+            <span class="notif-badge">{actionableCount} 条待处理</span>
+        {/if}
     </div>
 
     {#if notifications.length === 0}
-        <WorkspaceEmptyState title="暂无提醒" description={taskManagementEnabled ? "逾期任务、迁移建议、模板缺失和复盘提醒会显示在这里。" : "模板缺失和复盘提醒会显示在这里。"} />
+        <WorkspaceEmptyState
+            title="目前没有需要处理的通知"
+            description="任务、日记和复盘需要关注时，会出现在这里。"
+        />
     {:else}
-        <div class="stats-cards">
-            <div class="stat-card">
-                <span class="stat-label">全部提醒</span>
-                <strong class="stat-value">{notifications.length}</strong>
-            </div>
-            <div class="stat-card danger">
-                <span class="stat-label">危险</span>
-                <strong class="stat-value">{dangerCount}</strong>
-            </div>
-            <div class="stat-card warning">
-                <span class="stat-label">警告</span>
-                <strong class="stat-value">{warningCount}</strong>
-            </div>
-            <div class="stat-card info">
-                <span class="stat-label">信息</span>
-                <strong class="stat-value">{infoCount}</strong>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">可操作</span>
-                <strong class="stat-value">{actionableCount}</strong>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">暂不处理</span>
-                <strong class="stat-value">{snoozedCount}</strong>
-            </div>
-        </div>
-
-        <div class="notification-filter-card">
-            <div class="notification-filter-controls">
-                <input
-                    type="text"
-                    class="notification-filter-input"
-                    placeholder="搜索通知标题、描述..."
-                    bind:value={searchText}
-                />
-                <button type="button" class="notification-filter-clear" onclick={clearFilters}>清空</button>
-                <select class="notification-filter-select" bind:value={typeFilter}>
-                    <option value="all">全部类型</option>
-                    {#if taskManagementEnabled}
-                        <option value="overdue_task">逾期任务</option>
-                        <option value="migration_suggestion">迁移建议</option>
-                    {/if}
-                    <option value="template_missing">模板缺失</option>
-                    <option value="review_due">复盘提醒</option>
-                </select>
-                <select class="notification-filter-select" bind:value={levelFilter}>
-                    <option value="all">全部级别</option>
-                    <option value="danger">危险</option>
-                    <option value="warning">警告</option>
-                    <option value="info">信息</option>
-                </select>
-                <select class="notification-filter-select" bind:value={actionFilter}>
-                    <option value="all">全部操作</option>
-                    <option value="actionable">可操作</option>
-                    <option value="readonly">仅查看</option>
-                    <option value="snoozed">暂不处理</option>
-                </select>
-            </div>
-            <div class="notification-filter-summary">
-                当前显示 <strong>{filteredNotifications.length}</strong> / 总计 <strong>{notifications.length}</strong> 条
-            </div>
+        <div class="notif-filter-chips">
+            <button type="button" class="wk-chip" class:selected={activeFilter === "all"} onclick={() => (activeFilter = "all")}>
+                全部<span class="chip-count">{notifications.filter(n => !snoozedIds.includes(n.id)).length}</span>
+            </button>
+            <button type="button" class="wk-chip" class:selected={activeFilter === "actionable"} onclick={() => (activeFilter = "actionable")}>
+                待处理<span class="chip-count">{actionableCount}</span>
+            </button>
+            {#if taskManagementEnabled}
+                <button type="button" class="wk-chip" class:selected={activeFilter === "task"} onclick={() => (activeFilter = "task")}>
+                    任务
+                </button>
+            {/if}
+            <button type="button" class="wk-chip" class:selected={activeFilter === "template_missing"} onclick={() => (activeFilter = "template_missing")}>
+                日记
+            </button>
+            <button type="button" class="wk-chip" class:selected={activeFilter === "review_due"} onclick={() => (activeFilter = "review_due")}>
+                复盘
+            </button>
+            {#if snoozedCount > 0}
+                <button type="button" class="wk-chip" class:selected={activeFilter === "snoozed"} onclick={() => (activeFilter = "snoozed")}>
+                    稍后处理<span class="chip-count">{snoozedCount}</span>
+                </button>
+            {/if}
         </div>
 
         {#if filteredNotifications.length === 0}
-            <WorkspaceEmptyState title="暂无匹配通知" description="请调整筛选条件。" />
+            <div class="notif-empty-filtered">
+                <p>这个分类暂时没有通知</p>
+                <button type="button" class="wk-btn wk-btn-secondary" onclick={() => (activeFilter = "all")}>查看全部</button>
+            </div>
         {:else}
-            <div class="notif-layout">
-                <div class="notif-list-col">
-                    <div class="list-label">通知列表 · {filteredNotifications.length} 条</div>
-                    <div class="notif-list-scroll">
-                        {#each filteredNotifications as item (item.id)}
-                            <button
-                                type="button"
-                                class="notif-list-item level-{item.level}"
-                                class:selected={selectedNotificationId === item.id}
-                                onclick={() => (selectedNotificationId = item.id)}
-                            >
-                                <div class="notif-item-head">
-                                    <span class="type-badge type-{item.type}">{typeLabel(item.type)}</span>
-                                    <span class="level-badge level-{item.level}">{item.level === "danger" ? "危险" : item.level === "warning" ? "警告" : "信息"}</span>
-                                </div>
-                                <div class="notif-item-title">{item.title}</div>
-                                <div class="notif-item-desc">{item.description.slice(0, 80)}</div>
-                                {#if item.action}
-                                    <span class="action-badge">{actionLabel(item.action)}</span>
-                                {/if}
-                                {#if snoozedIds.includes(item.id)}
-                                    <span class="action-badge">暂不处理</span>
-                                {/if}
-                            </button>
-                        {/each}
-                    </div>
-                </div>
+            <div class="notif-message-stream">
+                {#each filteredNotifications as item (item.id)}
+                    {@const relatedTask = findTask(item.relatedTaskId)}
+                    <article
+                        class="notif-message"
+                        class:notif-highlight={highlightNotificationId === item.id}
+                        class:notif-overdue={item.type === "overdue_task"}
+                        id="notif-{item.id}"
+                    >
+                        <span class="notif-type-icon">
+                            <WorkspaceIcon name={typeIcon(item.type)} size={20} />
+                            {#if item.type === "overdue_task"}
+                                <span class="notif-dot-danger"></span>
+                            {/if}
+                        </span>
 
-                <div class="notif-detail-col">
-                    {#if selectedNotification}
-                        <div class="detail-panel">
-                            <div class="detail-head">
-                                <h3 class="detail-title">{selectedNotification.title}</h3>
-                                <div class="detail-badges">
-                                    <span class="type-badge type-{selectedNotification.type}">{typeLabel(selectedNotification.type)}</span>
-                                    <span class="level-badge level-{selectedNotification.level}">{selectedNotification.level === "danger" ? "危险" : selectedNotification.level === "warning" ? "警告" : "信息"}</span>
-                                </div>
-                            </div>
-
-                            <p class="detail-desc">{selectedNotification.description}</p>
-
-                            <div class="detail-meta-grid">
-                                <div class="meta-item">
-                                    <span class="meta-label">通知 ID</span>
-                                    <span class="meta-value">{selectedNotification.id}</span>
-                                </div>
-                                <div class="meta-item">
-                                    <span class="meta-label">类型</span>
-                                    <span class="meta-value">{typeLabel(selectedNotification.type)}</span>
-                                </div>
-                                <div class="meta-item">
-                                    <span class="meta-label">级别</span>
-                                    <span class="meta-value">{selectedNotification.level === "danger" ? "危险" : selectedNotification.level === "warning" ? "警告" : "信息"}</span>
-                                </div>
-                                {#if selectedNotification.relatedTaskId}
-                                    <div class="meta-item">
-                                        <span class="meta-label">关联任务</span>
-                                        <span class="meta-value">{selectedNotification.relatedTaskId}</span>
-                                    </div>
-                                {/if}
-                                {#if selectedNotification.relatedDocId}
-                                    <div class="meta-item">
-                                        <span class="meta-label">关联文档</span>
-                                        <span class="meta-value">{selectedNotification.relatedDocId}</span>
-                                    </div>
-                                {/if}
-                                {#if selectedNotification.reviewPeriod}
-                                    <div class="meta-item">
-                                        <span class="meta-label">复盘周期</span>
-                                        <span class="meta-value">{selectedNotification.reviewPeriod}</span>
-                                    </div>
-                                {/if}
-                                {#if selectedNotification.action}
-                                    <div class="meta-item">
-                                        <span class="meta-label">操作类型</span>
-                                        <span class="meta-value">{actionLabel(selectedNotification.action)}</span>
-                                    </div>
+                        <div class="notif-body">
+                            <div class="notif-title-row">
+                                <strong class="notif-title">{item.title}</strong>
+                                {#if item.type === "overdue_task"}
+                                    <span class="notif-tag-overdue">逾期</span>
                                 {/if}
                             </div>
-
-                            <div class="detail-actions">
-                                {#if hasValidAction(selectedNotification)}
-                                    <button
-                                        type="button"
-                                        class="btn-action btn-primary"
-                                        onclick={() => runAction(selectedNotification)}
-                                    >{actionLabel(selectedNotification.action)}</button>
-                                {:else}
-                                    <span class="hint-text">当前提醒缺少可执行对象，请刷新工作台后重试。</span>
-                                {/if}
-                                {#if selectedNotification.relatedDocId}
-                                    <button
-                                        type="button"
-                                        class="btn-action"
-                                        onclick={() => onOpenDoc(selectedNotification.relatedDocId)}
-                                    >打开相关文档</button>
-                                {/if}
-                                {#if selectedRelatedTask}
-                                    <button
-                                        type="button"
-                                        class="btn-action"
-                                        onclick={() => onCompleteTask(selectedRelatedTask)}
-                                    >{selectedRelatedTask.completed ? "取消完成" : "完成任务"}</button>
-                                    <button
-                                        type="button"
-                                        class="btn-action"
-                                        onclick={() => onPostponeTask(selectedRelatedTask, "tomorrow")}
-                                    >推迟明天</button>
-                                    <button
-                                        type="button"
-                                        class="btn-action"
-                                        onclick={() => onPostponeTask(selectedRelatedTask, "nextWeek")}
-                                    >推迟下周</button>
-                                {/if}
-                                {#if snoozedIds.includes(selectedNotification.id)}
-                                    <button
-                                        type="button"
-                                        class="btn-action"
-                                        onclick={() => restoreNotification(selectedNotification.id)}
-                                    >恢复提醒</button>
-                                {:else}
-                                    <button
-                                        type="button"
-                                        class="btn-action"
-                                        onclick={() => snoozeNotification(selectedNotification.id)}
-                                    >暂不处理</button>
-                                {/if}
-                            </div>
+                            <p class="notif-description">{typeDescription(item)}</p>
+                            {#if item.description && typeDescription(item) !== item.description}
+                                <p class="notif-context">{item.description.slice(0, 120)}</p>
+                            {/if}
                         </div>
-                    {:else}
-                        <WorkspaceEmptyState title="请选择一条通知" description="从左侧列表选择通知以查看详情。" />
-                    {/if}
-                </div>
+
+                        <div class="notif-actions">
+                            {#if hasValidAction(item)}
+                                <button
+                                    type="button"
+                                    class="wk-btn wk-btn-sm wk-btn-primary"
+                                    onclick={() => runAction(item)}
+                                >{actionLabel(item.action)}</button>
+                            {/if}
+
+                            {#if relatedTask}
+                                <div class="notif-more-actions" bind:this={notifMoreActionsEl}>
+                                    <button type="button" class="wk-btn wk-btn-sm wk-btn-ghost"
+                                        onclick={() => toggleNotifMoreActions(item.id)}
+                                        aria-expanded={openMoreActionsId === item.id}
+                                        aria-haspopup="menu"
+                                    >更多操作</button>
+                                    {#if openMoreActionsId === item.id}
+                                    <div class="notif-more-popover" role="menu">
+                                        {#if item.relatedDocId}
+                                            <button type="button" role="menuitem" class="wk-btn wk-btn-sm wk-btn-ghost"
+                                                onclick={() => runNotifAction(() => onOpenDoc(item.relatedDocId))}>打开相关文档</button>
+                                        {/if}
+                                        <button type="button" role="menuitem" class="wk-btn wk-btn-sm wk-btn-ghost"
+                                            onclick={() => runNotifAction(() => onCompleteTask(relatedTask))}>
+                                            {relatedTask.completed ? "取消完成" : "完成任务"}
+                                        </button>
+                                        <button type="button" role="menuitem" class="wk-btn wk-btn-sm wk-btn-ghost"
+                                            onclick={() => runNotifAction(() => onPostponeTask(relatedTask, "tomorrow"))}>推迟明天</button>
+                                        <button type="button" role="menuitem" class="wk-btn wk-btn-sm wk-btn-ghost"
+                                            onclick={() => runNotifAction(() => onPostponeTask(relatedTask, "nextWeek"))}>推迟下周</button>
+                                    </div>
+                                    {/if}
+                                </div>
+                            {:else if item.relatedDocId && item.action !== "append_template" && item.action !== "create_or_open_review" && item.action !== "complete_review" && item.action !== "append_review_template"}
+                                <button type="button" class="wk-btn wk-btn-sm wk-btn-ghost" onclick={() => onOpenDoc(item.relatedDocId)}>打开文档</button>
+                            {/if}
+
+                            {#if snoozedIds.includes(item.id)}
+                                <button type="button" class="wk-btn wk-btn-sm wk-btn-ghost" onclick={() => restoreNotification(item.id)}>恢复提醒</button>
+                            {:else}
+                                <button type="button" class="wk-btn wk-btn-sm wk-btn-ghost" onclick={() => snoozeNotification(item.id)}>稍后处理</button>
+                            {/if}
+                        </div>
+                    </article>
+                {/each}
             </div>
         {/if}
     {/if}
@@ -470,452 +404,212 @@
         display: flex;
         flex-direction: column;
         gap: var(--wk-gap-md);
+        max-width: 900px;
     }
 
-    .panel-header h2 {
-        margin: 0 0 4px;
-        font-size: var(--wk-text-lg);
-        font-weight: 600;
-        color: var(--wk-ink-secondary);
-    }
-
-    .panel-subtitle {
-        margin: 0;
-        font-size: var(--wk-text-sm);
-        color: var(--wk-ink-faint);
-    }
-
-    /* stats */
-    .stats-cards {
-        display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-        gap: var(--wk-gap-sm);
-    }
-
-    .stat-card {
-        border: 1px solid var(--wk-border);
-        border-radius: var(--wk-radius-md);
-        background: var(--wk-surface);
-        padding: 12px;
-        text-align: center;
-    }
-
-    .stat-card.danger { border-left: 3px solid var(--wk-error); }
-    .stat-card.warning { border-left: 3px solid var(--wk-warning); }
-    .stat-card.info { border-left: 3px solid var(--wk-primary); }
-
-    .stat-label {
-        display: block;
-        font-size: var(--wk-text-xs);
-        color: var(--wk-ink-faint);
-        margin-bottom: 4px;
-    }
-
-    .stat-value {
-        display: block;
-        font-size: var(--wk-text-xl);
-        font-variant-numeric: tabular-nums;
-        color: var(--wk-ink-secondary);
-    }
-
-    .stat-card.danger .stat-value { color: var(--wk-error); }
-    .stat-card.warning .stat-value { color: var(--wk-warning); }
-    .stat-card.info .stat-value { color: var(--wk-primary); }
-
-    /* filter card */
-    .notification-filter-card {
-        width: 100%;
-        box-sizing: border-box;
-        border: 1px solid var(--wk-border);
-        border-radius: var(--wk-radius-lg);
-        background: var(--wk-surface);
-        padding: 14px 16px;
-        margin-bottom: var(--wk-gap-md);
-        display: flex;
-        flex-direction: column;
-        gap: var(--wk-gap-sm);
-    }
-
-    .notification-filter-controls {
-        display: grid;
-        grid-template-columns: minmax(220px, 1fr) auto repeat(3, minmax(120px, 140px));
-        gap: var(--wk-gap-sm);
-        align-items: center;
-        width: 100%;
-        box-sizing: border-box;
-    }
-
-    .notification-filter-input {
-        min-width: 0;
-    }
-
-    .notification-filter-select {
-        min-width: 0;
-    }
-
-    .notification-filter-clear {
-        width: auto;
-        min-width: 76px;
-        white-space: nowrap;
-    }
-
-    .notification-filter-input,
-    .notification-filter-select,
-    .notification-filter-clear {
-        width: 100%;
-        min-width: 0;
-        height: 36px;
-        box-sizing: border-box;
-        margin: 0;
-        border: 1px solid var(--wk-border);
-        border-radius: var(--wk-radius-sm);
-        background: var(--wk-background);
-        color: var(--wk-ink);
-        font-size: var(--wk-text-sm);
-        line-height: 34px;
-        vertical-align: middle;
-        transition: border-color var(--wk-transition-fast), color var(--wk-transition-fast);
-    }
-
-    .notification-filter-input {
-        padding: 0 12px;
-    }
-
-    .notification-filter-input::placeholder {
-        color: var(--wk-ink);
-        opacity: 0.4;
-    }
-
-    .notification-filter-select {
-        padding: 0 10px;
-        cursor: pointer;
-        line-height: normal;
-    }
-
-    .notification-filter-clear {
-        padding: 0 12px;
-        cursor: pointer;
-        white-space: nowrap;
-        text-align: center;
-    }
-
-    .notification-filter-clear:hover {
-        border-color: var(--wk-primary);
-        color: var(--wk-primary);
-    }
-
-    .notification-filter-summary {
-        width: 100%;
-        box-sizing: border-box;
-        font-size: var(--wk-text-xs);
-        line-height: 1.5;
-        color: var(--wk-ink-muted);
-        padding-left: 2px;
-    }
-
-    .notification-filter-summary strong {
-        font-weight: 600;
-        color: var(--wk-ink-secondary);
-    }
-
-    /* layout */
-    .notif-layout {
-        display: grid;
-        grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
-        gap: var(--wk-gap-md);
-        align-items: start;
-        min-height: 400px;
-    }
-
-    .notif-list-col {
-        border: 1px solid var(--wk-border);
-        border-radius: var(--wk-radius-md);
-        background: var(--wk-surface);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        max-height: calc(100vh - 440px);
-    }
-
-    .list-label {
-        font-size: var(--wk-text-xs);
-        font-weight: 600;
-        color: var(--wk-ink-faint);
-        padding: 10px 14px 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        border-bottom: 1px solid var(--wk-border);
-    }
-
-    .notif-list-scroll {
-        overflow-y: auto;
-        flex: 1;
-        padding: 4px 8px 8px;
-    }
-
-    .notif-list-item {
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-        width: 100%;
-        border: none;
-        border-radius: var(--wk-radius-sm);
-        background: transparent;
-        padding: 10px 12px;
-        cursor: pointer;
-        text-align: left;
-        transition: background var(--wk-transition-fast);
-        border-left: 3px solid transparent;
-    }
-
-    .notif-list-item:hover {
-        background: color-mix(in srgb, var(--wk-primary) 6%, transparent);
-    }
-
-    .notif-list-item.selected {
-        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
-        border-left-color: var(--wk-primary);
-    }
-
-    .notif-list-item.level-info { border-left-color: color-mix(in srgb, var(--wk-primary) 40%, transparent); }
-    .notif-list-item.level-warning { border-left-color: color-mix(in srgb, var(--wk-warning) 40%, transparent); }
-    .notif-list-item.level-danger { border-left-color: color-mix(in srgb, var(--wk-error) 50%, transparent); }
-
-    .notif-list-item.level-info.selected,
-    .notif-list-item.level-warning.selected,
-    .notif-list-item.level-danger.selected { border-left-color: var(--wk-primary); }
-
-    .notif-item-head {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .notif-item-title {
-        font-size: var(--wk-text-base);
-        font-weight: 500;
-        color: var(--wk-ink-secondary);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .notif-item-desc {
-        font-size: var(--wk-text-xs);
-        color: var(--wk-ink-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    /* badges */
-    .type-badge {
-        font-size: 9px;
-        padding: 2px 6px;
-        border-radius: var(--wk-radius-pill);
-        font-weight: 500;
-        white-space: nowrap;
-    }
-
-    .type-overdue_task {
-        background: var(--wk-error-bg);
-        color: var(--wk-error);
-        border: 1px solid var(--wk-error-border);
-    }
-
-    .type-migration_suggestion {
-        background: var(--wk-warning-bg);
-        color: var(--wk-warning);
-        border: 1px solid var(--wk-warning-border);
-    }
-
-    .type-template_missing {
-        background: var(--wk-warning-bg);
-        color: var(--wk-warning);
-        border: 1px solid var(--wk-warning-border);
-    }
-
-    .type-review_due {
-        background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
-        color: var(--wk-primary);
-        border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent);
-    }
-
-    .level-badge {
-        font-size: 9px;
-        padding: 2px 6px;
-        border-radius: var(--wk-radius-pill);
-        font-weight: 500;
-        white-space: nowrap;
-    }
-
-    .level-badge.level-info {
-        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
-        color: var(--wk-primary);
-        border: 1px solid color-mix(in srgb, var(--wk-primary) 25%, transparent);
-    }
-
-    .level-badge.level-warning {
-        background: var(--wk-warning-bg);
-        color: var(--wk-warning);
-        border: 1px solid var(--wk-warning-border);
-    }
-
-    .level-badge.level-danger {
-        background: var(--wk-error-bg);
-        color: var(--wk-error);
-        border: 1px solid var(--wk-error-border);
-    }
-
-    .action-badge {
-        font-size: 9px;
-        padding: 1px 5px;
-        border-radius: var(--wk-radius-pill);
-        background: var(--wk-background);
-        border: 1px solid var(--wk-border);
-        color: var(--wk-ink-secondary);
-        align-self: flex-start;
-    }
-
-    /* detail */
-    .notif-detail-col {
-        border: 1px solid var(--wk-border);
-        border-radius: var(--wk-radius-md);
-        background: var(--wk-surface);
-        min-height: 200px;
-    }
-
-    .detail-panel {
-        padding: 20px;
-        display: flex;
-        flex-direction: column;
-        gap: var(--wk-gap-md);
-    }
-
-    .detail-head {
+    .notif-page-header {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: var(--wk-gap-sm);
+        gap: var(--wk-gap-md);
     }
 
-    .detail-title {
-        margin: 0;
-        font-size: var(--wk-text-lg);
+    .notif-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: var(--wk-radius-pill);
+        background: var(--wk-error-bg);
+        color: var(--wk-error);
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: var(--wk-ink-secondary);
-        word-break: break-all;
-    }
-
-    .detail-badges {
-        display: flex;
-        gap: 5px;
-        flex-wrap: wrap;
+        white-space: nowrap;
         flex-shrink: 0;
     }
 
-    .detail-desc {
-        margin: 0;
-        font-size: var(--wk-text-base);
-        line-height: 1.5;
-        color: var(--wk-ink-muted);
-    }
-
-    .detail-meta-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-    }
-
-    .meta-item {
-        border: 1px solid var(--wk-border);
-        border-radius: var(--wk-radius-sm);
-        background: var(--wk-background);
-        padding: 6px 10px;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .meta-label {
-        font-size: var(--wk-text-xs);
-        color: var(--wk-ink-faint);
-    }
-
-    .meta-value {
-        font-size: var(--wk-text-sm);
-        color: var(--wk-ink-secondary);
-        word-break: break-all;
-    }
-
-    .detail-actions {
+    .notif-filter-chips {
         display: flex;
         flex-wrap: wrap;
         gap: var(--wk-gap-xs);
+    }
+
+    .notif-empty-filtered {
+        display: flex;
+        flex-direction: column;
         align-items: center;
-        padding-top: 8px;
-        border-top: 1px solid var(--wk-border);
-    }
-
-    .btn-action {
-        border: 1px solid var(--wk-border);
+        gap: var(--wk-gap-sm);
+        padding: var(--wk-gap-lg) var(--wk-gap-md);
+        border: 1px dashed var(--wk-border);
         border-radius: var(--wk-radius-sm);
-        background: var(--wk-background);
-        color: var(--wk-ink);
-        padding: 5px 10px;
+        background: transparent;
+        color: var(--wk-ink-muted);
+        text-align: center;
         font-size: var(--wk-text-sm);
-        cursor: pointer;
-        transition: border-color var(--wk-transition-fast), color var(--wk-transition-fast);
     }
 
-    .btn-action:hover:not(:disabled) {
-        border-color: var(--wk-primary);
-        color: var(--wk-primary);
+    .notif-empty-filtered p {
+        margin: 0;
     }
 
-    .btn-action.btn-primary {
-        border-color: var(--wk-primary);
-        background: var(--wk-primary);
-        color: var(--wk-primary-contrast);
-    }
-
-    .btn-action.btn-primary:hover {
-        opacity: 0.88;
-        color: var(--wk-primary-contrast);
-    }
-
-    .hint-text {
+    .chip-count {
+        margin-left: 4px;
         font-size: var(--wk-text-xs);
-        color: var(--wk-ink-faint);
+        opacity: 0.72;
+        font-variant-numeric: tabular-nums;
     }
 
-    @media (max-width: 1180px) {
-        .notification-filter-controls {
-            grid-template-columns: minmax(0, 1fr) auto;
-        }
+    /* Message stream */
+    .notif-message-stream {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
     }
 
-    @media (max-width: 520px) {
-        .notification-filter-controls {
-            grid-template-columns: 1fr;
-        }
-
-        .notification-filter-clear {
-            width: 100%;
-        }
+    .notif-message {
+        display: flex;
+        gap: 14px;
+        padding: 18px 16px;
+        border-bottom: 1px solid var(--wk-divider);
+        transition: background var(--wk-transition-fast);
     }
 
-    @media (max-width: 900px) {
-        .stats-cards {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+    .notif-message:first-child {
+        border-top: 1px solid var(--wk-divider);
+    }
+
+    .notif-message:hover {
+        background: var(--wk-surface-hover);
+    }
+
+    .notif-highlight {
+        background: var(--wk-primary-subtle);
+        animation: notif-highlight-fade 2s ease-out;
+    }
+
+    @keyframes notif-highlight-fade {
+        0% { background: var(--wk-primary-soft); }
+        100% { background: transparent; }
+    }
+
+    .notif-overdue {
+        background: color-mix(in srgb, var(--wk-error-bg) 50%, transparent);
+    }
+
+    .notif-overdue:hover {
+        background: color-mix(in srgb, var(--wk-error-bg) 80%, transparent);
+    }
+
+    .notif-type-icon {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--wk-radius-sm);
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
+        flex-shrink: 0;
+        margin-top: 2px;
+    }
+
+    .notif-dot-danger {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--wk-error);
+        border: 1.5px solid var(--wk-bg-card);
+    }
+
+    .notif-body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .notif-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .notif-title {
+        font-size: var(--wk-text-base);
+        font-weight: 600;
+        color: var(--wk-ink-secondary);
+    }
+
+    .notif-tag-overdue {
+        font-size: var(--wk-text-xs);
+        padding: 1px 6px;
+        border-radius: var(--wk-radius-pill);
+        background: var(--wk-error-bg);
+        color: var(--wk-error);
+        font-weight: 600;
+    }
+
+    .notif-description {
+        margin: 0;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
+        line-height: 1.5;
+    }
+
+    .notif-context {
+        margin: 0;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
+        line-height: 1.4;
+    }
+
+    .notif-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+        align-self: flex-start;
+    }
+
+    /* More actions popover */
+    .notif-more-actions {
+        position: relative;
+        display: inline-flex;
+    }
+
+    .notif-more-popover {
+        position: absolute;
+        z-index: 20;
+        right: 0;
+        top: calc(100% + 6px);
+        display: grid;
+        gap: 4px;
+        min-width: 160px;
+        padding: 8px;
+        border: 1px solid var(--wk-border-subtle);
+        border-radius: var(--wk-radius-md);
+        background: var(--wk-bg-card);
+        box-shadow: var(--wk-shadow-popover);
+    }
+
+    .notif-more-popover .wk-btn {
+        justify-content: flex-start;
+        text-align: left;
+    }
+
+    @container (max-width: 640px) {
+        .notif-message {
+            flex-direction: column;
+            gap: 10px;
         }
 
-        .notif-layout {
-            grid-template-columns: 1fr;
-        }
-
-        .notif-list-col {
-            max-height: 300px;
+        .notif-actions {
+            align-self: stretch;
         }
     }
 </style>

@@ -138,6 +138,10 @@
     let recordCategorySuggestionsText = $state(
         DEFAULT_ENHANCED_DIARY_CONFIG.recordCategorySuggestions.join("\n")
     );
+    const hasUnsavedChanges = $derived(
+        JSON.stringify(draft) !== lastConfigSignature ||
+        recordCategorySuggestionsText !== draft.recordCategorySuggestions.join("\n")
+    );
 
     function syncRecordCategorySuggestionsText(): void {
         recordCategorySuggestionsText = draft.recordCategorySuggestions.join("\n");
@@ -318,6 +322,12 @@
         normalizeReviewFieldsBeforeSave();
         await onSave(draft);
         lastConfigSignature = JSON.stringify(draft);
+    }
+
+    function discardSettings(): void {
+        draft = cloneConfig(config);
+        lastConfigSignature = JSON.stringify(config);
+        syncRecordCategorySuggestionsText();
     }
 
     function restoreTemplate(period: EnhancedDiaryPeriod): void {
@@ -548,12 +558,10 @@
 <section class="settings-page">
     <div class="settings-head">
         <div>
-            <h2>工作台设置</h2>
+            <h2 class="wk-page-title">设置</h2>
+            <p class="wk-page-description">调整工作台的内容、日历和记录偏好。</p>
             <p>这里是强化日记的完整配置中心。组件内容设置里只保留轻量入口，模板和工作台表现都在这里维护。</p>
         </div>
-        <button type="button" class="primary-btn" disabled={saving} onclick={saveSettings}>
-            {saving ? "保存中..." : "保存设置"}
-        </button>
     </div>
 
     <div class="settings-tabs" aria-label="工作台设置分类">
@@ -572,10 +580,10 @@
                 <span>日记与复盘</span>
             </div>
 
-            <label class="input-row">
+            <div class="input-row preference-row important-preference">
                 <span>
                     <strong>日记笔记本</strong>
-                    <small>用于创建今日日记。调用思源原生 createDailyNote，不自行计算日记路径。</small>
+                    <small>用于创建和定位每一天的日记。</small>
                 </span>
                 <select bind:value={draft.dailyNotebookId}>
                     <option value="">请选择日记笔记本</option>
@@ -583,46 +591,46 @@
                         <option value={nb.id}>{nb.name}</option>
                     {/each}
                 </select>
-            </label>
+            </div>
             {#if notebooksLoadFailed}
                 <div class="inline-error">笔记本列表加载失败，请稍后刷新工作台重试。</div>
             {/if}
 
-            <label class="input-row">
+            <div class="input-row preference-row">
                 <span>
                     <strong>周记复盘日期</strong>
                     <small>每周复盘的目标日期。</small>
                 </span>
-                <select bind:value={draft.weekReviewDay}>
+                <div class="preference-segmented" aria-label="周记复盘日期">
                     {#each WEEKDAY_OPTIONS as opt}
-                        <option value={opt.value}>{opt.label}</option>
+                        <button type="button" class:active={draft.weekReviewDay === opt.value} onclick={() => (draft.weekReviewDay = opt.value)}>{opt.label.replace("周", "")}</button>
                     {/each}
-                </select>
-            </label>
+                </div>
+            </div>
 
-            <label class="input-row">
+            <div class="input-row preference-row">
                 <span>
                     <strong>月记复盘规则</strong>
                     <small>月总结的目标日期规则。</small>
                 </span>
-                <select bind:value={draft.monthReviewRule}>
+                <div class="preference-segmented" aria-label="月记复盘规则">
                     {#each MONTH_RULE_OPTIONS as opt}
-                        <option value={opt.value}>{opt.label}</option>
+                        <button type="button" class:active={draft.monthReviewRule === opt.value} onclick={() => (draft.monthReviewRule = opt.value)}>{opt.value === "monthEnd" ? "月末" : "次月首日"}</button>
                     {/each}
-                </select>
-            </label>
+                </div>
+            </div>
 
-            <label class="input-row">
+            <div class="input-row preference-row">
                 <span>
                     <strong>年记复盘规则</strong>
                     <small>年总结的目标日期规则。</small>
                 </span>
-                <select bind:value={draft.yearReviewRule}>
+                <div class="preference-segmented" aria-label="年记复盘规则">
                     {#each YEAR_RULE_OPTIONS as opt}
-                        <option value={opt.value}>{opt.label}</option>
+                        <button type="button" class:active={draft.yearReviewRule === opt.value} onclick={() => (draft.yearReviewRule = opt.value)}>{opt.value === "dec31" ? "年末" : "次年首日"}</button>
                     {/each}
-                </select>
-            </label>
+                </div>
+            </div>
 
             <label class="input-row" class:disabled={!taskManagementEnabled}>
                 <span>
@@ -1053,9 +1061,90 @@
             </div>
         </section>
     {/if}
+    {#if hasUnsavedChanges}
+        <div class="settings-save-bar">
+            <span>有未保存的更改</span>
+            <div>
+                <button type="button" class="discard-btn" disabled={saving} onclick={discardSettings}>放弃</button>
+                <button type="button" class="primary-btn" disabled={saving} onclick={saveSettings}>
+                    {saving ? "保存中..." : "保存设置"}
+                </button>
+            </div>
+        </div>
+    {/if}
 </section>
 
 <style>
+    .preference-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 20px;
+    }
+
+    .important-preference {
+        margin-bottom: 4px;
+        padding-inline: 14px !important;
+        border: 1px solid var(--wk-border-subtle);
+        border-radius: var(--wk-radius-md);
+        background: var(--b3-theme-background);
+    }
+
+    .preference-segmented {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        padding: 3px;
+        border-radius: var(--wk-radius-sm);
+        background: var(--b3-theme-background);
+    }
+
+    .preference-segmented button {
+        min-height: 32px;
+        padding: 5px 10px;
+        border: 0;
+        border-radius: calc(var(--wk-radius-sm) - 2px);
+        background: transparent;
+        color: var(--wk-ink-muted);
+        cursor: pointer;
+    }
+
+    .preference-segmented button.active {
+        background: color-mix(in srgb, var(--b3-theme-primary) 9%, transparent);
+        color: var(--b3-theme-primary);
+    }
+
+    @container (max-width: 620px) {
+        .preference-row { grid-template-columns: 1fr; gap: 10px; }
+    }
+    .settings-save-bar {
+        position: sticky;
+        z-index: 30;
+        bottom: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 22px;
+        padding: 12px 14px 12px 18px;
+        border: 1px solid var(--wk-primary-border);
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--wk-bg-card) 88%, transparent);
+        box-shadow: var(--wk-shadow-popover);
+        backdrop-filter: blur(20px) saturate(1.2);
+        color: var(--wk-ink-secondary);
+        font-size: 13px;
+    }
+
+    .settings-save-bar > div { display: flex; gap: 8px; }
+    .discard-btn {
+        padding: 8px 13px;
+        border: 1px solid var(--wk-border-subtle);
+        border-radius: 10px;
+        background: transparent;
+        color: var(--wk-ink-muted);
+        cursor: pointer;
+    }
     .settings-page {
         display: flex;
         flex-direction: column;
@@ -1388,8 +1477,7 @@
     .template-actions button,
     .settings-tabs button,
     .template-tabs button,
-    .template-toolbar-actions button,
-    .settings-head button {
+    .template-toolbar-actions button {
         border: 1px solid var(--wk-border);
         border-radius: var(--wk-radius-sm);
         background: var(--wk-background);
@@ -1403,8 +1491,7 @@
     .template-actions button:hover:not(:disabled),
     .settings-tabs button:hover:not(:disabled),
     .template-tabs button:hover:not(:disabled),
-    .template-toolbar-actions button:hover:not(:disabled),
-    .settings-head button:hover:not(:disabled) {
+    .template-toolbar-actions button:hover:not(:disabled) {
         border-color: var(--wk-primary);
         color: var(--wk-primary);
     }
@@ -1423,8 +1510,7 @@
     .template-actions button:disabled,
     .settings-tabs button:disabled,
     .template-tabs button:disabled,
-    .template-toolbar-actions button:disabled,
-    .settings-head button:disabled {
+    .template-toolbar-actions button:disabled {
         cursor: not-allowed;
         opacity: 0.55;
     }
@@ -1436,7 +1522,7 @@
         font-size: var(--wk-text-sm);
     }
 
-    @media (max-width: 720px) {
+    @container (max-width: 720px) {
         .settings-head,
         .switch-row,
         .input-row,

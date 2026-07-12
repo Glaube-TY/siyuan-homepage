@@ -143,7 +143,7 @@
         border-radius: 12px;
         background: var(--wk-background);
         color: var(--wk-ink);
-        box-shadow: 0 24px 72px rgba(0, 0, 0, 0.24);
+        box-shadow: var(--wk-shadow-dialog);
         overflow: hidden;
     }
 
@@ -234,7 +234,7 @@
         background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
         color: var(--wk-primary);
         padding: 2px 8px;
-        font-size: 11px;
+        font-size: 12px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -281,10 +281,10 @@
         padding: 9px 12px;
         color: var(--wk-ink-secondary);
         opacity: 0.55;
-        font-size: 11px;
+        font-size: 12px;
     }
 
-    @media (max-width: 640px) {
+    @container (max-width: 640px) {
         .palette-backdrop {
             padding-top: 36px;
         }

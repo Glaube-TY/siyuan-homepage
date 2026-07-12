@@ -81,7 +81,7 @@
         border: 1px solid var(--wk-border);
         border-radius: 10px;
         background: var(--wk-background);
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+        box-shadow: var(--wk-shadow-popover);
         padding: 8px;
     }
 
@@ -112,7 +112,7 @@
         color: var(--wk-primary);
         border: 1px solid color-mix(in srgb, var(--wk-primary) 24%, transparent);
         padding: 2px 7px;
-        font-size: 11px;
+        font-size: 12px;
         line-height: 1.4;
     }
 
@@ -131,10 +131,10 @@
         border: 1px solid var(--wk-primary);
         border-radius: 999px;
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
         cursor: pointer;
-        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
-        transition: transform 0.14s, filter 0.14s;
+        box-shadow: var(--wk-shadow-elevated);
+        transition: filter 0.14s;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -142,17 +142,16 @@
 
     .fab-button:hover {
         filter: brightness(1.06);
-        transform: translateY(-1px);
     }
 
-    @media (max-width: 760px) {
+    @container (max-width: 900px) {
         .quick-create-fab {
             right: 16px;
-            bottom: 16px;
+            bottom: 88px;
         }
 
         .fab-menu {
-            width: min(210px, calc(100vw - 32px));
+            width: min(210px, calc(100cqw - 32px));
         }
     }
 </style>

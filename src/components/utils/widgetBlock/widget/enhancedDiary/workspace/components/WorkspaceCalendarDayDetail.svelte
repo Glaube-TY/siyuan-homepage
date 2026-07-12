@@ -119,11 +119,12 @@
         display: flex;
         flex-direction: column;
         gap: 14px;
-        border: 1px solid var(--wk-border);
-        border-radius: 10px;
-        background: var(--wk-surface);
-        padding: 16px;
+        border: 1px solid var(--wk-border-subtle);
+        border-radius: var(--wk-radius-xl);
+        background: color-mix(in srgb, var(--wk-bg-card) 92%, transparent);
+        padding: clamp(20px, 2.4vw, 30px);
         min-height: 200px;
+        box-shadow: none;
     }
 
     .detail-header {
@@ -133,9 +134,11 @@
     }
 
     .detail-title {
-        font-size: 16px;
+        font-size: var(--wk-text-sm);
         font-weight: 700;
-        color: var(--wk-ink);
+        color: var(--wk-ink-muted);
+        text-transform: uppercase;
+        letter-spacing: .08em;
     }
 
     .close-btn {
@@ -145,7 +148,6 @@
         border-radius: 6px;
         background: transparent;
         color: var(--wk-ink-secondary);
-        font-size: 14px;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -164,8 +166,8 @@
         justify-content: center;
         gap: 10px;
         padding: 32px 20px;
-        color: var(--wk-ink-secondary);
-        font-size: 13px;
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
     }
 
     .loading-spinner {
@@ -189,9 +191,8 @@
         justify-content: center;
         gap: 8px;
         padding: 32px 20px;
-        color: var(--wk-ink-secondary);
-        font-size: 13px;
-        opacity: 0.6;
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
     }
 
     .detail-content {
@@ -208,7 +209,7 @@
     }
 
     .detail-date-text {
-        font-size: 15px;
+        font-size: clamp(20px, 2vw, 28px);
         font-weight: 600;
         color: var(--wk-ink);
         font-variant-numeric: tabular-nums;
@@ -217,7 +218,7 @@
     .badge {
         padding: 2px 10px;
         border-radius: 12px;
-        font-size: 12px;
+        font-size: var(--wk-text-xs);
         font-weight: 600;
     }
 
@@ -228,85 +229,88 @@
 
     .badge-no-diary {
         background: var(--wk-background);
-        color: var(--wk-ink-secondary);
-        opacity: 0.6;
+        color: var(--wk-ink-muted);
     }
 
     .stat-grid {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 0;
+        padding: 14px 0;
+        border-block: 1px solid var(--wk-divider);
     }
 
     .stat-card {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 4px;
-        padding: 10px 6px;
-        border: 1px solid var(--wk-border);
-        border-radius: 8px;
-        background: var(--wk-background);
+        gap: 5px;
+        padding: 5px 14px;
+        border: 0;
+        border-right: 1px solid var(--wk-divider);
+        border-radius: 0;
+        background: transparent;
     }
 
+    .stat-card:last-child { border-right: 0; }
+
     .stat-value {
-        font-size: 20px;
+        font-size: 24px;
         font-weight: 700;
         color: var(--wk-ink);
         font-variant-numeric: tabular-nums;
     }
 
     .stat-label {
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.7;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .review-status {
-        padding: 8px 12px;
-        border-radius: 8px;
-        background: var(--wk-background);
-        border: 1px solid var(--wk-border);
+        padding: 10px 0;
+        border-radius: 0;
+        background: transparent;
+        border: 0;
     }
 
     .review-text {
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         color: var(--wk-ink);
         font-weight: 600;
     }
 
     .warning-box {
-        padding: 10px 14px;
+        padding: 8px 12px;
         border-radius: 8px;
-        background: color-mix(in srgb, #e6900a 8%, var(--wk-background));
-        border: 1px solid color-mix(in srgb, #e6900a 30%, transparent);
+        background: transparent;
+        border: 1px solid var(--wk-warning-border);
     }
 
     .warning-title {
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: #e6900a;
-        margin-bottom: 6px;
+        color: var(--wk-warning);
+        margin-bottom: 4px;
     }
 
     .missing-list {
         margin: 0;
         padding-left: 18px;
-        font-size: 12px;
-        color: var(--wk-ink-secondary);
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         line-height: 1.6;
     }
 
     .detail-actions {
         display: flex;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
         gap: 10px;
         flex-wrap: wrap;
-        padding-top: 4px;
+        padding-top: 8px;
     }
 
     .open-doc-btn {
@@ -315,7 +319,7 @@
         border-radius: 8px;
         background: var(--wk-primary);
         color: var(--wk-primary-contrast);
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
         cursor: pointer;
         transition: all 0.12s;
@@ -332,7 +336,7 @@
         border-radius: 8px;
         background: var(--wk-background);
         color: var(--wk-ink-secondary);
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
         cursor: pointer;
         transition: all 0.12s;
@@ -350,7 +354,7 @@
         border-radius: 8px;
         background: var(--wk-background);
         color: var(--wk-ink-secondary);
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
         cursor: pointer;
         transition: all 0.12s;
@@ -362,12 +366,11 @@
     }
 
     .no-diary-hint {
-        font-size: 13px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
-    @media (max-width: 760px) {
+    @container (max-width: 760px) {
         .stat-grid {
             grid-template-columns: repeat(2, 1fr);
         }

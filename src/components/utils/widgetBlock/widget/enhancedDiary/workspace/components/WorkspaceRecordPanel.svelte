@@ -233,11 +233,14 @@
 </script>
 
 <section class="record-panel">
-    <div class="panel-toolbar">
-        <h2>记录中心</h2>
+    <div class="panel-toolbar wk-page-header">
+        <div class="wk-page-header-main">
+            <h2 class="wk-page-title">记录</h2>
+            <p class="wk-page-description">记录今天的进展、想法和问题。</p>
+        </div>
         <div>
             {#if !isHistoryMode}
-                <button type="button" class="btn-primary" onclick={onCreate}>新增记录</button>
+                <button type="button" class="btn-primary" onclick={onCreate}>快速记录</button>
             {/if}
         </div>
     </div>
@@ -305,7 +308,12 @@
         {/each}
     </div>
 
-    <div class="record-insights">
+    <p class="record-summary">
+        {isHistoryMode ? "当前范围" : "今天"} {recordInsights.total} 条记录
+        {#if recordInsights.topCategory} · 主要分类：{recordInsights.topCategory.label}{/if}
+    </p>
+
+    <div class="record-insights" aria-label="记录摘要">
         <div class="insight-card">
             <span class="insight-label">当前记录</span>
             <strong>{recordInsights.total}</strong>
@@ -352,9 +360,12 @@
     {:else}
         <div class="record-layout">
             <div class="record-list-col">
-                <div class="list-label">记录列表 · {filteredRecords.length} 条</div>
+                <div class="list-label">{isHistoryMode ? "往日记录" : "今天的记录"} · {filteredRecords.length} 条</div>
                 <div class="record-list-scroll">
-                    {#each filteredRecords as record (getRecordDisplayKey(record))}
+                    {#each filteredRecords as record, index (getRecordDisplayKey(record))}
+                        {#if isHistoryMode && record.date && record.date !== filteredRecords[index - 1]?.date}
+                            <div class="record-date-group">{record.date}</div>
+                        {/if}
                         <button
                             type="button"
                             class="record-list-item"
@@ -468,6 +479,24 @@
 </section>
 
 <style>
+    .record-summary {
+        margin: -4px 0 2px;
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
+        line-height: 1.6;
+    }
+    .record-date-group {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        padding: 12px 10px 7px;
+        background: color-mix(in srgb, var(--wk-bg-card) 92%, transparent);
+        backdrop-filter: blur(12px);
+        color: var(--wk-ink-muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: .04em;
+    }
     .record-panel {
         display: flex;
         flex-direction: column;
@@ -515,7 +544,7 @@
         background: var(--wk-background);
         color: var(--wk-ink-secondary);
         padding: 6px 14px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         transition: background 0.12s;
     }
@@ -526,7 +555,7 @@
 
     .mode-tabs button.active {
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .search-area {
@@ -545,7 +574,7 @@
         background: var(--wk-background);
         color: var(--wk-ink);
         padding: 6px 10px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
     }
 
     .search-input::placeholder {
@@ -559,7 +588,7 @@
         background: var(--wk-background);
         color: var(--wk-ink);
         padding: 6px 8px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
     }
 
@@ -608,7 +637,7 @@
         background: var(--wk-background);
         color: var(--wk-ink-secondary);
         padding: 5px 10px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         transition: all 0.12s;
     }
@@ -621,13 +650,13 @@
     .category-tabs button.active {
         border-color: var(--wk-primary);
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .category-tabs button span {
         margin-left: 5px;
         opacity: 0.7;
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
     }
 
     .record-insights {
@@ -646,7 +675,7 @@
 
     .insight-label {
         display: block;
-        font-size: 11px;
+        font-size: 12px;
         color: var(--wk-ink-secondary);
         opacity: 0.55;
         margin-bottom: 5px;
@@ -666,7 +695,7 @@
     .insight-card small {
         display: block;
         margin-top: 4px;
-        font-size: 11px;
+        font-size: 12px;
         color: var(--wk-ink-secondary);
         opacity: 0.55;
     }
@@ -712,7 +741,7 @@
         border: 1px solid var(--wk-primary);
         border-radius: 7px;
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
         padding: 7px 14px;
         font-size: 13px;
         cursor: pointer;
@@ -725,7 +754,7 @@
     /* layout */
     .record-layout {
         display: grid;
-        grid-template-columns: minmax(320px, 420px) 1fr;
+        grid-template-columns: minmax(320px, 35%) 1fr;
         gap: 16px;
         align-items: start;
         min-height: 400px;
@@ -738,14 +767,13 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - 380px);
+        max-height: 520px;
     }
 
     .list-label {
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: var(--wk-ink-secondary);
-        opacity: 0.45;
+        color: var(--wk-ink-muted);
         padding: 10px 14px 8px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
@@ -791,9 +819,8 @@
 
     .list-item-excerpt {
         margin: 0;
-        font-size: 13px;
+        font-size: var(--wk-text-base);
         color: var(--wk-ink-secondary);
-        opacity: 0.9;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -805,19 +832,17 @@
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .list-item-date {
-        font-size: 10px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.4;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .category-tag {
-        font-size: 10px;
+        font-size: var(--wk-text-xs);
         padding: 1px 6px;
         border-radius: 999px;
         background: color-mix(in srgb, var(--wk-primary) 12%, transparent);
@@ -874,13 +899,12 @@
     }
 
     .meta-label {
-        font-size: 10px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .meta-value {
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         color: var(--wk-ink-secondary);
     }
 
@@ -891,8 +915,8 @@
 
     .content-text {
         margin: 0;
-        font-size: 13px;
-        line-height: 1.6;
+        font-size: var(--wk-text-base);
+        line-height: 1.7;
         color: var(--wk-ink-secondary);
         white-space: pre-wrap;
         word-break: break-all;
@@ -938,7 +962,7 @@
     }
 
     .btn-danger:hover:not(:disabled) {
-        background: rgba(211, 47, 47, 0.08);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
     }
 
     button:disabled {
@@ -947,12 +971,12 @@
     }
 
     .hint-text {
-        font-size: 11px;
+        font-size: 12px;
         color: var(--wk-ink-secondary);
         opacity: 0.45;
     }
 
-    @media (max-width: 900px) {
+    @container (max-width: 900px) {
         .mode-bar {
             flex-direction: column;
             align-items: stretch;

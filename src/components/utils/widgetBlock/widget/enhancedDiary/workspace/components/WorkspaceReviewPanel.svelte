@@ -113,21 +113,6 @@
     const currentPendingCount = $derived(
         cards.filter((card) => ["not_created", "missing_template", "pending", "overdue"].includes(card.status)).length
     );
-    const currentReviewScore = $derived(
-        cards.length === 0 ? 0 : Math.round((currentCompletedCount / cards.length) * 100)
-    );
-    const last30DayItems = $derived(history.filter((item) => item.period === "day").slice(0, 30));
-    const last12WeekItems = $derived(history.filter((item) => item.period === "week").slice(0, 12));
-    const last30DayCompletionRate = $derived(
-        last30DayItems.length === 0
-            ? 0
-            : Math.round((last30DayItems.filter((item) => item.status === "completed").length / last30DayItems.length) * 100)
-    );
-    const last12WeekCompletionRate = $derived(
-        last12WeekItems.length === 0
-            ? 0
-            : Math.round((last12WeekItems.filter((item) => item.status === "completed").length / last12WeekItems.length) * 100)
-    );
     const overdueHistoryCount = $derived(history.filter((item) => item.status === "overdue").length);
 
     function isContentEditable(card: EnhancedDiaryWorkspaceReviewCard): boolean {
@@ -260,7 +245,10 @@
 
 <section class="review-panel">
     <div class="panel-head">
-        <h2>复盘中心</h2>
+        <div class="wk-page-header-main">
+            <h2 class="wk-page-title">复盘</h2>
+            <p class="wk-page-description">整理今天，留下下一步。</p>
+        </div>
         <div class="mode-tabs">
             <button
                 type="button"
@@ -282,32 +270,10 @@
         </div>
     </div>
 
-    <div class="review-summary-grid">
-        <div class="summary-card">
-            <span>当前完成度</span>
-            <strong>{currentCompletedCount}/{cards.length}</strong>
-            <small>{currentReviewScore} 分</small>
-        </div>
-        <div class="summary-card">
-            <span>待处理复盘</span>
-            <strong class:warn={currentPendingCount > 0}>{currentPendingCount}</strong>
-            <small>当前周期</small>
-        </div>
-        <div class="summary-card">
-            <span>近 30 天日记</span>
-            <strong>{last30DayCompletionRate}%</strong>
-            <small>{last30DayItems.filter((item) => item.status === "completed").length}/{last30DayItems.length} 完成</small>
-        </div>
-        <div class="summary-card">
-            <span>近 12 周周记</span>
-            <strong>{last12WeekCompletionRate}%</strong>
-            <small>{last12WeekItems.filter((item) => item.status === "completed").length}/{last12WeekItems.length} 完成</small>
-        </div>
-        <div class="summary-card">
-            <span>历史逾期</span>
-            <strong class:danger={overdueHistoryCount > 0}>{overdueHistoryCount}</strong>
-            <small>历史档案</small>
-        </div>
+    <div class="review-summary-line">
+        <span>当前：{currentCompletedCount}/{cards.length} 完成</span>
+        {#if currentPendingCount > 0}<span class="summary-warn">· {currentPendingCount} 待处理</span>{/if}
+        {#if overdueHistoryCount > 0}<span class="summary-danger">· {overdueHistoryCount} 历史逾期</span>{/if}
     </div>
 
     {#if viewMode === "current"}
@@ -621,50 +587,24 @@
         letter-spacing: -0.01em;
     }
 
-    .review-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 10px;
+    .review-summary-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 16px;
+        padding: 0 2px 14px;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
+        border-bottom: 1px solid var(--wk-divider);
     }
 
-    .summary-card {
-        border: 1px solid var(--wk-border);
-        border-radius: 10px;
-        background: var(--wk-surface);
-        padding: 12px;
-        text-align: center;
+    .summary-warn {
+        color: var(--wk-primary);
+        font-weight: 600;
     }
 
-    .summary-card span {
-        display: block;
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.55;
-        margin-bottom: 4px;
-    }
-
-    .summary-card strong {
-        display: block;
-        font-size: 22px;
-        color: var(--wk-ink-secondary);
-        font-variant-numeric: tabular-nums;
-    }
-
-    .summary-card strong.warn {
-        color: #e6900a;
-    }
-
-    .summary-card strong.danger {
+    .summary-danger {
         color: var(--wk-error);
-    }
-
-    .summary-card small {
-        display: block;
-        margin-top: 3px;
-        font-size: 10px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.45;
-        font-variant-numeric: tabular-nums;
+        font-weight: 600;
     }
 
     /* period tabs */
@@ -687,7 +627,7 @@
         background: var(--wk-background);
         color: var(--wk-ink-secondary);
         padding: 7px 13px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         transition: background 0.12s;
     }
@@ -702,13 +642,13 @@
 
     .period-tab.active {
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .period-tab.active .status-badge {
-        background: rgba(255, 255, 255, 0.2);
-        color: #fff;
-        border-color: rgba(255, 255, 255, 0.3);
+        background: color-mix(in srgb, var(--b3-theme-on-primary) 20%, transparent);
+        color: var(--b3-theme-on-primary);
+        border-color: color-mix(in srgb, var(--b3-theme-on-primary) 30%, transparent);
     }
 
     .period-tab-label {
@@ -737,9 +677,8 @@
 
     .date-range {
         margin: 0;
-        color: var(--wk-ink-secondary);
-        opacity: 0.6;
-        font-size: 12px;
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
         font-variant-numeric: tabular-nums;
     }
 
@@ -756,9 +695,8 @@
 
     .not-due-hint p {
         margin: 0;
-        font-size: 13px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.65;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .card-actions {
@@ -768,16 +706,17 @@
     }
 
     .content-editor {
-        border: 1px solid var(--wk-border);
-        border-radius: 8px;
-        background: var(--wk-background);
-        padding: 14px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        padding: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 32%);
+        gap: 18px;
     }
 
     .content-editor-header {
+        grid-column: 1 / -1;
         font-size: 13px;
         font-weight: 600;
         color: var(--wk-ink-secondary);
@@ -786,26 +725,26 @@
     .content-loading {
         padding: 16px 0;
         text-align: center;
-        font-size: 12px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .content-error {
         padding: 12px 14px;
-        border: 1px solid rgba(255, 165, 0, 0.35);
+        border: 1px solid color-mix(in srgb, var(--wk-primary) 35%, transparent);
         border-radius: 7px;
-        background: rgba(255, 165, 0, 0.06);
+        background: color-mix(in srgb, var(--wk-primary) 6%, transparent);
         font-size: 12px;
-        color: #b87300;
+        color: var(--wk-primary);
     }
 
     .field-list {
+        grid-column: 1;
         display: flex;
         flex-direction: column;
         gap: 12px;
-        max-height: min(48vh, 460px);
-        overflow: auto;
+        max-height: none;
+        overflow: visible;
         padding: 2px 2px 6px;
     }
 
@@ -822,29 +761,29 @@
     }
 
     .field-label {
-        font-size: 13px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
         color: var(--wk-ink-secondary);
     }
 
     .field-missing-hint {
-        font-size: 11px;
+        font-size: var(--wk-text-xs);
         color: var(--wk-primary);
-        opacity: 0.7;
     }
 
     .field-list textarea {
         resize: vertical;
         width: 100%;
         box-sizing: border-box;
-        min-height: 80px;
-        font-size: 13px;
-        line-height: 1.5;
-        border: 1px solid var(--wk-border);
-        border-radius: 7px;
-        background: var(--wk-surface);
+        min-height: 120px;
+        font-size: var(--wk-text-base);
+        line-height: 1.7;
+        border: 1px solid var(--wk-border-subtle);
+        border-radius: var(--wk-radius-sm);
+        background: var(--b3-theme-background);
         color: var(--wk-ink-secondary);
         padding: 8px 10px;
+        font-family: inherit;
     }
 
     .field-list textarea:focus {
@@ -853,6 +792,7 @@
     }
 
     .content-actions {
+        grid-column: 1;
         display: flex;
         justify-content: flex-end;
         gap: 8px;
@@ -860,6 +800,8 @@
     }
 
     .today-materials {
+        grid-column: 2;
+        grid-row: 2 / span 3;
         border: 1px solid var(--wk-border);
         border-radius: 8px;
         background: var(--wk-surface);
@@ -882,9 +824,8 @@
     }
 
     .stat-item {
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.7;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
         padding: 3px 8px;
         border-radius: 4px;
         background: var(--wk-background);
@@ -903,7 +844,7 @@
         background: var(--wk-background);
         color: var(--wk-ink-secondary);
         padding: 5px 10px;
-        font-size: 11px;
+        font-size: 12px;
         cursor: pointer;
         transition: border-color 0.1s, color 0.1s;
     }
@@ -913,9 +854,16 @@
         color: var(--wk-primary);
     }
 
+    @container (max-width: 760px) {
+        .content-editor { grid-template-columns: 1fr; }
+        .today-materials,
+        .field-list,
+        .content-actions { grid-column: 1; grid-row: auto; }
+    }
+
     /* status badge */
     .status-badge {
-        font-size: 10px;
+        font-size: var(--wk-text-xs);
         padding: 2px 7px;
         border-radius: 999px;
         font-weight: 500;
@@ -923,13 +871,13 @@
         flex-shrink: 0;
     }
 
-    .status-badge.status-not_created    { background: rgba(0,0,0,0.06); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); }
-    .status-badge.status-missing_template { background: rgba(255,165,0,0.12); color: #b87300; border: 1px solid rgba(255,165,0,0.35); }
+    .status-badge.status-not_created    { background: color-mix(in srgb, var(--b3-theme-on-background) 6%, transparent); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); }
+    .status-badge.status-missing_template { background: color-mix(in srgb, var(--wk-primary) 12%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 35%, transparent); }
     .status-badge.status-pending        { background: color-mix(in srgb, var(--wk-primary) 12%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent); }
-    .status-badge.status-completed      { background: rgba(40,167,69,0.12); color: #22863a; border: 1px solid rgba(40,167,69,0.3); }
-    .status-badge.status-overdue        { background: rgba(211,47,47,0.1); color: var(--wk-error); border: 1px solid rgba(211,47,47,0.3); }
-    .status-badge.status-skipped        { background: rgba(0,0,0,0.06); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); opacity: 0.7; }
-    .status-badge.status-not_due        { background: rgba(0,0,0,0.04); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); opacity: 0.55; }
+    .status-badge.status-completed      { background: color-mix(in srgb, var(--wk-primary) 12%, transparent); color: var(--wk-primary); border: 1px solid color-mix(in srgb, var(--wk-primary) 30%, transparent); }
+    .status-badge.status-overdue        { background: color-mix(in srgb, var(--wk-error) 8%, transparent); color: var(--wk-error); border: 1px solid color-mix(in srgb, var(--wk-error) 8%, transparent); }
+    .status-badge.status-skipped        { background: color-mix(in srgb, var(--b3-theme-on-background) 6%, transparent); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); opacity: 0.7; }
+    .status-badge.status-not_due        { background: color-mix(in srgb, var(--b3-theme-on-background) 4%, transparent); color: var(--wk-ink-secondary); border: 1px solid var(--wk-border); opacity: 0.55; }
 
     /* panel head + mode tabs */
     .panel-head {
@@ -952,7 +900,7 @@
         background: var(--wk-background);
         color: var(--wk-ink-secondary);
         padding: 6px 14px;
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
         transition: background 0.12s;
     }
@@ -963,7 +911,7 @@
 
     .mode-tabs button.active {
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     /* buttons */
@@ -991,12 +939,12 @@
     .btn-primary {
         border-color: var(--wk-primary);
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .btn-primary:hover:not(:disabled) {
         opacity: 0.88;
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .btn-secondary {
@@ -1011,13 +959,13 @@
     }
 
     .btn-warning {
-        border-color: rgba(255, 165, 0, 0.5);
-        color: #b87300;
+        border-color: color-mix(in srgb, var(--wk-primary) 50%, transparent);
+        color: var(--wk-primary);
     }
 
     .btn-warning:hover:not(:disabled) {
-        border-color: #e6900a;
-        color: #e6900a;
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     /* history toolbar */
@@ -1034,14 +982,13 @@
         border-radius: 7px;
         background: var(--wk-background);
         color: var(--wk-ink);
-        font-size: 12px;
+        font-size: var(--wk-text-sm);
         cursor: pointer;
     }
 
     .filter-count {
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .history-empty-guide {
@@ -1093,11 +1040,11 @@
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - 380px);
+        max-height: 520px;
     }
 
     .list-label {
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 600;
         color: var(--wk-ink-secondary);
         opacity: 0.45;
@@ -1145,33 +1092,30 @@
     }
 
     .history-item-period {
-        font-size: 11px;
+        font-size: var(--wk-text-sm);
         font-weight: 600;
-        color: var(--wk-ink-secondary);
-        opacity: 0.55;
+        color: var(--wk-ink-muted);
     }
 
     .history-item-date {
-        font-size: 11px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.5;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .history-item-title {
-        font-size: 12px;
-        color: var(--wk-ink-secondary);
-        opacity: 0.7;
+        font-size: var(--wk-text-sm);
+        color: var(--wk-ink-muted);
     }
 
     .has-doc-mark {
-        font-size: 10px;
+        font-size: 12px;
         margin-top: 2px;
     }
 
     /* history list status accent */
     .history-list-item.status-overdue      { border-left-color: color-mix(in srgb, var(--wk-error) 50%, transparent); }
     .history-list-item.status-pending      { border-left-color: color-mix(in srgb, var(--wk-primary) 40%, transparent); }
-    .history-list-item.status-missing_template { border-left-color: color-mix(in srgb, #e6900a 40%, transparent); }
+    .history-list-item.status-missing_template { border-left-color: color-mix(in srgb, var(--wk-primary) 40%, transparent); }
     .history-list-item.status-overdue.selected      { border-left-color: var(--wk-primary); }
     .history-list-item.status-pending.selected      { border-left-color: var(--wk-primary); }
     .history-list-item.status-missing_template.selected { border-left-color: var(--wk-primary); }
@@ -1222,7 +1166,7 @@
     }
 
     .meta-label {
-        font-size: 10px;
+        font-size: 12px;
         color: var(--wk-ink-secondary);
         opacity: 0.5;
     }
@@ -1259,22 +1203,22 @@
     .btn-action.btn-primary {
         border-color: var(--wk-primary);
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .btn-action.btn-primary:hover {
         opacity: 0.88;
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .btn-action.btn-warning {
-        border-color: rgba(255, 165, 0, 0.5);
-        color: #b87300;
+        border-color: color-mix(in srgb, var(--wk-primary) 50%, transparent);
+        color: var(--wk-primary);
     }
 
     .btn-action.btn-warning:hover {
-        border-color: #e6900a;
-        color: #e6900a;
+        border-color: var(--wk-primary);
+        color: var(--wk-primary);
     }
 
     .history-safe-hint {
@@ -1284,7 +1228,7 @@
         align-self: center;
     }
 
-    @media (max-width: 760px) {
+    @container (max-width: 760px) {
         .review-summary-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }

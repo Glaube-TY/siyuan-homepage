@@ -1,5 +1,4 @@
 <script lang="ts">
-    import WorkspaceEmptyState from "./WorkspaceEmptyState.svelte";
     import type { TimelineItem } from "../enhancedDiaryWorkspaceNavigation";
 
     interface Props {
@@ -9,13 +8,11 @@
     let { items }: Props = $props();
 </script>
 
+{#if items.length > 0}
 <div class="wk-card timeline-card">
     <div class="wk-card-head">
         <h2 class="wk-card-title">今日时间线</h2>
     </div>
-    {#if items.length === 0}
-        <WorkspaceEmptyState title="今日暂无动态" description="新建任务、快速记录或项目推进后会在这里显示。" />
-    {:else}
         <div class="timeline">
             {#each items as item}
                 <div class="timeline-item">
@@ -28,8 +25,8 @@
                 </div>
             {/each}
         </div>
-    {/if}
 </div>
+{/if}
 
 <style>
     .timeline-card {
@@ -67,11 +64,11 @@
         margin-top: 5px;
     }
 
-    .timeline-dot.type-new_task { background: var(--wk-primary); }
-    .timeline-dot.type-migrate_task { background: var(--wk-warning); }
-    .timeline-dot.type-quick_record { background: var(--wk-info); }
-    .timeline-dot.type-project_progress { background: var(--wk-success); }
-    .timeline-dot.type-review { background: var(--wk-secondary); }
+    .timeline-dot { background: var(--wk-primary); }
+    .timeline-dot.type-migrate_task,
+    .timeline-dot.type-project_progress { opacity: .55; }
+    .timeline-dot.type-quick_record,
+    .timeline-dot.type-review { opacity: .75; }
 
     .timeline-content {
         flex: 1;

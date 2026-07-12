@@ -279,7 +279,7 @@
         text-align: center;
         border-radius: 999px;
         padding: 2px 7px;
-        font-size: 10px;
+        font-size: 12px;
         color: var(--wk-primary);
         background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
         border: 1px solid color-mix(in srgb, var(--wk-primary) 24%, transparent);
@@ -301,7 +301,7 @@
     .result-main small {
         display: block;
         margin-top: 2px;
-        font-size: 11px;
+        font-size: 12px;
         color: var(--wk-ink-secondary);
         opacity: 0.55;
         overflow: hidden;
@@ -310,7 +310,7 @@
     }
 
     .result-action {
-        font-size: 11px;
+        font-size: 12px;
         color: var(--wk-primary);
         white-space: nowrap;
     }
@@ -320,7 +320,7 @@
         margin-top: 2px;
     }
 
-    @media (max-width: 760px) {
+    @container (max-width: 760px) {
         .global-search {
             padding: 10px 12px;
         }

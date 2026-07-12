@@ -11,12 +11,12 @@
 </script>
 
 <div class="delete-task-content">
-    <p>请选择删除方式。保留删除记录会先写入今日日记「任务动态」，写入成功后才删除原任务。</p>
+    <p>删除后任务将不再出现在工作台。你可以选择在今日日记中保留一条删除记录。</p>
     <div class="task-name">{task.taskname}</div>
     <footer>
         <button type="button" onclick={onClose}>取消</button>
-        <button type="button" onclick={() => onSelect("log")}>保留删除记录</button>
-        <button type="button" class="danger" onclick={() => onSelect("delete")}>直接删除任务块</button>
+        <button type="button" onclick={() => onSelect("log")}>删除并保留记录</button>
+        <button type="button" class="danger" onclick={() => onSelect("delete")}>删除任务</button>
     </footer>
 </div>
 
@@ -81,14 +81,14 @@
     }
 
     .danger {
-        border-color: rgba(211, 47, 47, 0.5);
+        border-color: color-mix(in srgb, var(--wk-error) 8%, transparent);
         color: var(--wk-error);
-        background: rgba(211, 47, 47, 0.05);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
     }
 
     .danger:hover {
         border-color: var(--wk-error);
-        background: rgba(211, 47, 47, 0.1);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
         color: var(--wk-error);
     }
 </style>

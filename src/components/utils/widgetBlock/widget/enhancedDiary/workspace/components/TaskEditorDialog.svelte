@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
     import type { GenerateTasksPlusTaskInput } from "../../../tasksPlus/tasksPlusParser";
+    import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
         task?: EnhancedDiaryWorkspaceTask | null;
@@ -21,6 +22,17 @@
     let reminder = $state("");
     let location = $state("");
     let tagsText = $state("");
+    let showMore = $state(false);
+
+    const priorityOptions = [
+        { value: "", label: "无" },
+        { value: "❗", label: "低" },
+        { value: "❗❗", label: "中" },
+        { value: "❗❗❗", label: "高" },
+        { value: "❗❗❗❗", label: "紧急" },
+    ];
+
+    const hasExtended = $derived(recurrence !== "" || reminder !== "" || location !== "");
 
     function parseTags(value: string): string[] {
         return value
@@ -52,152 +64,253 @@
         reminder = task?.reminder || initialInput.reminder || "";
         location = task?.location || initialInput.location || "";
         tagsText = (task?.tags || initialInput.tags || []).join(" ");
+        showMore = !!(recurrence || reminder || location);
     });
 </script>
 
-<div class="task-editor-form">
-    <div class="form">
-        <label>任务名称
-            <input bind:value={taskname} type="text" placeholder="输入任务名称" />
-        </label>
-        <div class="row">
-            <label>开始日期
-                <input bind:value={startDate} type="date" />
-            </label>
-            <label>截止日期
-                <input bind:value={deadline} type="date" />
-            </label>
-        </div>
-        <div class="row">
-            <label>优先级
-                <select bind:value={priority}>
-                    <option value="">无</option>
-                    <option value="❗">低</option>
-                    <option value="❗❗">中</option>
-                    <option value="❗❗❗">高</option>
-                    <option value="❗❗❗❗">紧急</option>
-                </select>
-            </label>
-            <label>标签
-                <input bind:value={tagsText} type="text" placeholder="多个标签用空格或逗号分隔" />
-            </label>
-        </div>
-        <div class="row">
-            <label>重复
-                <input bind:value={recurrence} type="text" placeholder="例如：每天、每周" />
-            </label>
-            <label>提醒
-                <input bind:value={reminder} type="text" placeholder="YYYY-MM-DD HH:mm 或 HH:mm" />
-            </label>
-        </div>
-        <label>地点
-            <input bind:value={location} type="text" />
-        </label>
+<div class="task-editor-panel">
+    <div class="panel-section panel-name">
+        <input
+            type="text"
+            class="task-name-input"
+            bind:value={taskname}
+            placeholder="输入任务名称"
+        />
     </div>
 
-    <footer>
-        <button type="button" onclick={onClose}>取消</button>
-        <button type="button" class="primary" onclick={submit}>确认</button>
-    </footer>
+    <div class="panel-section">
+        <div class="section-label">日期</div>
+        <div class="date-row">
+            <label class="field-label">
+                开始
+                <input type="date" class="field-input" bind:value={startDate} />
+            </label>
+            <label class="field-label">
+                截止
+                <input type="date" class="field-input" bind:value={deadline} />
+            </label>
+        </div>
+    </div>
+
+    <div class="panel-section">
+        <div class="section-label">属性</div>
+        <div class="field-group">
+            <div class="field-col">
+                <span class="field-label-text">优先级</span>
+                <div class="wk-chip-group">
+                    {#each priorityOptions as opt}
+                        <button
+                            type="button"
+                            class="wk-chip"
+                            class:selected={priority === opt.value}
+                            onclick={() => (priority = opt.value)}
+                        >
+                            {opt.label}
+                        </button>
+                    {/each}
+                </div>
+            </div>
+            <div class="field-col">
+                <span class="field-label-text">标签</span>
+                <input
+                    type="text"
+                    class="field-input"
+                    bind:value={tagsText}
+                    placeholder="空格或逗号分隔"
+                />
+            </div>
+        </div>
+    </div>
+
+    <button type="button" class="more-toggle" onclick={() => (showMore = !showMore)}>
+        <WorkspaceIcon name="settings" size={13} />
+        {showMore ? "收起更多选项" : "更多选项"}
+        {#if hasExtended && !showMore}
+            <span class="more-has-value">•</span>
+        {/if}
+    </button>
+
+    {#if showMore}
+        <div class="panel-section panel-extended">
+            <div class="extended-grid">
+                <label class="field-label">
+                    重复规则
+                    <input type="text" class="field-input" bind:value={recurrence} placeholder="每天 / 每周" />
+                </label>
+                <label class="field-label">
+                    提醒时间
+                    <input type="text" class="field-input" bind:value={reminder} placeholder="HH:mm 或 YYYY-MM-DD HH:mm" />
+                </label>
+                <label class="field-label full-width">
+                    地点
+                    <input type="text" class="field-input" bind:value={location} placeholder="可选地点" />
+                </label>
+            </div>
+        </div>
+    {/if}
+
+    <div class="panel-footer">
+        <button type="button" class="wk-btn wk-btn-ghost" onclick={onClose}>取消</button>
+        <button type="button" class="wk-btn wk-btn-primary" onclick={submit}>
+            {_mode === "create" ? "创建任务" : "保存更改"}
+        </button>
+    </div>
 </div>
 
 <style>
-    .task-editor-form {
+    .task-editor-panel {
         display: flex;
         flex-direction: column;
         min-height: 0;
         width: 100%;
         box-sizing: border-box;
-        flex: 1;
-        min-width: 0;
     }
 
-    .form {
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        padding: 18px;
+    .panel-section {
+        padding: 14px 20px;
+    }
+
+    .panel-section + .panel-section {
+        padding-top: 0;
+    }
+
+    .panel-name {
+        padding-bottom: 10px;
+    }
+
+    .task-name-input {
         width: 100%;
+        border: none;
+        border-bottom: 1px solid var(--wk-border-light);
+        background: transparent;
+        color: var(--wk-ink);
+        font-size: var(--wk-text-lg);
+        font-weight: 600;
+        padding: 8px 2px;
         box-sizing: border-box;
+        transition: border-color var(--wk-transition-fast);
+        font-family: inherit;
     }
 
-    .row {
+    .task-name-input:focus {
+        outline: none;
+        border-bottom-color: var(--wk-primary);
+    }
+
+    .task-name-input::placeholder {
+        color: var(--wk-ink-faint);
+        font-weight: 400;
+    }
+
+    .section-label {
+        font-size: var(--wk-text-xs);
+        font-weight: 600;
+        color: var(--wk-ink-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 8px;
+    }
+
+    .date-row {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
+        gap: 12px;
     }
 
-    label {
+    .field-group {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .field-col {
         display: flex;
         flex-direction: column;
         gap: 6px;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--wk-ink-secondary);
-        opacity: 0.8;
-        min-width: 0;
     }
 
-    input,
-    select {
-        border: 1px solid var(--wk-border);
-        border-radius: 7px;
-        background: var(--wk-surface);
+    .field-label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: var(--wk-text-sm);
+        font-weight: 500;
+        color: var(--wk-ink-muted);
+    }
+
+    .field-label-text {
+        font-size: var(--wk-text-sm);
+        font-weight: 500;
+        color: var(--wk-ink-muted);
+    }
+
+    .field-input {
+        border: 1px solid var(--wk-border-light);
+        border-radius: var(--wk-radius-sm);
+        background: var(--wk-bg-card);
         color: var(--wk-ink-secondary);
-        padding: 8px 10px;
-        font-size: 13px;
-        transition: border-color 0.12s;
+        padding: 7px 10px;
+        font-size: var(--wk-text-base);
         width: 100%;
         box-sizing: border-box;
+        transition: border-color var(--wk-transition-fast);
     }
 
-    input:focus,
-    select:focus {
+    .field-input:focus {
         outline: none;
         border-color: var(--wk-primary);
     }
 
-    footer {
-        display: flex;
+    .more-toggle {
+        display: inline-flex;
         align-items: center;
-        justify-content: flex-end;
-        gap: 10px;
-        padding: 16px 18px;
-        border-top: 1px solid var(--wk-border);
-        background: var(--wk-surface);
-        width: 100%;
-        box-sizing: border-box;
-    }
-
-    footer button {
-        border: 1px solid var(--wk-border);
-        border-radius: 7px;
-        background: var(--wk-background);
-        color: var(--wk-ink);
-        padding: 7px 16px;
-        font-size: 13px;
+        gap: 6px;
+        margin: 0 20px;
+        padding: 6px 0;
+        border: none;
+        background: transparent;
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
         cursor: pointer;
-        transition: border-color 0.1s, color 0.1s;
+        width: fit-content;
+        transition: color var(--wk-transition-fast);
     }
 
-    footer button:hover {
-        border-color: var(--wk-primary);
+    .more-toggle:hover {
         color: var(--wk-primary);
     }
 
-    .primary {
-        border-color: var(--wk-primary) !important;
-        background: var(--wk-primary) !important;
-        color: #fff !important;
+    .more-has-value {
+        color: var(--wk-primary);
+        font-size: 12px;
     }
 
-    .primary:hover {
-        opacity: 0.88;
-        color: #fff !important;
+    .panel-extended {
+        padding-top: 10px;
     }
 
-    @media (max-width: 620px) {
-        .row {
+    .extended-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .full-width {
+        grid-column: 1 / -1;
+    }
+
+    .panel-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 14px 20px;
+        border-top: 1px solid var(--wk-border-light);
+    }
+
+    @container (max-width: 500px) {
+        .date-row,
+        .extended-grid {
             grid-template-columns: 1fr;
         }
     }

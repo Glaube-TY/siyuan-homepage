@@ -4,16 +4,14 @@
     import WorkspaceHeader from "./components/WorkspaceHeader.svelte";
     import WorkspaceSidebar, { type WorkspaceTab } from "./components/WorkspaceSidebar.svelte";
     import { getWorkspaceReviewFields, isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
-    import WorkspaceStatCard from "./components/WorkspaceStatCard.svelte";
-    import WorkspaceOverview from "./components/WorkspaceOverview.svelte";
+        import WorkspaceOverview from "./components/WorkspaceOverview.svelte";
     import WorkspaceTaskPanel from "./components/WorkspaceTaskPanel.svelte";
     import WorkspaceRecordPanel from "./components/WorkspaceRecordPanel.svelte";
     import WorkspaceCalendarPanel from "./components/WorkspaceCalendarPanel.svelte";
     import WorkspaceNotificationPanel from "./components/WorkspaceNotificationPanel.svelte";
     import WorkspaceReviewPanel from "./components/WorkspaceReviewPanel.svelte";
     import WorkspaceProjectPanel from "./components/WorkspaceProjectPanel.svelte";
-    import WorkspaceGlobalSearch from "./components/WorkspaceGlobalSearch.svelte";
-    import WorkspaceCommandPalette, { type WorkspaceCommand } from "./components/WorkspaceCommandPalette.svelte";
+        import WorkspaceCommandPalette, { type WorkspaceCommand } from "./components/WorkspaceCommandPalette.svelte";
     import WorkspaceQuickCreateFab from "./components/WorkspaceQuickCreateFab.svelte";
     import WorkspaceEmptyState from "./components/WorkspaceEmptyState.svelte";
     import WorkspaceSettingsPage from "./components/WorkspaceSettingsPage.svelte";
@@ -25,7 +23,6 @@
         openDeleteRecordSvelteDialog,
         openMigrateTaskSvelteDialog,
     } from "./enhancedDiaryWorkspaceDialogs";
-    import WorkspaceMorePage from "./components/WorkspaceMorePage.svelte";
     import "./workspaceDesignTokens.css";
     import {
         loadReviewContent,
@@ -156,17 +153,6 @@
         goTasks("all", "", date);
     }
 
-    function goTaskDetail(task: EnhancedDiaryWorkspaceTask): void {
-        taskStatusFilter = "all";
-        taskTagFilter = "";
-        taskDateFilter = task.sourceDate || "";
-        taskRiskFilter = "all";
-        taskSelectBlockId = task.blockId;
-        taskFilterVersion += 1;
-        taskSelectVersion += 1;
-        selectTab("tasks");
-    }
-
     function goRecords(options: GoRecordsOptions = {}): void {
         recordViewMode = options.mode || "today";
         recordDateFilter = options.date || "";
@@ -196,25 +182,11 @@
         void ensureReviewHistoryLoaded();
     }
 
-    function goProjectDetail(projectName: string): void {
-        projectStatusFilter = "all";
-        projectFilterVersion += 1;
-        projectSelectName = projectName;
-        projectSelectVersion += 1;
-        selectTab("projects");
-    }
-
     function goProjects(statusFilter: WorkspaceProjectStatusFilter = "all"): void {
         projectStatusFilter = statusFilter;
         projectFilterVersion += 1;
         projectSelectName = "";
         selectTab("projects");
-    }
-
-    function goNotificationDetail(notificationId: string): void {
-        notificationSelectId = notificationId;
-        notificationSelectVersion += 1;
-        selectTab("notifications");
     }
 
     const taskManagementEnabled = $derived(state ? isEnhancedDiaryTaskManagementEnabled(state.config) : true);
@@ -523,7 +495,6 @@
             "projects",
             "records",
             "review",
-            "more",
             "calendar",
             "notifications",
             "settings",
@@ -1328,68 +1299,26 @@
 
 {#if advancedEnabled}
 <div class="workspace-page">
-    <div class="workspace-shell">
         <WorkspaceHeader
             today={state?.today || ""}
             {loading}
             onRefresh={refresh}
             onOpenAndAppendTemplate={openTodayAndAppendTemplate}
             onOpenCommandPalette={() => (commandPaletteOpen = true)}
+            todayTaskCount={todayTaskCount}
+            overdueTaskCount={overdueTaskCount}
+            recordCount={state?.records?.length || 0}
+            projectCount={state?.projects?.length || 0}
+            reviewStatusText={reviewStatusText}
+            {taskManagementEnabled}
+            onGoTasks={(f) => goTasks(f as WorkspaceTaskStatusFilter)}
+            onGoRecords={() => goRecords({ mode: "today" })}
+            onGoProjects={() => selectTab("projects")}
+            onGoReview={() => selectTab("review")}
         />
 
     {#if state}
-        <div class="stats-grid">
-            {#if taskManagementEnabled}
-                <WorkspaceStatCard
-                    label="今日任务"
-                    value={todayTaskCount}
-                    tone="primary"
-                    onclick={() => goTasks("today")}
-                />
-                <WorkspaceStatCard
-                    label="逾期任务"
-                    value={overdueTaskCount}
-                    tone={overdueTaskCount > 0 ? "danger" : "normal"}
-                    onclick={() => goTasks("overdue")}
-                />
-                <WorkspaceStatCard
-                    label="建议迁移"
-                    value={migrateTaskCount}
-                    tone={migrateTaskCount > 0 ? "warning" : "normal"}
-                    onclick={() => goTasks("migrate")}
-                />
-            {/if}
-            <WorkspaceStatCard
-                label="今日记录"
-                value={state.records.length}
-                onclick={() => goRecords({ mode: "today" })}
-            />
-            {#if taskManagementEnabled}
-                <WorkspaceStatCard
-                    label="进行中项目"
-                    value={state.projects.length}
-                    onclick={() => selectTab("projects")}
-                />
-            {/if}
-            <WorkspaceStatCard
-                label="复盘状态"
-                value={reviewStatusText}
-                onclick={() => selectTab("review")}
-            />
-        </div>
-
-        <WorkspaceGlobalSearch
-            {state}
-            taskManagementEnabled={taskManagementEnabled}
-            onOpenTaskResult={goTaskDetail}
-            onOpenRecordResult={goRecords}
-            onOpenProjectResult={goProjectDetail}
-            onOpenNotificationResult={goNotificationDetail}
-            onGoReview={() => selectTab("review")}
-            onOpenDoc={openDoc}
-        />
-
-        <div class="workspace-body">
+        <div class="workspace-layout">
             <WorkspaceSidebar
                 {activeTab}
                 notificationCount={unhandledNotificationCount}
@@ -1406,23 +1335,20 @@
                         onGoTasks={goTasks}
                         onGoReview={() => selectTab("review")}
                         onGoProjects={goProjects}
-                        onGoNotifications={() => selectTab("notifications")}
                         onCreateTask={openCreateTaskDialog}
                         onCreateRecord={openQuickRecordDialogForWorkspace}
                         calendarDays={calendarDays}
                         calendarDate={calendarDate}
                         calendarLoading={calendarLoading}
                         selectedCalendarDate={selectedCalendarDate}
-                        selectedDayDetail={selectedDayDetail}
-                        dayDetailLoading={dayDetailLoading}
-                        onSelectDate={(day) => loadSelectedDayDetail(day.date)}
+                        onSelectDate={(day) => {
+                            void loadSelectedDayDetail(day.date);
+                            selectTab("calendar");
+                        }}
                         onPrevMonth={previousMonth}
                         onNextMonth={nextMonth}
                         onOpenDoc={openDoc}
-                        onOpenRecords={goRecordsByDate}
-                        onOpenReview={goReviewByDate}
                         onCalendarToday={jumpCalendarToToday}
-                        onOpenTasks={goTasksByDate}
                         calendarDisplaySettings={state.config.workspaceSettings.calendar}
                     />
                 {:else if activeTab === "tasks" && taskManagementEnabled}
@@ -1549,19 +1475,6 @@
                         onSave={saveWorkspaceSettings}
                         onOpenAndAppendTemplate={openTodayAndAppendTemplate}
                     />
-                {:else if activeTab === "more"}
-                    <WorkspaceMorePage
-                        onGoCalendar={() => selectTab("calendar")}
-                        onGoNotifications={() => selectTab("notifications")}
-                        onOpenToday={openToday}
-                        onAppendTemplate={appendTodayTemplate}
-                        notificationCount={unhandledNotificationCount}
-                        todayDiaryExists={state.todayDiaryExists}
-                        templateValid={state.templateValid}
-                        missingSections={state.missingSections}
-                        {taskManagementEnabled}
-                        templateFieldMapping={state.config.templateFieldMapping}
-                    />
                 {/if}
             </main>
         </div>
@@ -1573,84 +1486,74 @@
     {:else}
         <WorkspaceEmptyState title="工作台加载失败" description="请刷新或查看控制台日志。" />
     {/if}
-    </div><!-- /.workspace-shell -->
-</div>
 
-<WorkspaceCommandPalette
-    open={commandPaletteOpen}
-    commands={commandItems}
-    onClose={() => (commandPaletteOpen = false)}
-/>
-
-{#if state}
-    <WorkspaceQuickCreateFab
-        taskManagementEnabled={taskManagementEnabled}
-        onCreateTask={() => openCreateTaskDialog()}
-        onCreateRecord={openQuickRecordDialogForWorkspace}
-        onOpenAndAppendTemplate={openTodayAndAppendTemplate}
+    <WorkspaceCommandPalette
+        open={commandPaletteOpen}
+        commands={commandItems}
+        onClose={() => (commandPaletteOpen = false)}
     />
-{/if}
+
+    {#if state}
+        <WorkspaceQuickCreateFab
+            taskManagementEnabled={taskManagementEnabled}
+            onCreateTask={() => openCreateTaskDialog()}
+            onCreateRecord={openQuickRecordDialogForWorkspace}
+            onOpenAndAppendTemplate={openTodayAndAppendTemplate}
+        />
+    {/if}
+</div>
 {:else}
 <div class="workspace-page">
-    <div class="workspace-shell">
         <AdvancedFeatureLock
             title="强化日记工作台"
             subtitle="把日记、任务、记录、复盘和计划承接整合成一个专业工作台。"
             icon="diary"
             features={[
                 "任务、记录、复盘集中管理",
-                "今日作战台与风险提醒",
+                "今天重点与风险提醒",
                 "计划承接与复盘内容编辑",
                 "快速记录和自定义分类"
             ]}
-            highlights={["Dashboard", "复盘工作流", "计划承接"]}
+            highlights={["今日工作区", "复盘工作流", "计划承接"]}
         />
-    </div>
 </div>
 {/if}
 
 <style>
     .workspace-page {
         min-height: 100%;
-        background: var(--b3-theme-background);
+        background: var(--wk-bg-page);
         color: var(--b3-theme-on-background);
         box-sizing: border-box;
-        padding: 16px;
-    }
-
-    .workspace-shell {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 14px;
+        padding: 0;
+        position: relative;
+        isolation: isolate;
         overflow: hidden;
-        background: var(--b3-theme-surface);
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
-        min-height: calc(100vh - 32px);
         display: flex;
         flex-direction: column;
+        container-type: inline-size;
     }
 
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-        gap: 10px;
-        padding: 14px 20px;
-        background: var(--b3-theme-background);
-        border-bottom: 1px solid var(--b3-border-color);
-    }
-
-    .workspace-body {
+    .workspace-layout {
         display: flex;
         flex: 1;
         min-height: 0;
+        padding: 0;
+        gap: 0;
+        container-type: inline-size;
     }
 
     main {
         flex: 1;
         min-width: 0;
-        padding: 20px 24px 32px;
+        padding: 28px clamp(20px, 2.5vw, 40px) 48px;
         box-sizing: border-box;
         overflow: auto;
-        background: var(--b3-theme-background);
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        container-type: inline-size;
     }
 
     .loading-state {
@@ -1682,51 +1585,40 @@
         to { transform: rotate(360deg); }
     }
 
-    @media (max-width: 1180px) {
-        .stats-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-    }
-
-    @media (max-width: 900px) {
+    @container (max-width: 900px) {
         .workspace-page {
-            padding: 8px;
+            padding: 0;
         }
 
-        .workspace-shell {
-            border-radius: 10px;
-        }
-
-        .workspace-body {
+        .workspace-layout {
             flex-direction: column;
-        }
-
-        .stats-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            padding: 12px;
+            padding: 0 10px 10px;
+            gap: 10px;
         }
 
         main {
-            padding: 14px;
-        }
-    }
-
-    @media (max-width: 560px) {
-        .stats-grid {
-            grid-template-columns: 1fr;
+            padding: 22px 16px 96px;
+            border-radius: var(--wk-radius-lg);
         }
     }
 
     .calendar-with-detail {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 340px;
-        gap: 16px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 18px;
         align-items: start;
+        width: min(100%, 1480px);
+        margin-inline: auto;
     }
 
-    @media (max-width: 1100px) {
+    @container (min-width: 1080px) {
         .calendar-with-detail {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(620px, 1fr) minmax(320px, 380px);
+        }
+
+        .calendar-with-detail :global(.day-detail-panel) {
+            position: sticky;
+            top: 0;
         }
     }
 </style>

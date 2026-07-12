@@ -12,21 +12,13 @@
 </script>
 
 <div class="migrate-task-content">
-    <p>任务会移动到 {today} 日记的「任务管理 > 迁移任务」区块，原任务实体不再保留在旧位置。</p>
-    <dl>
-        <div>
-            <dt>任务</dt>
-            <dd>{task.taskname}</dd>
-        </div>
-        <div>
-            <dt>来源</dt>
-            <dd>{task.sourceDocTitle || task.sourceDate || task.hpath || "未知来源"}</dd>
-        </div>
-        <div>
-            <dt>目标</dt>
-            <dd># 今日日记 → ## 任务管理 → ### 迁移任务</dd>
-        </div>
-    </dl>
+    <p class="intro">把这个行动带到今天，原位置将不再保留任务实体。</p>
+    <strong class="task-title">{task.taskname}</strong>
+    <div class="migration-path" aria-label="迁移路径">
+        <div><span>原日期</span><strong>{task.sourceDocTitle || task.sourceDate || task.hpath || "未知来源"}</strong></div>
+        <span class="path-arrow" aria-hidden="true">↓</span>
+        <div class="target"><span>今天</span><strong>{today} · 迁移任务</strong></div>
+    </div>
     <footer>
         <button type="button" onclick={onClose}>取消</button>
         <button type="button" class="primary" onclick={onConfirm}>确认迁移</button>
@@ -52,37 +44,45 @@
         opacity: 0.72;
     }
 
-    dl {
+    .task-title {
+        display: block;
+        margin-bottom: 14px;
+        font-size: 17px;
+        line-height: 1.45;
+        color: var(--wk-text-1, var(--wk-ink));
+    }
+
+    .migration-path {
         border: 1px solid var(--wk-border);
-        border-radius: 8px;
+        border-radius: var(--wk-radius-lg, 12px);
         margin: 0 0 18px;
-        overflow: hidden;
-        max-height: min(48vh, 420px);
-        overflow: auto;
+        padding: 14px;
+        background: var(--wk-surface-2, var(--wk-surface));
     }
 
-    dl > div {
-        display: grid;
-        grid-template-columns: 76px minmax(0, 1fr);
-        border-top: 1px solid var(--wk-border);
+    .migration-path > div {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 10px 12px;
+        border-radius: 9px;
+        background: var(--wk-surface-1, var(--wk-background));
     }
 
-    dl > div:first-child {
-        border-top: none;
+    .migration-path .target {
+        color: var(--wk-primary);
+        background: var(--wk-primary-soft, color-mix(in srgb, var(--wk-primary) 10%, transparent));
     }
 
-    dt,
-    dd {
-        margin: 0;
-        padding: 9px 12px;
-        font-size: 13px;
+    .migration-path span {
+        color: var(--wk-text-3, var(--wk-ink-secondary));
+        font-size: 12px;
     }
 
-    dt {
-        background: var(--wk-surface);
-        color: var(--wk-ink-secondary);
-        opacity: 0.65;
-        font-weight: 500;
+    .path-arrow {
+        display: block;
+        padding: 5px 14px;
+        font-size: 18px !important;
     }
 
     footer {
@@ -116,7 +116,7 @@
     .primary {
         border-color: var(--wk-primary);
         background: var(--wk-primary);
-        color: #fff;
+        color: var(--b3-theme-on-primary);
     }
 
     .primary:hover {

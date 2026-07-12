@@ -8,7 +8,7 @@
         message?: string;
     }
 
-    let { record, onConfirm, onClose, message = "将删除这条四级标题记录及其正文块。定位不可靠时系统会拒绝删除。" }: Props = $props();
+    let { record, onConfirm, onClose, message = "删除后无法从工作台恢复。系统会在定位可靠时执行删除。" }: Props = $props();
 </script>
 
 <div class="delete-record-content">
@@ -20,7 +20,7 @@
     </div>
     <footer>
         <button type="button" onclick={onClose}>取消</button>
-        <button type="button" class="danger" onclick={onConfirm}>确认删除</button>
+        <button type="button" class="danger" onclick={onConfirm}>删除记录</button>
     </footer>
 </div>
 
@@ -65,7 +65,7 @@
 
     .record-preview span {
         color: var(--wk-primary);
-        font-size: 11px;
+        font-size: 12px;
         margin-top: 4px;
     }
 
@@ -106,14 +106,14 @@
     }
 
     .danger {
-        border-color: rgba(211, 47, 47, 0.5);
+        border-color: color-mix(in srgb, var(--wk-error) 8%, transparent);
         color: var(--wk-error);
-        background: rgba(211, 47, 47, 0.05);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
     }
 
     .danger:hover {
         border-color: var(--wk-error);
-        background: rgba(211, 47, 47, 0.1);
+        background: color-mix(in srgb, var(--wk-error) 8%, transparent);
         color: var(--wk-error);
     }
 </style>

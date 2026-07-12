@@ -57,6 +57,15 @@ function makeCloseGuard(onClose?: () => void) {
     return { notifyClose };
 }
 
+function prepareWorkspaceDialogContainer(container: HTMLElement): void {
+    container.classList.add("workspace-page", "enhanced-diary-workspace-dialog");
+    container.style.display = "block";
+    container.style.width = "100%";
+    container.style.minWidth = "0";
+    container.style.background = "var(--b3-theme-surface)";
+    container.style.color = "var(--b3-theme-on-surface)";
+}
+
 export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void {
     const { mode = "create", initialInput = {}, task = null, onSubmit, onClose } = options;
     const { notifyClose } = makeCloseGuard(onClose);
@@ -72,9 +81,7 @@ export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void
         width: "620px",
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
-            container.style.display = "block";
-            container.style.width = "100%";
-            container.style.minWidth = "0";
+            prepareWorkspaceDialogContainer(container);
 
             const component = mount(TaskEditorDialog, {
                 target: container,
@@ -118,9 +125,7 @@ export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): vo
         width: "560px",
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
-            container.style.display = "block";
-            container.style.width = "100%";
-            container.style.minWidth = "0";
+            prepareWorkspaceDialogContainer(container);
 
             const component = mount(QuickRecordDialog, {
                 target: container,
@@ -158,9 +163,7 @@ export function openDeleteTaskSvelteDialog(options: OpenDeleteTaskOptions): void
         width: "520px",
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
-            container.style.display = "block";
-            container.style.width = "100%";
-            container.style.minWidth = "0";
+            prepareWorkspaceDialogContainer(container);
 
             const component = mount(DeleteTaskDialog, {
                 target: container,
@@ -195,9 +198,7 @@ export function openDeleteRecordSvelteDialog(options: OpenDeleteRecordOptions): 
         width: "520px",
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
-            container.style.display = "block";
-            container.style.width = "100%";
-            container.style.minWidth = "0";
+            prepareWorkspaceDialogContainer(container);
 
             const component = mount(DeleteRecordDialog, {
                 target: container,
@@ -233,9 +234,7 @@ export function openMigrateTaskSvelteDialog(options: OpenMigrateTaskOptions): vo
         width: "520px",
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
-            container.style.display = "block";
-            container.style.width = "100%";
-            container.style.minWidth = "0";
+            prepareWorkspaceDialogContainer(container);
 
             const component = mount(MigrateTaskDialog, {
                 target: container,
