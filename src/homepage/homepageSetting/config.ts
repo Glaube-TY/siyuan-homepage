@@ -280,6 +280,7 @@ export interface HomepageSettingConfig {
     taskIndexMigrationStatus?: ComponentMigrationStatus;
     heatmapIndexStatus?: ComponentMigrationStatus;
     statIndexStatus?: ComponentMigrationStatus;
+    enhancedDiaryIndexStatus?: ComponentMigrationStatus;
 }
 
 export async function loadHomepageSettingConfig(plugin: any): Promise<HomepageSettingConfig | null> {

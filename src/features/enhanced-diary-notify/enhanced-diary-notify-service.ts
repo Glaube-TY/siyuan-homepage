@@ -6,6 +6,7 @@ import {
   getDiaryDocForNotify,
   getYesterdayReviewDoc,
   getUnmigratedTasks,
+  prepareDiaryNotifyIndex,
   shouldRunDailyRuleAt,
   shouldRunWeeklyRuleAt,
 } from "./enhanced-diary-notify-rules";
@@ -26,16 +27,22 @@ export async function runEnhancedDiaryNotifyScan(settings: EnhancedDiaryNotifySe
   const todayStr = formatLocalDate(today);
   const yesterday = new Date(today.getTime() - 86400000);
   const yesterdayStr = formatLocalDate(yesterday);
+  const dueDiaryRuleExists = enabledRules.some((rule) =>
+    (rule.type === "today_diary_missing" || rule.type === "yesterday_review_missing") &&
+    shouldRunDailyRuleAt(rule, now, settings.catchUpWindowMinutes) !== null,
+  );
+  const diaryIndex = dueDiaryRuleExists ? await prepareDiaryNotifyIndex() : null;
 
   for (const rule of enabledRules) {
     switch (rule.type) {
       case "today_diary_missing": {
+        if (!diaryIndex?.ready) continue;
         const scheduledAt = shouldRunDailyRuleAt(rule, now, settings.catchUpWindowMinutes);
         if (!scheduledAt) continue;
         const dedupeKey = `enhanced-diary:today-missing:${rule.id}:${todayStr}`;
         if (await hasEnhancedDiaryNotifySent(dedupeKey)) continue;
-        const docInfo = await getDiaryDocForNotify(today);
-        if (docInfo) continue;
+        const docInfo = await getDiaryDocForNotify(today, diaryIndex.config.dailyNotebookId);
+        if (docInfo.state !== "missing") continue;
         const result = await notifyBridge.send({
           title: rule.title || "今日日记提醒",
           content: renderTodayDiaryMissingContent(),
@@ -54,11 +61,12 @@ export async function runEnhancedDiaryNotifyScan(settings: EnhancedDiaryNotifySe
       }
 
       case "yesterday_review_missing": {
+        if (!diaryIndex?.ready) continue;
         const scheduledAt = shouldRunDailyRuleAt(rule, now, settings.catchUpWindowMinutes);
         if (!scheduledAt) continue;
         const dedupeKey = `enhanced-diary:yesterday-review:${rule.id}:${yesterdayStr}`;
         if (await hasEnhancedDiaryNotifySent(dedupeKey)) continue;
-        const docInfo = await getYesterdayReviewDoc(yesterday);
+        const docInfo = await getYesterdayReviewDoc(yesterday, diaryIndex.config.dailyNotebookId);
         if (!docInfo) continue;
         if (docInfo.reviewCompleted) continue;
         const result = await notifyBridge.send({

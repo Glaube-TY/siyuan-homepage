@@ -3,10 +3,15 @@ import type { EnhancedDiaryConfig, EnhancedDiaryHeadingStructureConfig, Enhanced
 import { resolveRecordCategoryTitle } from "./enhancedDiaryWorkspaceSections";
 import {
     createTodayDailyNoteForWidget,
-    getDiaryDocumentForDate,
-    readDiaryMarkdown,
+    lookupDiaryDocumentForDate,
+    readDiaryMarkdownResult,
+    setEnhancedDiaryIndexNotebook,
+    validateEnhancedDiaryWriteTarget,
     type EnhancedDiaryDocumentInfo,
 } from "./enhancedDiaryDoc";
+import {
+    initializeEnhancedDiaryIndex,
+} from "./enhancedDiaryIndex";
 import {
     appendMarkdownToDaySection,
     appendMarkdownToRecordCategoryByTitle,
@@ -19,7 +24,7 @@ export interface EnhancedDiaryTodayDocumentResult {
     created?: boolean;
     content?: string;
     doc?: EnhancedDiaryDocumentInfo;
-    reason?: "missing_notebook" | "create_failed" | "read_failed";
+    reason?: "missing_notebook" | "create_failed" | "read_failed" | "existing_doc_unreadable" | "index_not_ready";
 }
 
 export interface EnhancedDiaryActionResult {
@@ -63,36 +68,58 @@ export async function getOrCreateTodayDiaryDocument(
     plugin: any,
     config: EnhancedDiaryConfig
 ): Promise<EnhancedDiaryTodayDocumentResult> {
-    const today = new Date();
-    const existing = await getDiaryDocumentForDate(today);
-    if (existing) {
-        return {
-            ok: true,
-            docId: existing.id,
-            content: existing.content,
-            doc: existing,
-            created: false,
-        };
-    }
-
+    // 1. Notebook must be configured
     if (!config.dailyNotebookId) {
         return { ok: false, reason: "missing_notebook" };
     }
 
+    setEnhancedDiaryIndexNotebook(config.dailyNotebookId);
+
+    // 2. Initialize index first — prevents creation when index is not ready
+    const initStatus = await initializeEnhancedDiaryIndex(config.dailyNotebookId);
+    if (initStatus.lastStatus !== "success") {
+        return { ok: false, reason: "index_not_ready" };
+    }
+
+    // 3. Three-state query
+    const today = new Date();
+    const lookup = await lookupDiaryDocumentForDate(today, config.dailyNotebookId);
+
+    if (lookup.status === "exists") {
+        return {
+            ok: true,
+            docId: lookup.doc.id,
+            content: lookup.doc.content,
+            doc: lookup.doc,
+            created: false,
+        };
+    }
+
+    if (lookup.status === "unreadable") {
+        // Doc exists but content temporarily unreadable — do NOT create new doc
+        return {
+            ok: false,
+            reason: "existing_doc_unreadable",
+            docId: lookup.docId,
+        };
+    }
+
+    // 4. status === "missing" — only then create
     const docId = await createTodayDailyNoteForWidget(plugin, config.dailyNotebookId);
     if (!docId) {
         return { ok: false, reason: "create_failed" };
     }
 
-    const content = await readDiaryMarkdown(docId);
-    if (content == null) {
+    // 5. Verify the created doc is readable — use readDiaryMarkdownResult, not readDiaryMarkdown
+    const readResult = await readDiaryMarkdownResult(docId);
+    if (!readResult.ok) {
         return { ok: false, reason: "read_failed", docId, created: true };
     }
 
     return {
         ok: true,
         docId,
-        content,
+        content: readResult.content,
         created: true,
     };
 }
@@ -100,9 +127,17 @@ export async function getOrCreateTodayDiaryDocument(
 export async function addNewTaskToDiary(params: {
     docId: string;
     task: GenerateTasksPlusTaskInput;
+    dailyNotebookId: string;
+    expectedDate: string;
     headingStructure?: EnhancedDiaryHeadingStructureConfig;
     mapping?: EnhancedDiaryTemplateFieldMapping | null;
 }): Promise<EnhancedDiaryActionResult> {
+    // Final write-target validation before modifying the diary
+    const writeCheck = await validateEnhancedDiaryWriteTarget(params.docId, params.dailyNotebookId, params.expectedDate);
+    if (writeCheck.status !== "valid") {
+        return { ok: false, reason: "write_target_invalid", message: "日记文档已变更，无法添加任务。" };
+    }
+
     let taskMarkdown = "";
     try {
         taskMarkdown = generateTaskLine(params.task);
@@ -133,6 +168,8 @@ export async function addQuickRecordToDiary(params: {
     docId: string;
     categoryTitle: string;
     content: string;
+    dailyNotebookId: string;
+    expectedDate: string;
     now?: Date;
     headingStructure?: EnhancedDiaryHeadingStructureConfig;
     mapping?: EnhancedDiaryTemplateFieldMapping | null;
@@ -144,6 +181,12 @@ export async function addQuickRecordToDiary(params: {
             reason: "empty_record",
             message: "记录内容不能为空。",
         };
+    }
+
+    // Final write-target validation before modifying the diary
+    const writeCheck = await validateEnhancedDiaryWriteTarget(params.docId, params.dailyNotebookId, params.expectedDate);
+    if (writeCheck.status !== "valid") {
+        return { ok: false, reason: "write_target_invalid", message: "日记文档已变更，无法添加记录。" };
     }
 
     const { title: normalizedTitle } = resolveRecordCategoryTitle(params.categoryTitle);

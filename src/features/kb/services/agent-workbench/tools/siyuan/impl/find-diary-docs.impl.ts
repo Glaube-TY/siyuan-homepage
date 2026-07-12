@@ -18,6 +18,7 @@ import {
   cleanOptionalString,
   formatAgendaDate,
   loadAgendaEnhancedDiaryConfig,
+  prepareAgendaEnhancedDiaryIndex,
   parseAgendaDate,
   truncateAgendaText,
 } from "./agenda-utils.impl";
@@ -38,7 +39,7 @@ async function buildDiaryDocResult(params: {
   maxChars: number;
 }): Promise<AgendaDiaryDoc> {
   const { period, ctx, config, statusBaseDate, includeMarkdown, maxChars } = params;
-  const doc = await getDiaryDocumentForDate(ctx.targetDate);
+  const doc = await getDiaryDocumentForDate(ctx.targetDate, config.dailyNotebookId);
   const status = getEnhancedDiaryStatus({
     docExists: !!doc,
     content: doc?.content || "",
@@ -73,7 +74,7 @@ export async function executeFindDiaryDocs(
   const isRangeQuery = !!args.startDate && !!args.endDate;
   let includeMarkdown = args.includeMarkdown ?? false;
   const maxChars = args.maxChars ?? 1000;
-  const config = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const warnings: string[] = [];
   const docs: AgendaDiaryDoc[] = [];
 

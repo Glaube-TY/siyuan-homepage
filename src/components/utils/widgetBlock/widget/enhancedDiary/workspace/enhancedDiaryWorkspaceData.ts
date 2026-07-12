@@ -1,5 +1,6 @@
 import { loadEnhancedDiaryConfig } from "../enhancedDiaryConfig";
-import { getDiaryDocumentForDate, type EnhancedDiaryDocumentInfo } from "../enhancedDiaryDoc";
+import { initializeEnhancedDiaryIndex } from "../enhancedDiaryIndex";
+import { getDiaryDocumentForDate, setEnhancedDiaryIndexNotebook, type EnhancedDiaryDocumentInfo } from "../enhancedDiaryDoc";
 import { formatDiaryDate } from "../enhancedDiaryUtils";
 import { buildEnhancedDiaryWorkspaceSummary, type EnhancedDiaryWorkspaceSummary } from "../enhancedDiaryWorkspaceSummary";
 import {
@@ -252,6 +253,8 @@ export async function loadEnhancedDiaryWorkspaceState(
     const date = options.date || new Date();
     const today = formatDiaryDate(date);
     const config = await loadEnhancedDiaryConfig(plugin);
+    setEnhancedDiaryIndexNotebook(config.dailyNotebookId);
+    if (config.dailyNotebookId) await initializeEnhancedDiaryIndex(config.dailyNotebookId);
     const taskManagementEnabled = isEnhancedDiaryTaskManagementEnabled(config);
     const todayDiary = await getDiaryDocumentForDate(date);
     const summary = todayDiary

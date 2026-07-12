@@ -92,6 +92,7 @@
     let taskIndexMigrationStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
     let heatmapIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
     let statIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
+    let enhancedDiaryIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
     let advancedEnabled = $state(false);
     let settingsActiveTab = $state<HomepageSettingSubTab>("behavior");
     // 横幅区域相关配置变量
@@ -595,6 +596,7 @@
             taskIndexMigrationStatus = normalizeComponentMigrationStatus(savedConfig.taskIndexMigrationStatus);
             heatmapIndexStatus = normalizeComponentMigrationStatus(savedConfig.heatmapIndexStatus);
             statIndexStatus = normalizeComponentMigrationStatus(savedConfig.statIndexStatus);
+            enhancedDiaryIndexStatus = normalizeComponentMigrationStatus(savedConfig.enhancedDiaryIndexStatus);
 
             footerEnabled = savedConfig.footerEnabled ?? true;
             footerContent = savedConfig.footerContent || "";
@@ -978,6 +980,9 @@
     function handleStatIndexStatusChange(status: ComponentMigrationStatus) {
         statIndexStatus = status;
     }
+    function handleEnhancedDiaryIndexStatusChange(status: ComponentMigrationStatus) {
+        enhancedDiaryIndexStatus = status;
+    }
 
     // 保存配置并关闭对话框
     async function confirmSave() {
@@ -1133,6 +1138,7 @@
             taskIndexMigrationStatus,
             heatmapIndexStatus,
             statIndexStatus,
+            enhancedDiaryIndexStatus,
 
             // 页脚配置
             footerEnabled: footerEnabled,
@@ -1411,11 +1417,13 @@
                             bind:taskIndexMigrationStatus
                             bind:heatmapIndexStatus
                             bind:statIndexStatus
+                            bind:enhancedDiaryIndexStatus
                             onFavoritesStatusChange={handleFavoritesMigrationStatusChange}
                             onReviewDocsStatusChange={handleReviewDocsMigrationStatusChange}
                             onTaskIndexStatusChange={handleTaskIndexMigrationStatusChange}
                             onHeatmapIndexStatusChange={handleHeatmapIndexStatusChange}
                             onStatIndexStatusChange={handleStatIndexStatusChange}
+                            onEnhancedDiaryIndexStatusChange={handleEnhancedDiaryIndexStatusChange}
                         />
                     {/if}
 

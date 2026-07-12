@@ -1,4 +1,5 @@
 import { addNewTaskToDiary, getOrCreateTodayDiaryDocument } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryActions";
+import { formatDiaryAttrDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
 import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
 import { formatLocalDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceDate";
 import { queryWorkspaceTasks } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
@@ -69,6 +70,8 @@ export async function createTodayTaskFromExternal(input: {
     const result = await addNewTaskToDiary({
       docId: todayDoc.docId,
       task: buildTaskInput(content),
+      dailyNotebookId: config.dailyNotebookId!,
+      expectedDate: formatDiaryAttrDate(new Date()),
       headingStructure: config.headingStructure,
     });
 

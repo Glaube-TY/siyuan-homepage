@@ -71,13 +71,13 @@
     } from "../enhancedDiaryActions";
     import {
         appendTemplateToDiary,
-        createTodayDailyNoteForWidget,
-        getDiaryDocumentForDate,
         openDiaryDocument,
         openOrCreateDiaryForDate,
         restoreSkippedPeriod,
         skipPeriod,
         toggleCompletionMarker,
+        validateEnhancedDiaryWriteTarget,
+        formatDiaryAttrDate,
     } from "../enhancedDiaryDoc";
     import type { EnhancedDiaryWorkspaceReviewCard } from "./enhancedDiaryWorkspaceViewModel";
     import type { WorkspaceTaskStatusFilter, WorkspaceRecordViewMode, WorkspaceRecordCategoryFilter, GoRecordsOptions, WorkspaceProjectStatusFilter, WorkspaceTaskRiskFilter } from "./enhancedDiaryWorkspaceNavigation";
@@ -606,7 +606,9 @@
     async function openToday(): Promise<void> {
         if (!state) return;
         const result = await openOrCreateDiaryForDate(plugin, new Date(), state.config.dailyNotebookId);
-        if (!result.id) {
+        if (result.reason === "existing_doc_unreadable") {
+            showMessage("日记已存在，但正文暂时无法读取，请稍后重试。", 4000);
+        } else if (!result.id) {
             showMessage("打开今日日记失败，请检查日记笔记本设置", 4000);
         }
         await refreshAfterWorkspaceMutation();
@@ -614,37 +616,34 @@
 
     async function ensureTodayDiaryAndAppendTemplate(options: { openDoc: boolean } = { openDoc: false }): Promise<void> {
         if (!state) return;
-        const date = new Date();
-        const dayCard = state.reviewCards.find((card) => card.period === "day");
-        const todayDoc = await getDiaryDocumentForDate(date);
-        let docId: string | null = todayDoc?.id ?? null;
-        let created = false;
-        if (!docId) {
-            if (!state.config.dailyNotebookId) {
-                showMessage("请先在强化日记设置中选择日记笔记本。", 4000);
-                return;
-            }
-            docId = await createTodayDailyNoteForWidget(plugin, state.config.dailyNotebookId);
-            created = true;
-            if (!docId) {
-                showMessage("创建今日日记失败，请检查日记笔记本设置", 4000);
-                return;
-            }
+
+        const result = await getOrCreateTodayDiaryDocument(plugin, state.config);
+
+        if (!result.ok || !result.docId) {
+            const messages: Record<string, string> = {
+                missing_notebook: "请先在强化日记设置中选择日记笔记本。",
+                index_not_ready: "日记索引尚未就绪，请稍后重试。",
+                existing_doc_unreadable: "今日日记已存在但暂时无法读取内容，请稍后重试。",
+                create_failed: "创建今日日记失败，请检查日记笔记本设置。",
+                read_failed: "今日日记已创建但读取内容失败，请刷新后重试。",
+            };
+            showMessage(messages[result.reason || ""] || "操作失败", 4000);
+            return;
         }
+
+        const docId = result.docId;
         if (options.openDoc) {
             openDiaryDocument(plugin, docId);
         }
+
+        const dayCard = state.reviewCards.find((card) => card.period === "day");
         if (!dayCard) {
-            if (options.openDoc) {
-                showMessage(created ? "已创建并打开今日日记" : "已打开今日日记", 3000);
-            } else {
-                showMessage(created ? "已创建今日日记" : "已定位到今日日记", 3000);
-            }
+            showMessage(result.created ? "已创建今日日记" : "已定位到今日日记", 3000);
             await refreshAfterWorkspaceMutation();
             return;
         }
 
-        const result = await appendTemplateToDiary({
+        const appendResult = await appendTemplateToDiary({
             docId,
             period: "day",
             template: state.config.templates.day,
@@ -653,12 +652,12 @@
             mapping: state.config.templateFieldMapping,
             taskManagementEnabled,
         });
-        if (result.ok && result.skipped) {
-            showMessage(created ? "已创建并打开今日日记，模板已存在" : "已打开今日日记，模板已存在", 3000);
-        } else if (result.ok) {
-            showMessage(created ? "已创建今日日记并补齐模板" : "已补齐今日模板", 3000);
-        } else if (result.reason && result.reason.startsWith("template_incomplete:")) {
-            const missingList = result.reason.slice("template_incomplete:".length).trim();
+        if (appendResult.ok && appendResult.skipped) {
+            showMessage(result.created ? "已创建今日日记，模板已存在" : "已打开今日日记，模板已存在", 3000);
+        } else if (appendResult.ok) {
+            showMessage(result.created ? "已创建今日日记并补齐模板" : "已补齐今日模板", 3000);
+        } else if (appendResult.reason && appendResult.reason.startsWith("template_incomplete:")) {
+            const missingList = appendResult.reason.slice("template_incomplete:".length).trim();
             showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
         } else {
             showMessage("补充模板失败", 3000);
@@ -704,6 +703,8 @@
             const result = await addNewTaskToDiary({
                 docId: todayDoc.docId,
                 task: input,
+                dailyNotebookId: state.config.dailyNotebookId!,
+                expectedDate: formatDiaryAttrDate(new Date()),
                 headingStructure: state.config.headingStructure,
                 mapping: state.config.templateFieldMapping,
             });
@@ -748,7 +749,15 @@
                         title: "删除原记录",
                         message: "任务已创建，是否删除原记录正文？",
                         onConfirm: async () => {
-                            const deleteResult = await deleteQuickRecord(record);
+                            const expectedDate = record.date ? record.date.replace(/-/g, "") : "";
+                            if (!expectedDate || expectedDate.length !== 8) {
+                                showMessage("记录日期无效，请刷新工作台后重试。", 4000);
+                                return false;
+                            }
+                            const deleteResult = await deleteQuickRecord(record, {
+                                dailyNotebookId: state.config.dailyNotebookId!,
+                                expectedDate,
+                            });
                             if (deleteResult.ok) {
                                 await refreshAfterWorkspaceMutation();
                                 return true;
@@ -947,7 +956,16 @@
         if (!record || actionBusy) return false;
         actionBusy = true;
         try {
-            const result = await deleteQuickRecord(record);
+            const expectedDate = record.date ? record.date.replace(/-/g, "") : "";
+            if (!expectedDate || expectedDate.length !== 8) {
+                showMessage("记录日期无效，请刷新工作台后重试。", 4000);
+                actionBusy = false;
+                return false;
+            }
+            const result = await deleteQuickRecord(record, {
+                dailyNotebookId: state.config.dailyNotebookId!,
+                expectedDate,
+            });
             if (result.ok) {
                 showMessage("记录已删除", 3000);
                 deletingRecord = null;
@@ -1025,7 +1043,16 @@
         if (!editingRecord || actionBusy) return;
         actionBusy = true;
         try {
-            const result = await updateQuickRecord(editingRecord, content);
+            const expectedDate = editingRecord.date ? editingRecord.date.replace(/-/g, "") : "";
+            if (!expectedDate || expectedDate.length !== 8) {
+                showMessage("记录日期无效，请刷新工作台后重试。", 4000);
+                actionBusy = false;
+                return;
+            }
+            const result = await updateQuickRecord(editingRecord, content, {
+                dailyNotebookId: state.config.dailyNotebookId!,
+                expectedDate,
+            });
             if (result.ok) {
                 showMessage("记录已更新", 3000);
                 editingRecord = null;
@@ -1038,11 +1065,27 @@
         }
     }
 
+    async function validateReviewWriteTarget(card: EnhancedDiaryWorkspaceReviewCard): Promise<boolean> {
+        if (!state || !card.docId) return false;
+        const check = await validateEnhancedDiaryWriteTarget(
+            card.docId,
+            state.config.dailyNotebookId!,
+            formatDiaryAttrDate(card.targetDate)
+        );
+        if (check.status !== "valid") {
+            showMessage("日记位置或日期已经变化，请刷新后重试", 4000);
+            await refreshAfterWorkspaceMutation();
+            return false;
+        }
+        return true;
+    }
+
     async function appendReviewTemplate(card: EnhancedDiaryWorkspaceReviewCard): Promise<void> {
         if (!state || !card.docId) {
             showMessage("请先创建对应日记后再补充模板", 3000);
             return;
         }
+        if (!await validateReviewWriteTarget(card)) return;
         const result = await appendTemplateToDiary({
             docId: card.docId,
             period: card.period,
@@ -1059,6 +1102,8 @@
         } else if (result.reason && result.reason.startsWith("template_incomplete:")) {
             const missingList = result.reason.slice("template_incomplete:".length).trim();
             showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
+        } else if (result.reason === "read_failed") {
+            showMessage("日记正文暂时无法读取，为避免重复写入，本次未补充模板。", 4000);
         } else {
             showMessage("补充模板失败", 3000);
         }
@@ -1074,6 +1119,8 @@
         );
         if (result.id) {
             await refreshAfterWorkspaceMutation();
+        } else if (result.reason === "existing_doc_unreadable") {
+            showMessage("日记已存在，但正文暂时无法读取，请稍后重试。", 4000);
         } else if (result.reason === "only_today_create_supported") {
             showMessage("暂不自动创建非今日日记，请先在思源中创建对应日期日记。", 4000);
         } else if (result.reason === "missing_notebook") {
@@ -1091,6 +1138,7 @@
             showMessage("未找到对应日记", 3000);
             return;
         }
+        if (!await validateReviewWriteTarget(card)) return;
         const result = await toggleCompletionMarker({
             docId: card.docId,
             period: card.period,
@@ -1106,6 +1154,7 @@
             showMessage("未找到对应日记", 3000);
             return;
         }
+        if (!await validateReviewWriteTarget(card)) return;
         const result = await skipPeriod({ docId: card.docId, period: card.period, mapping: state.config.templateFieldMapping });
         showMessage(result.ok ? "已跳过本周期" : "跳过失败", 3000);
         await refreshAfterWorkspaceMutation();
@@ -1149,6 +1198,7 @@
             showMessage("未找到对应日记", 3000);
             return;
         }
+        if (!await validateReviewWriteTarget(card)) return;
         const mode = await selectRestoreSkipMode();
         if (!mode) return;
 
@@ -1183,6 +1233,7 @@
         fields: EnhancedDiaryReviewField[]
     ): Promise<boolean> {
         if (!card.docId) return false;
+        if (!await validateReviewWriteTarget(card)) return false;
         const visibleFieldLabels = new Set(
             getWorkspaceReviewFields(state.config.templateFieldMapping, card.period, taskManagementEnabled)
         );
@@ -1195,6 +1246,16 @@
         }
         if (result.reason === "missing_review_root") {
             showMessage("复盘区块缺失，请先补充模板", 3000);
+        } else if (result.reason === "read_failed") {
+            showMessage("日记正文暂时无法读取，为保护已有内容，本次禁止编辑和保存。", 4000);
+        } else if (result.reason === "cleanup_failed") {
+            showMessage("新内容已写入，但旧内容清理失败，请打开日记检查重复内容。", 5000);
+            // Document was modified — reload to prevent re-saving stale editing state
+            await refreshAfterWorkspaceMutation();
+        } else if (result.reason === "partial_write") {
+            showMessage("部分字段写入失败，旧内容已保留。请稍后重试。", 4000);
+            // Part of the document was modified — reload to prevent re-saving stale editing state
+            await refreshAfterWorkspaceMutation();
         } else if (result.reason === "write_failed") {
             showMessage("复盘内容写入失败，请稍后重试", 3000);
         } else {

@@ -1,7 +1,8 @@
 import { queryWorkspaceTasks } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
-import { getDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
+import { findDiaryDocumentByDate, getDiaryDocumentForDate, setEnhancedDiaryIndexNotebook, inspectEnhancedDiaryDocumentTarget, formatDiaryAttrDate, readDiaryMarkdownResult } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
 import { getCompletionMarker } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryUtils";
 import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
+import { refreshEnhancedDiaryIndex, removeStaleEnhancedDiaryEntry } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
 import { DEFAULT_ENHANCED_DIARY_TEMPLATE_FIELD_MAPPING } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
 import { formatLocalDate, formatLocalDateTime } from "@/components/tools/date-utils";
 import type { EnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
@@ -58,6 +59,27 @@ async function loadDiaryConfig(): Promise<EnhancedDiaryConfig> {
   return loadEnhancedDiaryConfig(pluginInstance);
 }
 
+export interface DiaryNotifyIndexPreparation {
+  config: EnhancedDiaryConfig;
+  ready: boolean;
+}
+
+export async function prepareDiaryNotifyIndex(): Promise<DiaryNotifyIndexPreparation> {
+  try {
+    const config = await loadDiaryConfig();
+    if (!config.dailyNotebookId) return { config, ready: false };
+    setEnhancedDiaryIndexNotebook(config.dailyNotebookId);
+    // 后台通知仅消费已有完整索引的最近文档增量，绝不触发文件树重建。
+    const status = await refreshEnhancedDiaryIndex(config.dailyNotebookId, {
+      force: false,
+      allowRebuild: false,
+    });
+    return { config, ready: status.lastStatus === "success" };
+  } catch {
+    return { config: getDefaultEnhancedDiaryConfig(), ready: false };
+  }
+}
+
 function getDefaultEnhancedDiaryConfig(): EnhancedDiaryConfig {
   return {
     weekReviewDay: 0,
@@ -95,34 +117,72 @@ function getDefaultEnhancedDiaryConfig(): EnhancedDiaryConfig {
   };
 }
 
-export async function hasTodayDiaryDoc(today: Date): Promise<boolean> {
-  const doc = await getDiaryDocumentForDate(today);
+export async function hasTodayDiaryDoc(today: Date, notebookId?: string): Promise<boolean> {
+  const doc = await getDiaryDocumentForDate(today, notebookId);
   return doc != null;
 }
 
-export async function hasYesterdayReviewCompleted(yesterday: Date): Promise<boolean> {
-  const doc = await getDiaryDocumentForDate(yesterday);
-  if (!doc) return false;
-  const completionMarker = getCompletionMarker("day", true);
-  return doc.content.includes(completionMarker);
-}
+export type DiaryNotifyDocLookup =
+  | { state: "exists"; id: string }
+  | { state: "missing" }
+  | { state: "unknown" };
 
-export async function getDiaryDocForNotify(date: Date): Promise<{ id: string } | null> {
+export async function getDiaryDocForNotify(date: Date, notebookId?: string): Promise<DiaryNotifyDocLookup> {
+  if (!notebookId) return { state: "missing" };
   try {
-    const doc = await getDiaryDocumentForDate(date);
-    if (!doc) return null;
-    return { id: doc.id };
+    const entry = await findDiaryDocumentByDate(date, notebookId);
+    if (!entry) return { state: "missing" };
+
+    const inspection = await inspectEnhancedDiaryDocumentTarget(
+      entry.id,
+      notebookId,
+      formatDiaryAttrDate(date)
+    );
+
+    if (inspection.status === "valid") {
+      return { state: "exists", id: entry.id };
+    }
+    if (inspection.status === "missing") {
+      removeStaleEnhancedDiaryEntry(notebookId, entry.id).catch(() => undefined);
+      return { state: "missing" };
+    }
+    if (inspection.status === "out_of_scope" || inspection.status === "date_mismatch") {
+      removeStaleEnhancedDiaryEntry(notebookId, entry.id).catch(() => undefined);
+      return { state: "missing" };
+    }
+    // inspection.status === "unknown" — SQL failed, do not send misleading notification
+    return { state: "unknown" };
   } catch {
-    return null;
+    return { state: "unknown" };
   }
 }
 
-export async function getYesterdayReviewDoc(yesterday: Date): Promise<{ id: string; reviewCompleted: boolean } | null> {
+export async function getYesterdayReviewDoc(yesterday: Date, notebookId?: string): Promise<{ id: string; reviewCompleted: boolean } | null> {
+  if (!notebookId) return null;
   try {
-    const doc = await getDiaryDocumentForDate(yesterday);
-    if (!doc) return null;
+    const entry = await findDiaryDocumentByDate(yesterday, notebookId);
+    if (!entry) return null;
+
+    const inspection = await inspectEnhancedDiaryDocumentTarget(
+      entry.id,
+      notebookId,
+      formatDiaryAttrDate(yesterday)
+    );
+
+    if (inspection.status !== "valid") {
+      // Best-effort cleanup for stale entries; unknown must not clear index
+      if (inspection.status === "missing" || inspection.status === "out_of_scope" || inspection.status === "date_mismatch") {
+        removeStaleEnhancedDiaryEntry(notebookId, entry.id).catch(() => undefined);
+      }
+      return null;
+    }
+
+    // Use readDiaryMarkdownResult to read the full markdown, not just inspection.title
+    const markdownResult = await readDiaryMarkdownResult(entry.id);
+    if (!markdownResult.ok) return null;
+
     const completionMarker = getCompletionMarker("day", true);
-    return { id: doc.id, reviewCompleted: doc.content.includes(completionMarker) };
+    return { id: entry.id, reviewCompleted: markdownResult.content.includes(completionMarker) };
   } catch {
     return null;
   }

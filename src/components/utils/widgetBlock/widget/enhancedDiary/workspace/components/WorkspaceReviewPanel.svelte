@@ -169,6 +169,7 @@
 
     async function handleSave(): Promise<void> {
         if (!currentCard || !onSaveContent || contentSaving) return;
+        if (contentReason === "read_failed") return;
         contentSaving = true;
         try {
             const ok = await onSaveContent(currentCard, contentFields);
@@ -429,6 +430,8 @@
                                 <div class="content-error">复盘内容读取失败，请打开文档检查模板结构。</div>
                             {:else if contentReason === "missing_review_root"}
                                 <div class="content-error">当前日记缺少复盘区块，请先补充模板。</div>
+                            {:else if contentReason === "read_failed"}
+                                <div class="content-error">日记正文暂时无法读取，为保护已有内容，本次禁止编辑和保存，请稍后重试。</div>
                             {:else if contentFields.length > 0}
                                 <div class="field-list">
                                     {#each contentFields as field, i}

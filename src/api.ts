@@ -409,8 +409,32 @@ export async function moveBlockRaw(id: BlockId, previousID?: PreviousID, parentI
     return requestRaw('/api/block/moveBlock', data);
 }
 
+// **************************************** Checked Block Wrappers ****************************************
+// Throws Error when response.code !== 0, so callers cannot mistake API failures for success.
 
-export async function foldBlock(id: BlockId) {
+export async function insertBlockChecked(
+    dataType: DataType, data: string,
+    nextID?: BlockId, previousID?: BlockId, parentID?: BlockId
+): Promise<IResdoOperations[]> {
+    let payload = { dataType, data, nextID, previousID, parentID };
+    return requestChecked('/api/block/insertBlock', payload, 'insertBlock');
+}
+
+export async function appendBlockChecked(dataType: DataType, data: string, parentID: BlockId | DocumentId): Promise<IResdoOperations[]> {
+    return requestChecked('/api/block/appendBlock', { dataType, data, parentID }, 'appendBlock');
+}
+
+export async function updateBlockChecked(dataType: DataType, data: string, id: BlockId): Promise<IResdoOperations[]> {
+    return requestChecked('/api/block/updateBlock', { dataType, data, id }, 'updateBlock');
+}
+
+export async function deleteBlockChecked(id: BlockId): Promise<IResdoOperations[]> {
+    return requestChecked('/api/block/deleteBlock', { id }, 'deleteBlock');
+}
+
+export async function moveBlockChecked(id: BlockId, previousID?: PreviousID, parentID?: ParentID): Promise<IResdoOperations[]> {
+    return requestChecked('/api/block/moveBlock', { id, previousID, parentID }, 'moveBlock');
+}export async function foldBlock(id: BlockId) {
     let data = {
         id: id
     }

@@ -1,6 +1,8 @@
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { EnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
 import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
+import { initializeEnhancedDiaryIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
+import { setEnhancedDiaryIndexNotebook } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
 import { formatLocalDate, parseLocalDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceDate";
 import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 import type { EnhancedDiaryWorkspaceRecord } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceRecordService";
@@ -49,6 +51,22 @@ export async function loadAgendaEnhancedDiaryConfig(
       return deps.loadPluginData ? deps.loadPluginData(file) : null;
     },
   });
+}
+
+export async function prepareAgendaEnhancedDiaryIndex(
+  deps: KbRetrievalToolDeps,
+  config?: EnhancedDiaryConfig,
+): Promise<EnhancedDiaryConfig> {
+  const resolvedConfig = config || await loadAgendaEnhancedDiaryConfig(deps);
+  if (!resolvedConfig.dailyNotebookId) {
+    throw new Error("未配置强化日记笔记本，无法使用日记工具。");
+  }
+  setEnhancedDiaryIndexNotebook(resolvedConfig.dailyNotebookId);
+  const status = await initializeEnhancedDiaryIndex(resolvedConfig.dailyNotebookId);
+  if (status.lastStatus !== "success") {
+    throw new Error(status.lastMessage || "强化日记索引初始化失败。");
+  }
+  return resolvedConfig;
 }
 
 /**

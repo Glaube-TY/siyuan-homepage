@@ -1,13 +1,13 @@
 import {
-    sql,
     exportMdContent,
     renderSprig,
     createDailyNote,
-    appendBlock,
-    insertBlock,
-    updateBlock,
-    deleteBlock,
-    getChildBlocks,
+    appendBlockChecked,
+    insertBlockChecked,
+    updateBlockChecked,
+    deleteBlockChecked,
+    getChildBlocksChecked,
+    sqlChecked,
 } from "@/api";
 import { openDocs } from "@/components/tools/openDocs";
 import { renderEnhancedDiaryTemplate, scanDiaryContentForPeriod, getLegacyCompletionMarker, getSkipMarker } from "./enhancedDiaryUtils";
@@ -25,6 +25,13 @@ import {
     getPrimaryFieldTitle,
 } from "./enhancedDiaryTemplateFieldMapping";
 import { pruneTaskSectionsFromDayTemplate } from "./enhancedDiaryTemplatePrune";
+import { getEnhancedDiaryIndexEntry, indexCreatedEnhancedDiaryDocument, removeStaleEnhancedDiaryEntry, resolveEnhancedDiaryDateFromMetadata, initializeEnhancedDiaryIndex } from "./enhancedDiaryIndex";
+
+let activeDiaryNotebookId = "";
+
+export function setEnhancedDiaryIndexNotebook(notebookId?: string): void {
+    activeDiaryNotebookId = notebookId || "";
+}
 
 export interface EnhancedDiaryDocumentInfo {
     id: string;
@@ -41,32 +48,167 @@ export function formatDiaryAttrDate(date: Date): string {
     return `${yyyy}${mm}${dd}`;
 }
 
-export async function findDiaryDocumentByDate(date: Date): Promise<{ id: string; title?: string } | null> {
-    void date;
-    return null;
+export async function findDiaryDocumentByDate(date: Date, notebookId?: string): Promise<{ id: string; title?: string } | null> {
+    const targetNotebookId = notebookId || activeDiaryNotebookId;
+    if (!targetNotebookId) return null;
+    const entry = await getEnhancedDiaryIndexEntry(targetNotebookId, formatDiaryAttrDate(date));
+    return entry ? { id: entry.id, title: entry.title } : null;
 }
 
-export async function readDiaryMarkdown(docId: string): Promise<string> {
+export interface DiaryMarkdownReadResult {
+    ok: boolean;
+    content: string;
+}
+
+export type DiaryDocumentLookupResult =
+    | { status: "exists"; doc: EnhancedDiaryDocumentInfo }
+    | { status: "missing" }
+    | { status: "unreadable"; docId: string };
+
+export async function readDiaryMarkdownResult(docId: string): Promise<DiaryMarkdownReadResult> {
     try {
         const res = await exportMdContent(docId);
-        return res?.content || "";
+        if (typeof res?.content === "string") return { ok: true, content: res.content };
+        return { ok: false, content: "" };
     } catch (err) {
         console.warn("[enhancedDiaryDoc] readDiaryMarkdown failed", err);
-        return "";
+        return { ok: false, content: "" };
     }
 }
 
-export async function getDiaryDocumentForDate(date: Date): Promise<EnhancedDiaryDocumentInfo | null> {
-    const doc = await findDiaryDocumentByDate(date);
-    if (!doc) return null;
-    const content = await readDiaryMarkdown(doc.id);
-    return {
-        id: doc.id,
-        date: formatDiaryAttrDate(date),
-        attrDate: formatDiaryAttrDate(date),
-        title: doc.title,
-        content,
-    };
+export async function readDiaryMarkdown(docId: string): Promise<string> {
+    return (await readDiaryMarkdownResult(docId)).content;
+}
+
+export type DiaryDocumentInspectionStatus = "valid" | "missing" | "out_of_scope" | "date_mismatch" | "unknown";
+
+export interface DiaryDocumentInspectionResult {
+    status: DiaryDocumentInspectionStatus;
+    /** The 8-digit diary date from metadata, when status is "valid" */
+    diaryDate?: string;
+    /** The raw content (first line = title) from SQL, for freshness */
+    title?: string;
+}
+
+/**
+ * Single-doc authoritative metadata check.
+ * Only uses WHERE id = '...' LIMIT 1 — no full-db scan.
+ * Checks: existence, type='d', box match, date recognition via shared pure function.
+ */
+export async function inspectEnhancedDiaryDocumentTarget(
+    docId: string,
+    targetNotebookId: string,
+    expectedDate?: string
+): Promise<DiaryDocumentInspectionResult> {
+    let rows: any[];
+    try {
+        const escaped = docId.replace(/'/g, "''");
+        rows = await sqlChecked(
+            `SELECT id, type, box, content, ial, hpath, path FROM blocks WHERE id = '${escaped}' LIMIT 1`
+        );
+    } catch {
+        return { status: "unknown" };
+    }
+
+    const block = rows[0] as { id?: string; type?: string; box?: string; content?: string; ial?: string; hpath?: string; path?: string } | undefined;
+    if (!block) return { status: "missing" };
+
+    if (block.type !== "d") return { status: "out_of_scope" };
+
+    if (block.box !== targetNotebookId) return { status: "out_of_scope" };
+
+    const resolved = resolveEnhancedDiaryDateFromMetadata({
+        ial: block.ial,
+        title: block.content,
+        hpath: block.hpath,
+        path: block.path,
+    });
+    if (!resolved) return { status: "date_mismatch" };
+    if (expectedDate && resolved.date !== expectedDate) return { status: "date_mismatch" };
+
+    return { status: "valid", diaryDate: resolved.date, title: block.content };
+}
+
+export async function getDiaryDocumentForDate(date: Date, notebookId?: string): Promise<EnhancedDiaryDocumentInfo | null> {
+    const lookup = await lookupDiaryDocumentForDate(date, notebookId);
+    if (lookup.status === "exists") return lookup.doc;
+    return null;
+}
+
+export type EnhancedDiaryWriteTargetStatus = "valid" | "missing" | "out_of_scope" | "date_mismatch" | "unknown" | "not_configured";
+
+export interface EnhancedDiaryWriteTargetResult {
+    status: EnhancedDiaryWriteTargetStatus;
+    diaryDate?: string;
+}
+
+/**
+ * Unified write-target validation before any diary modification.
+ * Thin wrapper around inspectEnhancedDiaryDocumentTarget with dailyNotebookId guard.
+ */
+export async function validateEnhancedDiaryWriteTarget(
+    docId: string,
+    dailyNotebookId: string,
+    expectedDate?: string
+): Promise<EnhancedDiaryWriteTargetResult> {
+    if (!dailyNotebookId) return { status: "not_configured" };
+
+    const inspection = await inspectEnhancedDiaryDocumentTarget(docId, dailyNotebookId, expectedDate);
+    if (inspection.status === "valid") return { status: "valid", diaryDate: inspection.diaryDate };
+    return { status: inspection.status };
+}
+
+/**
+ * Three-state diary document query that distinguishes:
+ * - "exists": index has entry, SQL confirms doc exists, exportMdContent succeeds
+ * - "missing": index has no entry, OR SQL confirms doc is gone
+ * - "unreadable": index + SQL say doc exists, but exportMdContent temporarily failed
+ */
+export async function lookupDiaryDocumentForDate(
+    date: Date,
+    notebookId?: string
+): Promise<DiaryDocumentLookupResult> {
+    const targetNotebookId = notebookId || activeDiaryNotebookId;
+    if (!targetNotebookId) return { status: "missing" };
+
+    const entry = await findDiaryDocumentByDate(date, targetNotebookId);
+    if (!entry) return { status: "missing" };
+
+    // Authoritative metadata check — type, box, date must all match
+    const expectedDate = formatDiaryAttrDate(date);
+    const inspection = await inspectEnhancedDiaryDocumentTarget(entry.id, targetNotebookId, expectedDate);
+
+    if (inspection.status === "valid") {
+        // Use fresh title from SQL, fall back to index entry
+        const markdown = await readDiaryMarkdownResult(entry.id);
+        if (!markdown.ok) {
+            return { status: "unreadable", docId: entry.id };
+        }
+        return {
+            status: "exists",
+            doc: {
+                id: entry.id,
+                date: expectedDate,
+                attrDate: expectedDate,
+                title: inspection.title || entry.title,
+                content: markdown.content,
+            },
+        };
+    }
+
+    if (inspection.status === "missing") {
+        await removeStaleEnhancedDiaryEntry(targetNotebookId, entry.id).catch(() => undefined);
+        return { status: "missing" };
+    }
+
+    if (inspection.status === "out_of_scope" || inspection.status === "date_mismatch") {
+        // Document moved out of scope or date changed — clean stale mapping
+        await removeStaleEnhancedDiaryEntry(targetNotebookId, entry.id).catch(() => undefined);
+        return { status: "missing" };
+    }
+
+    // inspection.status === "unknown" — SQL failed, do NOT create new doc
+    return { status: "unreadable", docId: entry.id };
 }
 
 export function openDiaryDocument(plugin: any, docId: string): void {
@@ -128,7 +270,19 @@ export async function createTodayDailyNoteForWidget(plugin: any, notebookId?: st
     }
     try {
         const result = await createDailyNote(notebook, app);
-        return normalizeCreatedDailyNoteId(result);
+        const docId = normalizeCreatedDailyNoteId(result);
+        if (docId) {
+            setEnhancedDiaryIndexNotebook(notebook);
+            const indexed = await indexCreatedEnhancedDiaryDocument(notebook, docId).catch((err) => {
+                console.warn("[enhancedDiaryDoc] index created daily note failed", err);
+                return false;
+            });
+            if (!indexed) {
+                console.warn("[enhancedDiaryDoc] indexCreatedEnhancedDiaryDocument returned false after 3 attempts; " +
+                    `diary ${docId} created but not indexed yet, recent-docs delta will pick it up`);
+            }
+        }
+        return docId;
     } catch (err) {
         console.warn("[enhancedDiaryDoc] createTodayDailyNoteForWidget: createDailyNote failed", err);
         return null;
@@ -140,18 +294,31 @@ export async function openOrCreateDiaryForDate(
     date: Date,
     notebookId?: string
 ): Promise<{ id: string | null; created: boolean; reason?: string }> {
-    const doc = await getDiaryDocumentForDate(date);
-    if (doc) {
-        openDiaryDocument(plugin, doc.id);
-        return { id: doc.id, created: false };
-    }
-
-    if (!isSameLocalDate(date, new Date())) {
-        return { id: null, created: false, reason: "only_today_create_supported" };
-    }
-
     if (!notebookId) {
         return { id: null, created: false, reason: "missing_notebook" };
+    }
+
+    // User-visible index initialization
+    const initStatus = await initializeEnhancedDiaryIndex(notebookId);
+    if (initStatus.lastStatus !== "success") {
+        return { id: null, created: false, reason: "index_not_ready" };
+    }
+
+    // Three-state query
+    const lookup = await lookupDiaryDocumentForDate(date, notebookId);
+
+    if (lookup.status === "exists") {
+        openDiaryDocument(plugin, lookup.doc.id);
+        return { id: lookup.doc.id, created: false };
+    }
+
+    if (lookup.status === "unreadable") {
+        return { id: null, created: false, reason: "existing_doc_unreadable" };
+    }
+
+    // status === "missing"
+    if (!isSameLocalDate(date, new Date())) {
+        return { id: null, created: false, reason: "only_today_create_supported" };
     }
 
     const docId = await createTodayDailyNoteForWidget(plugin, notebookId);
@@ -339,7 +506,7 @@ async function patchDayWorkspaceStructure(
 
     let hasError = false;
 
-    const children = await getChildBlocks(docId);
+    const children = await getChildBlocksChecked(docId);
     const headingBlocks = parseDocHeadingBlocks(children);
     const dayRoot = findDayRootHeadingBlock(headingBlocks, mapping);
 
@@ -352,9 +519,9 @@ async function patchDayWorkspaceStructure(
         const missingMarkdown = missingBaseParts.join("\n\n");
         try {
             if (dayRoot && dayScopeEnd < children.length) {
-                await insertBlock("markdown", missingMarkdown, children[dayScopeEnd].id);
+                await insertBlockChecked("markdown", missingMarkdown, children[dayScopeEnd].id);
             } else {
-                await appendBlock("markdown", "\n\n" + missingMarkdown, docId);
+                await appendBlockChecked("markdown", "\n\n" + missingMarkdown, docId);
             }
         } catch (err) {
             console.warn("[enhancedDiaryDoc] patchDayWorkspaceStructure base failed", err);
@@ -406,9 +573,9 @@ async function patchDayWorkspaceStructure(
             const boundaryBlock = findNextBoundaryBlock(headingBlocks, parentBlock);
             try {
                 if (boundaryBlock) {
-                    await insertBlock("markdown", mergedMarkdown, boundaryBlock.id);
+                    await insertBlockChecked("markdown", mergedMarkdown, boundaryBlock.id);
                 } else {
-                    await appendBlock("markdown", mergedMarkdown, docId);
+                    await appendBlockChecked("markdown", mergedMarkdown, docId);
                 }
             } catch (err) {
                 console.warn("[enhancedDiaryDoc] insert sub-items failed", err);
@@ -434,7 +601,9 @@ export async function appendTemplateToDiary(params: {
 }): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
     const { docId, period, template, context, headingStructure, mapping, taskManagementEnabled = true } = params;
 
-    const content = await readDiaryMarkdown(docId);
+    const readResult = await readDiaryMarkdownResult(docId);
+    if (!readResult.ok) return { ok: false, reason: "read_failed" };
+    const content = readResult.content;
     const scan = scanDiaryContentForPeriod(content, period, mapping);
 
     const renderedMarkdown = await renderEnhancedDiaryMarkdownWithSprig(period, template, context);
@@ -461,7 +630,7 @@ export async function appendTemplateToDiary(params: {
                     : pruneTaskSectionsFromDayTemplate(renderedMarkdown, mapping);
                 const markdownToAppend = "\n\n" + templateToAppend.trim();
                 try {
-                    await appendBlock("markdown", markdownToAppend, docId);
+                    await appendBlockChecked("markdown", markdownToAppend, docId);
                     return { ok: true };
                 } catch (err) {
                     console.warn("[enhancedDiaryDoc] appendTemplateToDiary root missing append failed", err);
@@ -488,7 +657,7 @@ export async function appendTemplateToDiary(params: {
 
     const markdownToAppend = "\n\n" + renderedMarkdown.trim();
     try {
-        await appendBlock("markdown", markdownToAppend, docId);
+        await appendBlockChecked("markdown", markdownToAppend, docId);
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryDoc] appendTemplateToDiary failed", err);
@@ -519,7 +688,7 @@ async function findPeriodRootHeadingBlock(
     mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): Promise<RootHeadingMatch | null> {
     try {
-        const children = await getChildBlocks(docId);
+        const children = await getChildBlocksChecked(docId);
         const headings = parseDocHeadingBlocks(children);
         for (const h of headings) {
             if (h.level === 1 && matchesPeriodRootHeading(h.title, period, mapping)) {
@@ -573,70 +742,80 @@ function getSkipMarkerKeyword(period: EnhancedDiaryPeriod): string {
     return labels[period];
 }
 
+/** Marker lookup result: found, not found, or query failed. */
+type MarkerLookupResult =
+    | { status: "found"; id: string; markdown: string }
+    | { status: "missing" }
+    | { status: "query_failed" };
+
 /** 仅查找旧版任务列表式完成标记块，用于兼容历史数据。 */
 async function findLegacyCompletionMarkerBlock(
     docId: string,
     period: EnhancedDiaryPeriod
-): Promise<{ id: string; markdown: string } | null> {
+): Promise<MarkerLookupResult> {
     const keyword = getCompletionMarkerKeyword(period);
     const escapedDocId = escapeSqlString(docId);
 
     // 先按 root_id 范围拉取有限块，再在 JS 中匹配标记，避免 markdown LIKE 全表扫描
     const query = `SELECT id, markdown FROM blocks WHERE root_id = '${escapedDocId}' ORDER BY created DESC, id DESC LIMIT 200`;
 
+    let results: any[];
     try {
-        const results = await sql(query);
-        if (!results || results.length === 0) return null;
-
-        const legacyUnchecked = getLegacyCompletionMarker(period, false);
-        const legacyChecked = getLegacyCompletionMarker(period, true);
-        const legacyCheckedUpper = legacyChecked.replace("[x]", "[X]");
-
-        for (const row of results) {
-            const md = row.markdown as string;
-            if (!md.includes(keyword)) continue;
-            if (
-                md.includes(legacyUnchecked) ||
-                md.includes(legacyChecked) ||
-                md.includes(legacyCheckedUpper)
-            ) {
-                return { id: row.id as string, markdown: md };
-            }
-        }
+        results = await sqlChecked(query);
     } catch (err) {
-        console.warn("[enhancedDiaryDoc] findLegacyCompletionMarkerBlock failed", err);
+        console.warn("[enhancedDiaryDoc] findLegacyCompletionMarkerBlock query failed", err);
+        return { status: "query_failed" };
     }
-    return null;
+    if (!results || results.length === 0) return { status: "missing" };
+
+    const legacyUnchecked = getLegacyCompletionMarker(period, false);
+    const legacyChecked = getLegacyCompletionMarker(period, true);
+    const legacyCheckedUpper = legacyChecked.replace("[x]", "[X]");
+
+    for (const row of results) {
+        const md = row.markdown as string;
+        if (!md.includes(keyword)) continue;
+        if (
+            md.includes(legacyUnchecked) ||
+            md.includes(legacyChecked) ||
+            md.includes(legacyCheckedUpper)
+        ) {
+            return { status: "found", id: row.id as string, markdown: md };
+        }
+    }
+    return { status: "missing" };
 }
 
 async function findSkipMarkerBlock(
     docId: string,
     period: EnhancedDiaryPeriod
-): Promise<{ id: string; markdown: string } | null> {
+): Promise<MarkerLookupResult> {
     const keyword = getSkipMarkerKeyword(period);
     const escapedDocId = escapeSqlString(docId);
 
     // 先按 root_id 范围拉取有限块，再在 JS 中匹配标记，避免 markdown LIKE 全表扫描
     const query = `SELECT id, markdown FROM blocks WHERE root_id = '${escapedDocId}' ORDER BY created DESC, id DESC LIMIT 200`;
 
+    let results: any[];
     try {
-        const results = await sql(query);
-        if (!results || results.length === 0) return null;
-
-        const skip = getSkipMarker(period);
-        const skipUpper = skip.replace("[x]", "[X]");
-
-        for (const row of results) {
-            const md = row.markdown as string;
-            if (!md.includes(keyword)) continue;
-            if (md.includes(skip) || md.includes(skipUpper)) {
-                return { id: row.id as string, markdown: md };
-            }
-        }
+        results = await sqlChecked(query);
     } catch (err) {
-        console.warn("[enhancedDiaryDoc] findSkipMarkerBlock failed", err);
+        console.warn("[enhancedDiaryDoc] findSkipMarkerBlock query failed", err);
+        return { status: "query_failed" };
     }
-    return null;
+    if (!results || results.length === 0) return { status: "missing" };
+
+    const skip = getSkipMarker(period);
+    const skipUpper = skip.replace("[x]", "[X]");
+
+    for (const row of results) {
+        const md = row.markdown as string;
+        if (!md.includes(keyword)) continue;
+        if (md.includes(skip) || md.includes(skipUpper)) {
+            return { status: "found", id: row.id as string, markdown: md };
+        }
+    }
+    return { status: "missing" };
 }
 
 export async function toggleCompletionMarker(params: {
@@ -658,7 +837,7 @@ export async function toggleCompletionMarker(params: {
     }
 
     try {
-        await updateBlock("markdown", newMarkdown, root.block.id);
+        await updateBlockChecked("markdown", newMarkdown, root.block.id);
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryDoc] toggleCompletionMarker update failed", err);
@@ -673,7 +852,9 @@ export async function skipPeriod(params: {
 }): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
     const { docId, period, mapping } = params;
 
-    const content = await readDiaryMarkdown(docId);
+    const readResult = await readDiaryMarkdownResult(docId);
+    if (!readResult.ok) return { ok: false, reason: "read_failed" };
+    const content = readResult.content;
     const scan = scanDiaryContentForPeriod(content, period, mapping);
     if (scan.skipped) {
         return { ok: true, skipped: true, reason: "already_skipped" };
@@ -683,19 +864,22 @@ export async function skipPeriod(params: {
 
     // 优先替换旧版完成标记块为跳过标记，保持旧文档兼容；
     // 如果找不到旧标记，则在文档末尾追加跳过标记。
-    const legacyBlock = await findLegacyCompletionMarkerBlock(docId, period);
-    if (legacyBlock) {
+    const legacyResult = await findLegacyCompletionMarkerBlock(docId, period);
+    if (legacyResult.status === "query_failed") {
+        return { ok: false, reason: "marker_query_failed" };
+    }
+    if (legacyResult.status === "found") {
         try {
-            await updateBlock("markdown", skip, legacyBlock.id);
+            await updateBlockChecked("markdown", skip, legacyResult.id);
             return { ok: true };
         } catch (err) {
             console.warn("[enhancedDiaryDoc] skipPeriod update legacy marker failed", err);
             return { ok: false, reason: "update_failed" };
         }
     }
-
+    // status === "missing" — append new marker
     try {
-        await appendBlock("markdown", "\n\n" + skip, docId);
+        await appendBlockChecked("markdown", "\n\n" + skip, docId);
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryDoc] skipPeriod append failed", err);
@@ -708,11 +892,14 @@ export async function restoreSkippedPeriod(params: {
     period: EnhancedDiaryPeriod;
     mode: "pending" | "completed";
     mapping?: EnhancedDiaryTemplateFieldMapping | null;
-}): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
+}): Promise<{ ok: boolean; skipped?: boolean; reason?: string; changed?: boolean }> {
     const { docId, period, mode, mapping } = params;
 
-    const skipBlock = await findSkipMarkerBlock(docId, period);
-    if (!skipBlock) {
+    const skipResult = await findSkipMarkerBlock(docId, period);
+    if (skipResult.status === "query_failed") {
+        return { ok: false, reason: "marker_query_failed" };
+    }
+    if (skipResult.status === "missing") {
         return { ok: false, reason: "skip_marker_not_found" };
     }
 
@@ -728,11 +915,11 @@ export async function restoreSkippedPeriod(params: {
     }
 
     try {
-        await deleteBlock(skipBlock.id);
+        await deleteBlockChecked(skipResult.id);
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryDoc] restoreSkippedPeriod delete skip marker failed", err);
-        // 标题已更新成功，仅跳过标记块未删除，仍视为成功但附带原因。
-        return { ok: true, reason: "heading_updated_skip_not_deleted" };
+        // 标题已更新成功，仅跳过标记块未删除
+        return { ok: false, changed: true, reason: "skip_cleanup_failed" };
     }
 }

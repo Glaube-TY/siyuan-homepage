@@ -7,10 +7,11 @@ import {
   migrateWorkspaceTaskToToday,
 } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 import { addNewTaskToDiary, getOrCreateTodayDiaryDocument } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryActions";
+import { formatDiaryAttrDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
 import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryTaskInput, ManageDiaryTaskOutput } from "../contracts/manage-diary-task.contract";
-import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
+import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig, prepareAgendaEnhancedDiaryIndex } from "./agenda-utils.impl";
 
 /** 将优先级数字 1-4 转为任务管理 Plus 的 ❗ 格式 */
 function priorityToSymbols(level: number | undefined): string | undefined {
@@ -57,7 +58,7 @@ async function executeCreate(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
 ): Promise<ExecResult> {
-  const config = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
   const doc = await ensureTodayDoc(pluginAdapter, config);
   if (!doc.docId) {
@@ -77,6 +78,8 @@ async function executeCreate(
       location: taskInput.location,
       tags: taskInput.tags,
     },
+    dailyNotebookId: config.dailyNotebookId!,
+    expectedDate: formatDiaryAttrDate(new Date()),
     headingStructure: config.headingStructure,
   });
 
@@ -98,7 +101,7 @@ async function executeMigrate(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
 ): Promise<ExecResult> {
-  const config = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
 
   // 先找任务，找不到直接失败，不创建今日日记

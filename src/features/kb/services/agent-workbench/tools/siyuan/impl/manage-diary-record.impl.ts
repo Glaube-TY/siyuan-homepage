@@ -9,7 +9,7 @@ import { getDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/e
 import { formatDiaryDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryUtils";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryRecordInput, ManageDiaryRecordOutput } from "../contracts/manage-diary-record.contract";
-import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
+import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig, prepareAgendaEnhancedDiaryIndex } from "./agenda-utils.impl";
 
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryRecordOutput; errorCode?: string };
 
@@ -29,12 +29,12 @@ function matchRecord(
 async function findRecordForTarget(
   config: Awaited<ReturnType<typeof loadAgendaEnhancedDiaryConfig>>,
   target: { recordId?: string; headingBlockId?: string; date?: string },
-): Promise<{ record: EnhancedDiaryWorkspaceRecord | undefined; date: string; docId: string; errorCode?: string; message?: string }> {
+): Promise<{ record: EnhancedDiaryWorkspaceRecord | undefined; date: string; docId: string; dateObj: Date; errorCode?: string; message?: string }> {
   const date = target.date || formatDiaryDate(new Date());
   const dateObj = new Date(date);
-  const doc = await getDiaryDocumentForDate(dateObj);
+  const doc = await getDiaryDocumentForDate(dateObj, config.dailyNotebookId);
   if (!doc) {
-    return { record: undefined, date, docId: "", errorCode: "diary_doc_not_found", message: `${date} 的日记文档不存在。` };
+    return { record: undefined, date, docId: "", dateObj, errorCode: "diary_doc_not_found", message: `${date} 的日记文档不存在。` };
   }
 
   const records = await queryTodayQuickRecords(doc.id, doc.content, date, config.headingStructure);
@@ -42,17 +42,17 @@ async function findRecordForTarget(
 
   if (!record) {
     const identifier = target.recordId || target.headingBlockId || "未知";
-    return { record: undefined, date, docId: doc.id, errorCode: "record_not_found", message: `未找到匹配的快速记录（${identifier}），请通过 query_diary_records 获取真实 ID。` };
+    return { record: undefined, date, docId: doc.id, dateObj, errorCode: "record_not_found", message: `未找到匹配的快速记录（${identifier}），请通过 query_diary_records 获取真实 ID。` };
   }
 
-  return { record, date, docId: doc.id };
+  return { record, date, docId: doc.id, dateObj };
 }
 
 async function executeAdd(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryRecordInput,
 ): Promise<ExecResult> {
-  const config = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
   const date = formatDiaryDate(new Date());
 
@@ -75,7 +75,7 @@ async function executeUpdate(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryRecordInput,
 ): Promise<ExecResult> {
-  const config = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const found = await findRecordForTarget(config, args.target!);
 
   if (!found.record) {
@@ -94,11 +94,17 @@ async function executeUpdate(
     };
   }
 
-  const result = await updateQuickRecord(found.record, args.content!);
+  const expectedDate = `${found.dateObj.getFullYear()}${String(found.dateObj.getMonth() + 1).padStart(2, "0")}${String(found.dateObj.getDate()).padStart(2, "0")}`;
+  const result = await updateQuickRecord(found.record, args.content!, {
+    dailyNotebookId: config.dailyNotebookId!,
+    expectedDate,
+  });
   if (!result.ok) {
+    const errorCode = result.reason === "record_block_out_of_scope" || result.reason === "record_block_missing"
+      ? "diary_doc_out_of_scope" : "quick_record_update_failed";
     return {
       ok: false,
-      errorCode: "quick_record_update_failed",
+      errorCode,
       safeOutput: { operation: "update", changed: false, recordId: found.record.id, headingBlockId: found.record.headingBlockId, date: found.date, message: result.message || "更新记录失败。" },
     };
   }
@@ -113,7 +119,7 @@ async function executeDelete(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryRecordInput,
 ): Promise<ExecResult> {
-  const config = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const found = await findRecordForTarget(config, args.target!);
 
   if (!found.record) {
@@ -132,11 +138,17 @@ async function executeDelete(
     };
   }
 
-  const result = await deleteQuickRecord(found.record);
+  const expectedDate = `${found.dateObj.getFullYear()}${String(found.dateObj.getMonth() + 1).padStart(2, "0")}${String(found.dateObj.getDate()).padStart(2, "0")}`;
+  const result = await deleteQuickRecord(found.record, {
+    dailyNotebookId: config.dailyNotebookId!,
+    expectedDate,
+  });
   if (!result.ok) {
+    const errorCode = result.reason === "record_block_out_of_scope" || result.reason === "record_block_missing"
+      ? "diary_doc_out_of_scope" : "quick_record_delete_failed";
     return {
       ok: false,
-      errorCode: "quick_record_delete_failed",
+      errorCode,
       safeOutput: { operation: "delete", changed: false, recordId: found.record.id, headingBlockId: found.record.headingBlockId, date: found.date, message: result.message || "删除记录失败。" },
     };
   }

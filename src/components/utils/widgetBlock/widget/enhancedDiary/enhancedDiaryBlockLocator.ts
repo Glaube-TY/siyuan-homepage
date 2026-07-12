@@ -1,4 +1,4 @@
-import { appendBlock, getChildBlocks, insertBlock } from "@/api";
+import { appendBlockChecked, getChildBlocksChecked, insertBlockChecked } from "@/api";
 import {
     ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
     normalizeRecordCategoryTitle,
@@ -31,6 +31,7 @@ export interface EnhancedDiaryHeadingBlockLookup {
     headings: EnhancedDiaryHeadingBlock[];
     missingTitle?: string;
     path: string[];
+    readFailed?: boolean;
 }
 
 export interface EnhancedDiaryInsertResult {
@@ -105,7 +106,13 @@ function headingTitleMatchesAny(
 }
 
 async function getDocumentHeadingBlocks(docId: string): Promise<EnhancedDiaryHeadingBlock[]> {
-    const children = await getChildBlocks(docId);
+    let children: IResGetChildBlock[];
+    try {
+        children = await getChildBlocksChecked(docId);
+    } catch (err) {
+        console.warn("[enhancedDiaryBlockLocator] getChildBlocksChecked failed", err);
+        throw new Error("structure_read_failed");
+    }
     return (children || [])
         .map((block, index) => blockToHeadingBlock(block, index))
         .filter((block): block is EnhancedDiaryHeadingBlock => !!block);
@@ -265,9 +272,9 @@ async function insertMarkdownAtHeadingEnd(
     const nextBoundary = findNextBoundaryHeading(lookup.headings, lookup.heading);
     try {
         if (nextBoundary) {
-            await insertBlock("markdown", data, nextBoundary.id);
+            await insertBlockChecked("markdown", data, nextBoundary.id);
         } else {
-            await appendBlock("markdown", data, docId);
+            await appendBlockChecked("markdown", data, docId);
         }
         return { ok: true, path: lookup.path };
     } catch (err) {
@@ -333,9 +340,9 @@ export async function appendMarkdownToRecordCategoryByTitle(params: {
 
         try {
             if (nextBoundary) {
-                await insertBlock("markdown", categoryMarkdown, nextBoundary.id);
+                await insertBlockChecked("markdown", categoryMarkdown, nextBoundary.id);
             } else {
-                await appendBlock("markdown", categoryMarkdown, params.docId);
+                await appendBlockChecked("markdown", categoryMarkdown, params.docId);
             }
             return { ok: true, path: [...quickRecords.path, normalizedTitle] };
         } catch (err) {
@@ -364,6 +371,9 @@ export async function getDayWorkspaceSectionEndAnchor(params: {
     mapping?: EnhancedDiaryTemplateFieldMapping | null;
 }): Promise<EnhancedDiaryInsertionAnchorResult> {
     const lookup = await findDayWorkspaceHeadingBlock(params.docId, params.sectionKey, params.headingStructure, params.mapping);
+    if (lookup.readFailed) {
+        return { ok: false, reason: "structure_read_failed" };
+    }
     if (!lookup.found || !lookup.heading) {
         return {
             ok: false,
@@ -373,7 +383,7 @@ export async function getDayWorkspaceSectionEndAnchor(params: {
         };
     }
 
-    const children = await getChildBlocks(params.docId);
+    const children = await getChildBlocksChecked(params.docId);
     const headingIndex = children.findIndex((block) => block.id === lookup.heading?.id);
     if (headingIndex < 0) {
         return {

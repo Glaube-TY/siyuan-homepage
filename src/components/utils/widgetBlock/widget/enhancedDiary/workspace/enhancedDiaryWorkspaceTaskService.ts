@@ -1,9 +1,9 @@
 import {
-    appendBlock,
-    deleteBlock,
+    appendBlockChecked,
+    deleteBlockChecked,
     getBlockKramdown,
-    moveBlock,
-    updateBlock,
+    moveBlockChecked,
+    updateBlockChecked,
 } from "@/api";
 import {
     extractTaskTags,
@@ -18,7 +18,7 @@ import {
     getDayWorkspaceSectionEndAnchor,
 } from "../enhancedDiaryBlockLocator";
 import { getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
-import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
+import { readDiaryMarkdownResult } from "../enhancedDiaryDoc";
 import { formatDiaryDate, isEnhancedDiarySystemTaskMarkdown } from "../enhancedDiaryUtils";
 import { getDayWorkspaceSections } from "../enhancedDiaryWorkspaceSections";
 import { addDays, daysBetweenLocalDates, formatLocalDate } from "./enhancedDiaryWorkspaceDate";
@@ -70,6 +70,7 @@ interface SourceDocInfo {
     id: string;
     title: string;
     attrDate?: string;
+    hpath?: string;
 }
 
 function firstTaskLine(markdown: string): string {
@@ -88,8 +89,13 @@ function parseAttrDate(ial?: string): string | undefined {
 
 function parseDateFromHpath(hpath?: string): string | undefined {
     if (!hpath) return undefined;
-    const match = hpath.match(/(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+    const match = hpath.match(/(\d{4})(?:[-/.]|\u5e74)(\d{1,2})(?:[-/.]|\u6708)(\d{1,2})/);
     if (!match) return undefined;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (month < 1 || month > 12 || day < 1 || day > 31 || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return undefined;
     return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
 }
 
@@ -111,7 +117,7 @@ async function querySourceDocs(rootIds: string[]): Promise<Map<string, SourceDoc
     const rows = await selectByIdsBatched(
         uniqueIds,
         (escapedIds) => `
-            SELECT id, content, ial
+            SELECT id, content, ial, hpath
             FROM blocks
             WHERE type = 'd'
             AND id IN (${escapedIds})
@@ -125,6 +131,7 @@ async function querySourceDocs(rootIds: string[]): Promise<Map<string, SourceDoc
             id: row.id,
             title: row.content || "",
             attrDate: parseAttrDate(row.ial),
+            hpath: row.hpath || "",
         });
     });
 
@@ -132,28 +139,31 @@ async function querySourceDocs(rootIds: string[]): Promise<Map<string, SourceDoc
 }
 
 async function getTodaySectionTaskSets(
-    today: Date,
-    config?: EnhancedDiaryConfig
+    config: EnhancedDiaryConfig,
+    todayDocId?: string,
 ): Promise<{
     todayDocId?: string;
     newTaskLines: Set<string>;
     migratedTaskLines: Set<string>;
 }> {
-    const todayDoc = await getDiaryDocumentForDate(today);
-    if (!todayDoc) {
+    if (!todayDocId) {
         return {
             newTaskLines: new Set(),
             migratedTaskLines: new Set(),
         };
     }
 
+    const markdown = await readDiaryMarkdownResult(todayDocId);
+    if (!markdown.ok) {
+        return { newTaskLines: new Set(), migratedTaskLines: new Set() };
+    }
     const sections = getDayWorkspaceSections(
-        todayDoc.content,
+        markdown.content,
         config?.headingStructure,
         config?.templateFieldMapping,
     );
     return {
-        todayDocId: todayDoc.id,
+        todayDocId,
         newTaskLines: sections.newTasks.found
             ? makeTaskLineSet(sections.newTasks.markdown)
             : new Set(),
@@ -175,13 +185,17 @@ export async function queryWorkspaceTasks(
     const rows = taskResult.items;
 
     const sourceDocs = await querySourceDocs((rows || []).map((row) => row.root_id));
-    const todaySets = await getTodaySectionTaskSets(today, config);
+    const todayDocId = (rows || []).find((row) => {
+        const sourceDoc = sourceDocs.get(row.root_id);
+        return sourceDoc?.attrDate === todayStr || parseDateFromHpath(sourceDoc?.hpath || row.hpath) === todayStr;
+    })?.root_id;
+    const todaySets = await getTodaySectionTaskSets(config, todayDocId);
 
     return (rows || []).map((row) => {
         const markdown = firstTaskLine(row.markdown || row.content || "");
         const parsed = parseTaskLine(markdown);
         const sourceDoc = sourceDocs.get(row.root_id);
-        const sourceDate = sourceDoc?.attrDate || parseDateFromHpath(row.hpath);
+        const sourceDate = sourceDoc?.attrDate || parseDateFromHpath(sourceDoc?.hpath || row.hpath);
 
         let sourceKind: EnhancedDiaryWorkspaceTaskSourceKind = "normal";
         if (row.root_id === todaySets.todayDocId) {
@@ -268,7 +282,7 @@ async function updateTaskFirstLine(
     lines[0] = newFirstLine;
 
     try {
-        await updateBlock("markdown", lines.join("\n"), task.blockId);
+        await updateBlockChecked("markdown", lines.join("\n"), task.blockId);
         try {
             await updateTaskIndexItem({
                 id: task.blockId,
@@ -414,7 +428,7 @@ export async function deleteWorkspaceTask(
     }
 
     try {
-        await deleteBlock(task.blockId);
+        await deleteBlockChecked(task.blockId);
         try {
             await removeTaskIndexItem(task.blockId);
         } catch {
@@ -482,7 +496,7 @@ export async function migrateWorkspaceTaskToToday(
     }
 
     try {
-        await moveBlock(task.blockId, anchor.previousID, anchor.parentID);
+        await moveBlockChecked(task.blockId, anchor.previousID, anchor.parentID);
     } catch {
         return {
             ok: false,
@@ -509,7 +523,7 @@ export async function migrateWorkspaceTaskToToday(
     }
 
     try {
-        await appendBlock(
+        await appendBlockChecked(
             "markdown",
             `- 迁移来源：${buildSourceLink(task)}\n- 迁移时间：${formatNowTime()}`,
             task.blockId

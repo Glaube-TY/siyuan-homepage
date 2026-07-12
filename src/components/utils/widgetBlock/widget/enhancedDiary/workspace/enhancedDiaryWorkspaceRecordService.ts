@@ -1,4 +1,4 @@
-import { deleteBlock, getChildBlocks, updateBlock } from "@/api";
+import { getChildBlocksChecked, updateBlockChecked, sqlChecked, performTransactionsChecked } from "@/api";
 import { addQuickRecordToDiary, getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
 import {
     ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
@@ -17,7 +17,8 @@ import {
     type EnhancedDiaryHeadingStructureConfig,
     type EnhancedDiaryTemplateFieldMapping,
 } from "../enhancedDiaryTypes";
-import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
+import { readDiaryMarkdown, validateEnhancedDiaryWriteTarget, formatDiaryAttrDate } from "../enhancedDiaryDoc";
+import { getEnhancedDiaryIndexEntries } from "../enhancedDiaryIndex";
 import { formatDiaryDate } from "../enhancedDiaryUtils";
 import {
     getFieldAliases,
@@ -36,6 +37,58 @@ export interface EnhancedDiaryWorkspaceRecord {
     docTitle?: string;
     headingBlockId?: string;
     contentBlockIds?: string[];
+}
+
+export interface EnhancedDiaryRecordWriteContext {
+    dailyNotebookId: string;
+    expectedDate: string;
+}
+
+async function validateRecordBlocks(
+    record: EnhancedDiaryWorkspaceRecord,
+    targetBlockIds: string[],
+    checkHeading: boolean
+): Promise<{ ok: true; reason?: undefined } | { ok: false; reason: string }> {
+    // Validate non-empty IDs
+    for (const id of targetBlockIds) {
+        if (!id || typeof id !== "string" || id.trim() === "") {
+            return { ok: false, reason: "record_block_invalid" };
+        }
+    }
+
+    // Check for duplicates
+    const seen = new Set<string>();
+    for (const id of targetBlockIds) {
+        if (seen.has(id)) return { ok: false, reason: "record_block_invalid" };
+        seen.add(id);
+    }
+
+    // headingBlockId must not appear in the ORIGINAL contentBlockIds
+    if (record.headingBlockId && record.contentBlockIds && record.contentBlockIds.includes(record.headingBlockId)) {
+        return { ok: false, reason: "record_block_invalid" };
+    }
+
+    if (targetBlockIds.length === 0) return { ok: false, reason: "record_block_missing" };
+
+    let rows: any[];
+    try {
+        const escaped = targetBlockIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(",");
+        rows = await sqlChecked(`SELECT id, root_id, type FROM blocks WHERE id IN (${escaped})`);
+    } catch {
+        return { ok: false, reason: "record_validation_failed" };
+    }
+
+    const found = new Map<string, { root_id: string; type: string }>();
+    for (const row of rows) found.set(String(row.id), { root_id: String(row.root_id || ""), type: String(row.type || "") });
+
+    for (const id of targetBlockIds) {
+        const block = found.get(id);
+        if (!block) return { ok: false, reason: "record_block_missing" };
+        if (block.root_id !== record.docId) return { ok: false, reason: "record_block_out_of_scope" };
+        if (checkHeading && id === record.headingBlockId && block.type !== "h") return { ok: false, reason: "record_block_out_of_scope" };
+    }
+
+    return { ok: true };
 }
 
 export interface WorkspaceRecordActionResult {
@@ -237,7 +290,7 @@ export async function queryTodayQuickRecords(
             }
         }
 
-        const blocks = await getChildBlocks(docId);
+        const blocks = await getChildBlocksChecked(docId);
         const effectiveEnd = Math.min(qrScopeEnd, blocks.length);
         const preferredCategoryLevel = qrBlock.level + 1;
 
@@ -311,13 +364,16 @@ export async function addWorkspaceQuickRecord(
         docId: todayDoc.docId,
         categoryTitle,
         content,
+        dailyNotebookId: config.dailyNotebookId!,
+        expectedDate: formatDiaryAttrDate(new Date()),
         headingStructure: config.headingStructure,
         mapping: config.templateFieldMapping,
     });
 }
 
 export async function deleteQuickRecord(
-    record: EnhancedDiaryWorkspaceRecord
+    record: EnhancedDiaryWorkspaceRecord,
+    ctx: EnhancedDiaryRecordWriteContext
 ): Promise<WorkspaceRecordActionResult> {
     if (!record.headingBlockId || !record.contentBlockIds) {
         return {
@@ -327,11 +383,28 @@ export async function deleteQuickRecord(
         };
     }
 
+    // Validate parent diary scope
+    const diaryCheck = await validateEnhancedDiaryWriteTarget(record.docId, ctx.dailyNotebookId, ctx.expectedDate);
+    if (diaryCheck.status !== "valid") {
+        return {
+            ok: false,
+            reason: diaryCheck.status === "out_of_scope" ? "record_block_out_of_scope" : "record_validation_failed",
+            message: "日记文档已变更，无法删除记录。",
+        };
+    }
+
+    // Validate all target blocks belong to this diary
+    const allBlockIds = [...record.contentBlockIds, record.headingBlockId];
+    const blockCheck = await validateRecordBlocks(record, allBlockIds, true);
+    if (!blockCheck.ok) return { ok: false, reason: blockCheck.reason, message: "记录块已变更，请在日记中手动删除。" };
+
     try {
-        for (const blockId of [...record.contentBlockIds].reverse()) {
-            await deleteBlock(blockId);
-        }
-        await deleteBlock(record.headingBlockId);
+        // Use transaction to atomically delete all blocks — prevents partial deletion
+        const doOperations = [...record.contentBlockIds, record.headingBlockId].map((blockId) => ({
+            action: "delete",
+            id: blockId,
+        }));
+        await performTransactionsChecked([{ doOperations }]);
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceRecordService] delete quick record failed", err);
@@ -345,7 +418,8 @@ export async function deleteQuickRecord(
 
 export async function updateQuickRecord(
     record: EnhancedDiaryWorkspaceRecord,
-    content: string
+    content: string,
+    ctx: EnhancedDiaryRecordWriteContext
 ): Promise<WorkspaceRecordActionResult> {
     const trimmed = content.trim();
     if (!trimmed) {
@@ -364,8 +438,22 @@ export async function updateQuickRecord(
         };
     }
 
+    // Validate parent diary scope
+    const diaryCheck = await validateEnhancedDiaryWriteTarget(record.docId, ctx.dailyNotebookId, ctx.expectedDate);
+    if (diaryCheck.status !== "valid") {
+        return {
+            ok: false,
+            reason: diaryCheck.status === "out_of_scope" ? "record_block_out_of_scope" : "record_validation_failed",
+            message: "日记文档已变更，无法更新记录。",
+        };
+    }
+
+    // Validate the content block belongs to this diary
+    const blockCheck = await validateRecordBlocks(record, record.contentBlockIds, false);
+    if (!blockCheck.ok) return { ok: false, reason: blockCheck.reason, message: "记录块已变更，请在日记中手动编辑。" };
+
     try {
-        await updateBlock("markdown", trimmed, record.contentBlockIds[0]);
+        await updateBlockChecked("markdown", trimmed, record.contentBlockIds[0]);
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceRecordService] update quick record failed", err);
@@ -399,37 +487,29 @@ export async function queryQuickRecordsInDateRange(params: {
     const actualStart = rawStart < maxStart ? maxStart : rawStart;
 
     const todayStr = formatDiaryDate(new Date());
-    const allRecords: EnhancedDiaryWorkspaceRecord[] = [];
-    const cursor = new Date(actualStart);
-
-    while (cursor <= rawEnd) {
+    const requestedDates: string[] = [];
+    for (const cursor = new Date(actualStart); cursor <= rawEnd; cursor.setDate(cursor.getDate() + 1)) {
         const dateStr = formatDiaryDate(cursor);
-        const skipToday = includeToday === false && dateStr === todayStr;
-        const dayDate = new Date(cursor);
-
-        if (!skipToday) {
-            try {
-                const doc = await getDiaryDocumentForDate(dayDate);
-                if (doc) {
-                    const dayRecords = await queryTodayQuickRecords(
-                        doc.id,
-                        doc.content,
-                        dateStr,
-                        config.headingStructure,
-                        config.templateFieldMapping,
-                    );
-                    for (const record of dayRecords) {
-                        record.date = dateStr;
-                        record.docTitle = doc.title || dateStr;
-                    }
-                    allRecords.push(...dayRecords);
-                }
-            } catch (err) {
-                console.warn(`[enhancedDiaryWorkspaceRecordService] query records for ${dateStr} failed`, err);
+        if (includeToday || dateStr !== todayStr) requestedDates.push(dateStr.replace(/-/g, ""));
+    }
+    const entries = config.dailyNotebookId
+        ? await getEnhancedDiaryIndexEntries(config.dailyNotebookId, requestedDates)
+        : {};
+    const allRecords: EnhancedDiaryWorkspaceRecord[] = [];
+    for (const [compactDate, entry] of Object.entries(entries)) {
+        try {
+            const content = await readDiaryMarkdown(entry.id);
+            if (!content) continue;
+            const dateStr = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
+            const dayRecords = await queryTodayQuickRecords(entry.id, content, dateStr, config.headingStructure, config.templateFieldMapping);
+            for (const record of dayRecords) {
+                record.date = dateStr;
+                record.docTitle = entry.title || dateStr;
             }
+            allRecords.push(...dayRecords);
+        } catch (err) {
+            console.warn(`[enhancedDiaryWorkspaceRecordService] query records for ${compactDate} failed`, err);
         }
-
-        cursor.setDate(cursor.getDate() + 1);
     }
 
     allRecords.sort((a, b) => (b.date || "").localeCompare(a.date || ""));

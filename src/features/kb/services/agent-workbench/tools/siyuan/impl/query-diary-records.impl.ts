@@ -13,6 +13,8 @@ import {
   formatAgendaDate,
   mapAgendaRecord,
   parseAgendaDate,
+  loadAgendaEnhancedDiaryConfig,
+  prepareAgendaEnhancedDiaryIndex,
 } from "./agenda-utils.impl";
 
 function normalize(value: string): string {
@@ -46,12 +48,12 @@ function recordMatchesKeyword(
   ].some((value) => normalize(value || "").includes(query));
 }
 
-async function querySingleDayRecords(date: Date): Promise<{
+async function querySingleDayRecords(date: Date, notebookId: string): Promise<{
   dateText: string;
   records: EnhancedDiaryWorkspaceRecord[];
 }> {
   const dateText = formatAgendaDate(date);
-  const doc = await getDiaryDocumentForDate(date);
+  const doc = await getDiaryDocumentForDate(date, notebookId);
   if (!doc) return { dateText, records: [] };
 
   const records = await queryTodayQuickRecords(doc.id, doc.content, dateText);
@@ -63,23 +65,25 @@ async function querySingleDayRecords(date: Date): Promise<{
 }
 
 export async function executeQueryDiaryRecords(
-  _deps: KbRetrievalToolDeps,
+  deps: KbRetrievalToolDeps,
   args: QueryDiaryRecordsInput,
 ): Promise<{ safeOutput: QueryDiaryRecordsOutput }> {
   const limit = args.limit ?? 30;
   let dateText: string | undefined;
   let records: EnhancedDiaryWorkspaceRecord[] = [];
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
 
   if (args.startDate && args.endDate) {
     const startDate = parseAgendaDate(args.startDate);
     const endDate = parseAgendaDate(args.endDate);
     records = await queryQuickRecordsInDateRange({
       startDate,
-      endDate,
-      includeToday: true,
+        endDate,
+        includeToday: true,
+        config,
     });
   } else {
-    const result = await querySingleDayRecords(parseAgendaDate(args.date));
+    const result = await querySingleDayRecords(parseAgendaDate(args.date), config.dailyNotebookId!);
     dateText = result.dateText;
     records = result.records;
   }

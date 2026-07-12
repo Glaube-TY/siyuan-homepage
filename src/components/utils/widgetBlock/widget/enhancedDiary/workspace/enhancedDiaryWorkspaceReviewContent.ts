@@ -1,4 +1,4 @@
-import { getChildBlocks, insertBlock, deleteBlock } from "@/api";
+import { getChildBlocksChecked, insertBlockChecked, performTransactionsChecked } from "@/api";
 import {
     matchesRootHeading,
     normalizeHeadingTitle,
@@ -6,7 +6,7 @@ import {
     getSectionMarkdown,
     type EnhancedDiaryHeadingNode,
 } from "../enhancedDiaryMarkdownSections";
-import { readDiaryMarkdown } from "../enhancedDiaryDoc";
+import { readDiaryMarkdownResult } from "../enhancedDiaryDoc";
 import type { EnhancedDiaryHeadingStructureConfig, EnhancedDiaryPeriod, EnhancedDiaryTemplateFieldMapping } from "../enhancedDiaryTypes";
 import {
     getActiveReviewFields,
@@ -99,7 +99,19 @@ export async function loadReviewContent(
     mapping?: EnhancedDiaryTemplateFieldMapping | null
 ): Promise<{ fields: EnhancedDiaryReviewField[]; reason?: string }> {
     const def = getReviewSectionDef(period, mapping);
-    const markdown = await readDiaryMarkdown(docId);
+    const readResult = await readDiaryMarkdownResult(docId);
+    if (!readResult.ok) {
+        return {
+            fields: def.fields.map((label) => ({
+                key: label,
+                label,
+                content: "",
+                missing: true,
+            })),
+            reason: "read_failed",
+        };
+    }
+    const markdown = readResult.content;
     const roots = parseMarkdownHeadingTree(markdown);
     const reviewRoot = findReviewRootNode(roots, period, mapping);
 
@@ -156,23 +168,7 @@ function getHeadingLevel(block: IResGetChildBlock): number | null {
     return parsed || getHeadingLevelFromSubtype(block.subtype) || null;
 }
 
-async function insertMarkdownAfterBlock(
-    markdown: string,
-    boundaryNextId: string | null,
-    fallbackPreviousId: string
-): Promise<boolean> {
-    try {
-        if (boundaryNextId) {
-            await insertBlock("markdown", markdown, boundaryNextId);
-        } else {
-            await insertBlock("markdown", markdown, undefined, fallbackPreviousId);
-        }
-        return true;
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceReviewContent] insertMarkdownAfterBlock failed", err);
-        return false;
-    }
-}
+// (inline checked calls used directly in saveReviewContent)
 
 export async function saveReviewContent(
     docId: string,
@@ -180,10 +176,16 @@ export async function saveReviewContent(
     fields: EnhancedDiaryReviewField[],
     _headingStructure?: EnhancedDiaryHeadingStructureConfig,
     mapping?: EnhancedDiaryTemplateFieldMapping | null
-): Promise<{ ok: boolean; reason?: string }> {
+): Promise<{ ok: boolean; reason?: string; changed?: boolean; changedFieldCount?: number; failedFieldCount?: number; cleanupFailedCount?: number }> {
     const reviewRootAliases = getFieldAliases(mapping, "reviewSections", period, "reviewRoot");
 
-    const children = await getChildBlocks(docId);
+    let children: IResGetChildBlock[];
+    try {
+        children = await getChildBlocksChecked(docId);
+    } catch (err) {
+        console.warn("[enhancedDiaryWorkspaceReviewContent] getChildBlocksChecked failed", err);
+        return { ok: false, reason: "structure_read_failed" };
+    }
 
     let periodRootIndex = -1;
     for (let i = 0; i < children.length; i++) {
@@ -266,7 +268,9 @@ export async function saveReviewContent(
         }
     }
 
-    let hasError = false;
+    let changedFieldCount = 0;
+    let failedFieldCount = 0;
+    let cleanupFailedCount = 0;
 
     // Track insertion anchor for new fields so successive inserts maintain order
     let newFieldInsertAfterId = reviewRootBlock.id;
@@ -289,8 +293,18 @@ export async function saveReviewContent(
         const mergedMarkdown = missingFields
             .map((mf) => `${fieldHash} ${mf.label}\n\n${mf.content}`)
             .join("\n\n");
-        const ok = await insertMarkdownAfterBlock(mergedMarkdown, reviewBoundaryNextId, newFieldInsertAfterId);
-        if (!ok) hasError = true;
+        try {
+            if (reviewBoundaryNextId) {
+                await insertBlockChecked("markdown", mergedMarkdown, reviewBoundaryNextId);
+            } else {
+                await insertBlockChecked("markdown", mergedMarkdown, undefined, newFieldInsertAfterId);
+            }
+        } catch (err) {
+            console.warn("[enhancedDiaryWorkspaceReviewContent] insert missing fields failed", err);
+            failedFieldCount += missingFields.length;
+        }
+    } else {
+        // New fields with empty content — nothing to do, not an error
     }
 
     for (const field of fields) {
@@ -305,26 +319,75 @@ export async function saveReviewContent(
             for (let i = existing.blockIndex + 1; i < existing.endIndex; i++) {
                 contentBlockIds.push(children[i].id);
             }
-            for (const blockId of contentBlockIds.reverse()) {
+
+            // User cleared field: only delete old content
+            if (!newContent && contentBlockIds.length > 0) {
                 try {
-                    await deleteBlock(blockId);
+                    const deletes = contentBlockIds.map((bid) => ({ action: "delete" as const, id: bid }));
+                    await performTransactionsChecked([{ doOperations: deletes }]);
+                    changedFieldCount++;
                 } catch (err) {
-                    console.warn("[enhancedDiaryWorkspaceReviewContent] delete old content block failed", err);
-                    hasError = true;
+                    console.warn("[enhancedDiaryWorkspaceReviewContent] delete cleared field content failed", err);
+                    failedFieldCount++;
                 }
+                continue;
             }
 
-            if (newContent) {
-                const fieldBoundaryNextId = existing.endIndex < children.length ? children[existing.endIndex].id : reviewBoundaryNextId;
-                const ok = await insertMarkdownAfterBlock(newContent, fieldBoundaryNextId, existing.blockId);
-                if (!ok) hasError = true;
+            // User updated field: insert new content first, then delete old
+            if (newContent && contentBlockIds.length > 0) {
+                // Insert new content first
+                try {
+                    const fieldBoundaryNextId = existing.endIndex < children.length ? children[existing.endIndex].id : reviewBoundaryNextId;
+                    if (fieldBoundaryNextId) {
+                        await insertBlockChecked("markdown", newContent, fieldBoundaryNextId);
+                    } else {
+                        await insertBlockChecked("markdown", newContent, undefined, existing.blockId);
+                    }
+                } catch (err) {
+                    console.warn("[enhancedDiaryWorkspaceReviewContent] insert new content failed, preserving old", err);
+                    failedFieldCount++;
+                    continue;
+                }
+                // Insert succeeded — field changed
+                changedFieldCount++;
+
+                // New content inserted — now try to clean up old content
+                try {
+                    const deletes = contentBlockIds.map((bid) => ({ action: "delete" as const, id: bid }));
+                    await performTransactionsChecked([{ doOperations: deletes }]);
+                } catch (err) {
+                    console.warn("[enhancedDiaryWorkspaceReviewContent] cleanup old content failed (new content kept)", err);
+                    cleanupFailedCount++;
+                }
+            } else if (newContent && contentBlockIds.length === 0) {
+                // New content for existing heading but no old content blocks — just insert
+                try {
+                    const fieldBoundaryNextId = existing.endIndex < children.length ? children[existing.endIndex].id : reviewBoundaryNextId;
+                    if (fieldBoundaryNextId) {
+                        await insertBlockChecked("markdown", newContent, fieldBoundaryNextId);
+                    } else {
+                        await insertBlockChecked("markdown", newContent, undefined, existing.blockId);
+                    }
+                    changedFieldCount++;
+                } catch (err) {
+                    console.warn("[enhancedDiaryWorkspaceReviewContent] insert new content failed", err);
+                    failedFieldCount++;
+                }
             }
         }
     }
 
-    if (hasError) {
-        return { ok: false, reason: "write_failed" };
+    const anyError = failedFieldCount > 0 || cleanupFailedCount > 0;
+
+    if (anyError) {
+        if (cleanupFailedCount > 0) {
+            return { ok: false, reason: "cleanup_failed", changed: true, changedFieldCount, cleanupFailedCount };
+        }
+        if (changedFieldCount > 0) {
+            return { ok: false, reason: "partial_write", changed: true, changedFieldCount, failedFieldCount };
+        }
+        return { ok: false, reason: "write_failed", changed: false, failedFieldCount };
     }
 
-    return { ok: true };
+    return { ok: true, changed: changedFieldCount > 0, changedFieldCount };
 }

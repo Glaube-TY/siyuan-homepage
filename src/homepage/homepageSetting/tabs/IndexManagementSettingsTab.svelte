@@ -22,6 +22,8 @@
         rebuildStatIndexFromGlobalSql,
         refreshStatIndexFromRecentDocuments,
     } from "@/components/tools/statisticalAPI";
+    import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
+    import { rebuildEnhancedDiaryIndex, refreshEnhancedDiaryIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
 
     type StatusChangeHandler = (status: ComponentMigrationStatus) => void | Promise<void>;
 
@@ -32,11 +34,13 @@
         taskIndexMigrationStatus?: ComponentMigrationStatus;
         heatmapIndexStatus?: ComponentMigrationStatus;
         statIndexStatus?: ComponentMigrationStatus;
+        enhancedDiaryIndexStatus?: ComponentMigrationStatus;
         onFavoritesStatusChange?: StatusChangeHandler;
         onReviewDocsStatusChange?: StatusChangeHandler;
         onTaskIndexStatusChange?: StatusChangeHandler;
         onHeatmapIndexStatusChange?: StatusChangeHandler;
         onStatIndexStatusChange?: StatusChangeHandler;
+        onEnhancedDiaryIndexStatusChange?: StatusChangeHandler;
     }
 
     let {
@@ -46,11 +50,13 @@
         taskIndexMigrationStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
         heatmapIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
         statIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
+        enhancedDiaryIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
         onFavoritesStatusChange = undefined,
         onReviewDocsStatusChange = undefined,
         onTaskIndexStatusChange = undefined,
         onHeatmapIndexStatusChange = undefined,
         onStatIndexStatusChange = undefined,
+        onEnhancedDiaryIndexStatusChange = undefined,
     }: Props = $props();
 
     let isRebuildingAll = $state(false);
@@ -64,6 +70,8 @@
     let isHeatmapRefreshing = $state(false);
     let isStatRebuilding = $state(false);
     let isStatRefreshing = $state(false);
+    let isEnhancedDiaryRebuilding = $state(false);
+    let isEnhancedDiaryRefreshing = $state(false);
 
     let heatmapRebuildMonths = $state(12);
 
@@ -118,6 +126,8 @@
         await onHeatmapIndexStatusChange?.(results.heatmap);
         statIndexStatus = results.stat;
         await onStatIndexStatusChange?.(results.stat);
+        enhancedDiaryIndexStatus = results.enhancedDiary;
+        await onEnhancedDiaryIndexStatusChange?.(results.enhancedDiary);
     }
 
     async function applyRefreshResults(results: RefreshAllResult) {
@@ -131,6 +141,8 @@
         await onHeatmapIndexStatusChange?.(results.heatmap);
         statIndexStatus = results.stat;
         await onStatIndexStatusChange?.(results.stat);
+        enhancedDiaryIndexStatus = results.enhancedDiary;
+        await onEnhancedDiaryIndexStatusChange?.(results.enhancedDiary);
     }
 
     async function handleFavoritesMigrate() {
@@ -235,6 +247,32 @@
             await onStatIndexStatusChange?.(status);
         } finally {
             isStatRefreshing = false;
+        }
+    }
+
+    async function handleEnhancedDiaryRebuild() {
+        if (!plugin || isEnhancedDiaryRebuilding) return;
+        isEnhancedDiaryRebuilding = true;
+        try {
+            const config = await loadEnhancedDiaryConfig(plugin);
+            const status = await rebuildEnhancedDiaryIndex(config.dailyNotebookId || "");
+            enhancedDiaryIndexStatus = status;
+            await onEnhancedDiaryIndexStatusChange?.(status);
+        } finally {
+            isEnhancedDiaryRebuilding = false;
+        }
+    }
+
+    async function handleEnhancedDiaryRefresh() {
+        if (!plugin || isEnhancedDiaryRefreshing) return;
+        isEnhancedDiaryRefreshing = true;
+        try {
+            const config = await loadEnhancedDiaryConfig(plugin);
+            const status = await refreshEnhancedDiaryIndex(config.dailyNotebookId || "", { force: true });
+            enhancedDiaryIndexStatus = status;
+            await onEnhancedDiaryIndexStatusChange?.(status);
+        } finally {
+            isEnhancedDiaryRefreshing = false;
         }
     }
 </script>
@@ -432,6 +470,33 @@
     {#if statIndexStatus.lastMessage}
         <SettingRow title="最近消息">
             <span class="index-status-text">{statIndexStatus.lastMessage}</span>
+        </SettingRow>
+    {/if}
+</SettingSection>
+
+<SettingSection title="强化日记索引">
+    <SettingRow
+        title="刷新强化日记增量索引"
+        description="只使用最近文档增量；仅处理当前配置日记笔记本中的变动文档。"
+    >
+        <button type="button" class="index-action-btn" onclick={handleEnhancedDiaryRefresh} disabled={!plugin || isEnhancedDiaryRefreshing}>
+            {isEnhancedDiaryRefreshing ? "刷新中..." : "刷新强化日记增量索引"}
+        </button>
+    </SettingRow>
+    <SettingRow
+        title="重建强化日记索引"
+        description="只遍历当前配置的日记笔记本文件树，并对已取得的文档 ID 精确识别；不扫描全库 blocks。"
+    >
+        <button type="button" class="index-action-btn" onclick={handleEnhancedDiaryRebuild} disabled={!plugin || isEnhancedDiaryRebuilding}>
+            {isEnhancedDiaryRebuilding ? "重建中..." : "重建强化日记索引"}
+        </button>
+    </SettingRow>
+    <SettingRow title="最近状态">
+        <span class="index-status-text">{formatStatus(enhancedDiaryIndexStatus)}</span>
+    </SettingRow>
+    {#if enhancedDiaryIndexStatus.lastMessage}
+        <SettingRow title="最近消息">
+            <span class="index-status-text">{enhancedDiaryIndexStatus.lastMessage}</span>
         </SettingRow>
     {/if}
 </SettingSection>

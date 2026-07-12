@@ -9,6 +9,7 @@
         type EnhancedDiaryPeriodContext,
     } from "./enhancedDiaryTypes";
     import { loadEnhancedDiaryConfig } from "./enhancedDiaryConfig";
+    import { initializeEnhancedDiaryIndex } from "./enhancedDiaryIndex";
     import {
         formatDiaryDate,
         getPeriodContext,
@@ -17,12 +18,15 @@
     } from "./enhancedDiaryUtils";
     import {
         getDiaryDocumentForDate,
+        setEnhancedDiaryIndexNotebook,
         openDiaryDocument,
         openOrCreateDiaryForDate,
         appendTemplateToDiary,
         toggleCompletionMarker,
         skipPeriod,
         restoreSkippedPeriod,
+        validateEnhancedDiaryWriteTarget,
+        formatDiaryAttrDate,
     } from "./enhancedDiaryDoc";
     import type { EnhancedDiaryTemplateContext } from "./enhancedDiaryTypes";
     import {
@@ -265,6 +269,8 @@
     async function loadAndBuildCards(): Promise<void> {
         const loaded = await loadEnhancedDiaryConfig(plugin);
         config = loaded;
+        setEnhancedDiaryIndexNotebook(loaded.dailyNotebookId);
+        if (loaded.dailyNotebookId) await initializeEnhancedDiaryIndex(loaded.dailyNotebookId);
         await buildCards();
         await loadTodayWorkspaceSummary();
     }
@@ -481,6 +487,8 @@
             const result = await addNewTaskToDiary({
                 docId,
                 task: input,
+                dailyNotebookId: config!.dailyNotebookId!,
+                expectedDate: formatDiaryAttrDate(new Date()),
                 headingStructure: config?.headingStructure,
                 mapping: config?.templateFieldMapping,
             });
@@ -509,6 +517,8 @@
                 docId,
                 categoryTitle,
                 content,
+                dailyNotebookId: config!.dailyNotebookId!,
+                expectedDate: formatDiaryAttrDate(new Date()),
                 headingStructure: config?.headingStructure,
                 mapping: config?.templateFieldMapping,
             });
@@ -545,6 +555,8 @@
                 showMessage("请先在强化日记设置中选择日记笔记本", 4000);
             } else if (result.reason === "create_failed") {
                 showMessage("创建今日日记失败，请稍后重试", 4000);
+            } else if (result.reason === "existing_doc_unreadable") {
+                showMessage("日记已存在，但正文暂时无法读取，请稍后重试。", 4000);
             } else {
                 showMessage("打开今日日记失败，请稍后重试", 4000);
             }
@@ -597,6 +609,8 @@
                     "创建日记失败，请检查当前组件所在笔记本或稍后重试",
                     4000,
                 );
+            } else if (result.reason === "existing_doc_unreadable") {
+                showMessage("日记已存在，但正文暂时无法读取，请稍后重试。", 4000);
             }
         } else if (action === "append_template") {
             if (!menuCard || !menuCard.docId) {
@@ -604,6 +618,16 @@
             } else if (!config) {
                 showMessage("强化日记配置未加载", 3000);
             } else {
+                const writeCheck = await validateEnhancedDiaryWriteTarget(
+                    menuCard.docId,
+                    config.dailyNotebookId!,
+                    formatDiaryAttrDate(menuCard.targetDate)
+                );
+                if (writeCheck.status !== "valid") {
+                    showMessage("日记位置或日期已经变化，请刷新组件后重试", 4000);
+                    await loadAndBuildCards();
+                    return;
+                }
                 const template = config.templates[menuCard.period];
                 const result = await appendTemplateToDiary({
                     docId: menuCard.docId,
@@ -627,6 +651,9 @@
                     }
                 } else if (result.ok) {
                     showMessage("强化日记模板已补充", 3000);
+                } else if (result.reason === "read_failed") {
+                    showMessage("日记正文暂时无法读取，为避免重复写入，本次未补充模板。", 4000);
+                    await loadAndBuildCards();
                 } else {
                     if (result.reason === "empty_template") {
                         showMessage("模板为空，无法补充", 3000);
@@ -645,6 +672,16 @@
             if (!menuCard || !menuCard.docId) {
                 showMessage("未找到对应日记", 3000);
             } else {
+                const writeCheck = await validateEnhancedDiaryWriteTarget(
+                    menuCard.docId,
+                    config!.dailyNotebookId!,
+                    formatDiaryAttrDate(menuCard.targetDate)
+                );
+                if (writeCheck.status !== "valid") {
+                    showMessage("日记位置或日期已经变化，请刷新组件后重试", 4000);
+                    await loadAndBuildCards();
+                    return;
+                }
                 const result = await toggleCompletionMarker({
                     docId: menuCard.docId,
                     period: menuCard.period,
@@ -666,6 +703,16 @@
             if (!menuCard || !menuCard.docId) {
                 showMessage("未找到对应日记", 3000);
             } else {
+                const writeCheck = await validateEnhancedDiaryWriteTarget(
+                    menuCard.docId,
+                    config!.dailyNotebookId!,
+                    formatDiaryAttrDate(menuCard.targetDate)
+                );
+                if (writeCheck.status !== "valid") {
+                    showMessage("日记位置或日期已经变化，请刷新组件后重试", 4000);
+                    await loadAndBuildCards();
+                    return;
+                }
                 const result = await toggleCompletionMarker({
                     docId: menuCard.docId,
                     period: menuCard.period,
@@ -687,6 +734,16 @@
             if (!menuCard || !menuCard.docId) {
                 showMessage("未找到对应日记", 3000);
             } else {
+                const writeCheck = await validateEnhancedDiaryWriteTarget(
+                    menuCard.docId,
+                    config!.dailyNotebookId!,
+                    formatDiaryAttrDate(menuCard.targetDate)
+                );
+                if (writeCheck.status !== "valid") {
+                    showMessage("日记位置或日期已经变化，请刷新组件后重试", 4000);
+                    await loadAndBuildCards();
+                    return;
+                }
                 const result = await skipPeriod({
                     docId: menuCard.docId,
                     period: menuCard.period,
@@ -698,6 +755,8 @@
                     showMessage("已跳过本周期", 3000);
                 } else if (result.reason === "marker_not_found") {
                     showMessage("当前日记缺少周期顶级标题，请先补充模板", 4000);
+                } else if (result.reason === "read_failed") {
+                    showMessage("日记正文暂时无法读取，请稍后重试。", 4000);
                 } else if (result.reason === "update_failed") {
                     showMessage("跳过本周期失败，请稍后重试", 4000);
                 } else {
@@ -715,6 +774,16 @@
             removeBodyMenu();
             const mode = await selectRestoreSkipMode();
             if (!mode) return;
+            const writeCheck = await validateEnhancedDiaryWriteTarget(
+                currentCard.docId,
+                config!.dailyNotebookId!,
+                formatDiaryAttrDate(currentCard.targetDate)
+            );
+            if (writeCheck.status !== "valid") {
+                showMessage("日记位置或日期已经变化，请刷新组件后重试", 4000);
+                await loadAndBuildCards();
+                return;
+            }
             const result = await restoreSkippedPeriod({
                 docId: currentCard.docId,
                 period: currentCard.period,

@@ -13,6 +13,8 @@ import {
     rebuildStatIndexFromGlobalSql,
     refreshStatIndexFromRecentDocuments,
 } from "@/components/tools/statisticalAPI";
+import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
+import { rebuildEnhancedDiaryIndex, refreshEnhancedDiaryIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
 
 export interface RebuildAllResult {
     favorites: ComponentMigrationStatus;
@@ -20,6 +22,7 @@ export interface RebuildAllResult {
     task: ComponentMigrationStatus;
     heatmap: ComponentMigrationStatus;
     stat: ComponentMigrationStatus;
+    enhancedDiary: ComponentMigrationStatus;
 }
 
 export interface RebuildAllOptions {
@@ -68,6 +71,10 @@ export async function rebuildAllHomepageIndexes(
             key: "stat",
             fn: () => rebuildStatIndexFromGlobalSql(plugin),
         },
+        {
+            key: "enhancedDiary",
+            fn: async () => rebuildEnhancedDiaryIndex((await loadEnhancedDiaryConfig(plugin)).dailyNotebookId || ""),
+        },
     ];
 
     for (const task of tasks) {
@@ -91,6 +98,7 @@ export interface RefreshAllResult {
     task: ComponentMigrationStatus;
     heatmap: ComponentMigrationStatus;
     stat: ComponentMigrationStatus;
+    enhancedDiary: ComponentMigrationStatus;
 }
 
 export async function refreshAllHomepageIndexes(
@@ -118,6 +126,10 @@ export async function refreshAllHomepageIndexes(
         {
             key: "stat",
             fn: () => refreshStatIndexFromRecentDocuments(plugin, { force: true }),
+        },
+        {
+            key: "enhancedDiary",
+            fn: async () => refreshEnhancedDiaryIndex((await loadEnhancedDiaryConfig(plugin)).dailyNotebookId || "", { force: true }),
         },
     ];
 

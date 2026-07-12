@@ -8,6 +8,7 @@ import {
     listDocsByPath,
     lsNotebooks,
     putFile,
+    putFileChecked,
     setBlockAttrsChecked,
     sql,
 } from "@/api";
@@ -103,6 +104,7 @@ const HEATMAP_REBUILD_PAGE_SIZE = 2000;
 const HEATMAP_REBUILD_MAX_ROWS = 200000;
 const RECENT_DOC_REFRESH_LIMIT = RECENT_DOCS_MAX_LIMIT;
 const RECENT_REFRESH_TTL_MS = 2 * 60 * 1000;
+let recentDocSnapshotWriteTail: Promise<void> = Promise.resolve();
 
 export interface ComponentRecentDocSnapshotDoc {
     id: string;
@@ -112,6 +114,7 @@ export interface ComponentRecentDocSnapshotDoc {
     hpath?: string;
     updated?: string;
     content?: string;
+    ial?: string;
 }
 
 interface RecentDocSnapshotPayload {
@@ -281,11 +284,11 @@ async function writeJsonIndex<T>(path: string, items: T[]): Promise<void> {
 
 async function writeJsonIndexPayload(path: string, payload: unknown): Promise<void> {
     try {
-        await putFile(COMPONENT_INDEX_DIR, true, makeJsonBlob({}));
+        await putFileChecked(COMPONENT_INDEX_DIR, true, makeJsonBlob({}));
     } catch {
         // 旧版内核可能不需要显式创建目录，写入失败时继续尝试写索引文件。
     }
-    await putFile(path, false, makeJsonBlob(payload));
+    await putFileChecked(path, false, makeJsonBlob(payload));
 }
 
 async function doesIndexFileExist(path: string): Promise<boolean> {
@@ -941,6 +944,7 @@ function normalizeRecentDoc(block: any): ComponentRecentDocSnapshotDoc | null {
         hpath: block?.hPath || block?.hpath || "",
         updated: getBlockUpdatedTime(block),
         content: block?.content || "",
+        ial: block?.ial || "",
     };
 }
 
@@ -975,24 +979,33 @@ export async function prepareChangedRecentDocsForIndex(consumer: string): Promis
     const changed = Array.from(currentDocs.values()).filter((doc) => consumerSnapshot[doc.id] !== (doc.updated || ""));
 
     async function commit(): Promise<void> {
-        const nextConsumers = {
-            ...(snapshot.consumers || {}),
-            [consumer]: {
-                ...consumerSnapshot,
-            },
-        };
-        for (const doc of currentDocs.values()) {
-            nextConsumers[consumer][doc.id] = doc.updated || "";
-        }
-        await writeJsonIndexPayload(RECENT_DOC_SNAPSHOT_PATH, {
-            version: INDEX_VERSION,
-            updatedAt: new Date().toISOString(),
-            docs: {
-                ...(snapshot.docs || {}),
-                ...Object.fromEntries(currentDocs.entries()),
-            },
-            consumers: nextConsumers,
-        } satisfies RecentDocSnapshotPayload);
+        const previousWrite = recentDocSnapshotWriteTail;
+        const queuedWrite = previousWrite.catch(() => undefined).then(async () => {
+            const latest = await readJsonIndexPayload<RecentDocSnapshotPayload>(
+                RECENT_DOC_SNAPSHOT_PATH,
+                emptyRecentDocSnapshot(),
+            );
+            const nextConsumers = {
+                ...(latest.consumers || {}),
+                [consumer]: {
+                    ...(latest.consumers?.[consumer] || {}),
+                },
+            };
+            for (const doc of currentDocs.values()) {
+                nextConsumers[consumer][doc.id] = doc.updated || "";
+            }
+            await writeJsonIndexPayload(RECENT_DOC_SNAPSHOT_PATH, {
+                version: INDEX_VERSION,
+                updatedAt: new Date().toISOString(),
+                docs: {
+                    ...(latest.docs || {}),
+                    ...Object.fromEntries(currentDocs.entries()),
+                },
+                consumers: nextConsumers,
+            } satisfies RecentDocSnapshotPayload);
+        });
+        recentDocSnapshotWriteTail = queuedWrite.then(() => undefined, () => undefined);
+        await queuedWrite;
     }
 
     return { changedDocs: changed, commit };
