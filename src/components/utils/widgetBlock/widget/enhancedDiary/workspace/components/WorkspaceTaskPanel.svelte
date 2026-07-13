@@ -50,6 +50,7 @@
     let searchText = $state("");
     let statusFilter: WorkspaceTaskStatusFilter = $state("all");
     let tagFilter = $state("");
+    let projectFilter = $state("");
     let dateFilter = $state("");
     let viewMode: "list" | "kanban" | "time" = $state("list");
     let selectedTaskIds: string[] = $state([]);
@@ -137,7 +138,7 @@
         else if (stagnantDays >= 7) score += 22;
         if (deadlineDistance != null && deadlineDistance >= 0 && deadlineDistance <= 1) score += 28;
         score += getPriorityWeight(task.priority) * 5;
-        if (task.tags.length > 0) score += 6;
+        if (task.projectTargetId) score += 6;
 
         return score;
     }
@@ -157,7 +158,7 @@
         if (stagnantDays >= 14) return `停滞 ${stagnantDays} 天`;
         if (task.shouldMigrate) return "建议迁移";
         if (stagnantDays >= 7) return `停滞 ${stagnantDays} 天`;
-        if (task.tags.length > 0) return "项目任务";
+        if (task.projectTargetId) return "项目任务";
         return "正常推进";
     }
 
@@ -165,7 +166,7 @@
         const stagnantDays = getTaskStagnantDays(task);
         if (task.isOverdue || stagnantDays >= 14) return "danger";
         if (task.shouldMigrate || isTaskDeadlineRisk(task) || stagnantDays >= 7) return "warning";
-        if (task.tags.length > 0) return "project";
+        if (task.projectTargetId) return "project";
         return "normal";
     }
 
@@ -200,6 +201,10 @@
             result = result.filter((task) => task.tags.includes(tagFilter));
         }
 
+        if (projectFilter) {
+            result = result.filter((task) => task.projectTargetId === projectFilter || task.projectAncestorTargetIds?.includes(projectFilter));
+        }
+
         if (dateFilter) {
             result = result.filter((task) => (task.sourceDate || "") === dateFilter);
         }
@@ -232,7 +237,7 @@
                     case "risk": return getTaskRiskScore(task) >= 30;
                     case "stale": return getTaskStagnantDays(task) >= 7;
                     case "deadline": return isTaskDeadlineRisk(task);
-                    case "project": return task.tags.length > 0;
+                    case "project": return !!task.projectTargetId;
                     default: return true;
                 }
             });
@@ -260,6 +265,14 @@
     const completedCount = $derived(tasks.filter((t) => t.completed).length);
     const overdueCount = $derived(tasks.filter((t) => t.isOverdue).length);
     const migrateCount = $derived(tasks.filter((t) => t.shouldMigrate).length);
+    const projectOptions = $derived.by(() => {
+        const options = new Map<string, string>();
+        tasks.forEach((task) => {
+            const ids = [...(task.projectAncestorTargetIds || []), ...(task.projectTargetId ? [task.projectTargetId] : [])];
+            ids.forEach((id, index) => options.set(id, task.projectPath?.[index] || id));
+        });
+        return Array.from(options, ([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
+    });
 
     let selectedTaskBlockId: string | null = $state(null);
 
@@ -315,6 +328,7 @@
         searchText = "";
         statusFilter = "all";
         tagFilter = "";
+        projectFilter = "";
         dateFilter = "";
         priorityFilter = "all";
         riskFilter = "all";
@@ -554,6 +568,10 @@
             <option value="deadline">截止风险</option>
             <option value="project">项目任务</option>
         </select>
+        <select class="filter-select" bind:value={projectFilter} aria-label="项目筛选">
+            <option value="">全部项目</option>
+            {#each projectOptions as option}<option value={option.id}>{option.label}</option>{/each}
+        </select>
         <select class="filter-select" bind:value={sortKey} aria-label="任务排序">
             <option value="default">默认分组</option>
             <option value="deadlineAsc">截止日期最近</option>
@@ -590,7 +608,7 @@
     {#if tagFilter}
         <div class="tag-filter-chip">
             当前项目：<strong>{tagFilter}</strong>
-            <button type="button" class="clear-tag-btn" onclick={() => { tagFilter = ""; selectedTaskBlockId = null; }}>清除项目筛选</button>
+            <button type="button" class="clear-tag-btn" onclick={() => { tagFilter = ""; selectedTaskBlockId = null; }}>清除标签筛选</button>
         </div>
     {/if}
 
@@ -763,6 +781,9 @@
                                     {/if}
                                 </div>
                             {/if}
+                            {#if task.projectTargetId}
+                                <div class="list-item-tags"><span>📁 {task.projectPath?.[task.projectPath.length - 1] || "项目"}</span></div>
+                            {/if}
                         </div>
                     {/each}
                 </div>
@@ -801,6 +822,13 @@
                             </div>
                         {/if}
 
+                        {#if selectedTask.projectTargetId}
+                            <div class="detail-info-line">
+                                <span class="info-label">项目</span>
+                                <span class="info-value">{selectedTask.projectPath?.join(" / ") || selectedTask.projectTargetId}</span>
+                            </div>
+                        {/if}
+
                         {#if selectedTask.sourceDocTitle || selectedTask.sourceDate}
                             <div class="detail-info-line">
                                 <span class="info-label">来源</span>
@@ -833,7 +861,7 @@
                                 </div>
                                 <div class="adv-item">
                                     <span class="adv-label">项目关联</span>
-                                    <span class="adv-value">{selectedTask.tags.length > 0 ? "已关联" : "-"}</span>
+                                    <span class="adv-value">{selectedTask.projectTargetId ? selectedTask.projectRelationStatus : "-"}</span>
                                 </div>
                             </div>
                             <div class="detail-section">

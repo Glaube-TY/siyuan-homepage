@@ -1,5 +1,7 @@
 <script lang="ts">
     import type { EnhancedDiaryWorkspaceDayDetail } from "../enhancedDiaryWorkspaceDayDetail";
+    import type { EnhancedDiaryCalendarMetadata } from "../enhancedDiaryWorkspaceCalendar";
+    import type { EnhancedDiaryWorkspaceCalendarSettings } from "../../enhancedDiaryTypes";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
 
     interface Props {
@@ -11,9 +13,11 @@
         onOpenTasks?: (date: string) => void;
         onOpenReview?: (date: string) => void;
         taskManagementEnabled?: boolean;
+        calendarMetadata?: EnhancedDiaryCalendarMetadata | null;
+        displaySettings?: EnhancedDiaryWorkspaceCalendarSettings;
     }
 
-    let { detail, loading = false, onOpenDoc, onClose, onOpenRecords, onOpenTasks, onOpenReview, taskManagementEnabled = true }: Props = $props();
+    let { detail, loading = false, onOpenDoc, onClose, onOpenRecords, onOpenTasks, onOpenReview, taskManagementEnabled = true, calendarMetadata = null, displaySettings }: Props = $props();
 </script>
 
 <section class="day-detail-panel">
@@ -45,6 +49,15 @@
                 </span>
             </div>
 
+            {#if calendarMetadata}
+                <div class="calendar-info-row">
+                    {#if displaySettings?.showLegalHoliday !== false && calendarMetadata.legalHolidayName}<span class="calendar-info holiday">{calendarMetadata.legalHolidayName}</span>{/if}
+                    {#if displaySettings?.showFestival !== false && (calendarMetadata.solarFestivalName || calendarMetadata.lunarFestivalName)}<span class="calendar-info festival">{calendarMetadata.solarFestivalName || calendarMetadata.lunarFestivalName}</span>{/if}
+                    {#if displaySettings?.showSolarTerm !== false && calendarMetadata.solarTermName}<span class="calendar-info term">{calendarMetadata.solarTermName}</span>{/if}
+                    {#if displaySettings?.showLunar !== false && calendarMetadata.lunarDayName}<span class="calendar-info lunar">{calendarMetadata.lunarDayName}</span>{/if}
+                </div>
+            {/if}
+
             <div class="stat-grid">
                 {#if taskManagementEnabled}
                     <div class="stat-card">
@@ -60,12 +73,6 @@
                     <span class="stat-value">{detail.quickRecordCount}</span>
                     <span class="stat-label">快速记录</span>
                 </div>
-                {#if taskManagementEnabled}
-                    <div class="stat-card">
-                        <span class="stat-value">{detail.projectCount}</span>
-                        <span class="stat-label">项目推进</span>
-                    </div>
-                {/if}
             </div>
 
             <div class="review-status">
@@ -213,6 +220,45 @@
         font-weight: 600;
         color: var(--wk-ink);
         font-variant-numeric: tabular-nums;
+    }
+
+    .calendar-info-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .calendar-info {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: var(--wk-radius-pill);
+        font-size: var(--wk-text-xs);
+        font-weight: 500;
+    }
+
+    .calendar-info.holiday {
+        background: color-mix(in srgb, var(--wk-error) 10%, transparent);
+        color: var(--wk-error);
+        border: 1px solid var(--wk-error-border);
+    }
+
+    .calendar-info.festival {
+        background: color-mix(in srgb, var(--wk-primary) 10%, transparent);
+        color: var(--wk-primary);
+        border: 1px solid var(--wk-primary-border);
+    }
+
+    .calendar-info.term {
+        background: color-mix(in srgb, var(--wk-success) 10%, transparent);
+        color: var(--wk-success);
+        border: 1px solid var(--wk-success-border);
+    }
+
+    .calendar-info.lunar {
+        background: var(--wk-background);
+        color: var(--wk-ink-muted);
+        border: 1px solid var(--wk-border);
     }
 
     .badge {

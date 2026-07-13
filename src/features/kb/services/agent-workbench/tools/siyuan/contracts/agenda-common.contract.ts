@@ -77,7 +77,7 @@ export const agendaProjectSchema = z.object({
 
 export const agendaNotificationSchema = z.object({
   id: z.string(),
-  type: z.enum(["overdue_task", "migration_suggestion", "review_due", "template_missing"]),
+  type: z.enum(["overdue_task", "migration_suggestion", "review_due", "template_missing", "project_relation", "project_index"]),
   level: z.enum(["info", "warning", "danger"]),
   title: z.string(),
   description: z.string(),

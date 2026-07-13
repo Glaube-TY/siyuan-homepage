@@ -74,9 +74,7 @@
     );
 
     const riskyProjects = $derived(
-        taskManagementEnabled
-            ? state.projects.filter((project) => project.healthTone === "danger" || project.healthTone === "warning")
-            : []
+        state.projects.filter((project) => project.healthTone === "danger" || project.healthTone === "warning")
     );
 
     const focusItems = $derived.by((): FocusItem[] => {
@@ -185,11 +183,11 @@
                 date: state.today,
             });
         }
-        if (taskManagementEnabled && state.summary.projectCount > 0) {
+        if (state.summary.projectCount > 0) {
             items.push({
                 type: "project_progress",
-                title: "项目推进",
-                content: `今日推进 ${state.summary.projectCount} 个项目`,
+                title: "项目总览",
+                content: `当前配置 ${state.summary.projectCount} 个根项目`,
                 date: state.today,
             });
         }

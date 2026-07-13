@@ -10,8 +10,28 @@ import { formatDiaryDate } from "@/components/utils/widgetBlock/widget/enhancedD
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryRecordInput, ManageDiaryRecordOutput } from "../contracts/manage-diary-record.contract";
 import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig, prepareAgendaEnhancedDiaryIndex } from "./agenda-utils.impl";
+import {
+  EnhancedDiaryProjectWriteTargetError,
+  validateEnhancedDiaryProjectWriteTarget,
+} from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceProjectLifecycle";
 
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryRecordOutput; errorCode?: string };
+
+async function resolveProject(
+  config: Awaited<ReturnType<typeof loadAgendaEnhancedDiaryConfig>>,
+  id?: string,
+  existingTargetId?: string,
+) {
+  if (!id) return null;
+  return validateEnhancedDiaryProjectWriteTarget(config.projectStorage, id, existingTargetId);
+}
+
+function projectError(reason: unknown): { errorCode: string; message: string } {
+  if (reason instanceof EnhancedDiaryProjectWriteTargetError) {
+    return { errorCode: reason.code, message: reason.message };
+  }
+  return { errorCode: "project_index_unavailable", message: reason instanceof Error ? reason.message : "无法确认项目状态。" };
+}
 
 function matchRecord(
   records: EnhancedDiaryWorkspaceRecord[],
@@ -37,7 +57,7 @@ async function findRecordForTarget(
     return { record: undefined, date, docId: "", dateObj, errorCode: "diary_doc_not_found", message: `${date} 的日记文档不存在。` };
   }
 
-  const records = await queryTodayQuickRecords(doc.id, doc.content, date, config.headingStructure);
+  const records = await queryTodayQuickRecords(doc.id, doc.content, date, config.headingStructure, config.templateFieldMapping, config);
   const record = matchRecord(records, target);
 
   if (!record) {
@@ -55,19 +75,27 @@ async function executeAdd(
   const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
   const date = formatDiaryDate(new Date());
+  let project = null;
+  try {
+    project = await resolveProject(config, args.projectTargetId);
+  } catch (reason) {
+    const failure = projectError(reason);
+    return { ok: false, errorCode: failure.errorCode, safeOutput: { operation: "add", changed: false, message: failure.message } };
+  }
+  if (args.isKeyRecord && !project) return { ok: false, errorCode: "key_record_requires_project", safeOutput: { operation: "add", changed: false, message: "关键记录必须关联有效项目。" } };
 
-  const result = await addWorkspaceQuickRecord(pluginAdapter, config, args.categoryTitle!, args.content!);
+  const result = await addWorkspaceQuickRecord(pluginAdapter, config, args.categoryTitle!, args.content!, { tags: args.tags, projectTargetId: project?.id, projectTitle: project?.title, rootProjectId: project?.rootProjectId, projectPath: project?.pathTitles, projectAncestorTargetIds: project?.ancestorTargetIds, isKeyRecord: args.isKeyRecord });
   if (!result.ok) {
     return {
       ok: false,
-      errorCode: "quick_record_write_failed",
+      errorCode: result.reason === "archived_project_target" ? "archived_project_target" : "quick_record_write_failed",
       safeOutput: { operation: "add", changed: false, categoryTitle: args.categoryTitle, date, message: result.message || "快速记录写入失败。" },
     };
   }
 
   return {
     ok: true,
-    safeOutput: { operation: "add", changed: true, categoryTitle: args.categoryTitle, date, message: "快速记录已写入今日日记。" },
+    safeOutput: { operation: "add", changed: true, headingBlockId: result.headingBlockId, categoryTitle: args.categoryTitle, date, tags: args.tags, projectTargetId: project?.id, projectName: project?.title, projectPath: project?.pathTitles, isKeyRecord: !!args.isKeyRecord, message: "快速记录已写入今日日记。" },
   };
 }
 
@@ -86,22 +114,26 @@ async function executeUpdate(
     };
   }
 
-  if (!found.record.contentBlockIds || found.record.contentBlockIds.length !== 1) {
-    return {
-      ok: false,
-      errorCode: "record_not_locatable",
-      safeOutput: { operation: "update", changed: false, recordId: found.record.id, headingBlockId: found.record.headingBlockId, date: found.date, message: "当前记录由多个块组成，无法可靠更新，请在日记中手动编辑。" },
-    };
-  }
-
   const expectedDate = `${found.dateObj.getFullYear()}${String(found.dateObj.getMonth() + 1).padStart(2, "0")}${String(found.dateObj.getDate()).padStart(2, "0")}`;
-  const result = await updateQuickRecord(found.record, args.content!, {
+  const requestedProjectId = args.projectTargetId ?? found.record.projectTargetId;
+  let project = null;
+  try {
+    project = await resolveProject(config, requestedProjectId, found.record.projectTargetId);
+  } catch (reason) {
+    const failure = projectError(reason);
+    return { ok: false, errorCode: failure.errorCode, safeOutput: { operation: "update", changed: false, recordId: found.record.id, headingBlockId: found.record.headingBlockId, message: failure.message } };
+  }
+  if (args.isKeyRecord && !project) return { ok: false, errorCode: "key_record_requires_project", safeOutput: { operation: "update", changed: false, recordId: found.record.id, message: "关键记录必须关联有效项目。" } };
+  const result = await updateQuickRecord(found.record, args.content ?? found.record.content, {
     dailyNotebookId: config.dailyNotebookId!,
     expectedDate,
-  });
+    projectStorage: config.projectStorage,
+  }, { tags: args.tags ?? found.record.tags, projectTargetId: project?.id, projectTitle: project?.title, rootProjectId: project?.rootProjectId, projectPath: project?.pathTitles, projectAncestorTargetIds: project?.ancestorTargetIds, isKeyRecord: args.isKeyRecord ?? found.record.isKeyRecord });
   if (!result.ok) {
-    const errorCode = result.reason === "record_block_out_of_scope" || result.reason === "record_block_missing"
-      ? "diary_doc_out_of_scope" : "quick_record_update_failed";
+    const errorCode = result.reason === "archived_project_target"
+      ? "archived_project_target"
+      : result.reason === "record_block_out_of_scope" || result.reason === "record_block_missing"
+        ? "diary_doc_out_of_scope" : "quick_record_update_failed";
     return {
       ok: false,
       errorCode,
@@ -111,7 +143,7 @@ async function executeUpdate(
 
   return {
     ok: true,
-    safeOutput: { operation: "update", changed: true, recordId: found.record.id, headingBlockId: found.record.headingBlockId, categoryTitle: found.record.categoryTitle, date: found.date, message: "快速记录已更新。" },
+    safeOutput: { operation: "update", changed: true, recordId: found.record.id, headingBlockId: found.record.headingBlockId, categoryTitle: found.record.categoryTitle, date: found.date, tags: args.tags ?? found.record.tags, projectTargetId: project?.id, projectName: project?.title, projectPath: project?.pathTitles, isKeyRecord: args.isKeyRecord ?? found.record.isKeyRecord, message: "快速记录已更新。" },
   };
 }
 

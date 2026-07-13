@@ -3,6 +3,11 @@
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
     import type { GenerateTasksPlusTaskInput } from "../../../tasksPlus/tasksPlusParser";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
+    import WorkspaceProjectPicker from "./WorkspaceProjectPicker.svelte";
+    import { loadEnhancedDiaryProjectIndexForWorkspace } from "../enhancedDiaryWorkspaceProjectService";
+    import { isEnhancedDiaryProjectStorageReady, type EnhancedDiaryProjectStorageConfig } from "../../enhancedDiaryTypes";
+    import type { EnhancedDiaryProjectIndexPayload } from "../../enhancedDiaryProjectTypes";
+    import { isEnhancedDiaryProjectEffectivelyActive, resolveEnhancedDiaryProjectTarget } from "../../enhancedDiaryProjectIndex";
 
     interface Props {
         task?: EnhancedDiaryWorkspaceTask | null;
@@ -10,9 +15,10 @@
         mode: "create" | "edit";
         onSubmit: (input: GenerateTasksPlusTaskInput) => void | Promise<void>;
         onClose: () => void;
+        projectStorage?: EnhancedDiaryProjectStorageConfig;
     }
 
-    let { task = null, initialInput = {}, mode: _mode, onSubmit, onClose }: Props = $props();
+    let { task = null, initialInput = {}, mode, onSubmit, onClose, projectStorage }: Props = $props();
 
     let taskname = $state("");
     let priority = $state("");
@@ -23,6 +29,9 @@
     let location = $state("");
     let tagsText = $state("");
     let showMore = $state(false);
+    let projectTargetId = $state("");
+    let projectIndex = $state<EnhancedDiaryProjectIndexPayload | null>(null);
+    let projectLoading = $state(false);
 
     const priorityOptions = [
         { value: "", label: "无" },
@@ -52,6 +61,10 @@
             reminder,
             location,
             tags: parseTags(tagsText),
+            projectTargetId,
+            projectTitle: projectTargetId && projectIndex
+                ? resolveEnhancedDiaryProjectTarget(projectIndex, projectTargetId)?.title
+                : undefined,
         });
     }
 
@@ -64,7 +77,20 @@
         reminder = task?.reminder || initialInput.reminder || "";
         location = task?.location || initialInput.location || "";
         tagsText = (task?.tags || initialInput.tags || []).join(" ");
+        projectTargetId = task?.projectTargetId || initialInput.projectTargetId || "";
         showMore = !!(recurrence || reminder || location);
+        if (isEnhancedDiaryProjectStorageReady(projectStorage)) {
+            projectLoading = true;
+            loadEnhancedDiaryProjectIndexForWorkspace(projectStorage!)
+                .then((value) => {
+                    projectIndex = value;
+                    if (mode === "create" && projectTargetId &&
+                        !isEnhancedDiaryProjectEffectivelyActive(value, projectTargetId)) {
+                        projectTargetId = "";
+                    }
+                })
+                .finally(() => (projectLoading = false));
+        }
     });
 </script>
 
@@ -76,6 +102,13 @@
             bind:value={taskname}
             placeholder="输入任务名称"
         />
+    </div>
+
+    <div class="panel-section">
+        <div class="section-label">关联项目</div>
+        {#if projectLoading}<p class="project-state">正在加载项目树…</p>
+        {:else if projectIndex}<WorkspaceProjectPicker index={projectIndex} value={projectTargetId} preserveSelected={mode === "edit"} onChange={(id) => (projectTargetId = id)} />
+        {:else}<p class="project-state">请先在强化日记设置中配置项目位置。</p>{/if}
     </div>
 
     <div class="panel-section">
@@ -260,6 +293,7 @@
         outline: none;
         border-color: var(--wk-primary);
     }
+    .project-state { margin: 0; color: var(--wk-ink-muted); font-size: var(--wk-text-sm); }
 
     .more-toggle {
         display: inline-flex;

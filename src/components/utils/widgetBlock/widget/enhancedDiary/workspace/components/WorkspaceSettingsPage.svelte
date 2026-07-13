@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import { lsNotebooks } from "@/api";
+    import { validateProjectParentDoc } from "../../enhancedDiaryProjectContainer";
     import {
         DEFAULT_ENHANCED_DIARY_CONFIG,
         ENHANCED_DIARY_PERIODS,
@@ -9,6 +10,7 @@
         type EnhancedDiaryMonthRule,
         type EnhancedDiaryPeriod,
         type EnhancedDiaryYearRule,
+        type EnhancedDiaryWeekday,
         type EnhancedDiaryDayWorkspaceSectionFieldKey,
     } from "../../enhancedDiaryTypes";
     import {
@@ -38,7 +40,7 @@
         onOpenAndAppendTemplate: () => void | Promise<void>;
     }
 
-    type SettingsTab = "basic" | "calendar" | "record" | "review" | "templates" | "fieldMapping";
+    type SettingsTab = "basic" | "project" | "calendar" | "record" | "review" | "templates" | "fieldMapping";
     type TemplateHealthStatus = "ok" | "missing" | "suggest";
 
     interface TemplateHealthCheck {
@@ -55,7 +57,7 @@
         onOpenAndAppendTemplate,
     }: Props = $props();
 
-    const WEEKDAY_OPTIONS: { value: number; label: string }[] = [
+    const WEEKDAY_OPTIONS: { value: EnhancedDiaryWeekday; label: string }[] = [
         { value: 0, label: "周日" },
         { value: 1, label: "周一" },
         { value: 2, label: "周二" },
@@ -87,12 +89,26 @@
     let activeSettingsTab: SettingsTab = $state("basic");
     let activeTemplatePeriod: EnhancedDiaryPeriod = $state("day");
     let notebooks = $state<{ id: string; name: string }[]>([]);
+    let notebooksLoading = $state(true);
     let notebooksLoadFailed = $state(false);
+    let parentDocInput = $state("");
+    let parentDocInfo = $state<{
+        id: string;
+        title: string;
+        notebookId: string;
+        path: string;
+        hpath: string;
+    } | null>(null);
+    let parentDocLoading = $state(false);
+    let parentDocError = $state("");
+    let projectValidationError = $state("");
+    let parentDocValidateVersion = $state(0);
 
     function cloneConfig(value: EnhancedDiaryConfig): EnhancedDiaryConfig {
         return {
             ...value,
             templates: { ...value.templates },
+            projectStorage: { ...value.projectStorage },
             workspaceSettings: {
                 calendar: { ...value.workspaceSettings.calendar },
                 modules: { ...value.workspaceSettings.modules },
@@ -251,7 +267,7 @@
                     makeCheck("new-tasks", "新建任务区", `新建任务会写入这里。建议层级 ${subHash} ${getPrimaryFieldTitle(m, "dayWorkspaceSections", "newTasks")}（层级不固定，按标题文字识别）。`, templateHasSection(template, [getFieldAliases(m, "dayWorkspaceSections", "taskManagement"), getFieldAliases(m, "dayWorkspaceSections", "newTasks")], activeTemplatePeriod)),
                     makeCheck("migrated-tasks", "迁移任务区", `历史任务迁移到今天时会写入这里。建议层级 ${subHash} ${getPrimaryFieldTitle(m, "dayWorkspaceSections", "migratedTasks")}（层级不固定，按标题文字识别）。`, templateHasSection(template, [getFieldAliases(m, "dayWorkspaceSections", "taskManagement"), getFieldAliases(m, "dayWorkspaceSections", "migratedTasks")], activeTemplatePeriod)),
                     makeCheck("task-log", "任务动态区", `任务新增、迁移、删除等日志可沉淀在这里。建议层级 ${subHash} ${getPrimaryFieldTitle(m, "dayWorkspaceSections", "taskLog")}（层级不固定，按标题文字识别）。`, templateHasSection(template, [getFieldAliases(m, "dayWorkspaceSections", "taskManagement"), getFieldAliases(m, "dayWorkspaceSections", "taskLog")], activeTemplatePeriod), "suggest"),
-                makeCheck("project-progress", "项目推进区", `项目推进作为独立区块与任务管理并列。建议层级 ${baseHash} ${getPrimaryFieldTitle(m, "dayWorkspaceSections", "projectProgress")}（层级不固定，按标题文字识别）。`, templateHasSection(template, [getFieldAliases(m, "dayWorkspaceSections", "projectProgress")], activeTemplatePeriod), "suggest")
+                makeCheck("project-progress", "旧项目推进兼容区", `旧日记区块仅保留兼容，不再作为正式项目来源或统计依据。`, true, "suggest")
                 );
             }
             checks.push(
@@ -301,6 +317,12 @@
         lastConfigSignature = signature;
         draft = cloneConfig(config);
         syncRecordCategorySuggestionsText();
+        parentDocInput = config.projectStorage.parentDocId;
+        parentDocInfo = null;
+        parentDocError = "";
+        if (config.projectStorage.mode === "parentDoc" && config.projectStorage.parentDocId) {
+            void validateParentDocId(config.projectStorage.parentDocId);
+        }
     });
 
     onMount(() => {
@@ -314,10 +336,87 @@
             .catch((err) => {
                 console.warn("[WorkspaceSettingsPage] load notebooks failed", err);
                 notebooksLoadFailed = true;
+            })
+            .finally(() => {
+                notebooksLoading = false;
             });
     });
 
+    function getNotebookName(notebookId: string): string {
+        if (notebooksLoading) return "正在识别笔记本…";
+        const nb = notebooks.find((item) => item.id === notebookId);
+        return nb?.name || "笔记本名称读取失败";
+    }
+
+    async function validateParentDocId(id: string): Promise<void> {
+        const trimmed = id.trim();
+        if (!trimmed) {
+            parentDocInfo = null;
+            parentDocError = "";
+            return;
+        }
+        const version = parentDocValidateVersion + 1;
+        parentDocValidateVersion = version;
+        parentDocLoading = true;
+        parentDocError = "";
+        projectValidationError = "";
+        try {
+            const result = await validateProjectParentDoc(trimmed);
+            if (version !== parentDocValidateVersion) return;
+            if (!result.valid || !result.info) {
+                parentDocInfo = null;
+                parentDocError = result.error || "该 ID 不是有效的父文档。";
+                return;
+            }
+            const info = result.info;
+            parentDocInfo = {
+                id: info.id,
+                title: info.title,
+                notebookId: info.notebookId,
+                path: info.path,
+                hpath: info.hpath,
+            };
+            if (parentDocInput.trim() === info.id) {
+                draft.projectStorage = {
+                    ...draft.projectStorage,
+                    parentDocId: info.id,
+                    notebookId: info.notebookId,
+                };
+            }
+        } catch (reason) {
+            if (version !== parentDocValidateVersion) return;
+            parentDocInfo = null;
+            parentDocError = reason instanceof Error ? reason.message : "父文档验证失败，请检查 ID 或稍后重试。";
+        } finally {
+            if (version === parentDocValidateVersion) {
+                parentDocLoading = false;
+            }
+        }
+    }
+
+    function handleParentDocInputChange(): void {
+        parentDocInfo = null;
+        parentDocError = "";
+        projectValidationError = "";
+        parentDocValidateVersion += 1;
+    }
+
     async function saveSettings(): Promise<void> {
+        projectValidationError = "";
+        if (draft.projectStorage.mode === "notebook") {
+            if (!draft.projectStorage.notebookId) {
+                projectValidationError = "请选择项目笔记本。";
+                showMessage(projectValidationError, 3500);
+                return;
+            }
+        } else if (draft.projectStorage.mode === "parentDoc") {
+            const trimmed = parentDocInput.trim();
+            if (!trimmed || !parentDocInfo || parentDocInfo.id !== trimmed) {
+                projectValidationError = "请先验证并选择一个有效的父文档。";
+                showMessage(projectValidationError, 3500);
+                return;
+            }
+        }
         applyRecordCategorySuggestionsText();
         normalizeReviewFieldsBeforeSave();
         await onSave(draft);
@@ -328,6 +427,14 @@
         draft = cloneConfig(config);
         lastConfigSignature = JSON.stringify(config);
         syncRecordCategorySuggestionsText();
+        parentDocInput = config.projectStorage.parentDocId;
+        parentDocInfo = null;
+        parentDocError = "";
+        projectValidationError = "";
+        parentDocValidateVersion += 1;
+        if (config.projectStorage.mode === "parentDoc" && config.projectStorage.parentDocId) {
+            void validateParentDocId(config.projectStorage.parentDocId);
+        }
     }
 
     function restoreTemplate(period: EnhancedDiaryPeriod): void {
@@ -349,7 +456,7 @@
         taskLog: "任务动态",
         quickRecords: "快速记录",
         dailyReview: "今日复盘",
-        projectProgress: "项目推进",
+        projectProgress: "旧项目推进（兼容）",
     };
 
     const DEFAULT_CARRYOVER_FIELD_LABELS: Record<EnhancedDiaryPeriod, string> = {
@@ -519,7 +626,6 @@
                     `${subHash} ${getPrimaryFieldTitle(m, "dayWorkspaceSections", "newTasks")}`,
                     `${subHash} ${getPrimaryFieldTitle(m, "dayWorkspaceSections", "migratedTasks")}`,
                     `${subHash} ${getPrimaryFieldTitle(m, "dayWorkspaceSections", "taskLog")}`,
-                    `${baseHash} ${getPrimaryFieldTitle(m, "dayWorkspaceSections", "projectProgress")}`,
                 ].join("\n\n")
                 : "";
             const reviewLines = buildReviewFieldsTemplate("day", baseHash, subHash);
@@ -566,6 +672,7 @@
 
     <div class="settings-tabs" aria-label="工作台设置分类">
         <button type="button" class:active={activeSettingsTab === "basic"} onclick={() => (activeSettingsTab = "basic")}>基础</button>
+        <button type="button" class:active={activeSettingsTab === "project"} onclick={() => (activeSettingsTab = "project")}>项目</button>
         <button type="button" class:active={activeSettingsTab === "calendar"} onclick={() => (activeSettingsTab = "calendar")}>日历</button>
         <button type="button" class:active={activeSettingsTab === "record"} onclick={() => (activeSettingsTab = "record")}>记录</button>
         <button type="button" class:active={activeSettingsTab === "review"} onclick={() => (activeSettingsTab = "review")}>复盘</button>
@@ -686,6 +793,72 @@
                 </select>
             </label>
         </section>
+    {:else if activeSettingsTab === "project"}
+        <section class="setting-card">
+            <div class="setting-card-title">
+                <WorkspaceIcon name="projects" size={18} />
+                <span>项目存放位置</span>
+            </div>
+            <p class="setting-desc">选定位置的直接子文档都会被识别为根项目，建议使用专门的项目笔记本或专门的父文档。改变位置只会重建项目索引，不会移动或删除任何文档与既有关联。</p>
+
+            <div class="input-row preference-row">
+                <span><strong>容器类型</strong><small>项目笔记本根目录，或某个父文档。</small></span>
+                <div class="preference-segmented" aria-label="项目容器类型">
+                    <button type="button" class:active={draft.projectStorage.mode === "notebook"} onclick={() => (draft.projectStorage.mode = "notebook")}>笔记本</button>
+                    <button type="button" class:active={draft.projectStorage.mode === "parentDoc"} onclick={() => (draft.projectStorage.mode = "parentDoc")}>父文档</button>
+                </div>
+            </div>
+
+            {#if draft.projectStorage.mode === "notebook"}
+                <label class="input-row preference-row">
+                    <span><strong>项目笔记本</strong><small>根项目必须位于这个笔记本中。</small></span>
+                    <select bind:value={draft.projectStorage.notebookId}>
+                        <option value="">请选择项目笔记本</option>
+                        {#each notebooks as nb}<option value={nb.id}>{nb.name}</option>{/each}
+                    </select>
+                </label>
+            {:else}
+                <div class="project-parent-section">
+                    <label class="input-row preference-row project-parent-input-row">
+                        <span>
+                            <strong>父文档 ID</strong>
+                            <small>粘贴思源文档 ID 并验证。验证成功后会自动识别所属笔记本和文档位置。</small>
+                        </span>
+                        <div class="parent-doc-input-wrap">
+                            <input
+                                type="text"
+                                bind:value={parentDocInput}
+                                oninput={handleParentDocInputChange}
+                                placeholder="例如：20240101123456-abcdefg"
+                            />
+                            <button
+                                type="button"
+                                class="wk-btn wk-btn-secondary"
+                                onclick={() => void validateParentDocId(parentDocInput)}
+                                disabled={parentDocLoading || !parentDocInput.trim()}
+                            >
+                                {parentDocLoading ? "验证中..." : "验证"}
+                            </button>
+                        </div>
+                    </label>
+
+                    {#if parentDocInfo}
+                        <div class="parent-doc-info">
+                            <div class="parent-doc-info-head">
+                                <strong>{parentDocInfo.title}</strong>
+                            </div>
+                            <div class="parent-doc-info-item">所属笔记本：{getNotebookName(parentDocInfo.notebookId)}</div>
+                            <div class="parent-doc-info-item">可读路径：{parentDocInfo.hpath || parentDocInfo.path}</div>
+                        </div>
+                    {:else if parentDocError}
+                        <div class="parent-doc-error">{parentDocError}</div>
+                    {/if}
+                </div>
+            {/if}
+            {#if projectValidationError}
+                <div class="inline-error">{projectValidationError}</div>
+            {/if}
+        </section>
     {:else if activeSettingsTab === "calendar"}
         <section class="setting-card">
             <div class="setting-card-title">
@@ -695,28 +868,28 @@
             <label class="switch-row">
                 <span>
                     <strong>农历日期</strong>
-                    <small>在日期格右上角显示初一、十五等农历日名。</small>
+                    <small>在日历日期格和日期详情中显示初一、十五等农历日名。</small>
                 </span>
                 <input class="b3-switch fn__flex-center" type="checkbox" bind:checked={draft.workspaceSettings.calendar.showLunar} />
             </label>
             <label class="switch-row">
                 <span>
                     <strong>节气</strong>
-                    <small>只在节气当天显示节气名称。</small>
+                    <small>在日历日期格和日期详情中显示节气名称。</small>
                 </span>
                 <input class="b3-switch fn__flex-center" type="checkbox" bind:checked={draft.workspaceSettings.calendar.showSolarTerm} />
             </label>
             <label class="switch-row">
                 <span>
                     <strong>传统/公历节日</strong>
-                    <small>显示春节、中秋、劳动节等节日信息。</small>
+                    <small>在日历日期格和日期详情中显示春节、中秋、劳动节等节日信息。</small>
                 </span>
                 <input class="b3-switch fn__flex-center" type="checkbox" bind:checked={draft.workspaceSettings.calendar.showFestival} />
             </label>
             <label class="switch-row">
                 <span>
                     <strong>法定节假日</strong>
-                    <small>优先显示 tyme4ts 提供的法定假日名称。</small>
+                    <small>在日历日期格和日期详情中优先显示法定假日名称。</small>
                 </span>
                 <input class="b3-switch fn__flex-center" type="checkbox" bind:checked={draft.workspaceSettings.calendar.showLegalHoliday} />
             </label>
@@ -900,7 +1073,7 @@
                 <span>模板维护</span>
             </div>
             <div class="template-actions">
-                <button type="button" class="primary-btn" onclick={onOpenAndAppendTemplate}>打开并补模板</button>
+                <button type="button" class="wk-btn wk-btn-primary" onclick={onOpenAndAppendTemplate}>打开并补模板</button>
             </div>
             <p class="card-note">补充模板会追加缺失结构，不覆盖已有内容。插件按标题文字识别区块，不同层级的同名标题均可识别。</p>
         </section>
@@ -983,7 +1156,7 @@
                         <span class="module-disabled-badge">任务管理已关闭</span>
                     {/if}
                 </div>
-                <p class="field-mapping-hint">项目推进属于任务体系，关闭任务管理后不再生成项目相关推荐模板。</p>
+                <p class="field-mapping-hint">“项目推进”是旧日记区块，仅保留字段识别兼容，不再生成项目或参与项目统计。</p>
                 <div class="field-mapping-grid field-mapping-grid-2">
                     {#each (["projectProgress"] as EnhancedDiaryDayWorkspaceSectionFieldKey[]) as sectionKey}
                         <label class="field-mapping-item">
@@ -1065,8 +1238,8 @@
         <div class="settings-save-bar">
             <span>有未保存的更改</span>
             <div>
-                <button type="button" class="discard-btn" disabled={saving} onclick={discardSettings}>放弃</button>
-                <button type="button" class="primary-btn" disabled={saving} onclick={saveSettings}>
+                <button type="button" class="wk-btn wk-btn-secondary" disabled={saving} onclick={discardSettings}>放弃</button>
+                <button type="button" class="wk-btn wk-btn-primary" disabled={saving} onclick={saveSettings}>
                     {saving ? "保存中..." : "保存设置"}
                 </button>
             </div>
@@ -1137,14 +1310,6 @@
     }
 
     .settings-save-bar > div { display: flex; gap: 8px; }
-    .discard-btn {
-        padding: 8px 13px;
-        border: 1px solid var(--wk-border-subtle);
-        border-radius: 10px;
-        background: transparent;
-        color: var(--wk-ink-muted);
-        cursor: pointer;
-    }
     .settings-page {
         display: flex;
         flex-direction: column;
@@ -1496,17 +1661,6 @@
         color: var(--wk-primary);
     }
 
-    .primary-btn {
-        border-color: var(--wk-primary);
-        background: var(--wk-primary);
-        color: var(--wk-primary-contrast);
-    }
-
-    .primary-btn:hover:not(:disabled) {
-        color: var(--wk-primary-contrast);
-        opacity: 0.88;
-    }
-
     .template-actions button:disabled,
     .settings-tabs button:disabled,
     .template-tabs button:disabled,
@@ -1706,5 +1860,69 @@
 
     .field-mapping-item input[type="text"] {
         height: 34px;
+    }
+
+    .project-parent-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .project-parent-input-row .parent-doc-input-wrap {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .project-parent-input-row input[type="text"] {
+        flex: 1;
+        min-width: 0;
+        height: 34px;
+    }
+
+    .parent-doc-info {
+        border: 1px solid var(--wk-border);
+        border-radius: var(--wk-radius-md);
+        background: var(--wk-background);
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .parent-doc-info-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .parent-doc-info-head strong {
+        color: var(--wk-ink-secondary);
+        font-size: var(--wk-text-base);
+    }
+
+    .parent-doc-info-item {
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
+        word-break: break-all;
+    }
+
+    .parent-doc-error {
+        border: 1px solid var(--wk-error-border);
+        border-radius: var(--wk-radius-md);
+        background: var(--wk-error-bg);
+        color: var(--wk-error);
+        padding: 10px 14px;
+        font-size: var(--wk-text-sm);
+    }
+
+    @container (max-width: 620px) {
+        .project-parent-input-row .parent-doc-input-wrap {
+            flex-direction: column;
+            align-items: stretch;
+        }
     }
 </style>

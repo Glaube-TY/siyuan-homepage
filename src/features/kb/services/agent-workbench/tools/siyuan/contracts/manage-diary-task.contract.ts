@@ -14,9 +14,10 @@ const taskFieldsSchema = z.object({
   reminder: z.string().trim().max(100).optional(),
   location: z.string().trim().max(200).optional(),
   tags: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+  projectTargetId: z.string().trim().min(1).optional(),
 }).strict();
 
-const clearableField = z.enum(["priority", "startDate", "deadline", "recurrence", "reminder", "location", "tags"]);
+const clearableField = z.enum(["priority", "startDate", "deadline", "recurrence", "reminder", "location", "tags", "projectTargetId"]);
 
 export const manageDiaryTaskInputSchema = z.object({
   operation: z.enum(["create", "migrate", "set_status", "update", "postpone", "delete"]),
@@ -80,6 +81,9 @@ export const manageDiaryTaskOutputSchema = z.object({
   taskname: z.string().optional(),
   docId: z.string().optional(),
   message: z.string(),
+  projectTargetId: z.string().optional(),
+  projectName: z.string().optional(),
+  projectPath: z.array(z.string()).optional(),
 }).strict();
 
 export type ManageDiaryTaskOutput = z.infer<typeof manageDiaryTaskOutputSchema>;

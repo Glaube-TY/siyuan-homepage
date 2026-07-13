@@ -9,6 +9,8 @@
         type EnhancedDiaryPeriodContext,
     } from "./enhancedDiaryTypes";
     import { loadEnhancedDiaryConfig } from "./enhancedDiaryConfig";
+    import { readEnhancedDiaryProjectIndex } from "./enhancedDiaryProjectIndex";
+    import type { QuickRecordDialogSubmitInput } from "./workspace/enhancedDiaryWorkspaceRecordService";
     import { initializeEnhancedDiaryIndex } from "./enhancedDiaryIndex";
     import {
         formatDiaryDate,
@@ -281,6 +283,10 @@
         todayWorkspaceSummary = doc
             ? buildEnhancedDiaryWorkspaceSummary(doc.content, config?.headingStructure, config?.templateFieldMapping, taskManagementEnabled)
             : null;
+        if (todayWorkspaceSummary && config) {
+            const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
+            todayWorkspaceSummary.projectCount = Object.keys(projectIndex.roots).length;
+        }
     }
 
     function handleCardClick(card: CardInfo, e: MouseEvent): void {
@@ -449,6 +455,7 @@
         if (actionBusy) return;
         openTaskEditorSvelteDialog({
             mode: "create",
+            projectStorage: config?.projectStorage,
             onSubmit: async (input) => {
                 return await submitNewTask(input);
             },
@@ -464,8 +471,9 @@
         openQuickRecordSvelteDialog({
             mode: "create",
             suggestedCategories: config?.recordCategorySuggestions || ["未分类", "想法", "问题", "决策", "日志"],
-            onSubmit: async (categoryTitle, content) => {
-                return await submitNewRecord(categoryTitle, content);
+            projectStorage: config?.projectStorage,
+            onSubmit: async (input) => {
+                return await submitNewRecord(input);
             },
         });
     }
@@ -491,10 +499,11 @@
                 expectedDate: formatDiaryAttrDate(new Date()),
                 headingStructure: config?.headingStructure,
                 mapping: config?.templateFieldMapping,
+                projectStorage: config.projectStorage,
             });
 
             if (result.ok) {
-                showMessage("已写入今日日记的「新建任务」区块", 3000);
+                showMessage(result.message || "已写入今日日记的「新建任务」区块", result.message ? 4500 : 3000);
                 await loadAndBuildCards();
                 return true;
             } else {
@@ -506,7 +515,7 @@
         }
     }
 
-    async function submitNewRecord(categoryTitle: string, content: string): Promise<boolean> {
+    async function submitNewRecord(input: QuickRecordDialogSubmitInput): Promise<boolean> {
         if (!config || actionBusy) return false;
         actionBusy = true;
         try {
@@ -515,16 +524,24 @@
 
             const result = await addQuickRecordToDiary({
                 docId,
-                categoryTitle,
-                content,
+                categoryTitle: input.categoryTitle,
+                content: input.content,
                 dailyNotebookId: config!.dailyNotebookId!,
                 expectedDate: formatDiaryAttrDate(new Date()),
                 headingStructure: config?.headingStructure,
                 mapping: config?.templateFieldMapping,
+                tags: input.tags,
+                projectTargetId: input.projectTargetId,
+                projectTitle: input.projectTitle,
+                rootProjectId: input.rootProjectId,
+                projectPath: input.projectPath,
+                projectAncestorTargetIds: input.projectAncestorTargetIds,
+                isKeyRecord: input.isKeyRecord,
+                projectStorage: config.projectStorage,
             });
 
             if (result.ok) {
-                showMessage("已写入今日日记的「快速记录」区块", 3000);
+                showMessage(result.message || "已写入今日日记的「快速记录」区块", result.message ? 4500 : 3000);
                 await loadAndBuildCards();
                 return true;
             } else {
@@ -883,7 +900,7 @@
                 <strong>{todayWorkspaceSummary.quickRecordCount}</strong>
             </div>
             <div>
-                <span class="summary-label">项目推进</span>
+                <span class="summary-label">根项目</span>
                 <strong>{todayWorkspaceSummary.projectCount}</strong>
             </div>
             <div>

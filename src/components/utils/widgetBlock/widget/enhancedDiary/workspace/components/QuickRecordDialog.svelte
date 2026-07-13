@@ -1,14 +1,24 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
+    import WorkspaceProjectPicker from "./WorkspaceProjectPicker.svelte";
+    import { loadEnhancedDiaryProjectIndexForWorkspace } from "../enhancedDiaryWorkspaceProjectService";
+    import { isEnhancedDiaryProjectEffectivelyActive, resolveEnhancedDiaryProjectTarget } from "../../enhancedDiaryProjectIndex";
+    import { isEnhancedDiaryProjectStorageReady, type EnhancedDiaryProjectStorageConfig } from "../../enhancedDiaryTypes";
+    import type { EnhancedDiaryProjectIndexPayload } from "../../enhancedDiaryProjectTypes";
+    import type { QuickRecordDialogSubmitInput } from "../enhancedDiaryWorkspaceRecordService";
 
     interface Props {
         mode?: "create" | "edit";
         initialCategoryTitle?: string;
         initialContent?: string;
         suggestedCategories?: string[];
-        onSubmit: (categoryTitle: string, content: string) => void | Promise<void>;
+        onSubmit: (input: QuickRecordDialogSubmitInput) => void | Promise<void>;
         onClose: () => void;
+        initialTags?: string[];
+        initialProjectTargetId?: string;
+        initialIsKeyRecord?: boolean;
+        projectStorage?: EnhancedDiaryProjectStorageConfig;
     }
 
     let {
@@ -18,11 +28,16 @@
         suggestedCategories = ["未分类", "想法", "问题", "决策", "日志"],
         onSubmit,
         onClose,
+        initialTags = [], initialProjectTargetId = "", initialIsKeyRecord = false, projectStorage,
     }: Props = $props();
 
     let categoryTitle = $state("");
     let content = $state("");
     let customCategory = $state("");
+    let tagsText = $state("");
+    let projectTargetId = $state("");
+    let isKeyRecord = $state(false);
+    let projectIndex = $state<EnhancedDiaryProjectIndexPayload | null>(null);
 
     const showCustomInput = $derived(!suggestedCategories.includes(categoryTitle) && categoryTitle !== "");
 
@@ -37,7 +52,17 @@
 
     function submit(): void {
         const title = showCustomInput ? (customCategory.trim() || categoryTitle.trim() || "未分类") : (categoryTitle.trim() || "未分类");
-        onSubmit(title, content);
+        const target = projectTargetId && projectIndex ? resolveEnhancedDiaryProjectTarget(projectIndex, projectTargetId) : null;
+        onSubmit({
+            categoryTitle: title, content,
+            tags: tagsText.split(/[，,\s]+/).map((tag) => tag.replace(/^#+|#+$/g, "").trim()).filter(Boolean),
+            projectTargetId: projectTargetId || undefined,
+            projectTitle: target?.title,
+            rootProjectId: target?.rootProjectId,
+            projectPath: target?.pathTitles,
+            projectAncestorTargetIds: target?.ancestorTargetIds,
+            isKeyRecord: !!projectTargetId && isKeyRecord,
+        });
     }
 
     onMount(() => {
@@ -47,10 +72,28 @@
             categoryTitle = initialCategoryTitle || "";
         }
         content = initialContent;
+        tagsText = initialTags.join(" ");
+        projectTargetId = initialProjectTargetId;
+        isKeyRecord = !!initialProjectTargetId && initialIsKeyRecord;
+        if (isEnhancedDiaryProjectStorageReady(projectStorage)) {
+            loadEnhancedDiaryProjectIndexForWorkspace(projectStorage!).then((value) => {
+                projectIndex = value;
+                if (mode === "create" && projectTargetId &&
+                    !isEnhancedDiaryProjectEffectivelyActive(value, projectTargetId)) {
+                    projectTargetId = "";
+                }
+            });
+        }
     });
+
+    $effect(() => { if (!projectTargetId) isKeyRecord = false; });
 </script>
 
 <div class="quick-record-panel">
+    <div class="panel-section panel-content">
+        <div class="section-label">内容</div>
+        <textarea bind:value={content} placeholder="写下这条记录..." class="record-textarea"></textarea>
+    </div>
     <div class="panel-section">
         <div class="section-label">分类</div>
         <div class="wk-chip-group">
@@ -76,12 +119,16 @@
         {/if}
     </div>
 
-    <div class="panel-section panel-content">
-        <textarea
-            bind:value={content}
-            placeholder="写下这条记录..."
-            class="record-textarea"
-        ></textarea>
+    <div class="panel-section metadata-section">
+        <label><span class="section-label">标签</span><input class="custom-category-input no-margin" bind:value={tagsText} placeholder="空格或逗号分隔" /></label>
+        <div><div class="section-label">关联项目</div>
+            {#if projectIndex}<WorkspaceProjectPicker index={projectIndex} value={projectTargetId} preserveSelected={mode === "edit"} onChange={(id) => (projectTargetId = id)} />
+            {:else}<small>请先配置项目位置，或稍候项目树加载。</small>{/if}
+        </div>
+        <label class="key-record-row" class:disabled={!projectTargetId}>
+            <input type="checkbox" bind:checked={isKeyRecord} disabled={!projectTargetId} />
+            <span>设为关键记录<small>{projectTargetId ? "会在项目工作台重点展示" : "关联项目后，可以将记录设为关键记录"}</small></span>
+        </label>
     </div>
 
     <div class="panel-footer">
@@ -133,6 +180,14 @@
         box-sizing: border-box;
         transition: border-color var(--wk-transition-fast);
     }
+    .no-margin { margin-top: 0; }
+    .metadata-section { display: grid; gap: 14px; padding-top: 0; }
+    .metadata-section label { display: grid; gap: 6px; }
+    .metadata-section .section-label { margin-bottom: 0; }
+    .metadata-section small { color: var(--wk-ink-muted); }
+    .key-record-row { grid-template-columns: auto 1fr !important; align-items: start; }
+    .key-record-row span { display: grid; gap: 2px; }
+    .key-record-row.disabled { opacity: .6; }
 
     .custom-category-input:focus {
         outline: none;

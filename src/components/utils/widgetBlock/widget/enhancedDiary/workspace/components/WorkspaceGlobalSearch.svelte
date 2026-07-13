@@ -8,7 +8,7 @@
         taskManagementEnabled?: boolean;
         onOpenTaskResult: (task: EnhancedDiaryWorkspaceTask) => void;
         onOpenRecordResult: (options: GoRecordsOptions) => void;
-        onOpenProjectResult: (projectName: string) => void;
+        onOpenProjectResult: (projectTargetId: string) => void;
         onOpenNotificationResult: (notificationId: string) => void;
         onGoReview: () => void;
         onOpenDoc: (docId?: string) => void;
@@ -54,7 +54,7 @@
 
         if (taskManagementEnabled) {
             workspaceState.tasks.forEach((task) => {
-                if (!matches(keyword, task.taskname, task.tags.join(" "), task.sourceDate, task.sourceDocTitle, task.markdown)) return;
+                if (!matches(keyword, task.taskname, task.tags.join(" "), task.projectPath?.join(" / "), task.sourceDate, task.sourceDocTitle, task.markdown)) return;
                 items.push({
                     key: `task-${task.blockId}`,
                     type: "task",
@@ -77,23 +77,30 @@
                 type: "record",
                 typeLabel: "记录",
                 title: record.headingTitle,
-                description: [record.date, record.categoryTitle, record.content.slice(0, 60)].filter(Boolean).join(" · "),
+                description: [record.date, record.categoryTitle, record.tags.map((tag) => `#${tag}#`).join(" "), record.projectPath?.join(" / "), record.content.slice(0, 60)].filter(Boolean).join(" · "),
                 actionLabel: "查看记录",
                 action: () => onOpenRecordResult(record.date === workspaceState.today ? { mode: "today", recordId } : { mode: "history", date: record.date || "", recordId }),
             });
         });
 
         if (taskManagementEnabled) {
-            workspaceState.projects.forEach((project) => {
-                if (!matches(keyword, project.name, project.progressMarkdown)) return;
+            const targets = [
+                ...Object.values(workspaceState.projectIndex.roots).map((root) => ({ id: root.id, title: root.title, path: [root.title] })),
+                ...Object.values(workspaceState.projectIndex.nodes).map((node) => ({
+                    id: node.id, title: node.title,
+                    path: [...node.ancestorTargetIds.map((id) => workspaceState.projectIndex.roots[id]?.title || workspaceState.projectIndex.nodes[id]?.title).filter(Boolean), node.title],
+                })),
+            ];
+            targets.forEach((project) => {
+                if (!matches(keyword, project.title, project.path.join(" / "), "项目概览", "项目目标", "当前重点", "阶段总结", "最终总结")) return;
                 items.push({
-                    key: `project-${project.name}`,
+                    key: `project-${project.id}`,
                     type: "project",
                     typeLabel: "项目",
-                    title: project.name,
-                    description: `未完成 ${project.openTaskCount} · 今日任务 ${project.todayTaskCount}`,
+                    title: project.title,
+                    description: project.path.join(" / "),
                     actionLabel: "查看项目",
-                    action: () => onOpenProjectResult(project.name),
+                    action: () => onOpenProjectResult(project.id),
                 });
             });
         }

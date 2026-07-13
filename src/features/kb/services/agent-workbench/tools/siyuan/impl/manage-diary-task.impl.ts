@@ -12,6 +12,10 @@ import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryTaskInput, ManageDiaryTaskOutput } from "../contracts/manage-diary-task.contract";
 import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig, prepareAgendaEnhancedDiaryIndex } from "./agenda-utils.impl";
+import {
+  EnhancedDiaryProjectWriteTargetError,
+  validateEnhancedDiaryProjectWriteTarget,
+} from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceProjectLifecycle";
 
 /** 将优先级数字 1-4 转为任务管理 Plus 的 ❗ 格式 */
 function priorityToSymbols(level: number | undefined): string | undefined {
@@ -20,6 +24,22 @@ function priorityToSymbols(level: number | undefined): string | undefined {
 }
 
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryTaskOutput; errorCode?: string };
+
+async function resolveProject(
+  config: Awaited<ReturnType<typeof loadAgendaEnhancedDiaryConfig>>,
+  id?: string,
+  existingTargetId?: string,
+) {
+  if (!id) return null;
+  return validateEnhancedDiaryProjectWriteTarget(config.projectStorage, id, existingTargetId);
+}
+
+function projectError(reason: unknown): { errorCode: string; message: string } {
+  if (reason instanceof EnhancedDiaryProjectWriteTargetError) {
+    return { errorCode: reason.code, message: reason.message };
+  }
+  return { errorCode: "project_index_unavailable", message: reason instanceof Error ? reason.message : "无法确认项目状态。" };
+}
 
 async function findTask(
   deps: KbRetrievalToolDeps,
@@ -60,12 +80,19 @@ async function executeCreate(
 ): Promise<ExecResult> {
   const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
+  const taskInput = args.task!;
+  let project = null;
+  try {
+    project = await resolveProject(config, taskInput.projectTargetId);
+  } catch (reason) {
+    const failure = projectError(reason);
+    return { ok: false, errorCode: failure.errorCode, safeOutput: { operation: "create", changed: false, message: failure.message } };
+  }
   const doc = await ensureTodayDoc(pluginAdapter, config);
   if (!doc.docId) {
     return { ok: false, errorCode: doc.errorCode, safeOutput: { operation: "create", changed: false, message: doc.message! } };
   }
 
-  const taskInput = args.task!;
   const result = await addNewTaskToDiary({
     docId: doc.docId,
     task: {
@@ -77,23 +104,25 @@ async function executeCreate(
       reminder: taskInput.reminder,
       location: taskInput.location,
       tags: taskInput.tags,
+      projectTargetId: project?.id,
+      projectTitle: project?.title,
     },
     dailyNotebookId: config.dailyNotebookId!,
     expectedDate: formatDiaryAttrDate(new Date()),
     headingStructure: config.headingStructure,
+    projectStorage: config.projectStorage,
   });
 
   if (!result.ok) {
     return {
       ok: false,
-      errorCode: "task_create_failed",
+      errorCode: result.reason === "archived_project_target" ? "archived_project_target" : "task_create_failed",
       safeOutput: { operation: "create", changed: false, docId: doc.docId, taskname: taskInput.taskname, message: result.message || "任务写入失败。" },
     };
   }
-
   return {
     ok: true,
-    safeOutput: { operation: "create", changed: true, docId: doc.docId, taskname: taskInput.taskname, message: "任务已写入今日日记。" },
+    safeOutput: { operation: "create", changed: true, docId: doc.docId, blockId: result.blockId, taskname: taskInput.taskname, projectTargetId: project?.id, projectName: project?.title, projectPath: project?.pathTitles, message: "任务已写入今日日记。" },
   };
 }
 
@@ -175,6 +204,14 @@ async function executeUpdate(
   const task = found.task;
   const patch = args.task || {};
   const clearSet = new Set(args.clearFields || []);
+  const requestedProjectId = clearSet.has("projectTargetId") ? "" : (patch.projectTargetId ?? task.projectTargetId ?? "");
+  let project = null;
+  try {
+    project = await resolveProject(config, requestedProjectId, task.projectTargetId);
+  } catch (reason) {
+    const failure = projectError(reason);
+    return { ok: false, errorCode: failure.errorCode, safeOutput: { operation: "update", changed: false, taskId: task.id, blockId: task.blockId, message: failure.message } };
+  }
 
   const result = await updateWorkspaceTask(task, {
     taskname: patch.taskname ?? task.taskname,
@@ -186,19 +223,21 @@ async function executeUpdate(
     reminder: clearSet.has("reminder") ? "" : (patch.reminder ?? task.reminder),
     location: clearSet.has("location") ? "" : (patch.location ?? task.location),
     tags: clearSet.has("tags") ? [] : (patch.tags ?? task.tags),
-  });
+    projectTargetId: requestedProjectId,
+    projectTitle: project?.title,
+  }, config.projectStorage);
 
   if (!result.ok) {
     return {
       ok: false,
-      errorCode: "task_update_failed",
+      errorCode: result.reason === "archived_project_target" ? "archived_project_target" : "task_update_failed",
       safeOutput: { operation: "update", changed: false, taskId: task.id, blockId: task.blockId, taskname: task.taskname, message: result.message || "更新任务失败。" },
     };
   }
 
   return {
     ok: true,
-    safeOutput: { operation: "update", changed: true, taskId: task.id, blockId: task.blockId, taskname: patch.taskname ?? task.taskname, message: "任务已更新。" },
+    safeOutput: { operation: "update", changed: true, taskId: task.id, blockId: task.blockId, taskname: patch.taskname ?? task.taskname, projectTargetId: project?.id, projectName: project?.title, projectPath: project?.pathTitles, message: "任务已更新。" },
   };
 }
 

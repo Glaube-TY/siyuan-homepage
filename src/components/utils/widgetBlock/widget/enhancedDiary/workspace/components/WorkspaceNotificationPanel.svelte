@@ -27,6 +27,8 @@
         initialSelectedNotificationId?: string;
         selectVersion?: number;
         taskManagementEnabled?: boolean;
+        onRepairProjectRelation?: (item: EnhancedDiaryWorkspaceNotification) => void;
+        onOpenIndexManagement?: () => void;
     }
 
     let {
@@ -45,6 +47,8 @@
         initialSelectedNotificationId = "",
         selectVersion = 0,
         taskManagementEnabled = true,
+        onRepairProjectRelation,
+        onOpenIndexManagement,
     }: Props = $props();
 
     function findTask(id?: string): EnhancedDiaryWorkspaceTask | undefined {
@@ -57,6 +61,8 @@
     }
 
     function runAction(item: EnhancedDiaryWorkspaceNotification): void {
+        if (item.action === "repair_project_relation") { onRepairProjectRelation?.(item); return; }
+        if (item.action === "rebuild_project_index") { onOpenIndexManagement?.(); return; }
         if (item.action === "migrate_task") {
             const task = findTask(item.relatedTaskId);
             if (task) {
@@ -111,6 +117,8 @@
             case "create_or_open_review": return "打开复盘";
             case "append_review_template":return "补复盘模板";
             case "complete_review":       return "标记完成";
+            case "repair_project_relation": return "修复关系";
+            case "rebuild_project_index": return "打开检索管理";
             default:                      return "打开";
         }
     }
@@ -121,6 +129,8 @@
             case "migration_suggestion": return "tasks";
             case "template_missing":     return "diary";
             case "review_due":           return "review";
+            case "project_relation":      return "projects";
+            case "project_index":         return "projects";
             default:                     return "notifications";
         }
     }
@@ -138,6 +148,9 @@
                 return "日记模板结构不够完整，补充后可以正常记录和复盘。";
             case "review_due":
                 return "复盘还没有完成，适合在今天收尾时处理。";
+            case "project_relation":
+            case "project_index":
+                return item.description || "";
             default:
                 return item.description || "";
         }

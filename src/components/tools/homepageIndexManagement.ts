@@ -15,6 +15,8 @@ import {
 } from "@/components/tools/statisticalAPI";
 import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
 import { rebuildEnhancedDiaryIndex, refreshEnhancedDiaryIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
+import { rebuildEnhancedDiaryProjectIndex, refreshEnhancedDiaryProjectIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectIndex";
+import { rebuildEnhancedDiaryProjectRecordIndex, refreshEnhancedDiaryProjectRecordIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectRecordIndex";
 
 export interface RebuildAllResult {
     favorites: ComponentMigrationStatus;
@@ -23,6 +25,8 @@ export interface RebuildAllResult {
     heatmap: ComponentMigrationStatus;
     stat: ComponentMigrationStatus;
     enhancedDiary: ComponentMigrationStatus;
+    enhancedDiaryProject: ComponentMigrationStatus;
+    enhancedDiaryProjectRecord: ComponentMigrationStatus;
 }
 
 export interface RebuildAllOptions {
@@ -75,6 +79,14 @@ export async function rebuildAllHomepageIndexes(
             key: "enhancedDiary",
             fn: async () => rebuildEnhancedDiaryIndex((await loadEnhancedDiaryConfig(plugin)).dailyNotebookId || ""),
         },
+        {
+            key: "enhancedDiaryProject",
+            fn: async () => rebuildEnhancedDiaryProjectIndex((await loadEnhancedDiaryConfig(plugin)).projectStorage),
+        },
+        {
+            key: "enhancedDiaryProjectRecord",
+            fn: async () => rebuildEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin)),
+        },
     ];
 
     for (const task of tasks) {
@@ -99,6 +111,8 @@ export interface RefreshAllResult {
     heatmap: ComponentMigrationStatus;
     stat: ComponentMigrationStatus;
     enhancedDiary: ComponentMigrationStatus;
+    enhancedDiaryProject: ComponentMigrationStatus;
+    enhancedDiaryProjectRecord: ComponentMigrationStatus;
 }
 
 export async function refreshAllHomepageIndexes(
@@ -130,6 +144,14 @@ export async function refreshAllHomepageIndexes(
         {
             key: "enhancedDiary",
             fn: async () => refreshEnhancedDiaryIndex((await loadEnhancedDiaryConfig(plugin)).dailyNotebookId || "", { force: true }),
+        },
+        {
+            key: "enhancedDiaryProject",
+            fn: async () => refreshEnhancedDiaryProjectIndex((await loadEnhancedDiaryConfig(plugin)).projectStorage),
+        },
+        {
+            key: "enhancedDiaryProjectRecord",
+            fn: async () => refreshEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin)),
         },
     ];
 

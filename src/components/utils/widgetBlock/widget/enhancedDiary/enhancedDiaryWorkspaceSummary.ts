@@ -73,25 +73,6 @@ function countRecordEntries(markdown: string): number {
     return count;
 }
 
-function countProjectSections(markdown: string, parentLevel: number): number {
-    if (!markdown.trim()) return 0;
-
-    const roots = parseMarkdownHeadingTree(markdown);
-    // roots are project headings within the project-progress section
-    // (the section markdown does not include the "## 项目推进" heading itself)
-    const preferredLevel = parentLevel + 1;
-
-    // Pass 1: project headings at preferred level
-    let projectNodes = roots.filter((n) => n.level === preferredLevel);
-
-    // Pass 2: fallback — any deeper level
-    if (projectNodes.length === 0) {
-        projectNodes = roots.filter((n) => n.level > preferredLevel);
-    }
-
-    return projectNodes.filter((n) => n.title !== "示例项目").length;
-}
-
 export function buildEnhancedDiaryWorkspaceSummary(
     markdown: string,
     headingStructure?: EnhancedDiaryHeadingStructureConfig,
@@ -100,8 +81,6 @@ export function buildEnhancedDiaryWorkspaceSummary(
 ): EnhancedDiaryWorkspaceSummary {
     const validation = validateDayWorkspaceStructure(markdown, headingStructure, mapping, taskManagementEnabled);
     const sections = getDayWorkspaceSections(markdown, headingStructure, mapping);
-
-    const projectProgressNode = sections.projectProgress.node;
 
     const quickRecordCount = sections.quickRecords.found
         ? countRecordEntries(sections.quickRecords.markdown)
@@ -115,8 +94,7 @@ export function buildEnhancedDiaryWorkspaceSummary(
             ? countTaskLines(sections.migratedTasks.markdown)
             : 0,
         quickRecordCount,
-        projectCount: taskManagementEnabled && sections.projectProgress.found
-            ? countProjectSections(sections.projectProgress.markdown, projectProgressNode?.level ?? 2)
-            : 0,
+        // 正式项目数量由项目索引注入；旧“项目推进”区块保留但退出统计。
+        projectCount: 0,
     };
 }

@@ -4,14 +4,6 @@ import { getDiaryDocumentForDate, setEnhancedDiaryIndexNotebook, type EnhancedDi
 import { formatDiaryDate } from "../enhancedDiaryUtils";
 import { buildEnhancedDiaryWorkspaceSummary, type EnhancedDiaryWorkspaceSummary } from "../enhancedDiaryWorkspaceSummary";
 import {
-    getDayWorkspaceSections,
-} from "../enhancedDiaryWorkspaceSections";
-import {
-    parseMarkdownHeadingTree,
-    getSectionMarkdown,
-    type EnhancedDiaryHeadingNode,
-} from "../enhancedDiaryMarkdownSections";
-import {
     queryWorkspaceTasks,
     type EnhancedDiaryWorkspaceTask,
 } from "./enhancedDiaryWorkspaceTaskService";
@@ -37,7 +29,11 @@ import {
     type EnhancedDiaryCarryoverItem,
 } from "./enhancedDiaryWorkspaceCarryover";
 import { daysBetweenLocalDates } from "./enhancedDiaryWorkspaceDate";
-import type { EnhancedDiaryConfig, EnhancedDiaryTemplateFieldMapping } from "../enhancedDiaryTypes";
+import type { EnhancedDiaryConfig } from "../enhancedDiaryTypes";
+import { isEnhancedDiaryProjectActiveBranch, readEnhancedDiaryProjectIndex, refreshEnhancedDiaryProjectIndex } from "../enhancedDiaryProjectIndex";
+import type { EnhancedDiaryProjectIndexPayload } from "../enhancedDiaryProjectTypes";
+import type { EnhancedDiaryProjectLifecycleStatus } from "../enhancedDiaryProjectTypes";
+import { readEnhancedDiaryProjectRecordIndex, refreshEnhancedDiaryProjectRecordIndex, type EnhancedDiaryProjectRecordIndexItem } from "../enhancedDiaryProjectRecordIndex";
 import { isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
 
 export type EnhancedDiaryProjectHealthStatus =
@@ -51,7 +47,14 @@ export type EnhancedDiaryProjectHealthStatus =
 export type EnhancedDiaryProjectHealthTone = "success" | "warning" | "danger" | "normal";
 
 export interface EnhancedDiaryWorkspaceProject {
+    targetId: string;
+    rootProjectId: string;
     name: string;
+    path: string[];
+    level: number;
+    parentTargetId?: string;
+    childTargetIds: string[];
+    directTaskCount: number;
     taskCount: number;
     openTaskCount: number;
     todayTaskCount: number;
@@ -63,6 +66,12 @@ export interface EnhancedDiaryWorkspaceProject {
     healthTone: EnhancedDiaryProjectHealthTone;
     progressMarkdown?: string;
     hasTodayProgress: boolean;
+    directRecordCount: number;
+    recordCount: number;
+    keyRecordCount: number;
+    contentSummaryStatus: "not_loaded" | "available";
+    status: EnhancedDiaryProjectLifecycleStatus;
+    archivedAt: string;
 }
 
 export interface EnhancedDiaryWorkspaceState {
@@ -78,6 +87,8 @@ export interface EnhancedDiaryWorkspaceState {
     records: EnhancedDiaryWorkspaceRecord[];
     historyRecords: EnhancedDiaryWorkspaceRecord[];
     projects: EnhancedDiaryWorkspaceProject[];
+    projectTargets: EnhancedDiaryWorkspaceProject[];
+    projectIndex: EnhancedDiaryProjectIndexPayload;
     notifications: EnhancedDiaryWorkspaceNotification[];
     reviewCards: EnhancedDiaryWorkspaceReviewCard[];
     reviewHistory: EnhancedDiaryWorkspaceReviewHistoryItem[];
@@ -93,157 +104,60 @@ const EMPTY_SUMMARY: EnhancedDiaryWorkspaceSummary = {
     projectCount: 0,
 };
 
-function parseTodayProjectProgress(
-    markdown?: string,
-    mapping?: EnhancedDiaryTemplateFieldMapping | null
-): Map<string, string> {
-    const map = new Map<string, string>();
-    if (!markdown) return map;
-
-    const sections = getDayWorkspaceSections(markdown, undefined, mapping);
-    if (!sections.projectProgress.found || !sections.projectProgress.node) return map;
-
-    const ppNode = sections.projectProgress.node;
-    const sectionMd = sections.projectProgress.markdown;
-    if (!sectionMd.trim()) return map;
-
-    const roots = parseMarkdownHeadingTree(sectionMd);
-    // Find project headings: preferred ppNode.level + 1, fallback deeper
-    const preferredLevel = ppNode.level + 1;
-    const projectNodes: EnhancedDiaryHeadingNode[] = [];
-
-    // Pass 1: exact preferred level
-    for (const node of roots) {
-        if (node.level === preferredLevel) {
-            projectNodes.push(node);
-        }
-    }
-
-    // Pass 2: fallback deeper (skip if we already found preferred-level nodes)
-    if (projectNodes.length === 0) {
-        for (const node of roots) {
-            if (node.level > preferredLevel) {
-                projectNodes.push(node);
-            }
-        }
-    }
-
-    for (const node of projectNodes) {
-        const content = getSectionMarkdown(sectionMd, node).trim();
-        map.set(node.title, content);
-    }
-
-    return map;
-}
-
 function buildProjectSummary(
+    index: EnhancedDiaryProjectIndexPayload,
     tasks: EnhancedDiaryWorkspaceTask[],
-    todayMarkdown: string | undefined,
+    records: EnhancedDiaryProjectRecordIndexItem[],
     today: string,
-    config?: EnhancedDiaryConfig
 ): EnhancedDiaryWorkspaceProject[] {
-    const map = new Map<string, EnhancedDiaryWorkspaceProject>();
-    const progressMap = parseTodayProjectProgress(todayMarkdown, config?.templateFieldMapping);
-
-    function getLatestTaskDate(projectTasks: EnhancedDiaryWorkspaceTask[]): string {
-        return projectTasks
-            .map((task) => task.sourceDate || task.startDate || task.deadline || "")
-            .filter(Boolean)
-            .sort()
-            .slice(-1)[0] || "";
-    }
-
-    function resolveHealth(project: EnhancedDiaryWorkspaceProject): Pick<
-        EnhancedDiaryWorkspaceProject,
-        "healthStatus" | "healthLabel" | "healthTone"
-    > {
-        if (project.overdueTaskCount > 0) {
-            return { healthStatus: "overdue", healthLabel: "存在逾期", healthTone: "danger" };
-        }
-        if (project.openTaskCount >= 5) {
-            return { healthStatus: "pileup", healthLabel: "任务堆积", healthTone: "warning" };
-        }
-        if (project.openTaskCount > 0 && (project.inactiveDays == null || project.inactiveDays >= 14)) {
-            return { healthStatus: "idle", healthLabel: "长期无进展", healthTone: "danger" };
-        }
-        if (project.openTaskCount > 0 && project.inactiveDays >= 7) {
-            return { healthStatus: "stale", healthLabel: "轻微停滞", healthTone: "warning" };
-        }
-        if (project.taskCount > 0 && project.openTaskCount === 0) {
-            return { healthStatus: "done", healthLabel: "全部完成", healthTone: "success" };
-        }
-        return { healthStatus: "healthy", healthLabel: "健康推进", healthTone: "success" };
-    }
-
-    tasks.forEach((task) => {
-        task.tags.forEach((tag) => {
-            if (!tag) return;
-            const current = map.get(tag) || {
-                name: tag,
-                taskCount: 0,
-                openTaskCount: 0,
-                todayTaskCount: 0,
-                overdueTaskCount: 0,
-                lastActivityDate: "",
-                inactiveDays: null,
-                healthStatus: "healthy",
-                healthLabel: "健康推进",
-                healthTone: "success",
-                progressMarkdown: progressMap.get(tag),
-                hasTodayProgress: progressMap.has(tag),
-            } satisfies EnhancedDiaryWorkspaceProject;
-            current.taskCount += 1;
-            if (!task.completed) current.openTaskCount += 1;
-            if (task.isTodayTask) current.todayTaskCount += 1;
-            if (task.isOverdue) current.overdueTaskCount += 1;
-            if (progressMap.has(tag)) {
-                current.progressMarkdown = progressMap.get(tag);
-                current.hasTodayProgress = true;
-            }
-            map.set(tag, current);
-        });
-    });
-
-    progressMap.forEach((content, name) => {
-        if (map.has(name)) return;
-        map.set(name, {
-            name,
-            taskCount: 0,
-            openTaskCount: 0,
-            todayTaskCount: 0,
-            overdueTaskCount: 0,
-            lastActivityDate: today,
-            inactiveDays: 0,
-            healthStatus: "healthy",
-            healthLabel: "健康推进",
-            healthTone: "success",
-            progressMarkdown: content,
-            hasTodayProgress: true,
-        });
-    });
-
-    return Array.from(map.values())
-        .map((project) => {
-            const projectTasks = tasks.filter((task) => task.tags.includes(project.name));
-            const lastActivityDate = project.hasTodayProgress ? today : getLatestTaskDate(projectTasks);
-            const inactiveDays = lastActivityDate ? Math.max(0, daysBetweenLocalDates(lastActivityDate, today)) : null;
-            const enriched = {
-                ...project,
-                lastActivityDate,
-                inactiveDays,
-            };
-            return {
-                ...enriched,
-                ...resolveHealth(enriched),
-            };
-        })
-        .sort(
-            (a, b) =>
-                Number(b.hasTodayProgress) - Number(a.hasTodayProgress) ||
-                b.overdueTaskCount - a.overdueTaskCount ||
-                b.openTaskCount - a.openTaskCount ||
-                b.todayTaskCount - a.todayTaskCount
+    const targets = [
+        ...Object.values(index.roots).map((root) => ({ id: root.id, rootId: root.id, title: root.title, path: [root.title], level: 0, parentId: undefined as string | undefined, order: root.order, status: root.status, archivedAt: root.archivedAt })),
+        ...Object.values(index.nodes).map((node) => {
+            const ancestorTitles = node.ancestorTargetIds.map((id) => index.roots[id]?.title || index.nodes[id]?.title).filter(Boolean);
+            return { id: node.id, rootId: node.rootProjectId, title: node.title, path: [...ancestorTitles, node.title], level: node.level, parentId: node.parentTargetId, order: node.order, status: node.status, archivedAt: node.archivedAt };
+        }),
+    ];
+    return targets.sort((a, b) => a.level - b.level || a.order - b.order).map((target) => {
+        const targetTasksAll = tasks.filter((task) => task.projectTargetId === target.id || task.projectAncestorTargetIds?.includes(target.id));
+        const targetTasks = target.status === "archived" ? targetTasksAll : targetTasksAll.filter((task) =>
+            isEnhancedDiaryProjectActiveBranch(index, task.projectTargetId, target.id),
         );
+        const directTasks = targetTasks.filter((task) => task.projectTargetId === target.id);
+        const targetRecordsAll = records.filter((record) => record.projectTargetId === target.id || index.nodes[record.projectTargetId]?.ancestorTargetIds.includes(target.id));
+        const targetRecords = target.status === "archived" ? targetRecordsAll : targetRecordsAll.filter((record) =>
+            isEnhancedDiaryProjectActiveBranch(index, record.projectTargetId, target.id),
+        );
+        const directRecords = targetRecords.filter((record) => record.projectTargetId === target.id);
+        const dates = [
+            ...targetTasks.map((task) => task.sourceDate || task.startDate || task.deadline || ""),
+            ...targetRecords.map((record) => record.date),
+        ].filter(Boolean).sort();
+        const lastActivityDate = dates[dates.length - 1] || "";
+        const inactiveDays = target.status === "archived" ? null : lastActivityDate ? Math.max(0, daysBetweenLocalDates(lastActivityDate, today)) : null;
+        const overdueTaskCount = target.status === "archived" ? 0 : targetTasks.filter((task) => task.isOverdue).length;
+        const openTaskCount = targetTasks.filter((task) => !task.completed).length;
+        const hasTodayProgress = target.status === "active" && (targetTasks.some((task) => task.isTodayTask) || targetRecords.some((record) => record.date === today));
+        const health = target.status === "archived"
+            ? { healthStatus: "done" as const, healthLabel: "已归档", healthTone: "normal" as const }
+            : overdueTaskCount > 0
+            ? { healthStatus: "overdue" as const, healthLabel: "存在逾期", healthTone: "danger" as const }
+            : openTaskCount > 0 && (inactiveDays == null || inactiveDays >= 14)
+                ? { healthStatus: "idle" as const, healthLabel: "长期无活动", healthTone: "warning" as const }
+                : targetTasks.length > 0 && openTaskCount === 0
+                    ? { healthStatus: "done" as const, healthLabel: "任务完成", healthTone: "success" as const }
+                    : { healthStatus: "healthy" as const, healthLabel: "正常", healthTone: "success" as const };
+        return {
+            targetId: target.id, rootProjectId: target.rootId, name: target.title, path: target.path, level: target.level, parentTargetId: target.parentId,
+            childTargetIds: Object.values(index.nodes).filter((node) => node.parentTargetId === target.id).map((node) => node.id),
+            directTaskCount: directTasks.length, taskCount: targetTasks.length, openTaskCount,
+            todayTaskCount: target.status === "archived" ? 0 : targetTasks.filter((task) => task.isTodayTask).length, overdueTaskCount,
+            lastActivityDate, inactiveDays, ...health, hasTodayProgress,
+            directRecordCount: directRecords.length, recordCount: targetRecords.length,
+            keyRecordCount: targetRecords.filter((record) => record.isKeyRecord).length,
+            contentSummaryStatus: "not_loaded" as const,
+            status: target.status, archivedAt: target.archivedAt,
+        };
+    });
 }
 
 export async function loadEnhancedDiaryWorkspaceState(
@@ -273,13 +187,25 @@ export async function loadEnhancedDiaryWorkspaceState(
             today,
             config.headingStructure,
             config.templateFieldMapping,
+            config,
         )
         : [];
     for (const record of records) {
         record.date = today;
         record.docTitle = todayDiary?.title || today;
     }
-    const projects = taskManagementEnabled ? buildProjectSummary(tasks, todayDiary?.content, today, config) : [];
+    const projectStorageReady = config.projectStorage.mode === "notebook"
+        ? Boolean(config.projectStorage.notebookId)
+        : Boolean(config.projectStorage.parentDocId);
+    if (projectStorageReady) await refreshEnhancedDiaryProjectIndex(config.projectStorage);
+    if (config.dailyNotebookId) await refreshEnhancedDiaryProjectRecordIndex(config);
+    const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
+    const projectRecordIndex = config.dailyNotebookId
+        ? await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId)
+        : { items: {} };
+    const projectTargets = buildProjectSummary(projectIndex, tasks, Object.values(projectRecordIndex.items), today);
+    const projects = projectTargets.filter((project) => project.level === 0 && project.status === "active");
+    summary.projectCount = projects.length;
     const reviewCards = await buildWorkspaceReviewCards(config, date);
     const notifications = buildWorkspaceNotifications({
         tasks,
@@ -288,6 +214,9 @@ export async function loadEnhancedDiaryWorkspaceState(
         todayDocId: todayDiary?.id,
         reviewCards,
         taskManagementEnabled,
+        records,
+        projectIndexComplete: projectIndex.complete,
+        projectRecordIndexComplete: "complete" in projectRecordIndex ? projectRecordIndex.complete : false,
     });
     let carryoverPlans: EnhancedDiaryCarryoverItem[] = [];
     try {
@@ -309,6 +238,8 @@ export async function loadEnhancedDiaryWorkspaceState(
         records,
         historyRecords: [],
         projects,
+        projectTargets,
+        projectIndex,
         notifications,
         reviewCards,
         reviewHistory: [],

@@ -1,3 +1,5 @@
+import { generateVisibleProjectReference, parseVisibleProjectTargetId } from "../enhancedDiary/workspace/enhancedDiaryWorkspaceProjectRelation";
+
 export interface ParsedTasksPlusMeta {
     deadline: string;
     startDate: string;
@@ -6,6 +8,7 @@ export interface ParsedTasksPlusMeta {
     reminder: string;
     location: string;
     tags: string[];
+    visibleProjectTargetId?: string;
 }
 
 export interface ParsedTasksPlusTask {
@@ -26,10 +29,12 @@ export interface GenerateTasksPlusTaskInput {
     location?: string;
     tags?: string[];
     taskCheck?: string;
+    projectTargetId?: string;
+    projectTitle?: string;
 }
 
-const TASK_META_SPLIT_RE = /[📅⌛❗🔁⏰📍#]/;
-const TASK_META_TOKEN_RE = /([📅⌛❗🔁⏰📍#]+)\s*(.*?)(?=\s*[📅⌛❗🔁⏰📍#]|$)/g;
+const TASK_META_SPLIT_RE = /[📅⌛❗🔁⏰📍📁#]/;
+const TASK_META_TOKEN_RE = /([📅⌛❗🔁⏰📍📁#]+)\s*(.*?)(?=\s*[📅⌛❗🔁⏰📍📁#]|$)/g;
 
 function firstMarkdownLine(markdown: string): string {
     return (markdown || "").split("\n\n")[0]?.split("\n")[0]?.trim() || "";
@@ -80,6 +85,7 @@ export function parseTaskLine(markdown: string): ParsedTasksPlusTask {
         reminder: "",
         location: "",
         tags: extractTaskTags(taskLine),
+        visibleProjectTargetId: parseVisibleProjectTargetId(taskLine),
     };
 
     const matches: string[] = Array.from(taskLine.matchAll(TASK_META_TOKEN_RE), (match) => match[0]);
@@ -129,5 +135,8 @@ export function generateTaskLine(input: GenerateTasksPlusTaskInput): string {
         input.reminder ? `⏰${input.reminder.trim()}` : "",
         input.location ? `📍${input.location.trim()}` : "",
         ...tags,
+        input.projectTargetId && input.projectTitle
+            ? generateVisibleProjectReference(input.projectTargetId, input.projectTitle)
+            : "",
     ]);
 }

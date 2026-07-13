@@ -1,8 +1,10 @@
 import {
     appendBlockChecked,
+    batchGetBlockAttrs,
     deleteBlockChecked,
     getBlockKramdown,
     moveBlockChecked,
+    setBlockAttrsChecked,
     updateBlockChecked,
 } from "@/api";
 import {
@@ -12,7 +14,7 @@ import {
     parseTaskLine,
     type GenerateTasksPlusTaskInput,
 } from "../../tasksPlus/tasksPlusParser";
-import type { EnhancedDiaryConfig } from "../enhancedDiaryTypes";
+import type { EnhancedDiaryConfig, EnhancedDiaryProjectStorageConfig } from "../enhancedDiaryTypes";
 import {
     appendMarkdownToDaySection,
     getDayWorkspaceSectionEndAnchor,
@@ -31,6 +33,13 @@ import {
     removeTaskIndexItem,
     updateTaskIndexItem,
 } from "@/components/tools/siyuanComponentDataApi";
+import { readEnhancedDiaryProjectIndex } from "../enhancedDiaryProjectIndex";
+import { resolveProjectRelation } from "./enhancedDiaryWorkspaceProjectRelation";
+import { ENHANCED_DIARY_PROJECT_TARGET_ATTR, parseEnhancedDiaryBatchBlockAttrs } from "../enhancedDiaryProjectTypes";
+import {
+    EnhancedDiaryProjectWriteTargetError,
+    validateEnhancedDiaryProjectWriteTarget,
+} from "./enhancedDiaryWorkspaceProjectLifecycle";
 
 export type EnhancedDiaryWorkspaceTaskSourceKind = "new" | "migrated" | "normal";
 
@@ -57,10 +66,18 @@ export interface EnhancedDiaryWorkspaceTask {
     isTodayTask: boolean;
     isOverdue: boolean;
     shouldMigrate: boolean;
+    projectTargetId?: string;
+    hiddenProjectTargetId?: string;
+    visibleProjectTargetId?: string;
+    rootProjectId?: string;
+    projectPath?: string[];
+    projectAncestorTargetIds?: string[];
+    projectRelationStatus: ReturnType<typeof resolveProjectRelation>["relationStatus"];
 }
 
 export interface WorkspaceTaskActionResult {
     ok: boolean;
+    partial?: boolean;
     changed?: boolean;
     reason?: string;
     message?: string;
@@ -177,12 +194,26 @@ export async function queryWorkspaceTasks(
     config: EnhancedDiaryConfig,
     today: Date,
     plugin?: any,
+    options: QueryWorkspaceTasksOptions = {},
 ): Promise<EnhancedDiaryWorkspaceTask[]> {
     const todayStr = formatDiaryDate(today);
-    await ensureTaskIndexInitialized(plugin);
-    await refreshTaskIndexFromRecentDocuments(plugin);
+    const initialization = await ensureTaskIndexInitialized(plugin);
+    if (options.requireFreshIndex && initialization.status.lastStatus === "error") {
+        throw new Error(`任务索引初始化失败：${initialization.status.lastMessage || "未知错误"}`);
+    }
+    const refreshStatus = await refreshTaskIndexFromRecentDocuments(
+        plugin,
+        options.forceIndexRefresh ? { force: true, ttlMs: 0 } : {},
+    );
+    if (options.requireFreshIndex && refreshStatus.lastStatus === "error") {
+        throw new Error(`任务索引刷新失败：${refreshStatus.lastMessage || "未知错误"}`);
+    }
     const taskResult = await getTaskIndexResult([], plugin);
     const rows = taskResult.items;
+    const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
+    const taskAttrs = rows?.length
+        ? parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(rows.map((row) => row.id)))
+        : {};
 
     const sourceDocs = await querySourceDocs((rows || []).map((row) => row.root_id));
     const todayDocId = (rows || []).find((row) => {
@@ -221,6 +252,7 @@ export async function queryWorkspaceTasks(
             sourceKind === "normal" &&
             !!sourceDate &&
             daysBetweenLocalDates(sourceDate, todayStr) > config.taskMigrationReminderDays;
+        const relation = resolveProjectRelation(projectIndex, taskAttrs?.[row.id] || {}, markdown);
 
         return {
             id: row.id,
@@ -245,8 +277,20 @@ export async function queryWorkspaceTasks(
             isTodayTask,
             isOverdue,
             shouldMigrate,
+            projectTargetId: relation.projectTargetId,
+            hiddenProjectTargetId: relation.hiddenProjectTargetId,
+            visibleProjectTargetId: relation.visibleProjectTargetId,
+            rootProjectId: relation.rootProjectId,
+            projectPath: relation.projectPath,
+            projectAncestorTargetIds: relation.projectAncestorTargetIds,
+            projectRelationStatus: relation.relationStatus,
         };
     }).filter((task) => task.taskname.trim().length > 0 && !isEnhancedDiarySystemTaskMarkdown(task.markdown));
+}
+
+export interface QueryWorkspaceTasksOptions {
+    forceIndexRefresh?: boolean;
+    requireFreshIndex?: boolean;
 }
 
 async function readTaskBlockMarkdown(task: EnhancedDiaryWorkspaceTask): Promise<string | null> {
@@ -330,15 +374,68 @@ export async function toggleWorkspaceTaskComplete(
     return updateTaskFirstLine(task, newLine);
 }
 
+export interface WorkspaceTaskBatchCompleteResult {
+    total: number;
+    successCount: number;
+    failedCount: number;
+    failedTasks: EnhancedDiaryWorkspaceTask[];
+}
+
+export async function completeWorkspaceTasksSequentially(
+    tasks: EnhancedDiaryWorkspaceTask[],
+): Promise<WorkspaceTaskBatchCompleteResult> {
+    const targets = tasks.filter((task) => !task.completed);
+    const failedTasks: EnhancedDiaryWorkspaceTask[] = [];
+    let successCount = 0;
+    for (const task of targets) {
+        const result = await toggleWorkspaceTaskComplete(task, true);
+        if (result.ok) successCount += 1;
+        else failedTasks.push(task);
+    }
+    return {
+        total: targets.length,
+        successCount,
+        failedCount: failedTasks.length,
+        failedTasks,
+    };
+}
+
 export async function updateWorkspaceTask(
     task: EnhancedDiaryWorkspaceTask,
-    input: GenerateTasksPlusTaskInput
+    input: GenerateTasksPlusTaskInput,
+    projectStorage?: EnhancedDiaryProjectStorageConfig,
 ): Promise<WorkspaceTaskActionResult> {
+    let validatedInput = input;
+    if (input.projectTargetId !== undefined) {
+        if (input.projectTargetId) {
+            if (!projectStorage) {
+                return { ok: false, reason: "project_storage_unavailable", message: "无法确认项目状态，任务未更新。" };
+            }
+            try {
+                const target = await validateEnhancedDiaryProjectWriteTarget(
+                    projectStorage,
+                    input.projectTargetId,
+                    task.projectTargetId,
+                );
+                validatedInput = { ...input, projectTargetId: target.id, projectTitle: target.title };
+            } catch (reason) {
+                return {
+                    ok: false,
+                    reason: reason instanceof EnhancedDiaryProjectWriteTargetError ? reason.code : "project_index_unavailable",
+                    message: reason instanceof Error ? reason.message : "无法确认项目状态，任务未更新。",
+                };
+            }
+        } else {
+            validatedInput = { ...input, projectTargetId: "", projectTitle: undefined };
+        }
+    }
     let newLine = "";
     try {
         newLine = generateTaskLine({
-            ...input,
-            completed: input.completed ?? task.completed,
+            ...validatedInput,
+            completed: validatedInput.completed ?? task.completed,
+            projectTargetId: validatedInput.projectTargetId ?? task.projectTargetId,
+            projectTitle: validatedInput.projectTitle ?? task.projectPath?.[task.projectPath.length - 1],
         });
     } catch {
         return {
@@ -348,7 +445,41 @@ export async function updateWorkspaceTask(
         };
     }
 
-    return updateTaskFirstLine(task, newLine);
+    const result = await updateTaskFirstLine(task, newLine);
+    if (!result.ok || validatedInput.projectTargetId === undefined) return result;
+    try {
+        await setBlockAttrsChecked(task.blockId, {
+            [ENHANCED_DIARY_PROJECT_TARGET_ATTR]: validatedInput.projectTargetId || "",
+        });
+        await updateTaskIndexItem({
+            id: task.blockId,
+            root_id: task.rootId || task.blockId,
+            rootID: task.rootId || task.blockId,
+            ial: validatedInput.projectTargetId
+                ? `{: ${ENHANCED_DIARY_PROJECT_TARGET_ATTR}="${validatedInput.projectTargetId}"}`
+                : "",
+            projectTargetId: validatedInput.projectTargetId || undefined,
+            hiddenProjectTargetId: validatedInput.projectTargetId || undefined,
+            visibleProjectTargetId: validatedInput.projectTargetId || undefined,
+            projectRelationStatus: validatedInput.projectTargetId ? "normal" : "none",
+        });
+        return result;
+    } catch {
+        try {
+            await updateTaskIndexItem({
+                id: task.blockId,
+                root_id: task.rootId || task.blockId,
+                rootID: task.rootId || task.blockId,
+                projectTargetId: validatedInput.projectTargetId || undefined,
+                hiddenProjectTargetId: undefined,
+                visibleProjectTargetId: validatedInput.projectTargetId || undefined,
+                projectRelationStatus: validatedInput.projectTargetId ? "missing_hidden_relation" : "none",
+            });
+        } catch {
+            // 正文已经更新，后续增量刷新会从显性项目引用补齐索引。
+        }
+        return { ok: true, partial: true, changed: true, reason: "project_attr_failed", message: "任务正文已更新并保留项目引用，但隐藏项目属性或索引待修复。" };
+    }
 }
 
 export async function postponeWorkspaceTask(

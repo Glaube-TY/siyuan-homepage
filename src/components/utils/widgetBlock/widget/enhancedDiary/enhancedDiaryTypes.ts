@@ -34,6 +34,20 @@ export interface EnhancedDiaryWorkspaceSettings {
     modules: EnhancedDiaryWorkspaceModules;
 }
 
+export type EnhancedDiaryProjectStorageMode = "notebook" | "parentDoc";
+
+/** 项目正文和项目树始终保存在思源文档中；这里仅保存根项目容器的位置。 */
+export interface EnhancedDiaryProjectStorageConfig {
+    mode: EnhancedDiaryProjectStorageMode;
+    notebookId: string;
+    parentDocId: string;
+}
+
+export function isEnhancedDiaryProjectStorageReady(storage?: EnhancedDiaryProjectStorageConfig): boolean {
+    if (!storage) return false;
+    return storage.mode === "notebook" ? Boolean(storage.notebookId) : Boolean(storage.parentDocId);
+}
+
 export interface EnhancedDiaryReviewReminderWindow {
     beforeDays: number;
     afterDays: number;
@@ -81,6 +95,7 @@ export interface EnhancedDiaryConfig {
     yearReviewRule: EnhancedDiaryYearRule;
     templates: EnhancedDiaryTemplateMap;
     dailyNotebookId?: string;
+    projectStorage: EnhancedDiaryProjectStorageConfig;
     taskMigrationReminderDays: number;
     workspaceSettings: EnhancedDiaryWorkspaceSettings;
     recordCategorySuggestions: string[];
@@ -271,6 +286,11 @@ export const DEFAULT_ENHANCED_DIARY_CONFIG: EnhancedDiaryConfig = {
     yearReviewRule: "dec31",
     templates: { ...DEFAULT_ENHANCED_DIARY_TEMPLATES },
     dailyNotebookId: "",
+    projectStorage: {
+        mode: "notebook",
+        notebookId: "",
+        parentDocId: "",
+    },
     taskMigrationReminderDays: 30,
     workspaceSettings: {
         calendar: {

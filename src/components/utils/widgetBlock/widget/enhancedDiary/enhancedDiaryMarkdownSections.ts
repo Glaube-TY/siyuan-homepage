@@ -23,6 +23,28 @@ export {
 
 export type EnhancedDiaryHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
+export interface EnhancedDiaryHeadingBlockLike {
+    subtype?: unknown;
+    subType?: unknown;
+    markdown?: unknown;
+}
+
+export function getEnhancedDiaryHeadingLevel(
+    block: EnhancedDiaryHeadingBlockLike,
+): EnhancedDiaryHeadingLevel | null {
+    const subtype = String(block.subtype || block.subType || "");
+    const subtypeMatch = /^h([1-6])$/i.exec(subtype);
+    if (subtypeMatch) return Number(subtypeMatch[1]) as EnhancedDiaryHeadingLevel;
+    const firstLine = String(block.markdown || "").replace(/\r\n/g, "\n").split("\n", 1)[0];
+    const markdownMatch = /^(#{1,6})\s+/.exec(firstLine);
+    return markdownMatch ? markdownMatch[1].length as EnhancedDiaryHeadingLevel : null;
+}
+
+export function getEnhancedDiaryHeadingTitle(block: EnhancedDiaryHeadingBlockLike): string {
+    const firstLine = String(block.markdown || "").replace(/\r\n/g, "\n").split("\n", 1)[0];
+    return normalizeHeadingTitle(firstLine.replace(/^#{1,6}\s+/, ""));
+}
+
 export interface EnhancedDiaryHeadingNode {
     level: EnhancedDiaryHeadingLevel;
     title: string;

@@ -27,6 +27,8 @@ interface IResGetChildBlock {
     id: BlockId;
     type: BlockType;
     subtype?: BlockSubType;
+    subType?: BlockSubType;
+    content?: string;
     markdown?: string;
 }
 

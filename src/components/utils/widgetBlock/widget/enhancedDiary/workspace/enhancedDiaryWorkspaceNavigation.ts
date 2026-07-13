@@ -35,6 +35,24 @@ export interface GoRecordsOptions {
     date?: string;
     category?: WorkspaceRecordCategoryFilter;
     recordId?: string;
+    tag?: string;
+    projectTargetId?: string;
+    keyOnly?: boolean;
+}
+
+export interface GoTasksOptions {
+    status?: WorkspaceTaskStatusFilter;
+    date?: string;
+    tag?: string;
+    projectTargetId?: string;
+    risk?: WorkspaceTaskRiskFilter;
+    taskBlockId?: string;
+}
+
+export interface GoProjectsOptions {
+    projectTargetId?: string;
+    tag?: string;
+    status?: WorkspaceProjectStatusFilter;
 }
 
 export interface TimelineItem {

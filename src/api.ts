@@ -1664,6 +1664,10 @@ export async function checkBlockExist(id: string): Promise<any> {
     return requestChecked('/api/block/checkBlockExist', { id }, 'checkBlockExist');
 }
 
+export async function checkBlocksExist(ids: string[]): Promise<Record<string, boolean>> {
+    return (await requestChecked('/api/block/checkBlocksExist', { ids }, 'checkBlocksExist')) || {};
+}
+
 export async function getBlockSiblingID(id: string): Promise<any> {
     return requestChecked('/api/block/getBlockSiblingID', { id }, 'getBlockSiblingID');
 }
@@ -1689,7 +1693,7 @@ export async function batchGetBlockAttrs(ids: string[]): Promise<any> {
 }
 
 export async function batchSetBlockAttrs(items: Array<{ id: string; attrs: Record<string, string> }>): Promise<any> {
-    return requestChecked('/api/attr/batchSetBlockAttrs', { items }, 'batchSetBlockAttrs');
+    return requestChecked('/api/attr/batchSetBlockAttrs', { blockAttrs: items }, 'batchSetBlockAttrs');
 }
 
 export async function setBlockReminder(params: SiyuanApiPayload): Promise<any> {

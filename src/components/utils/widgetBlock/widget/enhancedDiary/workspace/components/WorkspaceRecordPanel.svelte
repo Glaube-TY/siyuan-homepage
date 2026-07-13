@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount, onDestroy } from "svelte";
     import type { EnhancedDiaryWorkspaceRecord } from "../enhancedDiaryWorkspaceRecordService";
     import WorkspaceEmptyState from "./WorkspaceEmptyState.svelte";
     import type { WorkspaceRecordViewMode, WorkspaceRecordCategoryFilter } from "../enhancedDiaryWorkspaceNavigation";
@@ -51,7 +52,13 @@
     let activeCategory: RecordCategoryFilter = $state("all");
     let selectedRecordId: string | null = $state(null);
     let dateFilter: string = $state("");
+    let tagFilter = $state("");
+    let projectFilter = $state("");
+    let keyFilter: "all" | "key" | "normal" = $state("all");
     let lastFilterVersion: number = $state(0);
+    let filterPopoverOpen = $state(false);
+    let filterPopoverRef = $state<HTMLDivElement | null>(null);
+    let filterButtonRef = $state<HTMLButtonElement | null>(null);
 
     $effect(() => {
         if (filterVersion > lastFilterVersion) {
@@ -99,6 +106,10 @@
         if (activeCategory !== "all") {
             result = result.filter((r) => r.categoryKey === activeCategory);
         }
+        if (tagFilter) result = result.filter((record) => record.tags.includes(tagFilter));
+        if (projectFilter) result = result.filter((record) => record.projectTargetId === projectFilter || record.projectAncestorTargetIds?.includes(projectFilter));
+        if (keyFilter === "key") result = result.filter((record) => record.isKeyRecord);
+        if (keyFilter === "normal") result = result.filter((record) => !record.isKeyRecord);
 
         if (searchText.trim()) {
             const kw = searchText.trim().toLowerCase();
@@ -133,7 +144,6 @@
         let projectRelatedCount = 0;
 
         for (const record of filteredRecords) {
-            if (!taskManagementEnabled) continue;
             const key = record.categoryKey || "unknown";
             const current = categoryMap.get(key) || {
                 label: record.categoryTitle || key,
@@ -147,11 +157,7 @@
                 dateCountMap.set(recordDate, (dateCountMap.get(recordDate) || 0) + 1);
             }
 
-            if (
-                record.categoryTitle.includes("项目") ||
-                record.headingTitle.includes("项目") ||
-                /#[^#\s]+#/.test(record.content)
-            ) {
+            if (record.projectTargetId) {
                 projectRelatedCount += 1;
             }
         }
@@ -170,6 +176,22 @@
             topCategory: categoryCounts[0],
         };
     });
+    const tagOptions = $derived(Array.from(new Set(sourceRecords.flatMap((record) => record.tags))).sort((a, b) => a.localeCompare(b, "zh-CN")));
+    const projectOptions = $derived.by(() => {
+        const values = new Map<string, string>();
+        sourceRecords.forEach((record) => {
+            const ids = [...(record.projectAncestorTargetIds || []), ...(record.projectTargetId ? [record.projectTargetId] : [])];
+            ids.forEach((id, index) => values.set(id, record.projectPath?.[index] || id));
+        });
+        return Array.from(values, ([id, label]) => ({ id, label }));
+    });
+
+    const activeFilterCount = $derived(
+        (isHistoryMode && rangeFilter !== "30" ? 1 : 0) +
+        (tagFilter ? 1 : 0) +
+        (projectFilter ? 1 : 0) +
+        (keyFilter !== "all" ? 1 : 0)
+    );
 
     const selectedRecord = $derived(
         selectedRecordId
@@ -189,9 +211,50 @@
         selectedRecordId = getRecordDisplayKey(record);
     }
 
+    function canEditRecord(record: EnhancedDiaryWorkspaceRecord): boolean {
+        return Boolean(record.headingBlockId) && Array.isArray(record.contentBlockIds);
+    }
+
     function categoryCount(key: string): number {
         return sourceRecords.filter((r) => r.categoryKey === key).length;
     }
+
+    function closeFilterPopover(): void { filterPopoverOpen = false; }
+    function toggleFilterPopover(event?: MouseEvent): void {
+        event?.stopPropagation();
+        filterPopoverOpen = !filterPopoverOpen;
+    }
+
+    function resetFilters(): void {
+        rangeFilter = "30";
+        tagFilter = "";
+        projectFilter = "";
+        keyFilter = "all";
+    }
+
+    function handleFilterPopoverClick(event: MouseEvent): void {
+        const target = event.target as Node | null;
+        if (!target) return;
+        if (filterPopoverRef?.contains(target) || filterButtonRef?.contains(target)) return;
+        closeFilterPopover();
+    }
+
+    function handleFilterKeydown(event: KeyboardEvent): void {
+        if (event.key === "Escape" && filterPopoverOpen) {
+            event.preventDefault();
+            closeFilterPopover();
+        }
+    }
+
+    onMount(() => {
+        document.addEventListener("click", handleFilterPopoverClick);
+        document.addEventListener("keydown", handleFilterKeydown);
+    });
+
+    onDestroy(() => {
+        document.removeEventListener("click", handleFilterPopoverClick);
+        document.removeEventListener("keydown", handleFilterKeydown);
+    });
 
     function switchToTodayMode(): void {
         viewMode = "today";
@@ -265,27 +328,72 @@
                 placeholder="搜索记录内容、标题、日期..."
                 bind:value={searchText}
             />
-            {#if isHistoryMode && dateFilter}
-                <span class="date-filter-badge">
-                    当前日期：{dateFilter}
-                    <button
-                        type="button"
-                        class="clear-date-btn"
-                        onclick={() => { dateFilter = ""; selectedRecordId = null; }}
-                        aria-label="清除日期"
-                    >
-                        <WorkspaceIcon name="close" size={11} />
-                    </button>
-                </span>
-            {:else if isHistoryMode}
-                <select class="range-select" bind:value={rangeFilter}>
-                    <option value="7">最近 7 天</option>
-                    <option value="30">最近 30 天</option>
-                    <option value="90">最近 90 天</option>
-                </select>
-            {/if}
+            <div class="filter-popover-wrap">
+                <button
+                    type="button"
+                    class="wk-btn wk-btn-secondary filter-popover-btn"
+                    bind:this={filterButtonRef}
+                    onclick={(e) => toggleFilterPopover(e)}
+                    aria-expanded={filterPopoverOpen}
+                >
+                    更多筛选{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
+                </button>
+                {#if filterPopoverOpen}
+                    <div class="filter-popover" bind:this={filterPopoverRef}>
+                        <div class="filter-popover-head">
+                            <strong>筛选记录</strong>
+                            <button type="button" class="wk-btn wk-btn-ghost wk-btn-sm" onclick={resetFilters}>重置</button>
+                        </div>
+                        {#if isHistoryMode}
+                            <label class="filter-field">
+                                <span>时间范围</span>
+                                <select class="range-select" bind:value={rangeFilter}>
+                                    <option value="7">最近 7 天</option>
+                                    <option value="30">最近 30 天</option>
+                                    <option value="90">最近 90 天</option>
+                                </select>
+                            </label>
+                        {/if}
+                        <label class="filter-field">
+                            <span>标签</span>
+                            <select class="range-select" bind:value={tagFilter} aria-label="标签筛选">
+                                <option value="">全部标签</option>
+                                {#each tagOptions as tag}<option value={tag}>{tag}</option>{/each}
+                            </select>
+                        </label>
+                        <label class="filter-field">
+                            <span>项目</span>
+                            <select class="range-select" bind:value={projectFilter} aria-label="项目筛选">
+                                <option value="">全部项目</option>
+                                {#each projectOptions as project}<option value={project.id}>{project.label}</option>{/each}
+                            </select>
+                        </label>
+                        <label class="filter-field">
+                            <span>关键记录</span>
+                            <select class="range-select" bind:value={keyFilter} aria-label="关键记录筛选">
+                                <option value="all">全部记录</option>
+                                <option value="key">仅关键记录</option>
+                                <option value="normal">非关键记录</option>
+                            </select>
+                        </label>
+                    </div>
+                {/if}
+            </div>
         </div>
     </div>
+    {#if dateFilter}
+        <div class="filter-status-bar">
+            <span>当前日期：{dateFilter}</span>
+            <button
+                type="button"
+                class="clear-date-btn"
+                onclick={() => { dateFilter = ""; selectedRecordId = null; }}
+                aria-label="清除日期"
+            >
+                <WorkspaceIcon name="close" size={11} />
+            </button>
+        </div>
+    {/if}
 
     <div class="category-tabs">
         <button
@@ -383,6 +491,13 @@
                                     <span class="list-item-date">{record.date}</span>
                                 {/if}
                             </div>
+                            {#if record.tags.length || record.projectTargetId || record.isKeyRecord}
+                                <div class="list-item-meta">
+                                    {#each record.tags as tag}<span>#{tag}# </span>{/each}
+                                    {#if record.projectTargetId}<span>📁 {record.projectPath?.[record.projectPath.length - 1] || "项目"}</span>{/if}
+                                    {#if record.isKeyRecord}<span> · 关键</span>{/if}
+                                </div>
+                            {/if}
                         </button>
                     {/each}
                 </div>
@@ -422,6 +537,8 @@
                                 <span class="meta-label">分类</span>
                                 <span class="meta-value">{selectedRecord.categoryTitle}</span>
                             </div>
+                            {#if selectedRecord.tags.length}<div class="meta-item"><span class="meta-label">标签</span><span class="meta-value">{selectedRecord.tags.map((tag) => `#${tag}#`).join(" ")}</span></div>{/if}
+                            {#if selectedRecord.projectTargetId}<div class="meta-item"><span class="meta-label">项目</span><span class="meta-value">{selectedRecord.projectPath?.join(" / ") || selectedRecord.projectTargetId}{selectedRecord.isKeyRecord ? " · 关键记录" : ""}</span></div>{/if}
                         </div>
 
                         <div class="detail-actions">
@@ -430,6 +547,9 @@
                                 class="btn-secondary"
                                 onclick={() => onOpenDoc(selectedRecord.docId)}
                             >打开原始日记</button>
+                            {#if selectedRecord.rootProjectId}
+                                <button type="button" class="btn-secondary" onclick={() => onOpenDoc(selectedRecord.rootProjectId)}>打开项目</button>
+                            {/if}
                             {#if taskManagementEnabled}
                                 <button
                                     type="button"
@@ -438,14 +558,14 @@
                                 >转为任务</button>
                             {/if}
 
+                            <button
+                                type="button"
+                                class="btn-secondary"
+                                onclick={() => onEdit(selectedRecord)}
+                                disabled={!canEditRecord(selectedRecord)}
+                                title={canEditRecord(selectedRecord) ? "编辑记录" : "未能可靠定位记录块，暂不支持编辑"}
+                            >编辑</button>
                             {#if !isHistoryMode || isRecordFromToday}
-                                <button
-                                    type="button"
-                                    class="btn-secondary"
-                                    onclick={() => onEdit(selectedRecord)}
-                                    disabled={(selectedRecord.contentBlockIds?.length || 0) !== 1}
-                                    title={(selectedRecord.contentBlockIds?.length || 0) === 1 ? "编辑记录" : "多块记录请在日记中手动编辑"}
-                                >编辑</button>
                                 <button
                                     type="button"
                                     class="btn-danger"
@@ -458,15 +578,9 @@
                                     type="button"
                                     class="btn-secondary"
                                     disabled
-                                    title="历史记录请先打开日记编辑"
-                                >编辑</button>
-                                <button
-                                    type="button"
-                                    class="btn-secondary"
-                                    disabled
-                                    title="历史记录请先打开日记编辑"
+                                    title="历史记录请先打开日记删除"
                                 >删除</button>
-                                <span class="hint-text">历史记录请先打开日记编辑</span>
+                                <span class="hint-text">历史记录删除请先打开日记</span>
                             {/if}
                         </div>
                     </div>
@@ -501,6 +615,8 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
+        min-width: 0;
+        max-width: 100%;
     }
 
     .panel-toolbar {
@@ -529,6 +645,8 @@
         align-items: center;
         gap: 12px;
         flex-wrap: wrap;
+        min-width: 0;
+        max-width: 100%;
     }
 
     .mode-tabs {
@@ -563,7 +681,8 @@
         gap: 8px;
         align-items: center;
         flex: 1;
-        max-width: 420px;
+        min-width: 0;
+        max-width: 100%;
     }
 
     .search-input {
@@ -592,10 +711,12 @@
         cursor: pointer;
     }
 
-    .date-filter-badge {
+    .filter-status-bar {
         display: inline-flex;
         align-items: center;
         gap: 6px;
+        width: fit-content;
+        max-width: 100%;
         padding: 5px 10px;
         border-radius: 7px;
         background: color-mix(in srgb, var(--wk-primary) 10%, var(--wk-background));
@@ -603,6 +724,60 @@
         font-size: 12px;
         color: var(--wk-ink-secondary);
         white-space: nowrap;
+    }
+
+    .filter-popover-wrap {
+        position: relative;
+        flex-shrink: 0;
+    }
+
+    .filter-popover-btn {
+        white-space: nowrap;
+    }
+
+    .filter-popover {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        z-index: 20;
+        width: min(320px, calc(100cqi - 40px));
+        max-width: 100%;
+        background: var(--wk-bg-card);
+        border: 1px solid var(--wk-border);
+        border-radius: var(--wk-radius-md);
+        box-shadow: var(--wk-shadow-popover);
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .filter-popover-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .filter-popover-head strong {
+        font-size: var(--wk-text-base);
+        color: var(--wk-ink-secondary);
+    }
+
+    .filter-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .filter-field > span {
+        font-size: var(--wk-text-xs);
+        color: var(--wk-ink-muted);
+        font-weight: 500;
+    }
+
+    .filter-field .range-select {
+        width: 100%;
     }
 
     .clear-date-btn {

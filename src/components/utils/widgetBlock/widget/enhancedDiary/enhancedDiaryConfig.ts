@@ -12,6 +12,7 @@ import {
     type EnhancedDiaryWorkspaceModules,
     type EnhancedDiaryWorkspaceSettings,
     type EnhancedDiaryTemplateMap,
+    type EnhancedDiaryProjectStorageConfig,
 } from "./enhancedDiaryTypes";
 
 
@@ -127,6 +128,17 @@ function normalizeWorkspaceSettings(raw: unknown): EnhancedDiaryWorkspaceSetting
     return {
         calendar: normalizeWorkspaceCalendarSettings(raw.calendar),
         modules: normalizeWorkspaceModules(raw.modules),
+    };
+}
+
+function normalizeProjectStorage(raw: unknown): EnhancedDiaryProjectStorageConfig {
+    const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.projectStorage;
+    if (!isRecord(raw)) return { ...defaults };
+    const mode = raw.mode === "parentDoc" ? "parentDoc" : "notebook";
+    return {
+        mode,
+        notebookId: typeof raw.notebookId === "string" ? raw.notebookId.trim() : "",
+        parentDocId: typeof raw.parentDocId === "string" ? raw.parentDocId.trim() : "",
     };
 }
 
@@ -307,6 +319,7 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
             yearReviewRule: DEFAULT_ENHANCED_DIARY_CONFIG.yearReviewRule,
             templates: { ...DEFAULT_ENHANCED_DIARY_CONFIG.templates },
             dailyNotebookId: DEFAULT_ENHANCED_DIARY_CONFIG.dailyNotebookId,
+            projectStorage: { ...DEFAULT_ENHANCED_DIARY_CONFIG.projectStorage },
             taskMigrationReminderDays: DEFAULT_ENHANCED_DIARY_CONFIG.taskMigrationReminderDays,
             workspaceSettings: {
                 calendar: { ...DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.calendar },
@@ -338,6 +351,9 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
             (input as Record<string, unknown>).templates
         ),
         dailyNotebookId,
+        projectStorage: normalizeProjectStorage(
+            (input as Record<string, unknown>).projectStorage
+        ),
         taskMigrationReminderDays: normalizeTaskMigrationReminderDays(
             (input as Record<string, unknown>).taskMigrationReminderDays
         ),

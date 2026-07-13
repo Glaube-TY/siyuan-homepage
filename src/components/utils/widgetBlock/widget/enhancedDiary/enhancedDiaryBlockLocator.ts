@@ -1,4 +1,12 @@
-import { appendBlockChecked, getChildBlocksChecked, insertBlockChecked } from "@/api";
+import {
+    appendBlockChecked,
+    getBlockBreadcrumb,
+    getBlockInfo,
+    getBlockKramdowns,
+    getBlockTreeInfos,
+    getChildBlocksChecked,
+    insertBlockChecked,
+} from "@/api";
 import {
     ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
     normalizeRecordCategoryTitle,
@@ -16,6 +24,7 @@ import {
     getFieldAliases,
     getPrimaryFieldTitle,
 } from "./enhancedDiaryTemplateFieldMapping";
+import { parseTaskLine } from "../tasksPlus/tasksPlusParser";
 
 export interface EnhancedDiaryHeadingBlock {
     id: string;
@@ -36,9 +45,222 @@ export interface EnhancedDiaryHeadingBlockLookup {
 
 export interface EnhancedDiaryInsertResult {
     ok: boolean;
+    blockId?: string;
+    blockIds?: string[];
     reason?: string;
     missingTitle?: string;
     path?: string[];
+}
+
+export function extractOperationBlockIds(operations: unknown): string[] {
+    const ids: string[] = [];
+    for (const transaction of Array.isArray(operations) ? operations : []) {
+        for (const operation of Array.isArray(transaction?.doOperations) ? transaction.doOperations : []) {
+            if (operation?.action === "insert" && typeof operation.id === "string" &&
+                /^[0-9]{14}-[a-z0-9]{7}$/i.test(operation.id)) ids.push(operation.id);
+        }
+    }
+    return Array.from(new Set(ids));
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isEnhancedDiaryTaskListItemType(type: unknown): boolean {
+    return type === "i" || type === "NodeListItem";
+}
+
+export function isEnhancedDiaryRecordHeadingType(type: unknown): boolean {
+    return type === "h" || type === "NodeHeading";
+}
+
+export function isEnhancedDiaryListContainerType(type: unknown): boolean {
+    return type === "l" || type === "NodeList";
+}
+
+function matchesLocatedBlockType(
+    type: unknown,
+    nodeType: "NodeListItem" | "NodeHeading",
+): boolean {
+    return nodeType === "NodeListItem"
+        ? isEnhancedDiaryTaskListItemType(type)
+        : isEnhancedDiaryRecordHeadingType(type);
+}
+
+const INSERT_OPERATION_LIMIT = 16;
+const INSERT_CANDIDATE_LIMIT = 64;
+const LOCATE_RETRY_DELAYS = [0, 100, 200, 400, 800] as const;
+
+async function collectInsertedBlockCandidates(operationIds: string[]): Promise<{
+    ids: string[];
+    typeHints: Map<string, unknown>;
+}> {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    const typeHints = new Map<string, unknown>();
+    const addCandidate = (id: unknown, type?: unknown): void => {
+        if (typeof id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/i.test(id) || seen.has(id)) return;
+        if (ids.length >= INSERT_CANDIDATE_LIMIT) return;
+        seen.add(id);
+        ids.push(id);
+        if (type) typeHints.set(id, type);
+    };
+
+    const roots = operationIds.slice(0, INSERT_OPERATION_LIMIT);
+    roots.forEach((id) => addCandidate(id));
+
+    // getBlockInfo 会加载并重新索引目标块树；先触发它，再读取树类型和有限子块。
+    await Promise.all(roots.map(async (id) => {
+        try { await getBlockInfo(id); } catch { /* 仅用于预热块树，后续仍会保守验证。 */ }
+    }));
+
+    const childSources = new Set(roots);
+    try {
+        const rootTreeInfos = await getBlockTreeInfos(roots);
+        roots.forEach((id) => {
+            const treeInfo = rootTreeInfos?.[id];
+            const type = treeInfo?.type;
+            if (type) typeHints.set(id, type);
+            addCandidate(treeInfo?.parentID, treeInfo?.parentType);
+            if (isEnhancedDiaryListContainerType(treeInfo?.parentType)) childSources.add(treeInfo.parentID);
+        });
+    } catch {
+        // 新块树尚未就绪时仍尝试官方直接子块 API。
+    }
+
+    for (const id of roots) {
+        try {
+            const breadcrumb = await getBlockBreadcrumb(id);
+            for (const node of Array.isArray(breadcrumb) ? breadcrumb : []) {
+                addCandidate(node?.id, node?.type);
+                if (isEnhancedDiaryListContainerType(node?.type)) childSources.add(node.id);
+            }
+        } catch {
+            // 面包屑只用于补齐有限父级候选，失败时由树信息和后续重试兜底。
+        }
+    }
+
+    const firstLevelContainers: string[] = [];
+    for (const id of Array.from(childSources).slice(0, INSERT_OPERATION_LIMIT * 2)) {
+        try {
+            const children = await getChildBlocksChecked(id);
+            for (const child of children || []) {
+                addCandidate(child?.id, child?.type);
+                if (isEnhancedDiaryListContainerType(child?.type)) firstLevelContainers.push(child.id);
+            }
+        } catch {
+            // 单个候选读取失败不扩大扫描范围，由下一次有限重试继续。
+        }
+    }
+
+    // 只为直接子块中的列表容器再读取一层，绝不递归扫描整篇文档。
+    for (const id of firstLevelContainers.slice(0, INSERT_OPERATION_LIMIT)) {
+        try {
+            const children = await getChildBlocksChecked(id);
+            for (const child of children || []) addCandidate(child?.id, child?.type);
+        } catch {
+            // 下一次有限重试继续。
+        }
+    }
+
+    return { ids, typeHints };
+}
+
+function normalizeTaskKramdownForParsing(markdown: unknown): string {
+    const firstLine = String(markdown || "").split("\n")[0] || "";
+    return firstLine
+        .replace(/^([*-]\s*)\{:[^}]*\}\s*(\[(?: |x|X)\])/, "$1$2")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function normalizedTags(tags: string[]): string[] {
+    return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean))).sort();
+}
+
+function taskSemanticKey(markdown: unknown): string {
+    const parsed = parseTaskLine(normalizeTaskKramdownForParsing(markdown));
+    return JSON.stringify({
+        taskname: parsed.taskname.replace(/\s+/g, " ").trim(),
+        projectTargetId: parsed.parsed.visibleProjectTargetId || "",
+        startDate: parsed.parsed.startDate || "",
+        deadline: parsed.parsed.deadline || "",
+        priority: parsed.parsed.priority || "",
+        tags: normalizedTags(parsed.parsed.tags),
+    });
+}
+
+function normalizeRecordHeading(markdown: unknown): string {
+    return String(markdown || "")
+        .split("\n")[0]
+        .replace(/^#{1,6}\s+/, "")
+        .replace(/\{:[^}]*\}/g, " ")
+        .replace(/#[^#]+#/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function recordHeadingIdentity(markdown: unknown): string | undefined {
+    const normalized = normalizeRecordHeading(markdown);
+    const match = normalized.match(/^(\d{2}:\d{2})\s+记录(?:\s|$)/);
+    return match ? `${match[1]} 记录` : undefined;
+}
+
+export async function locateInsertedBlock(params: {
+    operationIds: string[];
+    rootId: string;
+    nodeType: "NodeListItem" | "NodeHeading";
+    expectedMarkdown?: string;
+}): Promise<string | undefined> {
+    const operationIds = Array.from(new Set(params.operationIds.filter((id) => /^[0-9]{14}-[a-z0-9]{7}$/i.test(id))));
+    if (!operationIds.length) return undefined;
+    for (let attempt = 0; attempt < LOCATE_RETRY_DELAYS.length; attempt += 1) {
+        if (LOCATE_RETRY_DELAYS[attempt] > 0) await delay(LOCATE_RETRY_DELAYS[attempt]);
+        try {
+            const collected = await collectInsertedBlockCandidates(operationIds);
+            const treeInfos = await getBlockTreeInfos(collected.ids);
+            const typedCandidates = collected.ids.filter((id) => matchesLocatedBlockType(
+                treeInfos?.[id]?.type || collected.typeHints.get(id),
+                params.nodeType,
+            ));
+            const scopedCandidates: string[] = [];
+            for (const id of typedCandidates) {
+                try {
+                    const info = await getBlockInfo(id);
+                    if (info?.rootID === params.rootId) scopedCandidates.push(id);
+                } catch {
+                    // 单个候选尚未可读时不影响其他候选，本轮无法确定则继续重试。
+                }
+            }
+
+            if (params.nodeType === "NodeHeading" && params.expectedMarkdown) {
+                const kramdowns = scopedCandidates.length ? await getBlockKramdowns(scopedCandidates) : {};
+                const expectedIdentity = recordHeadingIdentity(params.expectedMarkdown);
+                const recordCandidates = scopedCandidates.filter((id) =>
+                    !!expectedIdentity && recordHeadingIdentity(kramdowns?.[id]) === expectedIdentity
+                );
+                if (recordCandidates.length === 1) return recordCandidates[0];
+                if (recordCandidates.length > 1) {
+                    const expectedTitle = normalizeRecordHeading(params.expectedMarkdown);
+                    const exact = recordCandidates.filter((id) => normalizeRecordHeading(kramdowns?.[id]) === expectedTitle);
+                    if (exact.length === 1) return exact[0];
+                }
+                continue;
+            }
+
+            if (scopedCandidates.length === 1) return scopedCandidates[0];
+            if (scopedCandidates.length > 1 && params.expectedMarkdown) {
+                const kramdowns = await getBlockKramdowns(scopedCandidates);
+                const expectedKey = taskSemanticKey(params.expectedMarkdown);
+                const semanticMatches = scopedCandidates.filter((id) => taskSemanticKey(kramdowns?.[id]) === expectedKey);
+                if (semanticMatches.length === 1) return semanticMatches[0];
+            }
+        } catch {
+            // 新插入块可能尚未进入块树，只在有限重试窗口内等待。
+        }
+    }
+    return undefined;
 }
 
 export interface EnhancedDiaryInsertionAnchorResult {
@@ -271,12 +493,11 @@ async function insertMarkdownAtHeadingEnd(
 
     const nextBoundary = findNextBoundaryHeading(lookup.headings, lookup.heading);
     try {
-        if (nextBoundary) {
-            await insertBlockChecked("markdown", data, nextBoundary.id);
-        } else {
-            await appendBlockChecked("markdown", data, docId);
-        }
-        return { ok: true, path: lookup.path };
+        const operations = nextBoundary
+            ? await insertBlockChecked("markdown", data, nextBoundary.id)
+            : await appendBlockChecked("markdown", data, docId);
+        const blockIds = extractOperationBlockIds(operations);
+        return { ok: true, blockId: blockIds[0], blockIds, path: lookup.path };
     } catch (err) {
         console.warn("[enhancedDiaryBlockLocator] insert failed", err);
         return { ok: false, reason: "insert_failed", path: lookup.path };
@@ -336,15 +557,14 @@ export async function appendMarkdownToRecordCategoryByTitle(params: {
         const categoryLevel = (quickRecords.heading.level + 1) as EnhancedDiaryHeadingLevel;
         const recordLevel = (categoryLevel + 1) as EnhancedDiaryHeadingLevel;
         const recordHash = "#".repeat(recordLevel);
-        const categoryMarkdown = `${"#".repeat(categoryLevel)} ${normalizedTitle}\n\n${recordHash} ${params.recordTime} 记录\n\n${params.content}`;
+        const categoryMarkdown = `${"#".repeat(categoryLevel)} ${normalizedTitle}\n\n${recordHash} ${params.recordTime}\n\n${params.content}`;
 
         try {
-            if (nextBoundary) {
-                await insertBlockChecked("markdown", categoryMarkdown, nextBoundary.id);
-            } else {
-                await appendBlockChecked("markdown", categoryMarkdown, params.docId);
-            }
-            return { ok: true, path: [...quickRecords.path, normalizedTitle] };
+            const operations = nextBoundary
+                ? await insertBlockChecked("markdown", categoryMarkdown, nextBoundary.id)
+                : await appendBlockChecked("markdown", categoryMarkdown, params.docId);
+            const blockIds = extractOperationBlockIds(operations);
+            return { ok: true, blockId: blockIds[0], blockIds, path: [...quickRecords.path, normalizedTitle] };
         } catch (err) {
             console.warn("[enhancedDiaryBlockLocator] insert category failed", err);
             return { ok: false, reason: "insert_failed", path: [...quickRecords.path, normalizedTitle] };
@@ -354,7 +574,7 @@ export async function appendMarkdownToRecordCategoryByTitle(params: {
     // Compute record level from actual found category level
     const recordLevel = (category.level + 1) as EnhancedDiaryHeadingLevel;
     const recordHash = "#".repeat(recordLevel);
-    const recordMarkdown = `${recordHash} ${params.recordTime} 记录\n\n${params.content}`;
+    const recordMarkdown = `${recordHash} ${params.recordTime}\n\n${params.content}`;
 
     return insertMarkdownAtHeadingEnd(params.docId, {
         found: true,

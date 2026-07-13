@@ -15,6 +15,7 @@
     import WorkspaceQuickCreateFab from "./components/WorkspaceQuickCreateFab.svelte";
     import WorkspaceEmptyState from "./components/WorkspaceEmptyState.svelte";
     import WorkspaceSettingsPage from "./components/WorkspaceSettingsPage.svelte";
+    import WorkspaceGlobalSearch from "./components/WorkspaceGlobalSearch.svelte";
     import AdvancedFeatureLock from "../../common/AdvancedFeatureLock.svelte";
     import {
         openTaskEditorSvelteDialog,
@@ -22,6 +23,8 @@
         openDeleteTaskSvelteDialog,
         openDeleteRecordSvelteDialog,
         openMigrateTaskSvelteDialog,
+        openProjectRelationRepairDialog,
+        openArchiveProjectDialog,
     } from "./enhancedDiaryWorkspaceDialogs";
     import "./workspaceDesignTokens.css";
     import {
@@ -40,14 +43,18 @@
         migrateWorkspaceTaskToToday,
         postponeWorkspaceTask,
         toggleWorkspaceTaskComplete,
+        completeWorkspaceTasksSequentially,
+        queryWorkspaceTasks,
         updateWorkspaceTask,
         type EnhancedDiaryWorkspaceTask,
     } from "./enhancedDiaryWorkspaceTaskService";
     import {
         addWorkspaceQuickRecord,
         deleteQuickRecord,
+        queryQuickRecordsInDateRange,
         updateQuickRecord,
         type EnhancedDiaryWorkspaceRecord,
+        type QuickRecordDialogSubmitInput,
     } from "./enhancedDiaryWorkspaceRecordService";
     import {
         buildWorkspaceCalendarMonth,
@@ -79,6 +86,15 @@
     import type { EnhancedDiaryWorkspaceReviewCard } from "./enhancedDiaryWorkspaceViewModel";
     import type { WorkspaceTaskStatusFilter, WorkspaceRecordViewMode, WorkspaceRecordCategoryFilter, GoRecordsOptions, WorkspaceProjectStatusFilter, WorkspaceTaskRiskFilter } from "./enhancedDiaryWorkspaceNavigation";
     import { getUnhandledNotificationCount } from "./enhancedDiaryWorkspaceNotificationState";
+    import { readEnhancedDiaryProjectIndex, rebuildEnhancedDiaryProjectIndex } from "../enhancedDiaryProjectIndex";
+    import type { EnhancedDiaryProjectRecordIndexItem } from "../enhancedDiaryProjectRecordIndex";
+    import { repairEnhancedDiaryProjectRelation, type ProjectRelationRepairMode } from "./enhancedDiaryWorkspaceProjectRelation";
+    import {
+        archiveEnhancedDiaryProject,
+        getEnhancedDiaryProjectLifecycleContext,
+        restoreEnhancedDiaryProject,
+    } from "./enhancedDiaryWorkspaceProjectLifecycle";
+    import type { EnhancedDiaryWorkspaceNotification } from "./enhancedDiaryWorkspaceNotifications";
 
     interface Props {
         plugin: any;
@@ -121,10 +137,12 @@
     let recordSelectId = $state("");
     let recordFilterVersion = $state(0);
     let recordSelectVersion = $state(0);
-    let projectSelectName = $state("");
-    let projectSelectVersion = $state(0);
     let projectStatusFilter: WorkspaceProjectStatusFilter = $state("all");
     let projectFilterVersion = $state(0);
+    let projectSelectTargetId = $state("");
+    let projectSelectVersion = $state(0);
+    let workspaceMutationVersion = $state(0);
+    let archivePrecheckActive = $state(false);
     let notificationSelectId = $state("");
     let notificationSelectVersion = $state(0);
     let notificationCountVersion = $state(0);
@@ -185,7 +203,6 @@
     function goProjects(statusFilter: WorkspaceProjectStatusFilter = "all"): void {
         projectStatusFilter = statusFilter;
         projectFilterVersion += 1;
-        projectSelectName = "";
         selectTab("projects");
     }
 
@@ -196,7 +213,7 @@
     const overdueTaskCount = $derived(taskManagementEnabled && state ? state.tasks.filter((task) => task.isOverdue).length : 0);
     const migrateTaskCount = $derived(taskManagementEnabled && state ? state.tasks.filter((task) => task.shouldMigrate).length : 0);
     const riskyProjectCount = $derived(
-        taskManagementEnabled && state ? state.projects.filter((project) => project.healthTone === "danger" || project.healthTone === "warning").length : 0
+        state ? state.projects.filter((project) => project.healthTone === "danger" || project.healthTone === "warning").length : 0
     );
     const reviewStatusText = $derived(
         state
@@ -207,8 +224,12 @@
         state ? getUnhandledNotificationCount(state.notifications) + notificationCountVersion * 0 : 0
     );
 
+    const selectedCalendarMetadata = $derived(
+        calendarDays.find((day) => day.date === selectedCalendarDate)?.metadata || null
+    );
+
     $effect(() => {
-        if (!taskManagementEnabled && (activeTab === "tasks" || activeTab === "projects")) {
+        if (!taskManagementEnabled && activeTab === "tasks") {
             selectTab("overview");
         }
     });
@@ -292,6 +313,14 @@
                 },
             },
             {
+                id: "projects",
+                group: "项目",
+                title: `项目中心 ${state?.projects.length || 0}`,
+                description: "查看项目树、项目目标和项目记录",
+                keywords: ["project", "项目"],
+                run: () => goProjects("all"),
+            },
+            {
                 id: "settings",
                 group: "设置",
                 title: "工作台设置",
@@ -306,6 +335,14 @@
                 description: "查看提醒、风险和暂不处理项",
                 keywords: ["notification", "通知", "提醒"],
                 run: () => selectTab("notifications"),
+            },
+            {
+                id: "projects-risk",
+                group: "项目",
+                title: `风险项目 ${riskyProjectCount}`,
+                description: "查看存在逾期、堆积或停滞迹象的项目",
+                keywords: ["project", "risk", "health", "项目", "风险", "健康度"],
+                run: () => goProjects("risk"),
             },
         ];
 
@@ -363,22 +400,6 @@
                 keywords: ["risk", "高风险", "风险任务", "停滞", "截止"],
                 run: () => goTasks("all", "", "", "risk"),
             },
-            {
-                id: "projects",
-                group: "项目",
-                title: `项目中心 ${state?.projects.length || 0}`,
-                description: "查看项目聚合和项目时间线",
-                keywords: ["project", "项目"],
-                run: () => goProjects("all"),
-            },
-            {
-                id: "projects-risk",
-                group: "项目",
-                title: `风险项目 ${riskyProjectCount}`,
-                description: "查看存在逾期、堆积或停滞迹象的项目",
-                keywords: ["project", "risk", "health", "项目", "风险", "健康度"],
-                run: () => goProjects("risk"),
-            },
         ];
     });
 
@@ -407,38 +428,54 @@
     }
 
     let refreshTimer: number | null = null;
-    let refreshQueued = false;
+    let refreshMutationTail: Promise<void> = Promise.resolve();
 
-    async function refreshAfterWorkspaceMutation(): Promise<void> {
-        if (refreshQueued) return;
-        refreshQueued = true;
-        if (refreshTimer) {
-            window.clearTimeout(refreshTimer);
-            refreshTimer = null;
-        }
-        try {
+    async function refreshAfterWorkspaceMutation(notifyProjectData = false): Promise<void> {
+        const queued = refreshMutationTail.catch(() => undefined).then(async () => {
+            if (refreshTimer) {
+                window.clearTimeout(refreshTimer);
+                refreshTimer = null;
+            }
             await refresh();
-        } finally {
+            if (notifyProjectData) workspaceMutationVersion += 1;
             refreshTimer = window.setTimeout(() => {
                 refreshTimer = null;
-                void refresh().finally(() => {
-                    refreshQueued = false;
-                });
+                void refresh();
             }, 400);
-        }
+        });
+        refreshMutationTail = queued.then(() => undefined, () => undefined);
+        await queued;
     }
 
     async function saveWorkspaceSettings(config: EnhancedDiaryWorkspaceState["config"]): Promise<void> {
         if (settingsSaving) return;
         settingsSaving = true;
         try {
+            const previousStorage = state?.config.projectStorage;
+            const storageChanged = JSON.stringify(previousStorage || {}) !== JSON.stringify(config.projectStorage);
             await saveEnhancedDiaryConfig(plugin, config);
             if (state) {
                 state = { ...state, config };
             }
             calendarMonthCache = new Map();
             await loadCalendar();
-            showMessage("工作台设置已保存", 3000);
+            let indexMessage = "";
+            if (storageChanged) {
+                const storageReady = config.projectStorage.mode === "notebook"
+                    ? Boolean(config.projectStorage.notebookId)
+                    : Boolean(config.projectStorage.parentDocId);
+                if (storageReady) {
+                    try {
+                        const status = await rebuildEnhancedDiaryProjectIndex(config.projectStorage);
+                        if (status.lastStatus !== "success") {
+                            indexMessage = "设置已保存，但项目索引重建失败，请在项目页面手动刷新索引。";
+                        }
+                    } catch {
+                        indexMessage = "设置已保存，但项目索引重建失败，请在项目页面手动刷新索引。";
+                    }
+                }
+            }
+            showMessage(indexMessage || (storageChanged ? "设置已保存，项目索引已按新位置重建；既有关联不会被删除。" : "工作台设置已保存"), 3500);
         } catch (err) {
             console.warn("[enhancedDiaryWorkspacePage] save settings failed", err);
             showMessage("工作台设置保存失败，请稍后重试", 4000);
@@ -652,6 +689,7 @@
         openTaskEditorSvelteDialog({
             mode: "create",
             initialInput: input,
+            projectStorage: state?.config.projectStorage,
             onSubmit: async (taskInput) => {
                 return await submitNewTaskForWorkspace(taskInput);
             },
@@ -678,10 +716,11 @@
                 expectedDate: formatDiaryAttrDate(new Date()),
                 headingStructure: state.config.headingStructure,
                 mapping: state.config.templateFieldMapping,
+                projectStorage: state.config.projectStorage,
             });
             if (result.ok) {
-                showMessage("任务已写入「新建任务」区块", 3000);
-                await refreshAfterWorkspaceMutation();
+                showMessage(result.message || "任务已写入「新建任务」区块", result.message ? 5000 : 3000);
+                await refreshAfterWorkspaceMutation(true);
                 return true;
             } else {
                 showMessage(result.message || "新增任务失败", 4000);
@@ -705,8 +744,10 @@
             mode: "create",
             initialInput: {
                 taskname: firstContentLine || record.headingTitle,
-                tags: [record.categoryTitle].filter(Boolean),
+                tags: record.tags || [record.categoryTitle].filter(Boolean),
+                projectTargetId: record.projectTargetId,
             },
+            projectStorage: state?.config.projectStorage,
             onSubmit: async (input) => {
                 const result = await submitNewTaskForWorkspace(input);
                 if (result) {
@@ -730,7 +771,7 @@
                                 expectedDate,
                             });
                             if (deleteResult.ok) {
-                                await refreshAfterWorkspaceMutation();
+                                await refreshAfterWorkspaceMutation(true);
                                 return true;
                             }
                             return false;
@@ -757,7 +798,9 @@
                 reminder: task.reminder,
                 location: task.location,
                 tags: task.tags,
+                projectTargetId: task.projectTargetId,
             },
+            projectStorage: state?.config.projectStorage,
             onSubmit: async (input) => {
                 await editTask(input);
             },
@@ -771,11 +814,11 @@
         if (!editingTask || actionBusy) return;
         actionBusy = true;
         try {
-            const result = await updateWorkspaceTask(editingTask, input);
+            const result = await updateWorkspaceTask(editingTask, input, state.config.projectStorage);
             if (result.ok) {
                 showMessage("任务已更新", 3000);
                 editingTask = null;
-                await refreshAfterWorkspaceMutation();
+                await refreshAfterWorkspaceMutation(true);
             } else {
                 showMessage(result.message || "任务更新失败", 4000);
             }
@@ -790,7 +833,7 @@
         try {
             const result = await toggleWorkspaceTaskComplete(task, !task.completed);
             showMessage(result.ok ? "任务状态已更新" : result.message || "任务状态更新失败", 3000);
-            await refreshAfterWorkspaceMutation();
+            await refreshAfterWorkspaceMutation(result.ok);
         } finally {
             actionBusy = false;
         }
@@ -804,7 +847,7 @@
             if (result.ok) {
                 showMessage("任务已删除", 3000);
                 deletingTask = null;
-                await refreshAfterWorkspaceMutation();
+                await refreshAfterWorkspaceMutation(true);
                 return true;
             } else {
                 showMessage(result.message || "删除任务失败", 4000);
@@ -827,12 +870,12 @@
             if (result.ok) {
                 showMessage("任务已迁移到今日日记", 3000);
                 migratingTask = null;
-                await refreshAfterWorkspaceMutation();
+                await refreshAfterWorkspaceMutation(true);
                 return true;
             } else if (result.changed) {
                 showMessage(result.message || "任务已移动，但后续处理失败，请刷新后检查", 4000);
                 migratingTask = null;
-                await refreshAfterWorkspaceMutation();
+                await refreshAfterWorkspaceMutation(true);
                 return true;
             } else {
                 showMessage(result.message || "迁移任务失败", 4000);
@@ -850,7 +893,7 @@
             const result = await postponeWorkspaceTask(task, target);
             if (result.ok) {
                 showMessage(target === "tomorrow" ? "任务已推迟到明天" : "任务已推迟到下周", 3000);
-                await refreshAfterWorkspaceMutation();
+                await refreshAfterWorkspaceMutation(true);
             } else {
                 showMessage(result.message || "推迟任务失败", 4000);
             }
@@ -863,11 +906,9 @@
         if (actionBusy || tasks.length === 0) return;
         actionBusy = true;
         try {
-            const targets = tasks.filter((task) => !task.completed);
-            const results = await Promise.all(targets.map((task) => toggleWorkspaceTaskComplete(task, true)));
-            const successCount = results.filter((result) => result.ok).length;
-            showMessage(`已完成 ${successCount}/${targets.length} 个任务`, 3000);
-            await refreshAfterWorkspaceMutation();
+            const result = await completeWorkspaceTasksSequentially(tasks);
+            showMessage(`已完成 ${result.successCount}/${result.total} 个任务`, 3000);
+            await refreshAfterWorkspaceMutation(result.successCount > 0);
         } finally {
             actionBusy = false;
         }
@@ -886,23 +927,22 @@
                     : `已推迟 ${successCount}/${targets.length} 个任务到下周`,
                 3000
             );
-            await refreshAfterWorkspaceMutation();
+            await refreshAfterWorkspaceMutation(successCount > 0);
         } finally {
             actionBusy = false;
         }
     }
 
     async function createRecord(
-        categoryTitle: string,
-        content: string
+        input: QuickRecordDialogSubmitInput
     ): Promise<boolean> {
         if (!state || actionBusy) return false;
         actionBusy = true;
         try {
-            const result = await addWorkspaceQuickRecord(plugin, state.config, categoryTitle, content);
+            const result = await addWorkspaceQuickRecord(plugin, state.config, input.categoryTitle, input.content, input);
             if (result.ok) {
-                showMessage("记录已写入「快速记录」区块", 3000);
-                await refreshAfterWorkspaceMutation();
+                showMessage(result.message || "记录已写入「快速记录」区块", result.message ? 5000 : 3000);
+                await refreshAfterWorkspaceMutation(true);
                 return true;
             } else {
                 showMessage(result.message || "新增记录失败", 4000);
@@ -913,14 +953,201 @@
         }
     }
 
-    function openQuickRecordDialogForWorkspace(): void {
+    function openQuickRecordDialogForWorkspace(initialProjectTargetId?: string | Event): void {
+        const projectTargetId = typeof initialProjectTargetId === "string" ? initialProjectTargetId : "";
         openQuickRecordSvelteDialog({
             mode: "create",
             suggestedCategories: state?.config?.recordCategorySuggestions || ["未分类", "想法", "问题", "决策", "日志"],
-            onSubmit: async (categoryTitle, content) => {
-                return await createRecord(categoryTitle, content);
+            projectStorage: state?.config.projectStorage,
+            initialProjectTargetId: projectTargetId,
+            onSubmit: async (input) => {
+                return await createRecord(input);
             },
         });
+    }
+
+    async function openArchiveProjectForWorkspace(targetId: string): Promise<void> {
+        if (!state || actionBusy || archivePrecheckActive) return;
+        archivePrecheckActive = true;
+        let dialogOpened = false;
+        try {
+            const context = await getEnhancedDiaryProjectLifecycleContext(state.config.projectStorage, targetId);
+            let latestTasks: EnhancedDiaryWorkspaceTask[];
+            try {
+                latestTasks = await queryWorkspaceTasks(state.config, state.date, plugin, {
+                    forceIndexRefresh: true,
+                    requireFreshIndex: true,
+                });
+            } catch (reason) {
+                const detail = reason instanceof Error ? reason.message : String(reason);
+                showMessage(`无法确认项目内未完成任务，未执行归档：${detail}`, 5000);
+                return;
+            }
+            const affectedIds = new Set(context.affectedTargetIds);
+            const pendingTasks = latestTasks.filter((task) =>
+                !task.completed && Boolean(task.projectTargetId) && affectedIds.has(task.projectTargetId!),
+            );
+            openArchiveProjectDialog({
+                projectName: context.target.title,
+                projectPath: context.target.pathTitles,
+                descendantCount: context.descendantCount,
+                pendingTaskCount: pendingTasks.length,
+                onSelect: async (mode) => {
+                    if (!state || actionBusy) return { accepted: false };
+                    actionBusy = true;
+                    try {
+                        if (mode === "verify_and_archive" || mode === "complete_and_archive") {
+                            let currentPendingTasks: EnhancedDiaryWorkspaceTask[];
+                            try {
+                                const currentContext = await getEnhancedDiaryProjectLifecycleContext(state.config.projectStorage, targetId);
+                                const currentTasks = await queryWorkspaceTasks(state.config, state.date, plugin, {
+                                    forceIndexRefresh: true,
+                                    requireFreshIndex: true,
+                                });
+                                const currentAffectedIds = new Set(currentContext.affectedTargetIds);
+                                currentPendingTasks = currentTasks.filter((task) =>
+                                    !task.completed && Boolean(task.projectTargetId) && currentAffectedIds.has(task.projectTargetId!),
+                                );
+                            } catch (reason) {
+                                const detail = reason instanceof Error ? reason.message : String(reason);
+                                showMessage(`无法确认项目内未完成任务，未执行归档：${detail}`, 5000);
+                                return { accepted: false };
+                            }
+                            if (mode === "verify_and_archive" && currentPendingTasks.length > 0) {
+                                return {
+                                    accepted: false,
+                                    pendingTaskCount: currentPendingTasks.length,
+                                    message: `检测到项目中新出现 ${currentPendingTasks.length} 条未完成任务，请重新选择归档方式。`,
+                                };
+                            }
+                            if (mode === "complete_and_archive") {
+                                const batchResult = await completeWorkspaceTasksSequentially(currentPendingTasks);
+                                await refreshAfterWorkspaceMutation(batchResult.successCount > 0);
+                                if (batchResult.failedCount > 0) {
+                                    showMessage(`任务完成结果：成功 ${batchResult.successCount} 个，失败 ${batchResult.failedCount} 个；项目未归档。`, 5000);
+                                    return { accepted: false };
+                                }
+                                try {
+                                    const finalContext = await getEnhancedDiaryProjectLifecycleContext(state.config.projectStorage, targetId);
+                                    const finalTasks = await queryWorkspaceTasks(state.config, state.date, plugin, {
+                                        forceIndexRefresh: true,
+                                        requireFreshIndex: true,
+                                    });
+                                    const finalAffectedIds = new Set(finalContext.affectedTargetIds);
+                                    const finalPendingTasks = finalTasks.filter((task) =>
+                                        !task.completed && Boolean(task.projectTargetId) && finalAffectedIds.has(task.projectTargetId!),
+                                    );
+                                    if (finalPendingTasks.length > 0) {
+                                        return {
+                                            accepted: false,
+                                            pendingTaskCount: finalPendingTasks.length,
+                                            message: `完成过程中又检测到 ${finalPendingTasks.length} 条新的未完成任务，已完成的任务保持完成，请再次确认。`,
+                                        };
+                                    }
+                                } catch (reason) {
+                                    const detail = reason instanceof Error ? reason.message : String(reason);
+                                    const message = `已完成 ${batchResult.successCount} 条任务，但无法确认最新任务状态，项目未归档：${detail}`;
+                                    showMessage(message, 5500);
+                                    return { accepted: false, message };
+                                }
+                            }
+                        }
+                        const result = await archiveEnhancedDiaryProject(state.config.projectStorage, targetId);
+                        if (result.status === "blocked") {
+                            showMessage(result.message, 4500);
+                            return { accepted: false };
+                        }
+                        await refreshAfterWorkspaceMutation(true);
+                        if (result.status === "partial" && result.unverifiedTargetIds.length > 0) {
+                            showMessage(`项目状态只完成了部分写入，有 ${result.unverifiedTargetIds.length} 个项目节点尚未确认，请重试归档。`, 5500);
+                            return { accepted: false };
+                        }
+                        if (result.status === "partial") {
+                            showMessage("项目已归档，但项目索引刷新未完成，请稍后刷新索引。", 5000);
+                            return { accepted: true };
+                        }
+                        showMessage("项目已归档，项目文档和日记内容均未移动。", 3000);
+                        return { accepted: true };
+                    } catch (reason) {
+                        showMessage(reason instanceof Error ? reason.message : "项目归档失败", 4500);
+                        return { accepted: false };
+                    } finally {
+                        actionBusy = false;
+                    }
+                },
+                onClose: () => {
+                    archivePrecheckActive = false;
+                },
+            });
+            dialogOpened = true;
+        } catch (reason) {
+            const detail = reason instanceof Error ? reason.message : String(reason);
+            showMessage(`无法确认完整项目范围，未执行归档：${detail}`, 5000);
+        } finally {
+            if (!dialogOpened) archivePrecheckActive = false;
+        }
+    }
+
+    async function restoreProjectForWorkspace(targetId: string): Promise<void> {
+        if (!state || actionBusy) return;
+        actionBusy = true;
+        try {
+            const result = await restoreEnhancedDiaryProject(state.config.projectStorage, targetId);
+            if (result.status === "blocked") {
+                showMessage(result.message, 4000);
+                return;
+            }
+            await refreshAfterWorkspaceMutation(true);
+            if (result.status === "partial" && result.unverifiedTargetIds.length > 0) {
+                showMessage(`项目恢复只完成了部分写入，有 ${result.unverifiedTargetIds.length} 个项目节点尚未确认。`, 5500);
+                return;
+            }
+            if (result.status === "partial") {
+                showMessage("项目状态已经恢复，但项目索引刷新未完成，请稍后刷新索引。", 5000);
+                return;
+            }
+            showMessage("项目已恢复", 3000);
+        } catch (reason) {
+            showMessage(reason instanceof Error ? reason.message : "恢复项目失败", 4500);
+        } finally {
+            actionBusy = false;
+        }
+    }
+
+    async function resolveProjectRecord(
+        item: EnhancedDiaryProjectRecordIndexItem,
+    ): Promise<EnhancedDiaryWorkspaceRecord | null> {
+        if (!state) return null;
+        const loaded = [...state.records, ...state.historyRecords].find((record) =>
+            record.headingBlockId === item.headingBlockId || record.id === item.id
+        );
+        if (loaded) return loaded;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(item.date)) return null;
+        const date = parseLocalDate(item.date);
+        const records = await queryQuickRecordsInDateRange({
+            startDate: date,
+            endDate: date,
+            includeToday: true,
+            config: state.config,
+        });
+        return records.find((record) => record.headingBlockId === item.headingBlockId || record.id === item.id) || null;
+    }
+
+    async function openProjectRecordAction(
+        item: EnhancedDiaryProjectRecordIndexItem,
+        action: (record: EnhancedDiaryWorkspaceRecord) => void,
+    ): Promise<void> {
+        try {
+            const record = await resolveProjectRecord(item);
+            if (!record) {
+                showMessage("未能读取记录的完整块结构，请刷新工作台后重试。", 4000);
+                return;
+            }
+            action(record);
+        } catch (error) {
+            console.warn("[enhancedDiaryWorkspacePage] load project record failed", error);
+            showMessage("读取项目记录失败，请稍后重试。", 4000);
+        }
     }
 
     async function confirmDeleteRecord(record: EnhancedDiaryWorkspaceRecord | null): Promise<boolean> {
@@ -940,7 +1167,7 @@
             if (result.ok) {
                 showMessage("记录已删除", 3000);
                 deletingRecord = null;
-                await refreshAfterWorkspaceMutation();
+                await refreshAfterWorkspaceMutation(true);
                 return true;
             } else {
                 showMessage(result.message || "删除记录失败", 4000);
@@ -957,9 +1184,13 @@
             mode: "edit",
             initialCategoryTitle: record.categoryTitle,
             initialContent: record.content,
+            initialTags: record.tags,
+            initialProjectTargetId: record.projectTargetId,
+            initialIsKeyRecord: record.isKeyRecord,
+            projectStorage: state?.config.projectStorage,
             suggestedCategories: state?.config?.recordCategorySuggestions || [],
-            onSubmit: async (categoryTitle, content) => {
-                await editRecord(categoryTitle, content);
+            onSubmit: async (input) => {
+                return await editRecord(input);
             },
             onClose: () => {
                 editingRecord = null;
@@ -1008,32 +1239,85 @@
     }
 
     async function editRecord(
-        _categoryTitle: string,
-        content: string
-    ): Promise<void> {
-        if (!editingRecord || actionBusy) return;
+        input: QuickRecordDialogSubmitInput
+    ): Promise<boolean> {
+        if (!editingRecord || actionBusy) return false;
         actionBusy = true;
         try {
             const expectedDate = editingRecord.date ? editingRecord.date.replace(/-/g, "") : "";
             if (!expectedDate || expectedDate.length !== 8) {
                 showMessage("记录日期无效，请刷新工作台后重试。", 4000);
                 actionBusy = false;
-                return;
+                return false;
             }
-            const result = await updateQuickRecord(editingRecord, content, {
+            const result = await updateQuickRecord(editingRecord, input.content, {
                 dailyNotebookId: state.config.dailyNotebookId!,
                 expectedDate,
-            });
+                projectStorage: state.config.projectStorage,
+            }, input);
             if (result.ok) {
-                showMessage("记录已更新", 3000);
+                showMessage(result.message || "记录已更新", result.message ? 5000 : 3000);
                 editingRecord = null;
-                await refreshAfterWorkspaceMutation();
+                await refreshAfterWorkspaceMutation(true);
+                return true;
             } else {
                 showMessage(result.message || "更新记录失败", 4000);
+                return false;
             }
         } finally {
             actionBusy = false;
         }
+    }
+
+    function openTaskSearchResult(task: EnhancedDiaryWorkspaceTask): void {
+        taskSelectBlockId = task.blockId; taskSelectVersion += 1; selectTab("tasks");
+    }
+
+    function openProjectSearchResult(targetId: string): void {
+        projectSelectTargetId = targetId; projectSelectVersion += 1; selectTab("projects");
+    }
+
+    function openNotificationSearchResult(notificationId: string): void {
+        notificationSelectId = notificationId; notificationSelectVersion += 1; selectTab("notifications");
+    }
+
+    async function openProjectRelationRepair(item: EnhancedDiaryWorkspaceNotification): Promise<void> {
+        if (!state) return;
+        const task = item.relationEntityKind === "task" ? state.tasks.find((value) => value.blockId === item.relatedTaskId) : undefined;
+        const record = item.relationEntityKind === "record"
+            ? [...state.records, ...state.historyRecords].find((value) => value.headingBlockId === item.relatedRecordId)
+            : undefined;
+        if (!task && !record) { showMessage("对应内容已变化，请刷新工作台。", 3500); return; }
+        const index = await readEnhancedDiaryProjectIndex(state.config.projectStorage);
+        const status = task?.projectRelationStatus || record?.projectRelationStatus || "invalid_target";
+        openProjectRelationRepairDialog({
+            index, status,
+            contentLabel: task?.taskname || record?.content?.trim().replace(/\s+/g, " ").slice(0, 120) || record?.headingTitle || "未命名内容",
+            hiddenProjectTargetId: task?.hiddenProjectTargetId || record?.hiddenProjectTargetId,
+            visibleProjectTargetId: task?.visibleProjectTargetId || record?.visibleProjectTargetId,
+            projectTargetId: task?.projectTargetId || record?.projectTargetId,
+            onSelect: async (mode: ProjectRelationRepairMode, replacementTargetId?: string) => {
+                try {
+                    await repairEnhancedDiaryProjectRelation({
+                        index, mode, replacementTargetId,
+                        target: task ? {
+                            kind: "task", relationBlockId: task.blockId,
+                            hiddenTargetId: task.hiddenProjectTargetId, visibleTargetId: task.visibleProjectTargetId,
+                        } : {
+                            kind: "record", relationBlockId: record!.headingBlockId!,
+                            contentBlockIds: record!.contentBlockIds || [],
+                            hiddenTargetId: record!.hiddenProjectTargetId, visibleTargetId: record!.visibleProjectTargetId,
+                        },
+                    });
+                    await refreshAfterWorkspaceMutation(true);
+                    showMessage("项目关系已修复", 2500);
+                    return true;
+                } catch (reason) {
+                    showMessage(reason instanceof Error ? reason.message : "关系修复失败", 4500);
+                    return false;
+                }
+            },
+        });
     }
 
     async function validateReviewWriteTarget(card: EnhancedDiaryWorkspaceReviewCard): Promise<boolean> {
@@ -1318,6 +1602,19 @@
         />
 
     {#if state}
+        <WorkspaceGlobalSearch
+            state={state}
+            {taskManagementEnabled}
+            onOpenTaskResult={openTaskSearchResult}
+            onOpenRecordResult={goRecords}
+            onOpenProjectResult={openProjectSearchResult}
+            onOpenNotificationResult={openNotificationSearchResult}
+            onGoReview={() => selectTab("review")}
+            onOpenDoc={openDoc}
+        />
+    {/if}
+
+    {#if state}
         <div class="workspace-layout">
             <WorkspaceSidebar
                 {activeTab}
@@ -1415,6 +1712,8 @@
                             onOpenReview={goReviewByDate}
                             onOpenTasks={goTasksByDate}
                             taskManagementEnabled={taskManagementEnabled}
+                            calendarMetadata={selectedCalendarMetadata}
+                            displaySettings={state?.config.workspaceSettings.calendar}
                         />
                     </div>
                 {:else if activeTab === "notifications"}
@@ -1431,6 +1730,8 @@
                         onCompleteTask={toggleTask}
                         onPostponeTask={postponeTask}
                         onSnoozedChange={() => (notificationCountVersion += 1)}
+                        onRepairProjectRelation={openProjectRelationRepair}
+                        onOpenIndexManagement={() => showMessage("请到主页设置 > 检索管理中重建项目相关索引。", 4500)}
                         initialSelectedNotificationId={notificationSelectId}
                         selectVersion={notificationSelectVersion}
                         {taskManagementEnabled}
@@ -1458,15 +1759,26 @@
                         todayTasks={taskManagementEnabled ? state.tasks.filter(t => t.isTodayTask || t.sourceDate === state.today) : []}
                         {taskManagementEnabled}
                     />
-                {:else if activeTab === "projects" && taskManagementEnabled}
+                {:else if activeTab === "projects"}
                     <WorkspaceProjectPanel
-                        projects={state.projects}
-                        tasks={state.tasks}
-                        onGoTasks={(projectName) => goTasks("all", projectName || "")}
-                        initialSelectedProjectName={projectSelectName}
+                        config={state.config}
+                        tasks={taskManagementEnabled ? state.tasks : []}
+                        initialTargetId={projectSelectTargetId}
                         selectVersion={projectSelectVersion}
-                        initialStatusFilter={projectStatusFilter}
-                        filterVersion={projectFilterVersion}
+                        {workspaceMutationVersion}
+                        {taskManagementEnabled}
+                        onOpenDoc={openDoc}
+                        onOpenBlock={openDoc}
+                        onCreateTask={(targetId) => openCreateTaskDialog({ projectTargetId: targetId })}
+                        onEditTask={openEditTaskDialog}
+                        onToggleTask={toggleTask}
+                        onDeleteTask={openDeleteTaskDialog}
+                        onCreateRecord={(targetId) => openQuickRecordDialogForWorkspace(targetId)}
+                        onEditRecord={(item) => openProjectRecordAction(item, openEditRecordDialog)}
+                        onDeleteRecord={(item) => openProjectRecordAction(item, openDeleteRecordDialog)}
+                        onConvertRecordToTask={(item) => openProjectRecordAction(item, convertRecordToTask)}
+                        onArchiveProject={(targetId) => void openArchiveProjectForWorkspace(targetId)}
+                        onRestoreProject={(targetId) => void restoreProjectForWorkspace(targetId)}
                     />
                 {:else if activeTab === "settings"}
                     <WorkspaceSettingsPage

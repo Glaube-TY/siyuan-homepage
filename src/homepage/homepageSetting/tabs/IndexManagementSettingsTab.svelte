@@ -24,6 +24,8 @@
     } from "@/components/tools/statisticalAPI";
     import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
     import { rebuildEnhancedDiaryIndex, refreshEnhancedDiaryIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
+    import { rebuildEnhancedDiaryProjectIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectIndex";
+    import { rebuildEnhancedDiaryProjectRecordIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectRecordIndex";
 
     type StatusChangeHandler = (status: ComponentMigrationStatus) => void | Promise<void>;
 
@@ -72,6 +74,10 @@
     let isStatRefreshing = $state(false);
     let isEnhancedDiaryRebuilding = $state(false);
     let isEnhancedDiaryRefreshing = $state(false);
+    let isProjectIndexRebuilding = $state(false);
+    let projectIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
+    let isProjectRecordIndexRebuilding = $state(false);
+    let projectRecordIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
 
     let heatmapRebuildMonths = $state(12);
 
@@ -128,6 +134,8 @@
         await onStatIndexStatusChange?.(results.stat);
         enhancedDiaryIndexStatus = results.enhancedDiary;
         await onEnhancedDiaryIndexStatusChange?.(results.enhancedDiary);
+        projectIndexStatus = results.enhancedDiaryProject;
+        projectRecordIndexStatus = results.enhancedDiaryProjectRecord;
     }
 
     async function applyRefreshResults(results: RefreshAllResult) {
@@ -143,6 +151,8 @@
         await onStatIndexStatusChange?.(results.stat);
         enhancedDiaryIndexStatus = results.enhancedDiary;
         await onEnhancedDiaryIndexStatusChange?.(results.enhancedDiary);
+        projectIndexStatus = results.enhancedDiaryProject;
+        projectRecordIndexStatus = results.enhancedDiaryProjectRecord;
     }
 
     async function handleFavoritesMigrate() {
@@ -274,6 +284,24 @@
         } finally {
             isEnhancedDiaryRefreshing = false;
         }
+    }
+
+    async function handleProjectIndexRebuild() {
+        if (!plugin || isProjectIndexRebuilding) return;
+        isProjectIndexRebuilding = true;
+        try {
+            const config = await loadEnhancedDiaryConfig(plugin);
+            projectIndexStatus = await rebuildEnhancedDiaryProjectIndex(config.projectStorage);
+        } finally {
+            isProjectIndexRebuilding = false;
+        }
+    }
+
+    async function handleProjectRecordIndexRebuild() {
+        if (!plugin || isProjectRecordIndexRebuilding) return;
+        isProjectRecordIndexRebuilding = true;
+        try { projectRecordIndexStatus = await rebuildEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin)); }
+        finally { isProjectRecordIndexRebuilding = false; }
     }
 </script>
 
@@ -499,6 +527,35 @@
             <span class="index-status-text">{enhancedDiaryIndexStatus.lastMessage}</span>
         </SettingRow>
     {/if}
+</SettingSection>
+
+<SettingSection title="强化日记项目索引">
+    <SettingRow
+        title="重建项目索引"
+        description="只遍历项目设置中选定容器的直接子文档，并对这些根项目执行受限标题查询；不会扫描全库正文。"
+    >
+        <button type="button" class="index-action-btn" onclick={handleProjectIndexRebuild} disabled={!plugin || isProjectIndexRebuilding}>
+            {isProjectIndexRebuilding ? "重建中..." : "重建项目索引"}
+        </button>
+    </SettingRow>
+    <SettingRow title="最近状态">
+        <span class="index-status-text">{formatStatus(projectIndexStatus)}</span>
+    </SettingRow>
+    {#if projectIndexStatus.lastMessage}
+        <SettingRow title="最近消息">
+            <span class="index-status-text">{projectIndexStatus.lastMessage}</span>
+        </SettingRow>
+    {/if}
+</SettingSection>
+
+<SettingSection title="强化日记项目记录索引">
+    <SettingRow title="重建项目记录索引" description="只遍历强化日记索引中已知的日记文档 ID，重建记录与项目关系；不会全库正文扫描。">
+        <button type="button" class="index-action-btn" onclick={handleProjectRecordIndexRebuild} disabled={!plugin || isProjectRecordIndexRebuilding}>
+            {isProjectRecordIndexRebuilding ? "重建中..." : "重建项目记录索引"}
+        </button>
+    </SettingRow>
+    <SettingRow title="最近状态"><span class="index-status-text">{formatStatus(projectRecordIndexStatus)}</span></SettingRow>
+    {#if projectRecordIndexStatus.lastMessage}<SettingRow title="最近消息"><span class="index-status-text">{projectRecordIndexStatus.lastMessage}</span></SettingRow>{/if}
 </SettingSection>
 
 <style lang="scss">

@@ -15,7 +15,7 @@
     const mainTabs: Array<{ key: WorkspaceTab; label: string; icon: WorkspaceIconName; requiresTasks?: boolean }> = [
         { key: "overview", label: "总览", icon: "overview" },
         { key: "tasks",    label: "任务", icon: "tasks", requiresTasks: true },
-        { key: "projects", label: "项目", icon: "projects", requiresTasks: true },
+        { key: "projects", label: "项目", icon: "projects" },
         { key: "records",  label: "记录", icon: "records" },
         { key: "review",   label: "复盘", icon: "review" },
     ];

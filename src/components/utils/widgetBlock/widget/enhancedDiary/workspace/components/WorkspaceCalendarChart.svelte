@@ -197,7 +197,6 @@
     }
 
     function getDateRange() {
-        const firstDay = new Date(year, month, 1);
         const lastDay = new Date(year, month + 1, 0);
         const pad = (n: number) => String(n).padStart(2, "0");
         return {
@@ -325,6 +324,7 @@
                             const term = displaySettings?.showSolarTerm !== false ? meta.solarTermName : "";
                             const lunar = displaySettings?.showLunar !== false ? meta.lunarDayName : "";
                             const sub = holiday || festival || term || lunar || "";
+                            const compactSub = sub || (displaySettings?.showLunar !== false && isImportantLunarDay(meta.lunarDayName) ? meta.lunarDayName : "");
                             const brief = displaySettings?.showBriefCounts !== false;
                             const taskCount = taskManagementEnabled ? d.newTaskCount + d.migratedTaskCount : 0;
                             const taskMark = taskCount ? `{task|●${brief ? taskCount : ""}}` : "";
@@ -333,7 +333,7 @@
                             const reviewMark = reviewCount ? `{review|○${brief ? reviewCount : ""}}` : "";
                             const marks = [taskMark, recordMark, reviewMark].filter(Boolean).join("  ");
                             const dayStyle = d.date === formatToday() ? "today" : "day";
-                            return isCompact ? `{${dayStyle}|${dayNum}}` : `{${dayStyle}|${dayNum}}\n{sub|${sub}}\n${marks}`;
+                            return isCompact ? `{${dayStyle}|${dayNum}}\n{sub|${compactSub}}` : `{${dayStyle}|${dayNum}}\n{sub|${sub}}\n${marks}`;
                         },
                         rich: {
                             day: { fontSize: isCompact ? 12 : 14, fontWeight: 700, color: colors.onBg, lineHeight: isCompact ? 18 : 22 },
@@ -355,6 +355,12 @@
                 },
             ],
         };
+    }
+
+    function isImportantLunarDay(name: string): boolean {
+        if (!name) return false;
+        const marks = ["初一", "十五", "初二", "初五", "初七", "廿三", "廿四", "腊月三十"];
+        return marks.some((mark) => name.includes(mark));
     }
 
     function formatToday(): string {

@@ -5,9 +5,15 @@ import QuickRecordDialog from "./components/QuickRecordDialog.svelte";
 import DeleteTaskDialog from "./components/DeleteTaskDialog.svelte";
 import DeleteRecordDialog from "./components/DeleteRecordDialog.svelte";
 import MigrateTaskDialog from "./components/MigrateTaskDialog.svelte";
+import ProjectRelationRepairDialog from "./components/ProjectRelationRepairDialog.svelte";
+import ArchiveProjectDialog from "./components/ArchiveProjectDialog.svelte";
 import type { GenerateTasksPlusTaskInput } from "../../tasksPlus/tasksPlusParser";
 import type { EnhancedDiaryWorkspaceTask } from "./enhancedDiaryWorkspaceTaskService";
 import type { EnhancedDiaryWorkspaceRecord } from "./enhancedDiaryWorkspaceRecordService";
+import type { QuickRecordDialogSubmitInput } from "./enhancedDiaryWorkspaceRecordService";
+import type { EnhancedDiaryProjectStorageConfig } from "../enhancedDiaryTypes";
+import type { EnhancedDiaryProjectIndexPayload } from "../enhancedDiaryProjectTypes";
+import type { ProjectRelationRepairMode } from "./enhancedDiaryWorkspaceProjectRelation";
 
 interface OpenTaskEditorOptions {
     mode?: "create" | "edit";
@@ -15,6 +21,7 @@ interface OpenTaskEditorOptions {
     task?: any;
     onSubmit: (input: GenerateTasksPlusTaskInput) => void | Promise<void> | boolean | Promise<boolean>;
     onClose?: () => void;
+    projectStorage?: EnhancedDiaryProjectStorageConfig;
 }
 
 interface OpenQuickRecordOptions {
@@ -22,8 +29,12 @@ interface OpenQuickRecordOptions {
     initialCategoryTitle?: string;
     initialContent?: string;
     suggestedCategories?: string[];
-    onSubmit: (categoryTitle: string, content: string) => boolean | Promise<boolean> | void | Promise<void>;
+    onSubmit: (input: QuickRecordDialogSubmitInput) => boolean | Promise<boolean> | void | Promise<void>;
     onClose?: () => void;
+    initialTags?: string[];
+    initialProjectTargetId?: string;
+    initialIsKeyRecord?: boolean;
+    projectStorage?: EnhancedDiaryProjectStorageConfig;
 }
 
 interface OpenDeleteTaskOptions {
@@ -47,6 +58,34 @@ interface OpenMigrateTaskOptions {
     onClose?: () => void;
 }
 
+interface OpenProjectRelationRepairOptions {
+    index: EnhancedDiaryProjectIndexPayload;
+    status: string;
+    contentLabel: string;
+    hiddenProjectTargetId?: string;
+    visibleProjectTargetId?: string;
+    projectTargetId?: string;
+    onSelect: (mode: ProjectRelationRepairMode, replacementTargetId?: string) => Promise<boolean>;
+    onClose?: () => void;
+}
+
+export type ArchiveProjectActionMode = "verify_and_archive" | "complete_and_archive" | "archive";
+
+export interface ArchiveProjectActionResult {
+    accepted: boolean;
+    pendingTaskCount?: number;
+    message?: string;
+}
+
+interface OpenArchiveProjectOptions {
+    projectName: string;
+    projectPath: string[];
+    descendantCount: number;
+    pendingTaskCount: number;
+    onSelect: (mode: ArchiveProjectActionMode) => ArchiveProjectActionResult | Promise<ArchiveProjectActionResult>;
+    onClose?: () => void;
+}
+
 function makeCloseGuard(onClose?: () => void) {
     let closeNotified = false;
     function notifyClose() {
@@ -67,7 +106,7 @@ function prepareWorkspaceDialogContainer(container: HTMLElement): void {
 }
 
 export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void {
-    const { mode = "create", initialInput = {}, task = null, onSubmit, onClose } = options;
+    const { mode = "create", initialInput = {}, task = null, onSubmit, onClose, projectStorage } = options;
     const { notifyClose } = makeCloseGuard(onClose);
 
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
@@ -89,6 +128,7 @@ export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void
                     mode,
                     initialInput,
                     task,
+                    projectStorage,
                     onSubmit: async (input: GenerateTasksPlusTaskInput) => {
                         const result = await onSubmit(input);
                         if (result !== false) {
@@ -111,6 +151,7 @@ export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): vo
         suggestedCategories = ["未分类", "想法", "问题", "决策", "日志"],
         onSubmit,
         onClose,
+        initialTags = [], initialProjectTargetId = "", initialIsKeyRecord = false, projectStorage,
     } = options;
     const { notifyClose } = makeCloseGuard(onClose);
 
@@ -134,8 +175,9 @@ export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): vo
                     initialCategoryTitle,
                     initialContent,
                     suggestedCategories,
-                    onSubmit: async (categoryTitle: string, content: string) => {
-                        const result = await onSubmit(categoryTitle, content);
+                    initialTags, initialProjectTargetId, initialIsKeyRecord, projectStorage,
+                    onSubmit: async (input: QuickRecordDialogSubmitInput) => {
+                        const result = await onSubmit(input);
                         if (result !== false) {
                             closeDialog();
                         }
@@ -144,6 +186,64 @@ export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): vo
                 },
             });
             return component;
+        },
+    });
+}
+
+export function openProjectRelationRepairDialog(options: OpenProjectRelationRepairOptions): void {
+    const {
+        index, status, contentLabel,
+        hiddenProjectTargetId, visibleProjectTargetId, projectTargetId,
+        onSelect, onClose,
+    } = options;
+    const { notifyClose } = makeCloseGuard(onClose);
+    let dialogRef: ReturnType<typeof svelteDialog> | null = null;
+    const closeDialog = () => dialogRef?.close();
+    dialogRef = svelteDialog({
+        title: "修复项目关系", width: "600px", callback: notifyClose,
+        constructor: (container: HTMLElement) => {
+            prepareWorkspaceDialogContainer(container);
+            return mount(ProjectRelationRepairDialog, {
+                target: container,
+                props: {
+                    index, status, contentLabel,
+                    hiddenProjectTargetId, visibleProjectTargetId, projectTargetId,
+                    onSelect: async (mode: ProjectRelationRepairMode, replacementTargetId?: string) => {
+                        if (await onSelect(mode, replacementTargetId)) closeDialog();
+                    },
+                    onClose: closeDialog,
+                },
+            });
+        },
+    });
+}
+
+export function openArchiveProjectDialog(options: OpenArchiveProjectOptions): void {
+    const { projectName, projectPath, descendantCount, pendingTaskCount, onSelect, onClose } = options;
+    const { notifyClose } = makeCloseGuard(onClose);
+    let dialogRef: ReturnType<typeof svelteDialog> | null = null;
+    const closeDialog = () => dialogRef?.close();
+    dialogRef = svelteDialog({
+        title: "归档项目",
+        width: "560px",
+        callback: notifyClose,
+        constructor: (container: HTMLElement) => {
+            prepareWorkspaceDialogContainer(container);
+            return mount(ArchiveProjectDialog, {
+                target: container,
+                props: {
+                    projectName,
+                    projectPath,
+                    descendantCount,
+                    pendingTaskCount,
+                    onSelect: async (mode: ArchiveProjectActionMode) => {
+                        const result = await onSelect(mode);
+                        if (result.accepted) closeDialog();
+                        return result;
+                    },
+                    onClose: closeDialog,
+                },
+            });
         },
     });
 }

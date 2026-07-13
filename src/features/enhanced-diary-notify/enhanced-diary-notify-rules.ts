@@ -91,6 +91,11 @@ function getDefaultEnhancedDiaryConfig(): EnhancedDiaryConfig {
       month: "",
       year: "",
     },
+    projectStorage: {
+      mode: "notebook",
+      notebookId: "",
+      parentDocId: "",
+    },
     taskMigrationReminderDays: 30,
     workspaceSettings: {
       calendar: {

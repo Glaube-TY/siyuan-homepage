@@ -1,4 +1,4 @@
-import { getChildBlocksChecked, updateBlockChecked, sqlChecked, performTransactionsChecked } from "@/api";
+import { batchGetBlockAttrs, getBlockInfo, getBlockKramdownChecked, getBlockTreeInfos, getChildBlocksChecked, insertBlockChecked, updateBlockChecked, performTransactionsChecked, setBlockAttrsChecked } from "@/api";
 import { addQuickRecordToDiary, getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
 import {
     ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
@@ -6,15 +6,22 @@ import {
 } from "../enhancedDiaryWorkspaceSections";
 import {
     findRootHeading,
+    getEnhancedDiaryHeadingLevel,
+    getEnhancedDiaryHeadingTitle,
     getSectionMarkdown,
     normalizeHeadingTitle,
     type EnhancedDiaryHeadingNode,
 } from "../enhancedDiaryMarkdownSections";
-import { findDayWorkspaceHeadingBlock } from "../enhancedDiaryBlockLocator";
+import {
+    findDayWorkspaceHeadingBlock,
+    extractOperationBlockIds,
+    isEnhancedDiaryRecordHeadingType,
+} from "../enhancedDiaryBlockLocator";
 import {
     DEFAULT_ENHANCED_DIARY_CONFIG,
     type EnhancedDiaryConfig,
     type EnhancedDiaryHeadingStructureConfig,
+    type EnhancedDiaryProjectStorageConfig,
     type EnhancedDiaryTemplateFieldMapping,
 } from "../enhancedDiaryTypes";
 import { readDiaryMarkdown, validateEnhancedDiaryWriteTarget, formatDiaryAttrDate } from "../enhancedDiaryDoc";
@@ -24,6 +31,15 @@ import {
     getFieldAliases,
     headingTitleMatchesAliases,
 } from "../enhancedDiaryTemplateFieldMapping";
+import { readEnhancedDiaryProjectIndex } from "../enhancedDiaryProjectIndex";
+import { ENHANCED_DIARY_KEY_RECORD_ATTR, parseEnhancedDiaryBatchBlockAttrs } from "../enhancedDiaryProjectTypes";
+import { appendRecordProjectReference, parseVisibleProjectTargetId, removeVisibleProjectReference, resolveProjectRelation } from "./enhancedDiaryWorkspaceProjectRelation";
+import { ENHANCED_DIARY_PROJECT_TARGET_ATTR } from "../enhancedDiaryProjectTypes";
+import { removeProjectRecordIndexItem, replaceProjectRecordIndexForDiary, upsertProjectRecordIndexItem } from "../enhancedDiaryProjectRecordIndex";
+import {
+    EnhancedDiaryProjectWriteTargetError,
+    validateEnhancedDiaryProjectWriteTarget,
+} from "./enhancedDiaryWorkspaceProjectLifecycle";
 
 export interface EnhancedDiaryWorkspaceRecord {
     id?: string;
@@ -37,11 +53,35 @@ export interface EnhancedDiaryWorkspaceRecord {
     docTitle?: string;
     headingBlockId?: string;
     contentBlockIds?: string[];
+    tags: string[];
+    projectTargetId?: string;
+    hiddenProjectTargetId?: string;
+    visibleProjectTargetId?: string;
+    rootProjectId?: string;
+    projectPath?: string[];
+    projectAncestorTargetIds?: string[];
+    isKeyRecord: boolean;
+    projectRelationStatus: ReturnType<typeof resolveProjectRelation>["relationStatus"];
+    rawProjectContent?: string;
+    headingLevel?: number;
 }
 
 export interface EnhancedDiaryRecordWriteContext {
     dailyNotebookId: string;
     expectedDate: string;
+    projectStorage?: EnhancedDiaryProjectStorageConfig;
+}
+
+export interface QuickRecordDialogSubmitInput {
+    categoryTitle: string;
+    content: string;
+    tags: string[];
+    projectTargetId?: string;
+    projectTitle?: string;
+    isKeyRecord: boolean;
+    rootProjectId?: string;
+    projectPath?: string[];
+    projectAncestorTargetIds?: string[];
 }
 
 async function validateRecordBlocks(
@@ -70,22 +110,33 @@ async function validateRecordBlocks(
 
     if (targetBlockIds.length === 0) return { ok: false, reason: "record_block_missing" };
 
-    let rows: any[];
-    try {
-        const escaped = targetBlockIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(",");
-        rows = await sqlChecked(`SELECT id, root_id, type FROM blocks WHERE id IN (${escaped})`);
-    } catch {
-        return { ok: false, reason: "record_validation_failed" };
+    if (targetBlockIds.length > 32) return { ok: false, reason: "record_block_invalid" };
+
+    let rootScopeConfirmed = false;
+    for (const waitMs of [0, 100, 300] as const) {
+        if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+        try {
+            const infos = await Promise.all(targetBlockIds.map((id) => getBlockInfo(id)));
+            if (infos.some((info) => info?.rootID !== record.docId)) {
+                return { ok: false, reason: "record_block_out_of_scope" };
+            }
+            rootScopeConfirmed = true;
+            break;
+        } catch {
+            // 新写入块或内核索引暂时不可读时，只做有限重试，不误判为用户已删除。
+        }
     }
+    if (!rootScopeConfirmed) return { ok: false, reason: "record_validation_failed" };
 
-    const found = new Map<string, { root_id: string; type: string }>();
-    for (const row of rows) found.set(String(row.id), { root_id: String(row.root_id || ""), type: String(row.type || "") });
-
-    for (const id of targetBlockIds) {
-        const block = found.get(id);
-        if (!block) return { ok: false, reason: "record_block_missing" };
-        if (block.root_id !== record.docId) return { ok: false, reason: "record_block_out_of_scope" };
-        if (checkHeading && id === record.headingBlockId && block.type !== "h") return { ok: false, reason: "record_block_out_of_scope" };
+    if (checkHeading && record.headingBlockId) {
+        try {
+            const treeInfos = await getBlockTreeInfos([record.headingBlockId]);
+            if (!isEnhancedDiaryRecordHeadingType(treeInfos?.[record.headingBlockId]?.type)) {
+                return { ok: false, reason: "record_block_out_of_scope" };
+            }
+        } catch {
+            return { ok: false, reason: "record_validation_failed" };
+        }
     }
 
     return { ok: true };
@@ -93,6 +144,11 @@ async function validateRecordBlocks(
 
 export interface WorkspaceRecordActionResult {
     ok: boolean;
+    partial?: boolean;
+    changed?: boolean;
+    blockId?: string;
+    headingBlockId?: string;
+    contentBlockIds?: string[];
     reason?: string;
     message?: string;
 }
@@ -103,6 +159,64 @@ interface HeadingBlockInfo {
     title: string;
     markdown: string;
     index: number;
+}
+
+interface RecordBodyAnalysis {
+    oldBlockIds: string[];
+    projectReferenceBlockId?: string;
+}
+
+const SAFE_RECORD_BODY_TYPES = new Set([
+    "p", "l", "t", "c", "b", "m", "html", "tb",
+    "NodeParagraph", "NodeList", "NodeTable", "NodeCodeBlock", "NodeBlockquote",
+    "NodeMathBlock", "NodeHTMLBlock", "NodeThematicBreak",
+]);
+
+async function analyzeRecordBodyStructure(
+    record: EnhancedDiaryWorkspaceRecord,
+): Promise<{ ok: true; analysis: RecordBodyAnalysis } | { ok: false; reason: string; message: string }> {
+    if (!record.headingBlockId || !record.contentBlockIds) {
+        return { ok: false, reason: "record_block_missing", message: "未能可靠定位记录块，请刷新后重试。" };
+    }
+    const oldBlockIds = Array.from(new Set(record.contentBlockIds.filter(Boolean)));
+    if (oldBlockIds.length !== record.contentBlockIds.length || oldBlockIds.length > 32) {
+        return { ok: false, reason: "unsupported_record_shape", message: "记录正文块数量或标识异常，请在原日记中检查。" };
+    }
+
+    const blocks = await getChildBlocksChecked(record.docId);
+    const headingIndex = blocks.findIndex((block) => block.id === record.headingBlockId);
+    if (headingIndex < 0) {
+        return { ok: false, reason: "record_block_missing", message: "记录标题已变化，请刷新后重试。" };
+    }
+    const currentRangeIds: string[] = [];
+    for (let index = headingIndex + 1; index < blocks.length; index += 1) {
+        const heading = parseHeadingBlock(blocks[index], index);
+        if (heading && heading.level <= (record.headingLevel || 6)) break;
+        if (blocks[index].id) currentRangeIds.push(blocks[index].id);
+    }
+    if (currentRangeIds.length !== oldBlockIds.length ||
+        currentRangeIds.some((id, index) => id !== oldBlockIds[index])) {
+        return { ok: false, reason: "record_structure_changed", message: "记录正文结构已经变化，请刷新工作台后重试。" };
+    }
+
+    const treeInfos = oldBlockIds.length ? await getBlockTreeInfos(oldBlockIds) : {};
+    let projectReferenceBlockId: string | undefined;
+    for (const id of oldBlockIds) {
+        const type = treeInfos?.[id]?.type;
+        if (isEnhancedDiaryRecordHeadingType(type)) {
+            return { ok: false, reason: "unsupported_record_shape", message: "记录正文中包含子标题，为避免误删，请在原日记中编辑。" };
+        }
+        if (!SAFE_RECORD_BODY_TYPES.has(type)) {
+            return { ok: false, reason: "unsupported_record_shape", message: "记录正文包含无法安全替换的复杂块，请在原日记中编辑。" };
+        }
+        const raw = await getBlockKramdownChecked(id);
+        if (!parseVisibleProjectTargetId(raw?.kramdown)) continue;
+        if (projectReferenceBlockId) {
+            return { ok: false, reason: "multiple_project_references", message: "记录中存在多个项目引用块，请在原日记中确认后再编辑。" };
+        }
+        projectReferenceBlockId = id;
+    }
+    return { ok: true, analysis: { oldBlockIds, projectReferenceBlockId } };
 }
 
 const CATEGORY_ENTRIES = Object.entries(
@@ -123,6 +237,20 @@ function extractTimeText(title: string): string {
     return match ? match[1] : "";
 }
 
+function extractRecordTags(title: string): string[] {
+    return Array.from(title.matchAll(/#([^#]+)#/g), (match) => match[1].trim()).filter(Boolean);
+}
+
+function baseRecordMetadata(title: string, content: string) {
+    return {
+        tags: extractRecordTags(title),
+        content: removeVisibleProjectReference(content).trim(),
+        rawProjectContent: content,
+        isKeyRecord: false,
+        projectRelationStatus: "none" as const,
+    };
+}
+
 function isPlaceholderRecord(content: string): boolean {
     const normalized = content.trim();
     return !normalized || /^这里写.+内容。?$/.test(normalized);
@@ -130,21 +258,9 @@ function isPlaceholderRecord(content: string): boolean {
 
 function parseHeadingBlock(block: IResGetChildBlock, index: number): HeadingBlockInfo | null {
     const markdown = block.markdown || "";
-    const firstLine = markdown.split("\n")[0]?.trim() || "";
-    const markdownMatch = firstLine.match(/^(#{1,6})\s+(.*)$/);
-    const subtypeMatch = block.subtype?.match(/^h([1-6])$/);
-
-    if (block.type !== "h" && !markdownMatch) return null;
-
-    const level = markdownMatch
-        ? markdownMatch[1].length
-        : subtypeMatch
-            ? Number(subtypeMatch[1])
-            : 0;
-    const title = markdownMatch
-        ? normalizeHeadingTitle(markdownMatch[2])
-        : normalizeHeadingTitle(markdown);
-
+    const level = getEnhancedDiaryHeadingLevel(block);
+    const title = getEnhancedDiaryHeadingTitle(block);
+    if (block.type !== "h") return null;
     if (!level || !title) return null;
 
     return {
@@ -257,6 +373,7 @@ function queryTodayQuickRecordsFromMarkdown(
                 categoryTitle: category.title,
                 timeText: extractTimeText(recordNode.title),
                 content,
+                ...baseRecordMetadata(recordNode.title, content),
                 docId,
                 date,
             });
@@ -266,17 +383,47 @@ function queryTodayQuickRecordsFromMarkdown(
     return records;
 }
 
-export async function queryTodayQuickRecords(
+export interface EnhancedDiaryQuickRecordQueryResult {
+    records: EnhancedDiaryWorkspaceRecord[];
+    structureComplete: boolean;
+    relationComplete: boolean;
+    reason?: string;
+}
+
+async function applyFallbackProjectRelations(
+    records: EnhancedDiaryWorkspaceRecord[],
+    config?: EnhancedDiaryConfig,
+): Promise<boolean> {
+    if (!config) return false;
+    const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
+    records.forEach((record) => {
+        const relation = resolveProjectRelation(projectIndex, {}, record.rawProjectContent || record.content);
+        record.projectTargetId = relation.projectTargetId;
+        record.hiddenProjectTargetId = relation.hiddenProjectTargetId;
+        record.visibleProjectTargetId = relation.visibleProjectTargetId;
+        record.rootProjectId = relation.rootProjectId;
+        record.projectPath = relation.projectPath;
+        record.projectAncestorTargetIds = relation.projectAncestorTargetIds;
+        record.projectRelationStatus = relation.relationStatus;
+        record.content = removeVisibleProjectReference(record.content).trim();
+    });
+    return true;
+}
+
+export async function queryTodayQuickRecordsDetailed(
     docId: string,
     markdown: string,
     date?: string,
     headingStructure?: EnhancedDiaryHeadingStructureConfig,
-    mapping?: EnhancedDiaryTemplateFieldMapping | null
-): Promise<EnhancedDiaryWorkspaceRecord[]> {
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
+    config?: EnhancedDiaryConfig,
+): Promise<EnhancedDiaryQuickRecordQueryResult> {
     try {
         const qrLookup = await findDayWorkspaceHeadingBlock(docId, "quickRecords", headingStructure, mapping);
         if (!qrLookup.found || !qrLookup.heading) {
-            return queryTodayQuickRecordsFromMarkdown(docId, markdown, date, mapping);
+            const records = queryTodayQuickRecordsFromMarkdown(docId, markdown, date, mapping);
+            const relationComplete = await applyFallbackProjectRelations(records, config);
+            return { records, structureComplete: false, relationComplete, reason: "quick_record_heading_unavailable" };
         }
 
         const qrBlock = qrLookup.heading;
@@ -331,25 +478,62 @@ export async function queryTodayQuickRecords(
                 categoryTitle: activeCategory.title,
                 timeText: extractTimeText(heading.title),
                 content,
+                ...baseRecordMetadata(heading.title, content),
                 docId,
                 date,
                 headingBlockId: heading.id,
+                headingLevel: heading.level,
                 contentBlockIds,
             });
         }
 
-        return records;
+        if (records.length > 0 && config) {
+            const ids = records.map((record) => record.headingBlockId).filter(Boolean) as string[];
+            const attrsById = ids.length
+                ? parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(ids))
+                : {};
+            const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
+            records.forEach((record) => {
+                const attrs = attrsById?.[record.headingBlockId || ""] || {};
+                const relation = resolveProjectRelation(projectIndex, attrs, record.rawProjectContent || record.content);
+                record.projectTargetId = relation.projectTargetId;
+                record.hiddenProjectTargetId = relation.hiddenProjectTargetId;
+                record.visibleProjectTargetId = relation.visibleProjectTargetId;
+                record.rootProjectId = relation.rootProjectId;
+                record.projectPath = relation.projectPath;
+                record.projectAncestorTargetIds = relation.projectAncestorTargetIds;
+                record.projectRelationStatus = relation.relationStatus;
+                record.isKeyRecord = attrs?.[ENHANCED_DIARY_KEY_RECORD_ATTR] === "true" && !!relation.projectTargetId;
+                record.content = removeVisibleProjectReference(record.content).trim();
+            });
+        }
+        return { records, structureComplete: true, relationComplete: true };
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceRecordService] query records by blocks failed", err);
-        return queryTodayQuickRecordsFromMarkdown(docId, markdown, date, mapping);
+        const records = queryTodayQuickRecordsFromMarkdown(docId, markdown, date, mapping);
+        let relationComplete = false;
+        try { relationComplete = await applyFallbackProjectRelations(records, config); } catch { /* 保留展示回退 */ }
+        return { records, structureComplete: false, relationComplete, reason: "block_structure_read_failed" };
     }
+}
+
+export async function queryTodayQuickRecords(
+    docId: string,
+    markdown: string,
+    date?: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
+    config?: EnhancedDiaryConfig,
+): Promise<EnhancedDiaryWorkspaceRecord[]> {
+    return (await queryTodayQuickRecordsDetailed(docId, markdown, date, headingStructure, mapping, config)).records;
 }
 
 export async function addWorkspaceQuickRecord(
     plugin: any,
     config: EnhancedDiaryConfig,
     categoryTitle: string,
-    content: string
+    content: string,
+    metadata: { tags?: string[]; projectTargetId?: string; projectTitle?: string; isKeyRecord?: boolean; rootProjectId?: string; projectPath?: string[]; projectAncestorTargetIds?: string[] } = {},
 ): Promise<WorkspaceRecordActionResult> {
     const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
     if (!todayDoc.ok || !todayDoc.docId) {
@@ -360,7 +544,7 @@ export async function addWorkspaceQuickRecord(
         };
     }
 
-    return addQuickRecordToDiary({
+    const result = await addQuickRecordToDiary({
         docId: todayDoc.docId,
         categoryTitle,
         content,
@@ -368,7 +552,24 @@ export async function addWorkspaceQuickRecord(
         expectedDate: formatDiaryAttrDate(new Date()),
         headingStructure: config.headingStructure,
         mapping: config.templateFieldMapping,
+        projectStorage: config.projectStorage,
+        ...metadata,
+        synchronizeIndex: async () => {
+            const markdown = await readDiaryMarkdown(todayDoc.docId!);
+            const detailed = await queryTodayQuickRecordsDetailed(
+                todayDoc.docId!,
+                markdown,
+                formatDiaryDate(new Date()),
+                config.headingStructure,
+                config.templateFieldMapping,
+                config,
+            );
+            if (!detailed.structureComplete) return false;
+            await replaceProjectRecordIndexForDiary(config.dailyNotebookId!, todayDoc.docId!, detailed.records);
+            return true;
+        },
     });
+    return result;
 }
 
 export async function deleteQuickRecord(
@@ -405,6 +606,7 @@ export async function deleteQuickRecord(
             id: blockId,
         }));
         await performTransactionsChecked([{ doOperations }]);
+        try { await removeProjectRecordIndexItem(ctx.dailyNotebookId, record.headingBlockId); } catch { /* 可重建 */ }
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceRecordService] delete quick record failed", err);
@@ -419,7 +621,8 @@ export async function deleteQuickRecord(
 export async function updateQuickRecord(
     record: EnhancedDiaryWorkspaceRecord,
     content: string,
-    ctx: EnhancedDiaryRecordWriteContext
+    ctx: EnhancedDiaryRecordWriteContext,
+    metadata: { categoryTitle?: string; tags?: string[]; projectTargetId?: string; projectTitle?: string; isKeyRecord?: boolean; rootProjectId?: string; projectPath?: string[]; projectAncestorTargetIds?: string[] } = {},
 ): Promise<WorkspaceRecordActionResult> {
     const trimmed = content.trim();
     if (!trimmed) {
@@ -430,15 +633,14 @@ export async function updateQuickRecord(
         };
     }
 
-    if (!record.contentBlockIds || record.contentBlockIds.length !== 1) {
+    if (!record.headingBlockId || !record.contentBlockIds) {
         return {
             ok: false,
-            reason: "unsupported_record_shape",
-            message: "当前记录由多个块组成，为避免误覆盖，请在日记中手动编辑。",
+            reason: "record_block_missing",
+            message: "未能可靠定位记录块，请刷新后重试。",
         };
     }
 
-    // Validate parent diary scope
     const diaryCheck = await validateEnhancedDiaryWriteTarget(record.docId, ctx.dailyNotebookId, ctx.expectedDate);
     if (diaryCheck.status !== "valid") {
         return {
@@ -448,21 +650,146 @@ export async function updateQuickRecord(
         };
     }
 
-    // Validate the content block belongs to this diary
-    const blockCheck = await validateRecordBlocks(record, record.contentBlockIds, false);
-    if (!blockCheck.ok) return { ok: false, reason: blockCheck.reason, message: "记录块已变更，请在日记中手动编辑。" };
+    const blockCheck = await validateRecordBlocks(record, [...record.contentBlockIds, record.headingBlockId], true);
+    if (!blockCheck.ok) {
+        return { ok: false, reason: blockCheck.reason, message: "记录块已变更，请在日记中手动编辑。" };
+    }
 
+    let bodyAnalysis: RecordBodyAnalysis;
     try {
-        await updateBlockChecked("markdown", trimmed, record.contentBlockIds[0]);
-        return { ok: true };
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceRecordService] update quick record failed", err);
+        const analyzed = await analyzeRecordBodyStructure(record);
+        if (!analyzed.ok) return analyzed;
+        bodyAnalysis = analyzed.analysis;
+    } catch (reason) {
+        console.warn("[enhancedDiaryWorkspaceRecordService] analyze record body failed", reason);
+        return {
+            ok: false,
+            reason: "record_validation_failed",
+            message: "无法确认记录正文结构，为避免误改，请在原日记中编辑。",
+        };
+    }
+
+    let resolvedMetadata = metadata;
+    if (Object.prototype.hasOwnProperty.call(metadata, "projectTargetId")) {
+        if (metadata.projectTargetId) {
+            if (!ctx.projectStorage) {
+                return { ok: false, reason: "project_storage_unavailable", message: "无法确认项目状态，记录未更新。" };
+            }
+            try {
+                const target = await validateEnhancedDiaryProjectWriteTarget(
+                    ctx.projectStorage,
+                    metadata.projectTargetId,
+                    record.projectTargetId,
+                );
+                resolvedMetadata = {
+                    ...metadata,
+                    projectTargetId: target.id,
+                    projectTitle: target.title,
+                    rootProjectId: target.rootProjectId,
+                    projectPath: target.pathTitles,
+                    projectAncestorTargetIds: target.ancestorTargetIds,
+                };
+            } catch (reason) {
+                return {
+                    ok: false,
+                    reason: reason instanceof EnhancedDiaryProjectWriteTargetError ? reason.code : "project_index_unavailable",
+                    message: reason instanceof Error ? reason.message : "无法确认项目状态，记录未更新。",
+                };
+            }
+        } else {
+            resolvedMetadata = {
+                ...metadata,
+                projectTargetId: undefined,
+                projectTitle: undefined,
+                rootProjectId: undefined,
+                projectPath: undefined,
+                projectAncestorTargetIds: undefined,
+            };
+        }
+    }
+
+    const projectTargetId = Object.prototype.hasOwnProperty.call(resolvedMetadata, "projectTargetId")
+        ? resolvedMetadata.projectTargetId || ""
+        : record.projectTargetId || "";
+    const projectTitle = resolvedMetadata.projectTitle ?? record.projectPath?.[record.projectPath.length - 1] ?? "";
+    const nextContent = projectTargetId && projectTitle
+        ? appendRecordProjectReference(trimmed, projectTargetId, projectTitle)
+        : removeVisibleProjectReference(trimmed);
+    const firstOldBlockId = bodyAnalysis.oldBlockIds[0];
+    let insertedBlockIds: string[] = [];
+    try {
+        const operations = firstOldBlockId
+            ? await insertBlockChecked("markdown", nextContent, firstOldBlockId)
+            : await insertBlockChecked("markdown", nextContent, undefined, record.headingBlockId);
+        insertedBlockIds = extractOperationBlockIds(operations);
+    } catch (reason) {
+        console.warn("[enhancedDiaryWorkspaceRecordService] insert updated record body failed", reason);
         return {
             ok: false,
             reason: "update_failed",
-            message: "更新记录失败，请稍后重试。",
+            message: "记录新内容写入失败，原正文已保留。",
         };
     }
+    const partialResult: WorkspaceRecordActionResult = {
+        ok: true,
+        partial: true,
+        changed: true,
+        contentBlockIds: insertedBlockIds,
+        reason: "record_cleanup_pending",
+        message: "记录新内容已经保存，但旧正文或项目属性清理未完成，请打开原日记检查。",
+    };
+    if (insertedBlockIds.length === 0) return partialResult;
+
+    const tags = Array.from(new Set((resolvedMetadata.tags ?? record.tags).map((tag) => tag.replace(/^#+|#+$/g, "").trim()).filter(Boolean)));
+    const tagText = tags.map((tag) => `#${tag}#`).join(" ");
+    const level = Math.max(1, Math.min(6, record.headingLevel || 3));
+    const baseTitle = `${record.timeText || extractTimeText(record.headingTitle)} 记录`.trim();
+    const nextHeadingTitle = `${baseTitle}${tagText ? ` ${tagText}` : ""}`;
+    const nextHeadingMarkdown = `${"#".repeat(level)} ${nextHeadingTitle}`;
+    try {
+        await updateBlockChecked("markdown", nextHeadingMarkdown, record.headingBlockId);
+        await setBlockAttrsChecked(record.headingBlockId, {
+            [ENHANCED_DIARY_PROJECT_TARGET_ATTR]: projectTargetId,
+            [ENHANCED_DIARY_KEY_RECORD_ATTR]: projectTargetId && resolvedMetadata.isKeyRecord ? "true" : "",
+        });
+    } catch (reason) {
+        console.warn("[enhancedDiaryWorkspaceRecordService] update record metadata failed", reason);
+        return partialResult;
+    }
+
+    if (bodyAnalysis.oldBlockIds.length > 0) {
+        try {
+            await performTransactionsChecked([{
+                doOperations: bodyAnalysis.oldBlockIds.map((id) => ({ action: "delete", id })),
+            }]);
+        } catch (reason) {
+            console.warn("[enhancedDiaryWorkspaceRecordService] cleanup old record body failed", reason);
+            return partialResult;
+        }
+    }
+
+    try {
+        await upsertProjectRecordIndexItem(ctx.dailyNotebookId, {
+            ...record,
+            headingTitle: nextHeadingTitle,
+            content: trimmed,
+            rawProjectContent: nextContent,
+            contentBlockIds: insertedBlockIds,
+            tags,
+            projectTargetId: projectTargetId || undefined,
+            hiddenProjectTargetId: projectTargetId || undefined,
+            visibleProjectTargetId: projectTargetId || undefined,
+            rootProjectId: projectTargetId ? resolvedMetadata.rootProjectId : undefined,
+            projectPath: projectTargetId ? resolvedMetadata.projectPath : undefined,
+            projectAncestorTargetIds: projectTargetId ? resolvedMetadata.projectAncestorTargetIds : undefined,
+            isKeyRecord: !!projectTargetId && !!resolvedMetadata.isKeyRecord,
+            projectRelationStatus: projectTargetId ? "normal" : "none",
+        });
+    } catch (reason) {
+        console.warn("[enhancedDiaryWorkspaceRecordService] update record index failed", reason);
+        return partialResult;
+    }
+    return { ok: true, changed: true, contentBlockIds: insertedBlockIds };
 }
 
 export async function queryQuickRecordsInDateRange(params: {
@@ -501,7 +828,7 @@ export async function queryQuickRecordsInDateRange(params: {
             const content = await readDiaryMarkdown(entry.id);
             if (!content) continue;
             const dateStr = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
-            const dayRecords = await queryTodayQuickRecords(entry.id, content, dateStr, config.headingStructure, config.templateFieldMapping);
+            const dayRecords = await queryTodayQuickRecords(entry.id, content, dateStr, config.headingStructure, config.templateFieldMapping, config);
             for (const record of dayRecords) {
                 record.date = dateStr;
                 record.docTitle = entry.title || dateStr;

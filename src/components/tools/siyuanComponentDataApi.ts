@@ -1,6 +1,9 @@
 import {
     fullTextSearchBlock,
+    getBlockAttrsChecked,
     getBlockInfo,
+    getBlockKramdowns,
+    getBlockTreeInfos,
     getFile,
     getPathByID,
     getRecentDocs,
@@ -14,6 +17,14 @@ import {
 } from "@/api";
 import { validateSafeSelectSql } from "@/features/kb/services/siyuan/safe-sql";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
+import {
+    ENHANCED_DIARY_PROJECT_TARGET_ATTR,
+    readEnhancedDiaryProjectTargetId,
+} from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectTypes";
+import {
+    isEnhancedDiaryTaskListItemType,
+    locateInsertedBlock,
+} from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryBlockLocator";
 
 export type ComponentDataStatus = "ok" | "empty" | "limited" | "disabled" | "unsupported" | "error";
 export type ComponentDataMode =
@@ -83,6 +94,13 @@ export interface ComponentTaskInfo {
     source?: string;
     indexedAt?: string;
     lastVerifiedAt?: string;
+    ial?: string;
+    projectTargetId?: string;
+    hiddenProjectTargetId?: string;
+    visibleProjectTargetId?: string;
+    rootProjectId?: string;
+    projectPath?: string[];
+    projectRelationStatus?: string;
 }
 
 const SEARCH_PAGE_SIZE = 32;
@@ -714,13 +732,14 @@ export async function searchDocsByTagApi(
 }
 
 function isTaskMarkdown(markdown: string): boolean {
-    const firstLine = markdown.split("\n\n")[0]?.split("\n")[0]?.trim() || "";
+    const firstLine = (markdown.split("\n\n")[0]?.split("\n")[0]?.trim() || "")
+        .replace(/^([-*]\s+)\{:[^}]*\}\s*/, "$1");
     return /^[-*]\s\[( |x|X)\]/.test(firstLine);
 }
 
 function isTaskItemBlock(block: any): boolean {
     const type = block?.type;
-    return !type || type === "i" || type === "NodeListItem";
+    return !type || isEnhancedDiaryTaskListItemType(type);
 }
 
 function blockToTaskInfo(block: any): ComponentTaskInfo | null {
@@ -728,6 +747,7 @@ function blockToTaskInfo(block: any): ComponentTaskInfo | null {
     if (!block?.id || !isTaskItemBlock(block) || !isTaskMarkdown(markdown)) return null;
     const rootId = block?.rootID || block?.root_id || block?.rootId || block?.id;
     const firstLine = markdown.split("\n")[0] || markdown;
+    const ial = normalizeIal(block?.ial);
     return {
         id: block.id,
         root_id: rootId,
@@ -746,6 +766,9 @@ function blockToTaskInfo(block: any): ComponentTaskInfo | null {
         checked: /^[-*]\s\[[xX]\]/.test(firstLine.trim()),
         source: block?.source || "rebuild",
         indexedAt: block?.indexedAt || new Date().toISOString(),
+        ial,
+        projectTargetId: readEnhancedDiaryProjectTargetId(ial) || undefined,
+        hiddenProjectTargetId: readEnhancedDiaryProjectTargetId(ial) || undefined,
     };
 }
 
@@ -779,6 +802,13 @@ function normalizeTaskIndexItem(
         source: task.source || source,
         indexedAt: task.indexedAt || now,
         lastVerifiedAt: task.lastVerifiedAt,
+        ial: normalizeIal(task.ial),
+        projectTargetId: task.projectTargetId,
+        hiddenProjectTargetId: task.hiddenProjectTargetId,
+        visibleProjectTargetId: task.visibleProjectTargetId,
+        rootProjectId: task.rootProjectId,
+        projectPath: task.projectPath,
+        projectRelationStatus: task.projectRelationStatus,
     };
 }
 
@@ -822,6 +852,45 @@ function isPendingTask(item: ComponentTaskInfo): boolean {
     return /^[-*]\s\[\s*\]/.test(firstLine.trim());
 }
 
+const NEW_TASK_INDEX_PROTECTION_MS = 30_000;
+
+function isWithinTaskIndexProtection(item: ComponentTaskInfo, now = Date.now()): boolean {
+    const indexedAt = Date.parse(item.indexedAt || "");
+    return Number.isFinite(indexedAt) && now - indexedAt < NEW_TASK_INDEX_PROTECTION_MS;
+}
+
+async function verifyIndexedTaskBlock(
+    task: ComponentTaskInfo,
+): Promise<"exists" | "missing" | "unknown"> {
+    const expectedRootId = task.root_id || task.rootID || "";
+    let confirmedMissing = 0;
+    let sawReadableBlock = false;
+
+    for (const waitMs of [0, 100, 300] as const) {
+        if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+        try {
+            if (!await checkBlockExist(task.id)) confirmedMissing += 1;
+        } catch {
+            // API 暂时失败不能作为删除证据。
+        }
+
+        try {
+            const info = await getBlockInfo(task.id);
+            sawReadableBlock = true;
+            if (expectedRootId && expectedRootId !== task.id && info?.rootID !== expectedRootId) return "missing";
+            const treeInfos = await getBlockTreeInfos([task.id]);
+            const kramdowns = await getBlockKramdowns([task.id]);
+            if (isEnhancedDiaryTaskListItemType(treeInfos?.[task.id]?.type) &&
+                isTaskMarkdown(String(kramdowns?.[task.id] || ""))) return "exists";
+        } catch {
+            // 继续有限重试；已能读取的块不会因后续类型或 Markdown API 暂时失败而删除。
+        }
+    }
+
+    if (sawReadableBlock) return "unknown";
+    return confirmedMissing === 3 ? "missing" : "unknown";
+}
+
 export async function readTaskIndexItems(): Promise<ComponentTaskInfo[]> {
     return dedupeTaskIndexItems(await readJsonIndex<ComponentTaskInfo>(TASK_INDEX_PATH));
 }
@@ -842,8 +911,9 @@ export async function mergeTaskIndexItems(
     const changedIds = new Set<string>();
     for (const item of items) {
         if (!item?.id) continue;
-        const next = normalizeTaskIndexItem(item, options.source || "plugin");
-        map.set(next.id, { ...map.get(next.id), ...next });
+        const previous = map.get(item.id);
+        const next = normalizeTaskIndexItem({ ...previous, ...item }, options.source || "plugin");
+        map.set(next.id, next);
         changedIds.add(next.id);
     }
     await writeJsonIndex(TASK_INDEX_PATH, dedupeTaskIndexItems(Array.from(map.values())));
@@ -870,7 +940,11 @@ export async function pruneMissingTaskIndexItems(options: {
 } = {}): Promise<number> {
     const rows = dedupeTaskIndexItems(await readJsonIndex<ComponentTaskInfo>(TASK_INDEX_PATH));
     const now = new Date().toISOString();
-    const targets = rows.filter((row) => row?.id && (options.includeCompleted || isPendingTask(row)));
+    const targets = rows.filter((row) =>
+        row?.id &&
+        !isWithinTaskIndexProtection(row) &&
+        (options.includeCompleted || isPendingTask(row))
+    );
     if (targets.length === 0) return 0;
 
     const missing = new Set<string>();
@@ -878,10 +952,10 @@ export async function pruneMissingTaskIndexItems(options: {
         const batch = targets.slice(i, i + 32);
         const results = await Promise.all(batch.map(async (task) => ({
             id: task.id,
-            exists: await isExistingBlock(task.id),
+            status: await verifyIndexedTaskBlock(task),
         })));
         for (const result of results) {
-            if (!result.exists) missing.add(result.id);
+            if (result.status === "missing") missing.add(result.id);
         }
     }
     if (missing.size === 0) {
@@ -926,11 +1000,16 @@ export async function removeTaskIndexItem(id: string): Promise<void> {
 }
 
 export async function ensureTaskBlockExists(id: string): Promise<boolean> {
-    const exists = await isExistingBlock(id);
-    if (!exists) {
+    const indexed = (await readTaskIndexItems()).find((item) => item.id === id);
+    if (indexed && isWithinTaskIndexProtection(indexed)) return true;
+    const status = indexed
+        ? await verifyIndexedTaskBlock(indexed)
+        : (await isExistingBlock(id) ? "exists" : "unknown");
+    if (status === "missing") {
         await removeTaskIndexItem(id);
+        return false;
     }
-    return exists;
+    return true;
 }
 
 function normalizeRecentDoc(block: any): ComponentRecentDocSnapshotDoc | null {
@@ -1024,7 +1103,7 @@ async function queryTaskBlocksByRootIds(rootIds: string[]): Promise<{ tasks: Com
         let pageRows: unknown[];
         do {
             pageRows = await sql(`
-                SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, created, updated
+                SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, ial, created, updated
                 FROM blocks
                 WHERE subtype = 't' AND type = 'i' AND root_id IN (${escaped})
                 ORDER BY updated DESC, id DESC
@@ -1043,6 +1122,134 @@ async function queryTaskBlocksByRootIds(rootIds: string[]): Promise<{ tasks: Com
         } while (pageRows.length === PAGE_SIZE);
     }
     return { tasks, truncated };
+}
+
+async function preserveTasksMissingFromSql(
+    existing: ComponentTaskInfo[],
+    sqlTasks: ComponentTaskInfo[],
+    changedRootIds: string[],
+): Promise<ComponentTaskInfo[]> {
+    const roots = new Set(changedRootIds);
+    const returnedIds = new Set(sqlTasks.map((task) => task.id));
+    const missing = existing.filter((task) => roots.has(task.root_id || task.rootID || "") && !returnedIds.has(task.id));
+    if (!missing.length) return [];
+    const candidates = missing.slice(0, 64);
+    const unchecked = missing.slice(64);
+    const statuses = await Promise.all(candidates.map(async (task) => ({
+        task,
+        status: isWithinTaskIndexProtection(task) ? "exists" : await verifyIndexedTaskBlock(task),
+    })));
+    return [
+        ...statuses.filter(({ status }) => status !== "missing").map(({ task }) => task),
+        ...unchecked,
+    ];
+}
+
+export interface TaskIndexWriteSynchronizationInput {
+    docId: string;
+    taskMarkdown: string;
+    projectTargetId?: string;
+    operationIds: string[];
+}
+
+export interface TaskIndexWriteSynchronizationResult {
+    blockId?: string;
+    complete: boolean;
+    relationStatus: "none" | "normal" | "missing_hidden_relation";
+}
+
+const taskWriteSynchronizationFlights = new Map<string, Promise<TaskIndexWriteSynchronizationResult>>();
+
+async function runTaskIndexWriteSynchronization(
+    input: TaskIndexWriteSynchronizationInput,
+    plugin?: any,
+): Promise<TaskIndexWriteSynchronizationResult> {
+    let blockId: string | undefined;
+    for (const waitMs of [0, 250, 650] as const) {
+        if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+        blockId = await locateInsertedBlock({
+            operationIds: input.operationIds,
+            rootId: input.docId,
+            nodeType: "NodeListItem",
+            expectedMarkdown: input.taskMarkdown,
+        });
+        if (blockId) break;
+        try {
+            await refreshTaskIndexFromRecentDocuments(plugin, { force: true, ttlMs: 0 });
+        } catch {
+            // 强制增量刷新只是有限兜底，失败不反转已经完成的日记写入。
+        }
+    }
+
+    if (!blockId) {
+        return {
+            complete: false,
+            relationStatus: input.projectTargetId ? "missing_hidden_relation" : "none",
+        };
+    }
+
+    let hiddenProjectTargetId: string | undefined;
+    let relationStatus: TaskIndexWriteSynchronizationResult["relationStatus"] = input.projectTargetId
+        ? "missing_hidden_relation"
+        : "none";
+    let attributesComplete = !input.projectTargetId;
+    if (input.projectTargetId) {
+        try {
+            await setBlockAttrsChecked(blockId, {
+                [ENHANCED_DIARY_PROJECT_TARGET_ATTR]: input.projectTargetId,
+            });
+            const attrs = await getBlockAttrsChecked(blockId);
+            if (attrs[ENHANCED_DIARY_PROJECT_TARGET_ATTR] === input.projectTargetId) {
+                hiddenProjectTargetId = input.projectTargetId;
+                relationStatus = "normal";
+                attributesComplete = true;
+            }
+        } catch {
+            // 显性双链仍是有效关系，索引按 missing_hidden_relation 保存。
+        }
+    }
+
+    let indexComplete = true;
+    try {
+        await updateTaskIndexItem({
+            id: blockId,
+            root_id: input.docId,
+            rootID: input.docId,
+            markdown: input.taskMarkdown,
+            content: input.taskMarkdown,
+            created: "",
+            updated: "",
+            hpath: "",
+            type: "i",
+            subtype: "t",
+            visibleProjectTargetId: input.projectTargetId,
+            hiddenProjectTargetId,
+            projectTargetId: input.projectTargetId,
+            projectRelationStatus: relationStatus,
+        });
+    } catch {
+        indexComplete = false;
+    }
+
+    return { blockId, complete: attributesComplete && indexComplete, relationStatus };
+}
+
+export function synchronizeTaskIndexAfterWrite(
+    input: TaskIndexWriteSynchronizationInput,
+    plugin?: any,
+): Promise<TaskIndexWriteSynchronizationResult> {
+    const operationKey = Array.from(new Set(input.operationIds.filter(Boolean))).sort().join(",");
+    if (!operationKey) return runTaskIndexWriteSynchronization(input, plugin);
+    const key = `${input.docId}:${operationKey}`;
+    const running = taskWriteSynchronizationFlights.get(key);
+    if (running) return running;
+    const promise = runTaskIndexWriteSynchronization(input, plugin);
+    taskWriteSynchronizationFlights.set(key, promise);
+    const cleanup = () => {
+        if (taskWriteSynchronizationFlights.get(key) === promise) taskWriteSynchronizationFlights.delete(key);
+    };
+    void promise.then(cleanup, cleanup);
+    return promise;
 }
 
 export async function refreshTaskIndexFromRecentDocuments(
@@ -1077,8 +1284,10 @@ export async function refreshTaskIndexFromRecentDocuments(
             };
         }
         const rootIds = changedDocs.map((doc) => doc.id);
+        const existing = await readTaskIndexItems();
         const { tasks, truncated } = await queryTaskBlocksByRootIds(rootIds);
-        const migratedCount = await mergeTaskIndexItems(tasks, {
+        const preserved = await preserveTasksMissingFromSql(existing, tasks, rootIds);
+        const migratedCount = await mergeTaskIndexItems([...tasks, ...preserved], {
             removeRootIds: rootIds,
             source: "recent-doc-refresh",
         });
@@ -1113,7 +1322,7 @@ export async function rebuildTaskIndexFromGlobalSql(plugin: any): Promise<Compon
         let skippedCount = 0;
         for (let offset = 0; offset < TASK_REBUILD_MAX_ROWS; offset += TASK_REBUILD_PAGE_SIZE) {
             const stmt = `
-                SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, created, updated
+                SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, ial, created, updated
                 FROM blocks
                 WHERE subtype = 't' AND type = 'i'
                 ORDER BY updated DESC, id DESC
