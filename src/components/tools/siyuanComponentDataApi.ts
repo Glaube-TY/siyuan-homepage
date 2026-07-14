@@ -895,6 +895,19 @@ export async function readTaskIndexItems(): Promise<ComponentTaskInfo[]> {
     return dedupeTaskIndexItems(await readJsonIndex<ComponentTaskInfo>(TASK_INDEX_PATH));
 }
 
+export interface TaskIndexSnapshot {
+    fileExists: boolean;
+    items: ComponentTaskInfo[];
+}
+
+export async function readTaskIndexSnapshot(): Promise<TaskIndexSnapshot> {
+    const fileExists = await doesIndexFileExist(TASK_INDEX_PATH);
+    return {
+        fileExists,
+        items: fileExists ? await readTaskIndexItems() : [],
+    };
+}
+
 export async function mergeTaskIndexItems(
     items: Array<Partial<ComponentTaskInfo> & { id: string }>,
     options: { removeRootIds?: string[]; source?: string } = {},

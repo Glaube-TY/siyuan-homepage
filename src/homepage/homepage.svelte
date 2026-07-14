@@ -22,7 +22,9 @@
     import { handleLoad } from "./topBanner/drag";
     import {
         loadStatsData,
+        loadStatsDataResult,
         parseDurationExpression,
+        prepareHomepageStatistics,
     } from "./header/stats-loader";
     import {
         buildHomepageStatusAiCacheKey,
@@ -30,6 +32,7 @@
         loadHomepageStatusFacts,
         type HomepageStatusAiConfig,
     } from "./header/status-ai-generator";
+    import { STAT_INDEX_UPDATED_EVENT } from "@/components/tools/statisticalAPI";
     import {
         handleMoreButtonClick,
         handleButtonClick,
@@ -89,11 +92,15 @@
         DEFAULT_STATS_INFO_TEXT,
         DEFAULT_STATUS_AI_MAX_CHARS,
         DEFAULT_STATUS_AI_PROMPT,
+        DEFAULT_STATUS_AI_STAT_KEYS,
+        HOMEPAGE_STATUS_STAT_DEFINITIONS,
         normalizeHomepageStatusTextMode,
         normalizeStatusAiMaxChars,
         normalizeStatusAiModelId,
         normalizeStatusAiPrompt,
         normalizeStatusAiThinkingEnabled,
+        normalizeStatusAiStatKeys,
+        type HomepageStatusStatKey,
     } from "./status-text-config";
     import {
         getCurrentDeviceInfo,
@@ -187,6 +194,7 @@
     let statusAiProviderId = $state("");
     let statusAiModelId = $state("");
     let statusAiThinkingEnabled = $state(false);
+    let statusAiStatKeys = $state<HomepageStatusStatKey[]>([...DEFAULT_STATUS_AI_STAT_KEYS]);
     const STATUS_AI_LOADING_TEXT = "AI 状态语生成中...";
     type HomepageStatusAiRuntimeState =
         | "idle"
@@ -1064,6 +1072,7 @@
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.addEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
         window.addEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
         window.addEventListener(
             "homepage-component-section-layout-invalidated",
@@ -1154,6 +1163,7 @@
             handleAdvancedUnavailable,
         );
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.removeEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
         window.removeEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
         window.removeEventListener(
             "homepage-component-section-layout-invalidated",
@@ -1280,6 +1290,7 @@
         statusAiProviderId = normalizeStatusAiModelId(config.statusAiProviderId);
         statusAiModelId = normalizeStatusAiModelId(config.statusAiModelId);
         statusAiThinkingEnabled = normalizeStatusAiThinkingEnabled(config.statusAiThinkingEnabled);
+        statusAiStatKeys = normalizeStatusAiStatKeys(config.statusAiStatKeys);
         if (previousStatusAiConfigSignature !== getStatusAiConfigSignature()) {
             invalidateStatusAiCache();
         }
@@ -1390,57 +1401,17 @@
 
         let result = template;
 
-        // 异步加载所有统计数据
-        const [
-            startDate,
-            blocksCount,
-            notebooksCount,
-            docsCount,
-            nowDate,
-            tasksCount,
-            doneTasksCount,
-            undoneTasksCount,
-            dailynotesCount,
-            tagsCount,
-            codeBlocksCount,
-            mathBlocksCount,
-            citationCount,
-        ] = await Promise.all([
-            loadStatsData("startDate", plugin),
-            loadStatsData("blocksCount", plugin),
-            loadStatsData("notebooksCount", plugin),
-            loadStatsData("docsCount", plugin),
-            loadStatsData("nowDate", plugin),
-            loadStatsData("tasksCount", plugin),
-            loadStatsData("doneTasksCount", plugin),
-            loadStatsData("undoneTasksCount", plugin),
-            loadStatsData("dailynotesCount", plugin),
-            loadStatsData("tagsCount", plugin),
-            loadStatsData("codeBlocksCount", plugin),
-            loadStatsData("mathBlocksCount", plugin),
-            loadStatsData("citationCount", plugin),
-        ]);
-
         // 兼容旧写法：统一替换为当前支持的变量名
         result = result
             .replace(/\{\{notesCount\}\}/g, "{{blocksCount}}")
             .replace(/\{\{DocsCount\}\}/g, "{{docsCount}}");
 
-        // 替换所有变量（使用正则全局替换，确保同一变量多次出现都能替换）
-        result = result
-            .replace(/\{\{startDate\}\}/g, startDate?.toString() || "")
-            .replace(/\{\{blocksCount\}\}/g, blocksCount?.toString() || "")
-            .replace(/\{\{notebooksCount\}\}/g, notebooksCount?.toString() || "")
-            .replace(/\{\{docsCount\}\}/g, docsCount?.toString() || "")
-            .replace(/\{\{nowDate\}\}/g, nowDate?.toString() || "")
-            .replace(/\{\{tasksCount\}\}/g, tasksCount?.toString() || "")
-            .replace(/\{\{doneTasksCount\}\}/g, doneTasksCount?.toString() || "")
-            .replace(/\{\{undoneTasksCount\}\}/g, undoneTasksCount?.toString() || "")
-            .replace(/\{\{dailynotesCount\}\}/g, dailynotesCount?.toString() || "")
-            .replace(/\{\{tagsCount\}\}/g, tagsCount?.toString() || "")
-            .replace(/\{\{codeBlocksCount\}\}/g, codeBlocksCount?.toString() || "")
-            .replace(/\{\{mathBlocksCount\}\}/g, mathBlocksCount?.toString() || "")
-            .replace(/\{\{citationCount\}\}/g, citationCount?.toString() || "");
+        const requested = HOMEPAGE_STATUS_STAT_DEFINITIONS.filter((item) => result.includes(`{{${item.key}}}`));
+        const values = await Promise.all(requested.map(async (item) => [item.key, await loadStatsDataResult(item.key, plugin)] as const));
+        for (const [key, value] of values) {
+            const display = value.status === "ok" && value.value !== null ? String(value.value) : "暂无数据";
+            result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), display);
+        }
 
         // 处理 $...$ 表达式（异步）
         const durationRegex = /\$\$(.*?)\$\$/g;
@@ -1466,6 +1437,7 @@
             providerId: statusAiProviderId,
             modelId: statusAiModelId,
             thinkingEnabled: statusAiThinkingEnabled,
+            statKeys: statusAiStatKeys,
         };
     }
 
@@ -1479,6 +1451,7 @@
     async function updateDisplayedStatsInfoText(options: { forceRefresh?: boolean } = {}) {
         const currentVersion = ++updateStatsVersion;
         abortStatusAiRequest();
+        await prepareHomepageStatistics(plugin);
 
         if (options.forceRefresh) {
             statusAiCacheKey = "";
@@ -1517,7 +1490,7 @@
         statusAiAbortController = abortController;
 
         try {
-            const facts = await loadHomepageStatusFacts(plugin);
+            const facts = await loadHomepageStatusFacts(plugin, aiConfig.statKeys);
             if (currentVersion !== updateStatsVersion || abortController.signal.aborted) {
                 return;
             }
@@ -1589,6 +1562,12 @@
         }
     }
 
+    function handleStatIndexUpdated(): void {
+        if (!homepageConfigLoaded || isRefreshingStatusText) return;
+        invalidateStatusAiCache();
+        void updateDisplayedStatsInfoText({ forceRefresh: statusTextMode === "ai" });
+    }
+
     // 当状态语相关配置变化时更新显示文本
     run(() => {
         statsInfoText;
@@ -1598,6 +1577,7 @@
         statusAiProviderId;
         statusAiModelId;
         statusAiThinkingEnabled;
+        statusAiStatKeys;
         advanced;
         homepageConfigLoaded;
         if (!homepageConfigLoaded) return;

@@ -1,6 +1,6 @@
 import type { ButtonItem } from './types';
 import type { DeviceProfilesMap } from '../utils/deviceProfile';
-import type { HomepageStatusTextMode } from '../status-text-config';
+import type { HomepageStatusStatKey, HomepageStatusTextMode } from '../status-text-config';
 import type { SelectionAiToolbarSettings } from '@/features/kb/services/selection-ai/selection-ai-types';
 import type { MobileQuickActionSetting, MobileQuickActionsPosition } from '../mobileQuickActions/mobileQuickActionsConfig';
 import type {
@@ -232,6 +232,7 @@ export interface HomepageSettingConfig {
     statusAiProviderId?: string;
     statusAiModelId?: string;
     statusAiThinkingEnabled?: boolean;
+    statusAiStatKeys?: HomepageStatusStatKey[];
     buttonsList: ButtonItem[];
     selectedButton: ButtonItem | null;
     widgetLayoutNumber: number;

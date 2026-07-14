@@ -4,12 +4,15 @@ import { buildChatModelOptions, findDefaultChatModelOption } from "@/features/kb
 import { buildChatModelKey, type ChatModelSelection } from "@/features/kb/types/chat-model-selection";
 import type { ThinkingMode } from "@/features/kb/types/session";
 import {
+    HOMEPAGE_STATUS_STAT_DEFINITIONS,
     normalizeStatusAiMaxChars,
     normalizeStatusAiModelId,
     normalizeStatusAiPrompt,
     normalizeStatusAiThinkingEnabled,
+    normalizeStatusAiStatKeys,
+    type HomepageStatusStatKey,
 } from "../status-text-config";
-import { loadStatsData } from "./stats-loader";
+import { loadStatsDataResult } from "./stats-loader";
 
 export interface HomepageStatusAiConfig {
     prompt: string;
@@ -17,20 +20,10 @@ export interface HomepageStatusAiConfig {
     providerId: string;
     modelId: string;
     thinkingEnabled: boolean;
+    statKeys: HomepageStatusStatKey[];
 }
 
-export interface HomepageStatusFacts {
-    nowDate: string;
-    startDate: string;
-    blocksCount: string;
-    notebooksCount: string;
-    docsCount: string;
-    tasksCount?: string;
-    doneTasksCount?: string;
-    undoneTasksCount?: string;
-    dailynotesCount?: string;
-    tagsCount?: string;
-}
+export type HomepageStatusFacts = Partial<Record<HomepageStatusStatKey, string>>;
 
 export type GenerateHomepageStatusTextResult =
     | {
@@ -44,10 +37,6 @@ export type GenerateHomepageStatusTextResult =
         reason: "not_premium" | "no_model" | "model_error" | "empty_output" | "aborted";
     };
 
-function toText(value: unknown): string {
-    return String(value ?? "未知");
-}
-
 function normalizeStatusAiConfig(config: HomepageStatusAiConfig): HomepageStatusAiConfig {
     return {
         prompt: normalizeStatusAiPrompt(config.prompt),
@@ -55,46 +44,21 @@ function normalizeStatusAiConfig(config: HomepageStatusAiConfig): HomepageStatus
         providerId: normalizeStatusAiModelId(config.providerId),
         modelId: normalizeStatusAiModelId(config.modelId),
         thinkingEnabled: normalizeStatusAiThinkingEnabled(config.thinkingEnabled),
+        statKeys: normalizeStatusAiStatKeys(config.statKeys),
     };
 }
 
-export async function loadHomepageStatusFacts(plugin: any): Promise<HomepageStatusFacts> {
-    const [
-        nowDate,
-        startDate,
-        blocksCount,
-        notebooksCount,
-        docsCount,
-        tasksCount,
-        doneTasksCount,
-        undoneTasksCount,
-        dailynotesCount,
-        tagsCount,
-    ] = await Promise.all([
-        loadStatsData("nowDate", plugin),
-        loadStatsData("startDate", plugin),
-        loadStatsData("blocksCount", plugin),
-        loadStatsData("notebooksCount", plugin),
-        loadStatsData("docsCount", plugin),
-        loadStatsData("tasksCount", plugin),
-        loadStatsData("doneTasksCount", plugin),
-        loadStatsData("undoneTasksCount", plugin),
-        loadStatsData("dailynotesCount", plugin),
-        loadStatsData("tagsCount", plugin),
-    ]);
-
-    return {
-        nowDate: toText(nowDate),
-        startDate: toText(startDate),
-        blocksCount: toText(blocksCount),
-        notebooksCount: toText(notebooksCount),
-        docsCount: toText(docsCount),
-        tasksCount: toText(tasksCount),
-        doneTasksCount: toText(doneTasksCount),
-        undoneTasksCount: toText(undoneTasksCount),
-        dailynotesCount: toText(dailynotesCount),
-        tagsCount: toText(tagsCount),
-    };
+export async function loadHomepageStatusFacts(
+    plugin: any,
+    selectedKeys: HomepageStatusStatKey[],
+): Promise<HomepageStatusFacts> {
+    const keys = normalizeStatusAiStatKeys(selectedKeys);
+    const results = await Promise.all(keys.map(async (key) => [key, await loadStatsDataResult(key, plugin)] as const));
+    const facts: HomepageStatusFacts = {};
+    for (const [key, result] of results) {
+        if (result.status === "ok" && result.value !== null) facts[key] = String(result.value);
+    }
+    return facts;
 }
 
 export function buildHomepageStatusPrompt(
@@ -104,6 +68,13 @@ export function buildHomepageStatusPrompt(
 ): string {
     const normalizedPrompt = normalizeStatusAiPrompt(userPrompt);
     const normalizedMaxChars = normalizeStatusAiMaxChars(maxChars);
+
+    const factLines = HOMEPAGE_STATUS_STAT_DEFINITIONS
+        .filter((item) => facts[item.key] !== undefined)
+        .map((item) => `${item.promptName}：${facts[item.key]}`);
+    const factsText = factLines.length > 0
+        ? `以下数据仅包含用户主动选择且当前可用的统计项：\n${factLines.join("\n")}`
+        : "用户没有选择统计数据，请只根据用户指定风格生成不包含虚构数字的状态语。";
 
     return `你是一个思源笔记主页状态语生成器。请根据下面的真实数据，生成一句适合显示在主页标题下方的中文状态语。
 
@@ -116,16 +87,7 @@ export function buildHomepageStatusPrompt(
 ${normalizedPrompt}
 
 真实数据：
-今天是：${facts.nowDate}
-第一条笔记日期：${facts.startDate}
-当前笔记本数量：${facts.notebooksCount}
-当前文档数量：${facts.docsCount}
-当前内容块数量：${facts.blocksCount}
-当前任务数量：${facts.tasksCount ?? "未知"}
-已完成任务数量：${facts.doneTasksCount ?? "未知"}
-未完成任务数量：${facts.undoneTasksCount ?? "未知"}
-日记数量：${facts.dailynotesCount ?? "未知"}
-标签数量：${facts.tagsCount ?? "未知"}`;
+${factsText}`;
 }
 
 export function cleanHomepageStatusText(rawText: string, maxChars: number): string {
@@ -227,7 +189,7 @@ export async function generateHomepageStatusText(params: {
         return { ok: false, reason: "aborted", message: "请求已取消" };
     }
 
-    const facts = params.facts ?? await loadHomepageStatusFacts(params.plugin);
+    const facts = params.facts ?? await loadHomepageStatusFacts(params.plugin, config.statKeys);
     const cacheKey = buildHomepageStatusAiCacheKey(config, facts);
     const prompt = buildHomepageStatusPrompt(facts, config.prompt, config.maxChars);
     const thinkingMode: ThinkingMode = config.thinkingEnabled ? "on" : "off";

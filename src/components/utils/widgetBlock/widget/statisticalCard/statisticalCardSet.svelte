@@ -61,9 +61,15 @@
                 <option value="undoneTasksCount">未完成任务数</option>
                 <option value="dailynotesCount">日记数</option>
                 <option value="tagsCount">标签数</option>
-                <option value="citationCount">引述数</option>
+                <option value="citationCount">引用块数量</option>
                 <option value="codeBlocksCount">代码数</option>
                 <option value="mathBlocksCount">公式数</option>
+                <option value="headingBlocksCount">标题块数量</option>
+                <option value="paragraphBlocksCount">段落块数量</option>
+                <option value="dueTodayTasksCount">今日截止任务</option>
+                <option value="overdueTasksCount">已逾期任务</option>
+                <option value="highPriorityTasksCount">高优先级任务</option>
+                <option value="unscheduledTasksCount">未排期任务</option>
                 <option value="customSQLCount">SQL 查询结果数</option>
             </select>
         </SettingRow>

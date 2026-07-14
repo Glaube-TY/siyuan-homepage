@@ -37,11 +37,15 @@ import {
     DEFAULT_STATS_INFO_TEXT,
     DEFAULT_STATUS_AI_MAX_CHARS,
     DEFAULT_STATUS_AI_PROMPT,
+    DEFAULT_STATUS_AI_STAT_KEYS,
     normalizeHomepageStatusTextMode,
+    normalizeStatsInfoText,
     normalizeStatusAiMaxChars,
     normalizeStatusAiModelId,
     normalizeStatusAiPrompt,
     normalizeStatusAiThinkingEnabled,
+    normalizeStatusAiStatKeys,
+    type HomepageStatusStatKey,
     type HomepageStatusTextMode,
 } from "./status-text-config";
 export type { HomepageButtonItem } from "./buttonRegistry";
@@ -83,6 +87,7 @@ export interface HomepageConfig {
     statusAiProviderId: string;
     statusAiModelId: string;
     statusAiThinkingEnabled: boolean;
+    statusAiStatKeys: HomepageStatusStatKey[];
     footerEnabled: boolean;
     footerContent: string;
     mouseIcon: string;
@@ -162,6 +167,7 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDe
     statusAiProviderId: "",
     statusAiModelId: "",
     statusAiThinkingEnabled: false,
+    statusAiStatKeys: [...DEFAULT_STATUS_AI_STAT_KEYS],
     footerEnabled: true,
     footerContent: "",
     mouseIcon: "default",
@@ -298,13 +304,14 @@ export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
         bannerGlassOpacity: normalizeBannerGlassOpacity(config.bannerGlassOpacity),
         bannerGlassBlur: normalizeBannerGlassBlur(config.bannerGlassBlur),
         tempTitleIconStyle: normalizeEnum(config.tempTitleIconStyle, VALID_TITLE_ICON_STYLES, DEFAULT_HOMEPAGE_CONFIG.tempTitleIconStyle),
-        statsInfoText: normalizeString(config.statsInfoText, DEFAULT_HOMEPAGE_CONFIG.statsInfoText),
+        statsInfoText: normalizeStatsInfoText(config.statsInfoText),
         statusTextMode: normalizeHomepageStatusTextMode(config.statusTextMode),
         statusAiPrompt: normalizeStatusAiPrompt(config.statusAiPrompt),
         statusAiMaxChars: normalizeStatusAiMaxChars(config.statusAiMaxChars),
         statusAiProviderId: normalizeStatusAiModelId(config.statusAiProviderId),
         statusAiModelId: normalizeStatusAiModelId(config.statusAiModelId),
         statusAiThinkingEnabled: normalizeStatusAiThinkingEnabled(config.statusAiThinkingEnabled),
+        statusAiStatKeys: normalizeStatusAiStatKeys(config.statusAiStatKeys),
         footerEnabled: config.footerEnabled ?? DEFAULT_HOMEPAGE_CONFIG.footerEnabled,
         footerContent: normalizeString(config.footerContent, DEFAULT_HOMEPAGE_CONFIG.footerContent),
         mouseIcon: normalizeString(config.mouseIcon, DEFAULT_HOMEPAGE_CONFIG.mouseIcon),

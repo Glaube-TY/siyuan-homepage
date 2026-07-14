@@ -4,16 +4,23 @@
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
     import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
+    import StatusVariableReferenceDialog from './StatusVariableReferenceDialog.svelte';
     import {
+        DEFAULT_STATS_INFO_TEXT,
+        DEFAULT_STATUS_AI_PROMPT,
         MAX_STATUS_AI_MAX_CHARS,
         MIN_STATUS_AI_MAX_CHARS,
+        DEFAULT_STATUS_AI_STAT_KEYS,
+        HOMEPAGE_STATUS_STAT_DEFINITIONS,
         normalizeStatusAiMaxChars,
         type HomepageStatusTextMode,
+        type HomepageStatusStatKey,
     } from '@/homepage/status-text-config';
     import type { BannerGlassColorMode, HomepageTitleAlign, QuickButtonStyle } from '../config';
 
     let iconInputEl: HTMLInputElement | null = $state(null);
     let emojiButtonRef: HTMLButtonElement | null = $state(null);
+    let showStatusVariableReference = $state(false);
 
     interface Props {
         tempShowTitleIcon: boolean;
@@ -26,6 +33,7 @@
         tempStatusTextMode: HomepageStatusTextMode;
         tempStatusAiPrompt: string;
         tempStatusAiMaxChars: number;
+        tempStatusAiStatKeys: HomepageStatusStatKey[];
         tempBannerEnabled: boolean;
         tempBannerTitleIntegrated: boolean;
         tempHomepageTitleAlign: HomepageTitleAlign;
@@ -51,6 +59,7 @@
         onTempStatusTextModeChange: (value: HomepageStatusTextMode) => void;
         onTempStatusAiPromptChange: (value: string) => void;
         onTempStatusAiMaxCharsChange: (value: number) => void;
+        onTempStatusAiStatKeysChange: (value: HomepageStatusStatKey[]) => void;
         onTempBannerTitleIntegratedChange: (value: boolean) => void;
         onTempHomepageTitleAlignChange: (value: HomepageTitleAlign) => void;
         onTempQuickButtonStyleChange: (value: QuickButtonStyle) => void;
@@ -75,6 +84,7 @@
         tempStatusTextMode,
         tempStatusAiPrompt,
         tempStatusAiMaxChars,
+        tempStatusAiStatKeys,
         tempBannerEnabled,
         tempBannerTitleIntegrated,
         tempHomepageTitleAlign,
@@ -100,6 +110,7 @@
         onTempStatusTextModeChange,
         onTempStatusAiPromptChange,
         onTempStatusAiMaxCharsChange,
+        onTempStatusAiStatKeysChange,
         onTempBannerTitleIntegratedChange,
         onTempHomepageTitleAlignChange,
         onTempQuickButtonStyleChange,
@@ -112,6 +123,18 @@
         onTempBannerGlassOpacityChange,
         onTempBannerGlassBlurChange
     }: Props = $props();
+
+    const statusStatGroups = [
+        { key: "time_notes", label: "时间与笔记" },
+        { key: "structure", label: "内容结构" },
+        { key: "tasks", label: "任务情况" },
+    ] as const;
+
+    function setStatusStatSelected(key: HomepageStatusStatKey, selected: boolean): void {
+        const next = new Set(tempStatusAiStatKeys);
+        selected ? next.add(key) : next.delete(key);
+        onTempStatusAiStatKeysChange(HOMEPAGE_STATUS_STAT_DEFINITIONS.map((item) => item.key).filter((item) => next.has(item)));
+    }
 
     function selectStatusTextMode(mode: HomepageStatusTextMode) {
         if (mode === "ai" && !advancedEnabled) return;
@@ -398,11 +421,10 @@
 
     {#if tempStatusTextMode === "custom"}
         <SettingRow title="自定义状态语" description="支持变量，点击查看可用变量">
-            <a
-                href="https://blog.glaube-ty.top/archives/019d2484-7d4f-7573-89dd-772a2c600e2b"
-                target="_blank"
-                class="help-link"
-            >查看变量</a>
+            <div class="status-secondary-actions">
+                <button type="button" title="查看状态语可用变量" aria-label="查看状态语可用变量" onclick={() => showStatusVariableReference = true}>查看变量</button>
+                <button type="button" title="恢复默认状态语" aria-label="恢复默认状态语" onclick={() => onTempStatsTextChange(DEFAULT_STATS_INFO_TEXT)}>恢复默认</button>
+            </div>
         </SettingRow>
         <textarea
             class="stats-textarea"
@@ -411,6 +433,7 @@
             oninput={(e) => onTempStatsTextChange((e.currentTarget as HTMLTextAreaElement).value)}
             placeholder="输入自定义状态语句"
         ></textarea>
+        <p class="stats-index-hint">文档、内容块、字数和内容结构变量需要先在「检索管理」中建立统计索引；任务变量使用强化日记任务索引。</p>
     {:else if !advancedEnabled}
         <div class="status-ai-vip-card">
             <div class="status-ai-vip-title">
@@ -424,14 +447,50 @@
         </div>
     {:else}
         <SettingRow title="生成提示语" description="控制 AI 状态语的风格和格式">
-            <textarea
-                class="ai-prompt-textarea control-full"
-                rows="4"
-                value={tempStatusAiPrompt}
-                oninput={(e) => onTempStatusAiPromptChange((e.currentTarget as HTMLTextAreaElement).value)}
-                placeholder="例如：简短、温和，像给自己的提醒"
-            ></textarea>
+            <div class="ai-prompt-control">
+                <textarea
+                    class="ai-prompt-textarea control-full"
+                    rows="4"
+                    value={tempStatusAiPrompt}
+                    oninput={(e) => onTempStatusAiPromptChange((e.currentTarget as HTMLTextAreaElement).value)}
+                    placeholder="例如：简短、温和，像给自己的提醒"
+                ></textarea>
+                <button type="button" class="status-secondary-button" title="恢复默认 AI 提示语" aria-label="恢复默认 AI 提示语" onclick={() => onTempStatusAiPromptChange(DEFAULT_STATUS_AI_PROMPT)}>恢复默认提示语</button>
+            </div>
         </SettingRow>
+        <div class="status-stat-selector">
+            <div class="status-stat-selector-header">
+                <div>
+                    <strong>发送给 AI 的统计数据</strong>
+                    <span>已选择 {tempStatusAiStatKeys.length} 项</span>
+                </div>
+                <div class="status-stat-actions">
+                    <button type="button" onclick={() => onTempStatusAiStatKeysChange(HOMEPAGE_STATUS_STAT_DEFINITIONS.map((item) => item.key))}>全选</button>
+                    <button type="button" onclick={() => onTempStatusAiStatKeysChange([])}>清空</button>
+                    <button type="button" onclick={() => onTempStatusAiStatKeysChange([...DEFAULT_STATUS_AI_STAT_KEYS])}>恢复默认</button>
+                </div>
+            </div>
+            <div class="status-stat-groups">
+                {#each statusStatGroups as group}
+                    <fieldset>
+                        <legend>{group.label}</legend>
+                        <div class="status-stat-options">
+                            {#each HOMEPAGE_STATUS_STAT_DEFINITIONS.filter((item) => item.group === group.key) as item}
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={tempStatusAiStatKeys.includes(item.key)}
+                                        onchange={(event) => setStatusStatSelected(item.key, (event.currentTarget as HTMLInputElement).checked)}
+                                    />
+                                    <span>{item.label}</span>
+                                </label>
+                            {/each}
+                        </div>
+                    </fieldset>
+                {/each}
+            </div>
+            <p>只会读取并发送已勾选的统计数字，不读取笔记正文。未勾选的数据不会进入 AI 请求。</p>
+        </div>
         <SettingRow title="返回字符上限" description={`限制最终显示长度，范围 ${MIN_STATUS_AI_MAX_CHARS}-${MAX_STATUS_AI_MAX_CHARS} 个字符`}>
             <input
                 type="number"
@@ -468,6 +527,10 @@
         </div>
     {/if}
 </SettingSection>
+
+{#if showStatusVariableReference}
+    <StatusVariableReferenceDialog onClose={() => showStatusVariableReference = false} />
+{/if}
 
 <style>
     .emoji-display-btn {
@@ -523,14 +586,9 @@
         margin-top: 2px;
         color: var(--b3-theme-primary);
     }
-    .help-link {
-        font-size: 12px;
-        color: var(--b3-theme-primary);
-        text-decoration: none;
-    }
-    .help-link:hover {
-        text-decoration: underline;
-    }
+    .status-secondary-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.45rem; }
+    .status-secondary-actions button, .status-secondary-button { padding: 0.35rem 0.65rem; border: 1px solid var(--b3-border-color); border-radius: 5px; background: var(--b3-theme-surface); color: var(--b3-theme-on-surface); font-size: 12px; cursor: pointer; }
+    .status-secondary-actions button:hover, .status-secondary-button:hover { border-color: var(--b3-theme-primary); color: var(--b3-theme-primary); background: var(--b3-list-hover); }
     .stats-textarea {
         width: 100%;
         margin-top: 0.5rem;
@@ -542,6 +600,8 @@
         font-size: 14px;
         resize: vertical;
     }
+    .stats-index-hint { margin: 0.4rem 0 0; color: var(--b3-theme-on-surface-light); font-size: 11px; line-height: 1.5; }
+    .ai-prompt-control { display: flex; width: 100%; flex-direction: column; align-items: flex-end; gap: 0.45rem; }
     .status-mode-switch {
         display: flex;
         flex-wrap: wrap;
@@ -599,6 +659,18 @@
         gap: 0.5rem;
         margin-top: 0.75rem;
     }
+    .status-stat-selector { margin-top: 0.75rem; padding: 0.75rem; border: 1px solid var(--b3-border-color); border-radius: 8px; }
+    .status-stat-selector-header, .status-stat-selector-header > div, .status-stat-actions { display: flex; align-items: center; gap: 0.5rem; }
+    .status-stat-selector-header { justify-content: space-between; flex-wrap: wrap; }
+    .status-stat-selector-header span, .status-stat-selector p { font-size: 12px; color: var(--b3-theme-on-surface-light); }
+    .status-stat-actions button { border: 1px solid var(--b3-border-color); border-radius: 5px; padding: 0.25rem 0.5rem; background: var(--b3-theme-surface); color: var(--b3-theme-on-surface); cursor: pointer; }
+    .status-stat-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; margin-top: 0.75rem; }
+    .status-stat-groups fieldset { min-width: 0; margin: 0; padding: 0.5rem; border: 1px solid var(--b3-border-color); border-radius: 6px; }
+    .status-stat-groups legend { padding: 0 0.25rem; font-size: 12px; font-weight: 600; }
+    .status-stat-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem; }
+    .status-stat-options label { display: flex; align-items: center; gap: 0.3rem; min-width: 0; font-size: 12px; cursor: pointer; }
+    .status-stat-options input { accent-color: var(--b3-theme-primary); }
+    @media (max-width: 760px) { .status-stat-groups { grid-template-columns: 1fr; } }
     .status-ai-note {
         display: flex;
         align-items: flex-start;

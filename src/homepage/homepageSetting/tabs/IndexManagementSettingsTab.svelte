@@ -22,6 +22,7 @@
     import {
         rebuildStatIndexFromGlobalSql,
         refreshStatIndexFromRecentDocuments,
+        getStatIndexStatus,
     } from "@/components/tools/statisticalAPI";
     import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
     import {
@@ -123,6 +124,14 @@
         let active = true;
         void (async () => {
             try {
+                const realStatStatus = await getStatIndexStatus();
+                if (!active) return;
+                statIndexStatus = {
+                    lastStatus: realStatStatus.status,
+                    lastRunAt: realStatStatus.updatedAt,
+                    lastMessage: `${realStatStatus.message} 文档贡献 ${realStatStatus.docsCount} 项。`,
+                    migratedCount: realStatStatus.docsCount,
+                };
                 const config = await loadEnhancedDiaryConfig(plugin);
                 const [diaryStatus, projectStatus, recordStatus] = await Promise.all([
                     getEnhancedDiaryIndexStatus(config.dailyNotebookId || ""),

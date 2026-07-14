@@ -2,14 +2,15 @@ import { getFileChecked, getTag, lsNotebooks, putFileChecked, sql } from "@/api"
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 import {
     prepareChangedRecentDocsForIndex,
-    readTaskIndexItems,
+    readTaskIndexSnapshot,
     runHomepageManualIndexSqlQuery,
     type ComponentDataMode,
     type ComponentRecentDocSnapshotDoc,
 } from "@/components/tools/siyuanComponentDataApi";
+import { parseTaskLine } from "@/components/utils/widgetBlock/widget/tasksPlus/tasksPlusParser";
 
 export interface StatisticalDataResult {
-    value: number | null;
+    value: number | string | null;
     status: "ok" | "empty" | "unsupported" | "error";
     message?: string;
     mode?: ComponentDataMode;
@@ -54,6 +55,7 @@ interface StatDocContribution {
     path?: string;
     hpath?: string;
     updated?: string;
+    created?: string;
     totals: StatTotals;
 }
 
@@ -61,20 +63,28 @@ interface StatDocContribution {
  * 统计索引文件结构。所有数字按文档汇总，不保留块级明细。
  */
 interface StatIndexPayload {
+    [key: string]: unknown;
     version: number;
+    complete: boolean;
     updatedAt: string;
     totals: StatTotals;
     docs: Record<string, StatDocContribution>;
+    firstBlockCreated?: string;
 }
 
 const COMPONENT_INDEX_DIR = "/data/storage/petal/siyuan-homepage";
 export const STAT_INDEX_PATH = `${COMPONENT_INDEX_DIR}/statistical-index.json`;
-const STAT_INDEX_VERSION = 1;
+export const STAT_INDEX_UPDATED_EVENT = "siyuan-homepage:stat-index-updated";
+export const STAT_INDEX_VERSION = 2;
 const STAT_REFRESH_TTL_MS = 2 * 60 * 1000;
 const STAT_REBUILD_PAGE_SIZE = 2000;
 const STAT_REBUILD_MAX_ROWS = 200000;
-const STAT_INDEX_EMPTY_MESSAGE = "统计索引为空，请到主页设置 > 检索管理中刷新增量索引或手动重建统计索引。";
+const STAT_INDEX_EMPTY_MESSAGE = "统计索引尚未完整建立，请到主页设置 → 检索管理 → 重建统计索引。";
 const statRefreshMemory = new Map<string, number>();
+let taskStatsPromise: Promise<Record<TaskStatKey, number> | null> | null = null;
+let ensureFirstBlockCreatedPromise: Promise<string> | null = null;
+let firstBlockCreatedPersisted = false;
+let firstBlockCreatedQueryPending = false;
 
 const STAT_KEYS: StatIndexKey[] = [
     "blocksCount",
@@ -115,6 +125,7 @@ function normalizeTotals(value: unknown): StatTotals {
 function emptyStatIndex(): StatIndexPayload {
     return {
         version: STAT_INDEX_VERSION,
+        complete: false,
         updatedAt: "",
         totals: emptyTotals(),
         docs: {},
@@ -156,30 +167,26 @@ async function fileContentToObject(raw: unknown): Promise<unknown> {
     return undefined;
 }
 
-async function readStatIndexWithMeta(): Promise<{ fileExists: boolean; payload: StatIndexPayload }> {
+async function readStatIndexWithMeta(): Promise<{ fileExists: boolean; invalid: boolean; payload: StatIndexPayload }> {
     try {
         const raw = await getFileChecked(STAT_INDEX_PATH);
         const parsed = await fileContentToObject(raw);
         if (parsed === undefined || parsed === null) {
-            return { fileExists: false, payload: emptyStatIndex() };
+            return { fileExists: false, invalid: false, payload: emptyStatIndex() };
         }
         const isLike = isStatIndexPayloadLike(parsed);
         return {
-            fileExists: isLike,
+            fileExists: true,
+            invalid: !isLike,
             payload: isLike ? normalizeStatIndex(parsed) : emptyStatIndex(),
         };
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (msg.includes("file does not exist") || msg.includes("404")) {
-            return { fileExists: false, payload: emptyStatIndex() };
+            return { fileExists: false, invalid: false, payload: emptyStatIndex() };
         }
         throw new Error(`读取统计索引失败：${msg}`);
     }
-}
-
-async function doesStatIndexFileExist(): Promise<boolean> {
-    const { fileExists } = await readStatIndexWithMeta();
-    return fileExists;
 }
 
 function normalizeContribution(value: unknown, fallbackId: string): StatDocContribution | null {
@@ -193,6 +200,7 @@ function normalizeContribution(value: unknown, fallbackId: string): StatDocContr
         path: typeof raw.path === "string" ? raw.path : "",
         hpath: typeof raw.hpath === "string" ? raw.hpath : "",
         updated: typeof raw.updated === "string" ? raw.updated : "",
+        created: normalizeCreated(raw.created),
         totals: normalizeTotals(raw.totals),
     };
 }
@@ -221,16 +229,14 @@ function normalizeStatIndex(value: unknown): StatIndexPayload {
         }
     }
     return {
+        ...raw,
         version: Number(raw.version) || STAT_INDEX_VERSION,
+        complete: Number(raw.version) === STAT_INDEX_VERSION && raw.complete === true,
         updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : "",
         totals: normalizeTotals(raw.totals),
         docs,
+        firstBlockCreated: normalizeCreated(raw.firstBlockCreated),
     };
-}
-
-async function readStatIndex(): Promise<StatIndexPayload> {
-    const { payload } = await readStatIndexWithMeta();
-    return payload;
 }
 
 async function writeStatIndex(payload: StatIndexPayload): Promise<void> {
@@ -241,8 +247,10 @@ async function writeStatIndex(payload: StatIndexPayload): Promise<void> {
     }
     await putFileChecked(STAT_INDEX_PATH, false, makeJsonBlob(payload));
 
-    const { fileExists } = await readStatIndexWithMeta();
-    if (!fileExists) {
+    const { fileExists, invalid, payload: saved } = await readStatIndexWithMeta();
+    if (!fileExists || invalid || saved.version !== payload.version || saved.complete !== payload.complete
+        || saved.updatedAt !== payload.updatedAt || Object.keys(saved.docs).length !== Object.keys(payload.docs).length
+        || normalizeCreated(saved.firstBlockCreated) !== normalizeCreated(payload.firstBlockCreated)) {
         throw new Error("统计索引写入后读回为空，请检查思源存储权限或 getFile/putFile 返回结构。");
     }
 }
@@ -275,7 +283,7 @@ function errorStat(message: string): StatisticalDataResult {
     };
 }
 
-function okStat(value: number, mode?: ComponentDataMode): StatisticalDataResult {
+function okStat(value: number | string, mode?: ComponentDataMode): StatisticalDataResult {
     return {
         value,
         status: "ok",
@@ -283,21 +291,155 @@ function okStat(value: number, mode?: ComponentDataMode): StatisticalDataResult 
     };
 }
 
-async function queryTaskIndexStat(type: "tasksCount" | "doneTasksCount" | "undoneTasksCount"): Promise<StatisticalDataResult> {
-    const rows = await readTaskIndexItems();
-    if (rows.length === 0) {
-        return emptyStat("任务索引为空，请到主页设置 > 检索管理中建立或刷新任务索引。");
-    }
-    if (type === "tasksCount") {
-        return okStat(rows.length, "index");
-    }
-    const value = rows.filter((row) => {
-        if (type === "doneTasksCount") {
-            return row.checked === true;
+type TaskStatKey = "tasksCount" | "doneTasksCount" | "undoneTasksCount" | "dueTodayTasksCount"
+    | "overdueTasksCount" | "highPriorityTasksCount" | "unscheduledTasksCount";
+
+function localDateString(date = new Date()): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function validLocalDate(value: string): string {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return "";
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return date.getFullYear() === Number(match[1])
+        && date.getMonth() === Number(match[2]) - 1
+        && date.getDate() === Number(match[3]) ? value : "";
+}
+
+async function readAllTaskStats(): Promise<Record<TaskStatKey, number> | null> {
+    if (taskStatsPromise) return taskStatsPromise;
+    const promise = (async () => {
+        const snapshot = await readTaskIndexSnapshot();
+        if (!snapshot.fileExists) return null;
+        const rows = snapshot.items;
+        const today = localDateString();
+        const result: Record<TaskStatKey, number> = {
+            tasksCount: rows.length,
+            doneTasksCount: 0,
+            undoneTasksCount: 0,
+            dueTodayTasksCount: 0,
+            overdueTasksCount: 0,
+            highPriorityTasksCount: 0,
+            unscheduledTasksCount: 0,
+        };
+        for (const row of rows) {
+            if (row.checked === true) {
+                result.doneTasksCount += 1;
+                continue;
+            }
+            if (row.checked !== false) continue;
+            result.undoneTasksCount += 1;
+            const parsed = parseTaskLine(row.markdown || row.content || "").parsed;
+            const deadline = validLocalDate(parsed.deadline);
+            if (deadline === today) result.dueTodayTasksCount += 1;
+            if (deadline && deadline < today) result.overdueTasksCount += 1;
+            if ((parsed.priority.match(/❗/g) || []).length >= 3) result.highPriorityTasksCount += 1;
+            if (!parsed.startDate && !parsed.deadline) result.unscheduledTasksCount += 1;
         }
-        return row.checked === false;
-    }).length;
-    return okStat(value, "index");
+        return result;
+    })();
+    taskStatsPromise = promise;
+    const clearPromise = () => setTimeout(() => {
+        if (taskStatsPromise === promise) taskStatsPromise = null;
+    }, 1000);
+    void promise.then(clearPromise, clearPromise);
+    return promise;
+}
+
+async function queryTaskIndexStat(type: TaskStatKey): Promise<StatisticalDataResult> {
+    const stats = await readAllTaskStats();
+    if (!stats) {
+        return emptyStat("任务索引尚未建立，请到主页设置 → 检索管理建立任务索引。");
+    }
+    return okStat(stats[type], "index");
+}
+
+function normalizeCreated(value: unknown): string {
+    const created = typeof value === "string" ? value.trim() : "";
+    return /^\d{8,14}$/.test(created) ? created : "";
+}
+
+async function queryEarliestBlockCreated(): Promise<string> {
+    const rows = await sql(`
+        SELECT created
+        FROM blocks
+        WHERE created IS NOT NULL
+          AND created <> ''
+          AND length(created) >= 8
+        ORDER BY created ASC, id ASC
+        LIMIT 1
+    `);
+    const firstRow = Array.isArray(rows) ? rows[0] as { created?: unknown } | undefined : undefined;
+    return normalizeCreated(firstRow?.created);
+}
+
+async function readStatIndexForFirstBlockCreated(): Promise<{ fileExists: boolean; invalid: boolean; payload: StatIndexPayload }> {
+    try {
+        return await readStatIndexWithMeta();
+    } catch {
+        throw new Error("统计索引损坏，无法读取或保存开始时间。请到主页设置 → 检索管理 → 重建统计索引。");
+    }
+}
+
+export async function ensureFirstBlockCreated(): Promise<string> {
+    const current = await readStatIndexForFirstBlockCreated();
+    if (current.invalid) {
+        throw new Error("统计索引损坏，无法保存开始时间。请到主页设置 → 检索管理 → 重建统计索引。");
+    }
+    const existing = normalizeCreated(current.payload.firstBlockCreated);
+    if (existing) {
+        firstBlockCreatedPersisted = true;
+        return existing;
+    }
+
+    if (!current.fileExists && firstBlockCreatedPersisted && !firstBlockCreatedQueryPending) {
+        ensureFirstBlockCreatedPromise = null;
+        firstBlockCreatedPersisted = false;
+    }
+    if (ensureFirstBlockCreatedPromise) return ensureFirstBlockCreatedPromise;
+
+    firstBlockCreatedQueryPending = true;
+    ensureFirstBlockCreatedPromise = (async () => {
+        const created = await queryEarliestBlockCreated();
+        if (!created) return "";
+
+        const latest = await readStatIndexForFirstBlockCreated();
+        if (latest.invalid) {
+            throw new Error("统计索引损坏，无法保存开始时间。请到主页设置 → 检索管理 → 重建统计索引。");
+        }
+        const latestCreated = normalizeCreated(latest.payload.firstBlockCreated);
+        if (latestCreated) {
+            firstBlockCreatedPersisted = true;
+            return latestCreated;
+        }
+
+        latest.payload.firstBlockCreated = created;
+        await writeStatIndex(latest.payload);
+        const verified = await readStatIndexForFirstBlockCreated();
+        if (verified.invalid || normalizeCreated(verified.payload.firstBlockCreated) !== created) {
+            throw new Error("开始时间写入统计索引后校验失败。");
+        }
+        firstBlockCreatedPersisted = true;
+        return created;
+    })().finally(() => {
+        firstBlockCreatedQueryPending = false;
+    });
+    return ensureFirstBlockCreatedPromise;
+}
+
+function getMinCreated(current: string | undefined, next: unknown): string {
+    const candidate = normalizeCreated(next);
+    if (!candidate) return current || "";
+    return !current || candidate < current ? candidate : current;
+}
+
+function formatCreatedDate(created: string): string {
+    return `${created.slice(0, 4)}年${created.slice(4, 6)}月${created.slice(6, 8)}日`;
+}
+
+function dispatchStatIndexUpdated(): void {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(STAT_INDEX_UPDATED_EVENT));
 }
 
 function getRootId(row: StatBlockRow): string {
@@ -381,11 +523,13 @@ function buildContributionFromRows(
         path: doc.path || firstRow.path || "",
         hpath: doc.hpath || getRowHpath(firstRow) || "",
         updated: doc.updated || firstRow.updated || "",
+        created: "",
         totals: emptyTotals(),
     };
     for (const row of rows) {
         applyRowToTotals(contribution.totals, row);
         contribution.updated = getMaxUpdated(contribution.updated, row.updated);
+        contribution.created = getMinCreated(contribution.created, row.created);
         if (!contribution.box && row.box) contribution.box = row.box;
         if (!contribution.path && row.path) contribution.path = row.path;
         if (!contribution.hpath) contribution.hpath = getRowHpath(row);
@@ -438,18 +582,28 @@ export async function refreshStatIndexFromRecentDocuments(
     void plugin;
     const now = new Date().toISOString();
     const ttlMs = options.ttlMs ?? STAT_REFRESH_TTL_MS;
-    const lastRunAt = statRefreshMemory.get("statistical") || 0;
-    if (!options.force && Date.now() - lastRunAt < ttlMs) {
-        return {
-            lastRunAt: now,
-            lastStatus: "success",
-            lastMessage: "统计索引最近已刷新，本次跳过重复刷新。",
-            migratedCount: 0,
-            skippedCount: 0,
-        };
-    }
 
     try {
+        const existing = await readStatIndexWithMeta();
+        if (!existing.fileExists || existing.payload.version !== STAT_INDEX_VERSION || existing.payload.complete !== true) {
+            return {
+                lastRunAt: now,
+                lastStatus: "idle",
+                lastMessage: STAT_INDEX_EMPTY_MESSAGE,
+                migratedCount: 0,
+                skippedCount: 0,
+            };
+        }
+        const lastRunAt = statRefreshMemory.get("statistical") || 0;
+        if (!options.force && Date.now() - lastRunAt < ttlMs) {
+            return {
+                lastRunAt: now,
+                lastStatus: "success",
+                lastMessage: "统计索引最近已刷新，本次跳过重复刷新。",
+                migratedCount: 0,
+                skippedCount: 0,
+            };
+        }
         const { changedDocs, commit } = await prepareChangedRecentDocsForIndex("statistical");
         if (changedDocs.length === 0) {
             const summary = await getStatIndexSummary();
@@ -466,8 +620,17 @@ export async function refreshStatIndexFromRecentDocuments(
             };
         }
 
-        const payload = await readStatIndex();
+        const payload = existing.payload;
         const { blocksByRoot, truncated } = await queryStatBlocksByRootIds(changedDocs.map((doc) => doc.id));
+        if (truncated) {
+            return {
+                lastRunAt: now,
+                lastStatus: "error",
+                lastMessage: "统计增量刷新达到单批安全上限，未写入不完整结果。",
+                migratedCount: 0,
+                skippedCount: changedDocs.length,
+            };
+        }
         let refreshedCount = 0;
         let removedCount = 0;
 
@@ -489,21 +652,21 @@ export async function refreshStatIndexFromRecentDocuments(
         }
 
         payload.version = STAT_INDEX_VERSION;
+        payload.complete = true;
         payload.updatedAt = now;
         await writeStatIndex(payload);
 
         await commit();
         const summary = await getStatIndexSummary();
         statRefreshMemory.set("statistical", Date.now());
+        dispatchStatIndexUpdated();
         const dataMessage = summary.fileExists && summary.hasData
             ? `当前 docs=${summary.docsCount}，blocks=${summary.totals.blocksCount}，words=${summary.totals.wordsCount}`
             : "当前没有可统计数据";
         return {
             lastRunAt: now,
             lastStatus: "success",
-            lastMessage: truncated
-                ? `统计增量刷新完成：更新 ${refreshedCount} 个文档（部分文档块数超过安全上限，已截断）；${dataMessage}。`
-                : `统计增量刷新完成：更新 ${refreshedCount} 个文档；${dataMessage}。`,
+            lastMessage: `统计增量刷新完成：更新 ${refreshedCount} 个文档；${dataMessage}。`,
             migratedCount: refreshedCount,
             skippedCount: 0,
             removedCount,
@@ -531,6 +694,7 @@ function addRowToRebuildIndex(payload: StatIndexPayload, row: StatBlockRow): boo
             path: row.path || "",
             hpath: getRowHpath(row),
             updated: row.updated || "",
+            created: "",
             totals: emptyTotals(),
         };
         payload.docs[rootId] = contribution;
@@ -542,6 +706,7 @@ function addRowToRebuildIndex(payload: StatIndexPayload, row: StatBlockRow): boo
         contribution.hpath = getRowHpath(row) || contribution.hpath || "";
     }
     contribution.updated = getMaxUpdated(contribution.updated, row.updated);
+    contribution.created = getMinCreated(contribution.created, row.created);
     applyRowToTotals(contribution.totals, row);
     applyRowToTotals(payload.totals, row);
     return true;
@@ -552,6 +717,16 @@ export async function rebuildStatIndexFromGlobalSql(plugin: any): Promise<Compon
     const now = new Date().toISOString();
 
     const payload = emptyStatIndex();
+    try {
+        const existing = await readStatIndexWithMeta();
+        if (!existing.invalid) {
+            const preservedCreated = normalizeCreated(existing.payload.firstBlockCreated)
+                || await ensureFirstBlockCreated();
+            if (preservedCreated) payload.firstBlockCreated = preservedCreated;
+        }
+    } catch {
+        // 开始时间元数据失败不阻止用户主动重建统计索引。
+    }
     let offset = 0;
     let scannedCount = 0;
     let writtenCount = 0;
@@ -591,11 +766,25 @@ export async function rebuildStatIndexFromGlobalSql(plugin: any): Promise<Compon
         offset += STAT_REBUILD_PAGE_SIZE;
     }
 
+    const reachedLimit = scannedCount >= STAT_REBUILD_MAX_ROWS;
     payload.updatedAt = now;
+    payload.complete = false;
 
     try {
         await writeStatIndex(payload);
+        if (!reachedLimit) {
+            payload.complete = true;
+            await writeStatIndex(payload);
+        }
     } catch (error) {
+        if (payload.complete) {
+            try {
+                payload.complete = false;
+                await writeStatIndex(payload);
+            } catch {
+                // 保留原始写入错误；已尽力将未校验索引降级为不完整。
+            }
+        }
         return {
             lastRunAt: now,
             lastStatus: "error",
@@ -628,11 +817,11 @@ export async function rebuildStatIndexFromGlobalSql(plugin: any): Promise<Compon
         };
     }
 
-    const reachedLimit = scannedCount >= STAT_REBUILD_MAX_ROWS;
     if (!summary.hasData) {
+        if (!reachedLimit && summary.complete) dispatchStatIndexUpdated();
         return {
             lastRunAt: now,
-            lastStatus: "success",
+            lastStatus: reachedLimit ? "error" : "success",
             lastMessage: reachedLimit
                 ? `统计索引重建达到 ${STAT_REBUILD_MAX_ROWS} 条上限，但没有可统计数据。`
                 : "统计索引重建完成：没有可统计数据。",
@@ -640,9 +829,10 @@ export async function rebuildStatIndexFromGlobalSql(plugin: any): Promise<Compon
             skippedCount: 0,
         };
     }
+    if (!reachedLimit && summary.complete) dispatchStatIndexUpdated();
     return {
         lastRunAt: now,
-        lastStatus: "success",
+        lastStatus: reachedLimit ? "error" : "success",
         lastMessage: reachedLimit
             ? `统计索引重建达到 ${STAT_REBUILD_MAX_ROWS} 条上限；当前 docs=${summary.docsCount}，blocks=${summary.totals.blocksCount}，words=${summary.totals.wordsCount}。`
             : `统计索引重建完成：docs=${summary.docsCount}，blocks=${summary.totals.blocksCount}，words=${summary.totals.wordsCount}。`,
@@ -661,42 +851,69 @@ export interface StatIndexSummary {
     updatedAt?: string;
     docsCount: number;
     totals: StatTotals;
-}
-
-/**
- * 统计索引前台自动初始化：仅在 statistical-index.json 不存在时执行一次全量重建。
- * 后续组件加载/刷新应使用 refreshStatIndexFromRecentDocuments 做增量刷新。
- */
-export async function ensureStatIndexInitialized(
-    plugin: any,
-): Promise<{ initialized: boolean; status: ComponentMigrationStatus }> {
-    if (await doesStatIndexFileExist()) {
-        return { initialized: false, status: { lastStatus: "idle" } };
-    }
-    const status = await rebuildStatIndexFromGlobalSql(plugin);
-    return { initialized: status.lastStatus === "success", status };
+    version: number;
+    complete: boolean;
+    invalid: boolean;
 }
 
 export async function getStatIndexSummary(): Promise<StatIndexSummary> {
-    const { fileExists, payload } = await readStatIndexWithMeta();
+    const { fileExists, invalid, payload } = await readStatIndexWithMeta();
     return {
         fileExists,
         hasData: statIndexHasData(payload),
         updatedAt: payload.updatedAt || undefined,
         docsCount: Object.keys(payload.docs).length,
         totals: payload.totals,
+        version: payload.version,
+        complete: payload.complete,
+        invalid,
     };
 }
 
+export interface StatIndexStatus extends StatIndexSummary {
+    status: "success" | "idle" | "error";
+    message: string;
+}
+
+export async function getStatIndexStatus(): Promise<StatIndexStatus> {
+    try {
+        const summary = await getStatIndexSummary();
+        if (summary.invalid) return { ...summary, status: "error", message: "统计索引损坏，请重建统计索引。" };
+        if (!summary.fileExists) return { ...summary, status: "idle", message: "统计索引尚未建立。" };
+        if (summary.version !== STAT_INDEX_VERSION) return { ...summary, status: "idle", message: "统计索引版本较旧，请重建统计索引。" };
+        if (!summary.complete) return { ...summary, status: "idle", message: "统计索引不完整，请执行全量重建。" };
+        return { ...summary, status: "success", message: "统计索引完整可用。" };
+    } catch (error) {
+        const totals = emptyTotals();
+        return {
+            fileExists: true, hasData: false, docsCount: 0, totals,
+            version: 0, complete: false, invalid: true, status: "error",
+            message: error instanceof Error ? error.message : "统计索引损坏。",
+        };
+    }
+}
+
 async function queryStatIndexStat(type: StatIndexKey): Promise<StatisticalDataResult> {
-    const { fileExists, payload } = await readStatIndexWithMeta();
+    const { fileExists, invalid, payload } = await readStatIndexWithMeta();
     if (!fileExists) {
-        return errorStat("统计索引不存在，正在或需要初始化/重建。");
+        return emptyStat("统计索引尚未建立。请到主页设置 → 检索管理 → 重建统计索引。");
     }
-    if (!statIndexHasData(payload)) {
-        return emptyStat(STAT_INDEX_EMPTY_MESSAGE);
+    if (invalid) return errorStat("统计索引损坏。");
+    if (payload.version !== STAT_INDEX_VERSION || payload.complete !== true) {
+        return emptyStat("统计索引需要重建。请到主页设置 → 检索管理 → 重建统计索引。");
     }
-    return okStat(payload.totals[type] || 0, "index");
+    return okStat(payload.totals[type] ?? 0, "index");
+}
+
+async function queryStartDate(): Promise<StatisticalDataResult> {
+    try {
+        const created = await ensureFirstBlockCreated();
+        return created
+            ? okStat(formatCreatedDate(created), "index")
+            : emptyStat("未检测到可用的开始时间。");
+    } catch (error) {
+        return errorStat(error instanceof Error ? error.message : "开始时间读取失败。");
+    }
 }
 
 export async function getStatisticalData(statisticalType: string, plugin: any): Promise<StatisticalDataResult> {
@@ -710,14 +927,13 @@ export async function getStatisticalData(statisticalType: string, plugin: any): 
             const tags = await getTag(1, true, "statisticalCard");
             return okStat(tags.length, "official_api");
         }
-        if (statisticalType === "tasksCount") {
-            return queryTaskIndexStat("tasksCount");
-        }
-        if (statisticalType === "doneTasksCount") {
-            return queryTaskIndexStat("doneTasksCount");
-        }
-        if (statisticalType === "undoneTasksCount") {
-            return queryTaskIndexStat("undoneTasksCount");
+        if (statisticalType === "startDate") return queryStartDate();
+        const taskStatKeys: TaskStatKey[] = [
+            "tasksCount", "doneTasksCount", "undoneTasksCount", "dueTodayTasksCount",
+            "overdueTasksCount", "highPriorityTasksCount", "unscheduledTasksCount",
+        ];
+        if (taskStatKeys.includes(statisticalType as TaskStatKey)) {
+            return queryTaskIndexStat(statisticalType as TaskStatKey);
         }
         if (STAT_KEYS.includes(statisticalType as StatIndexKey)) {
             return queryStatIndexStat(statisticalType as StatIndexKey);

@@ -1,4 +1,19 @@
-import { getStatisticalData } from "../../components/tools/statisticalAPI";
+import {
+    getStatisticalData,
+    refreshStatIndexFromRecentDocuments,
+    type StatisticalDataResult,
+} from "../../components/tools/statisticalAPI";
+
+let prepareStatisticsPromise: Promise<void> | null = null;
+
+export async function prepareHomepageStatistics(plugin: any): Promise<void> {
+    if (!prepareStatisticsPromise) {
+        prepareStatisticsPromise = refreshStatIndexFromRecentDocuments(plugin)
+            .then(() => undefined)
+            .finally(() => { prepareStatisticsPromise = null; });
+    }
+    await prepareStatisticsPromise;
+}
 
 function parseDateToTimestamp(dateStr: string): number | null {
     if (!dateStr || typeof dateStr !== "string") return null;
@@ -82,58 +97,28 @@ export async function parseDurationExpression(expression: string, plugin: any) {
     return `${years}年同${months}月同${days}日同${hours}时同${minutes}分同${seconds}秒`;
 }
 
-export async function loadStatsData(statisticalContent: string, plugin: any) {
+function nowDateResult(): StatisticalDataResult {
+    const today = new Date();
+    const year = String(today.getFullYear());
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const hours = String(today.getHours()).padStart(2, '0');
+    const minutes = String(today.getMinutes()).padStart(2, '0');
+    const seconds = String(today.getSeconds()).padStart(2, '0');
+    return { value: `${year}年${month}月${day}日 ${hours}:${minutes}:${seconds}`, status: "ok" };
+}
+
+export async function loadStatsDataResult(statisticalContent: string, plugin: any): Promise<StatisticalDataResult> {
     try {
-        let res: any;
-        const loadStatValue = async (type: string) => {
-            const result = await getStatisticalData(type, plugin);
-            return result.value ?? "已停用全库统计";
-        };
-
-        if (statisticalContent === "startDate") { // 获取第一个文档的创建时间
-            res = "未知";
-        } else if (statisticalContent === "nowDate") { // 获取当前日期时间
-            const today = new Date();
-            const year = String(today.getFullYear());
-            const month = String(today.getMonth() + 1).padStart(2, '0');
-            const day = String(today.getDate()).padStart(2, '0');
-            const hours = String(today.getHours()).padStart(2, '0');
-            const minutes = String(today.getMinutes()).padStart(2, '0');
-            const seconds = String(today.getSeconds()).padStart(2, '0');
-            const nowDate = `${year}年${month}月${day}日 ${hours}:${minutes}:${seconds}`;
-            res = nowDate;
-        } else if (statisticalContent === "docsCount") { // 获取文档数量
-            res = await loadStatValue("docsCount");
-        } else if (statisticalContent === "notebooksCount") { // 获取笔记本数量
-            res = await loadStatValue("notebooksCount");
-        } else if (statisticalContent === "blocksCount") { // 获取块数量
-            res = await loadStatValue("blocksCount");
-        } else if (statisticalContent === "wordsCount") { // 获取字数量
-            res = await loadStatValue("wordsCount");
-        } else if (statisticalContent === "tasksCount") { // 获取任务数量
-            res = await loadStatValue("tasksCount");
-        } else if (statisticalContent === "doneTasksCount") { // 获取已完成任务数量
-            res = await loadStatValue("doneTasksCount");
-        } else if (statisticalContent === "undoneTasksCount") { // 获取未完成任务数量
-            res = await loadStatValue("undoneTasksCount");
-        } else if (statisticalContent === "dailynotesCount") { // 获取日记数量
-            res = await loadStatValue("dailynotesCount");
-        } else if (statisticalContent === "tagsCount") { // 获取标签数量
-            res = await loadStatValue("tagsCount");
-        } else if (statisticalContent === "codeBlocksCount") { // 获取代码块数量
-            res = await loadStatValue("codeBlocksCount");
-        } else if (statisticalContent === "mathBlocksCount") { // 获取数学块数量
-            res = await loadStatValue("mathBlocksCount");
-        } else if (statisticalContent === "citationCount") { // 获取引用数量
-            res = await loadStatValue("citationCount");
-        } else {
-            res = "未知";
-        }
-
-        return res;
+        if (statisticalContent === "nowDate") return nowDateResult();
+        return await getStatisticalData(statisticalContent, plugin);
     } catch (error) {
         console.error("Failed to load stats data:", error);
-        return "未知";
+        return { value: null, status: "error", message: error instanceof Error ? error.message : "统计读取失败" };
     }
+}
 
+export async function loadStatsData(statisticalContent: string, plugin: any): Promise<string> {
+    const result = await loadStatsDataResult(statisticalContent, plugin);
+    return result.status === "ok" && result.value !== null ? String(result.value) : "暂无数据";
 }

@@ -1,10 +1,10 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import {
-        ensureStatIndexInitialized,
         getStatisticalData,
         refreshStatIndexFromRecentDocuments,
+        STAT_INDEX_UPDATED_EVENT,
     } from "../../../../tools/statisticalAPI";
     import { sql } from "@/api";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
@@ -34,6 +34,7 @@
     let statisticalStatus = $state<"ok" | "empty" | "unsupported" | "error">("empty");
     let statisticalMessage = $state("");
     let isInitializing = $state(false);
+    let destroyed = false;
 
     let advancedEnabled = $state(false);
 
@@ -45,7 +46,7 @@
             statisticalCardContent,
             plugin,
         );
-        statisticalCount = result.value;
+        statisticalCount = typeof result.value === "number" ? result.value : null;
         statisticalStatus = result.status;
         statisticalMessage = result.message || "";
     }
@@ -72,15 +73,8 @@
             }
         } else {
             isInitializing = true;
-            statisticalMessage = "正在初始化统计索引...";
+            statisticalMessage = "正在读取统计索引...";
             try {
-                const initResult = await ensureStatIndexInitialized(plugin);
-                if (initResult.status.lastStatus === "error") {
-                    statisticalCount = null;
-                    statisticalStatus = "error";
-                    statisticalMessage = `${initResult.status.lastMessage || "统计索引初始化失败"}，请到主页设置 > 检索管理中手动重建索引。`;
-                    return;
-                }
                 await loadStatisticalData();
             } catch (error) {
                 statisticalCount = null;
@@ -90,6 +84,16 @@
                 isInitializing = false;
             }
         }
+        if (!destroyed) window.addEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
+    });
+
+    function handleStatIndexUpdated(): void {
+        if (statisticalCardContent !== "customSQLCount") void loadStatisticalData();
+    }
+
+    onDestroy(() => {
+        destroyed = true;
+        window.removeEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
     });
 </script>
 
@@ -106,16 +110,22 @@
         <div class="card-body">
             {#if isInitializing}
                 <div class="statistical-disabled">
-                    <strong>正在初始化统计索引...</strong>
+                    <strong>正在读取统计索引...</strong>
                 </div>
             {:else if statisticalCount === null}
                 <div class="statistical-disabled">
                     <strong>
-                        {statisticalStatus === "empty"
+                        {statisticalCardContent === "customSQLCount" && statisticalStatus === "empty"
                             ? "未配置 SQL"
+                            : statisticalStatus === "empty" && statisticalMessage.includes("需要重建")
+                                ? "统计索引需要重建"
+                                : statisticalStatus === "empty" && statisticalMessage.includes("尚未建立")
+                                    ? "统计索引尚未建立"
+                                    : statisticalStatus === "empty"
+                                        ? "暂无统计数据"
                             : statisticalStatus === "error"
                                 ? "统计索引错误"
-                                : "统计索引为空"}
+                                : "暂无统计数据"}
                     </strong>
                     {#if statisticalMessage}
                         <span>{statisticalMessage}</span>

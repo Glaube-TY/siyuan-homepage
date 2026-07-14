@@ -54,11 +54,15 @@
     import {
         DEFAULT_STATUS_AI_MAX_CHARS,
         DEFAULT_STATUS_AI_PROMPT,
+        DEFAULT_STATUS_AI_STAT_KEYS,
         normalizeHomepageStatusTextMode,
+        normalizeStatsInfoText,
         normalizeStatusAiMaxChars,
         normalizeStatusAiModelId,
         normalizeStatusAiPrompt,
         normalizeStatusAiThinkingEnabled,
+        normalizeStatusAiStatKeys,
+        type HomepageStatusStatKey,
         type HomepageStatusTextMode,
     } from "../status-text-config";
     import {
@@ -133,6 +137,7 @@
     let tempStatusAiProviderId = $state("");
     let tempStatusAiModelId = $state("");
     let tempStatusAiThinkingEnabled = $state(false);
+    let tempStatusAiStatKeys = $state<HomepageStatusStatKey[]>([...DEFAULT_STATUS_AI_STAT_KEYS]);
     let statusAiModelOptions: ChatModelOption[] = $state([]);
     let statusAiAvailableModelCount = $state(0);
     let statusAiSelectedModelLabel = $state("");
@@ -184,6 +189,7 @@
             statusAiProviderId: normalizeStatusAiModelId(tempStatusAiProviderId),
             statusAiModelId: normalizeStatusAiModelId(tempStatusAiModelId),
             statusAiThinkingEnabled: normalizeStatusAiThinkingEnabled(tempStatusAiThinkingEnabled),
+            statusAiStatKeys: normalizeStatusAiStatKeys(tempStatusAiStatKeys),
             selectionAiToolbar: normalizeSelectionAiToolbarSettings(selectionAiToolbar),
         } as HomepageSettingConfig);
         setSelectionAiToolbarSettingsSnapshot(normalizeSelectionAiToolbarSettings(selectionAiToolbar));
@@ -540,13 +546,14 @@
             tempBannerGlassColor = normalizeBannerGlassColor(savedConfig.bannerGlassColor);
             tempBannerGlassOpacity = normalizeBannerGlassOpacity(savedConfig.bannerGlassOpacity);
             tempBannerGlassBlur = normalizeBannerGlassBlur(savedConfig.bannerGlassBlur);
-            tempStatsInfoText = savedConfig.statsInfoText || "自{{startDate}} 写下第一条笔记以来，你已累计记录笔记 {{blocksCount}} 条。\n当前共有 {{notebooksCount}} 个笔记本和 {{docsCount}} 篇笔记。\n感谢自己的坚持！❤";
+            tempStatsInfoText = normalizeStatsInfoText(savedConfig.statsInfoText);
             tempStatusTextMode = normalizeHomepageStatusTextMode(savedConfig.statusTextMode);
             tempStatusAiPrompt = normalizeStatusAiPrompt(savedConfig.statusAiPrompt);
             tempStatusAiMaxChars = normalizeStatusAiMaxChars(savedConfig.statusAiMaxChars);
             tempStatusAiProviderId = normalizeStatusAiModelId(savedConfig.statusAiProviderId);
             tempStatusAiModelId = normalizeStatusAiModelId(savedConfig.statusAiModelId);
             tempStatusAiThinkingEnabled = normalizeStatusAiThinkingEnabled(savedConfig.statusAiThinkingEnabled);
+            tempStatusAiStatKeys = normalizeStatusAiStatKeys(savedConfig.statusAiStatKeys);
 
             // 恢复按钮配置
             if (savedConfig.buttonsList) {
@@ -1097,6 +1104,7 @@
             statusAiProviderId: normalizeStatusAiModelId(tempStatusAiProviderId),
             statusAiModelId: normalizeStatusAiModelId(tempStatusAiModelId),
             statusAiThinkingEnabled: normalizeStatusAiThinkingEnabled(tempStatusAiThinkingEnabled),
+            statusAiStatKeys: normalizeStatusAiStatKeys(tempStatusAiStatKeys),
 
             // 按钮配置
             buttonsList: buttonsList.map((item) => ({
@@ -1354,6 +1362,7 @@
                             tempStatusTextMode={tempStatusTextMode}
                             tempStatusAiPrompt={tempStatusAiPrompt}
                             tempStatusAiMaxChars={tempStatusAiMaxChars}
+                            tempStatusAiStatKeys={tempStatusAiStatKeys}
                             tempBannerEnabled={tempBannerEnabled}
                             tempBannerTitleIntegrated={tempBannerTitleIntegrated}
                             tempHomepageTitleAlign={tempHomepageTitleAlign}
@@ -1379,6 +1388,7 @@
                             onTempStatusTextModeChange={handleStatusTextModeChange}
                             onTempStatusAiPromptChange={(value) => tempStatusAiPrompt = value}
                             onTempStatusAiMaxCharsChange={(value) => tempStatusAiMaxChars = value}
+                            onTempStatusAiStatKeysChange={(value) => tempStatusAiStatKeys = normalizeStatusAiStatKeys(value)}
                             onTempBannerTitleIntegratedChange={(value) => tempBannerTitleIntegrated = tempBannerEnabled && value}
                             onTempHomepageTitleAlignChange={(value) => tempHomepageTitleAlign = normalizeHomepageTitleAlign(value)}
                             onTempQuickButtonStyleChange={(value) => tempQuickButtonStyle = normalizeQuickButtonStyle(value)}
