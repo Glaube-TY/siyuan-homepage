@@ -35,6 +35,7 @@
     let content = $state("");
     let customCategory = $state("");
     let tagsText = $state("");
+    let projectAssociationEnabled = $state(false);
     let projectTargetId = $state("");
     let isKeyRecord = $state(false);
     let projectIndex = $state<EnhancedDiaryProjectIndexPayload | null>(null);
@@ -47,6 +48,14 @@
         } else {
             categoryTitle = cat;
             customCategory = "";
+        }
+    }
+
+    function handleProjectAssociationChange(event: Event): void {
+        projectAssociationEnabled = (event.currentTarget as HTMLInputElement).checked;
+        if (!projectAssociationEnabled) {
+            projectTargetId = "";
+            isKeyRecord = false;
         }
     }
 
@@ -74,6 +83,7 @@
         content = initialContent;
         tagsText = initialTags.join(" ");
         projectTargetId = initialProjectTargetId;
+        projectAssociationEnabled = !!projectTargetId;
         isKeyRecord = !!initialProjectTargetId && initialIsKeyRecord;
         if (isEnhancedDiaryProjectStorageReady(projectStorage)) {
             loadEnhancedDiaryProjectIndexForWorkspace(projectStorage!).then((value) => {
@@ -81,6 +91,7 @@
                 if (mode === "create" && projectTargetId &&
                     !isEnhancedDiaryProjectEffectivelyActive(value, projectTargetId)) {
                     projectTargetId = "";
+                    projectAssociationEnabled = false;
                 }
             });
         }
@@ -121,14 +132,22 @@
 
     <div class="panel-section metadata-section">
         <label><span class="section-label">标签</span><input class="custom-category-input no-margin" bind:value={tagsText} placeholder="空格或逗号分隔" /></label>
-        <div><div class="section-label">关联项目</div>
-            {#if projectIndex}<WorkspaceProjectPicker index={projectIndex} value={projectTargetId} preserveSelected={mode === "edit"} onChange={(id) => (projectTargetId = id)} />
-            {:else}<small>请先配置项目位置，或稍候项目树加载。</small>{/if}
+        <div class="project-association-block">
+            <label class="project-association-toggle">
+                <input type="checkbox" checked={projectAssociationEnabled} onchange={handleProjectAssociationChange} />
+                <span>关联项目<small>勾选后选择具体项目</small></span>
+            </label>
+            {#if projectAssociationEnabled}
+                <div class="project-picker-slot">
+                    {#if projectIndex}<WorkspaceProjectPicker index={projectIndex} value={projectTargetId} allowClear={false} preserveSelected={mode === "edit"} onChange={(id) => (projectTargetId = id)} />
+                    {:else}<small>请先配置项目位置，或稍候项目树加载。</small>{/if}
+                </div>
+                <label class="key-record-row" class:disabled={!projectTargetId}>
+                    <input type="checkbox" bind:checked={isKeyRecord} disabled={!projectTargetId} />
+                    <span>设为关键记录<small>{projectTargetId ? "会在项目工作台重点展示" : "选择具体项目后，可以将记录设为关键记录"}</small></span>
+                </label>
+            {/if}
         </div>
-        <label class="key-record-row" class:disabled={!projectTargetId}>
-            <input type="checkbox" bind:checked={isKeyRecord} disabled={!projectTargetId} />
-            <span>设为关键记录<small>{projectTargetId ? "会在项目工作台重点展示" : "关联项目后，可以将记录设为关键记录"}</small></span>
-        </label>
     </div>
 
     <div class="panel-footer">
@@ -185,6 +204,12 @@
     .metadata-section label { display: grid; gap: 6px; }
     .metadata-section .section-label { margin-bottom: 0; }
     .metadata-section small { color: var(--wk-ink-muted); }
+    .project-association-block { display: grid; gap: 10px; }
+    .project-association-toggle { grid-template-columns: auto minmax(0, 1fr); align-items: start; color: var(--wk-ink-secondary); cursor: pointer; }
+    .project-association-toggle input { margin: 2px 0 0; accent-color: var(--wk-primary); }
+    .project-association-toggle span { display: grid; gap: 2px; font-size: var(--wk-text-sm); font-weight: 600; }
+    .project-association-toggle small { color: var(--wk-ink-faint); font-size: var(--wk-text-xs); font-weight: 400; }
+    .project-picker-slot { display: grid; gap: 8px; }
     .key-record-row { grid-template-columns: auto 1fr !important; align-items: start; }
     .key-record-row span { display: grid; gap: 2px; }
     .key-record-row.disabled { opacity: .6; }

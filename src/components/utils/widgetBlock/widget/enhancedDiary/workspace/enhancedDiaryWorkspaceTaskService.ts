@@ -23,7 +23,8 @@ import { getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
 import { readDiaryMarkdownResult } from "../enhancedDiaryDoc";
 import { formatDiaryDate, isEnhancedDiarySystemTaskMarkdown } from "../enhancedDiaryUtils";
 import { getDayWorkspaceSections } from "../enhancedDiaryWorkspaceSections";
-import { addDays, daysBetweenLocalDates, formatLocalDate } from "./enhancedDiaryWorkspaceDate";
+import { addDays, formatLocalDate } from "./enhancedDiaryWorkspaceDate";
+import { deriveWorkspaceTaskScheduleFlags } from "./enhancedDiaryWorkspaceTaskModel";
 import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
 import {
     getTaskIndexResult,
@@ -262,20 +263,15 @@ export async function queryWorkspaceTasks(
         }
 
         const completed = isTaskCompleted(parsed.taskCheck);
-        const isTodayTask =
-            parsed.parsed.startDate === todayStr ||
-            parsed.parsed.deadline === todayStr ||
-            sourceKind === "new" ||
-            sourceKind === "migrated";
-        const isOverdue =
-            !completed &&
-            !!parsed.parsed.deadline &&
-            parsed.parsed.deadline < todayStr;
-        const shouldMigrate =
-            !completed &&
-            sourceKind === "normal" &&
-            !!sourceDate &&
-            daysBetweenLocalDates(sourceDate, todayStr) > config.taskMigrationReminderDays;
+        const { isTodayTask, isOverdue, shouldMigrate } = deriveWorkspaceTaskScheduleFlags({
+            startDate: parsed.parsed.startDate,
+            deadline: parsed.parsed.deadline,
+            completed,
+            sourceKind,
+            sourceDate,
+            today: todayStr,
+            migrationReminderDays: config.taskMigrationReminderDays,
+        });
         const relation = resolveProjectRelation(projectIndex, taskAttrs?.[row.id] || {}, markdown);
 
         return {

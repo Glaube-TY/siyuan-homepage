@@ -1,7 +1,7 @@
 import { batchGetBlockAttrs, getChildBlocksChecked, getFile, putFileChecked } from "@/api";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 import { prepareChangedRecentDocsForIndex } from "@/components/tools/siyuanComponentDataApi";
-import type { EnhancedDiaryProjectStorageConfig } from "./enhancedDiaryTypes";
+import { isEnhancedDiaryProjectStorageReady, type EnhancedDiaryProjectStorageConfig } from "./enhancedDiaryTypes";
 import {
     ENHANCED_DIARY_PROJECT_INDEX_PATH,
     getEnhancedDiaryProjectContainerSignature,
@@ -59,7 +59,16 @@ async function fileToObject(raw: any): Promise<any | undefined> {
 function isIndex(value: any): value is EnhancedDiaryProjectIndexPayload {
     return !!value && value.version === INDEX_VERSION && typeof value.updatedAt === "string" &&
         typeof value.containerSignature === "string" && typeof value.complete === "boolean" &&
-        !!value.roots && typeof value.roots === "object" && !!value.nodes && typeof value.nodes === "object";
+        !!value.roots && typeof value.roots === "object" && !Array.isArray(value.roots) &&
+        !!value.nodes && typeof value.nodes === "object" && !Array.isArray(value.nodes);
+}
+
+function hasIndexFileResponse(raw: any): boolean {
+    if (raw == null) return false;
+    if (typeof raw === "object" && typeof raw.code === "number") {
+        return raw.code === 0 && raw.data != null;
+    }
+    return true;
 }
 
 function normalizeIndexLifecycle(index: EnhancedDiaryProjectIndexPayload): EnhancedDiaryProjectIndexPayload {
@@ -93,6 +102,28 @@ export async function readEnhancedDiaryProjectIndex(
     if (!isIndex(parsed) || parsed.containerSignature !== signature) return emptyIndex(storage);
     cache = normalizeIndexLifecycle(parsed);
     return cache;
+}
+
+export async function getEnhancedDiaryProjectIndexStatus(
+    storage: EnhancedDiaryProjectStorageConfig,
+): Promise<ComponentMigrationStatus> {
+    if (!isEnhancedDiaryProjectStorageReady(storage)) return { lastStatus: "idle", lastMessage: "尚未配置项目存储位置。" };
+    try {
+        const raw = await getFile(ENHANCED_DIARY_PROJECT_INDEX_PATH);
+        if (!hasIndexFileResponse(raw)) return { lastStatus: "idle", lastMessage: "项目索引尚未建立。" };
+        const parsed = await fileToObject(raw);
+        if (!isIndex(parsed)) return { lastStatus: "error", lastMessage: "项目索引文件损坏或版本无效，请重建。" };
+        if (parsed.containerSignature !== getEnhancedDiaryProjectContainerSignature(storage)) {
+            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "项目存储位置已变化，需要重建项目索引。" };
+        }
+        const migratedCount = Object.keys(parsed.roots).length + Object.keys(parsed.nodes).length;
+        if (!parsed.complete) {
+            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "项目索引尚未完整，请重建。", migratedCount };
+        }
+        return { lastRunAt: parsed.updatedAt, lastStatus: "success", lastMessage: `项目索引完整，共 ${migratedCount} 个项目。`, migratedCount };
+    } catch (error) {
+        return { lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目索引状态读取失败。" };
+    }
 }
 
 function headingLevel(row: any): 1 | 2 | 3 | 4 | 5 | 6 | null {

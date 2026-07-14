@@ -11,6 +11,7 @@ import {
     type EnhancedDiaryWorkspaceCalendarSettings,
     type EnhancedDiaryWorkspaceModules,
     type EnhancedDiaryWorkspaceSettings,
+    type EnhancedDiaryWorkspaceTaskSettings,
     type EnhancedDiaryTemplateMap,
     type EnhancedDiaryProjectStorageConfig,
 } from "./enhancedDiaryTypes";
@@ -116,18 +117,38 @@ function normalizeWorkspaceModules(raw: unknown): EnhancedDiaryWorkspaceModules 
     };
 }
 
+function normalizeWorkspaceTaskSettings(raw: unknown): EnhancedDiaryWorkspaceTaskSettings {
+    const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.tasks;
+    if (!isRecord(raw)) return { ...defaults };
+    const views = ["list", "kanban", "agenda", "calendar", "timeline", "gantt", "matrix", "analytics"];
+    const scopes = ["active", "completed", "all"];
+    const sorts = ["smart", "deadline", "start", "priority", "risk", "source", "name"];
+    const urgency = typeof raw.matrixUrgencyDays === "number" ? raw.matrixUrgencyDays : Number(raw.matrixUrgencyDays);
+    return {
+        defaultView: views.includes(String(raw.defaultView)) ? raw.defaultView as EnhancedDiaryWorkspaceTaskSettings["defaultView"] : defaults.defaultView,
+        defaultCompletionScope: scopes.includes(String(raw.defaultCompletionScope)) ? raw.defaultCompletionScope as EnhancedDiaryWorkspaceTaskSettings["defaultCompletionScope"] : defaults.defaultCompletionScope,
+        defaultSort: sorts.includes(String(raw.defaultSort)) ? raw.defaultSort as EnhancedDiaryWorkspaceTaskSettings["defaultSort"] : defaults.defaultSort,
+        showCompletedInCalendar: normalizeBoolean(raw.showCompletedInCalendar, defaults.showCompletedInCalendar),
+        weekStartDay: raw.weekStartDay === 0 ? 0 : 1,
+        matrixImportanceThreshold: raw.matrixImportanceThreshold === 2 || raw.matrixImportanceThreshold === 4 ? raw.matrixImportanceThreshold : 3,
+        matrixUrgencyDays: Number.isFinite(urgency) ? Math.min(30, Math.max(1, Math.floor(urgency))) : defaults.matrixUrgencyDays,
+    };
+}
+
 function normalizeWorkspaceSettings(raw: unknown): EnhancedDiaryWorkspaceSettings {
     const defaults = DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings;
     if (!isRecord(raw)) {
         return {
             calendar: { ...defaults.calendar },
             modules: { ...defaults.modules },
+            tasks: { ...defaults.tasks },
         };
     }
 
     return {
         calendar: normalizeWorkspaceCalendarSettings(raw.calendar),
         modules: normalizeWorkspaceModules(raw.modules),
+        tasks: normalizeWorkspaceTaskSettings(raw.tasks),
     };
 }
 
@@ -324,6 +345,7 @@ export function normalizeEnhancedDiaryConfig(input: unknown): EnhancedDiaryConfi
             workspaceSettings: {
                 calendar: { ...DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.calendar },
                 modules: { ...DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.modules },
+                tasks: { ...DEFAULT_ENHANCED_DIARY_CONFIG.workspaceSettings.tasks },
             },
             recordCategorySuggestions: [...DEFAULT_ENHANCED_DIARY_CONFIG.recordCategorySuggestions],
             reviewReminderWindows: { ...DEFAULT_ENHANCED_DIARY_CONFIG.reviewReminderWindows },

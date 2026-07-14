@@ -1,4 +1,4 @@
-import { generateVisibleProjectReference, parseVisibleProjectTargetId } from "../enhancedDiary/workspace/enhancedDiaryWorkspaceProjectRelation";
+import { generateVisibleProjectReference, parseVisibleProjectTargetId } from "../enhancedDiary/workspace/enhancedDiaryWorkspaceProjectReference";
 
 export interface ParsedTasksPlusMeta {
     deadline: string;
@@ -9,6 +9,7 @@ export interface ParsedTasksPlusMeta {
     location: string;
     tags: string[];
     visibleProjectTargetId?: string;
+    visibleProjectReference?: string;
 }
 
 export interface ParsedTasksPlusTask {
@@ -31,13 +32,17 @@ export interface GenerateTasksPlusTaskInput {
     taskCheck?: string;
     projectTargetId?: string;
     projectTitle?: string;
+    /** 兼容旧编辑器：原样保留已存在的可见项目引用。 */
+    visibleProjectReference?: string;
 }
 
 const TASK_META_SPLIT_RE = /[📅⌛❗🔁⏰📍📁#]/;
 const TASK_META_TOKEN_RE = /([📅⌛❗🔁⏰📍📁#]+)\s*(.*?)(?=\s*[📅⌛❗🔁⏰📍📁#]|$)/g;
 
 function firstMarkdownLine(markdown: string): string {
-    return (markdown || "").split("\n\n")[0]?.split("\n")[0]?.trim() || "";
+    return ((markdown || "").split("\n\n")[0]?.split("\n")[0] || "")
+        .replace(/\s*\{:.*?\}\s*$/, "")
+        .trim();
 }
 
 function normalizeTag(tag: string): string {
@@ -86,6 +91,7 @@ export function parseTaskLine(markdown: string): ParsedTasksPlusTask {
         location: "",
         tags: extractTaskTags(taskLine),
         visibleProjectTargetId: parseVisibleProjectTargetId(taskLine),
+        visibleProjectReference: "",
     };
 
     const matches: string[] = Array.from(taskLine.matchAll(TASK_META_TOKEN_RE), (match) => match[0]);
@@ -103,6 +109,8 @@ export function parseTaskLine(markdown: string): ParsedTasksPlusTask {
             parsed.reminder = trimmed.replace("⏰", "").trim();
         } else if (trimmed.startsWith("📍")) {
             parsed.location = trimmed.replace("📍", "").trim();
+        } else if (trimmed.startsWith("📁")) {
+            parsed.visibleProjectReference = trimmed;
         }
     });
 
@@ -137,6 +145,6 @@ export function generateTaskLine(input: GenerateTasksPlusTaskInput): string {
         ...tags,
         input.projectTargetId && input.projectTitle
             ? generateVisibleProjectReference(input.projectTargetId, input.projectTitle)
-            : "",
+            : input.visibleProjectReference,
     ]);
 }

@@ -22,6 +22,7 @@ interface OpenTaskEditorOptions {
     onSubmit: (input: GenerateTasksPlusTaskInput) => void | Promise<void> | boolean | Promise<boolean>;
     onClose?: () => void;
     projectStorage?: EnhancedDiaryProjectStorageConfig;
+    tagSuggestions?: string[];
 }
 
 interface OpenQuickRecordOptions {
@@ -106,7 +107,7 @@ function prepareWorkspaceDialogContainer(container: HTMLElement): void {
 }
 
 export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void {
-    const { mode = "create", initialInput = {}, task = null, onSubmit, onClose, projectStorage } = options;
+    const { mode = "create", initialInput = {}, task = null, onSubmit, onClose, projectStorage, tagSuggestions = [] } = options;
     const { notifyClose } = makeCloseGuard(onClose);
 
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
@@ -129,6 +130,7 @@ export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void
                     initialInput,
                     task,
                     projectStorage,
+                    tagSuggestions,
                     onSubmit: async (input: GenerateTasksPlusTaskInput) => {
                         const result = await onSubmit(input);
                         if (result !== false) {

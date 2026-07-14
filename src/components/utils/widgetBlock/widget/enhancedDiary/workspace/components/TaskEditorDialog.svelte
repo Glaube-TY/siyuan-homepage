@@ -16,9 +16,10 @@
         onSubmit: (input: GenerateTasksPlusTaskInput) => void | Promise<void>;
         onClose: () => void;
         projectStorage?: EnhancedDiaryProjectStorageConfig;
+        tagSuggestions?: string[];
     }
 
-    let { task = null, initialInput = {}, mode, onSubmit, onClose, projectStorage }: Props = $props();
+    let { task = null, initialInput = {}, mode, onSubmit, onClose, projectStorage, tagSuggestions = [] }: Props = $props();
 
     let taskname = $state("");
     let priority = $state("");
@@ -29,6 +30,7 @@
     let location = $state("");
     let tagsText = $state("");
     let showMore = $state(false);
+    let projectAssociationEnabled = $state(false);
     let projectTargetId = $state("");
     let projectIndex = $state<EnhancedDiaryProjectIndexPayload | null>(null);
     let projectLoading = $state(false);
@@ -42,6 +44,10 @@
     ];
 
     const hasExtended = $derived(recurrence !== "" || reminder !== "" || location !== "");
+    const dateRangeInvalid = $derived(!!startDate && !!deadline && startDate > deadline);
+    const availableTagSuggestions = $derived(tagSuggestions.filter((tag) =>
+        !parseTags(tagsText).some((selected) => selected.toLocaleLowerCase() === tag.toLocaleLowerCase())
+    ));
 
     function parseTags(value: string): string[] {
         return value
@@ -68,6 +74,15 @@
         });
     }
 
+    function addSuggestedTag(tag: string): void {
+        tagsText = [...parseTags(tagsText), tag].join(" ");
+    }
+
+    function handleProjectAssociationChange(event: Event): void {
+        projectAssociationEnabled = (event.currentTarget as HTMLInputElement).checked;
+        if (!projectAssociationEnabled) projectTargetId = "";
+    }
+
     onMount(() => {
         taskname = task?.taskname || initialInput.taskname || "";
         priority = task?.priority || initialInput.priority || "";
@@ -78,6 +93,7 @@
         location = task?.location || initialInput.location || "";
         tagsText = (task?.tags || initialInput.tags || []).join(" ");
         projectTargetId = task?.projectTargetId || initialInput.projectTargetId || "";
+        projectAssociationEnabled = !!projectTargetId;
         showMore = !!(recurrence || reminder || location);
         if (isEnhancedDiaryProjectStorageReady(projectStorage)) {
             projectLoading = true;
@@ -87,6 +103,7 @@
                     if (mode === "create" && projectTargetId &&
                         !isEnhancedDiaryProjectEffectivelyActive(value, projectTargetId)) {
                         projectTargetId = "";
+                        projectAssociationEnabled = false;
                     }
                 })
                 .finally(() => (projectLoading = false));
@@ -96,19 +113,31 @@
 
 <div class="task-editor-panel">
     <div class="panel-section panel-name">
+        <label class="task-name-label" for="workspace-task-name">
+            <span>任务名称</span>
+            <small>必填</small>
+        </label>
         <input
+            id="workspace-task-name"
             type="text"
-            class="task-name-input"
+            class="b3-text-field task-name-input"
             bind:value={taskname}
             placeholder="输入任务名称"
         />
     </div>
 
-    <div class="panel-section">
-        <div class="section-label">关联项目</div>
-        {#if projectLoading}<p class="project-state">正在加载项目树…</p>
-        {:else if projectIndex}<WorkspaceProjectPicker index={projectIndex} value={projectTargetId} preserveSelected={mode === "edit"} onChange={(id) => (projectTargetId = id)} />
-        {:else}<p class="project-state">请先在强化日记设置中配置项目位置。</p>{/if}
+    <div class="panel-section project-association-section">
+        <label class="project-association-toggle">
+            <input type="checkbox" checked={projectAssociationEnabled} onchange={handleProjectAssociationChange} />
+            <span>关联项目<small>勾选后选择具体项目</small></span>
+        </label>
+        {#if projectAssociationEnabled}
+            <div class="project-picker-slot">
+                {#if projectLoading}<p class="project-state">正在加载项目树…</p>
+                {:else if projectIndex}<WorkspaceProjectPicker index={projectIndex} value={projectTargetId} allowClear={false} preserveSelected={mode === "edit"} onChange={(id) => (projectTargetId = id)} />
+                {:else}<p class="project-state">请先在强化日记设置中配置项目位置。</p>{/if}
+            </div>
+        {/if}
     </div>
 
     <div class="panel-section">
@@ -123,6 +152,7 @@
                 <input type="date" class="field-input" bind:value={deadline} />
             </label>
         </div>
+        {#if dateRangeInvalid}<p class="date-warning">开始日期晚于截止日期，请确认日期顺序；保存时不会自动交换。</p>{/if}
     </div>
 
     <div class="panel-section">
@@ -151,6 +181,7 @@
                     bind:value={tagsText}
                     placeholder="空格或逗号分隔"
                 />
+                {#if availableTagSuggestions.length}<div class="tag-suggestions">{#each availableTagSuggestions.slice(0, 12) as tag}<button type="button" onclick={() => addSuggestedTag(tag)}>#{tag}#</button>{/each}</div>{/if}
             </div>
         </div>
     </div>
@@ -211,29 +242,51 @@
         padding-bottom: 10px;
     }
 
+    .task-name-label {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-bottom: 7px;
+        color: var(--wk-ink-secondary);
+        font-size: var(--wk-text-sm);
+        font-weight: 600;
+    }
+
+    .task-name-label small {
+        color: var(--wk-ink-faint);
+        font-size: var(--wk-text-xs);
+        font-weight: 400;
+    }
+
     .task-name-input {
         width: 100%;
-        border: none;
-        border-bottom: 1px solid var(--wk-border-light);
-        background: transparent;
+        border-radius: var(--wk-radius-md);
         color: var(--wk-ink);
         font-size: var(--wk-text-lg);
         font-weight: 600;
-        padding: 8px 2px;
+        padding: 10px 13px;
         box-sizing: border-box;
-        transition: border-color var(--wk-transition-fast);
+        transition: border-color var(--wk-transition-fast), box-shadow var(--wk-transition-fast);
         font-family: inherit;
     }
 
     .task-name-input:focus {
         outline: none;
-        border-bottom-color: var(--wk-primary);
+        border-color: var(--wk-primary);
+        box-shadow: 0 0 0 3px var(--wk-primary-subtle);
     }
 
     .task-name-input::placeholder {
         color: var(--wk-ink-faint);
         font-weight: 400;
     }
+
+    .project-association-section { display: grid; }
+    .project-association-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px; color: var(--wk-ink-secondary); cursor: pointer; }
+    .project-association-toggle input { margin: 2px 0 0; accent-color: var(--wk-primary); }
+    .project-association-toggle span { display: grid; gap: 2px; font-size: var(--wk-text-sm); font-weight: 600; }
+    .project-association-toggle small { color: var(--wk-ink-faint); font-size: var(--wk-text-xs); font-weight: 400; }
+    .project-picker-slot { margin-top: 10px; }
 
     .section-label {
         font-size: var(--wk-text-xs);
@@ -243,6 +296,10 @@
         letter-spacing: 0.06em;
         margin-bottom: 8px;
     }
+
+    .date-warning { margin: 8px 0 0; color: var(--wk-error); font-size: var(--wk-text-sm); }
+    .tag-suggestions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+    .tag-suggestions button { padding: 2px 7px; border: 1px solid var(--wk-border); border-radius: 999px; background: transparent; color: var(--wk-primary); cursor: pointer; }
 
     .date-row {
         display: grid;

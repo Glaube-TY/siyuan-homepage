@@ -14,6 +14,7 @@
         workspaceMutationVersion?: number;
         taskManagementEnabled?: boolean;
         onCreateTask?: (targetId: string) => void;
+        onOpenTaskCenter?: (targetId: string) => void;
         onEditTask?: (task: EnhancedDiaryWorkspaceTask) => void;
         onToggleTask?: (task: EnhancedDiaryWorkspaceTask) => void | Promise<void>;
         onDeleteTask?: (task: EnhancedDiaryWorkspaceTask) => void;
@@ -28,7 +29,7 @@
     let {
         config, tasks = [], initialTargetId = "", selectVersion = 0, onOpenDoc, onOpenBlock,
         workspaceMutationVersion = 0, taskManagementEnabled = true,
-        onCreateTask, onEditTask, onToggleTask, onDeleteTask,
+        onCreateTask, onOpenTaskCenter, onEditTask, onToggleTask, onDeleteTask,
         onCreateRecord, onEditRecord, onDeleteRecord, onConvertRecordToTask,
         onArchiveProject, onRestoreProject,
     }: Props = $props();
@@ -37,7 +38,7 @@
 <WorkspaceFormalProjectPanel
     {config} {tasks} {initialTargetId} {selectVersion} {onOpenDoc} {onOpenBlock}
     {workspaceMutationVersion} {taskManagementEnabled}
-    {onCreateTask} {onEditTask} {onToggleTask} {onDeleteTask}
+    {onCreateTask} {onOpenTaskCenter} {onEditTask} {onToggleTask} {onDeleteTask}
     {onCreateRecord} {onEditRecord} {onDeleteRecord} {onConvertRecordToTask}
     {onArchiveProject} {onRestoreProject}
 />

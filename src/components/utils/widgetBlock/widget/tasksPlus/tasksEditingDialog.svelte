@@ -3,6 +3,7 @@
     import { showMessage } from "siyuan";
     import { sql, getBlockKramdown, updateBlock as updateBlockAPI } from "@/api";
     import { ensureTaskBlockExists, updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
+    import { generateTaskLine, parseTaskLine } from "./tasksPlusParser";
 
     interface Props {
         blockId: string;
@@ -32,6 +33,7 @@
         reminder: "",
         location: "",
         tags: [] as string[],
+        visibleProjectReference: "",
     });
 
     let useDateTime = $state(true);
@@ -40,52 +42,23 @@
     function parseTaskMarkdown(markdown: string) {
         if (!markdown) return;
 
-        const taskCheckMatch = markdown.match(/^([*-]\s\[( |X|x)\])/);
-        taskData.taskCheck = taskCheckMatch?.[0]?.trim() || "";
+        const parsedTask = parseTaskLine(markdown);
+        const meta = parsedTask.parsed;
+        taskData.taskCheck = parsedTask.taskCheck;
+        taskData.taskname = parsedTask.taskname;
+        taskData.priority = meta.priority;
+        taskData.startDate = formatDateString(meta.startDate);
+        taskData.deadline = formatDateString(meta.deadline);
+        taskData.recurrence = meta.recurrence;
+        taskData.location = meta.location;
+        taskData.tags = [...meta.tags];
+        taskData.visibleProjectReference = meta.visibleProjectReference || "";
 
-        const baseContent = markdown.split("\n\n")[0]?.split("\n")[0] || "";
-        taskData.taskname = baseContent
-            .replace(taskData.taskCheck, "")
-            .trim()
-            .split(/[📅⌛❗🔁⏰📍#]/)[0]
-            .trim();
-
-        const regex = /([📅⌛❗🔁⏰📍#]+)\s*(.*?)(?=\s*[📅⌛❗🔁⏰📍#]|$)/g;
-        const matches = markdown.match(regex) || [];
-
-        matches.forEach((match: string) => {
-            const trimmed = match.trim();
-            if (trimmed.startsWith("❗")) {
-                taskData.priority = trimmed;
-            } else if (trimmed.startsWith("⌛")) {
-                const rawDate = trimmed.replace("⌛", "").trim();
-                taskData.startDate = formatDateString(rawDate);
-            } else if (trimmed.startsWith("📅")) {
-                const rawDate = trimmed.replace("📅", "").trim();
-                taskData.deadline = formatDateString(rawDate);
-            } else if (trimmed.startsWith("🔁")) {
-                taskData.recurrence = trimmed.replace("🔁", "").trim();
-            } else if (trimmed.startsWith("⏰")) {
-                const reminderValue = trimmed.replace("⏰", "").trim();
-                const hasDate = reminderValue.includes(" ");
-                useDateTime = hasDate;
-
-                taskData.reminder = formatReminderValue(reminderValue);
-
-                if (!hasDate) {
-                    timePart = reminderValue.padStart(5, "0");
-                }
-            } else if (trimmed.startsWith("📍")) {
-                taskData.location = trimmed.replace("📍", "").trim();
-            }
-        });
-
-        taskData.tags = [];
-
-        const tagRegex = /#([^#]+)#/g;
-        let tagMatch;
-        while ((tagMatch = tagRegex.exec(markdown)) !== null) {
-            taskData.tags.push(tagMatch[1].trim());
+        if (meta.reminder) {
+            const hasDate = meta.reminder.includes(" ");
+            useDateTime = hasDate;
+            taskData.reminder = formatReminderValue(meta.reminder);
+            if (!hasDate) timePart = meta.reminder.padStart(5, "0");
         }
     }
 
@@ -145,50 +118,23 @@
     }
 
     function generateTaskMarkdown(): string {
-        let parts: string[] = [];
-        const taskCheck = taskData.taskCheck || "- [ ]";
-
-        if (taskData.taskname) {
-            parts.push(taskCheck + " " + taskData.taskname);
-        }
-
-        if (taskData.priority) {
-            parts.push(taskData.priority);
-        }
-
-        if (taskData.startDate) {
-            parts.push("⌛" + taskData.startDate);
-        }
-
-        if (taskData.deadline) {
-            parts.push("📅" + taskData.deadline);
-        }
-
-        if (taskData.recurrence) {
-            parts.push("🔁" + taskData.recurrence.trim());
-        }
-
-        if (taskData.reminder) {
-            const reminderDate = useDateTime
-                ? taskData.reminder.split("T")[0].replace(/-/g, "-")
-                : "";
-            const reminderTime = taskData.reminder.split("T")[1] || timePart;
-            const reminderStr =
-                reminderDate && useDateTime
-                    ? `${reminderDate} ${reminderTime}`
-                    : reminderTime;
-            parts.push("⏰" + reminderStr);
-        }
-
-        if (taskData.location) {
-            parts.push("📍" + taskData.location);
-        }
-
-        if (taskData.tags.length > 0) {
-            parts.push(...taskData.tags.map((tag) => `#${tag.trim()}#`));
-        }
-
-        return parts.join(" ");
+        const reminderDate = useDateTime ? taskData.reminder.split("T")[0] : "";
+        const reminderTime = taskData.reminder.split("T")[1] || timePart;
+        const reminder = reminderDate && useDateTime
+            ? `${reminderDate} ${reminderTime}`
+            : reminderTime;
+        return generateTaskLine({
+            taskCheck: taskData.taskCheck || "- [ ]",
+            taskname: taskData.taskname,
+            priority: taskData.priority,
+            startDate: taskData.startDate,
+            deadline: taskData.deadline,
+            recurrence: taskData.recurrence,
+            reminder,
+            location: taskData.location,
+            tags: taskData.tags,
+            visibleProjectReference: taskData.visibleProjectReference,
+        });
     }
 
     async function updateBlock() {

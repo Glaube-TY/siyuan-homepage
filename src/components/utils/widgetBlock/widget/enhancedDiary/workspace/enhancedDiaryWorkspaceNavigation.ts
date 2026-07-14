@@ -7,8 +7,40 @@ export type WorkspaceTaskStatusFilter =
     | "today"
     | "overdue"
     | "migrate"
+    | "high"
+    | "unscheduled"
+    | "relation"
     | "new"
     | "migrated";
+
+export type WorkspaceTaskViewMode =
+    | "list"
+    | "kanban"
+    | "agenda"
+    | "calendar"
+    | "timeline"
+    | "gantt"
+    | "matrix"
+    | "analytics";
+
+export type WorkspaceTaskCompletionScope = "active" | "completed" | "all";
+
+export type WorkspaceTaskSortKey =
+    | "smart"
+    | "deadline"
+    | "start"
+    | "priority"
+    | "risk"
+    | "source"
+    | "name";
+
+export type WorkspaceTaskScheduleFilter =
+    | "all"
+    | "range"
+    | "start_only"
+    | "deadline_only"
+    | "unscheduled"
+    | "invalid";
 
 export type WorkspaceRecordViewMode = "today" | "history";
 export type WorkspaceRecordCategoryFilter = "all" | EnhancedDiaryRecordCategoryKey | (string & {});
@@ -42,10 +74,15 @@ export interface GoRecordsOptions {
 
 export interface GoTasksOptions {
     status?: WorkspaceTaskStatusFilter;
+    quickFilter?: WorkspaceTaskStatusFilter;
+    view?: WorkspaceTaskViewMode;
+    completionScope?: WorkspaceTaskCompletionScope;
     date?: string;
     tag?: string;
+    tags?: string[];
     projectTargetId?: string;
     risk?: WorkspaceTaskRiskFilter;
+    schedule?: WorkspaceTaskScheduleFilter;
     taskBlockId?: string;
 }
 

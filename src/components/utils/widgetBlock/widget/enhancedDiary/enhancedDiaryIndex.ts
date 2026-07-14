@@ -10,6 +10,8 @@ const REBUILD_MAX_DOCS = 50000;
 const SQL_BATCH_SIZE = 64;
 const REFRESH_TTL_MS = 2 * 60 * 1000;
 
+export const ENHANCED_DIARY_INDEXES_UPDATED_EVENT = "siyuan-homepage:enhanced-diary-indexes-updated";
+
 export interface DiaryIndexEntry {
     id: string;
     date: string;
@@ -82,8 +84,16 @@ function makeBlob(payload: unknown): Blob {
 
 function isIndexPayload(value: any): value is EnhancedDiaryIndexPayload {
     return !!value && typeof value === "object" && value.version === INDEX_VERSION &&
-        typeof value.notebookId === "string" && typeof value.complete === "boolean" &&
-        !!value.docs && typeof value.docs === "object";
+        typeof value.updatedAt === "string" && typeof value.notebookId === "string" && typeof value.complete === "boolean" &&
+        !!value.docs && typeof value.docs === "object" && !Array.isArray(value.docs);
+}
+
+function hasIndexFileResponse(raw: any): boolean {
+    if (raw == null) return false;
+    if (typeof raw === "object" && typeof raw.code === "number") {
+        return raw.code === 0 && raw.data != null;
+    }
+    return true;
 }
 
 async function readIndex(notebookId: string): Promise<{ index: EnhancedDiaryIndexPayload; exists: boolean; valid: boolean; matched: boolean }> {
@@ -95,6 +105,26 @@ async function readIndex(notebookId: string): Promise<{ index: EnhancedDiaryInde
     cache = parsed;
     cacheNotebookId = notebookId;
     return { index: parsed, exists: true, valid: true, matched: true };
+}
+
+export async function getEnhancedDiaryIndexStatus(notebookId: string): Promise<ComponentMigrationStatus> {
+    if (!notebookId) return { lastStatus: "idle", lastMessage: "尚未配置日记笔记本。" };
+    try {
+        const raw = await getFile(INDEX_PATH);
+        if (!hasIndexFileResponse(raw)) return { lastStatus: "idle", lastMessage: "强化日记索引尚未建立。" };
+        const parsed = await fileToObject(raw);
+        if (!isIndexPayload(parsed)) return { lastStatus: "error", lastMessage: "强化日记索引文件损坏或版本无效，请重建。" };
+        if (parsed.notebookId !== notebookId) {
+            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "日记笔记本配置已变化，需要重建强化日记索引。" };
+        }
+        const migratedCount = Object.keys(parsed.docs).length;
+        if (!parsed.complete) {
+            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "强化日记索引尚未完整，请重建。", migratedCount };
+        }
+        return { lastRunAt: parsed.updatedAt, lastStatus: "success", lastMessage: `强化日记索引完整，共 ${migratedCount} 篇日记。`, migratedCount };
+    } catch (error) {
+        return { lastStatus: "error", lastMessage: error instanceof Error ? error.message : "强化日记索引状态读取失败。" };
+    }
 }
 
 async function writeIndex(index: EnhancedDiaryIndexPayload): Promise<void> {

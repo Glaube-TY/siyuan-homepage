@@ -21,7 +21,6 @@
         index, value = "", disabled = false, allowClear = true,
         statusFilter = "active", preserveSelected = true, onChange,
     }: Props = $props();
-    let query = $state("");
     let collapsed = $state<Set<string>>(new Set());
 
     const childrenByParent = $derived.by(() => {
@@ -35,7 +34,6 @@
         return map;
     });
 
-    const normalizedQuery = $derived(query.trim().toLocaleLowerCase());
     const selectedTarget = $derived(value ? resolveEnhancedDiaryProjectTarget(index, value) : null);
     function matchesLifecycle(id: string): boolean {
         if (statusFilter === "all") return Boolean(resolveEnhancedDiaryProjectTarget(index, id));
@@ -66,24 +64,8 @@
             Object.keys(index.nodes).filter(matchesLifecycle).length;
         return count || (preserveSelected && value && resolveEnhancedDiaryProjectTarget(index, value) ? 1 : 0);
     });
-    const matchingIds = $derived.by(() => {
-        if (!normalizedQuery) return null;
-        const ids = new Set<string>();
-        for (const root of Object.values(index.roots)) {
-            if (root.title.toLocaleLowerCase().includes(normalizedQuery)) ids.add(root.id);
-        }
-        for (const node of Object.values(index.nodes)) {
-            const target = resolveEnhancedDiaryProjectTarget(index, node.id);
-            if (target?.pathTitles.join(" / ").toLocaleLowerCase().includes(normalizedQuery)) {
-                ids.add(node.id);
-                node.ancestorTargetIds.forEach((id) => ids.add(id));
-            }
-        }
-        return ids;
-    });
-
     function visible(id: string): boolean {
-        return (!lifecycleIds || lifecycleIds.has(id)) && (!matchingIds || matchingIds.has(id));
+        return !lifecycleIds || lifecycleIds.has(id);
     }
     function selectable(id: string): boolean {
         if (statusFilter === "all") return true;
@@ -108,13 +90,12 @@
                 {:else}<span class="tree-spacer"></span>{/if}
                 <button type="button" class="target-button" class:archived={archived(node.id)} class:context-only={!selectable(node.id)} disabled={disabled || !selectable(node.id)} title={resolveEnhancedDiaryProjectTarget(index, node.id)?.pathTitles.join(" / ")} onclick={() => onChange(node.id)}>{#if archived(node.id)}<WorkspaceProjectIcon name="archive" size={14} />{/if}<span>{node.title}</span></button>
             </div>
-            {#if normalizedQuery || !collapsed.has(node.id)}{@render branch(node.id, depth + 1)}{/if}
+            {#if !collapsed.has(node.id)}{@render branch(node.id, depth + 1)}{/if}
         {/if}
     {/each}
 {/snippet}
 
 <div class="project-picker" class:disabled>
-    <input class="b3-text-field" type="search" bind:value={query} placeholder="搜索项目或完整路径" disabled={disabled} />
     <div class="project-tree">
         {#if allowClear}
             <button type="button" class="clear-project" class:selected={!value} disabled={disabled} onclick={() => onChange("")}>不关联项目</button>
@@ -127,7 +108,7 @@
                     {:else}<span class="tree-spacer"></span>{/if}
                     <button type="button" class="target-button" class:archived={archived(root.id)} class:context-only={!selectable(root.id)} disabled={disabled || !selectable(root.id)} title={root.title} onclick={() => onChange(root.id)}>{#if archived(root.id)}<WorkspaceProjectIcon name="archive" size={14} />{/if}<span>{root.title}</span></button>
                 </div>
-                {#if normalizedQuery || !collapsed.has(root.id)}{@render branch(root.id, 1)}{/if}
+                {#if !collapsed.has(root.id)}{@render branch(root.id, 1)}{/if}
             {/if}
         {/each}
         {#if Object.keys(index.roots).length === 0}<p>尚无项目，请先配置位置并创建项目。</p>

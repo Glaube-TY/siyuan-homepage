@@ -40,7 +40,7 @@
         onOpenAndAppendTemplate: () => void | Promise<void>;
     }
 
-    type SettingsTab = "basic" | "project" | "calendar" | "record" | "review" | "templates" | "fieldMapping";
+    type SettingsTab = "basic" | "project" | "tasks" | "calendar" | "record" | "review" | "templates" | "fieldMapping";
     type TemplateHealthStatus = "ok" | "missing" | "suggest";
 
     interface TemplateHealthCheck {
@@ -112,6 +112,7 @@
             workspaceSettings: {
                 calendar: { ...value.workspaceSettings.calendar },
                 modules: { ...value.workspaceSettings.modules },
+                tasks: { ...value.workspaceSettings.tasks },
             },
             recordCategorySuggestions: [...value.recordCategorySuggestions],
             reviewReminderWindows: {
@@ -673,6 +674,7 @@
     <div class="settings-tabs" aria-label="工作台设置分类">
         <button type="button" class:active={activeSettingsTab === "basic"} onclick={() => (activeSettingsTab = "basic")}>基础</button>
         <button type="button" class:active={activeSettingsTab === "project"} onclick={() => (activeSettingsTab = "project")}>项目</button>
+        <button type="button" class:active={activeSettingsTab === "tasks"} onclick={() => (activeSettingsTab = "tasks")}>任务</button>
         <button type="button" class:active={activeSettingsTab === "calendar"} onclick={() => (activeSettingsTab = "calendar")}>日历</button>
         <button type="button" class:active={activeSettingsTab === "record"} onclick={() => (activeSettingsTab = "record")}>记录</button>
         <button type="button" class:active={activeSettingsTab === "review"} onclick={() => (activeSettingsTab = "review")}>复盘</button>
@@ -739,24 +741,6 @@
                 </div>
             </div>
 
-            <label class="input-row" class:disabled={!taskManagementEnabled}>
-                <span>
-                    <strong>任务迁移提醒天数</strong>
-                    <small>
-                        {taskManagementEnabled
-                            ? "未完成任务超过该天数后，在工作台提示迁移到今日日记。"
-                            : "任务管理已关闭，开启后继续使用该设置。"}
-                    </small>
-                </span>
-                <input
-                    type="number"
-                    min="1"
-                    max="3650"
-                    step="1"
-                    disabled={!taskManagementEnabled}
-                    bind:value={draft.taskMigrationReminderDays}
-                />
-            </label>
         </section>
 
         <section class="setting-card">
@@ -858,6 +842,22 @@
             {#if projectValidationError}
                 <div class="inline-error">{projectValidationError}</div>
             {/if}
+        </section>
+    {:else if activeSettingsTab === "tasks"}
+        <section class="setting-card" class:disabled-group={!taskManagementEnabled}>
+            <div class="setting-card-title"><WorkspaceIcon name="tasks" size={18} /><span>任务中心默认行为</span></div>
+            {#if !taskManagementEnabled}<p class="setting-desc">任务管理当前已关闭；这些偏好会保留，重新启用后继续生效。</p>{/if}
+            <label class="input-row"><span><strong>默认任务视图</strong><small>进入任务中心时优先打开的视图。</small></span><select disabled={!taskManagementEnabled} bind:value={draft.workspaceSettings.tasks.defaultView}><option value="list">列表</option><option value="kanban">看板</option><option value="agenda">事项线</option><option value="calendar">日历</option><option value="timeline">时间线</option><option value="gantt">甘特</option><option value="matrix">四象限</option><option value="analytics">分析</option></select></label>
+            <label class="input-row"><span><strong>默认完成范围</strong><small>默认只看待办可避免完成任务混入行动列表。</small></span><select disabled={!taskManagementEnabled} bind:value={draft.workspaceSettings.tasks.defaultCompletionScope}><option value="active">待办</option><option value="completed">已完成</option><option value="all">全部</option></select></label>
+            <label class="input-row"><span><strong>默认排序</strong><small>智能排序优先日期异常、逾期、今日与高优先级。</small></span><select disabled={!taskManagementEnabled} bind:value={draft.workspaceSettings.tasks.defaultSort}><option value="smart">智能排序</option><option value="deadline">截止最近</option><option value="start">开始最近</option><option value="priority">优先级最高</option><option value="risk">风险最高</option><option value="source">来源最新</option><option value="name">名称 A-Z</option></select></label>
+            <label class="switch-row"><span><strong>任务日历显示已完成</strong><small>关闭时日历默认只显示待办任务。</small></span><input class="b3-switch fn__flex-center" type="checkbox" disabled={!taskManagementEnabled} bind:checked={draft.workspaceSettings.tasks.showCompletedInCalendar} /></label>
+            <label class="input-row"><span><strong>一周开始日</strong><small>用于事项线、周日历和自然周计算。</small></span><select disabled={!taskManagementEnabled} bind:value={draft.workspaceSettings.tasks.weekStartDay}><option value={1}>周一</option><option value={0}>周日</option></select></label>
+        </section>
+        <section class="setting-card" class:disabled-group={!taskManagementEnabled}>
+            <div class="setting-card-title"><WorkspaceIcon name="filter" size={18} /><span>风险与四象限</span></div>
+            <label class="input-row"><span><strong>四象限重要阈值</strong><small>达到此优先级即视为重要。</small></span><select disabled={!taskManagementEnabled} bind:value={draft.workspaceSettings.tasks.matrixImportanceThreshold}><option value={2}>中及以上</option><option value={3}>高及以上</option><option value={4}>仅紧急</option></select></label>
+            <label class="input-row"><span><strong>四象限紧急天数</strong><small>截止日期进入该天数范围即视为紧急。</small></span><input type="number" min="1" max="30" step="1" disabled={!taskManagementEnabled} bind:value={draft.workspaceSettings.tasks.matrixUrgencyDays} /></label>
+            <label class="input-row"><span><strong>任务迁移提醒天数</strong><small>未完成、未排期且没有逾期的旧任务达到阈值后提示迁移。</small></span><input type="number" min="1" max="3650" step="1" disabled={!taskManagementEnabled} bind:value={draft.taskMigrationReminderDays} /></label>
         </section>
     {:else if activeSettingsTab === "calendar"}
         <section class="setting-card">

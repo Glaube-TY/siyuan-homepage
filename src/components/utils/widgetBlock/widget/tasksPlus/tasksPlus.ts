@@ -2,6 +2,7 @@ import {
     getTaskIndexResult,
     type ComponentDataResult,
 } from "@/components/tools/siyuanComponentDataApi";
+import { parseTaskLine } from "./tasksPlusParser";
 
 export interface RecentTasksInfo {
     id: string;
@@ -31,66 +32,16 @@ export async function formatTasksList(
     if (tasksList.length > 0) {
         tasksList = tasksList.map((task) => {
             const initmarkdown = task.markdown;
-            const markdown =
-                initmarkdown.split("\n\n")[0]?.split("\n")[0] || "";
+            const parsedTask = parseTaskLine(initmarkdown);
+            const markdown = parsedTask.markdown;
 
             const box = task.box;
 
-            const taskCheckMatch = markdown.match(/^([*-]\s\[( |X|x)\])/);
-            const taskCheck = taskCheckMatch
-                ? taskCheckMatch[0].trim()
-                : "";
-
-            const taskname = markdown
-                .replace(taskCheck, "")
-                .trim()
-                .split(/[📅⌛❗🔁⏰📍#]/)[0]
-                .trim();
+            const { taskCheck, taskname, parsed } = parsedTask;
 
             const updated = task.updated;
             const id = task.id;
             const hpath = task.hpath;
-
-            const regex = /([📅⌛❗🔁⏰📍#]+(?:\s*[^📅⌛❗🔁⏰📍#]+)?)/g;
-            const matches = markdown.match(regex) || [];
-            const parsed = {
-                deadline: "", // 截止日期 📅
-                startDate: "", // 开始日期 ⌛
-                priority: "", // 紧要程度 ❗
-                recurrence: "", // 周期循环 🔁
-                reminder: "", // 提醒时间 ⏰
-                location: "", // 地点 📍
-                tags: [] as string[], // 标签 #...#
-            };
-
-            matches.forEach((match: string) => {
-                const trimmed = match.trim();
-                if (trimmed.startsWith("📅")) {
-                    parsed.deadline = trimmed.replace("📅", "").trim();
-                } else if (trimmed.startsWith("⌛")) {
-                    parsed.startDate = trimmed.replace("⌛", "").trim();
-                } else if (trimmed.startsWith("❗")) {
-                    parsed.priority = trimmed;
-                } else if (trimmed.startsWith("🔁")) {
-                    parsed.recurrence = trimmed.replace("🔁", "").trim();
-                } else if (trimmed.startsWith("⏰")) {
-                    parsed.reminder = trimmed.replace("⏰", "").trim();
-                } else if (trimmed.startsWith("📍")) {
-                    parsed.location = trimmed.replace("📍", "").trim();
-                }
-            });
-
-            // 额外检查：确保独立的优先级符号被捕获
-            const priorityOnlyMatch = markdown.match(/❗+$/);
-            if (priorityOnlyMatch && !parsed.priority) {
-                parsed.priority = priorityOnlyMatch[0];
-            }
-
-            const tagRegex = /#([^#]+)#/g;
-            let tagMatch;
-            while ((tagMatch = tagRegex.exec(markdown)) !== null) {
-                parsed.tags.push(tagMatch[1].trim());
-            }
 
             return { taskCheck, taskname, updated, id, parsed, hpath, initmarkdown, markdown, box };
         });

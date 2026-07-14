@@ -52,6 +52,7 @@
         workspaceMutationVersion?: number;
         taskManagementEnabled?: boolean;
         onCreateTask?: (targetId: string) => void;
+        onOpenTaskCenter?: (targetId: string) => void;
         onEditTask?: (task: EnhancedDiaryWorkspaceTask) => void;
         onToggleTask?: (task: EnhancedDiaryWorkspaceTask) => void | Promise<void>;
         onDeleteTask?: (task: EnhancedDiaryWorkspaceTask) => void;
@@ -65,7 +66,7 @@
     let {
         config, onOpenDoc, tasks = [], onOpenBlock, initialTargetId = "", selectVersion = 0,
         workspaceMutationVersion = 0, taskManagementEnabled = true,
-        onCreateTask, onEditTask, onToggleTask, onDeleteTask,
+        onCreateTask, onOpenTaskCenter, onEditTask, onToggleTask, onDeleteTask,
         onCreateRecord, onEditRecord, onDeleteRecord, onConvertRecordToTask,
         onArchiveProject, onRestoreProject,
     }: Props = $props();
@@ -464,7 +465,8 @@
                             <div><div class="target-title"><h3>{selectedTarget.title}</h3>{#if selectedArchived}<span class="archive-badge"><WorkspaceProjectIcon name="archive" size={14} />{selectedUnderArchivedAncestor ? "归档分支" : "已归档"}</span>{/if}</div><p>{selectedTarget.pathTitles.join(" / ")}</p><small><WorkspaceProjectIcon name="clock" size={15} />{selectedUnderArchivedAncestor ? "上级项目已归档，当前项目不能新增内容。" : selectedArchived ? `归档时间：${formatArchivedAt(selectedTarget.archivedAt)}` : `最近活动：${analytics.lastActivityDate || "暂无"}`}</small></div>
                         </div>
                         <div class="project-quick-actions" aria-label="当前项目快速操作">
-                            {#if !selectedArchived && taskManagementEnabled}<button type="button" class="wk-btn wk-btn-primary" onclick={() => onCreateTask?.(selectedTargetId)}><WorkspaceProjectIcon name="taskAdd" />新建任务</button>{/if}
+                            {#if taskManagementEnabled}<button type="button" class="wk-btn wk-btn-secondary" onclick={() => onOpenTaskCenter?.(selectedTargetId)}><WorkspaceProjectIcon name="taskAdd" />进入任务中心</button>{/if}
+                            {#if !selectedArchived && taskManagementEnabled}<button type="button" class="wk-btn wk-btn-secondary" onclick={() => onCreateTask?.(selectedTargetId)}><WorkspaceProjectIcon name="taskAdd" />新建任务</button>{/if}
                             {#if !selectedArchived}<button type="button" class="wk-btn wk-btn-secondary" onclick={() => onCreateRecord?.(selectedTargetId)}><WorkspaceProjectIcon name="recordAdd" />快速记录</button>{/if}
                             {#if !selectedArchived}<button type="button" class="wk-btn wk-btn-secondary" onclick={openCreateChild} disabled={busy}><WorkspaceProjectIcon name="projectAdd" />新建子项目</button>{/if}
                             <button type="button" class="wk-btn wk-btn-secondary" onclick={() => selectedTarget.kind === "node" ? onOpenBlock?.(selectedTarget.id) : onOpenDoc?.(selectedRootId)}><WorkspaceProjectIcon name="open" />{selectedTarget.kind === "node" ? "定位子项目" : "打开项目文档"}</button>

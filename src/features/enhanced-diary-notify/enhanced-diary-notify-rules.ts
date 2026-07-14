@@ -108,6 +108,15 @@ function getDefaultEnhancedDiaryConfig(): EnhancedDiaryConfig {
       modules: {
         taskManagementEnabled: true,
       },
+      tasks: {
+        defaultView: "list",
+        defaultCompletionScope: "active",
+        defaultSort: "smart",
+        showCompletedInCalendar: false,
+        weekStartDay: 1,
+        matrixImportanceThreshold: 3,
+        matrixUrgencyDays: 3,
+      },
     },
     recordCategorySuggestions: [],
     reviewReminderWindows: {

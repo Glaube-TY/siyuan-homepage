@@ -69,6 +69,7 @@
     import { parseLocalDate } from "./enhancedDiaryWorkspaceDate";
     import { formatDiaryDate } from "../enhancedDiaryUtils";
     import { saveEnhancedDiaryConfig } from "../enhancedDiaryConfig";
+    import { ENHANCED_DIARY_INDEXES_UPDATED_EVENT } from "../enhancedDiaryIndex";
     import type { GenerateTasksPlusTaskInput } from "../../tasksPlus/tasksPlusParser";
     import {
         addNewTaskToDiary,
@@ -85,7 +86,7 @@
         formatDiaryAttrDate,
     } from "../enhancedDiaryDoc";
     import type { EnhancedDiaryWorkspaceReviewCard } from "./enhancedDiaryWorkspaceViewModel";
-    import type { WorkspaceTaskStatusFilter, WorkspaceRecordViewMode, WorkspaceRecordCategoryFilter, GoRecordsOptions, WorkspaceProjectStatusFilter, WorkspaceTaskRiskFilter } from "./enhancedDiaryWorkspaceNavigation";
+    import type { WorkspaceTaskStatusFilter, WorkspaceRecordViewMode, WorkspaceRecordCategoryFilter, GoRecordsOptions, GoTasksOptions, WorkspaceProjectStatusFilter, WorkspaceTaskRiskFilter, WorkspaceTaskViewMode, WorkspaceTaskScheduleFilter, WorkspaceTaskCompletionScope } from "./enhancedDiaryWorkspaceNavigation";
     import { getUnhandledNotificationCount } from "./enhancedDiaryWorkspaceNotificationState";
     import { readEnhancedDiaryProjectIndex, rebuildEnhancedDiaryProjectIndex } from "../enhancedDiaryProjectIndex";
     import type { EnhancedDiaryProjectRecordIndexItem } from "../enhancedDiaryProjectRecordIndex";
@@ -125,9 +126,15 @@
     let deletingRecord = $state<EnhancedDiaryWorkspaceRecord | null>(null);
     let migratingTask = $state<EnhancedDiaryWorkspaceTask | null>(null);
     let commandPaletteOpen = $state(false);
-    let taskStatusFilter = $state<WorkspaceTaskStatusFilter>("all");
+    let taskStatusFilter = $state<WorkspaceTaskStatusFilter>("active");
+    let taskCompletionScopeFilter = $state<WorkspaceTaskCompletionScope>("active");
+    let taskQuickFilter = $state<WorkspaceTaskStatusFilter>("active");
     let taskTagFilter = $state("");
+    let taskTagsFilter = $state<string[]>([]);
     let taskDateFilter = $state("");
+    let taskProjectFilter = $state("");
+    let taskViewFilter = $state<WorkspaceTaskViewMode>("list");
+    let taskScheduleFilter = $state<WorkspaceTaskScheduleFilter>("all");
     let taskRiskFilter: WorkspaceTaskRiskFilter = $state("all");
     let taskSelectBlockId = $state("");
     let taskFilterVersion = $state(0);
@@ -155,21 +162,56 @@
     let advancedEnabled = $state(false);
 
     function goTasks(
-        statusFilter: WorkspaceTaskStatusFilter = "all",
+        statusOrOptions: WorkspaceTaskStatusFilter | GoTasksOptions = "active",
         tagFilter = "",
         dateFilter = "",
         riskFilter: WorkspaceTaskRiskFilter = "all"
     ): void {
-        taskStatusFilter = statusFilter;
-        taskTagFilter = tagFilter;
-        taskDateFilter = dateFilter;
-        taskRiskFilter = riskFilter;
+        if (typeof statusOrOptions === "object") {
+            const options = statusOrOptions;
+            const status = options.status || "active";
+            taskCompletionScopeFilter = options.completionScope
+                || (status === "completed" ? "completed" : status === "all" ? "all" : "active");
+            taskQuickFilter = options.quickFilter
+                || (status !== "active" && status !== "completed" && status !== "all" ? status : "active");
+            taskStatusFilter = status;
+            taskTagsFilter = options.tags || (options.tag ? [options.tag] : []);
+            taskTagFilter = taskTagsFilter[0] || "";
+            taskDateFilter = options.date || "";
+            taskProjectFilter = options.projectTargetId || "";
+            taskRiskFilter = options.risk || "all";
+            taskViewFilter = options.view || "list";
+            taskScheduleFilter = options.schedule || "all";
+            taskSelectBlockId = options.taskBlockId || "";
+            if (options.taskBlockId) taskSelectVersion += 1;
+        } else {
+            taskStatusFilter = statusOrOptions;
+            taskCompletionScopeFilter = statusOrOptions === "completed" ? "completed" : statusOrOptions === "all" ? "all" : "active";
+            taskQuickFilter = statusOrOptions !== "active" && statusOrOptions !== "completed" && statusOrOptions !== "all" ? statusOrOptions : "active";
+            taskTagFilter = tagFilter;
+            taskTagsFilter = tagFilter ? [tagFilter] : [];
+            taskDateFilter = dateFilter;
+            taskProjectFilter = "";
+            taskRiskFilter = riskFilter;
+            taskViewFilter = "list";
+            taskScheduleFilter = "all";
+            taskSelectBlockId = "";
+        }
         taskFilterVersion += 1;
         selectTab("tasks");
     }
 
     function goTasksByDate(date: string): void {
-        goTasks("all", "", date);
+        goTasks({ status: "active", date });
+    }
+
+    function getTaskTagSuggestions(): string[] {
+        const seen = new Set<string>();
+        return (state?.tasks || []).flatMap((task) => task.tags).filter((tag) => {
+            const key = tag.trim().toLocaleLowerCase();
+            if (!key || seen.has(key)) return false;
+            seen.add(key); return true;
+        });
     }
 
     function goRecords(options: GoRecordsOptions = {}): void {
@@ -412,32 +454,52 @@
         ];
     });
 
-    async function refresh(): Promise<void> {
-        loading = true;
-        try {
-            calendarMonthCache = new Map();
-            dayDetailCache = new Map();
-            state = await loadEnhancedDiaryWorkspaceState(plugin);
-            historyRecordsLoaded = false;
-            reviewHistoryLoaded = false;
-            await loadCalendar();
-            await loadSelectedDayDetail(selectedCalendarDate);
-            if (activeTab === "records" && recordViewMode === "history") {
-                void ensureHistoryRecordsLoaded();
+    let refreshFlight: Promise<void> | null = null;
+
+    function refresh(): Promise<void> {
+        if (refreshFlight) return refreshFlight;
+        const run = (async () => {
+            loading = true;
+            try {
+                calendarMonthCache = new Map();
+                dayDetailCache = new Map();
+                state = await loadEnhancedDiaryWorkspaceState(plugin);
+                historyRecordsLoaded = false;
+                reviewHistoryLoaded = false;
+                await loadCalendar();
+                await loadSelectedDayDetail(selectedCalendarDate);
+                if (activeTab === "records" && recordViewMode === "history") {
+                    void ensureHistoryRecordsLoaded();
+                }
+                if (activeTab === "review") {
+                    void ensureReviewHistoryLoaded();
+                }
+            } catch (err) {
+                console.warn("[enhancedDiaryWorkspacePage] load failed", err);
+                showMessage("强化日记工作台加载失败，请查看控制台日志", 4000);
+            } finally {
+                loading = false;
+                refreshFlight = null;
             }
-            if (activeTab === "review") {
-                void ensureReviewHistoryLoaded();
-            }
-        } catch (err) {
-            console.warn("[enhancedDiaryWorkspacePage] load failed", err);
-            showMessage("强化日记工作台加载失败，请查看控制台日志", 4000);
-        } finally {
-            loading = false;
-        }
+        })();
+        refreshFlight = run;
+        return run;
     }
 
     let refreshTimer: number | null = null;
+    let indexRefreshTimer: number | null = null;
     let refreshMutationTail: Promise<void> = Promise.resolve();
+
+    function handleEnhancedDiaryIndexesUpdated(): void {
+        if (!advancedEnabled) return;
+        if (indexRefreshTimer) window.clearTimeout(indexRefreshTimer);
+        indexRefreshTimer = window.setTimeout(async () => {
+            indexRefreshTimer = null;
+            const running = refreshFlight;
+            if (running) await running;
+            if (advancedEnabled) await refresh();
+        }, 120);
+    }
 
     async function refreshAfterWorkspaceMutation(notifyProjectData = false): Promise<void> {
         const queued = refreshMutationTail.catch(() => undefined).then(async () => {
@@ -700,6 +762,7 @@
             mode: "create",
             initialInput: input,
             projectStorage: state?.config.projectStorage,
+            tagSuggestions: getTaskTagSuggestions(),
             onSubmit: async (taskInput) => {
                 return await submitNewTaskForWorkspace(taskInput);
             },
@@ -758,6 +821,7 @@
                 projectTargetId: record.projectTargetId,
             },
             projectStorage: state?.config.projectStorage,
+            tagSuggestions: getTaskTagSuggestions(),
             onSubmit: async (input) => {
                 const result = await submitNewTaskForWorkspace(input);
                 if (result) {
@@ -811,6 +875,7 @@
                 projectTargetId: task.projectTargetId,
             },
             projectStorage: state?.config.projectStorage,
+            tagSuggestions: getTaskTagSuggestions(),
             onSubmit: async (input) => {
                 await editTask(input);
             },
@@ -1330,7 +1395,11 @@
     }
 
     function openTaskSearchResult(task: EnhancedDiaryWorkspaceTask): void {
-        taskSelectBlockId = task.blockId; taskSelectVersion += 1; selectTab("tasks");
+        goTasks({
+            completionScope: task.completed ? "completed" : "active",
+            taskBlockId: task.blockId,
+            view: "list",
+        });
     }
 
     function openProjectSearchResult(targetId: string): void {
@@ -1607,6 +1676,7 @@
         advancedEnabled = Boolean(plugin?.ADVANCED);
         window.addEventListener("keydown", handleWorkspaceKeydown);
         window.addEventListener("siyuan-homepage:enhanced-diary-workspace-tab", handleWorkspaceTabRequest);
+        window.addEventListener(ENHANCED_DIARY_INDEXES_UPDATED_EVENT, handleEnhancedDiaryIndexesUpdated);
 
         const onReady = () => {
             advancedEnabled = true;
@@ -1635,8 +1705,10 @@
         return () => {
             window.removeEventListener("keydown", handleWorkspaceKeydown);
             window.removeEventListener("siyuan-homepage:enhanced-diary-workspace-tab", handleWorkspaceTabRequest);
+            window.removeEventListener(ENHANCED_DIARY_INDEXES_UPDATED_EVENT, handleEnhancedDiaryIndexesUpdated);
             window.removeEventListener("homepage-advanced-ready", onReady);
             window.removeEventListener("homepage-advanced-unavailable", onUnavailable);
+            if (indexRefreshTimer) window.clearTimeout(indexRefreshTimer);
         };
     });
 </script>
@@ -1705,6 +1777,9 @@
                 {:else if activeTab === "tasks" && taskManagementEnabled}
                     <WorkspaceTaskPanel
                         tasks={state.tasks}
+                        projectTargets={state.projectTargets}
+                        today={state.today}
+                        taskSettings={state.config.workspaceSettings.tasks}
                         onCreate={openCreateTaskDialog}
                         onToggle={toggleTask}
                         onEdit={openEditTaskDialog}
@@ -1715,9 +1790,16 @@
                         onBatchPostpone={batchPostponeTasks}
                         onOpenDoc={openDoc}
                         onOpenBlock={openDoc}
+                        onOpenProject={openProjectSearchResult}
                         initialStatusFilter={taskStatusFilter}
+                        initialCompletionScope={taskCompletionScopeFilter}
+                        initialQuickFilter={taskQuickFilter}
                         initialTagFilter={taskTagFilter}
+                        initialTags={taskTagsFilter}
                         initialDateFilter={taskDateFilter}
+                        initialProjectFilter={taskProjectFilter}
+                        initialView={taskViewFilter}
+                        initialScheduleFilter={taskScheduleFilter}
                         initialSelectedTaskBlockId={taskSelectBlockId}
                         filterVersion={taskFilterVersion}
                         selectVersion={taskSelectVersion}
@@ -1824,6 +1906,7 @@
                         onOpenDoc={openDoc}
                         onOpenBlock={openDoc}
                         onCreateTask={(targetId) => openCreateTaskDialog({ projectTargetId: targetId })}
+                        onOpenTaskCenter={(targetId) => goTasks({ status: "active", projectTargetId: targetId })}
                         onEditTask={openEditTaskDialog}
                         onToggleTask={toggleTask}
                         onDeleteTask={openDeleteTaskDialog}

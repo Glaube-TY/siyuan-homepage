@@ -54,8 +54,16 @@ async function decode(raw: any): Promise<any> {
 }
 
 function valid(value: any): value is EnhancedDiaryProjectRecordIndexPayload {
-    return !!value && value.version === INDEX_VERSION && typeof value.notebookId === "string" &&
-        typeof value.complete === "boolean" && value.items && typeof value.items === "object";
+    return !!value && value.version === INDEX_VERSION && typeof value.updatedAt === "string" && typeof value.notebookId === "string" &&
+        typeof value.complete === "boolean" && value.items && typeof value.items === "object" && !Array.isArray(value.items);
+}
+
+function hasIndexFileResponse(raw: any): boolean {
+    if (raw == null) return false;
+    if (typeof raw === "object" && typeof raw.code === "number") {
+        return raw.code === 0 && raw.data != null;
+    }
+    return true;
 }
 
 export async function readEnhancedDiaryProjectRecordIndex(notebookId: string): Promise<EnhancedDiaryProjectRecordIndexPayload> {
@@ -65,6 +73,26 @@ export async function readEnhancedDiaryProjectRecordIndex(notebookId: string): P
     const index = valid(parsed) && parsed.notebookId === notebookId ? parsed : empty(notebookId);
     caches.set(notebookId, index);
     return index;
+}
+
+export async function getEnhancedDiaryProjectRecordIndexStatus(notebookId: string): Promise<ComponentMigrationStatus> {
+    if (!notebookId) return { lastStatus: "idle", lastMessage: "尚未配置日记笔记本。" };
+    try {
+        const raw = await getFile(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
+        if (!hasIndexFileResponse(raw)) return { lastStatus: "idle", lastMessage: "项目记录索引尚未建立。" };
+        const parsed = await decode(raw);
+        if (!valid(parsed)) return { lastStatus: "error", lastMessage: "项目记录索引文件损坏或版本无效，请重建。" };
+        if (parsed.notebookId !== notebookId) {
+            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "日记笔记本配置已变化，需要重建项目记录索引。" };
+        }
+        const migratedCount = Object.keys(parsed.items).length;
+        if (!parsed.complete) {
+            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "项目记录索引尚未完整，请重建。", migratedCount };
+        }
+        return { lastRunAt: parsed.updatedAt, lastStatus: "success", lastMessage: `项目记录索引完整，共 ${migratedCount} 条记录。`, migratedCount };
+    } catch (error) {
+        return { lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引状态读取失败。" };
+    }
 }
 
 async function writeDirect(payload: EnhancedDiaryProjectRecordIndexPayload): Promise<void> {
@@ -107,6 +135,14 @@ function queueMaintenance(
     };
     void promise.then(cleanup, cleanup);
     return promise;
+}
+
+function isLegacyDiaryWithoutQuickRecords(detailed: {
+    structureComplete: boolean;
+    records: EnhancedDiaryWorkspaceRecord[];
+    reason?: string;
+}): boolean {
+    return !detailed.structureComplete && detailed.reason === "quick_record_heading_unavailable" && detailed.records.length === 0;
 }
 
 export function projectRecordToIndexItem(record: EnhancedDiaryWorkspaceRecord): EnhancedDiaryProjectRecordIndexItem | null {
@@ -157,18 +193,25 @@ async function rebuild(config: EnhancedDiaryConfig): Promise<ComponentMigrationS
             Object.entries(current.items).filter(([, item]) => activeDiaryDocIds.has(item.diaryDocId)),
         );
         let skippedCount = 0;
+        let legacyEmptyCount = 0;
         for (const [compactDate, entry] of Object.entries(diaryEntries)) {
             try {
                 const markdown = await readDiaryMarkdown(entry.id);
                 const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
                 const detailed = await queryTodayQuickRecordsDetailed(entry.id, markdown, date, config.headingStructure, config.templateFieldMapping, config);
+                if (isLegacyDiaryWithoutQuickRecords(detailed)) {
+                    items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== entry.id));
+                    legacyEmptyCount += 1;
+                    continue;
+                }
                 if (!detailed.structureComplete) { skippedCount += 1; continue; }
                 items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== entry.id));
                 detailed.records.forEach((record) => { const item = projectRecordToIndexItem(record); if (item) items[item.id] = item; });
             } catch { skippedCount += 1; }
         }
         await writeDirect({ version: INDEX_VERSION, updatedAt: now, notebookId: config.dailyNotebookId, complete: skippedCount === 0, items });
-        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引重建完成：${Object.keys(items).length} 条关系，${skippedCount} 篇日记暂未完成结构解析。`, migratedCount: Object.keys(items).length, skippedCount };
+        const legacyMessage = legacyEmptyCount > 0 ? `兼容处理 ${legacyEmptyCount} 篇无快速记录内容的旧日记。` : "";
+        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引重建完成：${Object.keys(items).length} 条关系，${skippedCount} 篇日记暂未完成结构解析。${legacyMessage}`, migratedCount: Object.keys(items).length, skippedCount };
     } catch (error) {
         return { lastRunAt: now, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引重建失败" };
     }
@@ -190,19 +233,26 @@ async function refresh(config: EnhancedDiaryConfig): Promise<ComponentMigrationS
         const changed = prepared.changedDocs.filter((doc) => byDocId.has(doc.id));
         let items = { ...current.items };
         let skippedCount = 0;
+        let legacyEmptyCount = 0;
         for (const doc of changed) {
             const metadata = byDocId.get(doc.id)!;
             const compactDate = metadata.date;
             const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
             const markdown = await readDiaryMarkdown(doc.id);
             const detailed = await queryTodayQuickRecordsDetailed(doc.id, markdown, date, config.headingStructure, config.templateFieldMapping, config);
+            if (isLegacyDiaryWithoutQuickRecords(detailed)) {
+                items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== doc.id));
+                legacyEmptyCount += 1;
+                continue;
+            }
             if (!detailed.structureComplete) { skippedCount += 1; continue; }
             items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== doc.id));
             detailed.records.forEach((record) => { const item = projectRecordToIndexItem(record); if (item) items[item.id] = item; });
         }
         await writeDirect({ ...current, complete: current.complete && skippedCount === 0, items });
         await prepared.commit();
-        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引增量刷新完成：${changed.length - skippedCount} 篇完成，${skippedCount} 篇暂未完成结构解析。`, refreshedCount: changed.length - skippedCount, skippedCount };
+        const legacyMessage = legacyEmptyCount > 0 ? `兼容处理 ${legacyEmptyCount} 篇无快速记录内容的旧日记。` : "";
+        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引增量刷新完成：${changed.length - skippedCount} 篇完成，${skippedCount} 篇暂未完成结构解析。${legacyMessage}`, refreshedCount: changed.length - skippedCount, skippedCount };
     } catch (error) {
         return { lastRunAt: now, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引增量刷新失败" };
     }

@@ -1,3 +1,5 @@
+import type { WorkspaceTaskCompletionScope, WorkspaceTaskSortKey, WorkspaceTaskViewMode } from "./workspace/enhancedDiaryWorkspaceNavigation";
+
 export type EnhancedDiaryPeriod = "day" | "week" | "month" | "year";
 
 export type EnhancedDiaryStatus =
@@ -29,9 +31,20 @@ export interface EnhancedDiaryWorkspaceModules {
     taskManagementEnabled: boolean;
 }
 
+export interface EnhancedDiaryWorkspaceTaskSettings {
+    defaultView: WorkspaceTaskViewMode;
+    defaultCompletionScope: WorkspaceTaskCompletionScope;
+    defaultSort: WorkspaceTaskSortKey;
+    showCompletedInCalendar: boolean;
+    weekStartDay: 0 | 1;
+    matrixImportanceThreshold: 2 | 3 | 4;
+    matrixUrgencyDays: number;
+}
+
 export interface EnhancedDiaryWorkspaceSettings {
     calendar: EnhancedDiaryWorkspaceCalendarSettings;
     modules: EnhancedDiaryWorkspaceModules;
+    tasks: EnhancedDiaryWorkspaceTaskSettings;
 }
 
 export type EnhancedDiaryProjectStorageMode = "notebook" | "parentDoc";
@@ -302,6 +315,15 @@ export const DEFAULT_ENHANCED_DIARY_CONFIG: EnhancedDiaryConfig = {
         },
         modules: {
             taskManagementEnabled: true,
+        },
+        tasks: {
+            defaultView: "list",
+            defaultCompletionScope: "active",
+            defaultSort: "smart",
+            showCompletedInCalendar: false,
+            weekStartDay: 1,
+            matrixImportanceThreshold: 3,
+            matrixUrgencyDays: 3,
         },
     },
     recordCategorySuggestions: ["未分类", "想法", "问题", "决策", "日志"],

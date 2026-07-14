@@ -2,6 +2,7 @@
     import { showMessage, openTab } from "siyuan";
     import { sql, getTag } from "@/api";
     import { getTaskIndexResult } from "@/components/tools/siyuanComponentDataApi";
+    import { isTaskCompleted, parseTaskLine } from "../tasksPlus/tasksPlusParser";
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import "echarts-wordcloud";
@@ -368,38 +369,8 @@
 
         const tasks = result.items
             .map((task) => {
-                const lines = task.markdown.split("\n");
-                const firstLine = lines[0].trim();
-
-                const taskCheckMatch = firstLine.match(/^([*-]\s\[( |X|x)\])/);
-                if (!taskCheckMatch || taskCheckMatch[2] !== " ") return null;
-
-                if (!firstLine.includes("📅")) return null;
-
-                const taskCheck = taskCheckMatch[0].trim();
-
-                const taskname = firstLine
-                    .replace(taskCheck, "")
-                    .trim()
-                    .split(/[📅⌛❗🔁⏰📍#]/)[0]
-                    .trim();
-
-                const regex = /([📅⌛❗🔁⏰📍#]+\s*[^📅⌛❗🔁⏰📍#]+)/g;
-                const matches = firstLine.match(regex) || [];
-
-                const parsed = {
-                    deadline: "",
-                    startDate: "",
-                };
-
-                matches.forEach((match: string) => {
-                    const trimmed = match.trim();
-                    if (trimmed.startsWith("📅")) {
-                        parsed.deadline = trimmed.replace("📅", "").trim();
-                    } else if (trimmed.startsWith("⌛")) {
-                        parsed.startDate = trimmed.replace("⌛", "").trim();
-                    }
-                });
+                const { taskCheck, taskname, parsed } = parseTaskLine(task.markdown);
+                if (!taskCheck || isTaskCompleted(taskCheck) || !parsed.deadline) return null;
 
                 return {
                     taskname,

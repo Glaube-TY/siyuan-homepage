@@ -2,9 +2,11 @@
     interface Props {
         title: string;
         description?: string;
+        actionLabel?: string;
+        onAction?: () => void;
     }
 
-    let { title, description = "" }: Props = $props();
+    let { title, description = "", actionLabel = "", onAction }: Props = $props();
 </script>
 
 <div class="empty-state">
@@ -12,6 +14,7 @@
     {#if description}
         <p>{description}</p>
     {/if}
+    {#if actionLabel && onAction}<button type="button" onclick={onAction}>{actionLabel}</button>{/if}
 </div>
 
 <style>
@@ -38,4 +41,6 @@
         line-height: 1.5;
         color: var(--wk-ink-faint);
     }
+
+    button { margin-top: 10px; padding: 5px 10px; border: 1px solid var(--wk-border); border-radius: 7px; background: var(--wk-surface); color: var(--wk-primary); cursor: pointer; }
 </style>

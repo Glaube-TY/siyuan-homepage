@@ -5,6 +5,11 @@
         type ProjectTaskViewFilter,
     } from "../enhancedDiaryWorkspaceProjectAnalytics";
     import WorkspaceProjectIcon from "./WorkspaceProjectIcon.svelte";
+    import {
+        buildWorkspaceTaskViewModels,
+        formatWorkspaceTaskSchedule,
+    } from "../enhancedDiaryWorkspaceTaskModel";
+    import WorkspaceTaskIcon from "./WorkspaceTaskIcon.svelte";
 
     interface Props {
         tasks: EnhancedDiaryWorkspaceTask[];
@@ -38,18 +43,7 @@
         onOpenProject,
     }: Props = $props();
 
-    function dateText(task: EnhancedDiaryWorkspaceTask): string {
-        if (task.startDate && task.deadline) return `${task.startDate} → ${task.deadline}`;
-        if (task.deadline) return `截止 ${task.deadline}`;
-        if (task.startDate) return `开始 ${task.startDate}`;
-        return task.sourceDate || "无日期";
-    }
-
-    function priorityText(priority: string): string {
-        const levels = ["低优先级", "中优先级", "高优先级", "紧急"];
-        const count = Array.from(priority).length;
-        return /^(?:\u2757){1,4}$/u.test(priority) ? levels[count - 1] : priority;
-    }
+    const modelById = $derived(new Map(buildWorkspaceTaskViewModels(tasks).map((model) => [model.task.blockId, model])));
 </script>
 
 <div class="project-list-filter wk-segmented" aria-label="任务状态筛选">
@@ -61,6 +55,7 @@
 {#if tasks.length}
     <div class="project-task-list">
         {#each tasks as task (task.blockId)}
+            {@const model = modelById.get(task.blockId)!}
             {@const sourcePath = task.projectTargetId && task.projectTargetId !== currentTargetId
                 ? relativeProjectSourcePath(task.projectPath, currentTargetPath)
                 : []}
@@ -77,9 +72,9 @@
                 <button type="button" class="task-body" onclick={() => onOpen(task)}>
                     <strong>{task.taskname}</strong>
                     <span class="task-meta">
-                        <span>{dateText(task)}</span>
-                        {#if task.priority}<span>{priorityText(task.priority)}</span>{/if}
-                        {#if task.projectPath?.length}<span>{task.projectPath.join(" / ")}</span>{/if}
+                        <span class:danger={model.isOverdue}><WorkspaceTaskIcon name={model.isOverdue ? "overdue" : model.scheduleKind === "none" ? "unscheduled" : "range"} />{formatWorkspaceTaskSchedule(model)}</span>
+                        {#if model.priorityLevel}<span>{model.priorityLabel}</span>{/if}
+                        {#if task.projectPath?.length}<span><WorkspaceTaskIcon name="project" />{model.projectPathLabel}</span>{/if}
                     </span>
                     {#if task.tags.length}
                         <span class="chip-row">{#each task.tags as tag}<span class="wk-chip">#{tag}#</span>{/each}</span>
@@ -118,6 +113,8 @@
     .task-body strong { overflow-wrap: anywhere; }
     .task-meta, .chip-row { display: flex; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
     .task-meta { color: var(--wk-ink-muted); font-size: var(--wk-text-sm); }
+    .task-meta > span { display: inline-flex; align-items: center; gap: 4px; }
+    .task-meta .danger { color: var(--wk-error); }
     .project-source { display: inline-flex; align-items: flex-start; gap: 5px; min-width: 0; color: var(--wk-ink-muted); font-size: var(--wk-text-sm); }
     .project-source > span { min-width: 0; overflow-wrap: anywhere; }
     .chip-row .wk-chip { min-height: 24px; padding: 2px 7px; }

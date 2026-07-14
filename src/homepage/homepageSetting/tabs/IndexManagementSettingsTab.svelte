@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
@@ -23,9 +24,20 @@
         refreshStatIndexFromRecentDocuments,
     } from "@/components/tools/statisticalAPI";
     import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
-    import { rebuildEnhancedDiaryIndex, refreshEnhancedDiaryIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
-    import { rebuildEnhancedDiaryProjectIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectIndex";
-    import { rebuildEnhancedDiaryProjectRecordIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectRecordIndex";
+    import {
+        ENHANCED_DIARY_INDEXES_UPDATED_EVENT,
+        getEnhancedDiaryIndexStatus,
+        rebuildEnhancedDiaryIndex,
+        refreshEnhancedDiaryIndex,
+    } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
+    import {
+        getEnhancedDiaryProjectIndexStatus,
+        rebuildEnhancedDiaryProjectIndex,
+    } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectIndex";
+    import {
+        getEnhancedDiaryProjectRecordIndexStatus,
+        rebuildEnhancedDiaryProjectRecordIndex,
+    } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectRecordIndex";
 
     type StatusChangeHandler = (status: ComponentMigrationStatus) => void | Promise<void>;
 
@@ -99,6 +111,42 @@
         return `${status.lastStatus === "success" ? "成功" : status.lastStatus === "error" ? "失败" : "未执行"} · ${time}${countText}`;
     }
 
+    function dispatchEnhancedDiaryIndexesUpdated(): void {
+        window.dispatchEvent(new CustomEvent(ENHANCED_DIARY_INDEXES_UPDATED_EVENT));
+    }
+
+    function allEnhancedDiaryIndexesSucceeded(statuses: ComponentMigrationStatus[]): boolean {
+        return statuses.every((status) => status.lastStatus === "success");
+    }
+
+    onMount(() => {
+        let active = true;
+        void (async () => {
+            try {
+                const config = await loadEnhancedDiaryConfig(plugin);
+                const [diaryStatus, projectStatus, recordStatus] = await Promise.all([
+                    getEnhancedDiaryIndexStatus(config.dailyNotebookId || ""),
+                    getEnhancedDiaryProjectIndexStatus(config.projectStorage),
+                    getEnhancedDiaryProjectRecordIndexStatus(config.dailyNotebookId || ""),
+                ]);
+                if (!active) return;
+                enhancedDiaryIndexStatus = diaryStatus;
+                projectIndexStatus = projectStatus;
+                projectRecordIndexStatus = recordStatus;
+            } catch (error) {
+                if (!active) return;
+                const status: ComponentMigrationStatus = {
+                    lastStatus: "error",
+                    lastMessage: error instanceof Error ? error.message : "强化日记索引状态读取失败。",
+                };
+                enhancedDiaryIndexStatus = status;
+                projectIndexStatus = { ...status };
+                projectRecordIndexStatus = { ...status };
+            }
+        })();
+        return () => { active = false; };
+    });
+
     async function handleRebuildAll() {
         if (!plugin || isRebuildingAll) return;
         isRebuildingAll = true;
@@ -136,6 +184,9 @@
         await onEnhancedDiaryIndexStatusChange?.(results.enhancedDiary);
         projectIndexStatus = results.enhancedDiaryProject;
         projectRecordIndexStatus = results.enhancedDiaryProjectRecord;
+        if (allEnhancedDiaryIndexesSucceeded([results.enhancedDiary, results.enhancedDiaryProject, results.enhancedDiaryProjectRecord])) {
+            dispatchEnhancedDiaryIndexesUpdated();
+        }
     }
 
     async function applyRefreshResults(results: RefreshAllResult) {
@@ -153,6 +204,9 @@
         await onEnhancedDiaryIndexStatusChange?.(results.enhancedDiary);
         projectIndexStatus = results.enhancedDiaryProject;
         projectRecordIndexStatus = results.enhancedDiaryProjectRecord;
+        if (allEnhancedDiaryIndexesSucceeded([results.enhancedDiary, results.enhancedDiaryProject, results.enhancedDiaryProjectRecord])) {
+            dispatchEnhancedDiaryIndexesUpdated();
+        }
     }
 
     async function handleFavoritesMigrate() {
@@ -268,6 +322,7 @@
             const status = await rebuildEnhancedDiaryIndex(config.dailyNotebookId || "");
             enhancedDiaryIndexStatus = status;
             await onEnhancedDiaryIndexStatusChange?.(status);
+            if (status.lastStatus === "success") dispatchEnhancedDiaryIndexesUpdated();
         } finally {
             isEnhancedDiaryRebuilding = false;
         }
@@ -281,6 +336,7 @@
             const status = await refreshEnhancedDiaryIndex(config.dailyNotebookId || "", { force: true });
             enhancedDiaryIndexStatus = status;
             await onEnhancedDiaryIndexStatusChange?.(status);
+            if (status.lastStatus === "success") dispatchEnhancedDiaryIndexesUpdated();
         } finally {
             isEnhancedDiaryRefreshing = false;
         }
@@ -292,6 +348,7 @@
         try {
             const config = await loadEnhancedDiaryConfig(plugin);
             projectIndexStatus = await rebuildEnhancedDiaryProjectIndex(config.projectStorage);
+            if (projectIndexStatus.lastStatus === "success") dispatchEnhancedDiaryIndexesUpdated();
         } finally {
             isProjectIndexRebuilding = false;
         }
@@ -300,7 +357,10 @@
     async function handleProjectRecordIndexRebuild() {
         if (!plugin || isProjectRecordIndexRebuilding) return;
         isProjectRecordIndexRebuilding = true;
-        try { projectRecordIndexStatus = await rebuildEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin)); }
+        try {
+            projectRecordIndexStatus = await rebuildEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin));
+            if (projectRecordIndexStatus.lastStatus === "success") dispatchEnhancedDiaryIndexesUpdated();
+        }
         finally { isProjectRecordIndexRebuilding = false; }
     }
 </script>
