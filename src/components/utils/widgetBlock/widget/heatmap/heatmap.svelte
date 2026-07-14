@@ -10,6 +10,11 @@
         type ComponentCountsResult,
     } from "@/components/tools/siyuanComponentDataApi";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import {
+        buildHeatmapCalendarData,
+        formatHeatmapCalendarValue,
+        getHeatmapRangeByMonthCount,
+    } from "./heatmapDate";
 
     interface Props {
         plugin: any;
@@ -88,7 +93,7 @@
 
     async function loadHeatmapData() {
         const monthCount = clampHeatmapMonthCount(pastMonthCount);
-        const [startDate, endDate] = getRangeByMonthCount(monthCount);
+        const [startDate, endDate] = getHeatmapRangeByMonthCount(monthCount);
         const forceIndexRefresh = runtimeContext.forceIndexRefresh === true;
         await refreshHeatmapIndexFromRecentDocuments(plugin, {
             force: forceIndexRefresh,
@@ -114,7 +119,7 @@
         const shouldRenderHeatmap = hasPositiveData || result.mode === "index";
 
         if (shouldRenderHeatmap && result.status !== "disabled" && result.status !== "error") {
-            currentChartData = buildFullCalendarData(counts, monthCount);
+            currentChartData = buildHeatmapCalendarData(counts, monthCount);
             hasHeatmapData = true;
 
             await tick();
@@ -131,7 +136,7 @@
         }
 
         const monthCount = clampHeatmapMonthCount(pastMonthCount);
-        const [startDate, endDate] = getRangeByMonthCount(monthCount);
+        const [startDate, endDate] = getHeatmapRangeByMonthCount(monthCount);
         isInitializing = true;
         heatmapStatusMessage = "正在初始化热力图索引...";
         try {
@@ -243,7 +248,7 @@
                     left: 30,
                     right: 10,
                     cellSize: ["auto", "auto"],
-                    range: getRangeByMonthCount(pastMonthCount),
+                    range: getHeatmapRangeByMonthCount(pastMonthCount),
                     itemStyle: {
                         borderWidth: 2,
                         borderColor: "transparent",
@@ -269,7 +274,7 @@
                         }
 
                         const dateValue = api.value(0);
-                        const date = typeof dateValue === "string" ? dateValue : new Date(dateValue).toISOString().split("T")[0];
+                        const date = formatHeatmapCalendarValue(dateValue);
                         const value = api.value(1) as number;
 
                         const children: echarts.CustomSeriesRenderItemReturn[] = [];
@@ -521,39 +526,6 @@
 
     async function getWordCounts(startDate: string, endDate: string, plugin: any) {
         return getRecentHeatmapCountsResult(startDate, endDate, "word", plugin);
-    }
-
-    // 生成完整日历数据（包含范围内所有日期，无数据日期 value 为 0）
-    function buildFullCalendarData(
-        counts: Record<string, number>,
-        monthCount: number,
-    ): [string, number][] {
-        const [startDate, endDate] = getRangeByMonthCount(monthCount);
-        const result: [string, number][] = [];
-
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split("T")[0];
-            const value = counts[dateStr] || 0;
-            result.push([dateStr, value]);
-        }
-
-        return result;
-    }
-
-    function getRangeByMonthCount(monthCount: number): string[] {
-        const clampedCount = Math.max(1, Math.min(12, Math.floor(Number(monthCount) || 6)));
-        const now = new Date();
-        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        const start = new Date(now);
-        start.setMonth(start.getMonth() - clampedCount + 1, 1);
-
-        return [
-            start.toISOString().split("T")[0],
-            end.toISOString().split("T")[0],
-        ];
     }
 
     function getColorGradient(preset, color) {
