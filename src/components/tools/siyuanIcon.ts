@@ -8,6 +8,7 @@ export type SiyuanIconName =
     | "calendar"
     | "notifications"
     | "settings"
+    | "plans"
     | "create"
     | "template"
     | "warning"
@@ -37,6 +38,7 @@ export const SIYUAN_ICON_MAP: Record<string, string> = {
     review: "iconRefresh",
     more: "iconMore",
     calendar: "iconCalendar",
+    plans: "iconClock",
     notifications: "iconInbox",
     settings: "iconSettings",
     create: "iconAdd",

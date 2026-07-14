@@ -2,6 +2,7 @@ import {
   queryWorkspaceTasks,
   toggleWorkspaceTaskComplete,
   updateWorkspaceTask,
+  type UpdateWorkspaceTaskOptions,
   postponeWorkspaceTask,
   deleteWorkspaceTask,
   migrateWorkspaceTaskToToday,
@@ -185,9 +186,12 @@ async function executeSetStatus(
     };
   }
 
+  const message = result.partial
+    ? (result.message || "任务状态已更新，但项目关系同步不完整。")
+    : (completed ? "任务已标记完成。" : "任务已标记未完成。");
   return {
     ok: true,
-    safeOutput: { operation: "set_status", changed: true, taskId: task.id, blockId: task.blockId, taskname: task.taskname, message: completed ? "任务已标记完成。" : "任务已标记未完成。" },
+    safeOutput: { operation: "set_status", changed: true, taskId: task.id, blockId: task.blockId, taskname: task.taskname, message },
   };
 }
 
@@ -204,13 +208,19 @@ async function executeUpdate(
   const task = found.task;
   const patch = args.task || {};
   const clearSet = new Set(args.clearFields || []);
+  const relationMode: UpdateWorkspaceTaskOptions["relationMode"] =
+    clearSet.has("projectTargetId") || Object.prototype.hasOwnProperty.call(patch, "projectTargetId")
+      ? "replace"
+      : "preserve";
   const requestedProjectId = clearSet.has("projectTargetId") ? "" : (patch.projectTargetId ?? task.projectTargetId ?? "");
   let project = null;
-  try {
-    project = await resolveProject(config, requestedProjectId, task.projectTargetId);
-  } catch (reason) {
-    const failure = projectError(reason);
-    return { ok: false, errorCode: failure.errorCode, safeOutput: { operation: "update", changed: false, taskId: task.id, blockId: task.blockId, message: failure.message } };
+  if (relationMode === "replace" && requestedProjectId) {
+    try {
+      project = await resolveProject(config, requestedProjectId, task.projectTargetId);
+    } catch (reason) {
+      const failure = projectError(reason);
+      return { ok: false, errorCode: failure.errorCode, safeOutput: { operation: "update", changed: false, taskId: task.id, blockId: task.blockId, message: failure.message } };
+    }
   }
 
   const result = await updateWorkspaceTask(task, {
@@ -225,7 +235,7 @@ async function executeUpdate(
     tags: clearSet.has("tags") ? [] : (patch.tags ?? task.tags),
     projectTargetId: requestedProjectId,
     projectTitle: project?.title,
-  }, config.projectStorage);
+  }, config.projectStorage, { relationMode });
 
   if (!result.ok) {
     return {
@@ -235,9 +245,12 @@ async function executeUpdate(
     };
   }
 
+  const message = result.partial
+    ? (result.message || "任务已更新，但项目关系同步不完整。")
+    : "任务已更新。";
   return {
     ok: true,
-    safeOutput: { operation: "update", changed: true, taskId: task.id, blockId: task.blockId, taskname: patch.taskname ?? task.taskname, projectTargetId: project?.id, projectName: project?.title, projectPath: project?.pathTitles, message: "任务已更新。" },
+    safeOutput: { operation: "update", changed: true, taskId: task.id, blockId: task.blockId, taskname: patch.taskname ?? task.taskname, projectTargetId: project?.id, projectName: project?.title, projectPath: project?.pathTitles, message },
   };
 }
 
@@ -263,9 +276,12 @@ async function executePostpone(
     };
   }
 
+  const message = result.partial
+    ? (result.message || "任务已推迟，但项目关系同步不完整。")
+    : `任务已推迟到${args.postponeTo === "next_week" ? "下周" : "明天"}。`;
   return {
     ok: true,
-    safeOutput: { operation: "postpone", changed: true, taskId: task.id, blockId: task.blockId, taskname: task.taskname, message: `任务已推迟到${args.postponeTo === "next_week" ? "下周" : "明天"}。` },
+    safeOutput: { operation: "postpone", changed: true, taskId: task.id, blockId: task.blockId, taskname: task.taskname, message },
   };
 }
 

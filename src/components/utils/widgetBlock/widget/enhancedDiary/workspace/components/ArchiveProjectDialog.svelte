@@ -43,7 +43,7 @@
         <div><dt>范围内未完成任务</dt><dd>{currentPendingTaskCount}</dd></div>
     </dl>
     {#if notice}<p class="notice" role="status">{notice}</p>{/if}
-    <p>归档只写入项目状态，不会删除或移动项目文档，也不会改动日记中的任务与记录。归档后仍可查看内容和处理已有任务。</p>
+    <p>项目归档本身不会移动或删除项目文档、任务和记录。选择“完成全部任务并归档”时，只会将项目范围内未完成任务标记为已完成，并保留原有项目关系。</p>
     <footer>
         <button type="button" class="wk-btn wk-btn-secondary" onclick={onClose} disabled={busy}>取消</button>
         {#if currentPendingTaskCount > 0}

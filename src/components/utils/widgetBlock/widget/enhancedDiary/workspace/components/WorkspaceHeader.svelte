@@ -14,6 +14,7 @@
         projectCount?: number;
         reviewStatusText?: string;
         taskManagementEnabled?: boolean;
+        showPulse?: boolean;
         onGoTasks?: (filter?: string) => void;
         onGoRecords?: () => void;
         onGoProjects?: () => void;
@@ -32,6 +33,7 @@
         projectCount = 0,
         reviewStatusText = "0/0",
         taskManagementEnabled = true,
+        showPulse = true,
         onGoTasks,
         onGoRecords,
         onGoProjects,
@@ -79,7 +81,7 @@
         </div>
     </div>
 
-    <div class="daily-pulse">
+    {#if showPulse}<div class="daily-pulse">
         {#if taskManagementEnabled}
             <button type="button" class="wk-inline-stat" onclick={() => onGoTasks?.("today")}>
                 <span class="wk-inline-stat-value">{todayTaskCount}</span> 今日任务
@@ -103,7 +105,7 @@
         <button type="button" class="wk-inline-stat" onclick={() => onGoReview?.()}>
             <span class="wk-inline-stat-value">{reviewStatusText}</span> 复盘
         </button>
-    </div>
+    </div>{/if}
 </header>
 
 <style>

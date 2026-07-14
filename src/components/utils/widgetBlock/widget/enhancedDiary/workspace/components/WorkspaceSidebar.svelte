@@ -1,7 +1,7 @@
 <script lang="ts">
     import WorkspaceIcon, { type WorkspaceIconName } from "./WorkspaceIcon.svelte";
 
-    export type WorkspaceTab = "overview" | "tasks" | "projects" | "records" | "review" | "calendar" | "notifications" | "settings";
+    export type WorkspaceTab = "overview" | "tasks" | "projects" | "records" | "plans" | "review" | "calendar" | "notifications" | "settings";
 
     interface Props {
         activeTab: WorkspaceTab;
@@ -17,6 +17,7 @@
         { key: "tasks",    label: "任务", icon: "tasks", requiresTasks: true },
         { key: "projects", label: "项目", icon: "projects" },
         { key: "records",  label: "记录", icon: "records" },
+        { key: "plans",    label: "计划", icon: "plans" },
         { key: "review",   label: "复盘", icon: "review" },
     ];
 

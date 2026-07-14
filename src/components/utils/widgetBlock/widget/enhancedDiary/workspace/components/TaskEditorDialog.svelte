@@ -185,7 +185,7 @@
     <div class="panel-footer">
         <button type="button" class="wk-btn wk-btn-ghost" onclick={onClose}>取消</button>
         <button type="button" class="wk-btn wk-btn-primary" onclick={submit}>
-            {_mode === "create" ? "创建任务" : "保存更改"}
+            {mode === "create" ? "创建任务" : "保存更改"}
         </button>
     </div>
 </div>

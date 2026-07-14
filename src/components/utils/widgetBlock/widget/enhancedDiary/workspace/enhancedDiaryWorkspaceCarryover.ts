@@ -1,5 +1,5 @@
 import type { EnhancedDiaryConfig, EnhancedDiaryPeriod } from "../enhancedDiaryTypes";
-import { getPreviousPeriodContext } from "../enhancedDiaryUtils";
+import { formatDiaryDate, getPreviousPeriodContext } from "../enhancedDiaryUtils";
 import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { loadReviewContent } from "./enhancedDiaryWorkspaceReviewContent";
 import { getCarryoverFieldAliases, headingTitleMatchesAliases } from "../enhancedDiaryTemplateFieldMapping";
@@ -79,7 +79,7 @@ export async function buildWorkspaceCarryoverPlans(
                 period,
                 periodLabel: meta.periodLabel,
                 sourceLabel: meta.sourceLabel,
-                sourceDateOrRange: ctx.targetDate.toISOString().slice(0, 10),
+                sourceDateOrRange: formatDiaryDate(ctx.targetDate),
                 fieldLabel: field.label || DEFAULT_CARRYOVER_LABELS[period],
                 content: field.content,
                 lines,

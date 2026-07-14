@@ -11,6 +11,7 @@
     import WorkspaceNotificationPanel from "./components/WorkspaceNotificationPanel.svelte";
     import WorkspaceReviewPanel from "./components/WorkspaceReviewPanel.svelte";
     import WorkspaceProjectPanel from "./components/WorkspaceProjectPanel.svelte";
+    import WorkspacePlanPanel from "./components/WorkspacePlanPanel.svelte";
         import WorkspaceCommandPalette, { type WorkspaceCommand } from "./components/WorkspaceCommandPalette.svelte";
     import WorkspaceQuickCreateFab from "./components/WorkspaceQuickCreateFab.svelte";
     import WorkspaceEmptyState from "./components/WorkspaceEmptyState.svelte";
@@ -321,6 +322,14 @@
                 run: () => goProjects("all"),
             },
             {
+                id: "plans",
+                group: "导航",
+                title: "计划中心",
+                description: "查看日、周、月、年周期计划",
+                keywords: ["计划", "周期计划", "明日关注", "下周计划", "下月计划", "年度方向"],
+                run: () => selectTab("plans"),
+            },
+            {
                 id: "settings",
                 group: "设置",
                 title: "工作台设置",
@@ -531,6 +540,7 @@
             "tasks",
             "projects",
             "records",
+            "plans",
             "review",
             "calendar",
             "notifications",
@@ -816,7 +826,7 @@
         try {
             const result = await updateWorkspaceTask(editingTask, input, state.config.projectStorage);
             if (result.ok) {
-                showMessage("任务已更新", 3000);
+                showMessage(result.partial ? result.message || "任务已更新，但项目关系同步不完整" : "任务已更新", result.partial ? 5000 : 3000);
                 editingTask = null;
                 await refreshAfterWorkspaceMutation(true);
             } else {
@@ -832,8 +842,12 @@
         actionBusy = true;
         try {
             const result = await toggleWorkspaceTaskComplete(task, !task.completed);
-            showMessage(result.ok ? "任务状态已更新" : result.message || "任务状态更新失败", 3000);
-            await refreshAfterWorkspaceMutation(result.ok);
+            if (result.ok) {
+                showMessage(result.partial ? result.message || "任务状态已更新，但项目关系同步不完整" : "任务状态已更新", result.partial ? 5000 : 3000);
+                await refreshAfterWorkspaceMutation(true);
+            } else {
+                showMessage(result.message || "任务状态更新失败", 3000);
+            }
         } finally {
             actionBusy = false;
         }
@@ -892,7 +906,10 @@
         try {
             const result = await postponeWorkspaceTask(task, target);
             if (result.ok) {
-                showMessage(target === "tomorrow" ? "任务已推迟到明天" : "任务已推迟到下周", 3000);
+                const message = result.partial
+                    ? (result.message || "任务已推迟，但项目关系同步不完整")
+                    : (target === "tomorrow" ? "任务已推迟到明天" : "任务已推迟到下周");
+                showMessage(message, result.partial ? 5000 : 3000);
                 await refreshAfterWorkspaceMutation(true);
             } else {
                 showMessage(result.message || "推迟任务失败", 4000);
@@ -907,7 +924,10 @@
         actionBusy = true;
         try {
             const result = await completeWorkspaceTasksSequentially(tasks);
-            showMessage(`已完成 ${result.successCount}/${result.total} 个任务`, 3000);
+            const message = result.partialCount > 0
+                ? `已完成 ${result.successCount}/${result.total} 个任务，其中 ${result.partialCount} 个项目关系同步不完整`
+                : `已完成 ${result.successCount}/${result.total} 个任务`;
+            showMessage(message, result.partialCount > 0 ? 5000 : 3000);
             await refreshAfterWorkspaceMutation(result.successCount > 0);
         } finally {
             actionBusy = false;
@@ -919,15 +939,31 @@
         actionBusy = true;
         try {
             const targets = tasks.filter((task) => !task.completed);
-            const results = await Promise.all(targets.map((task) => postponeWorkspaceTask(task, target)));
-            const successCount = results.filter((result) => result.ok).length;
-            showMessage(
-                target === "tomorrow"
-                    ? `已推迟 ${successCount}/${targets.length} 个任务到明天`
-                    : `已推迟 ${successCount}/${targets.length} 个任务到下周`,
-                3000
-            );
-            await refreshAfterWorkspaceMutation(successCount > 0);
+            let successCount = 0;
+            let partialCount = 0;
+            let failedCount = 0;
+            for (const task of targets) {
+                try {
+                    const result = await postponeWorkspaceTask(task, target);
+                    if (result.ok) {
+                        successCount += 1;
+                        if (result.partial) partialCount += 1;
+                    } else {
+                        failedCount += 1;
+                    }
+                } catch {
+                    failedCount += 1;
+                }
+            }
+            const baseMessage = target === "tomorrow"
+                ? `已推迟 ${successCount}/${targets.length} 个任务到明天`
+                : `已推迟 ${successCount}/${targets.length} 个任务到下周`;
+            const message = partialCount > 0 || failedCount > 0
+                ? `${baseMessage}（${partialCount > 0 ? `${partialCount} 个项目关系同步不完整` : ""}${partialCount > 0 && failedCount > 0 ? "、" : ""}${failedCount > 0 ? `${failedCount} 个失败` : ""}）`
+                : baseMessage;
+            const hasChange = successCount > 0 || partialCount > 0;
+            showMessage(message, hasChange ? 5000 : 3000);
+            await refreshAfterWorkspaceMutation(hasChange);
         } finally {
             actionBusy = false;
         }
@@ -1021,6 +1057,13 @@
                                 };
                             }
                             if (mode === "complete_and_archive") {
+                                const relationSnapshots = currentPendingTasks.map((task) => ({
+                                    blockId: task.blockId,
+                                    projectTargetId: task.projectTargetId,
+                                    hiddenProjectTargetId: task.hiddenProjectTargetId,
+                                    visibleProjectTargetId: task.visibleProjectTargetId,
+                                    projectRelationStatus: task.projectRelationStatus,
+                                }));
                                 const batchResult = await completeWorkspaceTasksSequentially(currentPendingTasks);
                                 await refreshAfterWorkspaceMutation(batchResult.successCount > 0);
                                 if (batchResult.failedCount > 0) {
@@ -1033,6 +1076,23 @@
                                         forceIndexRefresh: true,
                                         requireFreshIndex: true,
                                     });
+                                    const finalTaskMap = new Map(finalTasks.map((t) => [t.blockId, t]));
+                                    const invalidTasks = relationSnapshots.filter((snapshot) => {
+                                        const finalTask = finalTaskMap.get(snapshot.blockId);
+                                        if (!finalTask) return true;
+                                        if (!finalTask.completed) return true;
+                                        if (finalTask.projectTargetId !== snapshot.projectTargetId) return true;
+                                        if (finalTask.hiddenProjectTargetId !== snapshot.hiddenProjectTargetId) return true;
+                                        if (finalTask.visibleProjectTargetId !== snapshot.visibleProjectTargetId) return true;
+                                        if (snapshot.projectRelationStatus === "normal" && finalTask.projectRelationStatus !== "normal") return true;
+                                        return false;
+                                    });
+                                    if (invalidTasks.length > 0) {
+                                        return {
+                                            accepted: false,
+                                            message: `已完成 ${batchResult.successCount} 条任务，但有 ${invalidTasks.length} 条任务的项目关系未通过校验，项目尚未归档，请刷新或检查关系。`,
+                                        };
+                                    }
                                     const finalAffectedIds = new Set(finalContext.affectedTargetIds);
                                     const finalPendingTasks = finalTasks.filter((task) =>
                                         !task.completed && Boolean(task.projectTargetId) && finalAffectedIds.has(task.projectTargetId!),
@@ -1595,6 +1655,7 @@
             projectCount={state?.projects?.length || 0}
             reviewStatusText={reviewStatusText}
             {taskManagementEnabled}
+            showPulse={activeTab !== "overview"}
             onGoTasks={(f) => goTasks(f as WorkspaceTaskStatusFilter)}
             onGoRecords={() => goRecords({ mode: "today" })}
             onGoProjects={() => selectTab("projects")}
@@ -1627,26 +1688,19 @@
                     <WorkspaceOverview
                         {state}
                         {taskManagementEnabled}
-                        onOpenToday={openToday}
                         onOpenTodayAndAppendTemplate={openTodayAndAppendTemplate}
                         onGoTasks={goTasks}
+                        onGoRecords={goRecords}
                         onGoReview={() => selectTab("review")}
-                        onGoProjects={goProjects}
+                        onGoProjects={() => goProjects()}
+                        onGoNotifications={() => selectTab("notifications")}
+                        onGoPlans={() => selectTab("plans")}
                         onCreateTask={openCreateTaskDialog}
                         onCreateRecord={openQuickRecordDialogForWorkspace}
-                        calendarDays={calendarDays}
-                        calendarDate={calendarDate}
-                        calendarLoading={calendarLoading}
-                        selectedCalendarDate={selectedCalendarDate}
-                        onSelectDate={(day) => {
-                            void loadSelectedDayDetail(day.date);
-                            selectTab("calendar");
-                        }}
-                        onPrevMonth={previousMonth}
-                        onNextMonth={nextMonth}
+                        onToggleTask={toggleTask}
+                        onOpenTask={openTaskSearchResult}
+                        onOpenProject={openProjectSearchResult}
                         onOpenDoc={openDoc}
-                        onCalendarToday={jumpCalendarToToday}
-                        calendarDisplaySettings={state.config.workspaceSettings.calendar}
                     />
                 {:else if activeTab === "tasks" && taskManagementEnabled}
                     <WorkspaceTaskPanel
@@ -1779,6 +1833,13 @@
                         onConvertRecordToTask={(item) => openProjectRecordAction(item, convertRecordToTask)}
                         onArchiveProject={(targetId) => void openArchiveProjectForWorkspace(targetId)}
                         onRestoreProject={(targetId) => void restoreProjectForWorkspace(targetId)}
+                    />
+                {:else if activeTab === "plans"}
+                    <WorkspacePlanPanel
+                        plans={state.carryoverPlans}
+                        {taskManagementEnabled}
+                        onOpenDoc={openDoc}
+                        onConvertToTask={(content) => openCreateTaskDialog({ taskname: content })}
                     />
                 {:else if activeTab === "settings"}
                     <WorkspaceSettingsPage
