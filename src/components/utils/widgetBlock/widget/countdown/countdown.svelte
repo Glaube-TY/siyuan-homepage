@@ -1,14 +1,13 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import { showMessage } from "siyuan";
     import { getImage } from "@/components/tools/getImage";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
         loadCountdownEvents,
-        migrateLegacyCountdownEventsIfNeeded,
         type CountdownEventRecord,
     } from "./countdownData";
-    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
+    import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
 
     function parseContentTypeJson(raw: string): any {
         try {
@@ -29,9 +28,9 @@
 
     let countdownEvents = $state<CountdownEventRecord[]>([]);
     let countdownStyle = $derived(parsed.data?.countdownStyle || "list1");
-    let effectiveDatabaseId = $state("");
     let databaseStatusMessage = $state("");
     let isLoadingEvents = $state(true);
+    let unsubscribeDataUpdated: (() => void) | null = null;
 
     const defaultCard1RemoteBg =
         "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
@@ -156,47 +155,19 @@
         databaseStatusMessage = "";
 
         try {
-            const resolved = plugin
-                ? await resolveDatabaseIdFromExistingWidgets(
-                      plugin,
-                      "countdown",
-                      parsed.blockId,
-                      parsed,
-                  )
-                : { databaseId: "", source: "none" };
-            effectiveDatabaseId =
-                resolved.databaseId || parsed.data?.countdownDatabaseId || "";
-
-            if (!effectiveDatabaseId?.trim()) {
-                databaseStatusMessage = "请先在组件设置中填写倒数日数据库 ID";
-                return;
-            }
-
-            const legacyEvents = Array.isArray(parsed.data?.eventList)
-                ? parsed.data.eventList
-                : [];
-            try {
-                await migrateLegacyCountdownEventsIfNeeded(
-                    effectiveDatabaseId,
-                    legacyEvents,
-                );
-            } catch (migrateError) {
-                console.warn("[countdown] 迁移旧倒数日事件失败", migrateError);
-            }
-
-            const result = await loadCountdownEvents(effectiveDatabaseId);
+            const result = await loadCountdownEvents();
             if (!result.status.ok) {
                 databaseStatusMessage = result.status.message;
-                showMessage("倒数日事件加载失败，请检查数据库配置", 4000);
+                showMessage("倒数日事件加载失败，请检查本地存储", 4000);
                 return;
             }
 
             countdownEvents = result.events;
             currentEventIndex = 0;
         } catch (error) {
-            console.warn("[countdown] 读取倒数日数据库失败", error);
-            databaseStatusMessage = "倒数日数据库读取失败，请检查数据库 ID";
-            showMessage("倒数日事件加载失败，请检查数据库配置", 4000);
+            console.warn("[countdown] 读取本地纪念日失败", error);
+            databaseStatusMessage = "本地数据文件异常，请备份插件数据后处理。";
+            showMessage("倒数日事件加载失败，请检查本地存储", 4000);
         } finally {
             isLoadingEvents = false;
         }
@@ -208,8 +179,11 @@
             countdownCard1RemoteBg = await getImage(countdownCard1RemoteBg);
         }
         await loadCountdownData();
+        unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("countdown", () => void loadCountdownData());
         isFirstMount = false;
     });
+
+    onDestroy(() => unsubscribeDataUpdated?.());
 
     $effect(() => {
         void contentTypeJson;

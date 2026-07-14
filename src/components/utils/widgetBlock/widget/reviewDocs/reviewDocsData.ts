@@ -1,97 +1,38 @@
 import {
-    addAttributeViewKeyChecked,
-    appendAttributeViewDetachedBlocksWithValuesChecked,
-    getAttributeView,
-    getAttributeViewKeysByAvID,
-    type AttributeView,
-    type AttributeViewKeyValue,
-} from "@/api";
+    assertSharedWidgetYearFilesComplete,
+    loadSharedJson,
+    mutateSharedJson,
+    readSharedWidgetDirectoryChecked,
+    REVIEW_DOCS_STORE_TRANSACTION_LOCK,
+    runSharedWidgetExclusive,
+    type SharedRevisionedFile,
+    type SharedWidgetMigrationMetadata,
+} from "../sharedLocalStorage/sharedLocalStorage";
+import {
+    getReviewLogsFile,
+    REVIEW_LOG_INDEX_FILE,
+    REVIEW_LOG_INDEX_SCHEMA,
+    REVIEW_LOGS_SCHEMA,
+    SHARED_WIDGET_DATA_VERSION,
+} from "../sharedLocalStorage/sharedWidgetStoragePaths";
+import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
 import { toLocalDateString } from "./reviewDocsSchedule";
 import type { ReviewLogEntry, ReviewLogStats } from "./reviewDocsTypes";
 
-const REVIEW_LOG_FIELD_ALIASES = {
-    title: ["title", "复习内容", "标题", "主键", "name"],
-    logId: ["logId", "日志ID", "记录ID"],
-    reviewId: ["reviewId", "复习计划ID"],
-    targetId: ["targetId", "目标块ID", "块ID"],
-    targetRootId: ["targetRootId", "所属文档ID", "文档ID"],
-    targetType: ["targetType", "目标类型"],
-    targetTitle: ["targetTitle", "标题快照"],
-    targetPath: ["targetPath", "路径快照"],
-    action: ["action", "操作"],
-    actionAt: ["actionAt", "操作时间"],
-    previousDueDate: ["previousDueDate", "原复习日期"],
-    nextDueDate: ["nextDueDate", "下次复习日期"],
-    reviewCountBefore: ["reviewCountBefore", "原复习次数"],
-    reviewCountAfter: ["reviewCountAfter", "复习次数"],
-    intervalIndexBefore: ["intervalIndexBefore", "原间隔索引"],
-    intervalIndexAfter: ["intervalIndexAfter", "间隔索引"],
-    plan: ["plan", "计划类型"],
-    intervals: ["intervals", "间隔配置"],
-    category: ["category", "分类"],
-    priority: ["priority", "优先级"],
-    note: ["note", "备注"],
-    createdAt: ["createdAt", "创建时间"],
-    archived: ["archived", "已归档"],
-};
+export interface ReviewLogIndexFile extends SharedRevisionedFile {
+    years: number[];
+    totalLogs: number;
+    yearCounts: Record<string, number>;
+    migration?: SharedWidgetMigrationMetadata;
+}
 
-type ReviewLogField = keyof typeof REVIEW_LOG_FIELD_ALIASES;
-
-const REVIEW_LOG_FIELD_DEFINITIONS: Record<ReviewLogField, { name: string; type: string; icon: string }> = {
-    title: { name: "复习内容", type: "block", icon: "iconRefresh" },
-    logId: { name: "日志ID", type: "text", icon: "iconKey" },
-    reviewId: { name: "复习计划ID", type: "text", icon: "iconKey" },
-    targetId: { name: "目标块ID", type: "text", icon: "iconBlock" },
-    targetRootId: { name: "所属文档ID", type: "text", icon: "iconFile" },
-    targetType: { name: "目标类型", type: "text", icon: "iconTags" },
-    targetTitle: { name: "标题快照", type: "text", icon: "iconEdit" },
-    targetPath: { name: "路径快照", type: "text", icon: "iconFolder" },
-    action: { name: "操作", type: "text", icon: "iconRefresh" },
-    actionAt: { name: "操作时间", type: "text", icon: "iconCalendar" },
-    previousDueDate: { name: "原复习日期", type: "text", icon: "iconCalendar" },
-    nextDueDate: { name: "下次复习日期", type: "text", icon: "iconCalendar" },
-    reviewCountBefore: { name: "原复习次数", type: "number", icon: "iconList" },
-    reviewCountAfter: { name: "复习次数", type: "number", icon: "iconList" },
-    intervalIndexBefore: { name: "原间隔索引", type: "number", icon: "iconSort" },
-    intervalIndexAfter: { name: "间隔索引", type: "number", icon: "iconSort" },
-    plan: { name: "计划类型", type: "text", icon: "iconTags" },
-    intervals: { name: "间隔配置", type: "text", icon: "iconCalendar" },
-    category: { name: "分类", type: "text", icon: "iconTags" },
-    priority: { name: "优先级", type: "text", icon: "iconStar" },
-    note: { name: "备注", type: "text", icon: "iconEdit" },
-    createdAt: { name: "创建时间", type: "text", icon: "iconCalendar" },
-    archived: { name: "已归档", type: "text", icon: "iconArchive" },
-};
-
-interface ReviewLogKeyMap {
-    title: AttributeViewKeyValue;
-    logId: AttributeViewKeyValue;
-    reviewId: AttributeViewKeyValue;
-    targetId: AttributeViewKeyValue;
-    targetRootId: AttributeViewKeyValue;
-    targetType: AttributeViewKeyValue;
-    targetTitle: AttributeViewKeyValue;
-    targetPath: AttributeViewKeyValue;
-    action: AttributeViewKeyValue;
-    actionAt: AttributeViewKeyValue;
-    previousDueDate: AttributeViewKeyValue;
-    nextDueDate: AttributeViewKeyValue;
-    reviewCountBefore: AttributeViewKeyValue;
-    reviewCountAfter: AttributeViewKeyValue;
-    intervalIndexBefore: AttributeViewKeyValue;
-    intervalIndexAfter: AttributeViewKeyValue;
-    plan: AttributeViewKeyValue;
-    intervals: AttributeViewKeyValue;
-    category: AttributeViewKeyValue;
-    priority: AttributeViewKeyValue;
-    note: AttributeViewKeyValue;
-    createdAt: AttributeViewKeyValue;
-    archived: AttributeViewKeyValue;
+export interface ReviewLogsYearFile extends SharedRevisionedFile {
+    year: number;
+    logs: ReviewLogEntry[];
 }
 
 export interface ReviewLogStoreStatus {
     ok: boolean;
-    databaseId?: string;
     missingFields: string[];
     message: string;
 }
@@ -102,347 +43,335 @@ export interface ReviewLogWriteResult {
     message: string;
 }
 
-interface ReviewLogStore {
-    avID: string;
-    av: AttributeView;
-    keys: ReviewLogKeyMap;
-    status: ReviewLogStoreStatus;
+function finiteCount(value: unknown): number {
+    const count = Number(value);
+    return Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
 }
 
-interface ReviewLogRow {
-    itemID: string;
-    values: Map<string, any>;
-}
-
-function createStatus(
-    ok: boolean,
-    message: string,
-    databaseId?: string,
-    missingFields: string[] = []
-): ReviewLogStoreStatus {
-    return { ok, databaseId, missingFields, message };
-}
-
-function normalizeFieldName(value: string): string {
-    return value.trim().toLowerCase().replace(/\s+/g, "");
-}
-
-function findKey(
-    keyValues: AttributeViewKeyValue[],
-    field: ReviewLogField
-): AttributeViewKeyValue | null {
-    if (field === "title") {
-        const primaryKey = keyValues.find((item) => item.key.type === "block");
-        if (primaryKey) return primaryKey;
+export function getReviewLogYear(entry: Partial<ReviewLogEntry>, fallback = new Date().getFullYear()): number {
+    for (const value of [entry.actionAt, entry.createdAt]) {
+        if (typeof value !== "string") continue;
+        const parsed = new Date(value);
+        const year = Number.isFinite(parsed.getTime()) ? parsed.getFullYear() : NaN;
+        if (Number.isFinite(year) && year >= 1900 && year <= 9999) return year;
     }
-
-    const aliases = REVIEW_LOG_FIELD_ALIASES[field].map(normalizeFieldName);
-    return keyValues.find((item) => aliases.includes(normalizeFieldName(item.key.name))) || null;
+    return fallback;
 }
 
-function resolveKeyMap(av: AttributeView): { keys: Partial<ReviewLogKeyMap>; missingFields: string[] } {
-    const keys: Partial<ReviewLogKeyMap> = {};
-    const missingFields: string[] = [];
-
-    (Object.keys(REVIEW_LOG_FIELD_ALIASES) as ReviewLogField[]).forEach((field) => {
-        const key = findKey(av.keyValues, field);
-        if (key) {
-            keys[field] = key;
-        } else {
-            missingFields.push(field);
-        }
-    });
-
-    return { keys, missingFields };
+export function getReviewLogDedupeKey(entry: Partial<ReviewLogEntry>): string {
+    if (typeof entry.logId === "string" && entry.logId.trim()) return `id:${entry.logId.trim()}`;
+    return `natural:${entry.targetId || ""}|${entry.action || ""}|${entry.actionAt || ""}|${entry.previousDueDate || ""}|${entry.nextDueDate || ""}`;
 }
 
-function normalizeRawKeyValue(item: any): AttributeViewKeyValue | null {
-    const key = item?.key || item;
-    if (!key?.id || !key?.name) return null;
+export function normalizeReviewLogEntry(raw: unknown): ReviewLogEntry {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("复习日志记录无效");
+    const value = raw as Record<string, unknown>;
+    const text = (key: string) => typeof value[key] === "string" ? value[key] as string : "";
+    const action = text("action");
+    if (!text("targetId") || !action || !["create", "review", "postpone", "update", "finish", "remove"].includes(action)) {
+        throw new Error("复习日志关键字段无效");
+    }
     return {
-        key: { id: key.id, name: key.name, type: key.type || item?.type || "text" },
-        values: item?.values || [],
+        logId: text("logId"),
+        reviewId: text("reviewId"),
+        targetId: text("targetId"),
+        targetRootId: text("targetRootId"),
+        targetType: text("targetType") === "doc" ? "doc" : "block",
+        targetTitle: text("targetTitle"),
+        targetPath: text("targetPath"),
+        action: action as ReviewLogEntry["action"],
+        actionAt: text("actionAt"),
+        previousDueDate: text("previousDueDate"),
+        nextDueDate: text("nextDueDate"),
+        reviewCountBefore: finiteCount(value.reviewCountBefore),
+        reviewCountAfter: finiteCount(value.reviewCountAfter),
+        intervalIndexBefore: finiteCount(value.intervalIndexBefore),
+        intervalIndexAfter: finiteCount(value.intervalIndexAfter),
+        plan: text("plan"),
+        intervals: text("intervals"),
+        category: text("category"),
+        priority: text("priority"),
+        note: text("note"),
+        createdAt: text("createdAt"),
+        archived: text("archived"),
     };
 }
 
-function normalizeAttributeViewKeyValues(raw: any): AttributeViewKeyValue[] {
-    const source =
-        (Array.isArray(raw) && raw) ||
-        (Array.isArray(raw?.keys) && raw.keys) ||
-        (Array.isArray(raw?.data) && raw.data) ||
-        (Array.isArray(raw?.keyValues) && raw.keyValues) ||
-        (Array.isArray(raw?.av?.keyValues) && raw.av.keyValues) ||
-        (Array.isArray(raw?.data?.keys) && raw.data.keys) ||
-        [];
-
-    return source
-        .map(normalizeRawKeyValue)
-        .filter((item): item is AttributeViewKeyValue => item !== null);
-}
-
-async function loadAttributeViewWithSchema(avID: string): Promise<AttributeView | null> {
-    const [av, rawKeys] = await Promise.all([
-        getAttributeView(avID),
-        getAttributeViewKeysByAvID(avID),
-    ]);
-    if (!av) return null;
-
-    const schemaKeyValues = normalizeAttributeViewKeyValues(rawKeys);
-    if (schemaKeyValues.length === 0) return av;
-
-    const mergedKeyValues = schemaKeyValues.map((schemaKeyValue) => {
-        const dataKeyValue = av.keyValues.find((item) => item.key.id === schemaKeyValue.key.id);
-        return { ...schemaKeyValue, values: dataKeyValue?.values || schemaKeyValue.values || [] };
-    });
-
-    for (const dataKeyValue of av.keyValues) {
-        if (!mergedKeyValues.some((item) => item.key.id === dataKeyValue.key.id)) {
-            mergedKeyValues.push(dataKeyValue);
-        }
-    }
-
-    return { ...av, keyValues: mergedKeyValues };
-}
-
-function createSiyuanLikeId(): string {
-    const now = new Date();
-    const pad = (value: number) => String(value).padStart(2, "0");
-    const timestamp = [
-        now.getFullYear(),
-        pad(now.getMonth() + 1),
-        pad(now.getDate()),
-        pad(now.getHours()),
-        pad(now.getMinutes()),
-        pad(now.getSeconds()),
-    ].join("");
-    const random = Math.random().toString(36).slice(2, 9).padEnd(7, "0");
-    return `${timestamp}-${random}`;
-}
-
-async function ensureReviewLogFields(avID: string, av: AttributeView): Promise<AttributeView> {
-    const { missingFields } = resolveKeyMap(av);
-    const fieldsToCreate = missingFields.filter((field) => field !== "title") as ReviewLogField[];
-    if (fieldsToCreate.length === 0) return av;
-
-    let previousKeyID = av.keyValues[av.keyValues.length - 1]?.key.id || "";
-    for (const field of fieldsToCreate) {
-        const definition = REVIEW_LOG_FIELD_DEFINITIONS[field];
-        const keyID = createSiyuanLikeId();
-        await addAttributeViewKeyChecked(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
-        previousKeyID = keyID;
-    }
-
-    return await loadAttributeViewWithSchema(avID) || av;
-}
-
-async function loadReviewLogStore(databaseId: string | undefined): Promise<ReviewLogStore | null> {
-    const avID = databaseId?.trim();
-    if (!avID) return null;
-
-    const av = await loadAttributeViewWithSchema(avID);
-    if (!av) return null;
-
-    const ensuredAv = await ensureReviewLogFields(avID, av);
-    const { keys, missingFields } = resolveKeyMap(ensuredAv);
-    if (missingFields.length > 0) {
-        return {
-            avID,
-            av: ensuredAv,
-            keys: keys as ReviewLogKeyMap,
-            status: createStatus(false, `复习日志数据库字段自动初始化失败：${missingFields.join("、")}`, avID, missingFields),
-        };
-    }
-
+export function createEmptyReviewLogIndexFile(): ReviewLogIndexFile {
     return {
-        avID,
-        av: ensuredAv,
-        keys: keys as ReviewLogKeyMap,
-        status: createStatus(true, "数据库可用", avID),
+        schema: REVIEW_LOG_INDEX_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        years: [],
+        totalLogs: 0,
+        yearCounts: {},
     };
 }
 
-function groupRows(av: AttributeView): ReviewLogRow[] {
-    const rowMap = new Map<string, ReviewLogRow>();
+export function createEmptyReviewLogsYearFile(year: number): ReviewLogsYearFile {
+    return {
+        schema: REVIEW_LOGS_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: 0,
+        year,
+        updatedAt: new Date().toISOString(),
+        logs: [],
+    };
+}
 
-    for (const keyValue of av.keyValues) {
-        for (const value of keyValue.values || []) {
-            const itemID = value?.itemID || value?.blockID || value?.id || "";
-            if (!itemID) continue;
-
-            if (!rowMap.has(itemID)) {
-                rowMap.set(itemID, { itemID, values: new Map<string, any>() });
-            }
-            rowMap.get(itemID)?.values.set(keyValue.key.id, value);
-        }
+export function normalizeReviewLogIndexFile(raw: unknown): ReviewLogIndexFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("复习日志索引结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== REVIEW_LOG_INDEX_SCHEMA || value.version !== SHARED_WIDGET_DATA_VERSION) {
+        throw new Error("复习日志索引 schema 或 version 不受支持");
     }
-
-    return Array.from(rowMap.values());
-}
-
-function extractTextFromValue(value: any): string {
-    if (value == null) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    if (value.text?.content != null) return String(value.text.content);
-    if (value.block?.content != null) return String(value.block.content);
-    if (value.number?.content != null) return String(value.number.content);
-    if (value.content != null) return String(value.content);
-    return "";
-}
-
-function readRowField(row: ReviewLogRow, key: AttributeViewKeyValue): string {
-    return extractTextFromValue(row.values.get(key.key.id));
-}
-
-function createBlockValue(keyID: string, content: string): any {
-    return { keyID, block: { content } };
-}
-
-function createTextValue(keyID: string, content: string): any {
-    return { keyID, text: { content } };
-}
-
-function createNumberValue(keyID: string, content: number): any {
-    return { keyID, number: { content: Number(content) || 0, isNotEmpty: true } };
-}
-
-function createValueForKey(key: AttributeViewKeyValue, content: string | number): any {
-    if (key.key.type === "block") return createBlockValue(key.key.id, String(content));
-    if (key.key.type === "number") return createNumberValue(key.key.id, Number(content));
-    return createTextValue(key.key.id, String(content));
-}
-
-function logEntryToValueEntries(store: ReviewLogStore, entry: ReviewLogEntry): any[] {
-    return [
-        createValueForKey(store.keys.title, entry.targetTitle || entry.targetId),
-        createTextValue(store.keys.logId.key.id, entry.logId),
-        createTextValue(store.keys.reviewId.key.id, entry.reviewId),
-        createTextValue(store.keys.targetId.key.id, entry.targetId),
-        createTextValue(store.keys.targetRootId.key.id, entry.targetRootId),
-        createTextValue(store.keys.targetType.key.id, entry.targetType),
-        createTextValue(store.keys.targetTitle.key.id, entry.targetTitle),
-        createTextValue(store.keys.targetPath.key.id, entry.targetPath),
-        createTextValue(store.keys.action.key.id, entry.action),
-        createTextValue(store.keys.actionAt.key.id, entry.actionAt),
-        createTextValue(store.keys.previousDueDate.key.id, entry.previousDueDate),
-        createTextValue(store.keys.nextDueDate.key.id, entry.nextDueDate),
-        createNumberValue(store.keys.reviewCountBefore.key.id, entry.reviewCountBefore),
-        createNumberValue(store.keys.reviewCountAfter.key.id, entry.reviewCountAfter),
-        createNumberValue(store.keys.intervalIndexBefore.key.id, entry.intervalIndexBefore),
-        createNumberValue(store.keys.intervalIndexAfter.key.id, entry.intervalIndexAfter),
-        createTextValue(store.keys.plan.key.id, entry.plan),
-        createTextValue(store.keys.intervals.key.id, entry.intervals),
-        createTextValue(store.keys.category.key.id, entry.category),
-        createTextValue(store.keys.priority.key.id, entry.priority),
-        createTextValue(store.keys.note.key.id, entry.note),
-        createTextValue(store.keys.createdAt.key.id, entry.createdAt),
-        createTextValue(store.keys.archived.key.id, entry.archived),
-    ];
-}
-
-export async function getReviewLogStoreStatus(databaseId: string | undefined): Promise<ReviewLogStoreStatus> {
-    const avID = databaseId?.trim();
-    if (!avID) {
-        return createStatus(false, "填写复习日志数据库 ID 后启用日志和统计");
+    if (!Array.isArray(value.years) || !value.yearCounts || typeof value.yearCounts !== "object") {
+        throw new Error("复习日志索引内容无效");
     }
+    const years = Array.from(new Set(value.years.map(Number).filter((year) => Number.isInteger(year) && year >= 1900))).sort();
+    const yearCounts: Record<string, number> = {};
+    for (const year of years) yearCounts[String(year)] = finiteCount((value.yearCounts as Record<string, unknown>)[String(year)]);
+    return {
+        schema: REVIEW_LOG_INDEX_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: finiteCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        years,
+        totalLogs: finiteCount(value.totalLogs),
+        yearCounts,
+        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
+    };
+}
 
-    try {
-        const store = await loadReviewLogStore(avID);
-        if (!store) {
-            return createStatus(false, "无法读取复习日志数据库，请检查数据库 ID", avID);
-        }
+export function normalizeReviewLogsYearFile(raw: unknown, expectedYear: number): ReviewLogsYearFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("复习日志年份文件结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== REVIEW_LOGS_SCHEMA || value.version !== SHARED_WIDGET_DATA_VERSION || value.year !== expectedYear) {
+        throw new Error("复习日志年份文件 schema、version 或 year 不受支持");
+    }
+    if (!Array.isArray(value.logs)) throw new Error("复习日志年份列表无效");
+    return {
+        schema: REVIEW_LOGS_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: finiteCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        year: expectedYear,
+        logs: value.logs.map(normalizeReviewLogEntry),
+    };
+}
 
-        return store.status;
-    } catch (error) {
-        return createStatus(
-            false,
-            error instanceof Error ? error.message : "复习日志数据库不可用",
-            avID
+export function sameReviewLog(left: ReviewLogEntry, right: ReviewLogEntry): boolean {
+    const normalizedLeft = normalizeReviewLogEntry(left);
+    const normalizedRight = normalizeReviewLogEntry(right);
+    return normalizedLeft.logId === normalizedRight.logId
+        && normalizedLeft.reviewId === normalizedRight.reviewId
+        && normalizedLeft.targetId === normalizedRight.targetId
+        && normalizedLeft.targetRootId === normalizedRight.targetRootId
+        && normalizedLeft.targetType === normalizedRight.targetType
+        && normalizedLeft.targetTitle === normalizedRight.targetTitle
+        && normalizedLeft.targetPath === normalizedRight.targetPath
+        && normalizedLeft.action === normalizedRight.action
+        && normalizedLeft.actionAt === normalizedRight.actionAt
+        && normalizedLeft.previousDueDate === normalizedRight.previousDueDate
+        && normalizedLeft.nextDueDate === normalizedRight.nextDueDate
+        && normalizedLeft.reviewCountBefore === normalizedRight.reviewCountBefore
+        && normalizedLeft.reviewCountAfter === normalizedRight.reviewCountAfter
+        && normalizedLeft.intervalIndexBefore === normalizedRight.intervalIndexBefore
+        && normalizedLeft.intervalIndexAfter === normalizedRight.intervalIndexAfter
+        && normalizedLeft.plan === normalizedRight.plan
+        && normalizedLeft.intervals === normalizedRight.intervals
+        && normalizedLeft.category === normalizedRight.category
+        && normalizedLeft.priority === normalizedRight.priority
+        && normalizedLeft.note === normalizedRight.note
+        && normalizedLeft.createdAt === normalizedRight.createdAt
+        && normalizedLeft.archived === normalizedRight.archived;
+}
+
+export function validateReviewLogRecords(
+    actual: ReviewLogEntry[],
+    expected: ReviewLogEntry[],
+    message = "复习日志年份文件写入后校验失败",
+): void {
+    const actualByKey = new Map(actual.map((log) => [getReviewLogDedupeKey(log), log]));
+    const expectedKeys = new Set(expected.map(getReviewLogDedupeKey));
+    if (actual.length !== expected.length
+        || actualByKey.size !== actual.length
+        || expectedKeys.size !== expected.length
+        || expected.some((log) => {
+            const saved = actualByKey.get(getReviewLogDedupeKey(log));
+            return !saved || !sameReviewLog(saved, log);
+        })) {
+        throw new Error(message);
+    }
+}
+
+function validateYearFile(actual: ReviewLogsYearFile, expected: ReviewLogsYearFile): void {
+    validateReviewLogRecords(actual.logs, expected.logs);
+}
+
+function validateIndex(actual: ReviewLogIndexFile, expected: ReviewLogIndexFile): void {
+    if (actual.totalLogs !== expected.totalLogs || actual.years.length !== expected.years.length
+        || expected.years.some((year, index) => actual.years[index] !== year
+            || actual.yearCounts[String(year)] !== expected.yearCounts[String(year)])) {
+        throw new Error("复习日志索引写入后校验失败");
+    }
+}
+
+function isReviewLogIndexConsistent(index: ReviewLogIndexFile): boolean {
+    return index.years.reduce((sum, year) => sum + (index.yearCounts[String(year)] || 0), 0)
+        === index.totalLogs;
+}
+
+export async function listReviewLogYears(): Promise<number[]> {
+    const years: number[] = [];
+    for (const entry of await readSharedWidgetDirectoryChecked("review-docs")) {
+        const match = entry.name.match(/^review-logs-(\d{4})\.json$/);
+        if (!match) continue;
+        if (entry.isDir) throw new Error(`复习日志年度明细路径不是文件：${entry.name}`);
+        years.push(Number(match[1]));
+    }
+    return Array.from(new Set(years)).sort((left, right) => left - right);
+}
+
+export async function rebuildReviewLogIndexFromFiles(): Promise<ReviewLogIndexFile> {
+    const existing = await loadSharedJson(REVIEW_LOG_INDEX_FILE, normalizeReviewLogIndexFile);
+    const years = await listReviewLogYears();
+    assertSharedWidgetYearFilesComplete(existing?.years || [], years);
+    const yearCounts: Record<string, number> = {};
+    let totalLogs = 0;
+    for (const year of years) {
+        const file = await loadSharedJson(getReviewLogsFile(year), (raw) => normalizeReviewLogsYearFile(raw, year));
+        if (!file) throw new Error(`年度明细文件缺失或尚未同步完成，请检查插件数据后重试：${year}`);
+        const count = file.logs.length;
+        yearCounts[String(year)] = count;
+        totalLogs += count;
+    }
+    return mutateSharedJson({
+        store: "review-docs",
+        path: REVIEW_LOG_INDEX_FILE,
+        createEmpty: createEmptyReviewLogIndexFile,
+        normalize: normalizeReviewLogIndexFile,
+        mutate: (index) => {
+            index.years = years;
+            index.yearCounts = yearCounts;
+            index.totalLogs = totalLogs;
+        },
+        validate: validateIndex,
+    });
+}
+
+async function loadOrRepairIndex(): Promise<ReviewLogIndexFile> {
+    const index = await loadSharedJson(REVIEW_LOG_INDEX_FILE, normalizeReviewLogIndexFile);
+    if (!index) return rebuildReviewLogIndexFromFiles();
+    const years = await listReviewLogYears();
+    assertSharedWidgetYearFilesComplete(index.years, years);
+    if (!isReviewLogIndexConsistent(index) || years.some((year) => !index.years.includes(year))) {
+        return rebuildReviewLogIndexFromFiles();
+    }
+    const currentYear = new Date().getFullYear();
+    for (const year of [currentYear - 1, currentYear]) {
+        const file = await loadSharedJson(
+            getReviewLogsFile(year),
+            (raw) => normalizeReviewLogsYearFile(raw, year),
         );
+        if (years.includes(year) && !file) {
+            throw new Error(`年度明细文件缺失或尚未同步完成，请检查插件数据后重试：${year}`);
+        }
+        if ((file?.logs.length || 0) !== (index.yearCounts[String(year)] || 0)
+            || Boolean(file) !== index.years.includes(year)) {
+            return rebuildReviewLogIndexFromFiles();
+        }
     }
+    return index;
 }
 
-export async function appendReviewLog(
-    databaseId: string | undefined,
-    entry: ReviewLogEntry
-): Promise<ReviewLogWriteResult> {
-    const avID = databaseId?.trim();
-    if (!avID) {
+export async function getReviewLogStoreStatus(): Promise<ReviewLogStoreStatus> {
+    try {
+        await assertSharedWidgetMigrationReady("review-docs");
+        const index = await runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, loadOrRepairIndex);
+        if (index.migration?.status === "failed") {
+            return { ok: false, missingFields: [], message: "旧数据迁移尚未完成，请重新加载插件后重试。" };
+        }
         return {
             ok: true,
-            skipped: true,
-            message: "未填写复习日志数据库 ID，已跳过日志记录",
+            missingFields: [],
+            message: index.migration?.cleanupStatus === "pending" ? "旧数据库清理待重试" : "本地数据已就绪",
         };
+    } catch (error) {
+        return { ok: false, missingFields: [], message: error instanceof Error ? error.message : "本地存储不可用" };
     }
-
-    const store = await loadReviewLogStore(avID);
-    if (!store || !store.status.ok) {
-        return {
-            ok: false,
-            skipped: false,
-            message: store?.status.message || "复习日志数据库不可用",
-        };
-    }
-
-    await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [
-        logEntryToValueEntries(store, entry),
-    ]);
-
-    return {
-        ok: true,
-        skipped: false,
-        message: "日志已记录",
-    };
 }
 
-export async function loadReviewLogStats(databaseId: string | undefined): Promise<ReviewLogStats> {
-    const avID = databaseId?.trim();
-    if (!avID) {
-        return {
-            todayReviewed: null,
-            totalLogs: 0,
-            statusMessage: "填写复习日志数据库 ID 后启用统计",
-        };
-    }
-
-    let store: ReviewLogStore | null = null;
-    try {
-        store = await loadReviewLogStore(avID);
-    } catch (error) {
-        return {
-            todayReviewed: null,
-            totalLogs: 0,
-            statusMessage: error instanceof Error ? error.message : "无法读取复习日志数据库",
-        };
-    }
-
-    if (!store || !store.status.ok) {
-        return {
-            todayReviewed: null,
-            totalLogs: 0,
-            statusMessage: store?.status.message || "无法读取复习日志数据库",
-        };
-    }
-
-    const today = toLocalDateString();
-    let todayReviewed = 0;
-    let totalLogs = 0;
-
-    for (const row of groupRows(store.av)) {
-        const archived = readRowField(row, store.keys.archived).trim().toLowerCase();
-        if (archived === "true" || archived === "1" || archived === "已归档") continue;
-
-        totalLogs += 1;
-        const action = readRowField(row, store.keys.action);
-        const actionAt = readRowField(row, store.keys.actionAt);
-        if ((action === "review" || action === "finish") && actionAt.slice(0, 10) === today) {
-            todayReviewed += 1;
+export async function appendReviewLog(entry: ReviewLogEntry): Promise<ReviewLogWriteResult> {
+    await assertSharedWidgetMigrationReady("review-docs");
+    const normalized = normalizeReviewLogEntry(entry);
+    const year = getReviewLogYear(normalized);
+    return runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, async () => {
+        const index = await loadOrRepairIndex();
+        let added = false;
+        let previousCount = 0;
+        await mutateSharedJson({
+            store: "review-docs",
+            path: getReviewLogsFile(year),
+            createEmpty: () => createEmptyReviewLogsYearFile(year),
+            normalize: (raw) => normalizeReviewLogsYearFile(raw, year),
+            mutate: (file) => {
+                previousCount = file.logs.length;
+                const key = getReviewLogDedupeKey(normalized);
+                if (!file.logs.some((log) => getReviewLogDedupeKey(log) === key)) {
+                    file.logs.push(normalized);
+                    added = true;
+                }
+            },
+            validate: validateYearFile,
+            dispatch: false,
+        });
+        if (!added) {
+            if (previousCount !== (index.yearCounts[String(year)] || 0)) await rebuildReviewLogIndexFromFiles();
+            return { ok: true, skipped: true, message: "日志已存在" };
         }
-    }
+        try {
+            if (previousCount !== (index.yearCounts[String(year)] || 0)) {
+                await rebuildReviewLogIndexFromFiles();
+            } else {
+                await mutateSharedJson({
+                    store: "review-docs",
+                    path: REVIEW_LOG_INDEX_FILE,
+                    createEmpty: createEmptyReviewLogIndexFile,
+                    normalize: normalizeReviewLogIndexFile,
+                    mutate: (draft) => {
+                        draft.years = Array.from(new Set([...draft.years, year])).sort();
+                        draft.yearCounts[String(year)] = (draft.yearCounts[String(year)] || 0) + 1;
+                        draft.totalLogs += 1;
+                    },
+                    validate: validateIndex,
+                });
+            }
+        } catch (incrementalError) {
+            try {
+                await rebuildReviewLogIndexFromFiles();
+            } catch (rebuildError) {
+                throw new Error(`复习日志已保存，但索引增量更新和完整重建均失败：${String(incrementalError)}；${String(rebuildError)}`);
+            }
+        }
+        return { ok: true, skipped: false, message: "日志已记录" };
+    });
+}
 
-    return {
-        todayReviewed,
-        totalLogs,
-        statusMessage: "",
-    };
+export async function loadReviewLogStats(): Promise<ReviewLogStats> {
+    await assertSharedWidgetMigrationReady("review-docs");
+    return runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, async () => {
+        const index = await loadOrRepairIndex();
+        const year = new Date().getFullYear();
+        const current = await loadSharedJson(getReviewLogsFile(year), (raw) => normalizeReviewLogsYearFile(raw, year));
+        const today = toLocalDateString();
+        const todayReviewed = (current?.logs || []).filter((log) =>
+            (log.action === "review" || log.action === "finish")
+            && Number.isFinite(new Date(log.actionAt).getTime())
+            && toLocalDateString(new Date(log.actionAt)) === today
+            && !["true", "1", "已归档"].includes(log.archived.trim().toLowerCase())
+        ).length;
+        return { todayReviewed, totalLogs: index.totalLogs, statusMessage: "" };
+    });
 }

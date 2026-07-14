@@ -28,7 +28,12 @@ import QuickNotesDialog from "./components/utils/widgetBlock/widget/quickNotes/q
 import ReviewDocsDialog from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocsDialog.svelte";
 import { clearReviewTarget } from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
 import { updateFavoriteIndex } from "./components/tools/siyuanComponentDataApi";
-import { resolveDatabaseIdFromExistingWidgets } from "./components/utils/widgetBlock/widget/sharedDatabaseId";
+import {
+    destroySharedWidgetStorage,
+    flushPendingSharedWidgetWrites,
+    setSharedWidgetStoragePlugin,
+} from "./components/utils/widgetBlock/widget/sharedLocalStorage/sharedLocalStorage";
+import { ensureLegacySharedWidgetMigration } from "./components/utils/widgetBlock/widget/sharedLocalStorage/sharedWidgetMigration";
 import type { ReviewMenuTarget } from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
 import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
@@ -424,6 +429,7 @@ export default class PluginHomepage extends Plugin {
 
     async onload() {
         const config = await this.getPluginConfig();
+        setSharedWidgetStoragePlugin(this);
         setKbSettingsPlugin(this);
         setReferenceNavigationPlugin(this);
         setNotebrainPlugin(this);
@@ -525,6 +531,12 @@ export default class PluginHomepage extends Plugin {
         destroyTaskNotifyScheduler();
         destroyCountdownNotifyScheduler();
         destroyEnhancedDiaryNotifyScheduler();
+        try {
+            await flushPendingSharedWidgetWrites();
+        } catch (error) {
+            console.warn("[Homepage] 插件卸载前仍有组件本地数据写入失败", error);
+        }
+        destroySharedWidgetStorage();
         destroyFloatingMini();
         this.eventBus.off("open-menu-doctree", this.docTreeMenuEventBindThis);
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
@@ -623,6 +635,9 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onLayoutReady() {
+        void ensureLegacySharedWidgetMigration(this).catch((error) => {
+            console.warn("[Homepage] 共享组件历史数据迁移启动失败", error);
+        });
         void startChatActionBridgeIfNeeded();
         startTaskNotifyScheduler();
         startCountdownNotifyScheduler();
@@ -1888,21 +1903,6 @@ export default class PluginHomepage extends Plugin {
         return null;
     }
 
-    private async resolveReviewDocsDatabaseId(): Promise<string> {
-        try {
-            const result = await resolveDatabaseIdFromExistingWidgets(
-                this,
-                "reviewDocs",
-                "",
-                { type: "reviewDocs", data: {} },
-            );
-            return result.databaseId || "";
-        } catch (error) {
-            console.warn("[Homepage] 读取复习文档数据库 ID 失败", error);
-            return "";
-        }
-    }
-
     private openReviewDocsDialog(target: ReviewMenuTarget, mode: "create" | "edit" = "create"): void {
         if (!this.ADVANCED) {
             showMessage("复习文档为高级会员专属功能", 3000);
@@ -1934,15 +1934,13 @@ export default class PluginHomepage extends Plugin {
         }
 
         try {
-            const databaseId = await this.resolveReviewDocsDatabaseId();
             const result = await clearReviewTarget({
                 targetId: target.id,
                 targetType: target.type,
-                databaseId,
             });
             showMessage(
                 result.logWarning
-                    ? `${result.message}，但日志记录失败：${result.logWarning}`
+                    ? `${result.message}；复习计划已完成，但本地操作日志写入失败：${result.logWarning}`
                     : result.message,
                 4000,
             );

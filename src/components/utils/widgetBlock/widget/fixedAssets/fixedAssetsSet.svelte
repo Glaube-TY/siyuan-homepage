@@ -6,7 +6,6 @@
     let {
         advancedEnabled,
         fixedAssetsTitle = $bindable("固定资产"),
-        fixedAssetsDatabaseId = $bindable(""),
         fixedAssetsListLimit = $bindable(6),
         fixedAssetsSortBy = $bindable("updated"),
         fixedAssetsShowHourly = $bindable(true),
@@ -29,16 +28,9 @@
         </SettingRow>
 
         <SettingRow
-            title="数据库 ID"
-            description="填写用于保存资产数据的数据库 ID。同一主页空间内的固定资产组件会自动共用已有数据库 ID。"
-        >
-            <input
-                type="text"
-                bind:value={fixedAssetsDatabaseId}
-                class="control-full"
-                placeholder="输入固定资产数据库 ID"
-            />
-        </SettingRow>
+            title="本地共享"
+            description="固定资产数据保存在插件本地，并由所有固定资产组件自动共享。"
+        />
 
         <SettingRow title="显示数量" description="主页组件内最多展示多少条资产记录">
             <input

@@ -4,8 +4,16 @@
     import { onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
     import { getImage } from "@/components/tools/getImage";
-    import { loadFocusStatistics, saveFocusStatistics as saveFocusStatisticsToDB, migrateLegacyFocusStatisticsIfNeeded } from "./focusData";
-    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
+    import {
+        flushPendingFocusSessions,
+        getLocalFocusDate,
+        loadFocusStatistics,
+        queueFocusSession,
+        toFocusSecondTimestamp,
+        type FocusSessionRecord,
+    } from "./focusData";
+    import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
+    import { registerSharedWidgetFlusher } from "../sharedLocalStorage/sharedLocalStorage";
 
     interface Props {
         plugin: any;
@@ -15,13 +23,18 @@
     let { plugin, contentTypeJson = "{}" }: Props = $props();
 
     let contentTypeJsonObj: any;
-    let startTime = 0;
-    let duration = 0;
-    let endTimeout: any;
+    let segmentStartedAt = 0;
+    let segmentEndsAt = 0;
+    let sessionStartedAt: number | null = null;
+    let sessionPlannedSeconds = 0;
+    let accumulatedFocusMs = 0;
+    let completionHandled = false;
+    let endTimeout: ReturnType<typeof setTimeout> | null = null;
     let isRunning = $state(false);
     let isBreak = $state(false);
     let timeLeft: number = $state();
-    let timer: any = $state();
+    let remainingMs = 0;
+    let timer: ReturnType<typeof setInterval> | null = $state(null);
     let totalFocusTime = $state(0);
     let totalFocusTimes = $state(0);
     let focusBgImage =
@@ -42,8 +55,8 @@
     let showSyNotif = $state(true);
 
     let isDestroyed = false;
-    let focusDatabaseId = $state("");
-    let hasDatabaseId = $state(false);
+    let unsubscribeDataUpdated: (() => void) | null = null;
+    let unregisterFocusFlusher: (() => void) | null = null;
 
     let circumference = $state(Math.PI * 2 * 65);
     let baseSize = $derived(timerFontSize * 40);
@@ -59,6 +72,7 @@
             circumference);
 
     onMount(async () => {
+        unregisterFocusFlusher = registerSharedWidgetFlusher(flushActiveFocusSession);
         contentTypeJsonObj = JSON.parse(contentTypeJson);
         if (contentTypeJsonObj.type === "focus" && contentTypeJsonObj.data) {
             const data = contentTypeJsonObj.data || {};
@@ -68,8 +82,6 @@
             breakBgImage = data.breakBgImage || breakBgImage;
             focusLocalImage = data.focusLocalImage || focusLocalImage;
             breakLocalImage = data.breakLocalImage || breakLocalImage;
-            focusDatabaseId = data.focusDatabaseId || "";
-
             const savedConfig = await plugin.loadData(
                 `widget-${contentTypeJsonObj.blockId}.json`,
             );
@@ -84,25 +96,23 @@
             showSyNotif = savedConfig.data?.showSyNotif ?? true;
         }
 
-        const resolved = await resolveDatabaseIdFromExistingWidgets(
-            plugin,
-            "focus",
-            contentTypeJsonObj?.blockId,
-            contentTypeJsonObj,
-        );
-        focusDatabaseId = resolved.databaseId || focusDatabaseId;
-
-        if (focusDatabaseId) {
-            hasDatabaseId = true;
-            try {
-                await migrateLegacyFocusStatisticsIfNeeded(focusDatabaseId, plugin);
-            } catch (e) {
-                console.warn("[focus] 旧数据迁移失败，不影响使用", e);
-            }
-            const stats = await loadFocusStatistics(focusDatabaseId);
+        try {
+            const stats = await loadFocusStatistics();
             totalFocusTime = stats.totalFocusTime;
             totalFocusTimes = stats.totalFocusTimes;
+        } catch (error) {
+            console.warn("[focus] 读取本地统计失败", error);
+            showMessage("旧数据迁移尚未完成，请重新加载插件后重试。", 4000);
         }
+        unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("focus", async () => {
+            try {
+                const stats = await loadFocusStatistics();
+                totalFocusTime = stats.totalFocusTime;
+                totalFocusTimes = stats.totalFocusTimes;
+            } catch (error) {
+                console.warn("[focus] 刷新本地统计失败", error);
+            }
+        });
 
         resetTimer("focus");
 
@@ -116,18 +126,23 @@
 
     onDestroy(() => {
         isDestroyed = true;
-
-        // 清理计时器
-        if (timer) {
-            clearInterval(timer);
-            timer = null;
+        const now = Date.now();
+        if (isRunning) {
+            updateRemainingTime(now);
+            captureFocusSegment(now);
         }
-        if (endTimeout) {
-            clearTimeout(endTimeout);
-            endTimeout = null;
-        }
-
+        clearTimerHandles();
         isRunning = false;
+        const cancelled = !isBreak ? createCurrentFocusSession("cancelled") : null;
+        if (cancelled) queueFocusSession(cancelled);
+        resetSessionTracking();
+        unsubscribeDataUpdated?.();
+        unsubscribeDataUpdated = null;
+        unregisterFocusFlusher?.();
+        unregisterFocusFlusher = null;
+        void flushPendingFocusSessions().catch((error) => {
+            console.warn("[focus] 组件销毁时番茄钟会话暂未写入，已保留待重试", error);
+        });
     });
 
     function showSystemNotification(title: string, body: string) {
@@ -175,42 +190,133 @@
         }
     }
 
-    // 初始化定时器
-    function resetTimer(duration: string) {
-        if (duration === "focus") {
-            timeLeft = localFocusDuration * 60;
+    function resetTimer(mode: "focus" | "break") {
+        if (mode === "focus") {
+            remainingMs = localFocusDuration * 60 * 1000;
         } else {
-            timeLeft = localBreakDuration * 60;
+            remainingMs = localBreakDuration * 60 * 1000;
         }
+        timeLeft = Math.ceil(remainingMs / 1000);
+    }
+
+    function clearTimerHandles() {
+        if (timer) clearInterval(timer);
+        if (endTimeout) clearTimeout(endTimeout);
+        timer = null;
+        endTimeout = null;
+    }
+
+    function updateRemainingTime(now = Date.now()) {
+        if (!isRunning || segmentEndsAt <= 0) return;
+        remainingMs = Math.max(0, segmentEndsAt - now);
+        timeLeft = Math.ceil(remainingMs / 1000);
+    }
+
+    function captureFocusSegment(now = Date.now()) {
+        if (isBreak || sessionStartedAt === null || segmentStartedAt <= 0) return;
+        accumulatedFocusMs += Math.max(0, Math.min(now, segmentEndsAt) - segmentStartedAt);
+        segmentStartedAt = 0;
+        segmentEndsAt = 0;
+    }
+
+    function resetSessionTracking() {
+        sessionStartedAt = null;
+        sessionPlannedSeconds = 0;
+        accumulatedFocusMs = 0;
+        segmentStartedAt = 0;
+        segmentEndsAt = 0;
+        completionHandled = false;
+    }
+
+    function createCurrentFocusSession(status: "completed" | "cancelled"): FocusSessionRecord | null {
+        if (sessionStartedAt === null) return null;
+        const endedAt = Date.now();
+        const actualFocusSeconds = status === "completed"
+            ? sessionPlannedSeconds
+            : Math.min(sessionPlannedSeconds, Math.max(0, Math.floor(accumulatedFocusMs / 1000)));
+        const uniquePart = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
+        return {
+            id: `focus-session-${sessionStartedAt}-${uniquePart}`,
+            startedAt: toFocusSecondTimestamp(sessionStartedAt),
+            endedAt: toFocusSecondTimestamp(endedAt),
+            localDate: getLocalFocusDate(sessionStartedAt),
+            plannedSeconds: sessionPlannedSeconds,
+            actualFocusSeconds,
+            status,
+        };
     }
 
     function startTimer() {
-        if (!isRunning) {
-            isRunning = true;
-            startTime = Date.now();
-            duration = timeLeft * 1000;
-
-            // 每秒刷新 UI
-            timer = setInterval(updateTimer, 1000);
-
-            // 设置一个一次性 timeout 来确保结束动作准确触发
-            endTimeout = setTimeout(() => {
-                if (isDestroyed) return;
-                clearInterval(timer);
-                isRunning = false;
-                handleTimerEnd(); // 这个一定会在指定时间触发
-            }, duration);
+        if (isRunning || remainingMs <= 0) return;
+        const now = Date.now();
+        if (!isBreak && sessionStartedAt === null) {
+            sessionStartedAt = now;
+            sessionPlannedSeconds = Math.max(0, Math.round(localFocusDuration * 60));
+            accumulatedFocusMs = 0;
+            completionHandled = false;
         }
+        clearTimerHandles();
+        isRunning = true;
+        segmentStartedAt = now;
+        segmentEndsAt = now + remainingMs;
+        const scheduledEnd = segmentEndsAt;
+        timer = setInterval(updateTimer, 1000);
+        endTimeout = setTimeout(() => {
+            if (isDestroyed || !isRunning || segmentEndsAt !== scheduledEnd) return;
+            updateRemainingTime(scheduledEnd);
+            captureFocusSegment(scheduledEnd);
+            clearTimerHandles();
+            isRunning = false;
+            remainingMs = 0;
+            timeLeft = 0;
+            void handleTimerEnd().catch((error) => {
+                console.warn("[focus] 番茄钟结束处理失败", error);
+            });
+        }, Math.max(0, scheduledEnd - now));
     }
 
     function updateTimer() {
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        timeLeft = Math.max(0, duration / 1000 - elapsed);
+        updateRemainingTime();
     }
 
-    function handleTimerEnd() {
+    function pauseTimer() {
+        if (!isRunning) return;
+        const now = Date.now();
+        updateRemainingTime(now);
+        captureFocusSegment(now);
+        clearTimerHandles();
+        isRunning = false;
+    }
+
+    async function stopTimer() {
+        await flushActiveFocusSession();
+        isBreak = false;
+        resetTimer("focus");
+    }
+
+    async function flushActiveFocusSession() {
+        const now = Date.now();
+        if (isRunning) {
+            updateRemainingTime(now);
+            captureFocusSegment(now);
+        }
+        clearTimerHandles();
+        isRunning = false;
+        const cancelled = !isBreak ? createCurrentFocusSession("cancelled") : null;
+        if (cancelled) queueFocusSession(cancelled);
+        resetSessionTracking();
+        if (cancelled) await persistFocusSession(cancelled);
+    }
+
+    async function openSettings() {
+        await stopTimer();
+        showSettings = true;
+    }
+
+    async function handleTimerEnd() {
+        if (completionHandled) return;
+        completionHandled = true;
         const message = isBreak ? "休息时间结束！" : "专注时间结束！";
-        // 触发系统通知
         if (showSyNotif) {
             showSystemNotification(
                 isBreak ? "休息时间结束" : "专注时间结束",
@@ -222,9 +328,10 @@
         showMessage(message);
 
         if (!isBreak) {
-            totalFocusTime += localFocusDuration * 60;
-            totalFocusTimes += 1;
-            saveFocusStatistics();
+            const completed = createCurrentFocusSession("completed");
+            if (completed) queueFocusSession(completed);
+            resetSessionTracking();
+            if (completed) await persistFocusSession(completed);
         }
 
         isBreak = !isBreak;
@@ -262,16 +369,18 @@
         return `${mins}:${secs.toString().padStart(2, "0")}`;
     }
 
-    async function saveFocusStatistics() {
-        if (!focusDatabaseId) {
-            showMessage("请先在组件设置中填写番茄钟统计数据库 ID，统计数据才会保存", 4000);
-            return;
-        }
+    async function persistFocusSession(session: FocusSessionRecord) {
+        queueFocusSession(session);
         try {
-            await saveFocusStatisticsToDB(focusDatabaseId, totalFocusTime, totalFocusTimes);
+            const stats = await flushPendingFocusSessions();
+            if (stats) {
+                totalFocusTime = stats.totalFocusTime;
+                totalFocusTimes = stats.totalFocusTimes;
+            }
         } catch (error) {
-            console.error("保存专注统计失败:", error);
-            showMessage("番茄钟统计保存失败，请检查数据库 ID 或数据库字段", 4000);
+            console.error("保存番茄钟会话失败:", error);
+            showMessage("番茄钟会话保存失败，请重新加载插件后重试", 4000);
+            throw error;
         }
     }
 
@@ -288,6 +397,7 @@
             `widget-${contentTypeJsonObj.blockId}.json`,
             contentTypeJsonObj,
         );
+        clearTimerHandles();
         resetTimer(isBreak ? "break" : "focus");
         showSettings = false;
     }
@@ -473,29 +583,19 @@
                         </button>
                         <button
                             title="暂停"
-                            onclick={() => {
-                                clearInterval(timer);
-                                isRunning = false;
-                            }}
+                            onclick={pauseTimer}
                         >
                             <i class="fas fa-pause"></i>
                         </button>
                         <button
                             title="停止"
-                            onclick={() => {
-                                clearInterval(timer);
-                                isRunning = false;
-                                resetTimer("focus");
-                            }}
+                            onclick={stopTimer}
                         >
                             <i class="fas fa-stop"></i>
                         </button>
                         <button
                             title="设置"
-                            onclick={() => {
-                                showSettings = true;
-                                resetTimer(isBreak ? "break" : "focus");
-                            }}
+                            onclick={openSettings}
                         >
                             <i class="fas fa-cog"></i>
                         </button>

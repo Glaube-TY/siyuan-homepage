@@ -10,7 +10,7 @@
     } from "@/components/tools/floatingDoc";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
-    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
+    import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
     import ReviewDocsDialog from "./reviewDocsDialog.svelte";
     import ReviewDatePickerDialog from "./ReviewDatePickerDialog.svelte";
     import ReviewForgettingCurveDialog from "./ReviewForgettingCurveDialog.svelte";
@@ -54,7 +54,6 @@
     let isLoading = $state(true);
     let actionTargetId = $state("");
     let allItems = $state<ReviewItem[]>([]);
-    let effectiveDatabaseId = $state("");
     let logStatusMessage = $state("");
     let todayReviewed = $state<number | null>(null);
     let reviewIndexStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
@@ -68,6 +67,7 @@
     let mouseLeaveTimeout: number | null = $state(null);
     // 组件销毁后丢弃异步 SQL 结果，避免更新已卸载状态
     let isDestroyed = false;
+    let unsubscribeDataUpdated: (() => void) | null = null;
 
     onMount(() => {
         isDestroyed = false;
@@ -81,22 +81,17 @@
         }
 
         void initialize();
+        unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("review-docs", () => void refreshAll());
 
         return () => {
             isDestroyed = true;
+            unsubscribeDataUpdated?.();
+            unsubscribeDataUpdated = null;
             clearFloatDocTimeouts();
         };
     });
 
     async function initialize() {
-        const resolved = await resolveDatabaseIdFromExistingWidgets(
-            plugin,
-            "reviewDocs",
-            parsedContent.blockId,
-            parsedContent
-        );
-        if (isDestroyed) return;
-        effectiveDatabaseId = resolved.databaseId || config.reviewDocsDatabaseId;
         await refreshAll();
     }
 
@@ -128,7 +123,7 @@
             allItems = result.items;
             reviewIndexStatus = result.status;
             reviewIndexMessage = result.message || reviewIndexMessage;
-            const stats = await loadReviewLogStats(effectiveDatabaseId);
+            const stats = await loadReviewLogStats();
             if (isDestroyed) return;
             todayReviewed = stats.todayReviewed;
             logStatusMessage = stats.statusMessage;
@@ -193,7 +188,7 @@
 
     function showOperationResult(result: ReviewOperationResult) {
         showMessage(
-            result.logWarning ? `${result.message}，但日志记录失败：${result.logWarning}` : result.message,
+            result.logWarning ? `${result.message}；复习计划已完成，但本地操作日志写入失败：${result.logWarning}` : result.message,
             4000
         );
     }
@@ -251,7 +246,6 @@
                 await runItemAction(item, () => completeReviewOnce({
                     targetId: item.id,
                     targetType: item.type,
-                    databaseId: effectiveDatabaseId,
                 }));
                 return;
             }
@@ -271,7 +265,6 @@
             await runItemAction(item, () => completeReviewOnce({
                 targetId: item.id,
                 targetType: item.type,
-                databaseId: effectiveDatabaseId,
                 manualNextDate: manualDate,
                 switchToManual: true,
             }));
@@ -283,7 +276,6 @@
         await runItemAction(item, () => completeReviewOnce({
             targetId: item.id,
             targetType: item.type,
-            databaseId: effectiveDatabaseId,
             manualNextDate: manualDate,
         }));
     }
@@ -292,7 +284,6 @@
         await runItemAction(item, () => finishReviewTarget({
             targetId: item.id,
             targetType: item.type,
-            databaseId: effectiveDatabaseId,
         }));
     }
 
@@ -309,7 +300,6 @@
         await runItemAction(item, () => updateReviewTarget({
             targetId: item.id,
             targetType: item.type,
-            databaseId: effectiveDatabaseId,
             input: {
                 nextDate: manualDate,
                 note: item.attrs.note,
@@ -332,7 +322,6 @@
         await runItemAction(item, () => clearReviewTarget({
             targetId: item.id,
             targetType: item.type,
-            databaseId: effectiveDatabaseId,
         }));
     }
 
@@ -356,7 +345,6 @@
         await runItemAction(item, () => postponeReviewTarget({
             targetId: item.id,
             targetType: item.type,
-            databaseId: effectiveDatabaseId,
             nextDate,
         }));
     }
@@ -373,7 +361,6 @@
                         targetId: item.id,
                         targetType: item.type,
                         mode: "edit",
-                        databaseId: effectiveDatabaseId,
                         defaultIntervalsText: config.reviewDocsDefaultIntervals,
                         close: () => dialog.close(),
                         onSaved: () => void refreshAll(),
@@ -417,7 +404,6 @@
         await runItemAction(item, () => updateReviewTarget({
             targetId: item.id,
             targetType: item.type,
-            databaseId: effectiveDatabaseId,
             input: {
                 nextDate: item.attrs.nextDate,
                 note: nextNote,

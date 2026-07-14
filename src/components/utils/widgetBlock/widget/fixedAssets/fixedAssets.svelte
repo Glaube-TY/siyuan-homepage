@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import { showMessage } from "siyuan";
     import {
         archiveFixedAsset,
@@ -18,7 +18,7 @@
     } from "./fixedAssetsData";
     import { openSiyuanEmojiPicker } from "@/homepage/homepageSetting/emojiPicker";
     import { resolveConfiguredDocIcon } from "@/components/tools/docIcon";
-    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
+    import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import { confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
 
@@ -50,7 +50,6 @@
 
     let parsedContent = $derived(parseContent(contentTypeJson));
     let widgetTitle = $derived(parsedContent.data?.fixedAssetsTitle || "固定资产");
-    let configuredDatabaseId = $derived(parsedContent.data?.fixedAssetsDatabaseId || "");
     let listLimit = $derived(Math.max(1, Number(parsedContent.data?.fixedAssetsListLimit) || 6));
     let sortBy = $derived(normalizeSortBy(parsedContent.data?.fixedAssetsSortBy));
     let showHourly = $derived(parsedContent.data?.fixedAssetsShowHourly ?? true);
@@ -73,7 +72,7 @@
     let editingAssetId = $state<string | null>(null);
     let form = $state<FixedAssetForm>(createEmptyForm());
     let iconPickerButtonRef = $state<HTMLButtonElement | null>(null);
-    let effectiveDatabaseId = $state("");
+    let unsubscribeDataUpdated: (() => void) | null = null;
 
     let sortedAssets = $derived(sortAssets(assets, sortBy).slice(0, listLimit));
     let totalCost = $derived(assets.reduce((sum, asset) => sum + getAssetTotalCost(asset), 0));
@@ -155,15 +154,11 @@
             return;
         }
 
-        const result = await resolveDatabaseIdFromExistingWidgets(
-            plugin,
-            "fixedAssets",
-            parsedContent.blockId,
-            parsedContent,
-        );
-        effectiveDatabaseId = result.databaseId || configuredDatabaseId;
         await refreshAssets();
+        unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("fixed-assets", () => void refreshAssets());
     });
+
+    onDestroy(() => unsubscribeDataUpdated?.());
 
     function parseContent(value: string): any {
         try {
@@ -224,7 +219,7 @@
 
     async function refreshAssets(): Promise<void> {
         isLoading = true;
-        const result = await loadFixedAssets(effectiveDatabaseId);
+        const result = await loadFixedAssets();
         assets = result.assets;
         status = result.status;
         isLoading = false;
@@ -309,7 +304,7 @@
 
         isSaving = true;
         try {
-            await saveFixedAsset(effectiveDatabaseId, {
+            await saveFixedAsset({
                 ...form,
                 id: form.id || editingAssetId || undefined,
                 purchasePrice: Number(form.purchasePrice) || 0,
@@ -334,7 +329,7 @@
         if (!confirmed) return;
 
         try {
-            await archiveFixedAsset(effectiveDatabaseId, asset.id);
+            await archiveFixedAsset(asset.id);
             showMessage("资产已删除");
             await refreshAssets();
         } catch (error) {
@@ -363,12 +358,12 @@
         <div class="state-text">加载固定资产...</div>
     {:else if !status.ok}
         <div class="setup-state">
-            <div class="setup-title">需要配置固定资产数据库</div>
+            <div class="setup-title">固定资产本地数据不可用</div>
             <p>{status.message}</p>
             {#if status.missingFields.length > 0}
                 <p class="field-hint">缺少字段：{status.missingFields.join("、")}</p>
             {/if}
-            <p class="field-hint">请在组件内容设置中填写固定资产数据库 ID。</p>
+            <p class="field-hint">请重新加载插件后重试；如仍失败，请先备份插件数据。</p>
         </div>
     {:else}
         <div class="asset-header">

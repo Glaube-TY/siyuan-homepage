@@ -1,55 +1,50 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import { loadCYBMOKStats, getCYBMOKStoreStatus } from "./cybmokData";
+    import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
         advancedEnabled?: boolean;
         CMKnockSound?: string;
-        CYBMOKDatabaseId?: string;
     }
 
     let {
         advancedEnabled = false,
         CMKnockSound = $bindable("普通"),
-        CYBMOKDatabaseId = $bindable(""),
     }: Props = $props();
 
     let totalMerit: number = $state(0);
     let maxMeritDate: any = $state({ date: "暂无", count: 0 });
-    let dbStatusMessage = $state("");
+    let storeStatusMessage = $state("");
     let isLoadingStats = $state(false);
+    let unsubscribeDataUpdated: (() => void) | null = null;
 
     onMount(async () => {
         await refreshStats();
+        unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("cybmok", () => void refreshStats());
     });
 
-    async function refreshStats() {
-        if (!CYBMOKDatabaseId?.trim()) {
-            totalMerit = 0;
-            maxMeritDate = { date: "暂无", count: 0 };
-            dbStatusMessage =
-                "木鱼功德数据将保存到思源数据库。旧本地数据会在填写数据库 ID 后自动迁移。";
-            return;
-        }
+    onDestroy(() => unsubscribeDataUpdated?.());
 
+    async function refreshStats() {
         isLoadingStats = true;
         try {
-            const status = await getCYBMOKStoreStatus(CYBMOKDatabaseId);
+            const status = await getCYBMOKStoreStatus();
             if (!status.ok) {
-                dbStatusMessage = status.message;
+                storeStatusMessage = status.message;
                 totalMerit = 0;
                 maxMeritDate = { date: "暂无", count: 0 };
                 return;
             }
-            const stats = await loadCYBMOKStats(CYBMOKDatabaseId);
+            const stats = await loadCYBMOKStats();
             totalMerit = stats.totalMerit;
             maxMeritDate = stats.maxMeritDate;
-            dbStatusMessage = "";
+            storeStatusMessage = status.message;
         } catch {
-            dbStatusMessage = "无法读取木鱼数据库，请检查数据库 ID";
+            storeStatusMessage = "本地数据文件异常，请备份插件数据后处理。";
         } finally {
             isLoadingStats = false;
         }
@@ -57,21 +52,13 @@
 </script>
 
 {#if advancedEnabled}
-    <SettingSection title="数据库设置">
+    <SettingSection title="数据存储">
         <SettingRow
-            title="数据库 ID"
-            description="填写用于保存功德数据的数据库 ID。同一主页空间内的木鱼组件会自动共用已有数据库 ID。"
-        >
-            <input
-                type="text"
-                bind:value={CYBMOKDatabaseId}
-                class="control-full"
-                placeholder="输入木鱼功德数据库 ID"
-                onchange={() => refreshStats()}
-            />
-        </SettingRow>
-        {#if dbStatusMessage}
-            <div class="db-hint">{dbStatusMessage}</div>
+            title="本地共享"
+            description="功德数据保存在插件本地，并由所有木鱼组件自动共享。"
+        />
+        {#if storeStatusMessage}
+            <div class="db-hint">{storeStatusMessage}</div>
         {/if}
     </SettingSection>
 
@@ -103,7 +90,7 @@
                 </div>
             </div>
         </SettingSection>
-    {:else if CYBMOKDatabaseId?.trim()}
+    {:else}
         <h3>暂无功德记录，拿起棒槌开敲吧！</h3>
     {/if}
 {:else}

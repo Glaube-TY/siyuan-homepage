@@ -1,13 +1,17 @@
 import {
-    addAttributeViewKeyChecked,
-    appendAttributeViewDetachedBlocksWithValuesChecked,
-    getAttributeView,
-    getAttributeViewKeysByAvID,
-    setAttributeViewBlockAttrWithCellChecked,
-    type AttributeView,
-    type AttributeViewKeyValue,
-} from "@/api";
-import { collectKnownWidgetIds } from "../sharedDatabaseId";
+    COUNTDOWN_STORE_TRANSACTION_LOCK,
+    loadSharedJson,
+    mutateSharedJson,
+    runSharedWidgetExclusive,
+    type SharedRevisionedFile,
+    type SharedWidgetMigrationMetadata,
+} from "../sharedLocalStorage/sharedLocalStorage";
+import {
+    COUNTDOWN_EVENTS_FILE,
+    COUNTDOWN_EVENTS_SCHEMA,
+    SHARED_WIDGET_DATA_VERSION,
+} from "../sharedLocalStorage/sharedWidgetStoragePaths";
+import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
 
 export interface CountdownEventRecord {
     id: string;
@@ -17,18 +21,7 @@ export interface CountdownEventRecord {
     order: number;
     createdAt: string;
     updatedAt: string;
-}
-
-export interface CountdownStoreStatus {
-    ok: boolean;
-    databaseId?: string;
-    missingFields: string[];
-    message: string;
-}
-
-export interface CountdownLoadResult {
-    events: CountdownEventRecord[];
-    status: CountdownStoreStatus;
+    archived?: boolean;
 }
 
 export type CountdownEventInput = Partial<CountdownEventRecord> & {
@@ -38,283 +31,36 @@ export type CountdownEventInput = Partial<CountdownEventRecord> & {
     order?: number;
 };
 
-const COUNTDOWN_FIELD_ALIASES = {
-    title: ["title", "标题", "事件", "事件名称", "主键", "name"],
-    eventId: ["eventId", "事件ID", "记录ID", "dataId"],
-    name: ["name", "名称", "事件名称"],
-    date: ["date", "日期", "事件日期"],
-    anniversary: ["anniversary", "周年", "是否周年"],
-    order: ["order", "排序", "序号"],
-    createdAt: ["createdAt", "创建时间"],
-    updatedAt: ["updatedAt", "更新时间"],
-    archived: ["archived", "已归档", "归档", "已删除"],
-};
-
-type CountdownField = keyof typeof COUNTDOWN_FIELD_ALIASES;
-
-const COUNTDOWN_FIELD_DEFINITIONS: Record<CountdownField, { name: string; type: string; icon: string }> = {
-    title: { name: "事件名称", type: "block", icon: "iconCalendar" },
-    eventId: { name: "事件ID", type: "text", icon: "iconKey" },
-    name: { name: "事件名称", type: "text", icon: "iconEdit" },
-    date: { name: "事件日期", type: "text", icon: "iconCalendar" },
-    anniversary: { name: "周年", type: "text", icon: "iconRefresh" },
-    order: { name: "排序", type: "number", icon: "iconSort" },
-    createdAt: { name: "创建时间", type: "text", icon: "iconCalendar" },
-    updatedAt: { name: "更新时间", type: "text", icon: "iconRefresh" },
-    archived: { name: "已归档", type: "text", icon: "iconArchive" },
-};
-
-interface CountdownKeyMap {
-    title: AttributeViewKeyValue;
-    eventId: AttributeViewKeyValue;
-    name: AttributeViewKeyValue;
-    date: AttributeViewKeyValue;
-    anniversary: AttributeViewKeyValue;
-    order: AttributeViewKeyValue;
-    createdAt: AttributeViewKeyValue;
-    updatedAt: AttributeViewKeyValue;
-    archived: AttributeViewKeyValue;
+export interface CountdownEventsFile extends SharedRevisionedFile {
+    events: CountdownEventRecord[];
+    migration?: SharedWidgetMigrationMetadata;
 }
 
-interface CountdownStore {
-    avID: string;
-    av: AttributeView;
-    keys: CountdownKeyMap;
+export interface CountdownStoreStatus {
+    ok: boolean;
+    missingFields: string[];
+    message: string;
+}
+
+export interface CountdownLoadResult {
+    events: CountdownEventRecord[];
+    revision: number;
     status: CountdownStoreStatus;
 }
 
-interface CountdownRow {
-    itemID: string;
-    values: Map<string, any>;
+export interface CountdownEditSnapshot {
+    initialEvents: CountdownEventRecord[];
+    initialEventIds: string[];
+    baseRevision: number;
 }
 
-function normalizeFieldName(value: string): string {
-    return value.trim().toLowerCase().replace(/\s+/g, "");
+function finiteCount(value: unknown): number {
+    const count = Number(value);
+    return Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
 }
 
-function createStatus(
-    ok: boolean,
-    message: string,
-    databaseId?: string,
-    missingFields: string[] = []
-): CountdownStoreStatus {
-    return { ok, databaseId, missingFields, message };
-}
-
-function findKey(
-    keyValues: AttributeViewKeyValue[],
-    field: CountdownField
-): AttributeViewKeyValue | null {
-    if (field === "title") {
-        const primaryKey = keyValues.find((item) => item.key.type === "block");
-        if (primaryKey) return primaryKey;
-    }
-
-    const aliases = COUNTDOWN_FIELD_ALIASES[field].map(normalizeFieldName);
-    return keyValues.find((item) => aliases.includes(normalizeFieldName(item.key.name))) || null;
-}
-
-function resolveKeyMap(av: AttributeView): { keys: Partial<CountdownKeyMap>; missingFields: string[] } {
-    const keys: Partial<CountdownKeyMap> = {};
-    const missingFields: string[] = [];
-
-    (Object.keys(COUNTDOWN_FIELD_ALIASES) as CountdownField[]).forEach((field) => {
-        const key = findKey(av.keyValues, field);
-        if (key) {
-            keys[field] = key;
-        } else {
-            missingFields.push(field);
-        }
-    });
-
-    return { keys, missingFields };
-}
-
-function normalizeRawKeyValue(item: any): AttributeViewKeyValue | null {
-    const key = item?.key || item;
-    if (!key?.id || !key?.name) return null;
-    return {
-        key: { id: key.id, name: key.name, type: key.type || item?.type || "text" },
-        values: item?.values || [],
-    };
-}
-
-function normalizeAttributeViewKeyValues(raw: any): AttributeViewKeyValue[] {
-    const source =
-        (Array.isArray(raw) && raw) ||
-        (Array.isArray(raw?.keys) && raw.keys) ||
-        (Array.isArray(raw?.data) && raw.data) ||
-        (Array.isArray(raw?.keyValues) && raw.keyValues) ||
-        (Array.isArray(raw?.av?.keyValues) && raw.av.keyValues) ||
-        (Array.isArray(raw?.data?.keys) && raw.data.keys) ||
-        [];
-
-    return source
-        .map(normalizeRawKeyValue)
-        .filter((item): item is AttributeViewKeyValue => item !== null);
-}
-
-async function loadAttributeViewWithSchema(avID: string): Promise<AttributeView | null> {
-    const [av, rawKeys] = await Promise.all([
-        getAttributeView(avID),
-        getAttributeViewKeysByAvID(avID),
-    ]);
-    if (!av) return null;
-
-    const schemaKeyValues = normalizeAttributeViewKeyValues(rawKeys);
-    if (schemaKeyValues.length === 0) return av;
-
-    const mergedKeyValues = schemaKeyValues.map((schemaKeyValue) => {
-        const dataKeyValue = av.keyValues.find((item) => item.key.id === schemaKeyValue.key.id);
-        return { ...schemaKeyValue, values: dataKeyValue?.values || schemaKeyValue.values || [] };
-    });
-
-    for (const dataKeyValue of av.keyValues) {
-        if (!mergedKeyValues.some((item) => item.key.id === dataKeyValue.key.id)) {
-            mergedKeyValues.push(dataKeyValue);
-        }
-    }
-
-    return { ...av, keyValues: mergedKeyValues };
-}
-
-function createSiyuanLikeId(): string {
-    const now = new Date();
-    const pad = (value: number) => String(value).padStart(2, "0");
-    const timestamp = [
-        now.getFullYear(),
-        pad(now.getMonth() + 1),
-        pad(now.getDate()),
-        pad(now.getHours()),
-        pad(now.getMinutes()),
-        pad(now.getSeconds()),
-    ].join("");
-    const random = Math.random().toString(36).slice(2, 9).padEnd(7, "0");
-    return `${timestamp}-${random}`;
-}
-
-async function ensureCountdownFields(avID: string, av: AttributeView): Promise<AttributeView> {
-    const { missingFields } = resolveKeyMap(av);
-    const fieldsToCreate = missingFields.filter((field) => field !== "title") as CountdownField[];
-    if (fieldsToCreate.length === 0) return av;
-
-    let previousKeyID = av.keyValues[av.keyValues.length - 1]?.key.id || "";
-    for (const field of fieldsToCreate) {
-        const definition = COUNTDOWN_FIELD_DEFINITIONS[field];
-        const keyID = createSiyuanLikeId();
-        await addAttributeViewKeyChecked(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
-        previousKeyID = keyID;
-    }
-
-    return await loadAttributeViewWithSchema(avID) || av;
-}
-
-async function loadCountdownStore(databaseId: string | undefined): Promise<CountdownStore | null> {
-    const avID = databaseId?.trim();
-    if (!avID) return null;
-
-    const av = await loadAttributeViewWithSchema(avID);
-    if (!av) return null;
-
-    const ensuredAv = await ensureCountdownFields(avID, av);
-    const { keys, missingFields } = resolveKeyMap(ensuredAv);
-    if (missingFields.length > 0) {
-        return {
-            avID,
-            av: ensuredAv,
-            keys: keys as CountdownKeyMap,
-            status: createStatus(false, `倒数日数据库字段自动初始化失败：${missingFields.join("、")}`, avID, missingFields),
-        };
-    }
-
-    return {
-        avID,
-        av: ensuredAv,
-        keys: keys as CountdownKeyMap,
-        status: createStatus(true, "数据库可用", avID),
-    };
-}
-
-function groupRows(av: AttributeView): CountdownRow[] {
-    const rowMap = new Map<string, CountdownRow>();
-
-    for (const keyValue of av.keyValues) {
-        for (const value of keyValue.values || []) {
-            const itemID = value?.itemID || value?.blockID || value?.id || "";
-            if (!itemID) continue;
-
-            if (!rowMap.has(itemID)) {
-                rowMap.set(itemID, { itemID, values: new Map<string, any>() });
-            }
-            rowMap.get(itemID)?.values.set(keyValue.key.id, value);
-        }
-    }
-
-    return Array.from(rowMap.values());
-}
-
-function extractTextFromValue(value: any): string {
-    if (value == null) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    if (value.text?.content != null) return String(value.text.content);
-    if (value.block?.content != null) return String(value.block.content);
-    if (value.number?.content != null) return String(value.number.content);
-    if (value.content != null) return String(value.content);
-    return "";
-}
-
-function readRowField(row: CountdownRow, key: AttributeViewKeyValue): string {
-    return extractTextFromValue(row.values.get(key.key.id));
-}
-
-function createBlockValue(keyID: string, content: string): any {
-    return { keyID, block: { content } };
-}
-
-function createTextValue(keyID: string, content: string): any {
-    return { keyID, text: { content } };
-}
-
-function createNumberValue(keyID: string, content: string): any {
-    return { keyID, number: { content: Number(content) || 0, isNotEmpty: true } };
-}
-
-function createValueForKey(key: AttributeViewKeyValue, content: string): any {
-    if (key.key.type === "block") return createBlockValue(key.key.id, content);
-    if (key.key.type === "number") return createNumberValue(key.key.id, content);
-    return createTextValue(key.key.id, content);
-}
-
-// ========== row/cell 辅助函数 ==========
-
-function getCountdownCellID(row: CountdownRow, keyID: string): string | undefined {
-    return row.values.get(keyID)?.id;
-}
-
-function getCountdownRowID(row: CountdownRow): string {
-    return row.itemID;
-}
-
-// ========== set value constructors (不带 keyID，用于 setAttributeViewBlockAttrWithCellChecked) ==========
-
-function createSetValueByKey(key: AttributeViewKeyValue, content: string): any {
-    const type = key.key.type;
-    if (type === "number") {
-        return { number: { content: Number(content) || 0, isNotEmpty: true } };
-    }
-    if (type === "block") {
-        return { block: { content } };
-    }
-    return { text: { content } };
-}
-
-function isTruthy(value: string): boolean {
-    return ["1", "true", "yes", "是", "周年"].includes(value.trim().toLowerCase());
-}
-
-function isArchived(value: string): boolean {
-    return ["1", "true", "yes", "已删除", "归档", "已归档"].includes(value.trim().toLowerCase());
+function nowIso(): string {
+    return new Date().toISOString();
 }
 
 function createCountdownEventId(): string {
@@ -322,283 +68,242 @@ function createCountdownEventId(): string {
 }
 
 function normalizeEvent(input: CountdownEventInput, order: number): CountdownEventRecord {
-    const now = new Date().toISOString();
+    const now = nowIso();
     return {
-        id: input.id || createCountdownEventId(),
-        name: input.name?.trim() || "未命名事件",
-        date: input.date || new Date().toISOString().slice(0, 10),
+        id: typeof input.id === "string" && input.id.trim() ? input.id.trim() : createCountdownEventId(),
+        name: input.name.trim() || "未命名事件",
+        date: input.date.trim(),
         anniversary: Boolean(input.anniversary),
         order: Number.isFinite(Number(input.order)) ? Number(input.order) : order,
         createdAt: input.createdAt || now,
         updatedAt: input.updatedAt || now,
+        archived: input.archived === true,
     };
 }
 
-function extractEvents(store: CountdownStore): CountdownEventRecord[] {
-    if (!store.status.ok) return [];
-
-    return groupRows(store.av)
-        .map((row) => {
-            if (isArchived(readRowField(row, store.keys.archived))) return null;
-            const name = readRowField(row, store.keys.name) || readRowField(row, store.keys.title);
-            const date = readRowField(row, store.keys.date);
-            if (!name.trim() || !date.trim()) return null;
-
-            return normalizeEvent(
-                {
-                    id: readRowField(row, store.keys.eventId) || row.itemID,
-                    name,
-                    date,
-                    anniversary: isTruthy(readRowField(row, store.keys.anniversary)),
-                    order: Number(readRowField(row, store.keys.order)) || 0,
-                    createdAt: readRowField(row, store.keys.createdAt),
-                    updatedAt: readRowField(row, store.keys.updatedAt),
-                },
-                0
-            );
-        })
-        .filter((event): event is CountdownEventRecord => event !== null)
-        .sort((a, b) => a.order - b.order || a.date.localeCompare(b.date) || a.name.localeCompare(b.name, "zh-CN"));
+export function createEmptyCountdownEventsFile(): CountdownEventsFile {
+    return {
+        schema: COUNTDOWN_EVENTS_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: 0,
+        updatedAt: nowIso(),
+        events: [],
+    };
 }
 
-function findRowByEventId(store: CountdownStore, eventId: string): CountdownRow | null {
-    if (!store.status.ok) return null;
-    return groupRows(store.av).find((row) => {
-        const rowEventId = readRowField(row, store.keys.eventId);
-        return rowEventId === eventId || row.itemID === eventId;
-    }) || null;
+export function normalizeCountdownEventsFile(raw: unknown): CountdownEventsFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("纪念日数据结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== COUNTDOWN_EVENTS_SCHEMA || value.version !== SHARED_WIDGET_DATA_VERSION) {
+        throw new Error("纪念日数据 schema 或 version 不受支持");
+    }
+    if (!Array.isArray(value.events)) throw new Error("纪念日列表无效");
+    const events = value.events.map((item, index) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("纪念日记录无效");
+        const event = item as Record<string, unknown>;
+        if (typeof event.id !== "string" || !event.id.trim()
+            || typeof event.name !== "string" || typeof event.date !== "string") {
+            throw new Error("纪念日关键字段无效");
+        }
+        return normalizeEvent(event as unknown as CountdownEventInput, index);
+    });
+    return {
+        schema: COUNTDOWN_EVENTS_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: finiteCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        events,
+        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
+    };
 }
 
-async function setRowValue(
-    store: CountdownStore,
-    row: CountdownRow,
-    key: AttributeViewKeyValue,
-    content: string
-): Promise<void> {
-    await setAttributeViewBlockAttrWithCellChecked({
-        avID: store.avID,
-        keyID: key.key.id,
-        rowID: getCountdownRowID(row),
-        cellID: getCountdownCellID(row, key.key.id),
-        value: createSetValueByKey(key, content),
+export function sameCountdownEvent(left: CountdownEventRecord, right: CountdownEventRecord): boolean {
+    const normalizedLeft = normalizeEvent(left, left.order);
+    const normalizedRight = normalizeEvent(right, right.order);
+    return normalizedLeft.id === normalizedRight.id
+        && normalizedLeft.name === normalizedRight.name
+        && normalizedLeft.date === normalizedRight.date
+        && normalizedLeft.anniversary === normalizedRight.anniversary
+        && normalizedLeft.order === normalizedRight.order
+        && normalizedLeft.createdAt === normalizedRight.createdAt
+        && normalizedLeft.updatedAt === normalizedRight.updatedAt
+        && normalizedLeft.archived === normalizedRight.archived;
+}
+
+export function validateCountdownEventRecords(
+    actual: CountdownEventRecord[],
+    expected: CountdownEventRecord[],
+    message = "纪念日写入后业务数据校验失败",
+): void {
+    const actualById = new Map(actual.map((event) => [event.id, event]));
+    const expectedIds = new Set(expected.map((event) => event.id));
+    if (actual.length !== expected.length
+        || actualById.size !== actual.length
+        || expectedIds.size !== expected.length
+        || expected.some((event) => {
+            const saved = actualById.get(event.id);
+            return !saved || !sameCountdownEvent(saved, event);
+        })) {
+        throw new Error(message);
+    }
+}
+
+function validateEvents(actual: CountdownEventsFile, expected: CountdownEventsFile): void {
+    validateCountdownEventRecords(actual.events, expected.events);
+}
+
+export function mergeCountdownEvents(...lists: Array<CountdownEventInput[] | undefined | null>): CountdownEventRecord[] {
+    const map = new Map<string, CountdownEventRecord>();
+    let order = 0;
+    for (const list of lists) {
+        if (!Array.isArray(list)) continue;
+        for (const input of list) {
+            if (!input?.name?.trim() || !input?.date?.trim()) continue;
+            const normalized = normalizeEvent(input, order++);
+            const key = input.id?.trim() || `${normalized.name}|${normalized.date}|${normalized.anniversary}`;
+            const existing = map.get(key);
+            if (!existing || (normalized.updatedAt && normalized.updatedAt > existing.updatedAt)) map.set(key, normalized);
+        }
+    }
+    return Array.from(map.values())
+        .sort((a, b) => a.order - b.order || a.date.localeCompare(b.date) || a.name.localeCompare(b.name, "zh-CN"))
+        .map((event, index) => ({ ...event, order: index }));
+}
+
+export async function getCountdownStoreStatus(): Promise<CountdownStoreStatus> {
+    try {
+        await assertSharedWidgetMigrationReady("countdown");
+        const file = await loadSharedJson(COUNTDOWN_EVENTS_FILE, normalizeCountdownEventsFile);
+        if (file?.migration?.status === "failed") {
+            return { ok: false, missingFields: [], message: "旧数据迁移尚未完成，请重新加载插件后重试。" };
+        }
+        return {
+            ok: true,
+            missingFields: [],
+            message: file?.migration?.cleanupStatus === "pending" ? "旧数据库清理待重试" : "本地数据已就绪",
+        };
+    } catch (error) {
+        return { ok: false, missingFields: [], message: error instanceof Error ? error.message : "本地存储不可用" };
+    }
+}
+
+async function loadCountdownEventsUnlocked(): Promise<CountdownLoadResult> {
+    const file = await loadSharedJson(COUNTDOWN_EVENTS_FILE, normalizeCountdownEventsFile);
+    const resolved = file || createEmptyCountdownEventsFile();
+    return {
+        events: resolved.events.filter((event) => !event.archived).sort((a, b) => a.order - b.order),
+        revision: resolved.revision,
+        status: { ok: true, missingFields: [], message: "本地数据已就绪" },
+    };
+}
+
+export async function loadCountdownEvents(): Promise<CountdownLoadResult> {
+    await assertSharedWidgetMigrationReady("countdown");
+    return loadCountdownEventsUnlocked();
+}
+
+export function createCountdownEditSnapshot(result: CountdownLoadResult): CountdownEditSnapshot {
+    return {
+        initialEvents: structuredClone(result.events),
+        initialEventIds: result.events.map((event) => event.id),
+        baseRevision: result.revision,
+    };
+}
+
+function comparableEvent(event: CountdownEventRecord): string {
+    return JSON.stringify({
+        name: event.name.trim(),
+        date: event.date,
+        anniversary: event.anniversary,
+        order: event.order,
     });
 }
 
-function eventToValueEntries(store: CountdownStore, event: CountdownEventRecord): any[] {
-    return [
-        createValueForKey(store.keys.title, event.name),
-        createTextValue(store.keys.eventId.key.id, event.id),
-        createTextValue(store.keys.name.key.id, event.name),
-        createTextValue(store.keys.date.key.id, event.date),
-        createTextValue(store.keys.anniversary.key.id, event.anniversary ? "true" : "false"),
-        createNumberValue(store.keys.order.key.id, String(event.order)),
-        createTextValue(store.keys.createdAt.key.id, event.createdAt),
-        createTextValue(store.keys.updatedAt.key.id, event.updatedAt),
-        createTextValue(store.keys.archived.key.id, "false"),
-    ];
-}
+async function saveCountdownEventsUnlocked(
+    events: CountdownEventInput[],
+    snapshot?: CountdownEditSnapshot,
+): Promise<CountdownEventRecord[]> {
+    const saved = await mutateSharedJson({
+        store: "countdown",
+        path: COUNTDOWN_EVENTS_FILE,
+        createEmpty: createEmptyCountdownEventsFile,
+        normalize: normalizeCountdownEventsFile,
+        mutate: (file) => {
+            const latestById = new Map(file.events.map((event) => [event.id, event]));
+            const initialById = new Map((snapshot?.initialEvents || []).map((event) => [event.id, event]));
+            const draft = events
+                .filter((event) => event?.name?.trim() && event?.date?.trim())
+                .map((event, index) => normalizeEvent(event, index));
+            const draftIds = new Set(draft.map((event) => event.id));
+            const now = nowIso();
 
-export async function getCountdownStoreStatus(databaseId: string | undefined): Promise<CountdownStoreStatus> {
-    const avID = databaseId?.trim();
-    if (!avID) {
-        return createStatus(false, "请先在组件设置中填写倒数日数据库 ID");
-    }
+            for (const event of draft) {
+                const initial = initialById.get(event.id);
+                const latest = latestById.get(event.id);
+                const wasEdited = !initial || comparableEvent(event) !== comparableEvent(initial);
+                if (!latest || wasEdited || !snapshot || snapshot.baseRevision === file.revision) {
+                    latestById.set(event.id, {
+                        ...latest,
+                        ...event,
+                        createdAt: latest?.createdAt || event.createdAt || now,
+                        updatedAt: wasEdited ? now : (latest?.updatedAt || event.updatedAt || now),
+                        archived: false,
+                    });
+                }
+            }
 
-    const store = await loadCountdownStore(avID);
-    if (!store) {
-        return createStatus(false, "无法读取倒数日数据库，请检查数据库 ID", avID);
-    }
+            for (const id of snapshot?.initialEventIds || []) {
+                if (draftIds.has(id)) continue;
+                const existing = latestById.get(id);
+                if (existing) latestById.set(id, { ...existing, archived: true, updatedAt: now });
+            }
 
-    return store.status;
-}
-
-export async function loadCountdownEvents(databaseId: string | undefined): Promise<CountdownLoadResult> {
-    const status = await getCountdownStoreStatus(databaseId);
-    if (!status.ok) {
-        return { events: [], status };
-    }
-
-    const store = await loadCountdownStore(databaseId);
-    if (!store || !store.status.ok) {
-        return { events: [], status };
-    }
-
-    return {
-        events: extractEvents(store),
-        status: store.status,
-    };
+            const activeOrder = new Map(draft.map((event, index) => [event.id, index]));
+            file.events = Array.from(latestById.values())
+                .sort((a, b) => {
+                    const aOrder = activeOrder.get(a.id);
+                    const bOrder = activeOrder.get(b.id);
+                    if (aOrder != null && bOrder != null) return aOrder - bOrder;
+                    if (aOrder != null) return -1;
+                    if (bOrder != null) return 1;
+                    return a.order - b.order;
+                })
+                .map((event, index) => ({ ...event, order: index }));
+        },
+        validate: validateEvents,
+    });
+    return saved.events.filter((event) => !event.archived).sort((a, b) => a.order - b.order);
 }
 
 export async function saveCountdownEvents(
-    databaseId: string | undefined,
-    inputEvents: CountdownEventInput[]
+    events: CountdownEventInput[],
+    snapshot?: CountdownEditSnapshot,
 ): Promise<CountdownEventRecord[]> {
-    const store = await loadCountdownStore(databaseId);
-    if (!store || !store.status.ok) {
-        throw new Error(store?.status.message || "倒数日数据库不可用");
-    }
-
-    const now = new Date().toISOString();
-    const existingRows = groupRows(store.av);
-    const normalizedEvents = inputEvents
-        .filter((event) => event.name?.trim() && event.date?.trim())
-        .map((event, index) => normalizeEvent({ ...event, order: index, updatedAt: now }, index));
-    const activeIds = new Set(normalizedEvents.map((event) => event.id));
-
-    for (const event of normalizedEvents) {
-        const row = findRowByEventId(store, event.id);
-        if (row && row.itemID) {
-            await setRowValue(store, row, store.keys.title, event.name);
-            await setRowValue(store, row, store.keys.eventId, event.id);
-            await setRowValue(store, row, store.keys.name, event.name);
-            await setRowValue(store, row, store.keys.date, event.date);
-            await setRowValue(store, row, store.keys.anniversary, event.anniversary ? "true" : "false");
-            await setRowValue(store, row, store.keys.order, String(event.order));
-            await setRowValue(store, row, store.keys.updatedAt, event.updatedAt);
-            await setRowValue(store, row, store.keys.archived, "false");
-        } else {
-            await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [eventToValueEntries(store, event)]);
-        }
-    }
-
-    for (const row of existingRows) {
-        const eventId = readRowField(row, store.keys.eventId) || row.itemID;
-        if (!activeIds.has(eventId) && !isArchived(readRowField(row, store.keys.archived))) {
-            await setRowValue(store, row, store.keys.archived, "true");
-            await setRowValue(store, row, store.keys.updatedAt, now);
-        }
-    }
-
-    const refreshedStore = await loadCountdownStore(databaseId);
-    if (!refreshedStore || !refreshedStore.status.ok) {
-        throw new Error("倒数日数据库写入后重新加载失败");
-    }
-
-    const refreshedEvents = extractEvents(refreshedStore);
-    const refreshedMap = new Map<string, CountdownEventRecord>();
-    for (const ev of refreshedEvents) {
-        refreshedMap.set(ev.id, ev);
-    }
-
-    for (const expected of normalizedEvents) {
-        const actual = refreshedMap.get(expected.id);
-        if (!actual) {
-            console.warn("[countdownData] 倒数日数据库写入后校验失败：找不到事件", {
-                eventId: expected.id,
-                name: expected.name,
-            });
-            throw new Error("倒数日数据库写入后校验失败");
-        }
-
-        const expectedOrder = expected.order;
-        const actualOrder = actual.order;
-        if (actualOrder !== expectedOrder) {
-            const row = findRowByEventId(refreshedStore, expected.id);
-            console.warn("[countdownData] 倒数日数据库写入后校验失败：order 不匹配", {
-                eventId: expected.id,
-                name: expected.name,
-                expectedOrder,
-                actualOrder,
-                orderKeyID: refreshedStore.keys.order.key.id,
-                orderCellID: row ? getCountdownCellID(row, refreshedStore.keys.order.key.id) : undefined,
-            });
-            throw new Error("倒数日数据库写入后校验失败");
-        }
-    }
-
-    return normalizedEvents;
-}
-
-export function mergeCountdownEvents(...lists: Array<CountdownEventInput[] | undefined | null>): CountdownEventInput[] {
-    const inputArrays = lists.filter((list): list is CountdownEventInput[] => Array.isArray(list));
-    const allEvents = inputArrays.flat().filter(
-        (event): event is CountdownEventInput =>
-            event != null && typeof event.name === "string" && event.name.trim().length > 0 &&
-            typeof event.date === "string" && event.date.trim().length > 0
+    await assertSharedWidgetMigrationReady("countdown");
+    return runSharedWidgetExclusive(
+        COUNTDOWN_STORE_TRANSACTION_LOCK,
+        () => saveCountdownEventsUnlocked(events, snapshot),
     );
-
-    const map = new Map<string, CountdownEventInput>();
-
-    for (const event of allEvents) {
-        const key = event.id?.trim()
-            || `${event.name.trim()}|${event.date.trim()}|${Boolean(event.anniversary)}`;
-
-        const existing = map.get(key);
-        if (existing) {
-            map.set(key, {
-                ...existing,
-                ...event,
-                name: existing.name.trim() ? existing.name : event.name,
-                date: existing.date.trim() ? existing.date : event.date,
-            });
-        } else {
-            map.set(key, { ...event });
-        }
-    }
-
-    return Array.from(map.values());
 }
 
-export async function collectCountdownLegacyEventsFromWidgets(
-    plugin: any,
-    currentBlockId?: string,
-    currentConfig?: unknown,
-    currentEventList?: CountdownEventInput[]
-): Promise<CountdownEventInput[]> {
-    const widgetIds = await collectKnownWidgetIds(plugin);
-    const allLists: CountdownEventInput[][] = [];
-
-    for (const widgetId of widgetIds) {
-        if (widgetId === currentBlockId) continue;
-        try {
-            const raw = await plugin.loadData(`widget-${widgetId}.json`);
-            const config = typeof raw === "string" ? JSON.parse(raw) : raw;
-            if (config?.type === "countdown" && Array.isArray(config.data?.eventList)) {
-                const legacyEvents = config.data.eventList.filter(
-                    (e: any) => e?.name?.trim() && e?.date?.trim()
-                );
-                if (legacyEvents.length > 0) {
-                    allLists.push(legacyEvents as CountdownEventInput[]);
-                }
-            }
-        } catch (error) {
-            console.warn(`[countdownData] 读取 widget-${widgetId}.json 失败`, error);
-        }
-    }
-
-    if (currentConfig && typeof currentConfig === "object") {
-        const config = currentConfig as any;
-        if (Array.isArray(config.data?.eventList)) {
-            const legacyEvents = config.data.eventList.filter(
-                (e: any) => e?.name?.trim() && e?.date?.trim()
-            );
-            if (legacyEvents.length > 0) {
-                allLists.push(legacyEvents as CountdownEventInput[]);
-            }
-        }
-    }
-
-    if (currentEventList && currentEventList.length > 0) {
-        allLists.push(currentEventList);
-    }
-
-    return mergeCountdownEvents(...allLists);
+export async function upsertCountdownEvent(event: CountdownEventInput): Promise<CountdownEventRecord> {
+    await assertSharedWidgetMigrationReady("countdown");
+    return runSharedWidgetExclusive(COUNTDOWN_STORE_TRANSACTION_LOCK, async () => {
+        const loaded = await loadCountdownEventsUnlocked();
+        const normalized = normalizeEvent(event, loaded.events.length);
+        const events = loaded.events.filter((item) => item.id !== normalized.id).concat(normalized);
+        const saved = await saveCountdownEventsUnlocked(events, createCountdownEditSnapshot(loaded));
+        return saved.find((item) => item.id === normalized.id) || normalized;
+    });
 }
 
-export async function migrateLegacyCountdownEventsIfNeeded(
-    databaseId: string | undefined,
-    legacyEvents: CountdownEventInput[] | undefined
-): Promise<CountdownEventRecord[]> {
-    if (!databaseId?.trim()) return [];
-
-    const existing = await loadCountdownEvents(databaseId);
-    if (!existing.status.ok) return existing.events;
-
-    const legacy = (legacyEvents || []).filter((event) => event.name?.trim() && event.date?.trim());
-    if (legacy.length === 0) return existing.events;
-
-    const merged = mergeCountdownEvents(existing.events, legacy);
-    if (merged.length === existing.events.length) return existing.events;
-
-    return saveCountdownEvents(databaseId, merged);
+export async function archiveCountdownEvent(eventId: string): Promise<void> {
+    await assertSharedWidgetMigrationReady("countdown");
+    await runSharedWidgetExclusive(COUNTDOWN_STORE_TRANSACTION_LOCK, async () => {
+        const loaded = await loadCountdownEventsUnlocked();
+        await saveCountdownEventsUnlocked(
+            loaded.events.filter((event) => event.id !== eventId),
+            createCountdownEditSnapshot(loaded),
+        );
+    });
 }

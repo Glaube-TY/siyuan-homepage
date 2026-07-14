@@ -1,180 +1,123 @@
+import { readDir } from "@/api";
+
 export type DatabaseWidgetType = "fixedAssets" | "CYBMOK" | "focus" | "countdown" | "reviewDocs";
 
-export type DatabaseIdResolveResult = {
-    databaseId: string;
-    sourceWidgetId?: string;
-    source: "self" | "existing-widget" | "none";
-};
+export interface LegacyWidgetConfigRecord {
+    widgetId: string;
+    path: string;
+    config: Record<string, any>;
+}
 
-type WidgetConfig = {
-    type?: string;
-    data?: Record<string, any>;
-    [key: string]: any;
-};
-
-function parseConfig(value: unknown): WidgetConfig | null {
+export function parseLegacyWidgetConfig(value: unknown): Record<string, any> | null {
     if (!value) return null;
     if (typeof value === "string") {
         try {
-            return JSON.parse(value);
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
         } catch (error) {
-            console.warn("[sharedDatabaseId] 无法解析组件配置", error);
+            console.warn("[legacySharedWidgetDataDiscovery] 无法解析组件配置", error);
             return null;
         }
     }
-    if (typeof value === "object") {
-        return value as WidgetConfig;
-    }
-    return null;
+    return typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : null;
 }
 
 function addWidgetId(ids: Set<string>, value: unknown): void {
-    if (typeof value !== "string") return;
-    const id = value.trim();
-    if (id) ids.add(id);
+    if (typeof value === "string" && value.trim()) ids.add(value.trim());
 }
 
 function addWidgetIds(ids: Set<string>, values: unknown): void {
-    if (!Array.isArray(values)) return;
-    values.forEach((value) => addWidgetId(ids, value));
+    if (Array.isArray(values)) values.forEach((value) => addWidgetId(ids, value));
 }
 
 function addProfileWidgetIds(ids: Set<string>, profiles: unknown): void {
     if (!profiles || typeof profiles !== "object") return;
-    const profileList = Array.isArray(profiles)
-        ? profiles
-        : Object.values(profiles as Record<string, unknown>);
-
-    profileList.forEach((profile: any) => {
+    const list = Array.isArray(profiles) ? profiles : Object.values(profiles as Record<string, unknown>);
+    for (const profile of list as any[]) {
+        addWidgetIds(ids, profile?.defaultOrder);
         addWidgetIds(ids, profile?.order);
         addWidgetIds(ids, profile?.hiddenWidgetIds);
-    });
-}
-
-export function getDatabaseIdField(type: DatabaseWidgetType): string {
-    if (type === "fixedAssets") return "fixedAssetsDatabaseId";
-    if (type === "CYBMOK") return "CYBMOKDatabaseId";
-    if (type === "countdown") return "countdownDatabaseId";
-    if (type === "reviewDocs") return "reviewDocsDatabaseId";
-    return "focusDatabaseId";
-}
-
-export function readDatabaseIdFromWidgetConfig(
-    type: DatabaseWidgetType,
-    config: unknown
-): string {
-    const parsedConfig = parseConfig(config);
-    if (!parsedConfig || parsedConfig.type !== type) {
-        return "";
     }
-
-    const data = parsedConfig.data || {};
-    const databaseId =
-        type === "fixedAssets"
-            ? data.fixedAssetsDatabaseId
-            : type === "CYBMOK"
-                ? data.CYBMOKDatabaseId || data.cybmokDatabaseId
-                : type === "countdown"
-                    ? data.countdownDatabaseId
-                    : type === "reviewDocs"
-                        ? data.reviewDocsDatabaseId
-                        : data.focusDatabaseId;
-
-    return typeof databaseId === "string" ? databaseId.trim() : "";
 }
 
 export async function collectKnownWidgetIds(plugin: any): Promise<string[]> {
     const ids = new Set<string>();
-
     try {
-        const layout = parseConfig(await plugin.loadData("widgetLayout.json")) || {};
-        addWidgetIds(ids, layout?.defaultOrder);
-        addWidgetIds(ids, layout?.order);
-        addProfileWidgetIds(ids, layout?.profiles);
+        const layout = parseLegacyWidgetConfig(await plugin.loadData("widgetLayout.json")) || {};
+        addWidgetIds(ids, layout.defaultOrder);
+        addWidgetIds(ids, layout.order);
+        addWidgetIds(ids, layout.hiddenWidgetIds);
+        addProfileWidgetIds(ids, layout.profiles);
     } catch (error) {
-        console.warn("[sharedDatabaseId] 读取 widgetLayout.json 失败", error);
+        console.warn("[legacySharedWidgetDataDiscovery] 读取 widgetLayout.json 失败", error);
     }
 
     if (typeof document !== "undefined") {
-        document
-            .querySelectorAll<HTMLElement>(".custom-content > .widget-block")
+        document.querySelectorAll<HTMLElement>(".custom-content > .widget-block, .widget-block[id]")
             .forEach((element) => addWidgetId(ids, element.id));
     }
 
+    const storageDir = `data/storage/petal/${plugin?.name || "siyuan-homepage"}`;
+    try {
+        const entries = await readDir(storageDir);
+        for (const entry of Array.isArray(entries) ? entries : []) {
+            const match = String(entry?.name || "").match(/^widget-(.+)\.json$/);
+            if (match) addWidgetId(ids, match[1]);
+        }
+    } catch (error) {
+        console.warn("[legacySharedWidgetDataDiscovery] 扫描旧组件配置失败", error);
+    }
     return Array.from(ids);
 }
 
-export async function resolveDatabaseIdFromExistingWidgets(
-    plugin: any,
-    type: DatabaseWidgetType,
-    currentBlockId?: string,
-    selfConfig?: unknown
-): Promise<DatabaseIdResolveResult> {
-    const selfDatabaseId = readDatabaseIdFromWidgetConfig(type, selfConfig);
-    if (selfDatabaseId) {
-        return {
-            databaseId: selfDatabaseId,
-            sourceWidgetId: currentBlockId,
-            source: "self",
-        };
-    }
-
-    const widgetIds = await collectKnownWidgetIds(plugin);
-    for (const widgetId of widgetIds) {
-        if (currentBlockId && widgetId === currentBlockId) continue;
-
+export async function collectLegacyWidgetConfigs(plugin: any): Promise<LegacyWidgetConfigRecord[]> {
+    const result: LegacyWidgetConfigRecord[] = [];
+    for (const widgetId of await collectKnownWidgetIds(plugin)) {
+        const path = `widget-${widgetId}.json`;
         try {
-            const config = await plugin.loadData(`widget-${widgetId}.json`);
-            const databaseId = readDatabaseIdFromWidgetConfig(type, config);
-            if (databaseId) {
-                return {
-                    databaseId,
-                    sourceWidgetId: widgetId,
-                    source: "existing-widget",
-                };
-            }
+            const config = parseLegacyWidgetConfig(await plugin.loadData(path));
+            if (config) result.push({ widgetId, path, config });
         } catch (error) {
-            console.warn(`[sharedDatabaseId] 读取 widget-${widgetId}.json 失败`, error);
+            console.warn(`[legacySharedWidgetDataDiscovery] 读取 ${path} 失败`, error);
         }
     }
-
-    return {
-        databaseId: "",
-        source: "none",
-    };
+    return result;
 }
 
-export async function syncDatabaseIdToSameTypeWidgets(
-    plugin: any,
+export function readDatabaseIdsFromWidgetConfig(
     type: DatabaseWidgetType,
-    databaseId: string,
-    currentBlockId?: string
-): Promise<void> {
-    const normalizedDatabaseId = databaseId.trim();
-    if (!normalizedDatabaseId) {
-        return;
-    }
+    config: Record<string, any>,
+): string[] {
+    if (config.type !== type) return [];
+    const data = config.data || {};
+    const values = type === "fixedAssets"
+        ? [data.fixedAssetsDatabaseId]
+        : type === "CYBMOK"
+            ? [data.CYBMOKDatabaseId, data.cybmokDatabaseId]
+            : type === "countdown"
+                ? [data.countdownDatabaseId]
+                : type === "reviewDocs"
+                    ? [data.reviewDocsDatabaseId]
+                    : [data.focusDatabaseId];
+    return values.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim());
+}
 
-    const field = getDatabaseIdField(type);
-    const widgetIds = await collectKnownWidgetIds(plugin);
-    for (const widgetId of widgetIds) {
-        if (currentBlockId && widgetId === currentBlockId) continue;
-
-        try {
-            const config = parseConfig(await plugin.loadData(`widget-${widgetId}.json`));
-            if (!config || config.type !== type) continue;
-
-            const nextConfig = {
-                ...config,
-                data: {
-                    ...(config.data || {}),
-                    [field]: normalizedDatabaseId,
-                },
-            };
-
-            await plugin.saveData(`widget-${widgetId}.json`, nextConfig);
-        } catch (error) {
-            console.warn(`[sharedDatabaseId] 同步 widget-${widgetId}.json 失败`, error);
+export function collectLegacyDatabaseIds(
+    configs: LegacyWidgetConfigRecord[],
+    countdownNotifyDatabaseId = "",
+): Record<DatabaseWidgetType, string[]> {
+    const ids: Record<DatabaseWidgetType, Set<string>> = {
+        fixedAssets: new Set(),
+        CYBMOK: new Set(),
+        focus: new Set(),
+        countdown: new Set(),
+        reviewDocs: new Set(),
+    };
+    for (const record of configs) {
+        for (const type of Object.keys(ids) as DatabaseWidgetType[]) {
+            readDatabaseIdsFromWidgetConfig(type, record.config).forEach((id) => ids[type].add(id));
         }
     }
+    if (countdownNotifyDatabaseId.trim()) ids.countdown.add(countdownNotifyDatabaseId.trim());
+    return Object.fromEntries(Object.entries(ids).map(([type, values]) => [type, Array.from(values)])) as Record<DatabaseWidgetType, string[]>;
 }

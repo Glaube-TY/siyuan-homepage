@@ -7,17 +7,12 @@
         getMobileWidgetLabel,
     } from "./mobile-widget-categories";
     import {
-        collectCountdownLegacyEventsFromWidgets,
+        createCountdownEditSnapshot,
         loadCountdownEvents,
-        mergeCountdownEvents,
         saveCountdownEvents,
+        type CountdownEditSnapshot,
         type CountdownEventInput,
     } from "../../components/utils/widgetBlock/widget/countdown/countdownData";
-    import {
-        resolveDatabaseIdFromExistingWidgets,
-        syncDatabaseIdToSameTypeWidgets,
-        type DatabaseWidgetType,
-    } from "../../components/utils/widgetBlock/widget/sharedDatabaseId";
     import {
         clampRecentDocsLimit,
         normalizeRecentDocsSortBy,
@@ -89,6 +84,11 @@
     let countdownEvents = $state<CountdownEventForm[]>([
         { name: "", date: "", anniversary: false },
     ]);
+    let countdownSnapshot = $state<CountdownEditSnapshot>({
+        initialEvents: [],
+        initialEventIds: [],
+        baseRevision: 0,
+    });
 
     const title = $derived(getMobileWidgetLabel(widgetType));
     const fields = $derived(getFields(widgetType, form));
@@ -110,17 +110,6 @@
             "https://haowallpaper.com/link/common/file/previewFileImg/15063728140422464",
         focusBreak:
             "https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d",
-    };
-
-    const databaseWidgetFields: Record<
-        string,
-        { type: DatabaseWidgetType; field: string }
-    > = {
-        countdown: { type: "countdown", field: "countdownDatabaseId" },
-        focus: { type: "focus", field: "focusDatabaseId" },
-        CYBMOK: { type: "CYBMOK", field: "CYBMOKDatabaseId" },
-        fixedAssets: { type: "fixedAssets", field: "fixedAssetsDatabaseId" },
-        reviewDocs: { type: "reviewDocs", field: "reviewDocsDatabaseId" },
     };
 
     function parseWidgetConfig(raw: any): WidgetConfig | null {
@@ -201,7 +190,6 @@
             },
             reviewDocs: {
                 reviewDocsTitle: "📚复习文档",
-                reviewDocsDatabaseId: "",
                 reviewDocsLimit: 20,
                 reviewDocsDefaultView: "due",
                 reviewDocsShowFuture: true,
@@ -233,7 +221,6 @@
             },
             countdown: {
                 countdownStyle: "list1",
-                countdownDatabaseId: "",
                 countdownCard1BgSelect: "remote",
                 countdownCard1RemoteBg: defaultBackgrounds.countdownCard1,
                 countdownCard1LocalBg: "",
@@ -364,7 +351,6 @@
                 breakImageType: "remote",
                 breakBgImage: defaultBackgrounds.focusBreak,
                 breakLocalImage: null,
-                focusDatabaseId: "",
             },
             musicPlayer: {
                 musicFolderPath: "",
@@ -400,11 +386,9 @@
             },
             CYBMOK: {
                 CMKnockSound: "普通",
-                CYBMOKDatabaseId: "",
             },
             fixedAssets: {
                 fixedAssetsTitle: "固定资产",
-                fixedAssetsDatabaseId: "",
                 fixedAssetsListLimit: 6,
                 fixedAssetsSortBy: "updated",
                 fixedAssetsShowHourly: true,
@@ -451,51 +435,18 @@
         return next;
     }
 
-    async function resolveDatabaseField(config: WidgetConfig | null): Promise<void> {
-        const databaseWidget = databaseWidgetFields[widgetType];
-        if (!databaseWidget) return;
-
-        try {
-            const resolved = await resolveDatabaseIdFromExistingWidgets(
-                plugin,
-                databaseWidget.type,
-                currentBlockId,
-                config || { type: widgetType, data: form },
-            );
-            if (resolved.databaseId && !form[databaseWidget.field]) {
-                form[databaseWidget.field] = resolved.databaseId;
-            }
-        } catch (error) {
-            console.warn("[mobile content form] 解析共享数据库 ID 失败", error);
-        }
-    }
-
     async function loadCountdownEventDrafts(): Promise<void> {
         if (widgetType !== "countdown") return;
 
-        const source = getMatchingData();
-        const legacyEvents = Array.isArray(source?.eventList)
-            ? source.eventList
-            : [{ name: "", date: "", anniversary: false }];
-
-        countdownEvents = legacyEvents.length
-            ? legacyEvents.map((event) => ({
-                  ...event,
-                  name: event.name || "",
-                  date: event.date || "",
-                  anniversary: event.anniversary ?? false,
-              }))
-            : [{ name: "", date: "", anniversary: false }];
-
-        if (!form.countdownDatabaseId?.trim()) return;
-
         try {
-            const result = await loadCountdownEvents(form.countdownDatabaseId);
-            if (result.status.ok && result.events.length > 0) {
-                countdownEvents = result.events.map((event) => ({ ...event }));
-            }
+            const result = await loadCountdownEvents();
+            countdownSnapshot = createCountdownEditSnapshot(result);
+            countdownEvents = result.events.length > 0
+                ? result.events.map((event) => ({ ...event }))
+                : [{ name: "", date: "", anniversary: false }];
         } catch (error) {
-            console.warn("[mobile content form] 读取倒数日事件失败", error);
+            console.warn("[mobile content form] 读取本地纪念日失败", error);
+            showMessage("旧数据迁移尚未完成，请重新加载插件后重试。", 4000);
         }
     }
 
@@ -521,7 +472,6 @@
 
         existingConfig = loadedConfig;
         form = normalizeLoadedForm(widgetType, getMatchingData(loadedConfig));
-        await resolveDatabaseField(loadedConfig);
         await loadCountdownEventDrafts();
         isReady = true;
     }
@@ -575,10 +525,22 @@
     }
 
     function withExistingData(overrides: Record<string, any>): Record<string, any> {
-        return {
+        const data = {
             ...getMatchingData(),
             ...overrides,
         };
+        if (widgetType === "focus") delete data.focusDatabaseId;
+        if (widgetType === "CYBMOK") {
+            delete data.CYBMOKDatabaseId;
+            delete data.cybmokDatabaseId;
+        }
+        if (widgetType === "countdown") {
+            delete data.countdownDatabaseId;
+            delete data.eventList;
+        }
+        if (widgetType === "fixedAssets") delete data.fixedAssetsDatabaseId;
+        if (widgetType === "reviewDocs") delete data.reviewDocsDatabaseId;
+        return data;
     }
 
     function buildWidgetConfig(): WidgetConfig {
@@ -709,7 +671,6 @@
                     ...base,
                     data: withExistingData({
                         countdownStyle: normalizeString(form.countdownStyle, "list1"),
-                        countdownDatabaseId: normalizeString(form.countdownDatabaseId),
                         countdownCard1BgSelect: normalizeString(
                             form.countdownCard1BgSelect,
                             "remote",
@@ -861,7 +822,6 @@
                             defaultBackgrounds.focusBreak,
                         ),
                         breakLocalImage: form.breakLocalImage || null,
-                        focusDatabaseId: normalizeString(form.focusDatabaseId),
                     }),
                 };
             case "sql":
@@ -1134,7 +1094,6 @@
                     ...base,
                     data: withExistingData({
                         CMKnockSound: normalizeString(form.CMKnockSound, "普通"),
-                        CYBMOKDatabaseId: normalizeString(form.CYBMOKDatabaseId),
                     }),
                 };
             case "countdownTimer":
@@ -1158,9 +1117,6 @@
                         fixedAssetsTitle: normalizeString(
                             form.fixedAssetsTitle,
                             "固定资产",
-                        ),
-                        fixedAssetsDatabaseId: normalizeString(
-                            form.fixedAssetsDatabaseId,
                         ),
                         fixedAssetsListLimit: normalizeNumber(
                             form.fixedAssetsListLimit,
@@ -1225,9 +1181,6 @@
                         reviewDocsTitle: normalizeString(
                             form.reviewDocsTitle,
                             "📚复习文档",
-                        ),
-                        reviewDocsDatabaseId: normalizeString(
-                            form.reviewDocsDatabaseId,
                         ),
                         reviewDocsLimit: normalizeNumber(form.reviewDocsLimit, 20),
                         reviewDocsDefaultView: normalizeString(
@@ -1322,61 +1275,16 @@
     async function saveCountdownEventsIfNeeded(): Promise<boolean> {
         if (widgetType !== "countdown") return true;
 
-        const hasEvents = countdownEvents.some(
-            (event) => event.name?.trim() || event.date?.trim(),
-        );
-        if (!hasEvents) return true;
-
-        const databaseId = normalizeString(form.countdownDatabaseId).trim();
-        if (!databaseId) {
-            showMessage("请先填写倒数日数据库 ID，事件才会保存", 4000);
-            return false;
-        }
-
         try {
-            const collectedLegacyEvents = await collectCountdownLegacyEventsFromWidgets(
-                plugin,
-                currentBlockId,
-                null,
-                countdownEvents,
-            );
-            const mergedEvents = mergeCountdownEvents(
-                collectedLegacyEvents,
-                countdownEvents,
-            );
-            const savedEvents = await saveCountdownEvents(databaseId, mergedEvents);
+            const savedEvents = await saveCountdownEvents(countdownEvents, countdownSnapshot);
             countdownEvents = savedEvents.map((event) => ({ ...event }));
             return true;
         } catch (error) {
             showMessage(
-                error instanceof Error ? error.message : "倒数日数据库保存失败",
+                error instanceof Error ? error.message : "纪念日本地数据保存失败",
                 4000,
             );
             return false;
-        }
-    }
-
-    async function syncDatabaseConfig(contentTypeJson: WidgetConfig): Promise<void> {
-        const databaseWidget = databaseWidgetFields[widgetType];
-        if (!databaseWidget) return;
-
-        const databaseId = normalizeString(
-            (contentTypeJson.data || {})[databaseWidget.field],
-        );
-        if (!databaseId) return;
-
-        try {
-            if (currentBlockId) {
-                await plugin.saveData(`widget-${currentBlockId}.json`, contentTypeJson);
-            }
-            await syncDatabaseIdToSameTypeWidgets(
-                plugin,
-                databaseWidget.type,
-                databaseId,
-                currentBlockId,
-            );
-        } catch (error) {
-            console.warn("[mobile content form] 同步同类组件数据库 ID 失败", error);
         }
     }
 
@@ -1389,7 +1297,6 @@
             if (!countdownSaved) return;
 
             const contentTypeJson = buildWidgetConfig();
-            await syncDatabaseConfig(contentTypeJson);
             await onConfirm(JSON.stringify(contentTypeJson));
         } finally {
             isSaving = false;
@@ -1572,9 +1479,9 @@
                 return [
                     titleField("reviewDocsTitle", "📚复习文档"),
                     {
-                        key: "reviewDocsDatabaseId",
-                        type: "text",
-                        label: "复习数据库 ID",
+                        key: "reviewDocsStorageInfo",
+                        type: "info",
+                        label: "复习计划使用本地索引，操作日志保存在插件本地并由所有复习组件共享。",
                     },
                     limitField("reviewDocsLimit"),
                     {
@@ -1702,10 +1609,9 @@
             case "countdown":
                 return [
                     {
-                        key: "countdownDatabaseId",
-                        type: "text",
-                        label: "倒数日数据库 ID",
-                        description: "事件数据保存到该数据库",
+                        key: "countdownStorageInfo",
+                        type: "info",
+                        label: "纪念日数据保存在插件本地，并与所有纪念日组件和通知自动同步。",
                     },
                     {
                         key: "countdownStyle",
@@ -2093,9 +1999,9 @@
             case "focus":
                 return [
                     {
-                        key: "focusDatabaseId",
-                        type: "text",
-                        label: "专注数据库 ID",
+                        key: "focusStorageInfo",
+                        type: "info",
+                        label: "番茄钟统计保存在插件本地，并由所有番茄钟组件自动共享。",
                     },
                     {
                         key: "focusImageType",
@@ -2222,9 +2128,9 @@
             case "CYBMOK":
                 return [
                     {
-                        key: "CYBMOKDatabaseId",
-                        type: "text",
-                        label: "木鱼数据库 ID",
+                        key: "cybmokStorageInfo",
+                        type: "info",
+                        label: "功德数据保存在插件本地，并由所有木鱼组件自动共享。",
                     },
                     {
                         key: "CMKnockSound",
@@ -2241,9 +2147,9 @@
                 return [
                     titleField("fixedAssetsTitle", "固定资产"),
                     {
-                        key: "fixedAssetsDatabaseId",
-                        type: "text",
-                        label: "资产数据库 ID",
+                        key: "fixedAssetsStorageInfo",
+                        type: "info",
+                        label: "固定资产数据保存在插件本地，并由所有固定资产组件自动共享。",
                     },
                     limitField("fixedAssetsListLimit"),
                     {

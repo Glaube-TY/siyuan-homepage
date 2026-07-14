@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, untrack } from "svelte";
     import { showMessage } from "siyuan";
     import { checkExistingMusicPlayer } from "./widget/musicPlayer/musicPlayerInstanceGuard";
     import { lsNotebooks } from "@/api";
@@ -44,18 +44,12 @@
         type EnhancedDiaryConfig,
     } from "./widget/enhancedDiary/enhancedDiaryTypes";
     import {
+        createCountdownEditSnapshot,
         loadCountdownEvents,
-        migrateLegacyCountdownEventsIfNeeded,
         saveCountdownEvents,
-        collectCountdownLegacyEventsFromWidgets,
-        mergeCountdownEvents,
+        type CountdownEditSnapshot,
         type CountdownEventRecord,
     } from "./widget/countdown/countdownData";
-    import {
-        resolveDatabaseIdFromExistingWidgets,
-        syncDatabaseIdToSameTypeWidgets,
-        type DatabaseWidgetType,
-    } from "./widget/sharedDatabaseId";
     import {
         loadHomepageSettingConfig,
         normalizeNotebookOptions,
@@ -188,8 +182,15 @@
 
     // 倒数日相关变量
     let eventList = $state<CountdownEventForm[]>([{ name: "", date: "", anniversary: false }]);
+    let countdownSnapshot = $state<CountdownEditSnapshot>({
+        initialEvents: [],
+        initialEventIds: [],
+        baseRevision: 0,
+    });
+    let countdownDraftLoaded = $state(false);
+    let countdownDraftLoading = $state(false);
+    let countdownDraftLoadPromise: Promise<void> | null = null;
     let countdownStyle = $state("list1");
-    let countdownDatabaseId: string = $state("");
     let countdownCard1BgSelect = $state("remote");
     let countdownCard1RemoteBg =
         $state("https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664");
@@ -310,7 +311,6 @@
         $state("https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d");
     let focusLocalImage = $state(null);
     let breakLocalImage = $state(null);
-    let focusDatabaseId: string = $state("");
 
     // SQL 查询
     let sqlTitle: string = $state("SQL 查询结果");
@@ -376,14 +376,12 @@
 
     // 赛博木鱼配置
     let CMKnockSound: string = $state("普通");
-    let CYBMOKDatabaseId: string = $state("");
 
     // 倒计时定时器样式
     let countdownTimerStyle: string = $state("default");
 
     // 固定资产配置
     let fixedAssetsTitle: string = $state("固定资产");
-    let fixedAssetsDatabaseId: string = $state("");
     let fixedAssetsListLimit: number = $state(6);
     let fixedAssetsSortBy: string = $state("updated");
     let fixedAssetsShowHourly: boolean = $state(true);
@@ -401,7 +399,6 @@
 
     // 复习文档配置
     let reviewDocsTitle: string = $state("📚复习文档");
-    let reviewDocsDatabaseId: string = $state("");
     let reviewDocsLimit: number = $state(20);
     let reviewDocsDefaultView: string = $state("due");
     let reviewDocsShowFuture: boolean = $state(true);
@@ -418,47 +415,6 @@
     let reviewDocsSelectedNotebookIds: NotebookOption[] = $state([]);
 
     let advancedEnabled = $state(false);
-
-    async function syncCurrentDatabaseWidgetConfig(contentTypeJson: any): Promise<void> {
-        const syncByType: Record<string, { type: DatabaseWidgetType; databaseId: string }> = {
-            fixedAssets: {
-                type: "fixedAssets",
-                databaseId: fixedAssetsDatabaseId,
-            },
-            CYBMOK: {
-                type: "CYBMOK",
-                databaseId: CYBMOKDatabaseId,
-            },
-            focus: {
-                type: "focus",
-                databaseId: focusDatabaseId,
-            },
-            countdown: {
-                type: "countdown",
-                databaseId: countdownDatabaseId,
-            },
-            reviewDocs: {
-                type: "reviewDocs",
-                databaseId: reviewDocsDatabaseId,
-            },
-        };
-        const syncConfig = syncByType[contentTypeJson?.type];
-        if (!syncConfig) return;
-
-        try {
-            if (currentBlockId) {
-                await plugin.saveData(`widget-${currentBlockId}.json`, contentTypeJson);
-            }
-            await syncDatabaseIdToSameTypeWidgets(
-                plugin,
-                syncConfig.type,
-                syncConfig.databaseId,
-                currentBlockId,
-            );
-        } catch {
-            showMessage("同步同类组件数据库 ID 失败，不影响当前组件保存");
-        }
-    }
 
     function resolveActiveTabForContentType(contentType: string): string {
         if (
@@ -507,43 +463,34 @@
         return "note";
     }
 
-    async function resolveSelectedDatabaseIdIfNeeded(): Promise<void> {
-        const currentDatabaseIdByType: Record<string, string> = {
-            fixedAssets: fixedAssetsDatabaseId,
-            CYBMOK: CYBMOKDatabaseId,
-            focus: focusDatabaseId,
-            countdown: countdownDatabaseId,
-            reviewDocs: reviewDocsDatabaseId,
-        };
-        const type = selectedContentType as DatabaseWidgetType;
-        if (!(type in currentDatabaseIdByType) || currentDatabaseIdByType[type]?.trim()) {
-            return;
-        }
-
-        const result = await resolveDatabaseIdFromExistingWidgets(
-            plugin,
-            type,
-            currentBlockId,
-            {
-                type,
-                blockId: currentBlockId,
-                data: {},
-            },
-        );
-        if (!result.databaseId) return;
-
-        if (type === "fixedAssets") {
-            fixedAssetsDatabaseId = result.databaseId;
-        } else if (type === "CYBMOK") {
-            CYBMOKDatabaseId = result.databaseId;
-        } else if (type === "focus") {
-            focusDatabaseId = result.databaseId;
-        } else if (type === "countdown") {
-            countdownDatabaseId = result.databaseId;
-        } else if (type === "reviewDocs") {
-            reviewDocsDatabaseId = result.databaseId;
+    async function ensureCountdownDraftLoaded(): Promise<void> {
+        if (countdownDraftLoaded) return;
+        if (countdownDraftLoading && countdownDraftLoadPromise) return countdownDraftLoadPromise;
+        countdownDraftLoading = true;
+        const loadPromise = (async () => {
+            const countdownResult = await loadCountdownEvents();
+            countdownSnapshot = createCountdownEditSnapshot(countdownResult);
+            eventList = countdownResult.events.length > 0
+                ? countdownResult.events.map((event) => ({ ...event }))
+                : [{ name: "", date: "", anniversary: false }];
+            countdownDraftLoaded = true;
+        })();
+        countdownDraftLoadPromise = loadPromise;
+        try {
+            await loadPromise;
+        } finally {
+            if (countdownDraftLoadPromise === loadPromise) countdownDraftLoadPromise = null;
+            countdownDraftLoading = false;
         }
     }
+
+    $effect(() => {
+        if (selectedContentType !== "countdown" || countdownDraftLoaded) return;
+        void untrack(() => ensureCountdownDraftLoaded()).catch((error) => {
+            console.warn("[contentSetting] 读取本地共享纪念日失败", error);
+            showMessage("旧数据迁移尚未完成，请重新加载插件后重试。", 4000);
+        });
+    });
 
     onMount(async () => {
         const settingData = await plugin.loadData(
@@ -658,37 +605,7 @@
                 latestDailyNotesUseBuiltinDocIcon =
                     parsedData.data?.useBuiltinDocIcon ?? false;
             } else if (parsedData.type === "countdown") {
-                const legacyEventList = parsedData.data?.eventList || [
-                    { name: "", date: "", anniversary: false },
-                ];
-                eventList = legacyEventList;
                 countdownStyle = parsedData.data?.countdownStyle || "list1";
-                countdownDatabaseId =
-                    parsedData.data?.countdownDatabaseId || countdownDatabaseId;
-                const resolved = await resolveDatabaseIdFromExistingWidgets(
-                    plugin,
-                    "countdown",
-                    currentBlockId,
-                    parsedData,
-                );
-                countdownDatabaseId = resolved.databaseId || countdownDatabaseId;
-                if (countdownDatabaseId?.trim()) {
-                    try {
-                        await migrateLegacyCountdownEventsIfNeeded(
-                            countdownDatabaseId,
-                            legacyEventList,
-                        );
-                        const result = await loadCountdownEvents(countdownDatabaseId);
-                        if (result.status.ok) {
-                            eventList =
-                                result.events.length > 0
-                                    ? result.events.map((event) => ({ ...event }))
-                                    : [{ name: "", date: "", anniversary: false }];
-                        }
-                    } catch {
-                        showMessage("读取倒数日数据库失败，将使用默认空列表");
-                    }
-                }
                 countdownCard1BgSelect =
                     parsedData.data?.countdownCard1BgSelect || "remote";
                 countdownCard1RemoteBg =
@@ -803,14 +720,6 @@
                     parsedData.data?.focusLocalImage || focusLocalImage;
                 breakLocalImage =
                     parsedData.data?.breakLocalImage || breakLocalImage;
-                focusDatabaseId = parsedData.data?.focusDatabaseId || focusDatabaseId;
-                const resolved = await resolveDatabaseIdFromExistingWidgets(
-                    plugin,
-                    "focus",
-                    currentBlockId,
-                    parsedData,
-                );
-                focusDatabaseId = resolved.databaseId || focusDatabaseId;
             } else if (parsedData.type === "sql") {
                 sqlTitle = parsedData.data?.sqlTitle || sqlTitle;
                 sqlInput = parsedData.data?.sqlInput || "";
@@ -980,29 +889,12 @@
                 PicRandomSwitch = parsedData.data?.PicRandomSwitch ?? false; // 是否随机切换
             } else if (parsedData.type === "CYBMOK") {
                 CMKnockSound = parsedData.data?.CMKnockSound || "普通";
-                CYBMOKDatabaseId = parsedData.data?.CYBMOKDatabaseId || parsedData.data?.cybmokDatabaseId || CYBMOKDatabaseId;
-                const resolved = await resolveDatabaseIdFromExistingWidgets(
-                    plugin,
-                    "CYBMOK",
-                    currentBlockId,
-                    parsedData,
-                );
-                CYBMOKDatabaseId = resolved.databaseId || CYBMOKDatabaseId;
             } else if (parsedData.type === "countdownTimer") {
                 countdownTimerStyle =
                     parsedData.data?.countdownTimerStyle || countdownTimerStyle;
             } else if (parsedData.type === "fixedAssets") {
                 fixedAssetsTitle =
                     parsedData.data?.fixedAssetsTitle || fixedAssetsTitle;
-                fixedAssetsDatabaseId =
-                    parsedData.data?.fixedAssetsDatabaseId || fixedAssetsDatabaseId;
-                const resolved = await resolveDatabaseIdFromExistingWidgets(
-                    plugin,
-                    "fixedAssets",
-                    currentBlockId,
-                    parsedData,
-                );
-                fixedAssetsDatabaseId = resolved.databaseId || fixedAssetsDatabaseId;
                 fixedAssetsListLimit =
                     parsedData.data?.fixedAssetsListLimit || fixedAssetsListLimit;
                 fixedAssetsSortBy =
@@ -1031,15 +923,6 @@
             } else if (parsedData.type === "reviewDocs") {
                 reviewDocsTitle =
                     parsedData.data?.reviewDocsTitle || reviewDocsTitle;
-                reviewDocsDatabaseId =
-                    parsedData.data?.reviewDocsDatabaseId || reviewDocsDatabaseId;
-                const resolved = await resolveDatabaseIdFromExistingWidgets(
-                    plugin,
-                    "reviewDocs",
-                    currentBlockId,
-                    parsedData,
-                );
-                reviewDocsDatabaseId = resolved.databaseId || reviewDocsDatabaseId;
                 reviewDocsLimit =
                     parsedData.data?.reviewDocsLimit || reviewDocsLimit;
                 reviewDocsDefaultView =
@@ -1098,7 +981,6 @@
         } else if (initialContentType) {
             selectedContentType = initialContentType;
             activeTab = initialActiveTab || resolveActiveTabForContentType(initialContentType);
-            await resolveSelectedDatabaseIdIfNeeded();
         }
 
         advancedEnabled = plugin.ADVANCED;
@@ -1403,7 +1285,6 @@
                 <select
                     id="content-type"
                     bind:value={selectedContentType}
-                    onchange={() => void resolveSelectedDatabaseIdIfNeeded()}
                 >
                     <option value="favorites">收藏文档</option>
                     <option value="TaskMan">任务管理</option>
@@ -1509,7 +1390,6 @@
                     <ReviewDocsSet
                         {advancedEnabled}
                         bind:reviewDocsTitle
-                        bind:reviewDocsDatabaseId
                         bind:reviewDocsLimit
                         bind:reviewDocsDefaultView
                         bind:reviewDocsShowFuture
@@ -1643,7 +1523,6 @@
                 <select
                     id="content-type"
                     bind:value={selectedContentType}
-                    onchange={() => void resolveSelectedDatabaseIdIfNeeded()}
                 >
                     <option value="focus">番茄钟</option>
                     <option value="countdown">倒数日</option>
@@ -1664,7 +1543,6 @@
                     <CountdownSet
                         bind:countdownStyle
                         bind:eventList
-                        bind:countdownDatabaseId
                         bind:countdownCard1BgSelect
                         bind:countdownCard1RemoteBg
                         bind:countdownCard1LocalBg
@@ -1727,7 +1605,6 @@
                         bind:breakBgImage
                         bind:focusLocalImage
                         bind:breakLocalImage
-                        bind:focusDatabaseId
                     />
                 {:else if selectedContentType === "musicPlayer"}
                     <MusicPlayerSet
@@ -1763,7 +1640,6 @@
                     <CYBMOKSet
                         {advancedEnabled}
                         bind:CMKnockSound
-                        bind:CYBMOKDatabaseId
                     />
                 {:else if selectedContentType === "countdownTimer"}
                     <CountdownTimerSet
@@ -1774,7 +1650,6 @@
                     <FixedAssetsSet
                         {advancedEnabled}
                         bind:fixedAssetsTitle
-                        bind:fixedAssetsDatabaseId
                         bind:fixedAssetsListLimit
                         bind:fixedAssetsSortBy
                         bind:fixedAssetsShowHourly
@@ -1826,8 +1701,6 @@
                     showMessage("复习文档为高级会员专属组件，请开通后再配置", 4000);
                     return;
                 }
-
-                await resolveSelectedDatabaseIdIfNeeded();
 
                 if (focusImageType === "remote") focusLocalImage = null;
                 if (breakImageType === "remote") breakLocalImage = null;
@@ -1931,35 +1804,15 @@
                         },
                     };
                 } else if (selectedContentType === "countdown") {
-                    const hasCountdownEvents = eventList.some(
-                        (event) => event.name?.trim() || event.date?.trim(),
-                    );
-                    if (!countdownDatabaseId?.trim() && hasCountdownEvents) {
-                        showMessage("请先填写倒数日数据库 ID，事件才会保存", 4000);
+                    try {
+                        await ensureCountdownDraftLoaded();
+                        eventList = await saveCountdownEvents(eventList, countdownSnapshot);
+                    } catch (error) {
+                        showMessage(
+                            error instanceof Error ? error.message : "纪念日本地数据保存失败",
+                            4000,
+                        );
                         return;
-                    }
-                    if (countdownDatabaseId?.trim()) {
-                        try {
-                            const collectedLegacyEvents = await collectCountdownLegacyEventsFromWidgets(
-                                plugin,
-                                currentBlockId,
-                                null,
-                                eventList,
-                            );
-                            const mergedEvents = mergeCountdownEvents(collectedLegacyEvents, eventList);
-                            eventList = await saveCountdownEvents(
-                                countdownDatabaseId,
-                                mergedEvents,
-                            );
-                        } catch (error) {
-                            showMessage(
-                                error instanceof Error
-                                    ? error.message
-                                    : "倒数日数据库保存失败",
-                                4000,
-                            );
-                            return;
-                        }
                     }
                     contentTypeJson = {
                         activeTab: activeTab,
@@ -1967,7 +1820,6 @@
                         blockId: currentBlockId,
                         data: {
                             countdownStyle,
-                            countdownDatabaseId,
                             countdownCard1BgSelect,
                             countdownCard1RemoteBg,
                             countdownCard1LocalBg,
@@ -2092,7 +1944,6 @@
                             breakImageType,
                             breakBgImage,
                             breakLocalImage,
-                            focusDatabaseId,
                         },
                     };
                 } else if (selectedContentType === "sql") {
@@ -2301,7 +2152,6 @@
                         blockId: currentBlockId,
                         data: {
                             CMKnockSound,
-                            CYBMOKDatabaseId,
                         },
                     };
                 } else if (selectedContentType === "countdownTimer") {
@@ -2321,7 +2171,6 @@
                         blockId: currentBlockId,
                         data: {
                             fixedAssetsTitle,
-                            fixedAssetsDatabaseId,
                             fixedAssetsListLimit,
                             fixedAssetsSortBy,
                             fixedAssetsShowHourly,
@@ -2351,7 +2200,6 @@
                         blockId: currentBlockId,
                         data: {
                             reviewDocsTitle,
-                            reviewDocsDatabaseId,
                             reviewDocsLimit,
                             reviewDocsDefaultView,
                             reviewDocsShowFuture,
@@ -2402,8 +2250,6 @@
                     }
                 }
 
-                // 保存全局迁移状态到 homepageSettingConfig，避免与 widget 实例配置混淆
-                await syncCurrentDatabaseWidgetConfig(contentTypeJson);
                 onConfirm(JSON.stringify(contentTypeJson));
             }}
         >

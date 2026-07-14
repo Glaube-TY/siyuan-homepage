@@ -1,8 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
-    import { recordCYBMOKKnock, migrateLegacyCYBMOKIfNeeded } from "./cybmokData";
-    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
+    import { flushPendingCYBMOKKnocks, getCYBMOKStoreStatus, recordCYBMOKKnock } from "./cybmokData";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
@@ -14,7 +13,6 @@
 
     let parsedContent = $derived(JSON.parse(contentTypeJson));
     let CMKnockSound = $derived(parsedContent.data?.CMKnockSound || "普通");
-    let CYBMOKDatabaseId = $derived(parsedContent.data?.CYBMOKDatabaseId || parsedContent.data?.cybmokDatabaseId || "");
 
     let advancedEnabled: boolean = $state(false);
     let MOKImgPath: string = $state("");
@@ -22,8 +20,6 @@
     let knockSoundPath: string = "";
     let showMeritText: boolean = $state(false);
     let meritTextY: number = $state(25);
-    let hasDatabaseId = $state(false);
-    let effectiveDatabaseId = $state("");
 
     let floatAnimationInterval: ReturnType<typeof setInterval> | null = null;
     let knockResetTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -35,25 +31,16 @@
 
         knockSoundPath = `/plugins/siyuan-homepage/asset/music/CYBMOK/${CMKnockSound}.mp3`;
 
-        const result = await resolveDatabaseIdFromExistingWidgets(
-            plugin,
-            "CYBMOK",
-            parsedContent.blockId,
-            parsedContent,
-        );
-        effectiveDatabaseId = result.databaseId || CYBMOKDatabaseId;
-
-        if (effectiveDatabaseId) {
-            hasDatabaseId = true;
-            try {
-                await migrateLegacyCYBMOKIfNeeded(effectiveDatabaseId, plugin);
-            } catch (e) {
-                console.warn("[CYBMOK] 旧数据迁移失败，不影响使用", e);
-            }
+        const status = await getCYBMOKStoreStatus();
+        if (!status.ok) {
+            showMessage(status.message, 4000);
         }
     });
 
     onDestroy(() => {
+        void flushPendingCYBMOKKnocks().catch((error) => {
+            console.warn("[CYBMOK] 组件销毁前写入失败，已保留待写计数", error);
+        });
         // 清理漂浮动画 interval
         if (floatAnimationInterval) {
             clearInterval(floatAnimationInterval);
@@ -118,22 +105,8 @@
         }
     }
 
-    async function recordKnock() {
-        if (!effectiveDatabaseId) {
-            showMessage("请先在组件设置中填写木鱼数据库 ID", 3000);
-            return;
-        }
-
-        try {
-            const today = new Date()
-                .toISOString()
-                .slice(0, 10)
-                .replace(/-/g, "");
-            await recordCYBMOKKnock(effectiveDatabaseId, today);
-        } catch (error) {
-            console.error("记录敲击次数失败:", error);
-            showMessage("木鱼数据库写入失败，请检查数据库 ID 或数据库字段", 4000);
-        }
+    function recordKnock() {
+        recordCYBMOKKnock();
     }
 </script>
 

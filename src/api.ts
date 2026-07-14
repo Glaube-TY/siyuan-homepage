@@ -683,7 +683,7 @@ export async function removeFile(path: string) {
 
 
 
-export async function readDir(path: string): Promise<IResReadDir> {
+export async function readDir(path: string): Promise<IResReadDir[] | null> {
     let data = {
         path: path
     }
@@ -1498,7 +1498,7 @@ export async function removeFileChecked(path: string): Promise<void> {
     await requestChecked('/api/file/removeFile', { path }, 'removeFile');
 }
 
-export async function readDirChecked(path: string): Promise<IResReadDir> {
+export async function readDirChecked(path: string): Promise<IResReadDir[]> {
     return await requestChecked('/api/file/readDir', { path }, 'readDir');
 }
 

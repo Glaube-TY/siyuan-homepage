@@ -8,7 +8,6 @@
     let {
         advancedEnabled = false,
         reviewDocsTitle = $bindable("📚复习文档"),
-        reviewDocsDatabaseId = $bindable(""),
         reviewDocsLimit = $bindable(20),
         reviewDocsDefaultView = $bindable("due"),
         reviewDocsShowFuture = $bindable(true),
@@ -34,16 +33,9 @@
         </SettingRow>
 
         <SettingRow
-            title="复习日志数据库 ID"
-            description="可选。填写后会把标记、完成、推迟、编辑、移除等操作追加到思源数据库。同一类组件会自动共用已有数据库 ID。"
-        >
-            <input
-                type="text"
-                bind:value={reviewDocsDatabaseId}
-                class="control-full"
-                placeholder="输入复习日志数据库 ID"
-            />
-        </SettingRow>
+            title="本地共享"
+            description="复习计划使用本地索引，复习操作日志保存在插件本地，并由所有复习组件共享。"
+        />
 
         <SettingRow title="显示数量">
             <input

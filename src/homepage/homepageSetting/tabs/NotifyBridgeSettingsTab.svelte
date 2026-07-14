@@ -31,11 +31,11 @@
         loadCountdownNotifySettings,
         saveCountdownNotifySettings,
         createCountdownNotifyRule,
-        resolveEffectiveCountdownDatabaseId,
         type CountdownNotifyRule,
         type CountdownNotifyRuleType,
         type CountdownNotifySettings,
     } from "@/features/countdown-notify";
+    import { loadCountdownEvents } from "@/components/utils/widgetBlock/widget/countdown/countdownData";
     import {
         DEFAULT_ENHANCED_DIARY_NOTIFY_SETTINGS,
         loadEnhancedDiaryNotifySettings,
@@ -95,11 +95,8 @@
     let countdownSettings = $state<CountdownNotifySettings>({ ...DEFAULT_COUNTDOWN_NOTIFY_SETTINGS, rules: [] });
     let selectedCountdownRuleType = $state<CountdownNotifyRuleType>("today_events");
     let expandedCountdownRuleIds = $state<Set<string>>(new Set());
-    let resolvingCountdownDbId = $state(false);
-    let showManualDbId = $state(false);
-    let detectedCountdownDatabaseId = $state("");
-    let detectedCountdownDatabaseSource = $state<"manual" | "existing-widget" | "none">("none");
-    let detectedCountdownDatabaseMessage = $state("正在检测倒数日数据库...");
+    let countdownLocalEventCount = $state<number | null>(null);
+    let countdownLocalStorageMessage = $state("正在读取本地纪念日数据...");
 
     // Keep selectedCountdownRuleType in sync with available types
     $effect(() => {
@@ -139,7 +136,7 @@
             taskSettings = loadedTaskSettings;
             countdownSettings = loadedCountdownSettings;
             enhancedDiarySettings = loadedEnhancedDiarySettings;
-            void detectCountdownDatabaseId();
+            void refreshCountdownLocalDataStatus();
         } catch (error) {
             errorMessage = error instanceof Error ? error.message : "读取外联通知设置失败。";
         } finally {
@@ -602,41 +599,16 @@
         return value ? [value] : undefined;
     }
 
-    async function detectCountdownDatabaseId(): Promise<void> {
-        if (!plugin) {
-            detectedCountdownDatabaseSource = "none";
-            detectedCountdownDatabaseMessage = "插件实例不可用。";
-            return;
-        }
-        resolvingCountdownDbId = true;
+    async function refreshCountdownLocalDataStatus(): Promise<void> {
         try {
-            const result = await resolveEffectiveCountdownDatabaseId(countdownSettings);
-            detectedCountdownDatabaseId = result.databaseId;
-            detectedCountdownDatabaseSource = result.source;
-            detectedCountdownDatabaseMessage = result.message;
-        } catch {
-            detectedCountdownDatabaseId = "";
-            detectedCountdownDatabaseSource = "none";
-            detectedCountdownDatabaseMessage = "自动检测倒数日数据库失败。";
-        } finally {
-            resolvingCountdownDbId = false;
+            const result = await loadCountdownEvents();
+            countdownLocalEventCount = result.events.length;
+            countdownLocalStorageMessage = `本地共享纪念日 ${result.events.length} 条`;
+        } catch (error) {
+            countdownLocalEventCount = null;
+            countdownLocalStorageMessage = "本地纪念日数据读取失败，请先备份插件数据后重试。";
+            console.warn("[NotifyBridgeSettings] 读取本地纪念日数据失败", error);
         }
-    }
-
-    async function resolveCountdownDatabaseId(): Promise<void> {
-        await detectCountdownDatabaseId();
-    }
-
-    function useDetectedAsManual(): void {
-        if (detectedCountdownDatabaseId) {
-            patchCountdownSettings({ databaseId: detectedCountdownDatabaseId });
-            showMessage("已使用自动检测到的数据库 ID 作为手动指定。", 3000);
-        }
-    }
-
-    function clearManualDatabaseId(): void {
-        patchCountdownSettings({ databaseId: "" });
-        showMessage("已清除手动指定，将使用自动检测。", 3000);
     }
 
     // --- Enhanced Diary Notify helpers ---
@@ -1034,42 +1006,16 @@
                 </label>
             </div>
 
-            <!-- 数据来源状态 -->
             <div class="field-row">
                 <span>数据来源</span>
                 <div style="display:flex; flex-direction:column; gap:6px;">
-                    {#if resolvingCountdownDbId}
-                        <p class="field-hint">正在检测倒数日数据库...</p>
-                    {:else if detectedCountdownDatabaseSource === "manual"}
-                        <p class="field-hint" style="color:var(--b3-theme-primary);">当前使用手动指定数据库 ID：{countdownSettings.databaseId ? countdownSettings.databaseId.slice(0, 16) + '...' : ''}</p>
-                    {:else if detectedCountdownDatabaseSource === "existing-widget"}
-                        <p class="field-hint" style="color:var(--b3-theme-primary);">已检测到倒数日数据库：{detectedCountdownDatabaseId.slice(0, 16)}...</p>
-                        {#if !countdownSettings.databaseId}
-                            <button type="button" class="secondary-btn compact" disabled={!bridgeEditable} onclick={useDetectedAsManual}>使用该数据库作为手动指定</button>
-                        {/if}
-                    {:else}
-                        <p class="field-hint" style="color:var(--b3-theme-warning);">{detectedCountdownDatabaseMessage}</p>
-                    {/if}
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <button type="button" class="secondary-btn compact" disabled={!bridgeEditable || resolvingCountdownDbId} onclick={resolveCountdownDatabaseId}>
-                            {resolvingCountdownDbId ? "检测中..." : "重新检测"}
-                        </button>
-                        <button type="button" class="secondary-btn compact" disabled={!bridgeEditable} onclick={() => showManualDbId = !showManualDbId}>
-                            {showManualDbId ? "收起高级设置" : "高级：手动指定数据库 ID"}
-                        </button>
-                        {#if countdownSettings.databaseId}
-                            <button type="button" class="danger-btn compact" disabled={!bridgeEditable} onclick={clearManualDatabaseId}>清除手动指定</button>
-                        {/if}
-                    </div>
+                    <p class="field-hint">纪念日通知直接读取插件本地共享纪念日数据，并与所有纪念日组件自动同步。</p>
+                    <p class="field-hint" style:color={countdownLocalEventCount === null ? "var(--b3-theme-warning)" : "var(--b3-theme-primary)"}>
+                        {countdownLocalStorageMessage}
+                    </p>
+                    <button type="button" class="secondary-btn compact" disabled={!bridgeEditable} onclick={refreshCountdownLocalDataStatus}>刷新本地数据状态</button>
                 </div>
             </div>
-
-            {#if showManualDbId}
-                <div class="field-row">
-                    <span>手动指定数据库 ID</span>
-                    <input type="text" value={countdownSettings.databaseId} disabled={!bridgeEditable} placeholder="留空使用自动检测" onchange={(event) => patchCountdownSettings({ databaseId: (event.currentTarget as HTMLInputElement).value })} />
-                </div>
-            {/if}
 
             <div class="form-grid">
                 <label class="field-row">

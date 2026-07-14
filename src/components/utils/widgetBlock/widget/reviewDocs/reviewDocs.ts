@@ -611,11 +611,10 @@ function reviewItemFromTarget(target: ReviewTargetInfo, attrs: ReviewAttrs): Rev
 }
 
 async function appendLogSafely(
-    databaseId: string | undefined,
     entry: ReviewLogEntry
 ): Promise<string | undefined> {
     try {
-        const result = await appendReviewLog(databaseId, entry);
+        const result = await appendReviewLog(entry);
         if (!result.ok) return result.message;
         return undefined;
     } catch (error) {
@@ -654,7 +653,6 @@ export async function markReviewTarget(params: ReviewPlanOperationParams): Promi
     await updateReviewIndexItem(reviewItemFromTarget(target, after));
     await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
-        params.databaseId,
         buildLogEntry(before.reviewId ? "update" : "create", target, before, after)
     );
 
@@ -694,7 +692,6 @@ export async function updateReviewTarget(params: ReviewPlanOperationParams): Pro
     await updateReviewIndexItem(reviewItemFromTarget(target, after));
     await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
-        params.databaseId,
         buildLogEntry("update", target, before, after)
     );
 
@@ -753,7 +750,6 @@ export async function completeReviewOnce(params: CompleteReviewParams): Promise<
     await updateReviewIndexItem(reviewItemFromTarget(target, after));
     await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
-        params.databaseId,
         buildLogEntry("review", target, before, after)
     );
 
@@ -784,7 +780,6 @@ export async function postponeReviewTarget(params: PostponeReviewParams): Promis
     await updateReviewIndexItem(reviewItemFromTarget(target, after));
     await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
-        params.databaseId,
         buildLogEntry("postpone", target, before, after)
     );
 
@@ -806,7 +801,6 @@ export async function finishReviewTarget(params: ReviewOperationParams): Promise
     await removeReviewIndexItem(params.targetId);
     await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
-        params.databaseId,
         buildLogEntry("finish", target, before, after)
     );
 
@@ -825,7 +819,6 @@ export async function clearReviewTarget(params: ReviewOperationParams): Promise<
     await removeReviewIndexItem(params.targetId);
     await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
-        params.databaseId,
         buildLogEntry("remove", target, before, after)
     );
 

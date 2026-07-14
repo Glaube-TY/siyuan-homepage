@@ -1,583 +1,576 @@
 import {
-    addAttributeViewKeyChecked,
-    appendAttributeViewDetachedBlocksWithValuesChecked,
-    getAttributeView,
-    getAttributeViewKeysByAvID,
-    readDir,
-    removeFile,
-    setAttributeViewBlockAttrWithCellChecked,
-    type AttributeView,
-    type AttributeViewKeyValue,
-} from "@/api";
-
-export const FOCUS_FIELD_ALIASES = {
-    title: ["title", "标题", "统计", "主键", "name"],
-    recordId: ["recordId", "记录ID", "dataId"],
-    totalFocusTime: ["totalFocusTime", "累计专注时长", "专注总时长"],
-    totalFocusTimes: ["totalFocusTimes", "累计专注次数", "专注总次数"],
-    updatedAt: ["updatedAt", "更新时间"],
-};
-
-type FocusField = keyof typeof FOCUS_FIELD_ALIASES;
-
-const FOCUS_FIELD_DEFINITIONS: Record<FocusField, { name: string; type: string; icon: string }> = {
-    title: { name: "统计", type: "block", icon: "iconInfo" },
-    recordId: { name: "记录ID", type: "text", icon: "iconKey" },
-    totalFocusTime: { name: "累计专注时长", type: "number", icon: "iconClock" },
-    totalFocusTimes: { name: "累计专注次数", type: "number", icon: "iconHeart" },
-    updatedAt: { name: "更新时间", type: "text", icon: "iconRefresh" },
-};
-
-interface FocusKeyMap {
-    title: AttributeViewKeyValue;
-    recordId: AttributeViewKeyValue;
-    totalFocusTime: AttributeViewKeyValue;
-    totalFocusTimes: AttributeViewKeyValue;
-    updatedAt: AttributeViewKeyValue;
-}
+    assertSharedWidgetYearFilesComplete,
+    FOCUS_STORE_TRANSACTION_LOCK,
+    loadSharedJson,
+    mutateSharedJson,
+    readSharedWidgetDirectoryChecked,
+    registerSharedWidgetCleanup,
+    registerSharedWidgetFlusher,
+    runSharedWidgetExclusive,
+    type SharedRevisionedFile,
+    type SharedWidgetMigrationMetadata,
+} from "../sharedLocalStorage/sharedLocalStorage";
+import {
+    FOCUS_INDEX_FILE,
+    FOCUS_INDEX_SCHEMA,
+    FOCUS_INDEX_VERSION,
+    FOCUS_LEGACY_BASELINE_FILE,
+    FOCUS_LEGACY_BASELINE_SCHEMA,
+    FOCUS_LEGACY_BASELINE_VERSION,
+    FOCUS_SESSION_VERSION,
+    FOCUS_SESSIONS_SCHEMA,
+    FOCUS_STATISTICS_SCHEMA,
+    getFocusSessionsFile,
+    SHARED_WIDGET_DATA_VERSION,
+} from "../sharedLocalStorage/sharedWidgetStoragePaths";
+import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
 
 export interface FocusStatistics {
     totalFocusTime: number;
     totalFocusTimes: number;
 }
 
+export type FocusLegacyTotals = FocusStatistics;
+
+export interface FocusLegacyBaselineFile extends SharedRevisionedFile {
+    totals: FocusLegacyTotals;
+}
+
+export type FocusSessionStatus = "completed" | "cancelled";
+
+export interface FocusSessionRecord {
+    id: string;
+    startedAt: string;
+    endedAt: string;
+    localDate: string;
+    plannedSeconds: number;
+    actualFocusSeconds: number;
+    status: FocusSessionStatus;
+}
+
+export interface FocusIndexFile extends SharedRevisionedFile {
+    years: number[];
+    yearCounts: Record<string, number>;
+    legacyTotals: FocusLegacyTotals;
+    totalFocusTime: number;
+    totalFocusTimes: number;
+    completedSessions: number;
+    cancelledSessions: number;
+    migration?: SharedWidgetMigrationMetadata;
+}
+
+export interface FocusSessionsYearFile extends SharedRevisionedFile {
+    year: number;
+    sessions: FocusSessionRecord[];
+}
+
+export interface FocusStatisticsFile extends SharedRevisionedFile {
+    stats: FocusStatistics;
+    migration?: SharedWidgetMigrationMetadata;
+}
+
 export interface FocusStoreStatus {
     ok: boolean;
-    databaseId?: string;
     missingFields: string[];
     message: string;
 }
 
-interface FocusStore {
-    avID: string;
-    av: AttributeView;
-    keys: FocusKeyMap;
-    status: FocusStoreStatus;
+const pendingFocusSessions = new Map<string, FocusSessionRecord>();
+let focusSessionFlushPromise: Promise<FocusStatistics | null> | null = null;
+
+function finiteCount(value: unknown): number {
+    const count = Number(value);
+    return Number.isFinite(count) ? Math.max(0, count) : 0;
 }
 
-interface FocusRow {
-    itemID: string;
-    values: Map<string, any>;
+function integerCount(value: unknown): number {
+    return Math.round(finiteCount(value));
 }
 
-function normalizeFieldName(value: string): string {
-    return value.trim().toLowerCase().replace(/\s+/g, "");
+export function toFocusSecondTimestamp(value: Date | number = new Date()): string {
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isFinite(date.getTime())) throw new Error("番茄钟会话时间无效");
+    return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-function createStatus(
-    ok: boolean,
-    message: string,
-    databaseId?: string,
-    missingFields: string[] = []
-): FocusStoreStatus {
-    return { ok, databaseId, missingFields, message };
+export function getLocalFocusDate(value: Date | number = new Date()): string {
+    const date = value instanceof Date ? value : new Date(value);
+    const pad = (part: number) => String(part).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-function findKey(
-    keyValues: AttributeViewKeyValue[],
-    field: FocusField
-): AttributeViewKeyValue | null {
-    if (field === "title") {
-        const primaryKey = keyValues.find((item) => item.key.type === "block");
-        if (primaryKey) return primaryKey;
-    }
-
-    const aliases = FOCUS_FIELD_ALIASES[field].map(normalizeFieldName);
-    const aliasMatch = keyValues.find((item) => aliases.includes(normalizeFieldName(item.key.name)));
-    if (aliasMatch) return aliasMatch;
-
-    return null;
-}
-
-function resolveKeyMap(av: AttributeView): { keys: Partial<FocusKeyMap>; missingFields: string[] } {
-    const keys: Partial<FocusKeyMap> = {};
-    const missingFields: string[] = [];
-
-    (Object.keys(FOCUS_FIELD_ALIASES) as FocusField[]).forEach((field) => {
-        const key = findKey(av.keyValues, field);
-        if (key) {
-            keys[field] = key;
-        } else {
-            missingFields.push(field);
-        }
-    });
-
-    return { keys, missingFields };
-}
-
-function normalizeRawKeyValue(item: any): AttributeViewKeyValue | null {
-    const key = item?.key || item;
-    if (!key?.id || !key?.name) return null;
+export function createEmptyFocusStatisticsFile(): FocusStatisticsFile {
     return {
-        key: { id: key.id, name: key.name, type: key.type || item?.type || "text" },
-        values: item?.values || [],
+        schema: FOCUS_STATISTICS_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        stats: { totalFocusTime: 0, totalFocusTimes: 0 },
     };
 }
 
-function normalizeAttributeViewKeyValues(raw: any): AttributeViewKeyValue[] {
-    const source =
-        (Array.isArray(raw) && raw) ||
-        (Array.isArray(raw?.keys) && raw.keys) ||
-        (Array.isArray(raw?.data) && raw.data) ||
-        (Array.isArray(raw?.keyValues) && raw.keyValues) ||
-        (Array.isArray(raw?.av?.keyValues) && raw.av.keyValues) ||
-        (Array.isArray(raw?.data?.keys) && raw.data.keys) ||
-        [];
-
-    return source
-        .map(normalizeRawKeyValue)
-        .filter((item): item is AttributeViewKeyValue => item !== null);
+export function createEmptyFocusLegacyBaselineFile(): FocusLegacyBaselineFile {
+    return {
+        schema: FOCUS_LEGACY_BASELINE_SCHEMA,
+        version: FOCUS_LEGACY_BASELINE_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        totals: { totalFocusTime: 0, totalFocusTimes: 0 },
+    };
 }
 
-async function loadAttributeViewWithSchema(avID: string): Promise<AttributeView | null> {
-    const [av, rawKeys] = await Promise.all([
-        getAttributeView(avID),
-        getAttributeViewKeysByAvID(avID),
-    ]);
+function normalizeFocusLegacyTotals(raw: unknown): FocusLegacyTotals {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("番茄钟旧累计基线数据无效");
+    const value = raw as Record<string, unknown>;
+    const totalFocusTime = value.totalFocusTime;
+    const totalFocusTimes = value.totalFocusTimes;
+    if (typeof totalFocusTime !== "number" || !Number.isFinite(totalFocusTime) || totalFocusTime < 0
+        || typeof totalFocusTimes !== "number" || !Number.isFinite(totalFocusTimes)
+        || totalFocusTimes < 0 || !Number.isInteger(totalFocusTimes)) {
+        throw new Error("番茄钟旧累计基线统计值无效");
+    }
+    return { totalFocusTime, totalFocusTimes };
+}
 
-    if (!av) return null;
+export function normalizeFocusLegacyBaselineFile(raw: unknown): FocusLegacyBaselineFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("番茄钟旧累计基线结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== FOCUS_LEGACY_BASELINE_SCHEMA || value.version !== FOCUS_LEGACY_BASELINE_VERSION) {
+        throw new Error("番茄钟旧累计基线 schema 或 version 不受支持");
+    }
+    return {
+        schema: FOCUS_LEGACY_BASELINE_SCHEMA,
+        version: FOCUS_LEGACY_BASELINE_VERSION,
+        revision: integerCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        totals: normalizeFocusLegacyTotals(value.totals),
+    };
+}
 
-    const schemaKeyValues = normalizeAttributeViewKeyValues(rawKeys);
-    if (schemaKeyValues.length === 0) return av;
+function sameFocusLegacyTotals(left: FocusLegacyTotals, right: FocusLegacyTotals): boolean {
+    return left.totalFocusTime === right.totalFocusTime && left.totalFocusTimes === right.totalFocusTimes;
+}
 
-    const mergedKeyValues = schemaKeyValues.map((schemaKeyValue) => {
-        const dataKeyValue = av.keyValues.find((item) => item.key.id === schemaKeyValue.key.id);
-        return { ...schemaKeyValue, values: dataKeyValue?.values || schemaKeyValue.values || [] };
+export async function loadFocusLegacyBaseline(): Promise<FocusLegacyBaselineFile | null> {
+    return loadSharedJson(FOCUS_LEGACY_BASELINE_FILE, normalizeFocusLegacyBaselineFile);
+}
+
+export async function saveFocusLegacyBaselineChecked(totals: FocusLegacyTotals): Promise<FocusLegacyBaselineFile> {
+    const candidate = normalizeFocusLegacyTotals(totals);
+    const existing = await loadFocusLegacyBaseline();
+    const merged = {
+        totalFocusTime: Math.max(existing?.totals.totalFocusTime || 0, candidate.totalFocusTime),
+        totalFocusTimes: Math.max(existing?.totals.totalFocusTimes || 0, candidate.totalFocusTimes),
+    };
+    if (existing && sameFocusLegacyTotals(existing.totals, merged)) return existing;
+    return mutateSharedJson({
+        store: "focus",
+        path: FOCUS_LEGACY_BASELINE_FILE,
+        createEmpty: createEmptyFocusLegacyBaselineFile,
+        normalize: normalizeFocusLegacyBaselineFile,
+        mutate: (file) => { file.totals = merged; },
+        validate: (actual) => {
+            if (!sameFocusLegacyTotals(actual.totals, merged)) {
+                throw new Error("番茄钟旧累计基线写入后业务数据校验失败");
+            }
+        },
+        dispatch: false,
     });
+}
 
-    for (const dataKeyValue of av.keyValues) {
-        if (!mergedKeyValues.some((item) => item.key.id === dataKeyValue.key.id)) {
-            mergedKeyValues.push(dataKeyValue);
+export function normalizeFocusStatisticsFile(raw: unknown): FocusStatisticsFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("番茄钟旧统计结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== FOCUS_STATISTICS_SCHEMA || value.version !== SHARED_WIDGET_DATA_VERSION) {
+        throw new Error("番茄钟旧统计 schema 或 version 不受支持");
+    }
+    if (!value.stats || typeof value.stats !== "object" || Array.isArray(value.stats)) {
+        throw new Error("番茄钟旧统计数据无效");
+    }
+    const stats = value.stats as Record<string, unknown>;
+    return {
+        schema: FOCUS_STATISTICS_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: integerCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        stats: {
+            totalFocusTime: finiteCount(stats.totalFocusTime),
+            totalFocusTimes: integerCount(stats.totalFocusTimes),
+        },
+        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
+    };
+}
+
+export function createEmptyFocusIndexFile(): FocusIndexFile {
+    return {
+        schema: FOCUS_INDEX_SCHEMA,
+        version: FOCUS_INDEX_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        years: [],
+        yearCounts: {},
+        legacyTotals: { totalFocusTime: 0, totalFocusTimes: 0 },
+        totalFocusTime: 0,
+        totalFocusTimes: 0,
+        completedSessions: 0,
+        cancelledSessions: 0,
+    };
+}
+
+export function createEmptyFocusSessionsYearFile(year: number): FocusSessionsYearFile {
+    return {
+        schema: FOCUS_SESSIONS_SCHEMA,
+        version: FOCUS_SESSION_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        year,
+        sessions: [],
+    };
+}
+
+export function normalizeFocusIndexFile(raw: unknown): FocusIndexFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("番茄钟索引结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== FOCUS_INDEX_SCHEMA || value.version !== FOCUS_INDEX_VERSION) {
+        throw new Error("番茄钟索引 schema 或 version 不受支持");
+    }
+    if (!Array.isArray(value.years) || !value.yearCounts || typeof value.yearCounts !== "object") {
+        throw new Error("番茄钟索引内容无效");
+    }
+    const legacy = value.legacyTotals && typeof value.legacyTotals === "object"
+        ? value.legacyTotals as Record<string, unknown>
+        : {};
+    const years = Array.from(new Set(value.years.map(Number)
+        .filter((year) => Number.isInteger(year) && year >= 1900 && year <= 9999))).sort();
+    const yearCounts: Record<string, number> = {};
+    for (const year of years) {
+        yearCounts[String(year)] = integerCount((value.yearCounts as Record<string, unknown>)[String(year)]);
+    }
+    return {
+        schema: FOCUS_INDEX_SCHEMA,
+        version: FOCUS_INDEX_VERSION,
+        revision: integerCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        years,
+        yearCounts,
+        legacyTotals: {
+            totalFocusTime: finiteCount(legacy.totalFocusTime),
+            totalFocusTimes: integerCount(legacy.totalFocusTimes),
+        },
+        totalFocusTime: finiteCount(value.totalFocusTime),
+        totalFocusTimes: integerCount(value.totalFocusTimes),
+        completedSessions: integerCount(value.completedSessions),
+        cancelledSessions: integerCount(value.cancelledSessions),
+        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
+    };
+}
+
+function normalizeFocusSession(raw: unknown, expectedYear: number): FocusSessionRecord {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("番茄钟会话记录无效");
+    const value = raw as Record<string, unknown>;
+    const text = (key: string) => typeof value[key] === "string" ? String(value[key]).trim() : "";
+    const localDate = text("localDate");
+    const status = text("status");
+    if (!text("id") || !text("startedAt") || !text("endedAt")
+        || !/^\d{4}-\d{2}-\d{2}$/.test(localDate) || Number(localDate.slice(0, 4)) !== expectedYear
+        || !["completed", "cancelled"].includes(status)
+        || !Number.isFinite(Date.parse(text("startedAt"))) || !Number.isFinite(Date.parse(text("endedAt")))) {
+        throw new Error("番茄钟会话关键字段无效");
+    }
+    return {
+        id: text("id"),
+        startedAt: text("startedAt"),
+        endedAt: text("endedAt"),
+        localDate,
+        plannedSeconds: integerCount(value.plannedSeconds),
+        actualFocusSeconds: integerCount(value.actualFocusSeconds),
+        status: status as FocusSessionStatus,
+    };
+}
+
+export function normalizeFocusSessionsYearFile(raw: unknown, expectedYear: number): FocusSessionsYearFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("番茄钟年度会话结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== FOCUS_SESSIONS_SCHEMA || value.version !== FOCUS_SESSION_VERSION
+        || value.year !== expectedYear || !Array.isArray(value.sessions)) {
+        throw new Error("番茄钟年度会话 schema、version 或 year 无效");
+    }
+    const sessions = value.sessions.map((item) => normalizeFocusSession(item, expectedYear));
+    if (new Set(sessions.map((session) => session.id)).size !== sessions.length) {
+        throw new Error("番茄钟年度会话存在重复 ID");
+    }
+    return {
+        schema: FOCUS_SESSIONS_SCHEMA,
+        version: FOCUS_SESSION_VERSION,
+        revision: integerCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        year: expectedYear,
+        sessions,
+    };
+}
+
+function sessionEquals(left: FocusSessionRecord, right: FocusSessionRecord): boolean {
+    return left.id === right.id && left.startedAt === right.startedAt && left.endedAt === right.endedAt
+        && left.localDate === right.localDate && left.plannedSeconds === right.plannedSeconds
+        && left.actualFocusSeconds === right.actualFocusSeconds && left.status === right.status;
+}
+
+function validateFocusYearFile(actual: FocusSessionsYearFile, expected: FocusSessionsYearFile): void {
+    const actualById = new Map(actual.sessions.map((session) => [session.id, session]));
+    if (actual.sessions.length !== expected.sessions.length
+        || expected.sessions.some((session) => !sessionEquals(actualById.get(session.id)!, session))) {
+        throw new Error(`番茄钟 ${expected.year} 年会话写入后校验失败`);
+    }
+}
+
+export function validateFocusIndex(actual: FocusIndexFile, expected: FocusIndexFile): void {
+    if (actual.years.length !== expected.years.length
+        || expected.years.some((year, index) => actual.years[index] !== year
+            || actual.yearCounts[String(year)] !== expected.yearCounts[String(year)])
+        || actual.legacyTotals.totalFocusTime !== expected.legacyTotals.totalFocusTime
+        || actual.legacyTotals.totalFocusTimes !== expected.legacyTotals.totalFocusTimes
+        || actual.totalFocusTime !== expected.totalFocusTime
+        || actual.totalFocusTimes !== expected.totalFocusTimes
+        || actual.completedSessions !== expected.completedSessions
+        || actual.cancelledSessions !== expected.cancelledSessions) {
+        throw new Error("番茄钟索引写入后业务数据校验失败");
+    }
+}
+
+function isFocusIndexConsistent(index: FocusIndexFile, baseline: FocusLegacyBaselineFile): boolean {
+    const sessionCount = index.years.reduce((sum, year) => sum + (index.yearCounts[String(year)] || 0), 0);
+    return sameFocusLegacyTotals(index.legacyTotals, baseline.totals)
+        && sessionCount === index.completedSessions + index.cancelledSessions
+        && index.totalFocusTimes === index.legacyTotals.totalFocusTimes + index.completedSessions
+        && index.totalFocusTime >= index.legacyTotals.totalFocusTime;
+}
+
+export async function listFocusSessionYears(): Promise<number[]> {
+    const years: number[] = [];
+    for (const entry of await readSharedWidgetDirectoryChecked("focus")) {
+        const match = entry.name.match(/^focus-sessions-(\d{4})\.json$/);
+        if (!match) continue;
+        if (entry.isDir) throw new Error(`番茄钟年度明细路径不是文件：${entry.name}`);
+        years.push(Number(match[1]));
+    }
+    return Array.from(new Set(years)).sort((left, right) => left - right);
+}
+
+export async function rebuildFocusIndexFromFiles(options: {
+    legacyTotals?: FocusLegacyTotals;
+    migration?: SharedWidgetMigrationMetadata;
+    dispatch?: boolean;
+} = {}): Promise<FocusIndexFile> {
+    const existing = await loadSharedJson(FOCUS_INDEX_FILE, normalizeFocusIndexFile);
+    const baselineCandidate: FocusLegacyTotals = {
+        totalFocusTime: Math.max(
+            existing?.legacyTotals.totalFocusTime || 0,
+            options.legacyTotals?.totalFocusTime || 0,
+        ),
+        totalFocusTimes: Math.max(
+            existing?.legacyTotals.totalFocusTimes || 0,
+            options.legacyTotals?.totalFocusTimes || 0,
+        ),
+    };
+    const baseline = await saveFocusLegacyBaselineChecked(baselineCandidate);
+    const years = await listFocusSessionYears();
+    assertSharedWidgetYearFilesComplete(existing?.years || [], years);
+    const yearCounts: Record<string, number> = {};
+    let completedSessions = 0;
+    let cancelledSessions = 0;
+    let completedSeconds = 0;
+    for (const year of years) {
+        const file = await loadSharedJson(getFocusSessionsFile(year), (raw) => normalizeFocusSessionsYearFile(raw, year));
+        if (!file) throw new Error(`年度明细文件缺失或尚未同步完成，请检查插件数据后重试：${year}`);
+        const sessions = file.sessions;
+        yearCounts[String(year)] = sessions.length;
+        for (const session of sessions) {
+            if (session.status === "completed") {
+                completedSessions += 1;
+                completedSeconds += session.actualFocusSeconds;
+            } else {
+                cancelledSessions += 1;
+            }
         }
     }
-
-    return { ...av, keyValues: mergedKeyValues };
+    return mutateSharedJson({
+        store: "focus",
+        path: FOCUS_INDEX_FILE,
+        createEmpty: createEmptyFocusIndexFile,
+        normalize: normalizeFocusIndexFile,
+        mutate: (index) => {
+            index.years = years;
+            index.yearCounts = yearCounts;
+            index.legacyTotals = { ...baseline.totals };
+            index.completedSessions = completedSessions;
+            index.cancelledSessions = cancelledSessions;
+            index.totalFocusTime = baseline.totals.totalFocusTime + completedSeconds;
+            index.totalFocusTimes = baseline.totals.totalFocusTimes + completedSessions;
+            index.migration = options.migration || existing?.migration;
+        },
+        validate: validateFocusIndex,
+        dispatch: options.dispatch !== false,
+    });
 }
 
-function createSiyuanLikeId(): string {
-    const now = new Date();
-    const pad = (value: number) => String(value).padStart(2, "0");
-    const timestamp = [
-        now.getFullYear(), pad(now.getMonth() + 1), pad(now.getDate()),
-        pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds()),
-    ].join("");
-    const random = Math.random().toString(36).slice(2, 9).padEnd(7, "0");
-    return `${timestamp}-${random}`;
-}
-
-async function ensureFocusFields(avID: string, av: AttributeView): Promise<AttributeView> {
-    const { missingFields } = resolveKeyMap(av);
-    const fieldsToCreate = missingFields.filter((field) => field !== "title") as FocusField[];
-    if (fieldsToCreate.length === 0) return av;
-
-    let previousKeyID = av.keyValues[av.keyValues.length - 1]?.key.id || "";
-    for (const field of fieldsToCreate) {
-        const definition = FOCUS_FIELD_DEFINITIONS[field];
-        const keyID = createSiyuanLikeId();
-        await addAttributeViewKeyChecked(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
-        previousKeyID = keyID;
+async function loadOrRepairFocusIndex(): Promise<FocusIndexFile> {
+    const index = await loadSharedJson(FOCUS_INDEX_FILE, normalizeFocusIndexFile);
+    if (!index) return rebuildFocusIndexFromFiles();
+    const baseline = await saveFocusLegacyBaselineChecked(index.legacyTotals);
+    const years = await listFocusSessionYears();
+    assertSharedWidgetYearFilesComplete(index.years, years);
+    if (!isFocusIndexConsistent(index, baseline) || years.some((year) => !index.years.includes(year))) {
+        return rebuildFocusIndexFromFiles({ legacyTotals: baseline.totals, migration: index.migration });
     }
-
-    return await loadAttributeViewWithSchema(avID) || av;
+    const currentYear = new Date().getFullYear();
+    for (const year of [currentYear - 1, currentYear]) {
+        const file = await loadSharedJson(getFocusSessionsFile(year), (raw) => normalizeFocusSessionsYearFile(raw, year));
+        if (years.includes(year) && !file) {
+            throw new Error(`年度明细文件缺失或尚未同步完成，请检查插件数据后重试：${year}`);
+        }
+        const indexedCount = index.yearCounts[String(year)] || 0;
+        if ((file?.sessions.length || 0) !== indexedCount || Boolean(file) !== index.years.includes(year)) {
+            return rebuildFocusIndexFromFiles({ legacyTotals: baseline.totals, migration: index.migration });
+        }
+    }
+    return index;
 }
 
-async function loadFocusStore(databaseId: string | undefined): Promise<FocusStore | null> {
-    const avID = databaseId?.trim();
-    if (!avID) return null;
-
-    const av = await loadAttributeViewWithSchema(avID);
-    if (!av) return null;
-
-    let ensuredAv = await ensureFocusFields(avID, av);
-    const { keys, missingFields } = resolveKeyMap(ensuredAv);
-    if (missingFields.length > 0) {
+export async function getFocusStoreStatus(): Promise<FocusStoreStatus> {
+    try {
+        await assertSharedWidgetMigrationReady("focus");
+        const index = await runSharedWidgetExclusive(FOCUS_STORE_TRANSACTION_LOCK, loadOrRepairFocusIndex);
+        if (index.migration?.status === "failed") {
+            return { ok: false, missingFields: [], message: "旧数据迁移尚未完成，请重新加载插件后重试。" };
+        }
         return {
-            avID,
-            av: ensuredAv,
-            keys: keys as FocusKeyMap,
-            status: createStatus(false, `番茄钟数据库字段自动初始化失败：${missingFields.join("、")}`, avID, missingFields),
+            ok: true,
+            missingFields: [],
+            message: index.migration?.cleanupStatus === "pending" ? "旧数据清理待重试" : "本地数据已就绪",
         };
+    } catch (error) {
+        return { ok: false, missingFields: [], message: error instanceof Error ? error.message : "本地存储不可用" };
     }
-
-    return {
-        avID,
-        av: ensuredAv,
-        keys: keys as FocusKeyMap,
-        status: createStatus(true, "数据库可用", avID),
-    };
 }
 
-function groupRows(av: AttributeView): FocusRow[] {
-    const rowMap = new Map<string, FocusRow>();
-
-    for (const keyValue of av.keyValues) {
-        for (const value of keyValue.values || []) {
-            const itemID = value?.itemID || value?.blockID || value?.id || "";
-            if (!itemID) continue;
-
-            if (!rowMap.has(itemID)) {
-                rowMap.set(itemID, { itemID, values: new Map<string, any>() });
-            }
-            rowMap.get(itemID)?.values.set(keyValue.key.id, value);
-        }
-    }
-
-    return Array.from(rowMap.values());
+export async function loadFocusStatistics(): Promise<FocusStatistics> {
+    await assertSharedWidgetMigrationReady("focus");
+    const index = await runSharedWidgetExclusive(FOCUS_STORE_TRANSACTION_LOCK, loadOrRepairFocusIndex);
+    return { totalFocusTime: index.totalFocusTime, totalFocusTimes: index.totalFocusTimes };
 }
 
-function extractTextFromValue(value: any): string {
-    if (value == null) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    if (value.text?.content != null) return String(value.text.content);
-    if (value.block?.content != null) return String(value.block.content);
-    if (value.number?.content != null) return String(value.number.content);
-    if (value.content != null) return String(value.content);
-    return "";
-}
-
-function readRowField(row: FocusRow, key: AttributeViewKeyValue): string {
-    return extractTextFromValue(row.values.get(key.key.id));
-}
-
-// ========== append value constructors (带 keyID，用于 appendAttributeViewDetachedBlocksWithValues) ==========
-
-function createAppendBlockValue(keyID: string, content: string): any {
-    return { keyID, block: { content } };
-}
-
-function createAppendTextValue(keyID: string, content: string): any {
-    return { keyID, text: { content } };
-}
-
-function createAppendNumberValue(keyID: string, content: string): any {
-    return { keyID, number: { content: Number(content) || 0, isNotEmpty: true } };
-}
-
-// ========== set value constructors (不带 keyID，用于 setAttributeViewBlockAttr) ==========
-
-function createSetTextValue(content: string): any {
-    return { text: { content } };
-}
-
-function createSetNumberValue(content: string): any {
-    return { number: { content: Number(content) || 0, isNotEmpty: true } };
-}
-
-// ========== row/cell 辅助函数 ==========
-
-function getCellID(row: FocusRow, keyID: string): string | undefined {
-    return row.values.get(keyID)?.id;
-}
-
-function getRowID(row: FocusRow): string {
-    return row.itemID;
-}
-
-export async function getFocusStoreStatus(databaseId: string | undefined): Promise<FocusStoreStatus> {
-    const avID = databaseId?.trim();
-    if (!avID) {
-        return createStatus(false, "请先在组件设置中填写番茄钟统计数据库 ID");
-    }
-
-    const store = await loadFocusStore(avID);
-    if (!store) {
-        return createStatus(false, "无法读取番茄钟统计数据库，请检查数据库 ID", avID);
-    }
-
-    return store.status;
-}
-
-const FOCUS_SINGLETON_ID = "focus-statistics";
-
-function findSingletonRow(store: FocusStore): FocusRow | null {
-    if (!store.status.ok) return null;
-    return groupRows(store.av).find((row) => {
-        const rowRecordId = readRowField(row, store.keys.recordId);
-        return rowRecordId === FOCUS_SINGLETON_ID;
-    }) || null;
-}
-
-export async function loadFocusStatistics(databaseId: string | undefined): Promise<FocusStatistics> {
-    const status = await getFocusStoreStatus(databaseId);
-    if (!status.ok) {
-        return { totalFocusTime: 0, totalFocusTimes: 0 };
-    }
-
-    const store = await loadFocusStore(databaseId);
-    if (!store || !store.status.ok) {
-        return { totalFocusTime: 0, totalFocusTimes: 0 };
-    }
-
-    const rows = groupRows(store.av);
-    let maxTotalFocusTime = 0;
-    let maxTotalFocusTimes = 0;
-
-    for (const row of rows) {
-        const rowRecordId = readRowField(row, store.keys.recordId);
-        if (rowRecordId !== FOCUS_SINGLETON_ID) continue;
-
-        const rowTime = Math.max(0, Number(readRowField(row, store.keys.totalFocusTime)) || 0);
-        const rowTimes = Math.max(0, Number(readRowField(row, store.keys.totalFocusTimes)) || 0);
-
-        if (rowTime > maxTotalFocusTime) maxTotalFocusTime = rowTime;
-        if (rowTimes > maxTotalFocusTimes) maxTotalFocusTimes = rowTimes;
-    }
-
-    return {
-        totalFocusTime: maxTotalFocusTime,
-        totalFocusTimes: maxTotalFocusTimes,
-    };
-}
-
-export async function saveFocusStatistics(
-    databaseId: string | undefined,
-    totalFocusTime: number,
-    totalFocusTimes: number
-): Promise<void> {
-    const store = await loadFocusStore(databaseId);
-    if (!store || !store.status.ok) {
-        throw new Error(store?.status.message || "番茄钟统计数据库不可用");
-    }
-
-    const now = new Date().toISOString();
-    const row = findSingletonRow(store);
-
-    if (row && row.itemID) {
-        const rowID = getRowID(row);
-        const timeCellID = getCellID(row, store.keys.totalFocusTime.key.id);
-        const timesCellID = getCellID(row, store.keys.totalFocusTimes.key.id);
-        const updatedAtCellID = getCellID(row, store.keys.updatedAt.key.id);
-
-        try {
-            await setAttributeViewBlockAttrWithCellChecked({
-                avID: store.avID,
-                keyID: store.keys.totalFocusTime.key.id,
-                rowID,
-                cellID: timeCellID,
-                value: createSetNumberValue(String(totalFocusTime)),
-            });
-            await setAttributeViewBlockAttrWithCellChecked({
-                avID: store.avID,
-                keyID: store.keys.totalFocusTimes.key.id,
-                rowID,
-                cellID: timesCellID,
-                value: createSetNumberValue(String(totalFocusTimes)),
-            });
-            await setAttributeViewBlockAttrWithCellChecked({
-                avID: store.avID,
-                keyID: store.keys.updatedAt.key.id,
-                rowID,
-                cellID: updatedAtCellID,
-                value: createSetTextValue(now),
-            });
-        } catch (e) {
-            console.warn("[focusData] 更新已有统计行失败，fallback append 新行", {
-                databaseId: store.avID,
-                totalFocusTimeKeyID: store.keys.totalFocusTime.key.id,
-                totalFocusTimeKeyName: store.keys.totalFocusTime.key.name,
-                totalFocusTimeKeyType: store.keys.totalFocusTime.key.type,
-                totalFocusTimesKeyID: store.keys.totalFocusTimes.key.id,
-                totalFocusTimesKeyName: store.keys.totalFocusTimes.key.name,
-                totalFocusTimesKeyType: store.keys.totalFocusTimes.key.type,
-                expectedTotalFocusTime: totalFocusTime,
-                expectedTotalFocusTimes: totalFocusTimes,
-            }, e);
-            const appendPayload = [
-                [
-                    createAppendBlockValue(store.keys.title.key.id, "番茄钟统计"),
-                    createAppendTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
-                    createAppendNumberValue(store.keys.totalFocusTime.key.id, String(totalFocusTime)),
-                    createAppendNumberValue(store.keys.totalFocusTimes.key.id, String(totalFocusTimes)),
-                    createAppendTextValue(store.keys.updatedAt.key.id, now),
-                ],
-            ];
-            await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, appendPayload);
-        }
-    } else {
-        const appendPayload = [
-            [
-                createAppendBlockValue(store.keys.title.key.id, "番茄钟统计"),
-                createAppendTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
-                createAppendNumberValue(store.keys.totalFocusTime.key.id, String(totalFocusTime)),
-                createAppendNumberValue(store.keys.totalFocusTimes.key.id, String(totalFocusTimes)),
-                createAppendTextValue(store.keys.updatedAt.key.id, now),
-            ],
-        ];
-        await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, appendPayload);
-    }
-
-    const refreshedStore = await loadFocusStore(databaseId);
-    if (!refreshedStore || !refreshedStore.status.ok) {
-        throw new Error("番茄钟统计数据库写入后重新加载失败");
-    }
-
-    const refreshedRow = findSingletonRow(refreshedStore);
-    if (!refreshedRow) {
-        console.warn("[focusData] 番茄钟统计写入后校验失败：读不到 singleton 行", {
-            databaseId: store.avID,
-            expectedTotalFocusTime: totalFocusTime,
-            expectedTotalFocusTimes: totalFocusTimes,
+export async function appendFocusSession(session: FocusSessionRecord): Promise<FocusStatistics> {
+    await assertSharedWidgetMigrationReady("focus");
+    const year = Number(session.localDate.slice(0, 4));
+    const normalized = normalizeFocusSession(session, year);
+    return runSharedWidgetExclusive(FOCUS_STORE_TRANSACTION_LOCK, async () => {
+        const currentIndex = await loadOrRepairFocusIndex();
+        let added = false;
+        let previousCount = 0;
+        await mutateSharedJson({
+            store: "focus",
+            path: getFocusSessionsFile(year),
+            createEmpty: () => createEmptyFocusSessionsYearFile(year),
+            normalize: (raw) => normalizeFocusSessionsYearFile(raw, year),
+            mutate: (file) => {
+                previousCount = file.sessions.length;
+                if (!file.sessions.some((item) => item.id === normalized.id)) {
+                    file.sessions.push(normalized);
+                    added = true;
+                }
+            },
+            validate: validateFocusYearFile,
+            dispatch: false,
         });
-        throw new Error("番茄钟统计写入后校验失败");
-    }
-
-    const refreshedRowID = getRowID(refreshedRow);
-    const refreshedTimeCellID = getCellID(refreshedRow, refreshedStore.keys.totalFocusTime.key.id);
-    const refreshedTimesCellID = getCellID(refreshedRow, refreshedStore.keys.totalFocusTimes.key.id);
-    await setAttributeViewBlockAttrWithCellChecked({
-        avID: refreshedStore.avID,
-        keyID: refreshedStore.keys.totalFocusTime.key.id,
-        rowID: refreshedRowID,
-        cellID: refreshedTimeCellID,
-        value: createSetNumberValue(String(totalFocusTime)),
-    });
-    await setAttributeViewBlockAttrWithCellChecked({
-        avID: refreshedStore.avID,
-        keyID: refreshedStore.keys.totalFocusTimes.key.id,
-        rowID: refreshedRowID,
-        cellID: refreshedTimesCellID,
-        value: createSetNumberValue(String(totalFocusTimes)),
-    });
-
-    const finalStore = await loadFocusStore(databaseId);
-    if (!finalStore || !finalStore.status.ok) {
-        throw new Error("番茄钟统计数据库写入后重新加载失败");
-    }
-
-    const refreshedStats = await loadFocusStatistics(databaseId);
-    if (refreshedStats.totalFocusTime < totalFocusTime || refreshedStats.totalFocusTimes < totalFocusTimes) {
-        const finalRow = findSingletonRow(finalStore);
-        console.warn("[focusData] 番茄钟统计写入后校验失败", {
-            avID: store.avID,
-            rowID: finalRow?.itemID,
-            totalFocusTimeCellID: getCellID(finalRow!, finalStore.keys.totalFocusTime.key.id),
-            totalFocusTimesCellID: getCellID(finalRow!, finalStore.keys.totalFocusTimes.key.id),
-            expectedTotalFocusTime: totalFocusTime,
-            actualTotalFocusTime: refreshedStats.totalFocusTime,
-            expectedTotalFocusTimes: totalFocusTimes,
-            actualTotalFocusTimes: refreshedStats.totalFocusTimes,
-        });
-        throw new Error("番茄钟统计写入后校验失败");
-    }
-}
-
-export async function migrateLegacyFocusStatisticsIfNeeded(databaseId: string | undefined, plugin: any): Promise<void> {
-    if (!databaseId?.trim()) return;
-
-    const pluginName = plugin?.name || "siyuan-homepage";
-    const storageDir = `data/storage/petal/${pluginName}`;
-    const legacyFileName = "widget-focus-statistics.json";
-
-    let fileExists = false;
-    try {
-        const dirEntries = await readDir(storageDir);
-        fileExists = Array.isArray(dirEntries) && dirEntries.some(
-            (entry: any) => entry?.name === legacyFileName
-        );
-    } catch {
-        return;
-    }
-    if (!fileExists) return;
-
-    let legacy: any = null;
-    try {
-        legacy = await plugin.loadData(legacyFileName);
-    } catch {
-        return;
-    }
-
-    if (!legacy) {
-        try {
-            await removeFile(`${storageDir}/${legacyFileName}`);
-        } catch {
-            console.warn("[focusData] 删除空的旧 widget-focus-statistics.json 失败，不影响使用");
+        if (previousCount !== (currentIndex.yearCounts[String(year)] || 0)) {
+            const repaired = await rebuildFocusIndexFromFiles({
+                legacyTotals: currentIndex.legacyTotals,
+                migration: currentIndex.migration,
+            });
+            return { totalFocusTime: repaired.totalFocusTime, totalFocusTimes: repaired.totalFocusTimes };
         }
-        return;
-    }
-
-    const legacyTotalFocusTime = Math.max(0, Number(legacy.totalFocusTime) || 0);
-    const legacyTotalFocusTimes = Math.max(0, Number(legacy.totalFocusTimes) || 0);
-
-    if (legacyTotalFocusTime === 0 && legacyTotalFocusTimes === 0) {
-        try {
-            await removeFile(`${storageDir}/${legacyFileName}`);
-        } catch {
-            console.warn("[focusData] 删除空的旧 widget-focus-statistics.json 失败，不影响使用");
+        if (!added) {
+            return { totalFocusTime: currentIndex.totalFocusTime, totalFocusTimes: currentIndex.totalFocusTimes };
         }
-        return;
-    }
-
-    const store = await loadFocusStore(databaseId);
-    if (!store || !store.status.ok) return;
-
-    const now = new Date().toISOString();
-    const row = findSingletonRow(store);
-
-    if (row && row.itemID) {
-        const existingTotalFocusTime = Math.max(0, Number(readRowField(row, store.keys.totalFocusTime)) || 0);
-        const existingTotalFocusTimes = Math.max(0, Number(readRowField(row, store.keys.totalFocusTimes)) || 0);
-
-        if (existingTotalFocusTime >= legacyTotalFocusTime && existingTotalFocusTimes >= legacyTotalFocusTimes) {
-            // 已有数据均已超过旧数据，无需迁移，直接删旧文件
-        } else {
-            const finalTotalFocusTime = Math.max(existingTotalFocusTime, legacyTotalFocusTime);
-            const finalTotalFocusTimes = Math.max(existingTotalFocusTimes, legacyTotalFocusTimes);
-
-            const rowID = getRowID(row);
-            const timeCellID = getCellID(row, store.keys.totalFocusTime.key.id);
-            const timesCellID = getCellID(row, store.keys.totalFocusTimes.key.id);
-            const updatedAtCellID = getCellID(row, store.keys.updatedAt.key.id);
-
+        let index: FocusIndexFile;
+        try {
+            index = await mutateSharedJson({
+                store: "focus",
+                path: FOCUS_INDEX_FILE,
+                createEmpty: createEmptyFocusIndexFile,
+                normalize: normalizeFocusIndexFile,
+                mutate: (draft) => {
+                    draft.years = Array.from(new Set([...draft.years, year])).sort();
+                    draft.yearCounts[String(year)] = (draft.yearCounts[String(year)] || 0) + 1;
+                    if (normalized.status === "completed") {
+                        draft.completedSessions += 1;
+                        draft.totalFocusTimes += 1;
+                        draft.totalFocusTime += normalized.actualFocusSeconds;
+                    } else {
+                        draft.cancelledSessions += 1;
+                    }
+                },
+                validate: validateFocusIndex,
+            });
+        } catch (incrementalError) {
             try {
-                await setAttributeViewBlockAttrWithCellChecked({
-                    avID: store.avID,
-                    keyID: store.keys.totalFocusTime.key.id,
-                    rowID,
-                    cellID: timeCellID,
-                    value: createSetNumberValue(String(finalTotalFocusTime)),
+                index = await rebuildFocusIndexFromFiles({
+                    legacyTotals: currentIndex.legacyTotals,
+                    migration: currentIndex.migration,
                 });
-                await setAttributeViewBlockAttrWithCellChecked({
-                    avID: store.avID,
-                    keyID: store.keys.totalFocusTimes.key.id,
-                    rowID,
-                    cellID: timesCellID,
-                    value: createSetNumberValue(String(finalTotalFocusTimes)),
-                });
-                await setAttributeViewBlockAttrWithCellChecked({
-                    avID: store.avID,
-                    keyID: store.keys.updatedAt.key.id,
-                    rowID,
-                    cellID: updatedAtCellID,
-                    value: createSetTextValue(now),
-                });
-            } catch {
-                await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [
-                    [
-                        createAppendBlockValue(store.keys.title.key.id, "番茄钟统计"),
-                        createAppendTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
-                        createAppendNumberValue(store.keys.totalFocusTime.key.id, String(finalTotalFocusTime)),
-                        createAppendNumberValue(store.keys.totalFocusTimes.key.id, String(finalTotalFocusTimes)),
-                        createAppendTextValue(store.keys.updatedAt.key.id, now),
-                    ],
-                ]);
+            } catch (rebuildError) {
+                throw new Error(`番茄钟会话已保存，但索引增量更新和完整重建均失败：${String(incrementalError)}；${String(rebuildError)}`);
             }
         }
-    } else {
-        await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [
-            [
-                createAppendBlockValue(store.keys.title.key.id, "番茄钟统计"),
-                createAppendTextValue(store.keys.recordId.key.id, FOCUS_SINGLETON_ID),
-                createAppendNumberValue(store.keys.totalFocusTime.key.id, String(legacyTotalFocusTime)),
-                createAppendNumberValue(store.keys.totalFocusTimes.key.id, String(legacyTotalFocusTimes)),
-                createAppendTextValue(store.keys.updatedAt.key.id, now),
-            ],
-        ]);
-    }
-
-    try {
-        await removeFile(`${storageDir}/${legacyFileName}`);
-    } catch (err) {
-        console.warn("[focusData] 迁移后删除旧 widget-focus-statistics.json 失败，不影响使用", err);
-    }
+        return { totalFocusTime: index.totalFocusTime, totalFocusTimes: index.totalFocusTimes };
+    });
 }
+
+export function queueFocusSession(session: FocusSessionRecord): void {
+    const year = Number(session.localDate.slice(0, 4));
+    const normalized = normalizeFocusSession(session, year);
+    if (!pendingFocusSessions.has(normalized.id)) pendingFocusSessions.set(normalized.id, normalized);
+}
+
+export async function flushPendingFocusSessions(): Promise<FocusStatistics | null> {
+    let latest: FocusStatistics | null = null;
+    while (pendingFocusSessions.size > 0 || focusSessionFlushPromise) {
+        if (!focusSessionFlushPromise) {
+            const snapshot = Array.from(pendingFocusSessions.values());
+            focusSessionFlushPromise = (async () => {
+                let snapshotLatest: FocusStatistics | null = null;
+                for (const session of snapshot) {
+                    snapshotLatest = await appendFocusSession(session);
+                    pendingFocusSessions.delete(session.id);
+                }
+                return snapshotLatest;
+            })().finally(() => {
+                focusSessionFlushPromise = null;
+            });
+        }
+        const result = await focusSessionFlushPromise;
+        if (result) latest = result;
+    }
+    return latest;
+}
+
+function reportFocusFlushFailure(error: unknown): void {
+    console.warn("[focusData] 番茄钟待写会话保存失败，已保留待重试", error);
+}
+
+registerSharedWidgetFlusher(async () => {
+    await flushPendingFocusSessions();
+});
+
+const handleFocusVisibilityChange = () => {
+    if (document.visibilityState === "hidden") void flushPendingFocusSessions().catch(reportFocusFlushFailure);
+};
+const handleFocusPageHide = () => {
+    void flushPendingFocusSessions().catch(reportFocusFlushFailure);
+};
+if (typeof document !== "undefined") document.addEventListener("visibilitychange", handleFocusVisibilityChange);
+if (typeof window !== "undefined") window.addEventListener("pagehide", handleFocusPageHide);
+registerSharedWidgetCleanup(() => {
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", handleFocusVisibilityChange);
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", handleFocusPageHide);
+});

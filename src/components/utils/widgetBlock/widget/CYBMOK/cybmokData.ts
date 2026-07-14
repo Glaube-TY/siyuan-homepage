@@ -1,39 +1,80 @@
 import {
-    addAttributeViewKeyChecked,
-    appendAttributeViewDetachedBlocksWithValuesChecked,
-    getAttributeView,
-    getAttributeViewKeysByAvID,
-    readDir,
-    removeFile,
-    setAttributeViewBlockAttrWithCellChecked,
-    type AttributeView,
-    type AttributeViewKeyValue,
-} from "@/api";
+    assertSharedWidgetYearFilesComplete,
+    CYBMOK_STORE_TRANSACTION_LOCK,
+    loadSharedJson,
+    mutateSharedJson,
+    readSharedWidgetDirectoryChecked,
+    registerSharedWidgetCleanup,
+    registerSharedWidgetFlusher,
+    runSharedWidgetExclusive,
+    type SharedRevisionedFile,
+    type SharedWidgetMigrationMetadata,
+} from "../sharedLocalStorage/sharedLocalStorage";
+import {
+    CYBMOK_BATCH_VERSION,
+    CYBMOK_BATCHES_SCHEMA,
+    CYBMOK_INDEX_FILE,
+    CYBMOK_INDEX_SCHEMA,
+    CYBMOK_INDEX_VERSION,
+    CYBMOK_RECORDS_SCHEMA,
+    getCYBMOKBatchesFile,
+    SHARED_WIDGET_DATA_VERSION,
+} from "../sharedLocalStorage/sharedWidgetStoragePaths";
+import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
 
-export const CYBMOK_FIELD_ALIASES = {
-    title: ["title", "标题", "日期", "主键", "name"],
-    date: ["date", "日期", "日"],
-    count: ["count", "功德数", "次数"],
-    createdAt: ["createdAt", "创建时间"],
-    updatedAt: ["updatedAt", "更新时间"],
-};
+export interface CYBMOKRecord {
+    date: string;
+    count: number;
+    createdAt: string;
+    updatedAt: string;
+}
 
-type CYBMOKField = keyof typeof CYBMOK_FIELD_ALIASES;
+export interface CYBMOKRecordsFile extends SharedRevisionedFile {
+    records: CYBMOKRecord[];
+    migration?: SharedWidgetMigrationMetadata;
+}
 
-const CYBMOK_FIELD_DEFINITIONS: Record<CYBMOKField, { name: string; type: string; icon: string }> = {
-    title: { name: "日期", type: "block", icon: "iconCalendar" },
-    date: { name: "日期", type: "text", icon: "iconCalendar" },
-    count: { name: "功德数", type: "number", icon: "iconHeart" },
-    createdAt: { name: "创建时间", type: "text", icon: "iconCalendar" },
-    updatedAt: { name: "更新时间", type: "text", icon: "iconRefresh" },
-};
+export interface CYBMOKRuntimeBatch {
+    id: string;
+    kind: "batch";
+    localDate: string;
+    startedAt: string;
+    endedAt: string;
+    count: number;
+    source: "runtime";
+}
 
-interface CYBMOKKeyMap {
-    title: AttributeViewKeyValue;
-    date: AttributeViewKeyValue;
-    count: AttributeViewKeyValue;
-    createdAt: AttributeViewKeyValue;
-    updatedAt: AttributeViewKeyValue;
+export interface CYBMOKLegacyDailyBatch {
+    id: string;
+    kind: "legacy-daily";
+    localDate: string;
+    startedAt: "";
+    endedAt: "";
+    count: number;
+    source: "legacy-daily";
+}
+
+export type CYBMOKBatchRecord = CYBMOKRuntimeBatch | CYBMOKLegacyDailyBatch;
+
+export interface CYBMOKBatchesYearFile extends SharedRevisionedFile {
+    year: number;
+    batches: CYBMOKBatchRecord[];
+}
+
+export interface CYBMOKMaxDay {
+    localDate: string;
+    count: number;
+}
+
+export interface CYBMOKIndexFile extends SharedRevisionedFile {
+    years: number[];
+    yearBatchCounts: Record<string, number>;
+    yearKnockCounts: Record<string, number>;
+    dailyTotals: Record<string, number>;
+    totalKnocks: number;
+    totalBatches: number;
+    maxDay: CYBMOKMaxDay;
+    migration?: SharedWidgetMigrationMetadata;
 }
 
 export interface CYBMOKStats {
@@ -43,598 +84,543 @@ export interface CYBMOKStats {
 
 export interface CYBMOKStoreStatus {
     ok: boolean;
-    databaseId?: string;
     missingFields: string[];
     message: string;
 }
 
-interface CYBMOKStore {
-    avID: string;
-    av: AttributeView;
-    keys: CYBMOKKeyMap;
-    status: CYBMOKStoreStatus;
+interface ActiveCYBMOKBatch {
+    id: string;
+    localDate: string;
+    startedAt: string;
+    lastKnockAt: string;
+    count: number;
 }
 
-interface CYBMOKRow {
-    itemID: string;
-    values: Map<string, any>;
+let activeBatch: ActiveCYBMOKBatch | null = null;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+let flushPromise: Promise<void> | null = null;
+let batchSequence = 0;
+const pendingBatches: CYBMOKRuntimeBatch[] = [];
+
+function reportScheduledFlushFailure(error: unknown): void {
+    console.warn("[cybmokData] 木鱼批次写入失败，已保留待写批次", error);
 }
 
-function normalizeFieldName(value: string): string {
-    return value.trim().toLowerCase().replace(/\s+/g, "");
+function finiteCount(value: unknown): number {
+    const count = Number(value);
+    return Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
 }
 
-function createStatus(
-    ok: boolean,
-    message: string,
-    databaseId?: string,
-    missingFields: string[] = []
-): CYBMOKStoreStatus {
-    return { ok, databaseId, missingFields, message };
-}
-
-function findKey(
-    keyValues: AttributeViewKeyValue[],
-    field: CYBMOKField
-): AttributeViewKeyValue | null {
-    if (field === "title") {
-        const primaryKey = keyValues.find((item) => item.key.type === "block");
-        if (primaryKey) return primaryKey;
-    }
-
-    const aliases = CYBMOK_FIELD_ALIASES[field].map(normalizeFieldName);
-    const nonBlockMatch = keyValues.find(
-        (item) => item.key.type !== "block" && aliases.includes(normalizeFieldName(item.key.name))
-    );
-    if (nonBlockMatch) return nonBlockMatch;
-
-    if (field === "date") {
-        const primaryKey = keyValues.find((item) => item.key.type === "block");
-        if (primaryKey) return primaryKey;
-    }
-
-    return null;
-}
-
-function resolveKeyMap(av: AttributeView): { keys: Partial<CYBMOKKeyMap>; missingFields: string[] } {
-    const keys: Partial<CYBMOKKeyMap> = {};
-    const missingFields: string[] = [];
-
-    (Object.keys(CYBMOK_FIELD_ALIASES) as CYBMOKField[]).forEach((field) => {
-        const key = findKey(av.keyValues, field);
-        if (key) {
-            keys[field] = key;
-        } else {
-            missingFields.push(field);
-        }
-    });
-
-    return { keys, missingFields };
-}
-
-function normalizeRawKeyValue(item: any): AttributeViewKeyValue | null {
-    const key = item?.key || item;
-    if (!key?.id || !key?.name) return null;
-    return {
-        key: { id: key.id, name: key.name, type: key.type || item?.type || "text" },
-        values: item?.values || [],
-    };
-}
-
-function normalizeAttributeViewKeyValues(raw: any): AttributeViewKeyValue[] {
-    const source =
-        (Array.isArray(raw) && raw) ||
-        (Array.isArray(raw?.keys) && raw.keys) ||
-        (Array.isArray(raw?.data) && raw.data) ||
-        (Array.isArray(raw?.keyValues) && raw.keyValues) ||
-        (Array.isArray(raw?.av?.keyValues) && raw.av.keyValues) ||
-        (Array.isArray(raw?.data?.keys) && raw.data.keys) ||
-        [];
-
-    return source
-        .map(normalizeRawKeyValue)
-        .filter((item): item is AttributeViewKeyValue => item !== null);
-}
-
-async function loadAttributeViewWithSchema(avID: string): Promise<AttributeView | null> {
-    const [av, rawKeys] = await Promise.all([
-        getAttributeView(avID),
-        getAttributeViewKeysByAvID(avID),
-    ]);
-
-    if (!av) return null;
-
-    const schemaKeyValues = normalizeAttributeViewKeyValues(rawKeys);
-    if (schemaKeyValues.length === 0) return av;
-
-    const mergedKeyValues = schemaKeyValues.map((schemaKeyValue) => {
-        const dataKeyValue = av.keyValues.find((item) => item.key.id === schemaKeyValue.key.id);
-        return { ...schemaKeyValue, values: dataKeyValue?.values || schemaKeyValue.values || [] };
-    });
-
-    for (const dataKeyValue of av.keyValues) {
-        if (!mergedKeyValues.some((item) => item.key.id === dataKeyValue.key.id)) {
-            mergedKeyValues.push(dataKeyValue);
-        }
-    }
-
-    return { ...av, keyValues: mergedKeyValues };
-}
-
-function createSiyuanLikeId(): string {
-    const now = new Date();
-    const pad = (value: number) => String(value).padStart(2, "0");
-    const timestamp = [
-        now.getFullYear(), pad(now.getMonth() + 1), pad(now.getDate()),
-        pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds()),
-    ].join("");
-    const random = Math.random().toString(36).slice(2, 9).padEnd(7, "0");
-    return `${timestamp}-${random}`;
-}
-
-async function ensureCYBMOKFields(avID: string, av: AttributeView): Promise<AttributeView> {
-    const { missingFields } = resolveKeyMap(av);
-    const fieldsToCreate = missingFields.filter((field) => field !== "title") as CYBMOKField[];
-    if (fieldsToCreate.length === 0) return av;
-
-    let previousKeyID = av.keyValues[av.keyValues.length - 1]?.key.id || "";
-    for (const field of fieldsToCreate) {
-        const definition = CYBMOK_FIELD_DEFINITIONS[field];
-        const keyID = createSiyuanLikeId();
-        await addAttributeViewKeyChecked(avID, keyID, definition.name, definition.type, definition.icon, previousKeyID);
-        previousKeyID = keyID;
-    }
-
-    return await loadAttributeViewWithSchema(avID) || av;
-}
-
-async function loadCYBMOKStore(databaseId: string | undefined): Promise<CYBMOKStore | null> {
-    const avID = databaseId?.trim();
-    if (!avID) return null;
-
-    const av = await loadAttributeViewWithSchema(avID);
-    if (!av) return null;
-
-    let ensuredAv = await ensureCYBMOKFields(avID, av);
-    const { keys, missingFields } = resolveKeyMap(ensuredAv);
-    if (missingFields.length > 0) {
-        return {
-            avID,
-            av: ensuredAv,
-            keys: keys as CYBMOKKeyMap,
-            status: createStatus(false, `木鱼数据库字段自动初始化失败：${missingFields.join("、")}`, avID, missingFields),
-        };
-    }
-
-    return {
-        avID,
-        av: ensuredAv,
-        keys: keys as CYBMOKKeyMap,
-        status: createStatus(true, "数据库可用", avID),
-    };
-}
-
-function groupRows(av: AttributeView): CYBMOKRow[] {
-    const rowMap = new Map<string, CYBMOKRow>();
-
-    for (const keyValue of av.keyValues) {
-        for (const value of keyValue.values || []) {
-            const itemID = value?.itemID || value?.blockID || value?.id || "";
-            if (!itemID) continue;
-
-            if (!rowMap.has(itemID)) {
-                rowMap.set(itemID, { itemID, values: new Map<string, any>() });
-            }
-            rowMap.get(itemID)?.values.set(keyValue.key.id, value);
-        }
-    }
-
-    return Array.from(rowMap.values());
-}
-
-function extractTextFromValue(value: any): string {
-    if (value == null) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    if (value.text?.content != null) return String(value.text.content);
-    if (value.block?.content != null) return String(value.block.content);
-    if (value.number?.content != null) return String(value.number.content);
-    if (value.content != null) return String(value.content);
+export function toLocalCYBMOKDate(value: unknown): string {
+    const text = typeof value === "string" ? value.trim() : "";
+    const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+    const dashed = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dashed) return text;
     return "";
 }
 
-function readRowField(row: CYBMOKRow, key: AttributeViewKeyValue): string {
-    return extractTextFromValue(row.values.get(key.key.id));
+export function getLocalCYBMOKToday(now = new Date()): string {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-function readCYBMOKRowDate(row: CYBMOKRow, store: CYBMOKStore): string {
-    const dateValue = readRowField(row, store.keys.date);
-    if (dateValue) return dateValue;
-    return readRowField(row, store.keys.title);
+export function toCYBMOKSecondTimestamp(value: Date | number = new Date()): string {
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isFinite(date.getTime())) throw new Error("木鱼批次时间无效");
+    return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-function dedupeValueEntries(entries: any[]): any[] {
-    const seen = new Set<string>();
-    const result: any[] = [];
-    for (const entry of entries) {
-        const keyID = entry?.keyID;
-        if (!keyID) continue;
-        if (seen.has(keyID)) continue;
-        seen.add(keyID);
-        result.push(entry);
-    }
-    return result;
-}
-
-function createCYBMOKValueEntries(store: CYBMOKStore, dateStr: string, count: number, now: string): any[] {
-    return dedupeValueEntries([
-        createBlockValue(store.keys.title.key.id, dateStr),
-        createTextValue(store.keys.date.key.id, dateStr),
-        createNumberValue(store.keys.count.key.id, String(count)),
-        createTextValue(store.keys.createdAt.key.id, now),
-        createTextValue(store.keys.updatedAt.key.id, now),
-    ]);
-}
-
-// ========== append value constructors (带 keyID，用于 appendAttributeViewDetachedBlocksWithValues) ==========
-
-function createAppendBlockValue(keyID: string, content: string): any {
-    return { keyID, block: { content } };
-}
-
-function createAppendTextValue(keyID: string, content: string): any {
-    return { keyID, text: { content } };
-}
-
-function createAppendNumberValue(keyID: string, content: string): any {
-    return { keyID, number: { content: Number(content) || 0, isNotEmpty: true } };
-}
-
-// ========== set value constructors (不带 keyID，用于 setAttributeViewBlockAttr) ==========
-
-function createSetTextValue(content: string): any {
-    return { text: { content } };
-}
-
-function createSetNumberValue(content: string): any {
-    return { number: { content: Number(content) || 0, isNotEmpty: true } };
-}
-
-// ========== 兼容旧函数名（仅用于 createCYBMOKValueEntries） ==========
-
-function createBlockValue(keyID: string, content: string): any {
-    return createAppendBlockValue(keyID, content);
-}
-
-function createTextValue(keyID: string, content: string): any {
-    return createAppendTextValue(keyID, content);
-}
-
-function createNumberValue(keyID: string, content: string): any {
-    return createAppendNumberValue(keyID, content);
-}
-
-// ========== row/cell 辅助函数 ==========
-
-function getCellID(row: CYBMOKRow, keyID: string): string | undefined {
-    return row.values.get(keyID)?.id;
-}
-
-function getRowID(row: CYBMOKRow): string {
-    return row.itemID;
-}
-
-export async function getCYBMOKStoreStatus(databaseId: string | undefined): Promise<CYBMOKStoreStatus> {
-    const avID = databaseId?.trim();
-    if (!avID) {
-        return createStatus(false, "请先在组件设置中填写木鱼数据库 ID");
-    }
-
-    const store = await loadCYBMOKStore(avID);
-    if (!store) {
-        return createStatus(false, "无法读取木鱼数据库，请检查数据库 ID", avID);
-    }
-
-    return store.status;
-}
-
-function parseCYBMOKRows(store: CYBMOKStore): Array<{ itemID: string; date: string; count: number }> {
-    return groupRows(store.av).map((row) => {
-        const date = readCYBMOKRowDate(row, store);
-        const count = Math.max(0, Number(readRowField(row, store.keys.count)) || 0);
-        return { itemID: row.itemID, date, count };
-    });
-}
-
-function findRowByDate(store: CYBMOKStore, date: string): CYBMOKRow | null {
-    if (!store.status.ok) return null;
-    return groupRows(store.av).find((row) => {
-        const rowDate = readCYBMOKRowDate(row, store);
-        return rowDate === date;
-    }) || null;
-}
-
-export async function loadCYBMOKStats(databaseId: string | undefined): Promise<CYBMOKStats> {
-    const status = await getCYBMOKStoreStatus(databaseId);
-    if (!status.ok) {
-        return { totalMerit: 0, maxMeritDate: { date: "暂无", count: 0 } };
-    }
-
-    const store = await loadCYBMOKStore(databaseId);
-    if (!store || !store.status.ok) {
-        return { totalMerit: 0, maxMeritDate: { date: "暂无", count: 0 } };
-    }
-
-    const rows = parseCYBMOKRows(store);
-
-    const dateAgg = new Map<string, number>();
-    for (const row of rows) {
-        const key = row.date || "";
-        const prev = dateAgg.get(key) || 0;
-        dateAgg.set(key, prev + row.count);
-    }
-
-    let totalMerit = 0;
-    let maxDate = "";
-    let maxCount = 0;
-
-    for (const [date, count] of dateAgg) {
-        totalMerit += count;
-        if (count > maxCount) {
-            maxCount = count;
-            maxDate = date;
-        }
-    }
-
-    const formattedDate =
-        maxDate.length === 8
-            ? `${maxDate.slice(0, 4)}年${maxDate.slice(4, 6)}月${maxDate.slice(6, 8)}日`
-            : maxDate || "暂无";
-
+export function createEmptyCYBMOKRecordsFile(): CYBMOKRecordsFile {
     return {
-        totalMerit,
-        maxMeritDate: { date: formattedDate, count: maxCount },
+        schema: CYBMOK_RECORDS_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        records: [],
     };
 }
 
-export async function recordCYBMOKKnock(databaseId: string | undefined, dateStr: string): Promise<void> {
-    const store = await loadCYBMOKStore(databaseId);
-    if (!store || !store.status.ok) {
-        throw new Error(store?.status.message || "木鱼数据库不可用");
+export function normalizeCYBMOKRecordsFile(raw: unknown): CYBMOKRecordsFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("木鱼旧记录结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== CYBMOK_RECORDS_SCHEMA || value.version !== SHARED_WIDGET_DATA_VERSION) {
+        throw new Error("木鱼旧记录 schema 或 version 不受支持");
     }
-
-    const now = new Date().toISOString();
-    const existingRow = findRowByDate(store, dateStr);
-
-    const titleKeyID = store.keys.title.key.id;
-    const dateKeyID = store.keys.date.key.id;
-    const sameKeyID = titleKeyID === dateKeyID;
-
-    if (sameKeyID) {
-        console.warn("[cybmokData] title/date 使用同一数据库列，已自动去重写入", {
-            databaseId: store.avID,
-            dateStr,
-        });
-    }
-
-    if (existingRow && existingRow.itemID) {
-        const currentCount = Math.max(0, Number(readRowField(existingRow, store.keys.count)) || 0);
-        const expectedCount = currentCount + 1;
-        const rowID = getRowID(existingRow);
-        const countCellID = getCellID(existingRow, store.keys.count.key.id);
-        const updatedAtCellID = getCellID(existingRow, store.keys.updatedAt.key.id);
-
-        try {
-            await setAttributeViewBlockAttrWithCellChecked({
-                avID: store.avID,
-                keyID: store.keys.count.key.id,
-                rowID,
-                cellID: countCellID,
-                value: createSetNumberValue(String(expectedCount)),
-            });
-            await setAttributeViewBlockAttrWithCellChecked({
-                avID: store.avID,
-                keyID: store.keys.updatedAt.key.id,
-                rowID,
-                cellID: updatedAtCellID,
-                value: createSetTextValue(now),
-            });
-        } catch (e) {
-            console.warn("[cybmokData] 更新已有行失败，fallback append 新行", {
-                databaseId: store.avID,
-                dateStr,
-                existingRow: existingRow.itemID,
-            }, e);
-            const valueEntries = createCYBMOKValueEntries(store, dateStr, expectedCount, now);
-            await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [valueEntries]);
-        }
-
-        const refreshedStore = await loadCYBMOKStore(databaseId);
-        if (!refreshedStore || !refreshedStore.status.ok) {
-            throw new Error("木鱼数据库写入后重新加载失败");
-        }
-        const refreshedRow = findRowByDate(refreshedStore, dateStr);
-        if (!refreshedRow) {
-            console.warn("[cybmokData] 木鱼数据库写入后校验失败：读不到当天行", {
-                databaseId: store.avID,
-                dateStr,
-                expected: expectedCount,
-            });
-            throw new Error("木鱼数据库写入后校验失败");
-        }
-        const refreshedCount = Math.max(0, Number(readRowField(refreshedRow, refreshedStore.keys.count)) || 0);
-        if (refreshedCount < expectedCount) {
-            console.warn("[cybmokData] 木鱼数据库写入后校验失败：count 不达标", {
-                avID: store.avID,
-                rowID: refreshedRow.itemID,
-                cellID: getCellID(refreshedRow, refreshedStore.keys.count.key.id),
-                keyID: refreshedStore.keys.count.key.id,
-                expected: expectedCount,
-                actual: refreshedCount,
-            });
-            throw new Error("木鱼数据库写入后校验失败");
-        }
-        return;
-    }
-
-    const valueEntries = createCYBMOKValueEntries(store, dateStr, 1, now);
-    await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [valueEntries]);
-
-    const refreshedStore = await loadCYBMOKStore(databaseId);
-    if (!refreshedStore || !refreshedStore.status.ok) {
-        throw new Error("木鱼数据库写入后重新加载失败");
-    }
-    const refreshedRow = findRowByDate(refreshedStore, dateStr);
-    if (!refreshedRow) {
-        console.warn("[cybmokData] 木鱼数据库写入后校验失败：读不到当天行", {
-            databaseId: store.avID,
-            dateStr,
-            expected: 1,
-        });
-        throw new Error("木鱼数据库写入后校验失败");
-    }
-
-    const refreshedRowID = getRowID(refreshedRow);
-    const refreshedCountCellID = getCellID(refreshedRow, refreshedStore.keys.count.key.id);
-    await setAttributeViewBlockAttrWithCellChecked({
-        avID: refreshedStore.avID,
-        keyID: refreshedStore.keys.count.key.id,
-        rowID: refreshedRowID,
-        cellID: refreshedCountCellID,
-        value: createSetNumberValue("1"),
+    if (!Array.isArray(value.records)) throw new Error("木鱼旧记录列表无效");
+    const records = value.records.map((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("木鱼旧记录项无效");
+        const row = item as Record<string, unknown>;
+        const date = toLocalCYBMOKDate(row.date);
+        if (!date) throw new Error("木鱼旧记录日期无效");
+        return {
+            date,
+            count: finiteCount(row.count),
+            createdAt: typeof row.createdAt === "string" ? row.createdAt : "",
+            updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : "",
+        };
     });
+    return {
+        schema: CYBMOK_RECORDS_SCHEMA,
+        version: SHARED_WIDGET_DATA_VERSION,
+        revision: finiteCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        records,
+        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
+    };
+}
 
-    const finalStore = await loadCYBMOKStore(databaseId);
-    if (!finalStore || !finalStore.status.ok) {
-        throw new Error("木鱼数据库写入后重新加载失败");
+export function createEmptyCYBMOKIndexFile(): CYBMOKIndexFile {
+    return {
+        schema: CYBMOK_INDEX_SCHEMA,
+        version: CYBMOK_INDEX_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        years: [],
+        yearBatchCounts: {},
+        yearKnockCounts: {},
+        dailyTotals: {},
+        totalKnocks: 0,
+        totalBatches: 0,
+        maxDay: { localDate: "", count: 0 },
+    };
+}
+
+export function createEmptyCYBMOKBatchesYearFile(year: number): CYBMOKBatchesYearFile {
+    return {
+        schema: CYBMOK_BATCHES_SCHEMA,
+        version: CYBMOK_BATCH_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        year,
+        batches: [],
+    };
+}
+
+export function normalizeCYBMOKIndexFile(raw: unknown): CYBMOKIndexFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("木鱼索引结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== CYBMOK_INDEX_SCHEMA || value.version !== CYBMOK_INDEX_VERSION
+        || !Array.isArray(value.years) || !value.yearBatchCounts || typeof value.yearBatchCounts !== "object"
+        || !value.yearKnockCounts || typeof value.yearKnockCounts !== "object"
+        || !value.dailyTotals || typeof value.dailyTotals !== "object") {
+        throw new Error("木鱼索引 schema、version 或内容无效");
     }
-    const finalRow = findRowByDate(finalStore, dateStr);
-    if (!finalRow) {
-        console.warn("[cybmokData] 木鱼数据库写入后校验失败：读不到当天行", {
-            databaseId: store.avID,
-            dateStr,
-            expected: 1,
-        });
-        throw new Error("木鱼数据库写入后校验失败");
+    const years = Array.from(new Set(value.years.map(Number)
+        .filter((year) => Number.isInteger(year) && year >= 1900 && year <= 9999))).sort();
+    const yearBatchCounts: Record<string, number> = {};
+    const yearKnockCounts: Record<string, number> = {};
+    for (const year of years) {
+        yearBatchCounts[String(year)] = finiteCount((value.yearBatchCounts as Record<string, unknown>)[String(year)]);
+        yearKnockCounts[String(year)] = finiteCount((value.yearKnockCounts as Record<string, unknown>)[String(year)]);
     }
-    const finalCount = Math.max(0, Number(readRowField(finalRow, finalStore.keys.count)) || 0);
-    if (finalCount < 1) {
-        console.warn("[cybmokData] 木鱼数据库写入后校验失败：count 不达标", {
-            avID: store.avID,
-            rowID: finalRow.itemID,
-            cellID: getCellID(finalRow, finalStore.keys.count.key.id),
-            keyID: finalStore.keys.count.key.id,
-            expected: 1,
-            actual: finalCount,
-        });
-        throw new Error("木鱼数据库写入后校验失败");
+    const dailyTotals: Record<string, number> = {};
+    for (const [date, count] of Object.entries(value.dailyTotals as Record<string, unknown>)) {
+        const localDate = toLocalCYBMOKDate(date);
+        if (localDate) dailyTotals[localDate] = finiteCount(count);
+    }
+    const rawMax = value.maxDay && typeof value.maxDay === "object" ? value.maxDay as Record<string, unknown> : {};
+    return {
+        schema: CYBMOK_INDEX_SCHEMA,
+        version: CYBMOK_INDEX_VERSION,
+        revision: finiteCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        years,
+        yearBatchCounts,
+        yearKnockCounts,
+        dailyTotals,
+        totalKnocks: finiteCount(value.totalKnocks),
+        totalBatches: finiteCount(value.totalBatches),
+        maxDay: { localDate: toLocalCYBMOKDate(rawMax.localDate), count: finiteCount(rawMax.count) },
+        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
+    };
+}
+
+function normalizeCYBMOKBatch(raw: unknown, expectedYear: number): CYBMOKBatchRecord {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("木鱼批次记录无效");
+    const value = raw as Record<string, unknown>;
+    const text = (key: string) => typeof value[key] === "string" ? String(value[key]).trim() : "";
+    const id = text("id");
+    const localDate = toLocalCYBMOKDate(value.localDate);
+    const count = finiteCount(value.count);
+    if (!id || !localDate || Number(localDate.slice(0, 4)) !== expectedYear || count <= 0) {
+        throw new Error("木鱼批次关键字段无效");
+    }
+    if (value.kind === "legacy-daily" && value.source === "legacy-daily") {
+        if (text("startedAt") || text("endedAt")) throw new Error("木鱼旧每日记录不得伪造时间");
+        return { id, kind: "legacy-daily", localDate, startedAt: "", endedAt: "", count, source: "legacy-daily" };
+    }
+    const startedAt = text("startedAt");
+    const endedAt = text("endedAt");
+    if (value.kind !== "batch" || value.source !== "runtime" || !Number.isFinite(Date.parse(startedAt))
+        || !Number.isFinite(Date.parse(endedAt))) {
+        throw new Error("木鱼运行批次结构无效");
+    }
+    return { id, kind: "batch", localDate, startedAt, endedAt, count, source: "runtime" };
+}
+
+export function normalizeCYBMOKBatchesYearFile(raw: unknown, expectedYear: number): CYBMOKBatchesYearFile {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("木鱼年度批次结构无效");
+    const value = raw as Record<string, unknown>;
+    if (value.schema !== CYBMOK_BATCHES_SCHEMA || value.version !== CYBMOK_BATCH_VERSION
+        || value.year !== expectedYear || !Array.isArray(value.batches)) {
+        throw new Error("木鱼年度批次 schema、version 或 year 无效");
+    }
+    const batches = value.batches.map((item) => normalizeCYBMOKBatch(item, expectedYear));
+    if (new Set(batches.map((batch) => batch.id)).size !== batches.length) throw new Error("木鱼年度批次存在重复 ID");
+    return {
+        schema: CYBMOK_BATCHES_SCHEMA,
+        version: CYBMOK_BATCH_VERSION,
+        revision: finiteCount(value.revision),
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+        year: expectedYear,
+        batches,
+    };
+}
+
+function batchEquals(left: CYBMOKBatchRecord | undefined, right: CYBMOKBatchRecord): boolean {
+    return Boolean(left && left.id === right.id && left.kind === right.kind && left.localDate === right.localDate
+        && left.startedAt === right.startedAt && left.endedAt === right.endedAt
+        && left.count === right.count && left.source === right.source);
+}
+
+export function validateCYBMOKYearFile(actual: CYBMOKBatchesYearFile, expected: CYBMOKBatchesYearFile): void {
+    const actualById = new Map(actual.batches.map((batch) => [batch.id, batch]));
+    if (actual.batches.length !== expected.batches.length
+        || expected.batches.some((batch) => !batchEquals(actualById.get(batch.id), batch))) {
+        throw new Error(`木鱼 ${expected.year} 年批次写入后校验失败`);
     }
 }
 
-export async function migrateLegacyCYBMOKIfNeeded(databaseId: string | undefined, plugin: any): Promise<void> {
-    if (!databaseId?.trim()) return;
-
-    const pluginName = plugin?.name || "siyuan-homepage";
-    const storageDir = `data/storage/petal/${pluginName}`;
-    const legacyFileName = "CYBMOKData.json";
-
-    let fileExists = false;
-    try {
-        const dirEntries = await readDir(storageDir);
-        fileExists = Array.isArray(dirEntries) && dirEntries.some(
-            (entry: any) => entry?.name === legacyFileName
-        );
-    } catch {
-        return;
+export function validateCYBMOKIndex(actual: CYBMOKIndexFile, expected: CYBMOKIndexFile): void {
+    const dates = Object.keys(expected.dailyTotals);
+    if (actual.years.length !== expected.years.length
+        || expected.years.some((year, index) => actual.years[index] !== year
+            || actual.yearBatchCounts[String(year)] !== expected.yearBatchCounts[String(year)]
+            || actual.yearKnockCounts[String(year)] !== expected.yearKnockCounts[String(year)])
+        || Object.keys(actual.dailyTotals).length !== dates.length
+        || dates.some((date) => actual.dailyTotals[date] !== expected.dailyTotals[date])
+        || actual.totalKnocks !== expected.totalKnocks || actual.totalBatches !== expected.totalBatches
+        || actual.maxDay.localDate !== expected.maxDay.localDate || actual.maxDay.count !== expected.maxDay.count) {
+        throw new Error("木鱼索引写入后业务数据校验失败");
     }
-    if (!fileExists) return;
+}
 
-    let legacyRaw: any = null;
-    try {
-        legacyRaw = await plugin.loadData(legacyFileName);
-    } catch {
-        return;
+export function createLegacyCYBMOKBatch(localDate: string, count: number): CYBMOKLegacyDailyBatch {
+    const date = toLocalCYBMOKDate(localDate);
+    if (!date || finiteCount(count) <= 0) throw new Error("木鱼旧每日数据无效");
+    return {
+        id: `cybmok-legacy-daily-${date}`,
+        kind: "legacy-daily",
+        localDate: date,
+        startedAt: "",
+        endedAt: "",
+        count: finiteCount(count),
+        source: "legacy-daily",
+    };
+}
+
+export async function listCYBMOKBatchYears(): Promise<number[]> {
+    const years: number[] = [];
+    for (const entry of await readSharedWidgetDirectoryChecked("cybmok")) {
+        const match = entry.name.match(/^cybmok-batches-(\d{4})\.json$/);
+        if (!match) continue;
+        if (entry.isDir) throw new Error(`木鱼年度明细路径不是文件：${entry.name}`);
+        years.push(Number(match[1]));
     }
+    return Array.from(new Set(years)).sort((left, right) => left - right);
+}
 
-    if (!legacyRaw) {
-        try {
-            await removeFile(`${storageDir}/${legacyFileName}`);
-        } catch {
-            console.warn("[cybmokData] 删除空的旧 CYBMOKData.json 失败，不影响使用");
+function calculateCYBMOKMaxDay(dailyTotals: Record<string, number>): CYBMOKMaxDay {
+    return Object.entries(dailyTotals).reduce<CYBMOKMaxDay>((max, [localDate, count]) => (
+        count > max.count || (count === max.count && localDate < max.localDate) ? { localDate, count } : max
+    ), { localDate: "", count: 0 });
+}
+
+function isCYBMOKIndexConsistent(index: CYBMOKIndexFile): boolean {
+    const totalBatches = index.years.reduce(
+        (sum, year) => sum + (index.yearBatchCounts[String(year)] || 0),
+        0,
+    );
+    const yearKnocks = index.years.reduce(
+        (sum, year) => sum + (index.yearKnockCounts[String(year)] || 0),
+        0,
+    );
+    const dailyKnocks = Object.values(index.dailyTotals).reduce((sum, count) => sum + count, 0);
+    const maxDay = calculateCYBMOKMaxDay(index.dailyTotals);
+    return totalBatches === index.totalBatches
+        && yearKnocks === index.totalKnocks
+        && dailyKnocks === index.totalKnocks
+        && maxDay.localDate === index.maxDay.localDate
+        && maxDay.count === index.maxDay.count;
+}
+
+export async function rebuildCYBMOKIndexFromFiles(options: {
+    migration?: SharedWidgetMigrationMetadata;
+    dispatch?: boolean;
+} = {}): Promise<CYBMOKIndexFile> {
+    const existing = await loadSharedJson(CYBMOK_INDEX_FILE, normalizeCYBMOKIndexFile);
+    const years = await listCYBMOKBatchYears();
+    assertSharedWidgetYearFilesComplete(existing?.years || [], years);
+    const yearBatchCounts: Record<string, number> = {};
+    const yearKnockCounts: Record<string, number> = {};
+    const dailyTotals: Record<string, number> = {};
+    let totalKnocks = 0;
+    let totalBatches = 0;
+    for (const year of years) {
+        const file = await loadSharedJson(getCYBMOKBatchesFile(year), (raw) => normalizeCYBMOKBatchesYearFile(raw, year));
+        if (!file) throw new Error(`年度明细文件缺失或尚未同步完成，请检查插件数据后重试：${year}`);
+        const batches = file.batches;
+        yearBatchCounts[String(year)] = batches.length;
+        yearKnockCounts[String(year)] = batches.reduce((sum, batch) => sum + batch.count, 0);
+        totalBatches += batches.length;
+        totalKnocks += yearKnockCounts[String(year)];
+        for (const batch of batches) dailyTotals[batch.localDate] = (dailyTotals[batch.localDate] || 0) + batch.count;
+    }
+    const maxDay = calculateCYBMOKMaxDay(dailyTotals);
+    return mutateSharedJson({
+        store: "cybmok",
+        path: CYBMOK_INDEX_FILE,
+        createEmpty: createEmptyCYBMOKIndexFile,
+        normalize: normalizeCYBMOKIndexFile,
+        mutate: (index) => {
+            index.years = years;
+            index.yearBatchCounts = yearBatchCounts;
+            index.yearKnockCounts = yearKnockCounts;
+            index.dailyTotals = dailyTotals;
+            index.totalKnocks = totalKnocks;
+            index.totalBatches = totalBatches;
+            index.maxDay = maxDay;
+            index.migration = options.migration || existing?.migration;
+        },
+        validate: validateCYBMOKIndex,
+        dispatch: options.dispatch !== false,
+    });
+}
+
+export async function getCYBMOKStoreStatus(): Promise<CYBMOKStoreStatus> {
+    try {
+        await assertSharedWidgetMigrationReady("cybmok");
+        const index = await runSharedWidgetExclusive(CYBMOK_STORE_TRANSACTION_LOCK, loadOrRepairCYBMOKIndex);
+        if (index.migration?.status === "failed") {
+            return { ok: false, missingFields: [], message: "旧数据迁移尚未完成，请重新加载插件后重试。" };
         }
-        return;
+        return {
+            ok: true,
+            missingFields: [],
+            message: index.migration?.cleanupStatus === "pending" ? "旧数据清理待重试" : "本地数据已就绪",
+        };
+    } catch (error) {
+        return { ok: false, missingFields: [], message: error instanceof Error ? error.message : "本地存储不可用" };
     }
+}
 
-    let legacyData: Record<string, number> = {};
-    if (typeof legacyRaw === "string") {
-        try {
-            legacyData = JSON.parse(legacyRaw);
-        } catch {
+export async function loadCYBMOKStats(): Promise<CYBMOKStats> {
+    await assertSharedWidgetMigrationReady("cybmok");
+    const index = await runSharedWidgetExclusive(CYBMOK_STORE_TRANSACTION_LOCK, loadOrRepairCYBMOKIndex);
+    const max = index.maxDay;
+    const formatted = max.localDate
+        ? `${max.localDate.slice(0, 4)}年${max.localDate.slice(5, 7)}月${max.localDate.slice(8, 10)}日`
+        : "暂无";
+    return { totalMerit: index.totalKnocks, maxMeritDate: { date: formatted, count: max.count } };
+}
+
+async function loadOrRepairCYBMOKIndex(options: { dispatch?: boolean } = {}): Promise<CYBMOKIndexFile> {
+    const index = await loadSharedJson(CYBMOK_INDEX_FILE, normalizeCYBMOKIndexFile);
+    if (!index) return rebuildCYBMOKIndexFromFiles({ dispatch: options.dispatch });
+    const years = await listCYBMOKBatchYears();
+    assertSharedWidgetYearFilesComplete(index.years, years);
+    if (!isCYBMOKIndexConsistent(index) || years.some((year) => !index.years.includes(year))) {
+        return rebuildCYBMOKIndexFromFiles({ migration: index.migration, dispatch: options.dispatch });
+    }
+    const currentYear = new Date().getFullYear();
+    for (const year of [currentYear - 1, currentYear]) {
+        const file = await loadSharedJson(
+            getCYBMOKBatchesFile(year),
+            (raw) => normalizeCYBMOKBatchesYearFile(raw, year),
+        );
+        if (years.includes(year) && !file) {
+            throw new Error(`年度明细文件缺失或尚未同步完成，请检查插件数据后重试：${year}`);
+        }
+        const batches = file?.batches || [];
+        const knockCount = batches.reduce((sum, batch) => sum + batch.count, 0);
+        if (batches.length !== (index.yearBatchCounts[String(year)] || 0)
+            || knockCount !== (index.yearKnockCounts[String(year)] || 0)
+            || Boolean(file) !== index.years.includes(year)) {
+            return rebuildCYBMOKIndexFromFiles({ migration: index.migration, dispatch: options.dispatch });
+        }
+    }
+    return index;
+}
+
+async function appendCYBMOKBatches(batches: CYBMOKRuntimeBatch[]): Promise<void> {
+    if (batches.length === 0) return;
+    await runSharedWidgetExclusive(CYBMOK_STORE_TRANSACTION_LOCK, async () => {
+        const index = await loadOrRepairCYBMOKIndex({ dispatch: false });
+        const byYear = new Map<number, CYBMOKRuntimeBatch[]>();
+        const addedBatches: CYBMOKRuntimeBatch[] = [];
+        let indexWasInconsistent = false;
+        for (const batch of batches) {
+            const year = Number(batch.localDate.slice(0, 4));
+            if (!byYear.has(year)) byYear.set(year, []);
+            byYear.get(year)!.push(batch);
+        }
+        for (const [year, yearBatches] of byYear) {
+            let previousBatchCount = 0;
+            let previousKnockCount = 0;
+            await mutateSharedJson({
+                store: "cybmok",
+                path: getCYBMOKBatchesFile(year),
+                createEmpty: () => createEmptyCYBMOKBatchesYearFile(year),
+                normalize: (raw) => normalizeCYBMOKBatchesYearFile(raw, year),
+                mutate: (file) => {
+                    previousBatchCount = file.batches.length;
+                    previousKnockCount = file.batches.reduce((sum, batch) => sum + batch.count, 0);
+                    const ids = new Set(file.batches.map((batch) => batch.id));
+                    for (const batch of yearBatches) {
+                        if (ids.has(batch.id)) continue;
+                        file.batches.push(batch);
+                        ids.add(batch.id);
+                        addedBatches.push(batch);
+                    }
+                },
+                validate: validateCYBMOKYearFile,
+                dispatch: false,
+            });
+            if (previousBatchCount !== (index.yearBatchCounts[String(year)] || 0)
+                || previousKnockCount !== (index.yearKnockCounts[String(year)] || 0)) {
+                indexWasInconsistent = true;
+            }
+        }
+        if (indexWasInconsistent) {
+            await rebuildCYBMOKIndexFromFiles({ migration: index.migration });
             return;
         }
-    } else if (typeof legacyRaw === "object") {
-        legacyData = legacyRaw;
-    }
-
-    const entries = Object.entries(legacyData).filter(
-        ([, count]) => Number(count) > 0
-    );
-
-    if (entries.length === 0) {
+        if (addedBatches.length === 0) return;
         try {
-            await removeFile(`${storageDir}/${legacyFileName}`);
-        } catch {
-            console.warn("[cybmokData] 删除空的旧 CYBMOKData.json 失败，不影响使用");
-        }
-        return;
-    }
-
-    const store = await loadCYBMOKStore(databaseId);
-    if (!store || !store.status.ok) return;
-
-    const now = new Date().toISOString();
-
-    for (const [date, legacyCount] of entries) {
-        const numCount = Math.max(0, Number(legacyCount) || 0);
-        const existingRow = findRowByDate(store, date);
-
-        if (existingRow && existingRow.itemID) {
-            const existingCount = Math.max(0, Number(readRowField(existingRow, store.keys.count)) || 0);
-            if (existingCount >= numCount) continue;
-
-            const finalCount = numCount;
-            const rowID = getRowID(existingRow);
-            const countCellID = getCellID(existingRow, store.keys.count.key.id);
-            const updatedAtCellID = getCellID(existingRow, store.keys.updatedAt.key.id);
-
+            await mutateSharedJson({
+                store: "cybmok",
+                path: CYBMOK_INDEX_FILE,
+                createEmpty: createEmptyCYBMOKIndexFile,
+                normalize: normalizeCYBMOKIndexFile,
+                mutate: (draft) => {
+                    const years = new Set(draft.years);
+                    for (const batch of addedBatches) {
+                        const year = Number(batch.localDate.slice(0, 4));
+                        const yearKey = String(year);
+                        years.add(year);
+                        draft.yearBatchCounts[yearKey] = (draft.yearBatchCounts[yearKey] || 0) + 1;
+                        draft.yearKnockCounts[yearKey] = (draft.yearKnockCounts[yearKey] || 0) + batch.count;
+                        draft.dailyTotals[batch.localDate] = (draft.dailyTotals[batch.localDate] || 0) + batch.count;
+                        draft.totalKnocks += batch.count;
+                        draft.totalBatches += 1;
+                    }
+                    draft.years = Array.from(years).sort();
+                    draft.maxDay = calculateCYBMOKMaxDay(draft.dailyTotals);
+                },
+                validate: validateCYBMOKIndex,
+            });
+        } catch (incrementalError) {
             try {
-                await setAttributeViewBlockAttrWithCellChecked({
-                    avID: store.avID,
-                    keyID: store.keys.count.key.id,
-                    rowID,
-                    cellID: countCellID,
-                    value: createSetNumberValue(String(finalCount)),
-                });
-                await setAttributeViewBlockAttrWithCellChecked({
-                    avID: store.avID,
-                    keyID: store.keys.updatedAt.key.id,
-                    rowID,
-                    cellID: updatedAtCellID,
-                    value: createSetTextValue(now),
-                });
-            } catch {
-                const valueEntries = createCYBMOKValueEntries(store, date, numCount, now);
-                await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [valueEntries]);
+                await rebuildCYBMOKIndexFromFiles({ migration: index.migration });
+            } catch (rebuildError) {
+                throw new Error(`木鱼批次已保存，但索引增量更新和完整重建均失败：${String(incrementalError)}；${String(rebuildError)}`);
             }
-        } else {
-            const valueEntries = createCYBMOKValueEntries(store, date, numCount, now);
-            await appendAttributeViewDetachedBlocksWithValuesChecked(store.avID, [valueEntries]);
         }
-    }
+    });
+}
 
-    try {
-        await removeFile(`${storageDir}/${legacyFileName}`);
-    } catch (err) {
-        console.warn("[cybmokData] 迁移后删除旧 CYBMOKData.json 失败，不影响使用", err);
+function clearIdleTimer(): void {
+    if (!idleTimer) return;
+    clearTimeout(idleTimer);
+    idleTimer = null;
+}
+
+function finalizeActiveBatch(): void {
+    clearIdleTimer();
+    if (!activeBatch) return;
+    pendingBatches.push({
+        id: activeBatch.id,
+        kind: "batch",
+        localDate: activeBatch.localDate,
+        startedAt: activeBatch.startedAt,
+        endedAt: activeBatch.lastKnockAt,
+        count: activeBatch.count,
+        source: "runtime",
+    });
+    activeBatch = null;
+}
+
+async function persistPendingBatches(): Promise<void> {
+    if (flushPromise) return flushPromise;
+    const snapshot = pendingBatches.slice();
+    if (snapshot.length === 0) return;
+    const snapshotIds = new Set(snapshot.map((batch) => batch.id));
+    flushPromise = (async () => {
+        await assertSharedWidgetMigrationReady("cybmok");
+        await appendCYBMOKBatches(snapshot);
+        for (let index = pendingBatches.length - 1; index >= 0; index -= 1) {
+            if (snapshotIds.has(pendingBatches[index].id)) pendingBatches.splice(index, 1);
+        }
+    })().finally(() => {
+        flushPromise = null;
+    });
+    return flushPromise;
+}
+
+function scheduleCYBMOKFlush(): void {
+    clearIdleTimer();
+    idleTimer = setTimeout(() => {
+        idleTimer = null;
+        finalizeActiveBatch();
+        void persistPendingBatches().then(() => {
+            if (pendingBatches.length > 0) return persistPendingBatches();
+        }).catch(reportScheduledFlushFailure);
+    }, 1000);
+}
+
+export function recordCYBMOKKnock(now = new Date()): void {
+    const localDate = getLocalCYBMOKToday(now);
+    const timestamp = toCYBMOKSecondTimestamp(now);
+    if (activeBatch && activeBatch.localDate !== localDate) {
+        finalizeActiveBatch();
+        void persistPendingBatches().catch(reportScheduledFlushFailure);
+    }
+    if (!activeBatch) {
+        batchSequence += 1;
+        activeBatch = {
+            id: `cybmok-batch-${now.getTime()}-${batchSequence}`,
+            localDate,
+            startedAt: timestamp,
+            lastKnockAt: timestamp,
+            count: 0,
+        };
+    }
+    activeBatch.count += 1;
+    activeBatch.lastKnockAt = timestamp;
+    scheduleCYBMOKFlush();
+}
+
+export async function flushPendingCYBMOKKnocks(): Promise<void> {
+    finalizeActiveBatch();
+    while (pendingBatches.length > 0 || flushPromise) {
+        if (flushPromise) await flushPromise;
+        else await persistPendingBatches();
     }
 }
+
+registerSharedWidgetFlusher(flushPendingCYBMOKKnocks);
+
+const handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") void flushPendingCYBMOKKnocks().catch(reportScheduledFlushFailure);
+};
+const handlePageHide = () => {
+    void flushPendingCYBMOKKnocks().catch(reportScheduledFlushFailure);
+};
+if (typeof document !== "undefined") document.addEventListener("visibilitychange", handleVisibilityChange);
+if (typeof window !== "undefined") window.addEventListener("pagehide", handlePageHide);
+registerSharedWidgetCleanup(() => {
+    clearIdleTimer();
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", handleVisibilityChange);
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", handlePageHide);
+});

@@ -1,7 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
-    import { resolveDatabaseIdFromExistingWidgets } from "../sharedDatabaseId";
     import {
         getReviewTargetInfo,
         markReviewTarget,
@@ -21,7 +20,6 @@
         targetId: string;
         targetType: ReviewTargetType;
         mode?: "create" | "edit";
-        databaseId?: string;
         defaultIntervalsText?: string;
         close: () => void;
         onSaved?: () => void;
@@ -32,7 +30,6 @@
         targetId,
         targetType,
         mode = "create",
-        databaseId = "",
         defaultIntervalsText = DEFAULT_REVIEW_INTERVALS_TEXT,
         close,
         onSaved = () => {},
@@ -41,7 +38,6 @@
     let isLoading = $state(true);
     let isSaving = $state(false);
     let targetInfo = $state<ReviewTargetInfo | null>(null);
-    let effectiveDatabaseId = $state("");
     let nextDate = $state(toLocalDateString());
     let plan = $state<Exclude<ReviewPlanType, "">>("manual");
     let intervalsText = $state(DEFAULT_REVIEW_INTERVALS_TEXT);
@@ -53,7 +49,6 @@
 
     onMount(async () => {
         try {
-            effectiveDatabaseId = databaseId;
             intervalsText = defaultIntervalsText || DEFAULT_REVIEW_INTERVALS_TEXT;
             targetInfo = await getReviewTargetInfo(targetId, targetType);
             const attrs = await readCurrentReviewAttrs(targetId);
@@ -66,16 +61,6 @@
                 category = attrs.category || "";
                 priority = attrs.priority || "medium";
                 note = attrs.note || "";
-            }
-
-            if (!effectiveDatabaseId?.trim()) {
-                const resolved = await resolveDatabaseIdFromExistingWidgets(
-                    plugin,
-                    "reviewDocs",
-                    "",
-                    { type: "reviewDocs", data: {} }
-                );
-                effectiveDatabaseId = resolved.databaseId || "";
             }
         } catch (error) {
             showMessage(error instanceof Error ? error.message : "读取复习目标失败", 4000);
@@ -120,17 +105,15 @@
                 ? await updateReviewTarget({
                     targetId,
                     targetType,
-                    databaseId: effectiveDatabaseId,
                     input,
                 })
                 : await markReviewTarget({
                     targetId,
                     targetType,
-                    databaseId: effectiveDatabaseId,
                     input,
                 });
 
-            showMessage(result.logWarning ? `${result.message}，但日志记录失败：${result.logWarning}` : result.message, 4000);
+            showMessage(result.logWarning ? `${result.message}；复习计划已完成，但本地操作日志写入失败：${result.logWarning}` : result.message, 4000);
             onSaved();
             close();
         } catch (error) {

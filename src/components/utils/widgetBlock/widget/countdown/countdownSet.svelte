@@ -16,7 +16,6 @@
             updatedAt?: string;
         }>;
         countdownStyle?: string;
-        countdownDatabaseId?: string;
         // 卡片1配置
         countdownCard1BgSelect?: string;
         countdownCard1RemoteBg?: string;
@@ -30,7 +29,6 @@
     let {
         eventList = $bindable([{ name: "", date: "", anniversary: false }]),
         countdownStyle = $bindable("list1"),
-        countdownDatabaseId = $bindable(""),
         countdownCard1BgSelect = $bindable("remote"),
         countdownCard1RemoteBg = $bindable("https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664"),
         countdownCard1LocalBg = $bindable(""),
@@ -56,21 +54,11 @@
     }
 </script>
 
-<SettingSection title="倒数日数据库">
+<SettingSection title="倒数日数据">
     <SettingRow
-        title="数据库 ID"
-        description="倒数日事件会保存到思源数据库。同一主页空间内的倒数日组件会自动共用已有数据库 ID。"
-    >
-        <input
-            class="control-full"
-            type="text"
-            bind:value={countdownDatabaseId}
-            placeholder="输入倒数日数据库 ID"
-        />
-    </SettingRow>
-    {#if !countdownDatabaseId?.trim()}
-        <div class="database-hint">请先填写数据库 ID，倒数日事件将保存到数据库。</div>
-    {/if}
+        title="本地共享"
+        description="纪念日数据保存在插件本地，并由所有纪念日组件和纪念日通知自动共享。"
+    />
 </SettingSection>
 
 <SettingSection title="倒数日事件">
@@ -210,9 +198,4 @@
         }
     }
 
-    .database-hint {
-        color: var(--b3-theme-secondary);
-        font-size: 12px;
-        line-height: 1.5;
-    }
 </style>

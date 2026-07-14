@@ -15,9 +15,8 @@ export interface CountdownNotifyRule {
 }
 
 export interface CountdownNotifySettings {
-  version: 1;
+  version: 2;
   enabled: boolean;
-  databaseId: string;
   scanIntervalMs: number;
   catchUpWindowMinutes: number;
   maxEventsPerMessage: number;

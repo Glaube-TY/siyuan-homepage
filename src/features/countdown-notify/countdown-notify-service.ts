@@ -3,17 +3,13 @@ import { loadCountdownEvents } from "@/components/utils/widgetBlock/widget/count
 import { formatLocalDate, getAdvanceEvents, getTodayEvents, getUpcomingEvents, shouldRunDailyRuleAt } from "./countdown-notify-rules";
 import { renderAdvanceEventContent, renderTodayEventContent, renderUpcomingDigestContent } from "./countdown-notify-render";
 import { hasCountdownNotifySent, markCountdownNotifySent } from "./countdown-notify-history-store";
-import { resolveEffectiveCountdownDatabaseId } from "./countdown-notify-settings-store";
 import type { CountdownNotifySettings } from "./types";
 
 export async function runCountdownNotifyScan(settings: CountdownNotifySettings, now = new Date()): Promise<void> {
   const enabledRules = settings.rules.filter((r) => r.enabled);
   if (!settings.enabled || enabledRules.length === 0) return;
 
-  const { databaseId } = await resolveEffectiveCountdownDatabaseId(settings);
-  if (!databaseId) return;
-
-  const { events } = await loadCountdownEvents(databaseId);
+  const { events } = await loadCountdownEvents();
   if (events.length === 0) return;
 
   const today = formatLocalDate(now);

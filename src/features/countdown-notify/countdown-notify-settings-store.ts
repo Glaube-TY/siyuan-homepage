@@ -1,6 +1,5 @@
 import { DEFAULT_COUNTDOWN_NOTIFY_SETTINGS, COUNTDOWN_NOTIFY_SETTINGS_CHANGED_EVENT, COUNTDOWN_NOTIFY_SETTINGS_KEY } from "./constants";
 import type { CountdownNotifyRule, CountdownNotifyRuleType, CountdownNotifySettings } from "./types";
-import { resolveDatabaseIdFromExistingWidgets } from "@/components/utils/widgetBlock/widget/sharedDatabaseId";
 
 let pluginInstance: any = null;
 
@@ -76,9 +75,8 @@ export function normalizeCountdownNotifySettings(raw: unknown): CountdownNotifyS
     normalizedRules.push(rule);
   }
   return {
-    version: 1,
+    version: 2,
     enabled: typeof value.enabled === "boolean" ? value.enabled : false,
-    databaseId: typeof value.databaseId === "string" ? value.databaseId.trim() : "",
     scanIntervalMs: clampNumber(value.scanIntervalMs, 60000, 10000, 3600000),
     catchUpWindowMinutes: clampNumber(value.catchUpWindowMinutes, 30, 1, 1440),
     maxEventsPerMessage: clampNumber(value.maxEventsPerMessage, 20, 1, 100),
@@ -105,46 +103,4 @@ export async function saveCountdownNotifySettings(settings: CountdownNotifySetti
     },
   }));
   return normalized;
-}
-
-export async function resolveEffectiveCountdownDatabaseId(
-  settings?: CountdownNotifySettings,
-): Promise<{
-  databaseId: string;
-  source: "manual" | "existing-widget" | "none";
-  sourceWidgetId?: string;
-  message: string;
-}> {
-  if (settings?.databaseId) {
-    return {
-      databaseId: settings.databaseId,
-      source: "manual",
-      message: "当前使用手动指定数据库 ID。",
-    };
-  }
-  if (!pluginInstance) {
-    return { databaseId: "", source: "none", message: "Countdown Notify 尚未初始化。" };
-  }
-  try {
-    const result = await resolveDatabaseIdFromExistingWidgets(pluginInstance, "countdown");
-    if (result.databaseId) {
-      return {
-        databaseId: result.databaseId,
-        source: "existing-widget",
-        sourceWidgetId: result.sourceWidgetId,
-        message: "已从已有倒数日组件检测到数据库。",
-      };
-    }
-    return {
-      databaseId: "",
-      source: "none",
-      message: "未检测到已有倒数日组件，请先添加倒数日组件或手动指定数据库 ID。",
-    };
-  } catch {
-    return {
-      databaseId: "",
-      source: "none",
-      message: "自动检测倒数日数据库失败，请手动指定数据库 ID。",
-    };
-  }
 }

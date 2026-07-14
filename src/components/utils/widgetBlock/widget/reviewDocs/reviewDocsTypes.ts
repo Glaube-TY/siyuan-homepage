@@ -54,7 +54,6 @@ export interface ReviewItem {
 
 export interface ReviewDocsConfig {
     reviewDocsTitle: string;
-    reviewDocsDatabaseId: string;
     reviewDocsLimit: number;
     reviewDocsDefaultView: ReviewView;
     reviewDocsShowFuture: boolean;
@@ -120,7 +119,6 @@ export interface ReviewPlanInput {
 export interface ReviewOperationParams {
     targetId: string;
     targetType: ReviewTargetType;
-    databaseId?: string;
 }
 
 export interface ReviewPlanOperationParams extends ReviewOperationParams {
@@ -174,7 +172,6 @@ export interface ReviewMenuTarget {
 
 export const DEFAULT_REVIEW_DOCS_CONFIG: ReviewDocsConfig = {
     reviewDocsTitle: "📚复习文档",
-    reviewDocsDatabaseId: "",
     reviewDocsLimit: 20,
     reviewDocsDefaultView: "due",
     reviewDocsShowFuture: true,
