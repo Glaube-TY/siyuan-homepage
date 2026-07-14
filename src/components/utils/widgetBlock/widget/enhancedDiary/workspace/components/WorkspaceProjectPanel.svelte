@@ -24,6 +24,7 @@
         onConvertRecordToTask?: (record: EnhancedDiaryProjectRecordIndexItem) => void | Promise<void>;
         onArchiveProject?: (targetId: string) => void;
         onRestoreProject?: (targetId: string) => void;
+        onProjectMoved?: () => void | Promise<void>;
     }
 
     let {
@@ -31,7 +32,7 @@
         workspaceMutationVersion = 0, taskManagementEnabled = true,
         onCreateTask, onOpenTaskCenter, onEditTask, onToggleTask, onDeleteTask,
         onCreateRecord, onEditRecord, onDeleteRecord, onConvertRecordToTask,
-        onArchiveProject, onRestoreProject,
+        onArchiveProject, onRestoreProject, onProjectMoved,
     }: Props = $props();
 </script>
 
@@ -40,5 +41,5 @@
     {workspaceMutationVersion} {taskManagementEnabled}
     {onCreateTask} {onOpenTaskCenter} {onEditTask} {onToggleTask} {onDeleteTask}
     {onCreateRecord} {onEditRecord} {onDeleteRecord} {onConvertRecordToTask}
-    {onArchiveProject} {onRestoreProject}
+    {onArchiveProject} {onRestoreProject} {onProjectMoved}
 />

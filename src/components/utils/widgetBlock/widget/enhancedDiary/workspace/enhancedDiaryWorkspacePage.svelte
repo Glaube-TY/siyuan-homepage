@@ -1916,6 +1916,7 @@
                         onConvertRecordToTask={(item) => openProjectRecordAction(item, convertRecordToTask)}
                         onArchiveProject={(targetId) => void openArchiveProjectForWorkspace(targetId)}
                         onRestoreProject={(targetId) => void restoreProjectForWorkspace(targetId)}
+                        onProjectMoved={() => refreshAfterWorkspaceMutation(true)}
                     />
                 {:else if activeTab === "plans"}
                     <WorkspacePlanPanel

@@ -7,6 +7,7 @@ import DeleteRecordDialog from "./components/DeleteRecordDialog.svelte";
 import MigrateTaskDialog from "./components/MigrateTaskDialog.svelte";
 import ProjectRelationRepairDialog from "./components/ProjectRelationRepairDialog.svelte";
 import ArchiveProjectDialog from "./components/ArchiveProjectDialog.svelte";
+import WorkspaceProjectMoveDialog from "./components/WorkspaceProjectMoveDialog.svelte";
 import type { GenerateTasksPlusTaskInput } from "../../tasksPlus/tasksPlusParser";
 import type { EnhancedDiaryWorkspaceTask } from "./enhancedDiaryWorkspaceTaskService";
 import type { EnhancedDiaryWorkspaceRecord } from "./enhancedDiaryWorkspaceRecordService";
@@ -84,6 +85,13 @@ interface OpenArchiveProjectOptions {
     descendantCount: number;
     pendingTaskCount: number;
     onSelect: (mode: ArchiveProjectActionMode) => ArchiveProjectActionResult | Promise<ArchiveProjectActionResult>;
+    onClose?: () => void;
+}
+
+interface OpenProjectMoveOptions {
+    index: EnhancedDiaryProjectIndexPayload;
+    sourceTargetId: string;
+    onConfirm: (destinationParentTargetId: string) => boolean | Promise<boolean>;
     onClose?: () => void;
 }
 
@@ -242,6 +250,34 @@ export function openArchiveProjectDialog(options: OpenArchiveProjectOptions): vo
                         const result = await onSelect(mode);
                         if (result.accepted) closeDialog();
                         return result;
+                    },
+                    onClose: closeDialog,
+                },
+            });
+        },
+    });
+}
+
+export function openProjectMoveDialog(options: OpenProjectMoveOptions): void {
+    const { index, sourceTargetId, onConfirm, onClose } = options;
+    const { notifyClose } = makeCloseGuard(onClose);
+    let dialogRef: ReturnType<typeof svelteDialog> | null = null;
+    const closeDialog = () => dialogRef?.close();
+    dialogRef = svelteDialog({
+        title: "调整项目归属",
+        width: "620px",
+        callback: notifyClose,
+        constructor: (container: HTMLElement) => {
+            prepareWorkspaceDialogContainer(container);
+            return mount(WorkspaceProjectMoveDialog, {
+                target: container,
+                props: {
+                    index,
+                    sourceTargetId,
+                    onConfirm: async (destinationParentTargetId: string) => {
+                        const accepted = await onConfirm(destinationParentTargetId);
+                        if (accepted) closeDialog();
+                        return accepted;
                     },
                     onClose: closeDialog,
                 },

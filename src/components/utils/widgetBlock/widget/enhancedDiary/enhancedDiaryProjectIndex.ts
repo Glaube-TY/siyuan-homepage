@@ -149,6 +149,32 @@ async function queryProjectNodes(rootIds: string[]): Promise<any[]> {
     return rows;
 }
 
+async function assertNoInterruptedProjectMove(
+    previous: EnhancedDiaryProjectIndexPayload,
+    rootIds: string[],
+): Promise<void> {
+    for (const rootId of rootIds) {
+        const previousNodes = Object.values(previous.nodes).filter((node) => node.rootProjectId === rootId);
+        if (!previousNodes.length) continue;
+        const headings = (await getChildBlocksChecked(rootId)).filter((block) => block.type === "h");
+        const headingById = new Map(headings.map((heading) => [String(heading.id), heading]));
+        const retainedHeadings = previousNodes.map((node) => headingById.get(node.id)).filter(Boolean) as IResGetChildBlock[];
+        if (!retainedHeadings.length) continue;
+        const attrsById = parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(
+            retainedHeadings.map((heading) => String(heading.id)),
+        ));
+        const interrupted = previousNodes.find((node) => {
+            const heading = headingById.get(node.id);
+            const currentLevel = heading ? getEnhancedDiaryHeadingLevel(heading) : null;
+            return Boolean(currentLevel && currentLevel !== node.level &&
+                !hasEnhancedDiaryProjectNodeAttrs(attrsById[node.id]));
+        });
+        if (interrupted) {
+            throw new Error("检测到项目归属调整中断，项目标题仍存在但节点属性尚未恢复；已保留原索引，请从项目中心重试调整。");
+        }
+    }
+}
+
 function buildNodes(rows: any[], roots: Record<string, EnhancedDiaryRootProject>): Record<string, EnhancedDiaryProjectNode> {
     const result: Record<string, EnhancedDiaryProjectNode> = {};
     const grouped = new Map<string, any[]>();
@@ -183,6 +209,7 @@ function buildNodes(rows: any[], roots: Record<string, EnhancedDiaryRootProject>
 async function rebuildInternal(storage: EnhancedDiaryProjectStorageConfig): Promise<ComponentMigrationStatus> {
     const now = new Date().toISOString();
     try {
+        const previous = await readEnhancedDiaryProjectIndex(storage);
         const docs = await listDirectProjectDocs(storage);
         const roots: Record<string, EnhancedDiaryRootProject> = {};
         const rootAttrs = docs.length
@@ -197,6 +224,7 @@ async function rebuildInternal(storage: EnhancedDiaryProjectStorageConfig): Prom
                 ...parseEnhancedDiaryProjectLifecycle(rootAttrs[doc.id]),
             };
         });
+        await assertNoInterruptedProjectMove(previous, Object.keys(roots));
         const rows = await queryProjectNodes(Object.keys(roots));
         const nodes = buildNodes(rows, roots);
         await writeIndex({ ...emptyIndex(storage, docs.length < MAX_ROOT_PROJECTS), roots, nodes });
@@ -259,6 +287,7 @@ async function refreshInternal(
         const changedRootIds = prepared.changedDocs.map((doc) => doc.id).filter((id) => roots[id]);
         let nodes = { ...current.nodes };
         if (changedRootIds.length) {
+            await assertNoInterruptedProjectMove(current, changedRootIds);
             nodes = Object.fromEntries(Object.entries(nodes).filter(([, node]) => !changedRootIds.includes(node.rootProjectId)));
             Object.assign(nodes, buildNodes(await queryProjectNodes(changedRootIds), roots));
         }

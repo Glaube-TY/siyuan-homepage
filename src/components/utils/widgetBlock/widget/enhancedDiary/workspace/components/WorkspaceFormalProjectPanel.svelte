@@ -15,6 +15,8 @@
         EnhancedDiaryProjectCreatedButNotVerifiedError,
         loadEnhancedDiaryProjectIndexForWorkspace,
     } from "../enhancedDiaryWorkspaceProjectService";
+    import { moveEnhancedDiarySubproject } from "../enhancedDiaryWorkspaceProjectMove";
+    import { openProjectMoveDialog } from "../enhancedDiaryWorkspaceDialogs";
     import { rebuildEnhancedDiaryProjectIndex } from "../../enhancedDiaryProjectIndex";
     import {
         loadEnhancedDiaryProjectContent,
@@ -62,13 +64,14 @@
         onConvertRecordToTask?: (record: EnhancedDiaryProjectRecordIndexItem) => void | Promise<void>;
         onArchiveProject?: (targetId: string) => void;
         onRestoreProject?: (targetId: string) => void;
+        onProjectMoved?: () => void | Promise<void>;
     }
     let {
         config, onOpenDoc, tasks = [], onOpenBlock, initialTargetId = "", selectVersion = 0,
         workspaceMutationVersion = 0, taskManagementEnabled = true,
         onCreateTask, onOpenTaskCenter, onEditTask, onToggleTask, onDeleteTask,
         onCreateRecord, onEditRecord, onDeleteRecord, onConvertRecordToTask,
-        onArchiveProject, onRestoreProject,
+        onArchiveProject, onRestoreProject, onProjectMoved,
     }: Props = $props();
 
     const EMPTY_INDEX: EnhancedDiaryProjectIndexPayload = {
@@ -111,6 +114,8 @@
     const selectedRootId = $derived(selectedTarget?.rootProjectId || "");
     const selectedArchived = $derived(isEnhancedDiaryProjectEffectivelyArchived(index, selectedTargetId));
     const selectedUnderArchivedAncestor = $derived(selectedArchived && selectedTarget?.status === "active");
+    const canMoveSelected = $derived(selectedTarget?.kind === "node" && selectedTarget.valid &&
+        isEnhancedDiaryProjectEffectivelyActive(index, selectedTarget.id));
     const storageReady = $derived(isEnhancedDiaryProjectStorageReady(config.projectStorage));
     function directTargetMatchesSelectedLifecycle(projectTargetId: string | undefined): boolean {
         if (!projectTargetId || !selectedTarget) return false;
@@ -256,6 +261,40 @@
     async function selectField(field: EnhancedDiaryProjectContentField): Promise<void> {
         activeField = field;
         await loadField();
+    }
+
+    function openProjectMove(): void {
+        if (!canMoveSelected || !selectedTarget) return;
+        const sourceTargetId = selectedTarget.id;
+        openProjectMoveDialog({
+            index,
+            sourceTargetId,
+            onConfirm: async (destinationParentTargetId) => {
+                if (busy) return false;
+                busy = true;
+                try {
+                    const result = await moveEnhancedDiarySubproject({
+                        storage: config.projectStorage,
+                        sourceTargetId,
+                        destinationParentTargetId,
+                    });
+                    if (result.status !== "success") {
+                        showMessage(result.message, result.status === "partial" ? 6000 : 4500);
+                        if (result.status === "partial") await refresh(sourceTargetId);
+                        return false;
+                    }
+                    await refresh(sourceTargetId);
+                    await onProjectMoved?.();
+                    showMessage("项目归属调整成功", 2500);
+                    return true;
+                } catch (reason) {
+                    showMessage(reason instanceof Error ? reason.message : "项目归属调整失败", 5000);
+                    return false;
+                } finally {
+                    busy = false;
+                }
+            },
+        });
     }
 
     function clearCreateFields(): void {
@@ -457,7 +496,7 @@
                             <button type="button" class:active={projectLifecycleFilter === "all"} onclick={() => void switchProjectLifecycleFilter("all")}>全部</button>
                         </div>
                     </div>
-                    <WorkspaceProjectPicker {index} value={selectedTargetId} allowClear={false} statusFilter={projectLifecycleFilter} preserveSelected={false} onChange={(id) => void selectTarget(id)} />
+                    <WorkspaceProjectPicker {index} value={selectedTargetId} allowClear={false} statusFilter={projectLifecycleFilter} preserveSelected={false} expandTree={true} onChange={(id) => void selectTarget(id)} />
                 </aside>
                 <article class="detail-card">
                     {#if selectedTarget}
@@ -465,10 +504,11 @@
                             <div><div class="target-title"><h3>{selectedTarget.title}</h3>{#if selectedArchived}<span class="archive-badge"><WorkspaceProjectIcon name="archive" size={14} />{selectedUnderArchivedAncestor ? "归档分支" : "已归档"}</span>{/if}</div><p>{selectedTarget.pathTitles.join(" / ")}</p><small><WorkspaceProjectIcon name="clock" size={15} />{selectedUnderArchivedAncestor ? "上级项目已归档，当前项目不能新增内容。" : selectedArchived ? `归档时间：${formatArchivedAt(selectedTarget.archivedAt)}` : `最近活动：${analytics.lastActivityDate || "暂无"}`}</small></div>
                         </div>
                         <div class="project-quick-actions" aria-label="当前项目快速操作">
-                            {#if taskManagementEnabled}<button type="button" class="wk-btn wk-btn-secondary" onclick={() => onOpenTaskCenter?.(selectedTargetId)}><WorkspaceProjectIcon name="taskAdd" />进入任务中心</button>{/if}
+                            {#if taskManagementEnabled}<button type="button" class="wk-btn wk-btn-secondary" onclick={() => onOpenTaskCenter?.(selectedTargetId)}><WorkspaceProjectIcon name="tasks" />进入任务中心</button>{/if}
                             {#if !selectedArchived && taskManagementEnabled}<button type="button" class="wk-btn wk-btn-secondary" onclick={() => onCreateTask?.(selectedTargetId)}><WorkspaceProjectIcon name="taskAdd" />新建任务</button>{/if}
                             {#if !selectedArchived}<button type="button" class="wk-btn wk-btn-secondary" onclick={() => onCreateRecord?.(selectedTargetId)}><WorkspaceProjectIcon name="recordAdd" />快速记录</button>{/if}
                             {#if !selectedArchived}<button type="button" class="wk-btn wk-btn-secondary" onclick={openCreateChild} disabled={busy}><WorkspaceProjectIcon name="projectAdd" />新建子项目</button>{/if}
+                            {#if canMoveSelected}<button type="button" class="wk-btn wk-btn-secondary" onclick={openProjectMove} disabled={busy}><WorkspaceProjectIcon name="tree" />调整归属</button>{/if}
                             <button type="button" class="wk-btn wk-btn-secondary" onclick={() => selectedTarget.kind === "node" ? onOpenBlock?.(selectedTarget.id) : onOpenDoc?.(selectedRootId)}><WorkspaceProjectIcon name="open" />{selectedTarget.kind === "node" ? "定位子项目" : "打开项目文档"}</button>
                             {#if selectedArchived}
                                 <button type="button" class="wk-btn wk-btn-secondary" onclick={() => onRestoreProject?.(selectedTargetId)} disabled={busy}><WorkspaceProjectIcon name="restore" />恢复项目</button>
@@ -606,11 +646,12 @@
     .create-card { display: grid; gap: 10px; }
     .create-card > div:first-child { display: grid; gap: 3px; }
     .create-card small, .target-head p, .target-head small, .field-editor p, .state-text { color: var(--wk-ink-muted); }
-    .project-layout { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 14px; }
+    .project-layout { min-width: 0; display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 14px; }
     h3 { margin: 0; color: var(--wk-ink-secondary); }
-    .tree-card { display: grid; align-content: start; gap: 12px; }
+    .tree-card { min-width: 0; max-width: 100%; box-sizing: border-box; display: grid; align-content: start; gap: 12px; }
     .tree-head, .tree-filters, .target-title, .archive-badge { display: flex; align-items: center; gap: 6px; }
-    .tree-head { justify-content: space-between; flex-wrap: wrap; }
+    .tree-head { min-width: 0; max-width: 100%; justify-content: space-between; flex-wrap: wrap; }
+    .tree-filters { min-width: 0; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
     .tree-filters button { min-height: 28px; padding: 4px 7px; font-size: 12px; }
     .tree-filters button.active { color: var(--wk-primary); border-color: var(--wk-primary); background: color-mix(in srgb, var(--wk-primary) 9%, transparent); }
     .target-title { flex-wrap: wrap; }

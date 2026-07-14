@@ -14,12 +14,15 @@
         allowClear?: boolean;
         statusFilter?: "active" | "archived" | "all";
         preserveSelected?: boolean;
+        expandTree?: boolean;
+        selectableTargetIds?: string[];
         onChange: (targetId: string) => void;
     }
 
     let {
         index, value = "", disabled = false, allowClear = true,
-        statusFilter = "active", preserveSelected = true, onChange,
+        statusFilter = "active", preserveSelected = true, expandTree = false,
+        selectableTargetIds, onChange,
     }: Props = $props();
     let collapsed = $state<Set<string>>(new Set());
 
@@ -68,6 +71,7 @@
         return !lifecycleIds || lifecycleIds.has(id);
     }
     function selectable(id: string): boolean {
+        if (selectableTargetIds && !selectableTargetIds.includes(id)) return false;
         if (statusFilter === "all") return true;
         return matchesLifecycle(id) || (preserveSelected && id === value);
     }
@@ -96,7 +100,7 @@
 {/snippet}
 
 <div class="project-picker" class:disabled>
-    <div class="project-tree">
+    <div class="project-tree" class:expanded={expandTree}>
         {#if allowClear}
             <button type="button" class="clear-project" class:selected={!value} disabled={disabled} onclick={() => onChange("")}>不关联项目</button>
         {/if}
@@ -120,18 +124,19 @@
 </div>
 
 <style>
-    .project-picker { display: grid; gap: 8px; }
-    .project-tree { max-height: 280px; overflow: auto; border: 1px solid var(--b3-border-color); border-radius: 8px; padding: 4px; }
+    .project-picker { display: grid; gap: 8px; min-width: 0; max-width: 100%; }
+    .project-tree { max-width: 100%; min-width: 0; box-sizing: border-box; max-height: 280px; overflow: auto; border: 1px solid var(--b3-border-color); border-radius: 8px; padding: 4px; }
+    .project-tree.expanded { max-height: none; overflow-x: hidden; overflow-y: visible; }
     .project-tree p { margin: 0; padding: 12px; color: var(--b3-theme-on-surface); }
-    .project-option { display: flex; align-items: center; padding-left: calc(var(--depth) * 16px); border-radius: 5px; }
+    .project-option { display: flex; align-items: center; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; padding-left: calc(var(--depth) * 16px); border-radius: 5px; }
     .project-option.selected, .clear-project.selected { background: var(--b3-list-hover); color: var(--b3-theme-primary); }
     .tree-toggle, .tree-spacer { width: 26px; height: 30px; flex: 0 0 26px; border: 0; background: transparent; color: var(--b3-theme-on-surface); }
     .tree-toggle, .target-button, .clear-project { cursor: pointer; }
     .target-button, .clear-project { border: 0; background: transparent; color: inherit; text-align: left; }
-    .target-button { flex: 1; min-width: 0; padding: 7px 5px; display: flex; align-items: center; gap: 5px; }
-    .target-button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .target-button { flex: 1; min-width: 0; max-width: 100%; overflow: hidden; padding: 7px 5px; display: flex; align-items: center; gap: 5px; }
+    .target-button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .clear-project { width: 100%; padding: 8px 12px; border-radius: 5px; }
-    .selected-path { color: var(--b3-theme-on-surface); overflow-wrap: anywhere; }
+    .selected-path { min-width: 0; max-width: 100%; color: var(--b3-theme-on-surface); overflow-wrap: anywhere; }
     .target-button.archived { opacity: .66; }
     .target-button.context-only { opacity: .48; cursor: default; }
     .disabled { opacity: .6; }
