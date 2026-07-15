@@ -15,6 +15,10 @@
   } from "../../components/utils/widgetBlock/widget/countdown/countdownData";
   import { collectCountdownTags } from "../../components/utils/widgetBlock/widget/countdown/countdownQuery";
   import {
+    FAVORITES_SORT_OPTIONS,
+    normalizeFavoritesSortOrder,
+  } from "../../components/utils/widgetBlock/widget/favorites/favorites";
+  import {
     clampRecentDocsLimit,
     normalizeRecentDocsSortBy,
     RECENT_DOCS_SORT_OPTIONS,
@@ -160,7 +164,7 @@
       favorites: {
         favoritiesTitle: "💖收藏文档",
         favoritiesDocPrefix: "❤",
-        favoritiesSortOrder: "created",
+        favoritiesSortOrder: "favoritedDesc",
         favoritesNotebookId: "",
         showNoteMeta: true,
         useBuiltinDocIcon: false,
@@ -435,6 +439,12 @@
       );
     }
 
+    if (type === "favorites") {
+      next.favoritiesSortOrder = normalizeFavoritesSortOrder(
+        next.favoritiesSortOrder,
+      );
+    }
+
     return next;
   }
 
@@ -631,8 +641,8 @@
               "💖收藏文档",
             ),
             favoritiesSortOrder: normalizeString(
-              form.favoritiesSortOrder,
-              "created",
+              normalizeFavoritesSortOrder(form.favoritiesSortOrder),
+              "favoritedDesc",
             ),
             showNoteMeta: normalizeBoolean(form.showNoteMeta, true),
             favoritiesDocPrefix: normalizeString(
@@ -1283,10 +1293,9 @@
             key: "favoritiesSortOrder",
             type: "select",
             label: "排序方式",
-            options: [
-              option("created", "按创建时间"),
-              option("updated", "按更新时间"),
-            ],
+            options: FAVORITES_SORT_OPTIONS.map((item) =>
+              option(item.value, item.label),
+            ),
           },
           { key: "showNoteMeta", type: "switch", label: "显示文档信息" },
           {

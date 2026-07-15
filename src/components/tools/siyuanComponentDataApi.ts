@@ -60,6 +60,8 @@ export interface ComponentDocInfo {
     content: string;
     created?: string;
     updated?: string;
+    favoritedAt?: string;
+    favoriteOrder?: number;
     recentTime?: string;
     recentSortBy?: RecentDocsSortBy;
     sort?: number;
@@ -555,7 +557,10 @@ function recentDocRecordToDocInfo(record: any, sortBy: RecentDocsSortBy): Compon
     };
 }
 
-async function hydrateDocBlockFields(docs: ComponentDocInfo[]): Promise<ComponentDocInfo[]> {
+async function hydrateDocBlockFields(
+    docs: ComponentDocInfo[],
+    preferBlockFields = false,
+): Promise<ComponentDocInfo[]> {
     const ids = Array.from(new Set(docs.map((doc) => doc.id).filter(Boolean)));
     if (ids.length === 0) return docs;
     try {
@@ -572,11 +577,17 @@ async function hydrateDocBlockFields(docs: ComponentDocInfo[]): Promise<Componen
         return docs.map((doc) => {
             const row = byId.get(doc.id);
             if (!row) return doc;
+            const blockContent = stripSearchMarks(row?.content);
+            const blockUpdated = normalizeSiyuanTime(row?.updated);
             return {
                 ...doc,
-                content: doc.content || stripSearchMarks(row?.content) || doc.id,
+                content: preferBlockFields
+                    ? blockContent || doc.content || doc.id
+                    : doc.content || blockContent || doc.id,
                 created: normalizeSiyuanTime(row?.created) || doc.created,
-                updated: doc.updated || normalizeSiyuanTime(row?.updated),
+                updated: preferBlockFields
+                    ? blockUpdated || doc.updated
+                    : doc.updated || blockUpdated,
                 sort: Number(row?.sort) || doc.sort,
                 ial: normalizeIal(row?.ial) || doc.ial,
                 box: row?.box || doc.box,
@@ -1903,11 +1914,12 @@ export async function getFavoritesIndexResult(
     void plugin;
     const rows = await readJsonIndex<ComponentDocInfo>(FAVORITES_INDEX_PATH);
     const existing = await filterExistingItems(rows, FAVORITES_INDEX_PATH);
+    const hydrated = await hydrateDocBlockFields(existing, true);
     const filtered = notebookIds.length > 0
-        ? existing.filter((item) => item.box && notebookIds.includes(item.box))
-        : existing;
+        ? hydrated.filter((item) => item.box && notebookIds.includes(item.box))
+        : hydrated;
     if (filtered.length > 0) {
-        return okResult(filtered.sort((a, b) => String(b.updated).localeCompare(String(a.updated))), "index");
+        return okResult(filtered, "index");
     }
     return disabledResult("收藏索引为空，可重新收藏文档，或到主页设置 > 检索管理中迁移旧收藏属性。", "index");
 }
@@ -1915,10 +1927,27 @@ export async function getFavoritesIndexResult(
 export async function mergeFavoriteIndexItems(items: ComponentDocInfo[]): Promise<number> {
     const rows = await readJsonIndex<ComponentDocInfo>(FAVORITES_INDEX_PATH);
     const map = new Map(rows.filter((row) => row?.id).map((row) => [row.id, row]));
+    let nextOrder = rows.reduce(
+        (maximum, row, index) =>
+            Math.max(
+                maximum,
+                Number.isFinite(row.favoriteOrder) ? Number(row.favoriteOrder) : index,
+            ),
+        -1,
+    ) + 1;
     const mergedIds = new Set<string>();
     for (const item of items) {
         if (!item?.id) continue;
-        map.set(item.id, { ...map.get(item.id), ...item });
+        const previous = map.get(item.id);
+        map.set(item.id, {
+            ...previous,
+            ...item,
+            favoriteOrder: Number.isFinite(previous?.favoriteOrder)
+                ? previous?.favoriteOrder
+                : Number.isFinite(item.favoriteOrder)
+                    ? item.favoriteOrder
+                    : nextOrder++,
+        });
         mergedIds.add(item.id);
     }
     await writeJsonIndex(FAVORITES_INDEX_PATH, Array.from(map.values()));
@@ -2072,15 +2101,63 @@ export async function updateFavoriteIndex(docId: string, active: boolean): Promi
     } catch {
         info = {};
     }
-    map.set(docId, {
+    const previous = map.get(docId);
+    const nextOrder = rows.reduce(
+        (maximum, row, index) =>
+            Math.max(
+                maximum,
+                Number.isFinite(row.favoriteOrder) ? Number(row.favoriteOrder) : index,
+            ),
+        -1,
+    ) + 1;
+    const [documentInfo] = await hydrateDocBlockFields([{
+        ...previous,
         id: docId,
         content: info?.rootTitle || docId,
         box: info?.box || "",
         path: info?.path || "",
         icon: info?.rootIcon || "",
-        updated: new Date().toISOString(),
-    });
+        favoritedAt: previous?.favoritedAt || new Date().toISOString(),
+        favoriteOrder: Number.isFinite(previous?.favoriteOrder)
+            ? previous?.favoriteOrder
+            : nextOrder,
+    }], true);
+    if (!documentInfo?.created || !documentInfo.updated) {
+        throw new Error("无法读取文档创建或更新时间，收藏索引未写入");
+    }
+    map.set(docId, documentInfo);
     await writeJsonIndex(FAVORITES_INDEX_PATH, Array.from(map.values()));
+}
+
+export async function reorderFavoriteIndexItems(orderedIds: string[]): Promise<void> {
+    const rows = await readJsonIndex<ComponentDocInfo>(FAVORITES_INDEX_PATH);
+    const byId = new Map(rows.filter((row) => row?.id).map((row) => [row.id, row]));
+    const ids = Array.from(new Set(orderedIds.filter((id) => byId.has(id))));
+    if (ids.length < 1) return;
+    const selectedIds = new Set(ids);
+    const current = rows
+        .map((row, index) => ({ row, index }))
+        .sort(
+            (a, b) =>
+                (Number.isFinite(a.row.favoriteOrder)
+                    ? Number(a.row.favoriteOrder)
+                    : a.index) -
+                    (Number.isFinite(b.row.favoriteOrder)
+                        ? Number(b.row.favoriteOrder)
+                        : b.index),
+        )
+        .map((item) => item.row);
+    let selectedIndex = 0;
+    const reordered = current.map((row) => {
+        if (!selectedIds.has(row.id)) return row;
+        const replacement = byId.get(ids[selectedIndex]);
+        selectedIndex += 1;
+        return replacement || row;
+    });
+    await writeJsonIndex(
+        FAVORITES_INDEX_PATH,
+        reordered.map((row, index) => ({ ...row, favoriteOrder: index })),
+    );
 }
 
 export async function getReviewIndexResult<T = any>(

@@ -1,6 +1,12 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { getLatestFavoritesNotes } from "./favorites";
+    import Sortable from "sortablejs";
+    import { showMessage } from "siyuan";
+    import {
+        favoriteTimeValue,
+        getLatestFavoritesNotes,
+        normalizeFavoritesSortOrder,
+    } from "./favorites";
     import { openDocs } from "@/components/tools/openDocs";
 
     import {
@@ -9,7 +15,12 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
     import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
-    import { ensureFavoritesIndexInitialized } from "@/components/tools/siyuanComponentDataApi";
+    import {
+        ensureFavoritesIndexInitialized,
+        reorderFavoriteIndexItems,
+        type ComponentDocInfo,
+    } from "@/components/tools/siyuanComponentDataApi";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
 
     interface Props {
@@ -23,7 +34,7 @@
     const contentTypeJsonObj = $derived(JSON.parse(contentTypeJson));
     const isMobilePlacement = $derived(placement === "mobile");
 
-    let favoritesNotes: any[] = $state([]);
+    let favoritesNotes: ComponentDocInfo[] = $state([]);
     let favoritesDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
     let favoritesStatusMessage = $state("收藏索引为空，可重新收藏文档，或到主页设置 > 检索管理中迁移旧收藏属性。");
     const favoritiesTitle =
@@ -35,12 +46,17 @@
     const favFloatDocShowTime =
         $derived(contentTypeJsonObj.data?.favFloatDocShowTime || 0.1);
     const useBuiltinDocIcon = $derived(contentTypeJsonObj.data?.useBuiltinDocIcon ?? false);
+    const favoritesSortOrder = $derived(
+        normalizeFavoritesSortOrder(contentTypeJsonObj.data?.favoritiesSortOrder),
+    );
+    let favoritesListElement: HTMLUListElement | null = $state(null);
+    let dragHandleSuppressed = $state(false);
 
     // 组件销毁后丢弃异步 SQL 结果，避免更新已卸载状态
     let isDestroyed = false;
 
     // 获取文档图标（优先内置图标，否则回退到前缀）
-    function getDocIcon(note: any): DocIconResult {
+    function getDocIcon(note: ComponentDocInfo): DocIconResult {
         if (useBuiltinDocIcon) {
             const builtin = resolveBuiltinDocIcon(note);
             if (builtin) return builtin;
@@ -50,19 +66,31 @@
 
     // 时间戳格式化函数
     function formatDate(raw: unknown): string {
-        const value = typeof raw === "string" ? raw : "";
-        if (value.length < 8) return "未知日期";
-
-        const year = value.slice(0, 4);
-        const month = value.slice(4, 6);
-        const day = value.slice(6, 8);
-        return `${year}年${month}月${day}日`;
+        const timestamp = favoriteTimeValue(raw);
+        if (timestamp === null) return "未记录";
+        const date = new Date(timestamp);
+        return `${date.getFullYear()}年${String(date.getMonth() + 1).padStart(2, "0")}月${String(date.getDate()).padStart(2, "0")}日`;
     }
 
     function formatMobileDate(raw: unknown): string {
-        const value = typeof raw === "string" ? raw : "";
-        if (value.length < 8) return "";
-        return `${value.slice(4, 6)}/${value.slice(6, 8)}`;
+        const timestamp = favoriteTimeValue(raw);
+        if (timestamp === null) return "未记录";
+        const date = new Date(timestamp);
+        return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+    }
+
+    function noteMeta(note: ComponentDocInfo): {
+        label: string;
+        mobileLabel: string;
+        value: unknown;
+    } {
+        if (favoritesSortOrder.startsWith("created")) {
+            return { label: "创建时间", mobileLabel: "创建", value: note.created };
+        }
+        if (favoritesSortOrder.startsWith("favorited") || favoritesSortOrder === "manual") {
+            return { label: "收藏时间", mobileLabel: "收藏", value: note.favoritedAt };
+        }
+        return { label: "更新时间", mobileLabel: "更新", value: note.updated };
     }
     
     // 悬浮窗定时器
@@ -81,21 +109,75 @@
         }
     }
 
+    async function loadFavorites(): Promise<void> {
+        const result = await getLatestFavoritesNotes(
+            favoritesSortOrder,
+            contentTypeJsonObj.data?.favoritesNotebookId,
+            useBuiltinDocIcon,
+            plugin,
+        );
+        if (isDestroyed) return;
+        favoritesNotes = result.items;
+        favoritesDataStatus = result.status;
+        favoritesStatusMessage = result.message || favoritesStatusMessage;
+    }
+
+    async function persistManualOrder(
+        next: ComponentDocInfo[],
+        previous: ComponentDocInfo[],
+    ): Promise<void> {
+        favoritesNotes = next;
+        try {
+            await reorderFavoriteIndexItems(next.map((note) => note.id));
+        } catch (error) {
+            favoritesNotes = previous;
+            showMessage(
+                error instanceof Error ? error.message : "收藏文档排序保存失败",
+                4000,
+                "error",
+            );
+        }
+    }
+
+    $effect(() => {
+        const element = favoritesListElement;
+        if (
+            !element ||
+            isMobilePlacement ||
+            favoritesSortOrder !== "manual" ||
+            favoritesNotes.length < 2
+        ) return;
+        const sortable = new Sortable(element, {
+            animation: 150,
+            handle: ".favorites-drag-handle",
+            draggable: ".favorites-item",
+            onStart: () => {
+                dragHandleSuppressed = false;
+            },
+            onEnd: (event) => {
+                dragHandleSuppressed = true;
+                const oldIndex = event.oldIndex;
+                const newIndex = event.newIndex;
+                if (
+                    typeof oldIndex !== "number" ||
+                    typeof newIndex !== "number" ||
+                    oldIndex === newIndex
+                ) return;
+                const previous = [...favoritesNotes];
+                const next = [...favoritesNotes];
+                const [target] = next.splice(oldIndex, 1);
+                next.splice(newIndex, 0, target);
+                void persistManualOrder(next, previous);
+            },
+        });
+        return () => sortable.destroy();
+    });
+
     onMount(() => {
         isDestroyed = false;
         ensureFavoritesIndexInitialized(plugin).finally(() => {
             if (isDestroyed) return;
-            getLatestFavoritesNotes(
-                contentTypeJsonObj.data?.favoritiesSortOrder,
-                contentTypeJsonObj.data?.favoritesNotebookId,
-                useBuiltinDocIcon,
-                plugin,
-            ).then((result) => {
-                if (isDestroyed) return;
-                favoritesNotes = result.items;
-                favoritesDataStatus = result.status;
-                favoritesStatusMessage = result.message || favoritesStatusMessage;
-            });
+            void loadFavorites();
         });
 
         return () => {
@@ -116,8 +198,9 @@
 
         <div class="mobile-favorites-list">
             {#if favoritesNotes.length}
-                {#each favoritesNotes as note}
+                {#each favoritesNotes as note (note.id)}
                     {@const iconResult = getDocIcon(note)}
+                    {@const meta = noteMeta(note)}
                     <button type="button" class="mobile-favorite-row" onclick={() => openDocs(plugin, note.id, 0)}>
                         <span class="mobile-favorite-icon">
                             {#if iconResult.type === "image"}
@@ -130,8 +213,7 @@
                             <strong>{note.content || "无标题文档"}</strong>
                             {#if showNoteMeta}
                                 <small>
-                                    {contentTypeJsonObj.data?.favoritiesSortOrder === "created" ? "创建" : "更新"}
-                                    {formatMobileDate(contentTypeJsonObj.data?.favoritiesSortOrder === "created" ? note.created : note.updated)}
+                                    {meta.mobileLabel} {formatMobileDate(meta.value)}
                                 </small>
                             {/if}
                         </span>
@@ -156,10 +238,29 @@
         <h3 class="widget-title">{favoritiesTitle}</h3>
         <div class="favorites-content-container">
             {#if favoritesNotes.length}
-                <ul class="favorites-list">
-                    {#each favoritesNotes as note}
+                <ul
+                    class="favorites-list"
+                    class:suppress-drag-handle={dragHandleSuppressed}
+                    bind:this={favoritesListElement}
+                >
+                    {#each favoritesNotes as note (note.id)}
                         {@const iconResult = getDocIcon(note)}
-                        <li class="favorites-item">
+                        {@const meta = noteMeta(note)}
+                        <li
+                            class="favorites-item"
+                            data-favorite-id={note.id}
+                            onpointerleave={() => (dragHandleSuppressed = false)}
+                        >
+                            {#if favoritesSortOrder === "manual"}
+                                <div class="favorites-manual-actions">
+                                    <button
+                                        type="button"
+                                        class="favorites-manual-button favorites-drag-handle"
+                                        title="拖动排序"
+                                        aria-label={`拖动 ${note.content || "无标题文档"} 调整顺序`}
+                                    ><SiyuanIcon name="drag" size={14} /></button>
+                                </div>
+                            {/if}
                             <div
                                 class="favorites-item-content"
                                 onkeydown={(e) => {
@@ -218,11 +319,7 @@
                             </div>
                             {#if showNoteMeta}
                                 <div class="note-meta">
-                                    {#if contentTypeJsonObj.data?.favoritiesSortOrder === "created"}
-                                        创建时间：{formatDate(note.created)}
-                                    {:else}
-                                        更新时间：{formatDate(note.updated)}
-                                    {/if}
+                                    {meta.label}：{formatDate(meta.value)}
                                 </div>
                             {/if}
                         </li>
@@ -285,6 +382,7 @@
         }
 
         .favorites-item {
+            position: relative;
             padding: 0.5rem 0.75rem;
             background-color: var(--b3-theme-surface);
             border-radius: 6px;
@@ -298,6 +396,55 @@
                 background-color: var(--b3-list-hover);
                 transform: translateY(-2px);
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            }
+        }
+
+        .favorites-manual-actions {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 2px;
+            border-radius: 6px;
+            background: var(--b3-theme-background);
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            z-index: 1;
+        }
+
+        .favorites-list:not(.suppress-drag-handle)
+            .favorites-item:hover
+            .favorites-manual-actions {
+            opacity: 1;
+        }
+
+        .favorites-manual-button {
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            border: 0;
+            border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            color: var(--b3-theme-on-surface);
+            cursor: pointer;
+
+            &:hover,
+            &:focus-visible {
+                background: var(--b3-list-hover);
+                color: var(--b3-theme-primary);
+            }
+        }
+
+        .favorites-drag-handle {
+            cursor: grab;
+
+            &:active {
+                cursor: grabbing;
             }
         }
 

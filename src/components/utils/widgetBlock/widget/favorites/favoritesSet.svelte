@@ -4,6 +4,10 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import type { NotebookOption } from "../common/componentMigrationTypes";
+    import {
+        FAVORITES_SORT_OPTIONS,
+        normalizeFavoritesSortOrder,
+    } from "./favorites";
 
     interface Props {
         // 收藏文档相关变量
@@ -22,7 +26,7 @@
 
     let {
         favoritiesTitle = $bindable("💖收藏文档"),
-        favoritiesSortOrder = $bindable("created"),
+        favoritiesSortOrder = $bindable("favoritedDesc"),
         showNoteMeta = $bindable(true),
         favoritiesDocPrefix = $bindable("❤"),
         useBuiltinDocIcon = $bindable(false),
@@ -32,6 +36,9 @@
         favFloatDocShowTime = $bindable(0.1),
         notebooks = []
     }: Props = $props();
+    const normalizedSortOrder = $derived(
+        normalizeFavoritesSortOrder(favoritiesSortOrder),
+    );
 </script>
 
 <SettingSection>
@@ -56,10 +63,18 @@
         <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={useBuiltinDocIcon} />
     </SettingRow>
 
-    <SettingRow title="排序方式">
-        <select bind:value={favoritiesSortOrder} class="control-sm">
-            <option value="created">创建时间</option>
-            <option value="updated">更新时间</option>
+    <SettingRow
+        title="排序方式"
+        description="自动排序按所选规则；选择自定义排序后，可在组件中拖动文档"
+    >
+        <select
+            value={normalizedSortOrder}
+            onchange={(event) => (favoritiesSortOrder = event.currentTarget.value)}
+            class="control-md"
+        >
+            {#each FAVORITES_SORT_OPTIONS as option}
+                <option value={option.value}>{option.label}</option>
+            {/each}
         </select>
     </SettingRow>
 

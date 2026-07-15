@@ -138,7 +138,7 @@
 
   // 收藏文档配置
   let favoritiesTitle: string = $state("💖收藏文档");
-  let favoritiesSortOrder: string = $state("created");
+  let favoritiesSortOrder: string = $state("favoritedDesc");
   let showNoteMeta: boolean = $state(true);
   let favoritiesDocPrefix: string = $state("❤");
   let favoritesUseBuiltinDocIcon: boolean = $state(false);
@@ -529,7 +529,8 @@
           parsedData.data?.[0]?.useBuiltinDocIcon ?? false;
       } else if (parsedData.type === "favorites") {
         favoritiesTitle = parsedData.data?.favoritiesTitle || "💖收藏文档";
-        favoritiesSortOrder = parsedData.data?.favoritiesSortOrder || "created";
+        favoritiesSortOrder =
+          parsedData.data?.favoritiesSortOrder || "favoritedDesc";
         showNoteMeta = parsedData.data?.showNoteMeta ?? true;
         favoritiesDocPrefix =
           parsedData.data?.favoritiesDocPrefix || favoritiesDocPrefix;
