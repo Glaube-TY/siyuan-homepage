@@ -9,4 +9,3 @@ export {
 export * from "./countdown-notify-history-store";
 export * from "./countdown-notify-service";
 export * from "./countdown-notify-scheduler";
-export * from "./open-countdown-notify-settings";

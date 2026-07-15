@@ -1597,6 +1597,24 @@ export async function getFileChecked(path: string): Promise<any> {
     return content;
 }
 
+/**
+ * Reads a file without enumerating its parent directory. Only the kernel's
+ * explicit "file does not exist" response is normalized to null; every other
+ * API failure remains an error so damaged or temporarily unavailable data is
+ * never mistaken for an empty file.
+ */
+export async function getFileOrNullChecked(path: string): Promise<any | null> {
+    const content = await getFile(path);
+    if (content === null || content === undefined) {
+        throw new Error(`getFile 返回 null/undefined，路径: ${path}`);
+    }
+    if (content?.code === 404) return null;
+    if (content?.code !== undefined && content.code !== 0) {
+        throw new Error(`[getFile] 思源 API 调用失败：code=${content.code}，msg=${content.msg ?? "(无)"}`);
+    }
+    return content;
+}
+
 // **************************************** Notebrain Agent Built-in Siyuan API wrappers ****************************************
 // These wrappers are intentionally named and scoped. Do not expose a generic /api/* executor to Agent tools.
 

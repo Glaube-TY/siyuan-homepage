@@ -1,98 +1,121 @@
-import type { CountdownEventRecord } from "@/components/utils/widgetBlock/widget/countdown/countdownData";
-import { formatLocalDate } from "@/components/tools/date-utils";
-import type { CountdownNotifyRule } from "./types";
+import type {
+  CountdownEventRecord,
+  CountdownOccurrence,
+} from "@/components/utils/widgetBlock/widget/countdown/countdownTypes";
+import {
+  formatLocalDate,
+  resolveCountdownOccurrence,
+} from "@/components/utils/widgetBlock/widget/countdown/countdownDateEngine";
+import type {
+  CountdownEventNotifyOverride,
+  CountdownNotifyRule,
+  CountdownNotifyRuleScope,
+} from "./types";
 
 export { formatLocalDate };
-
-export function getNextAnniversary(eventDate: string, now: Date): Date {
-  const [m, d] = eventDate.split("-").slice(1).map(Number);
-  const thisYear = new Date(now.getFullYear(), m - 1, d);
-  if (thisYear >= new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
-    return thisYear;
-  }
-  return new Date(now.getFullYear() + 1, m - 1, d);
-}
-
-export function getTargetDate(event: CountdownEventRecord, now: Date): Date | null {
-  try {
-    if (event.anniversary) {
-      return getNextAnniversary(event.date, now);
-    }
-    const d = new Date(event.date + "T00:00:00");
-    if (isNaN(d.getTime())) return null;
-    return d;
-  } catch {
-    return null;
-  }
-}
-
-function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-export function daysBetween(a: Date, b: Date): number {
-  const startA = startOfLocalDay(a);
-  const startB = startOfLocalDay(b);
-  return Math.round((startB.getTime() - startA.getTime()) / 86400000);
-}
-
-export function isToday(date: Date, now: Date): boolean {
-  return date.getFullYear() === now.getFullYear()
-    && date.getMonth() === now.getMonth()
-    && date.getDate() === now.getDate();
-}
-
-export function getTodayEvents(events: CountdownEventRecord[], now: Date): CountdownEventRecord[] {
-  return events.filter((event) => {
-    const target = getTargetDate(event, now);
-    return target !== null && isToday(target, now);
-  });
-}
-
 export interface AdvanceEventMatch {
   event: CountdownEventRecord;
+  occurrence: CountdownOccurrence;
   daysLeft: number;
 }
+export type UpcomingEventMatch = AdvanceEventMatch;
 
-export function getAdvanceEvents(events: CountdownEventRecord[], advanceDays: number[], now: Date): AdvanceEventMatch[] {
+export function matchesCountdownNotifyScope(
+  event: CountdownEventRecord,
+  scope: CountdownNotifyRuleScope,
+): boolean {
+  return (
+    (!scope.categoryIds.length ||
+      Boolean(
+        event.categoryId && scope.categoryIds.includes(event.categoryId),
+      )) &&
+    (!scope.tags.length ||
+      event.tags.some((tag) => scope.tags.includes(tag))) &&
+    (!scope.kinds.length || scope.kinds.includes(event.kind)) &&
+    (!scope.priorities.length || scope.priorities.includes(event.priority)) &&
+    (!scope.eventIds.length || scope.eventIds.includes(event.id))
+  );
+}
+export function overrideMap(
+  overrides: CountdownEventNotifyOverride[],
+): Map<string, CountdownEventNotifyOverride> {
+  return new Map(overrides.map((item) => [item.eventId, item]));
+}
+export function filterEventsForRule(
+  events: CountdownEventRecord[],
+  rule: CountdownNotifyRule,
+  overrides: Map<string, CountdownEventNotifyOverride>,
+): CountdownEventRecord[] {
+  return events.filter((event) => {
+    const override = overrides.get(event.id);
+    if (event.archived || override?.mode === "mute") return false;
+    if (override?.mode === "custom" && rule.type !== "upcoming_digest")
+      return false;
+    if (
+      override?.mode === "custom" &&
+      rule.type === "upcoming_digest" &&
+      !override.includeInDigest
+    )
+      return false;
+    return matchesCountdownNotifyScope(event, rule.scope);
+  });
+}
+export function getTodayEvents(
+  events: CountdownEventRecord[],
+  now: Date,
+): CountdownEventRecord[] {
+  return events.filter(
+    (event) => resolveCountdownOccurrence(event, now)?.daysDelta === 0,
+  );
+}
+export function getAdvanceEvents(
+  events: CountdownEventRecord[],
+  advanceDays: number[],
+  now: Date,
+): AdvanceEventMatch[] {
   const matches: AdvanceEventMatch[] = [];
   for (const event of events) {
-    const target = getTargetDate(event, now);
-    if (!target) continue;
-    const days = daysBetween(now, target);
-    if (days >= 0 && advanceDays.includes(days)) {
-      matches.push({ event, daysLeft: days });
-    }
+    const occurrence = resolveCountdownOccurrence(event, now);
+    if (
+      occurrence &&
+      occurrence.daysDelta >= 0 &&
+      advanceDays.includes(occurrence.daysDelta)
+    )
+      matches.push({ event, occurrence, daysLeft: occurrence.daysDelta });
   }
-  matches.sort((a, b) => a.daysLeft - b.daysLeft);
-  return matches;
+  return matches.sort((a, b) => a.daysLeft - b.daysLeft);
 }
-
-export interface UpcomingEventMatch {
-  event: CountdownEventRecord;
-  daysLeft: number;
-}
-
-export function getUpcomingEvents(events: CountdownEventRecord[], upcomingDays: number, now: Date): UpcomingEventMatch[] {
+export function getUpcomingEvents(
+  events: CountdownEventRecord[],
+  upcomingDays: number,
+  now: Date,
+): UpcomingEventMatch[] {
   const matches: UpcomingEventMatch[] = [];
   for (const event of events) {
-    const target = getTargetDate(event, now);
-    if (!target) continue;
-    const days = daysBetween(now, target);
-    if (days >= 0 && days <= upcomingDays) {
-      matches.push({ event, daysLeft: days });
-    }
+    const occurrence = resolveCountdownOccurrence(event, now);
+    if (
+      occurrence &&
+      occurrence.daysDelta >= 0 &&
+      occurrence.daysDelta <= upcomingDays
+    )
+      matches.push({ event, occurrence, daysLeft: occurrence.daysDelta });
   }
-  matches.sort((a, b) => a.daysLeft - b.daysLeft);
-  return matches;
+  return matches.sort((a, b) => a.daysLeft - b.daysLeft);
 }
-
-export function shouldRunDailyRuleAt(rule: CountdownNotifyRule, now: Date, catchUpWindowMinutes: number): boolean {
+export function shouldRunDailyRuleAt(
+  rule: Pick<CountdownNotifyRule, "time">,
+  now: Date,
+  catchUpWindowMinutes: number,
+): boolean {
   if (!rule.time) return false;
-  const [h, m] = rule.time.split(":").map(Number);
-  const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
-  const diffMs = now.getTime() - target.getTime();
-  return diffMs >= 0 && diffMs <= catchUpWindowMinutes * 60 * 1000;
+  const [hour, minute] = rule.time.split(":").map(Number);
+  const target = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    hour,
+    minute,
+  );
+  const diff = now.getTime() - target.getTime();
+  return diff >= 0 && diff <= catchUpWindowMinutes * 60_000;
 }
-
-

@@ -1,42 +1,57 @@
-import type { AdvanceEventMatch, UpcomingEventMatch } from "./countdown-notify-rules";
-import type { CountdownEventRecord } from "@/components/utils/widgetBlock/widget/countdown/countdownData";
+import {
+  formatCountdownOccurrenceDate,
+  formatCountdownOriginalDate,
+  resolveCountdownOccurrence,
+} from "@/components/utils/widgetBlock/widget/countdown/countdownDateEngine";
+import {
+  DEFAULT_COUNTDOWN_DISPLAY_PREFERENCES,
+  type CountdownDisplayPreferences,
+  type CountdownEventRecord,
+} from "@/components/utils/widgetBlock/widget/countdown/countdownTypes";
+import type {
+  AdvanceEventMatch,
+  UpcomingEventMatch,
+} from "./countdown-notify-rules";
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
+function suffix(event: CountdownEventRecord): string {
+  return event.kind === "birthday"
+    ? "（生日）"
+    : event.kind === "anniversary"
+      ? "（周年纪念）"
+      : "";
 }
-
-export function renderTodayEventContent(event: CountdownEventRecord): string {
-  const dateStr = formatDate(event.date);
-  if (event.anniversary) {
-    return `${event.name} — ${dateStr}（周年纪念）`;
-  }
-  return `${event.name} — ${dateStr}`;
+export function renderTodayEventContent(
+  event: CountdownEventRecord,
+  now = new Date(),
+  preferences: CountdownDisplayPreferences =
+    DEFAULT_COUNTDOWN_DISPLAY_PREFERENCES,
+): string {
+  const occurrence = resolveCountdownOccurrence(event, now);
+  const date = occurrence
+    ? formatCountdownOccurrenceDate(occurrence, preferences)
+    : formatCountdownOriginalDate(event, preferences);
+  return `${event.name} — ${date}${suffix(event)}`;
 }
-
-export function renderAdvanceEventContent(match: AdvanceEventMatch): string {
-  const dateStr = formatDate(match.event.date);
-  const suffix = match.event.anniversary ? "（周年纪念）" : "";
-  return `${match.event.name} — 还有 ${match.daysLeft} 天，日期 ${dateStr}${suffix}`;
+export function renderAdvanceEventContent(
+  match: AdvanceEventMatch,
+  preferences: CountdownDisplayPreferences =
+    DEFAULT_COUNTDOWN_DISPLAY_PREFERENCES,
+): string {
+  return `${match.event.name} — 还有 ${match.daysLeft} 天，日期 ${formatCountdownOccurrenceDate(match.occurrence, preferences)}${suffix(match.event)}`;
 }
-
 export function renderUpcomingDigestContent(
   matches: UpcomingEventMatch[],
   maxEvents: number,
+  preferences: CountdownDisplayPreferences =
+    DEFAULT_COUNTDOWN_DISPLAY_PREFERENCES,
 ): string {
-  const lines: string[] = [];
-  const show = matches.slice(0, maxEvents);
-  for (const m of show) {
-    const label = m.daysLeft === 0 ? "今天" : `还有 ${m.daysLeft} 天`;
-    const suffix = m.event.anniversary ? "（周年）" : "";
-    lines.push(`• ${m.event.name}：${label}，日期 ${formatDate(m.event.date)}${suffix}`);
-  }
-  const remaining = matches.length - show.length;
-  if (remaining > 0) {
+  const shown = matches.slice(0, maxEvents);
+  const lines = shown.map(
+    (match) =>
+      `• ${match.event.name}：${match.daysLeft === 0 ? "今天" : `还有 ${match.daysLeft} 天`}，日期 ${formatCountdownOccurrenceDate(match.occurrence, preferences)}${suffix(match.event)}`,
+  );
+  const remaining = matches.length - shown.length;
+  if (remaining > 0)
     lines.push(`还有 ${remaining} 个事件未展示，请回到思源查看。`);
-  }
   return `共 ${matches.length} 个事件：\n${lines.join("\n")}`;
 }

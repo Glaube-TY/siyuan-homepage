@@ -1,4 +1,4 @@
-import { readDirChecked } from "@/api";
+import { getFileOrNullChecked, readDirChecked } from "@/api";
 import {
     destroySharedWidgetDataEvents,
     dispatchSharedWidgetDataUpdated,
@@ -90,7 +90,7 @@ export async function readSharedWidgetDirectoryChecked(relativeDirectory: string
         ? plugin.name.trim()
         : "siyuan-homepage";
     const segments = [pluginName, ...splitStoragePath(relativeDirectory)];
-    let parentPath = "data/storage/petal";
+    let parentPath = "/data/storage/petal";
 
     for (const segment of segments) {
         const entries = await readDirChecked(parentPath);
@@ -120,33 +120,20 @@ export function assertSharedWidgetYearFilesComplete(indexedYears: number[], actu
     }
 }
 
-async function sharedDataFileExists(path: string): Promise<boolean> {
+function sharedDataFilePath(path: string): string {
     const plugin = getSharedWidgetStoragePlugin();
     const pluginName = typeof plugin?.name === "string" && plugin.name.trim()
         ? plugin.name.trim()
         : "siyuan-homepage";
-    const segments = [pluginName, ...splitStoragePath(path)];
-    let parentPath = "data/storage/petal";
-
-    for (let index = 0; index < segments.length; index += 1) {
-        const entries = await readDirChecked(parentPath);
-        const entry = entries.find((item) => item.name === segments[index]);
-        if (!entry) return false;
-
-        const isLast = index === segments.length - 1;
-        if (isLast) return entry.isDir !== true;
-        if (entry.isDir !== true) {
-            throw new Error(`本地数据目录结构异常，请备份插件数据后处理：${path}`);
-        }
-        parentPath = `${parentPath}/${segments[index]}`;
-    }
-    return false;
+    return `/data/storage/petal/${[pluginName, ...splitStoragePath(path)].join("/")}`;
 }
 
 async function loadRaw(path: string): Promise<unknown> {
-    const raw = await getSharedWidgetStoragePlugin().loadData(path);
-    if (typeof raw === "string" && raw.trim() === "" && !(await sharedDataFileExists(path))) {
-        return null;
+    let raw = await getSharedWidgetStoragePlugin().loadData(path);
+    if (typeof raw === "string" && raw.trim() === "") {
+        const direct = await getFileOrNullChecked(sharedDataFilePath(path));
+        if (direct === null) return null;
+        raw = direct;
     }
     return parseStoredJson(raw, path);
 }

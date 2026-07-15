@@ -13,6 +13,7 @@
         remotePlaceholder?: string;
         uploadLabel?: string;
         previewAlt?: string;
+        embedded?: boolean;
     }
 
     let {
@@ -22,7 +23,8 @@
         localDataUrl = $bindable(null),
         remotePlaceholder = "输入远程图片URL",
         uploadLabel = "上传图片",
-        previewAlt = "图片预览"
+        previewAlt = "图片预览",
+        embedded = false,
     }: Props = $props();
 
     let fileInput: HTMLInputElement | null = $state(null);
@@ -72,8 +74,8 @@
     }
 </script>
 
-<SettingSection title={title}>
-    <SettingRow title="图片来源">
+{#snippet fields()}
+    <SettingRow title={embedded ? title : "图片来源"}>
         <select
             bind:value={source}
             onchange={handleSourceChange}
@@ -114,7 +116,15 @@
             <img src={previewData} alt={previewAlt} />
         </div>
     {/if}
-</SettingSection>
+{/snippet}
+
+{#if embedded}
+    {@render fields()}
+{:else}
+    <SettingSection title={title}>
+        {@render fields()}
+    </SettingSection>
+{/if}
 
 <style lang="scss">
     .image-preview-block {

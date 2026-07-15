@@ -2141,9 +2141,9 @@ export async function removeReviewIndexItem(id: string): Promise<void> {
 async function reviewIndexFileExistsChecked(): Promise<boolean> {
     let rootEntries: IResReadDir[];
     try {
-        rootEntries = await readDirChecked("data/storage/petal");
+        rootEntries = await readDirChecked("/data/storage/petal");
     } catch (error) {
-        throw new Error(`复习索引目录读取失败：data/storage/petal，${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`复习索引目录读取失败：/data/storage/petal，${error instanceof Error ? error.message : String(error)}`);
     }
     const pluginEntry = rootEntries.find((entry) => entry.name === "siyuan-homepage");
     if (!pluginEntry) return false;
@@ -2151,9 +2151,9 @@ async function reviewIndexFileExistsChecked(): Promise<boolean> {
 
     let pluginEntries: IResReadDir[];
     try {
-        pluginEntries = await readDirChecked("data/storage/petal/siyuan-homepage");
+        pluginEntries = await readDirChecked("/data/storage/petal/siyuan-homepage");
     } catch (error) {
-        throw new Error(`复习索引目录读取失败：data/storage/petal/siyuan-homepage，${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`复习索引目录读取失败：/data/storage/petal/siyuan-homepage，${error instanceof Error ? error.message : String(error)}`);
     }
     const indexEntry = pluginEntries.find((entry) => entry.name === "review-index.json");
     if (!indexEntry) return false;

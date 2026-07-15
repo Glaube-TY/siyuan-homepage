@@ -16,8 +16,26 @@ async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
     return { ok: false, intervalMs: 60000 };
   }
   const enabledRules = countdownSettings.rules.filter((rule) => rule.enabled && rule.deliveryTargets.length > 0);
+  const activeCustomOverrides = countdownSettings.eventOverrides.filter(
+    (override) =>
+      override.mode === "custom" &&
+      override.deliveryTargets.length > 0 &&
+      (override.remindOnDay ||
+        override.advanceDays.some(
+          (day) => Number.isInteger(day) && day > 0,
+        )),
+  );
+  const deliveryTargets = [
+    ...enabledRules.flatMap((rule) => rule.deliveryTargets),
+    ...activeCustomOverrides.flatMap(
+      (override) => override.deliveryTargets,
+    ),
+  ];
   return {
-    ok: countdownSettings.enabled && enabledRules.length > 0 && await hasResolvableTargetsForCurrentRuntime(enabledRules.flatMap((rule) => rule.deliveryTargets)),
+    ok:
+      countdownSettings.enabled &&
+      deliveryTargets.length > 0 &&
+      (await hasResolvableTargetsForCurrentRuntime(deliveryTargets)),
     intervalMs: countdownSettings.scanIntervalMs,
   };
 }

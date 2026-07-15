@@ -1,709 +1,799 @@
 <script lang="ts">
-    import { onDestroy, onMount } from "svelte";
-    import { showMessage } from "siyuan";
-    import { getImage } from "@/components/tools/getImage";
-    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
-    import {
-        loadCountdownEvents,
-        type CountdownEventRecord,
-    } from "./countdownData";
-    import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
-
-    function parseContentTypeJson(raw: string): any {
-        try {
-            return JSON.parse(raw || "{}");
-        } catch (err) {
-            console.warn("[countdown] 解析 contentTypeJson 失败", err);
-            return {};
-        }
+  import { onMount } from "svelte";
+  import { showMessage } from "siyuan";
+  import { getImage } from "@/components/tools/getImage";
+  import { openDocs } from "@/components/tools/openDocs";
+  import { openCountdownCenterDialog } from "@/features/countdown-center";
+  import {
+    DEFAULT_COUNTDOWN_DISPLAY_PREFERENCES,
+    loadCountdownCenterData,
+    COUNTDOWN_PRIORITY_LABELS,
+    type CountdownCategoryRecord,
+    type CountdownDisplayPreferences,
+    type CountdownEventRecord,
+    type CountdownEventViewModel,
+  } from "./countdownData";
+  import {
+    loadCountdownCenterSettings,
+    normalizeCountdownWidgetView,
+    subscribeCountdownCenterSettingsChanged,
+    type CountdownCenterSettingsFile,
+  } from "./countdownCenterSettings";
+  import {
+    queryCountdownWidgetEvents,
+    resolveCountdownDisplayPreferences,
+  } from "./countdownQuery";
+  import {
+    createCountdownDayBoundaryWatcher,
+    formatCountdownDisplayDate,
+  } from "./countdownDateEngine";
+  import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
+  import CountdownIcon from "@/features/countdown-center/components/CountdownIcon.svelte";
+  import CountdownCardSvg from "./CountdownCardSvg.svelte";
+  interface Props {
+    plugin: any;
+    contentTypeJson?: string;
+  }
+  let { plugin, contentTypeJson = "{}" }: Props = $props();
+  const advancedEnabled = $derived(Boolean(plugin?.ADVANCED));
+  function parse(raw: string): any {
+    try {
+      return JSON.parse(raw || "{}");
+    } catch (error) {
+      console.warn("[countdown] 组件配置解析失败", error);
+      return {};
     }
-
-    interface Props {
-        plugin: any;
-        contentTypeJson?: string;
+  }
+  const config = $derived(parse(contentTypeJson));
+  const legacyStyle = $derived(config.data?.countdownStyle || "list1");
+  const displaySystem = $derived(
+    config.data?.countdownDisplaySystem === "classic" ||
+      config.data?.countdownDisplaySystem === "center"
+      ? config.data.countdownDisplaySystem
+      : config.data?.countdownView
+        ? "center"
+        : "classic",
+  );
+  const normalizedView = $derived(
+    normalizeCountdownWidgetView(config.data?.countdownView, legacyStyle),
+  );
+  const view = $derived({
+    ...normalizedView,
+    viewMode:
+      displaySystem === "classic"
+        ? legacyStyle === "list2"
+          ? "compact"
+          : legacyStyle === "card1" || legacyStyle === "card2"
+            ? "cards"
+            : "list"
+        : normalizedView.viewMode,
+  } as typeof normalizedView);
+  let events = $state<CountdownEventRecord[]>([]);
+  let categories = $state<CountdownCategoryRecord[]>([]);
+  let settings = $state<CountdownCenterSettingsFile | null>(null);
+  let loading = $state(true);
+  let error = $state("");
+  let currentId = $state("");
+  let cardIndex = $state(0);
+  let cardScroller = $state<HTMLElement | null>(null);
+  let root = $state<HTMLElement | null>(null);
+  let visible = $state(true);
+  let touched = $state(false);
+  let bg = $state("");
+  const CLASSIC_DISPLAY_PREFERENCES: CountdownDisplayPreferences = {
+    ...DEFAULT_COUNTDOWN_DISPLAY_PREFERENCES,
+    showWeekday: false,
+    showOccurrenceDate: false,
+    showLunarDate: false,
+    showCategory: false,
+    showTags: false,
+    showPriority: false,
+    showCountLabel: false,
+    showNotePreview: false,
+    showLinkedNoteAction: false,
+  };
+  const preferences = $derived(
+    displaySystem === "classic" && view.viewMode !== "cards"
+      ? CLASSIC_DISPLAY_PREFERENCES
+      : resolveCountdownDisplayPreferences(view, settings?.displayDefaults),
+  );
+  const models = $derived(
+    settings
+      ? queryCountdownWidgetEvents(
+          events,
+          categories,
+          view,
+          new Date(),
+          preferences,
+        )
+      : [],
+  );
+  const currentIndex = $derived(
+    Math.max(
+      0,
+      models.findIndex((item) => item.event.id === currentId),
+    ),
+  );
+  const timeline = $derived.by(() => {
+    const groups = new Map<string, CountdownEventViewModel[]>();
+    for (const model of models) {
+      const key = model.relativeLabel;
+      groups.set(key, [...(groups.get(key) ?? []), model]);
     }
-
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
-    const parsed = $derived(parseContentTypeJson(contentTypeJson));
-
-    let countdownEvents = $state<CountdownEventRecord[]>([]);
-    let countdownStyle = $derived(parsed.data?.countdownStyle || "list1");
-    let databaseStatusMessage = $state("");
-    let isLoadingEvents = $state(true);
-    let unsubscribeDataUpdated: (() => void) | null = null;
-
-    const defaultCard1RemoteBg =
+    return [...groups.entries()];
+  });
+  async function reload() {
+    const previous = currentId;
+    try {
+      const [data, loadedSettings] = await Promise.all([
+        loadCountdownCenterData(),
+        loadCountdownCenterSettings(),
+      ]);
+      events = data.events;
+      categories = data.categories;
+      settings = loadedSettings;
+      error = "";
+      const refreshed = queryCountdownWidgetEvents(
+        data.events,
+        data.categories,
+        view,
+        new Date(),
+        resolveCountdownDisplayPreferences(
+          view,
+          loadedSettings.displayDefaults,
+        ),
+      );
+      currentId = refreshed.some((item) => item.event.id === previous)
+        ? previous
+        : refreshed[0]?.event.id || "";
+      cardIndex = Math.max(
+        0,
+        refreshed.findIndex((item) => item.event.id === currentId),
+      );
+    } catch (value) {
+      error = value instanceof Error ? value.message : "纪念日数据读取失败";
+      showMessage("纪念日数据加载失败，原文件未被覆盖", 4000, "error");
+    } finally {
+      loading = false;
+    }
+  }
+  function openEvent(model: CountdownEventViewModel) {
+    void openCountdownCenterDialog(plugin, {
+      initialTab: "events",
+      eventId: model.event.id,
+    });
+  }
+  function openLinked(event: MouseEvent, model: CountdownEventViewModel) {
+    event.stopPropagation();
+    if (model.event.linkedBlockId)
+      openDocs(plugin, model.event.linkedBlockId, 0);
+  }
+  function go(index: number) {
+    if (!models.length) return;
+    cardIndex = (index + models.length) % models.length;
+    currentId = models[cardIndex].event.id;
+    cardScroller?.children[cardIndex]?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }
+  function syncCard() {
+    if (!cardScroller) return;
+    const width = cardScroller.clientWidth || 1;
+    const index = Math.max(
+      0,
+      Math.min(models.length - 1, Math.round(cardScroller.scrollLeft / width)),
+    );
+    if (index !== cardIndex) {
+      cardIndex = index;
+      currentId = models[index]?.event.id || "";
+    }
+  }
+  function formatWidgetDate(model: CountdownEventViewModel): string {
+    return formatCountdownDisplayDate(
+      model.event,
+      model.occurrence,
+      preferences,
+    );
+  }
+  function compactDays(model: CountdownEventViewModel): string {
+    return model.occurrence.daysDelta === 0
+      ? "今天"
+      : String(Math.abs(model.occurrence.daysDelta));
+  }
+  function prioritySuffix(model: CountdownEventViewModel): string {
+    return preferences.showPriority
+      ? ` · ${COUNTDOWN_PRIORITY_LABELS[model.event.priority]}优先级`
+      : "";
+  }
+  function tagsSuffix(model: CountdownEventViewModel): string {
+    return preferences.showTags && model.event.tags.length
+      ? ` · ${model.event.tags.join("、")}`
+      : "";
+  }
+  onMount(() => {
+    if (!advancedEnabled) {
+      loading = false;
+      return;
+    }
+    let unsubscribe = () => {};
+    let unsubscribeSettings = () => {};
+    let stopDay = () => {};
+    let observer: IntersectionObserver | undefined;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    void (async () => {
+      const remote =
+        config.data?.countdownCard1RemoteBg ||
         "https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664";
-    let countdownCard1LocalBg = $derived(parsed.data?.countdownCard1LocalBg || "");
-    let countdownCard1RemoteBg = $state("");
-    let rawCountdownCard1RemoteBg = $derived(
-        parsed.data?.countdownCard1RemoteBg || defaultCard1RemoteBg,
+      bg =
+        config.data?.countdownCard1BgSelect === "local"
+          ? config.data?.countdownCard1LocalBg || ""
+          : await getImage(remote);
+      await reload();
+    })();
+    unsubscribe = subscribeSharedWidgetDataUpdated(
+      "countdown",
+      () => void reload(),
     );
-    let countdownCard1BgSelect = $derived(
-        parsed.data?.countdownCard1BgSelect || "remote",
+    unsubscribeSettings = subscribeCountdownCenterSettingsChanged(
+      () => void reload(),
     );
-
-    let countdownCard2BgColor = $derived(parsed.data?.countdownCard2BgColor || "#000000");
-
-    let countdownList2BgColor = $derived(parsed.data?.countdownList2BgColor || "#000000");
-
-    // 当前事件索引
-    let currentEventIndex = $state(0);
-
-    // 卡片配置管理器（方便后续扩展更多卡片类型）
-    const cardConfig = {
-        card1: {
-            fontSize: { maxSize: 40, minSize: 20, decrement: 8 },
-            dimensions: { width: 90, height: 90, rx: 5, ry: 5 },
-            colors: {
-                bg: "rgba(0, 0, 0, 0.5)",
-                text: "rgba(255, 255, 255, 0.8)",
-            },
-        },
-        card2: {
-            fontSize: { maxSize: 35, minSize: 20, decrement: 6 },
-            dimensions: { width: 100, height: 30, rx: 0, ry: 0 },
-            colors: { bg: "#000000", text: "black" },
-        },
-        // 可以继续添加更多卡片配置...
-        // card3: { ... },
-        // card4: { ... },
+    stopDay = createCountdownDayBoundaryWatcher(() => void reload());
+    if (root && typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver(
+        (entries) => (visible = entries[0]?.isIntersecting !== false),
+      );
+      observer.observe(root);
+    }
+    timer = setInterval(
+      () => {
+        if (
+          view.cardAutoPlay &&
+          view.viewMode === "cards" &&
+          models.length > 1 &&
+          visible &&
+          !document.hidden &&
+          !touched
+        )
+          go(cardIndex + 1);
+      },
+      Math.max(2, view.cardIntervalSeconds) * 1000,
+    );
+    return () => {
+      unsubscribe();
+      unsubscribeSettings();
+      stopDay();
+      observer?.disconnect();
+      if (timer) clearInterval(timer);
     };
-
-    // 计算倒计时天数
-    function getDaysLeft(targetDateStr: string, isAnniversary: boolean = false): {
-        text: string;
-        status: "today" | "expired" | "future";
-    } {
-        const now = new Date();
-        const targetDate = new Date(targetDateStr);
-        
-        // 如果是周年事件，计算到下一个周年还有多少天
-        if (isAnniversary) {
-            const currentYear = now.getFullYear();
-            const targetMonth = targetDate.getMonth();
-            const targetDay = targetDate.getDate();
-            
-            // 创建今年的周年日期
-            let anniversaryDate = new Date(currentYear, targetMonth, targetDay);
-            
-            // 如果今年的周年日期已经过了，则计算到明年的周年日期
-            if (anniversaryDate < now) {
-                anniversaryDate = new Date(currentYear + 1, targetMonth, targetDay);
-            }
-            
-            const diffTime = anniversaryDate.getTime() - now.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            if (diffDays > 0) {
-                return { text: `${diffDays}`, status: "future" };
-            } else if (diffDays === 0) {
-                return { text: "今天", status: "today" };
-            } else {
-                return { text: `${Math.abs(diffDays)}`, status: "expired" };
-            }
-        } else {
-            // 非周年事件，按原始逻辑处理
-            const diffTime = targetDate.getTime() - now.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            if (diffDays > 0) {
-                return { text: `${diffDays}`, status: "future" };
-            } else if (diffDays === 0) {
-                return { text: "今天", status: "today" };
-            } else {
-                return { text: `${Math.abs(diffDays)}`, status: "expired" };
-            }
-        }
-    }
-
-    // 格式化日期
-    function formatDate(dateStr: string): string {
-        const date = new Date(dateStr);
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        return `${year}年${month}月${day}日`;
-    }
-
-    // 根据数字长度获取适配的字体大小（使用配置管理器）
-    function getAdaptiveFontSize(daysText: string, cardType: string): number {
-        // 获取当前卡片的字体配置，默认为card1的配置
-        const config =
-            cardConfig[cardType]?.fontSize || cardConfig.card1.fontSize;
-        const { maxSize, minSize, decrement } = config;
-
-        // 数字长度
-        const length = daysText.length;
-
-        // 根据长度调整字体大小
-        if (length <= 2) {
-            return maxSize; // 两位数及以下用最大字体
-        } else if (length === 3) {
-            return Math.max(minSize, maxSize - decrement); // 三位数减小
-        } else if (length === 4) {
-            return Math.max(minSize, maxSize - decrement * 1.5); // 四位数减小更多
-        } else {
-            return minSize; // 五位数及以上用最小字体
-        }
-    }
-
-    let isFirstMount = true;
-
-    async function loadCountdownData() {
-        isLoadingEvents = true;
-        databaseStatusMessage = "";
-
-        try {
-            const result = await loadCountdownEvents();
-            if (!result.status.ok) {
-                databaseStatusMessage = result.status.message;
-                showMessage("倒数日事件加载失败，请检查本地存储", 4000);
-                return;
-            }
-
-            countdownEvents = result.events;
-            currentEventIndex = 0;
-        } catch (error) {
-            console.warn("[countdown] 读取本地纪念日失败", error);
-            databaseStatusMessage = "本地数据文件异常，请备份插件数据后处理。";
-            showMessage("倒数日事件加载失败，请检查本地存储", 4000);
-        } finally {
-            isLoadingEvents = false;
-        }
-    }
-
-    onMount(async () => {
-        countdownCard1RemoteBg = rawCountdownCard1RemoteBg;
-        if (countdownCard1BgSelect === "remote") {
-            countdownCard1RemoteBg = await getImage(countdownCard1RemoteBg);
-        }
-        await loadCountdownData();
-        unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("countdown", () => void loadCountdownData());
-        isFirstMount = false;
-    });
-
-    onDestroy(() => unsubscribeDataUpdated?.());
-
-    $effect(() => {
-        void contentTypeJson;
-        if (!isFirstMount) {
-            void loadCountdownData();
-        }
-    });
-
-    // 切换到上一个事件
-    function previousEvent() {
-        if (countdownEvents.length === 0) return;
-        currentEventIndex =
-            currentEventIndex > 0
-                ? currentEventIndex - 1
-                : countdownEvents.length - 1;
-    }
-
-    // 切换到下一个事件
-    function nextEvent() {
-        if (countdownEvents.length === 0) return;
-        currentEventIndex =
-            currentEventIndex < countdownEvents.length - 1
-                ? currentEventIndex + 1
-                : 0;
-    }
+  });
 </script>
 
-<div class="content-display">
-    {#if isLoadingEvents}
-        <div class="countdown-state">加载倒数日...</div>
-    {:else if databaseStatusMessage}
-        <div class="countdown-state">{databaseStatusMessage}</div>
-    {:else if countdownStyle === "list1"}
-        <div class="content-display-list1">
-            <h3 class="widget-title"><SiyuanIcon name="calendar" size={16} />倒数日</h3>
-            <ul class="countdown-list">
-                {#each countdownEvents as event (event.id || event.name)}
-                    <li class="countdown-item">
-                        <div class="countdown-name">{event.name}</div>
-                        <div class="countdown-date">
-                            <SiyuanIcon name="calendar" size={12} />{formatDate(event.date)}
-                            {#if event.anniversary}
-                                <span class="anniversary-badge">周年</span>
-                            {/if}
-                        </div>
-                        <div
-                            class="countdown-days {getDaysLeft(event.date, event.anniversary)
-                                .status}"
-                        >
-                            <strong>{getDaysLeft(event.date, event.anniversary).text}</strong>
-                        </div>
-                    </li>
-                {/each}
-            </ul>
-        </div>
-    {:else if countdownStyle === "list2"}
-        <div class="content-display-list2">
-            <ul class="countdown-list">
-                {#each countdownEvents as event (event.id || event.name)}
-                    <li class="countdown-item">
-                        <div class="countdown-name">
-                            {#if getDaysLeft(event.date, event.anniversary).status === "expired"}
-                                {event.name}已过
-                            {:else}
-                                {event.name}
-                                {#if event.anniversary}
-                                    <span class="anniversary-badge">周年</span>
-                                {/if}
-                            {/if}
-                        </div>
-                        <div
-                            class="countdown-days"
-                            style="
-                                background-color: {countdownList2BgColor};
-                            "
-                        >
-                            {getDaysLeft(event.date, event.anniversary).text}
-                        </div>
-                    </li>
-                {/each}
-            </ul>
-        </div>
-    {:else if countdownStyle === "card1"}
-        <div
-            class="content-display-card1"
-            style="
-        background-image: url({countdownCard1BgSelect === 'remote'
-                ? countdownCard1RemoteBg
-                : countdownCard1LocalBg});
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-    "
-        >
-            <button
-                class="countdown-button countdown-button-left"
-                onclick={previousEvent}><SiyuanIcon name="previous" size={18} /></button
-            >
-            {#if countdownEvents.length > 0}
-                <svg viewBox="0 0 100 100">
-                    <!-- 倒计时卡片背景 -->
-                    <rect
-                        x="5"
-                        y="5"
-                        width="90"
-                        height="90"
-                        rx="5"
-                        ry="5"
-                        fill="rgba(0, 0, 0, 0.5)"
-                    />
-                    <!-- 倒计时卡片虚线 -->
-                    <line
-                        x1="10"
-                        y1="50"
-                        x2="90"
-                        y2="50"
-                        stroke="rgba(255, 255, 255, 0.8)"
-                        stroke-width="1"
-                        stroke-linecap="round"
-                        stroke-dasharray="10,6"
-                    />
-                    <!-- 倒计时卡片数字 -->
-                    <text
-                        x="50%"
-                        y="30%"
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        font-size={getAdaptiveFontSize(
-                            getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary)
-                                .text,
-                            "card1",
-                        )}
-                        font-weight="600"
-                        fill="rgba(255, 255, 255, 0.8)"
-                    >
-                        {getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary)
-                            .text}
-                    </text>
-                    <!-- 事件名称 -->
-                    <text
-                        x="50%"
-                        y="65%"
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        font-size="12"
-                        font-weight="600"
-                        fill="rgba(255, 255, 255, 0.8)"
-                    >
-                        {#if getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary).status === "future"}
-                            {countdownEvents[currentEventIndex].name}
-                            {#if countdownEvents[currentEventIndex].anniversary}
-                                (周年)
-                            {/if}
-                        {:else}
-                            {countdownEvents[currentEventIndex].name}
-                            {#if countdownEvents[currentEventIndex].anniversary}
-                                (周年)
-                            {/if}
-                        {/if}
-                    </text>
-                    <!-- 日期 -->
-                    <text
-                        x="50%"
-                        y="80%"
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        font-size="10"
-                        fill="rgba(255, 255, 255, 0.8)"
-                    >
-                        {formatDate(countdownEvents[currentEventIndex].date)}
-                    </text>
-                </svg>
-            {:else}
-                <svg viewBox="0 0 100 100">
-                    <rect
-                        x="5"
-                        y="5"
-                        width="90"
-                        height="90"
-                        rx="5"
-                        ry="5"
-                        fill="rgba(255, 255, 255, 0.8)"
-                    />
-                    <text
-                        x="50%"
-                        y="50%"
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        font-size="14px"
-                        fill="var(--b3-theme-secondary)"
-                    >
-                        暂无事件
-                    </text>
-                </svg>
-            {/if}
-            <button
-                class="countdown-button countdown-button-right"
-                onclick={nextEvent}><SiyuanIcon name="next" size={18} /></button
-            >
-        </div>
-    {:else if countdownStyle === "card2"}
-        <div class="content-display-card2">
-            <button
-                class="countdown-button countdown-button-left"
-                onclick={previousEvent}><SiyuanIcon name="previous" size={18} /></button
-            >
-            {#if countdownEvents.length > 0}
-                <svg viewBox="0 0 100 100">
-                    <!-- 倒计时卡片背景 -->
-                    <rect
-                        x="0"
-                        y="0"
-                        width="100"
-                        height="30"
-                        fill={countdownCard2BgColor}
-                    />
-                    <!-- 倒计时卡片数字 -->
-                    <text
-                        x="50%"
-                        y="60%"
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        font-size={getAdaptiveFontSize(
-                            getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary)
-                                .text,
-                            "card2",
-                        )}
-                        font-weight="600"
-                        fill="black"
-                    >
-                        {getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary)
-                            .text}
-                    </text>
-                    <!-- 事件名称 -->
-                    <text
-                        x="50%"
-                        y="15%"
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        font-size="12"
-                        font-weight="600"
-                        fill="white"
-                    >
-                        {#if getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary).status === "future"}
-                            {countdownEvents[currentEventIndex].name}
-                            {#if countdownEvents[currentEventIndex].anniversary}
-                                (周年)
-                            {/if}
-                        {:else if getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary).status === "expired"}
-                            {countdownEvents[currentEventIndex].name}已过
-                            {#if countdownEvents[currentEventIndex].anniversary}
-                                (周年)
-                            {/if}
-                        {:else if getDaysLeft(countdownEvents[currentEventIndex].date, countdownEvents[currentEventIndex].anniversary).status === "today"}
-                            {countdownEvents[currentEventIndex].name}
-                            {#if countdownEvents[currentEventIndex].anniversary}
-                                (周年)
-                            {/if}
-                        {/if}
-                    </text>
-                    <!-- 日期 -->
-                    <text
-                        x="50%"
-                        y="85%"
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        font-size="8"
-                        fill="rgba(0, 0, 0, 0.6)"
-                    >
-                        {formatDate(countdownEvents[currentEventIndex].date)}
-                    </text>
-                </svg>
-            {:else}
-                <svg viewBox="0 0 100 100">
-                    <rect
-                        x="5"
-                        y="5"
-                        width="90"
-                        height="90"
-                        rx="5"
-                        ry="5"
-                        fill="rgba(255, 255, 255, 0.8)"
-                    />
-                    <text
-                        x="50%"
-                        y="50%"
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        font-size="14px"
-                        fill="var(--b3-theme-secondary)"
-                    >
-                        暂无事件
-                    </text>
-                </svg>
-            {/if}
-            <button
-                class="countdown-button countdown-button-right"
-                onclick={nextEvent}><SiyuanIcon name="next" size={18} /></button
-            >
-        </div>
-    {/if}
+<div
+  class="shp-countdown-widget"
+  bind:this={root}
+  data-view={view.viewMode}
+  data-display-system={displaySystem}
+  aria-label="纪念日组件"
+>
+  {#if advancedEnabled}
+  {#if loading}<div class="shp-countdown-widget-state">
+      纪念日加载中…
+    </div>{:else if error}<div class="shp-countdown-widget-state error">
+      <strong>纪念日数据文件异常</strong><small>{error}</small><button
+        type="button"
+        class="b3-button b3-button--text"
+        onclick={() => void reload()}>重新加载</button
+      >
+    </div>{:else if models.length === 0}<div class="shp-countdown-widget-state">
+      <strong>{events.length ? "当前筛选没有结果" : "还没有纪念日"}</strong
+      ><small
+        >{events.length
+          ? "请调整当前组件的数据范围。"
+          : "在纪念日中心添加重要日期。"}</small
+      ><button
+        type="button"
+        class="b3-button b3-button--text shp-countdown-widget-state-action"
+        onclick={() =>
+          void openCountdownCenterDialog(plugin, {
+            initialTab: events.length ? "settings" : "overview",
+            createNew: !events.length,
+          })}><CountdownIcon
+          name={events.length ? "calendar" : "add"}
+          size={17}
+        /><span>{events.length ? "打开纪念日中心" : "新增纪念日"}</span></button
+      >
+    </div>{:else if view.viewMode === "compact"}<div
+      class="shp-countdown-widget-compact"
+      class:classic={displaySystem === "classic"}
+      style={`--shp-list2-bg:${config.data?.countdownList2BgColor || "var(--b3-theme-primary)"}`}
+    >
+      {#each models as model (model.event.id)}<article>
+          {#if displaySystem === "classic"}<button
+              type="button"
+              onclick={() => openEvent(model)}><span>{model.displayName}</span
+              ><strong>{compactDays(model)}</strong></button
+            >{:else}<button type="button" onclick={() => openEvent(model)}
+              ><CountdownIcon name={model.icon} /><span>{model.displayName}</span
+              >{#if preferences.showCategory && model.categoryLabel}<small
+                  >{model.categoryLabel}</small
+                >{/if}{#if preferences.showPriority}<small
+                  >{COUNTDOWN_PRIORITY_LABELS[model.event.priority]}优先级</small
+                >{/if}<strong
+                >{model.occurrence.daysDelta === 0
+                  ? "今天"
+                  : model.occurrence.daysDelta > 0
+                    ? `${model.occurrence.daysDelta} 天`
+                    : `-${Math.abs(model.occurrence.daysDelta)} 天`}</strong
+              ></button
+            >{/if}{#if preferences.showLinkedNoteAction && model.event.linkedBlockId}<button
+              type="button"
+              class="shp-countdown-widget-compact-linked"
+              title="打开关联笔记"
+              aria-label="打开关联笔记"
+              onclick={(event) => openLinked(event, model)}><CountdownIcon
+                name="external-link"
+                size={17}
+              /></button
+            >{/if}
+        </article>{/each}
+    </div>{:else if view.viewMode === "cards"}<div
+      class="shp-countdown-widget-cards-wrap"
+      style={`--shp-card-bg:var(--b3-theme-surface);--shp-card2-accent:${config.data?.countdownCard2BgColor || "#000000"};--shp-card-image:url("${bg}")`}
+    >
+      <div
+        class="shp-countdown-widget-cards"
+        bind:this={cardScroller}
+        role="group"
+        aria-label="纪念日卡片"
+        onscroll={syncCard}
+        onpointerdown={() => (touched = true)}
+      >
+        {#each models as model (model.event.id)}<button
+            type="button"
+            class:image={displaySystem === "classic" && legacyStyle === "card1"}
+            onclick={() => openEvent(model)}
+            aria-label={`${model.displayName}，${model.relativeLabel}`}
+            onkeydown={(event) => {
+              if (event.key === "ArrowLeft") go(cardIndex - 1);
+              if (event.key === "ArrowRight") go(cardIndex + 1);
+            }}
+            ><CountdownCardSvg
+              {model}
+              {preferences}
+              variant={displaySystem === "center"
+                ? "center"
+                : legacyStyle === "card1"
+                  ? "image"
+                  : "classic"}
+            /></button
+          >{/each}
+      </div>
+      <button
+        type="button"
+        class="previous"
+        title="上一个"
+        aria-label="上一个"
+        onclick={() => go(cardIndex - 1)}><CountdownIcon
+          name="chevron-left"
+          size={22}
+        /></button
+      ><button
+        type="button"
+        class="next"
+        title="下一个"
+        aria-label="下一个"
+        onclick={() => go(cardIndex + 1)}><CountdownIcon
+          name="chevron-right"
+          size={22}
+        /></button
+      >
+    </div>{:else if view.viewMode === "timeline"}<div
+      class="shp-countdown-widget-timeline"
+    >
+      {#each timeline as group}<section>
+          <header>{group[0]}</header>
+          {#each group[1] as model (model.event.id)}<button
+              type="button"
+              onclick={() => openEvent(model)}
+              ><span
+                style={`--shp-event-color:${model.color || "var(--b3-theme-primary)"}`}
+              ></span><CountdownIcon name={model.icon} />
+              <div>
+                <strong>{model.displayName}</strong><small
+                  >{formatWidgetDate(model)}{preferences.showCategory &&
+                  model.categoryLabel
+                    ? ` · ${model.categoryLabel}`
+                    : ""}{prioritySuffix(model)}{tagsSuffix(
+                    model,
+                  )}{preferences.showLunarDate &&
+                  model.occurrence.lunarDateLabel
+                    ? ` · ${model.occurrence.lunarDateLabel}`
+                    : ""}{preferences.showCountLabel && model.countLabel
+                    ? ` · ${model.countLabel}`
+                    : ""}</small
+                >
+              </div></button
+            >{/each}
+        </section>{/each}
+    </div>{:else}<div
+      class="shp-countdown-widget-list"
+      class:classic={displaySystem === "classic"}
+    >
+      {#if displaySystem === "classic"}<h3
+          class="shp-countdown-widget-list-title"
+        ><CountdownIcon name="calendar" size={16} />倒数日</h3
+        >{/if}
+      {#each models as model (model.event.id)}<article>
+          {#if displaySystem === "classic"}<button
+              type="button"
+              class="shp-countdown-widget-list-main"
+              onclick={() => openEvent(model)}><span
+                class="shp-countdown-widget-list-classic-copy"
+                ><strong>{model.displayName}</strong><small
+                  >{formatWidgetDate(model)}</small
+                ></span
+              ><em>{compactDays(model)}</em></button
+            >{:else}<button
+              type="button"
+              class="shp-countdown-widget-list-main"
+              onclick={() => openEvent(model)}
+              ><span
+                style={`--shp-event-color:${model.color || "var(--b3-theme-primary)"}`}
+                ><CountdownIcon name={model.icon} /></span
+              >
+              <div>
+                <strong>{model.displayName}</strong><small
+                  >{formatWidgetDate(model)}{preferences.showCategory &&
+                  model.categoryLabel
+                    ? ` · ${model.categoryLabel}`
+                    : ""}{prioritySuffix(model)}{tagsSuffix(
+                    model,
+                  )}{preferences.showLunarDate && model.occurrence.lunarDateLabel
+                    ? ` · ${model.occurrence.lunarDateLabel}`
+                    : ""}</small
+                >{#if preferences.showNotePreview && model.event.note}<p>
+                    {model.event.note}
+                  </p>{/if}
+              </div>
+              <em
+                >{model.relativeLabel}{preferences.showCountLabel &&
+                model.countLabel
+                  ? ` · ${model.countLabel}`
+                  : ""}</em
+              ></button
+            >{/if}
+          >{#if preferences.showLinkedNoteAction && model.event.linkedBlockId}<button
+              type="button"
+              class="shp-countdown-widget-linked"
+              title="打开关联笔记"
+              aria-label="打开关联笔记"
+              onclick={(event) => openLinked(event, model)}><CountdownIcon
+                name="external-link"
+                size={17}
+              /></button
+            >{/if}
+        </article>{/each}
+    </div>{/if}
+  {/if}
 </div>
 
-<style lang="scss">
-    .content-display {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-
-        .countdown-state {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1rem;
-            color: var(--b3-theme-secondary);
-            font-size: 14px;
-            line-height: 1.5;
-            text-align: center;
-        }
-
-        .content-display-list1 {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            padding: 1rem;
-            box-sizing: border-box;
-
-            .widget-title {
-                font-size: 18px;
-                font-weight: 600;
-                margin-bottom: 0.5rem;
-                padding-bottom: 0.3rem;
-                border-bottom: 1px solid var(--b3-border-color);
-                text-align: center;
-                display: inline-flex;
-                line-height: 1.2;
-                align-items: center;
-                gap: 6px;
-            }
-
-            .countdown-list {
-                display: flex;
-                flex-direction: column;
-                overflow-y: auto;
-                list-style: none;
-                padding-left: 0;
-                margin: 0;
-
-                .countdown-item {
-                    background-color: var(--b3-theme-surface);
-                    border-radius: 6px;
-                    padding: 0.75rem 1rem;
-                    margin-bottom: 0.5rem;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    transition: background-color 0.2s ease;
-
-                    &:hover {
-                        background-color: var(--b3-list-icon-hover);
-                        transform: translateY(-2px);
-                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-                    }
-                }
-
-                .countdown-name {
-                    font-size: 14px;
-                    font-weight: 600;
-                    color: var(--b3-theme-primary);
-                }
-
-                .countdown-date {
-                    font-size: 12px;
-                    color: var(--b3-theme-secondary);
-                    margin-left: 1rem;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 4px;
-                }
-
-                .countdown-days {
-                    font-size: 14px;
-                    font-weight: 500;
-
-                    &.today strong {
-                        color: #e53e3e;
-                    }
-
-                    &.expired strong {
-                        color: #94a3b8;
-                    }
-
-                    &.future strong {
-                        color: var(--b3-theme-primary);
-                    }
-                }
-
-                .anniversary-badge {
-                    display: inline-block;
-                    background-color: var(--b3-theme-primary);
-                    color: white;
-                    font-size: 10px;
-                    padding: 2px 6px;
-                    border-radius: 10px;
-                    margin-left: 6px;
-                    font-weight: 500;
-                }
-            }
-        }
-
-        .content-display-list2 {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            padding: 1rem;
-            box-sizing: border-box;
-            overflow-y: auto;
-
-            .countdown-list {
-                list-style: none;
-                padding-left: 0;
-                margin: 0;
-                overflow-y: auto;
-
-                .countdown-item {
-                    background-color: white;
-                    border-radius: 6px;
-                    margin-bottom: 0.5rem;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-
-                    &:hover {
-                        background-color: var(--b3-list-icon-hover);
-                        transform: translateY(-2px);
-                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-                    }
-
-                    .countdown-name {
-                        font-size: 18px;
-                        font-weight: 600;
-                        color: black;
-                        padding: 0.5rem;
-                        display: flex;
-                        align-items: center;
-
-                        .anniversary-badge {
-                            display: inline-block;
-                            background-color: var(--b3-theme-primary);
-                            color: white;
-                            font-size: 10px;
-                            padding: 2px 6px;
-                            border-radius: 10px;
-                            margin-left: 8px;
-                            font-weight: 500;
-                        }
-                    }
-
-                    .countdown-days {
-                        width: auto;
-                        height: 100%;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        font-size: 20px;
-                        font-weight: 600;
-                        color: white;
-                        background-color: var(--b3-theme-primary);
-                        padding: 0.5rem 1.5rem;
-                        border-radius: 0 6px 6px 0;
-                    }
-                }
-            }
-        }
-
-        .content-display-card1 {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            gap: 0;
-            flex-direction: row;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-        }
-
-        .countdown-button {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            border: none;
-            background-color: transparent;
-            color: var(--b3-theme-primary);
-            font-size: 24px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-
-            &:hover {
-                transform: translateY(-50%) scale(1.1);
-            }
-        }
-
-        .countdown-button-left {
-            left: 10px;
-        }
-
-        .countdown-button-right {
-            right: 10px;
-        }
-
-        &:hover .countdown-button {
-            opacity: 1;
-        }
+<style>
+  .shp-countdown-widget {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    color: var(--b3-theme-on-background);
+    background: var(--b3-theme-background);
+    box-sizing: border-box;
+  }
+  .shp-countdown-widget-state {
+    height: 100%;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 16px;
+    text-align: center;
+  }
+  .shp-countdown-widget-state small {
+    color: var(--b3-theme-on-surface);
+  }
+  .shp-countdown-widget-state.error strong {
+    color: var(--b3-theme-error);
+  }
+  .shp-countdown-widget-state-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .shp-countdown-widget-list {
+    display: grid;
+    gap: 7px;
+    padding: 8px;
+  }
+  .shp-countdown-widget-list article {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 9px;
+    overflow: hidden;
+  }
+  .shp-countdown-widget-list-main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    padding: 9px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+  .shp-countdown-widget-list-main > span {
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--shp-event-color);
+    background: color-mix(in srgb, var(--shp-event-color) 10%, transparent);
+  }
+  .shp-countdown-widget-list-main > div {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .shp-countdown-widget-list-main small {
+    color: var(--b3-theme-on-surface);
+    white-space: normal;
+  }
+  .shp-countdown-widget-list-main p {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .shp-countdown-widget-list-main em {
+    font-style: normal;
+    color: var(--b3-theme-primary);
+    text-align: right;
+  }
+  .shp-countdown-widget-linked {
+    width: 44px;
+    border: 0;
+    border-left: 1px solid var(--b3-border-color);
+    background: transparent;
+    color: var(--b3-theme-primary);
+  }
+  .shp-countdown-widget-list.classic {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+  }
+  .shp-countdown-widget-list-title {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--b3-border-color);
+    font-size: 18px;
+  }
+  .shp-countdown-widget-list.classic article {
+    border: 0;
+    background: var(--b3-theme-surface);
+  }
+  .shp-countdown-widget-list.classic .shp-countdown-widget-list-main {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 12px 16px;
+  }
+  .shp-countdown-widget-list-main
+    > .shp-countdown-widget-list-classic-copy {
+    width: auto;
+    height: auto;
+    display: grid;
+    justify-content: start;
+    gap: 2px;
+    border-radius: 0;
+    color: inherit;
+    background: transparent;
+  }
+  .shp-countdown-widget-list-classic-copy strong {
+    color: var(--b3-theme-primary);
+  }
+  .shp-countdown-widget-list-classic-copy small {
+    color: var(--b3-theme-on-surface);
+  }
+  .shp-countdown-widget-compact {
+    display: grid;
+  }
+  .shp-countdown-widget-compact > article {
+    display: flex;
+    border-bottom: 1px solid var(--b3-border-color);
+  }
+  .shp-countdown-widget-compact > article > button:first-child {
+    flex: 1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 7px;
+    min-height: 42px;
+    padding: 5px 9px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+  .shp-countdown-widget-compact small {
+    color: var(--b3-theme-on-surface);
+  }
+  .shp-countdown-widget-compact-linked {
+    width: 44px;
+    border: 0;
+    border-left: 1px solid var(--b3-border-color);
+    background: transparent;
+    color: var(--b3-theme-primary);
+  }
+  .shp-countdown-widget-compact.classic {
+    gap: 8px;
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .shp-countdown-widget-compact.classic > article {
+    border: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--b3-theme-background);
+  }
+  .shp-countdown-widget-compact.classic
+    > article
+    > button:first-child {
+    display: flex;
+    justify-content: space-between;
+    min-height: 44px;
+    padding: 0 0 0 12px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .shp-countdown-widget-compact.classic
+    > article
+    > button:first-child
+    strong {
+    align-self: stretch;
+    min-width: 72px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 14px;
+    background: var(--shp-list2-bg);
+    color: #fff;
+  }
+  .shp-countdown-widget-cards-wrap {
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+  .shp-countdown-widget-cards {
+    height: 100%;
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .shp-countdown-widget-cards::-webkit-scrollbar {
+    display: none;
+  }
+  .shp-countdown-widget-cards > button {
+    flex: 0 0 100%;
+    scroll-snap-align: center;
+    display: block;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: var(--shp-card-bg);
+    color: var(--b3-theme-on-background);
+    text-align: center;
+    overflow: hidden;
+  }
+  .shp-countdown-widget-cards > button.image {
+    background-image: var(--shp-card-image);
+    background-position: center;
+    background-size: cover;
+    color: #fff;
+  }
+  .shp-countdown-widget-cards-wrap > .previous,
+  .shp-countdown-widget-cards-wrap > .next {
+    position: absolute;
+    top: calc(50% - 21px);
+    width: 42px;
+    height: 42px;
+    border: 0;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--b3-theme-background) 75%, transparent);
+    color: inherit;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .shp-countdown-widget-cards-wrap:hover > .previous,
+  .shp-countdown-widget-cards-wrap:hover > .next,
+  .shp-countdown-widget-cards-wrap:focus-within > .previous,
+  .shp-countdown-widget-cards-wrap:focus-within > .next {
+    opacity: 1;
+  }
+  .shp-countdown-widget-cards-wrap > .previous {
+    left: 7px;
+  }
+  .shp-countdown-widget-cards-wrap > .next {
+    right: 7px;
+  }
+  .shp-countdown-widget-timeline {
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+  }
+  .shp-countdown-widget-timeline section {
+    display: grid;
+    gap: 5px;
+  }
+  .shp-countdown-widget-timeline header {
+    font-weight: 700;
+    color: var(--b3-theme-on-surface);
+  }
+  .shp-countdown-widget-timeline section > button {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    align-items: center;
+    gap: 8px;
+    min-height: 46px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+  .shp-countdown-widget-timeline section > button > span {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--shp-event-color);
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--shp-event-color) 15%, transparent);
+  }
+  .shp-countdown-widget-timeline section > button > div {
+    display: grid;
+  }
+  .shp-countdown-widget-timeline small {
+    color: var(--b3-theme-on-surface);
+  }
+  @media (pointer: coarse) {
+    .shp-countdown-widget-cards-wrap > .previous,
+    .shp-countdown-widget-cards-wrap > .next {
+      display: none;
     }
+  }
+  @media (max-width: 360px) {
+    .shp-countdown-widget-list-main {
+      grid-template-columns: auto 1fr;
+    }
+    .shp-countdown-widget-list-main em {
+      grid-column: 2;
+      text-align: left;
+    }
+    .shp-countdown-widget-compact small {
+      display: none;
+    }
+  }
 </style>

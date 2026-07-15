@@ -102,7 +102,7 @@ export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = [
     },
     {
         type: "countdown",
-        label: "倒数日",
+        label: "纪念日👑",
         description: "展示重要日期和剩余天数",
         category: "task",
         activeTab: "tool",

@@ -57,7 +57,7 @@ export async function collectKnownWidgetIds(plugin: any): Promise<string[]> {
             .forEach((element) => addWidgetId(ids, element.id));
     }
 
-    const storageDir = `data/storage/petal/${plugin?.name || "siyuan-homepage"}`;
+    const storageDir = `/data/storage/petal/${plugin?.name || "siyuan-homepage"}`;
     try {
         const entries = await readDir(storageDir);
         for (const entry of Array.isArray(entries) ? entries : []) {
