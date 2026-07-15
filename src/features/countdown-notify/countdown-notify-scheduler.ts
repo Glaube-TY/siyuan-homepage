@@ -1,4 +1,4 @@
-import { isNotifyBridgePremiumAvailable, loadNotifyBridgeSettings } from "@/features/notify-bridge";
+import { hasResolvableTargetsForCurrentRuntime, isNotificationCenterFeatureAvailable, NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT } from "@/features/notification-center";
 import { COUNTDOWN_NOTIFY_SETTINGS_CHANGED_EVENT } from "./constants";
 import { loadCountdownNotifySettings } from "./countdown-notify-settings-store";
 import { runCountdownNotifyScan } from "./countdown-notify-service";
@@ -8,13 +8,16 @@ let started = false;
 let running = false;
 
 async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
-  if (!isNotifyBridgePremiumAvailable()) return { ok: false, intervalMs: 60000 };
-  const [notifySettings, countdownSettings] = await Promise.all([
-    loadNotifyBridgeSettings(),
-    loadCountdownNotifySettings(),
-  ]);
+  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000 };
+  let countdownSettings: Awaited<ReturnType<typeof loadCountdownNotifySettings>>;
+  try {
+    countdownSettings = await loadCountdownNotifySettings();
+  } catch {
+    return { ok: false, intervalMs: 60000 };
+  }
+  const enabledRules = countdownSettings.rules.filter((rule) => rule.enabled && rule.deliveryTargets.length > 0);
   return {
-    ok: notifySettings.enabled && countdownSettings.enabled && countdownSettings.rules.some((r) => r.enabled),
+    ok: countdownSettings.enabled && enabledRules.length > 0 && await hasResolvableTargetsForCurrentRuntime(enabledRules.flatMap((rule) => rule.deliveryTargets)),
     intervalMs: countdownSettings.scanIntervalMs,
   };
 }
@@ -47,20 +50,22 @@ async function reconcileScheduler(): Promise<void> {
 }
 
 function handleSchedulerSignal(): void {
-  void reconcileScheduler();
+  reconcileScheduler().catch(() => {
+    stopCountdownNotifyScheduler();
+  });
 }
 
 export function startCountdownNotifyScheduler(): void {
   if (started) {
-    void reconcileScheduler();
+    handleSchedulerSignal();
     return;
   }
   started = true;
   window.addEventListener("homepage-advanced-ready", handleSchedulerSignal);
   window.addEventListener("homepage-advanced-unavailable", handleSchedulerSignal);
-  window.addEventListener("notify-bridge-settings-changed", handleSchedulerSignal);
+  window.addEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
   window.addEventListener(COUNTDOWN_NOTIFY_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
-  void reconcileScheduler();
+  handleSchedulerSignal();
 }
 
 export function stopCountdownNotifyScheduler(): void {
@@ -76,6 +81,6 @@ export function destroyCountdownNotifyScheduler(): void {
   started = false;
   window.removeEventListener("homepage-advanced-ready", handleSchedulerSignal);
   window.removeEventListener("homepage-advanced-unavailable", handleSchedulerSignal);
-  window.removeEventListener("notify-bridge-settings-changed", handleSchedulerSignal);
+  window.removeEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
   window.removeEventListener(COUNTDOWN_NOTIFY_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
 }

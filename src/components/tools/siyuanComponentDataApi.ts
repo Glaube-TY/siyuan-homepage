@@ -5,6 +5,7 @@ import {
     getBlockKramdowns,
     getBlockTreeInfos,
     getFile,
+    getFileChecked,
     getPathByID,
     getRecentDocs,
     checkBlockExist,
@@ -12,6 +13,7 @@ import {
     lsNotebooks,
     putFile,
     putFileChecked,
+    readDirChecked,
     setBlockAttrsChecked,
     sql,
 } from "@/api";
@@ -25,6 +27,10 @@ import {
     isEnhancedDiaryTaskListItemType,
     locateInsertedBlock,
 } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryBlockLocator";
+import { requestMobilePlanRefresh } from "@/features/notification-center/notification-center-mobile-plan-manager";
+import { withNotificationLock } from "@/features/notification-center/notification-center-locks";
+import { isValidDateText, toLocalDateString } from "@/components/utils/widgetBlock/widget/reviewDocs/reviewDocsSchedule";
+import type { ReviewItem, ReviewPriority } from "@/components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
 
 export type ComponentDataStatus = "ok" | "empty" | "limited" | "disabled" | "unsupported" | "error";
 export type ComponentDataMode =
@@ -1004,12 +1010,14 @@ export async function getTaskIndexResult(
 
 export async function updateTaskIndexItem(task: Partial<ComponentTaskInfo> & { id: string }): Promise<void> {
     await mergeTaskIndexItems([task], { source: task.source || "plugin" });
+    requestMobilePlanRefresh("task-data-changed");
 }
 
 export async function removeTaskIndexItem(id: string): Promise<void> {
     if (!id) return;
     const rows = await readJsonIndex<ComponentTaskInfo>(TASK_INDEX_PATH);
     await writeJsonIndex(TASK_INDEX_PATH, rows.filter((row) => row?.id !== id));
+    requestMobilePlanRefresh("task-data-changed");
 }
 
 export async function ensureTaskBlockExists(id: string): Promise<boolean> {
@@ -1261,7 +1269,13 @@ export function synchronizeTaskIndexAfterWrite(
     const cleanup = () => {
         if (taskWriteSynchronizationFlights.get(key) === promise) taskWriteSynchronizationFlights.delete(key);
     };
-    void promise.then(cleanup, cleanup);
+    void promise.then(
+        () => {
+            cleanup();
+            requestMobilePlanRefresh("task-data-changed");
+        },
+        cleanup,
+    );
     return promise;
 }
 
@@ -2082,10 +2096,15 @@ export async function getReviewIndexResult<T = any>(
 }
 
 export async function updateReviewIndexItem<T extends { id: string }>(item: T): Promise<void> {
-    const rows = await readJsonIndex<T>(REVIEW_INDEX_PATH);
-    const map = new Map(rows.filter((row) => row?.id).map((row) => [row.id, row]));
-    map.set(item.id, item);
-    await writeJsonIndex(REVIEW_INDEX_PATH, Array.from(map.values()));
+    const id = checkedReviewIndexItemId(item, "待更新项");
+    await withReviewIndexMutationLock(async () => {
+        const rows = await readReviewIndexItemsForMutation<T>();
+        const map = new Map(rows.map((row) => [row.id, row]));
+        map.set(id, item);
+        const expected = Array.from(map.values());
+        await writeAndVerifyReviewIndexItems(expected);
+    });
+    requestMobilePlanRefresh("review-data-changed");
 }
 
 export async function getReviewIndexItem<T extends { id: string } = any>(id: string): Promise<T | null> {
@@ -2095,21 +2114,195 @@ export async function getReviewIndexItem<T extends { id: string } = any>(id: str
 }
 
 export async function mergeReviewIndexItems<T extends { id: string }>(items: T[]): Promise<number> {
-    const rows = await readJsonIndex<T>(REVIEW_INDEX_PATH);
-    const map = new Map(rows.filter((row) => row?.id).map((row) => [row.id, row]));
     const mergedIds = new Set<string>();
-    for (const item of items) {
-        if (!item?.id) continue;
-        map.set(item.id, { ...map.get(item.id), ...item });
-        mergedIds.add(item.id);
-    }
-    await writeJsonIndex(REVIEW_INDEX_PATH, Array.from(map.values()));
+    await withReviewIndexMutationLock(async () => {
+        const rows = await readReviewIndexItemsForMutation<T>();
+        const map = new Map(rows.map((row) => [row.id, row]));
+        for (const [index, item] of items.entries()) {
+            const id = checkedReviewIndexItemId(item, `待合并第 ${index + 1} 项`);
+            map.set(id, { ...map.get(id), ...item });
+            mergedIds.add(id);
+        }
+        await writeAndVerifyReviewIndexItems(Array.from(map.values()));
+    });
+    requestMobilePlanRefresh("review-data-changed");
     return mergedIds.size;
 }
 
 export async function removeReviewIndexItem(id: string): Promise<void> {
-    const rows = await readJsonIndex<{ id: string }>(REVIEW_INDEX_PATH);
-    await writeJsonIndex(REVIEW_INDEX_PATH, rows.filter((row) => row?.id !== id));
+    const targetId = checkedReviewIndexItemId({ id }, "待删除项");
+    await withReviewIndexMutationLock(async () => {
+        const rows = await readReviewIndexItemsForMutation<{ id: string }>();
+        await writeAndVerifyReviewIndexItems(rows.filter((row) => row.id !== targetId));
+    });
+    requestMobilePlanRefresh("review-data-changed");
+}
+
+async function reviewIndexFileExistsChecked(): Promise<boolean> {
+    let rootEntries: IResReadDir[];
+    try {
+        rootEntries = await readDirChecked("data/storage/petal");
+    } catch (error) {
+        throw new Error(`复习索引目录读取失败：data/storage/petal，${error instanceof Error ? error.message : String(error)}`);
+    }
+    const pluginEntry = rootEntries.find((entry) => entry.name === "siyuan-homepage");
+    if (!pluginEntry) return false;
+    if (pluginEntry.isDir !== true) throw new Error("复习索引目录结构异常：siyuan-homepage 不是目录。");
+
+    let pluginEntries: IResReadDir[];
+    try {
+        pluginEntries = await readDirChecked("data/storage/petal/siyuan-homepage");
+    } catch (error) {
+        throw new Error(`复习索引目录读取失败：data/storage/petal/siyuan-homepage，${error instanceof Error ? error.message : String(error)}`);
+    }
+    const indexEntry = pluginEntries.find((entry) => entry.name === "review-index.json");
+    if (!indexEntry) return false;
+    if (indexEntry.isDir === true) throw new Error("复习索引目录结构异常：review-index.json 是目录。");
+    return true;
+}
+
+const REVIEW_INDEX_MUTATION_LOCK_NAME = "siyuan-homepage:review-index:mutation";
+
+function withReviewIndexMutationLock<T>(callback: () => Promise<T>): Promise<T> {
+    return withNotificationLock(REVIEW_INDEX_MUTATION_LOCK_NAME, callback);
+}
+
+function checkedReviewIndexItemId(raw: unknown, label: string): string {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`复习索引${label}不是对象。`);
+    const rawId = (raw as Record<string, unknown>).id;
+    const id = typeof rawId === "string"
+        ? rawId.trim()
+        : "";
+    if (!id) throw new Error(`复习索引${label}缺少有效 id。`);
+    if (rawId !== id) throw new Error(`复习索引${label}的 id 含首尾空白。`);
+    return id;
+}
+
+async function readReviewIndexItemsForMutation<T extends { id: string }>(): Promise<T[]> {
+    if (!(await reviewIndexFileExistsChecked())) return [];
+    let raw: unknown;
+    try {
+        raw = await getFileChecked(REVIEW_INDEX_PATH);
+    } catch (error) {
+        throw new Error(`复习索引读取失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    let parsed: unknown;
+    try {
+        parsed = await fileContentToObject(raw);
+    } catch (error) {
+        throw new Error(`复习索引不是有效 JSON：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("复习索引为空或根结构无效。");
+    const payload = parsed as Record<string, unknown>;
+    if (payload.version !== INDEX_VERSION) throw new Error(`复习索引版本不支持：${String(payload.version)}。`);
+    if (!Array.isArray(payload.items)) throw new Error("复习索引 items 不是数组。");
+    const seen = new Set<string>();
+    return payload.items.map((item, index) => {
+        const id = checkedReviewIndexItemId(item, `第 ${index + 1} 项`);
+        if (seen.has(id)) throw new Error(`复习索引存在重复 id：${id}。`);
+        seen.add(id);
+        return item as T;
+    });
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function verifyReviewIndexItems<T extends { id: string }>(saved: T[], expected: T[]): void {
+    if (saved.length !== expected.length) throw new Error("复习索引保存后项目数量校验失败。");
+    const savedMap = new Map(saved.map((item) => [item.id, item]));
+    for (const item of expected) {
+        const actual = savedMap.get(item.id);
+        if (!actual) throw new Error(`复习索引保存后丢失项目：${item.id}。`);
+        if (!sameJsonValue(actual, item)) throw new Error(`复习索引项目 ${item.id} 保存后完整校验失败。`);
+    }
+}
+
+async function writeAndVerifyReviewIndexItems<T extends { id: string }>(items: T[]): Promise<void> {
+    try {
+        await putFileChecked(COMPONENT_INDEX_DIR, true, makeJsonBlob({}));
+    } catch {
+        // 旧版内核可能不需要显式创建已存在目录；索引文件写入仍必须由 checked API 成功。
+    }
+    await putFileChecked(REVIEW_INDEX_PATH, false, makeJsonBlob({
+        version: INDEX_VERSION,
+        updatedAt: new Date().toISOString(),
+        items,
+    }));
+    const saved = await readReviewIndexItemsForMutation<T>();
+    verifyReviewIndexItems(saved, items);
+}
+
+function normalizeReviewIndexItemChecked(raw: unknown, index: number): ReviewItem {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`复习索引第 ${index + 1} 项不是对象。`);
+    const item = raw as Record<string, unknown>;
+    const attrsRaw = item.attrs;
+    if (!attrsRaw || typeof attrsRaw !== "object" || Array.isArray(attrsRaw)) throw new Error(`复习索引第 ${index + 1} 项 attrs 无效。`);
+    const attrs = attrsRaw as Record<string, unknown>;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const nextDate = typeof attrs.nextDate === "string" ? attrs.nextDate.trim() : "";
+    if (!id) throw new Error(`复习索引第 ${index + 1} 项缺少 id。`);
+    if (!isValidDateText(nextDate)) throw new Error(`复习索引第 ${index + 1} 项 nextDate 无效。`);
+    if (item.type !== "doc" && item.type !== "block") throw new Error(`复习索引第 ${index + 1} 项 type 无效。`);
+    const priority: ReviewPriority = attrs.priority === "high" || attrs.priority === "medium" || attrs.priority === "low" ? attrs.priority : "";
+    const today = toLocalDateString();
+    const dueStatus = nextDate < today ? "overdue" : nextDate === today ? "today" : "future";
+    const overdueDays = dueStatus === "overdue"
+        ? Math.max(0, Math.round((new Date(`${today}T00:00:00`).getTime() - new Date(`${nextDate}T00:00:00`).getTime()) / 86400000))
+        : 0;
+    return {
+        id,
+        rootId: typeof item.rootId === "string" && item.rootId ? item.rootId : id,
+        parentId: typeof item.parentId === "string" ? item.parentId : undefined,
+        box: typeof item.box === "string" ? item.box : "",
+        path: typeof item.path === "string" ? item.path : "",
+        hpath: typeof item.hpath === "string" ? item.hpath : "",
+        type: item.type,
+        blockType: typeof item.blockType === "string" ? item.blockType : "",
+        title: typeof item.title === "string" ? item.title : "",
+        content: typeof item.content === "string" ? item.content : "",
+        created: typeof item.created === "string" ? item.created : "",
+        updated: typeof item.updated === "string" ? item.updated : "",
+        attrs: {
+            reviewId: typeof attrs.reviewId === "string" ? attrs.reviewId : id,
+            nextDate,
+            note: typeof attrs.note === "string" ? attrs.note : "",
+            category: typeof attrs.category === "string" ? attrs.category : "",
+            priority,
+            plan: attrs.plan === "manual" || attrs.plan === "ebbinghaus" || attrs.plan === "custom" ? attrs.plan : "",
+            intervals: Array.isArray(attrs.intervals) ? attrs.intervals.map(Number).filter((value) => Number.isInteger(value) && value >= 0) : [],
+            intervalIndex: Number.isInteger(attrs.intervalIndex) ? Number(attrs.intervalIndex) : 0,
+            reviewCount: Number.isInteger(attrs.reviewCount) ? Number(attrs.reviewCount) : 0,
+            lastReviewedAt: typeof attrs.lastReviewedAt === "string" ? attrs.lastReviewedAt : "",
+            targetType: attrs.targetType === "doc" || attrs.targetType === "block" ? attrs.targetType : item.type,
+            createdAt: typeof attrs.createdAt === "string" ? attrs.createdAt : "",
+            updatedAt: typeof attrs.updatedAt === "string" ? attrs.updatedAt : "",
+        },
+        dueStatus,
+        overdueDays,
+    };
+}
+
+export async function loadReviewIndexItemsChecked(): Promise<ReviewItem[]> {
+    if (!(await reviewIndexFileExistsChecked())) return [];
+    let raw: unknown;
+    try {
+        raw = await getFileChecked(REVIEW_INDEX_PATH);
+    } catch (error) {
+        throw new Error(`复习索引读取失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    let parsed: unknown;
+    try {
+        parsed = await fileContentToObject(raw);
+    } catch (error) {
+        throw new Error(`复习索引不是有效 JSON：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("复习索引为空或根结构无效。");
+    const payload = parsed as Record<string, unknown>;
+    if (payload.version !== INDEX_VERSION) throw new Error(`复习索引版本不支持：${String(payload.version)}。`);
+    if (!Array.isArray(payload.items)) throw new Error("复习索引 items 不是数组。");
+    return payload.items.map(normalizeReviewIndexItemChecked);
 }
 
 /**

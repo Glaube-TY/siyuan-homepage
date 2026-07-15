@@ -4,6 +4,7 @@
     import { showMessage } from "siyuan";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import AccountingIcon from "@/components/utils/widgetBlock/widget/accounting/AccountingIcon.svelte";
+    import MobileNotificationQuickSettingsPage from "@/features/notification-center/components/MobileNotificationQuickSettingsPage.svelte";
     import {
         loadHomepageSettingConfig,
         saveHomepageSettingConfig,
@@ -25,7 +26,7 @@
         close: () => void;
     }
 
-    type MobileSettingsPage = "main" | "homepage" | "quickActions" | "actionList";
+    type MobileSettingsPage = "main" | "homepage" | "quickActions" | "actionList" | "notifications";
 
     let { plugin, close }: Props = $props();
 
@@ -47,6 +48,8 @@
             ? "移动端主页"
             : page === "quickActions"
                 ? "悬浮快捷按钮"
+                : page === "notifications"
+                    ? "通知设置"
                 : page === "actionList"
                     ? "快捷按钮管理"
                     : "移动端设置",
@@ -239,6 +242,16 @@
                 </span>
                 <SiyuanIcon name="next" size={16} />
             </button>
+            <button type="button" class="shp-mobile-quick-settings__nav-card" onclick={() => (page = "notifications")}>
+                <span class="shp-mobile-quick-settings__nav-icon">
+                    <SiyuanIcon name="notifications" size={20} />
+                </span>
+                <span class="shp-mobile-quick-settings__nav-text">
+                    <strong>通知设置</strong>
+                    <small>管理当前手机的系统通知和通知计划</small>
+                </span>
+                <SiyuanIcon name="next" size={16} />
+            </button>
         </main>
     {:else if page === "homepage"}
         <main class="shp-mobile-quick-settings__body">
@@ -303,6 +316,10 @@
                 </span>
                 <SiyuanIcon name="next" size={16} />
             </button>
+        </main>
+    {:else if page === "notifications"}
+        <main class="shp-mobile-quick-settings__notification-body">
+            <MobileNotificationQuickSettingsPage />
         </main>
     {:else}
         <main class="shp-mobile-quick-settings__body">
@@ -401,6 +418,13 @@
         flex-direction: column;
         gap: 12px;
         padding: 14px max(14px, env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+    }
+
+    .shp-mobile-quick-settings__notification-body {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
     }
 
     .shp-mobile-quick-settings__state {

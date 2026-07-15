@@ -5,7 +5,7 @@ export const TASK_NOTIFY_HISTORY_KEY = "taskNotifyHistory.json";
 export const TASK_NOTIFY_SETTINGS_CHANGED_EVENT = "task-notify-settings-changed";
 
 export const DEFAULT_TASK_NOTIFY_SETTINGS: TaskNotifySettings = {
-  version: 1,
+  version: 2,
   enabled: false,
   scanIntervalMs: 60000,
   catchUpWindowMinutes: 30,

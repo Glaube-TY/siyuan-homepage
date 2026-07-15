@@ -32,6 +32,7 @@
         parseAliasInput,
     } from "../../enhancedDiaryTemplateFieldMapping";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
+    import EnhancedDiaryNotifySettingsPanel from "@/features/enhanced-diary-notify/components/EnhancedDiaryNotifySettingsPanel.svelte";
 
     interface Props {
         config: EnhancedDiaryConfig;
@@ -40,7 +41,7 @@
         onOpenAndAppendTemplate: () => void | Promise<void>;
     }
 
-    type SettingsTab = "basic" | "project" | "tasks" | "calendar" | "record" | "review" | "templates" | "fieldMapping";
+    type SettingsTab = "basic" | "project" | "tasks" | "calendar" | "record" | "review" | "templates" | "fieldMapping" | "notifications";
     type TemplateHealthStatus = "ok" | "missing" | "suggest";
 
     interface TemplateHealthCheck {
@@ -680,6 +681,7 @@
         <button type="button" class:active={activeSettingsTab === "review"} onclick={() => (activeSettingsTab = "review")}>复盘</button>
         <button type="button" class:active={activeSettingsTab === "templates"} onclick={() => (activeSettingsTab = "templates")}>模板</button>
         <button type="button" class:active={activeSettingsTab === "fieldMapping"} onclick={() => (activeSettingsTab = "fieldMapping")}>字段匹配</button>
+        <button type="button" class:active={activeSettingsTab === "notifications"} onclick={() => (activeSettingsTab = "notifications")}>通知</button>
     </div>
 
     {#if activeSettingsTab === "basic"}
@@ -1077,6 +1079,8 @@
             </div>
             <p class="card-note">补充模板会追加缺失结构，不覆盖已有内容。插件按标题文字识别区块，不同层级的同名标题均可识别。</p>
         </section>
+    {:else if activeSettingsTab === "notifications"}
+        <EnhancedDiaryNotifySettingsPanel />
     {:else if activeSettingsTab === "fieldMapping"}
         <section class="setting-card">
             <div class="setting-card-title">

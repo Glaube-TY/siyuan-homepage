@@ -1,4 +1,4 @@
-import { isNotifyBridgePremiumAvailable, loadNotifyBridgeSettings } from "@/features/notify-bridge";
+import { hasResolvableTargetsForCurrentRuntime, isNotificationCenterFeatureAvailable, NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT } from "@/features/notification-center";
 import { TASK_NOTIFY_SETTINGS_CHANGED_EVENT } from "./constants";
 import { loadTaskNotifySettings } from "./task-notify-settings-store";
 import { runTaskNotifyScan } from "./task-notify-service";
@@ -8,13 +8,16 @@ let started = false;
 let running = false;
 
 async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
-  if (!isNotifyBridgePremiumAvailable()) return { ok: false, intervalMs: 60000 };
-  const [notifySettings, taskSettings] = await Promise.all([
-    loadNotifyBridgeSettings(),
-    loadTaskNotifySettings(),
-  ]);
+  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000 };
+  let taskSettings: Awaited<ReturnType<typeof loadTaskNotifySettings>>;
+  try {
+    taskSettings = await loadTaskNotifySettings();
+  } catch {
+    return { ok: false, intervalMs: 60000 };
+  }
+  const enabledRules = taskSettings.rules.filter((rule) => rule.enabled && rule.deliveryTargets.length > 0);
   return {
-    ok: notifySettings.enabled && taskSettings.enabled && taskSettings.rules.some((r) => r.enabled),
+    ok: taskSettings.enabled && enabledRules.length > 0 && await hasResolvableTargetsForCurrentRuntime(enabledRules.flatMap((rule) => rule.deliveryTargets)),
     intervalMs: taskSettings.scanIntervalMs,
   };
 }
@@ -47,20 +50,22 @@ async function reconcileScheduler(): Promise<void> {
 }
 
 function handleSchedulerSignal(): void {
-  void reconcileScheduler();
+  reconcileScheduler().catch(() => {
+    stopTaskNotifyScheduler();
+  });
 }
 
 export function startTaskNotifyScheduler(): void {
   if (started) {
-    void reconcileScheduler();
+    handleSchedulerSignal();
     return;
   }
   started = true;
   window.addEventListener("homepage-advanced-ready", handleSchedulerSignal);
   window.addEventListener("homepage-advanced-unavailable", handleSchedulerSignal);
-  window.addEventListener("notify-bridge-settings-changed", handleSchedulerSignal);
+  window.addEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
   window.addEventListener(TASK_NOTIFY_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
-  void reconcileScheduler();
+  handleSchedulerSignal();
 }
 
 export function stopTaskNotifyScheduler(): void {
@@ -76,6 +81,6 @@ export function destroyTaskNotifyScheduler(): void {
   started = false;
   window.removeEventListener("homepage-advanced-ready", handleSchedulerSignal);
   window.removeEventListener("homepage-advanced-unavailable", handleSchedulerSignal);
-  window.removeEventListener("notify-bridge-settings-changed", handleSchedulerSignal);
+  window.removeEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
   window.removeEventListener(TASK_NOTIFY_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
 }

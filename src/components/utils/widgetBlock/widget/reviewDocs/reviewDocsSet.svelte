@@ -4,6 +4,7 @@
     import NotebookMultiSelectRow from "../../shared/NotebookMultiSelectRow.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import type { NotebookOption } from "../common/componentMigrationTypes";
+    import { openReviewNotifySettingsDialog } from "@/features/review-notify";
 
     let {
         advancedEnabled = false,
@@ -132,6 +133,12 @@
                 class="control-full"
                 placeholder="0,1,2,4,7,15,30,60"
             />
+        </SettingRow>
+    </SettingSection>
+
+    <SettingSection title="复习通知">
+        <SettingRow title="全局通知规则" description="所有复习文档组件和移动设备共享同一套通知规则">
+            <button type="button" class="b3-button b3-button--text" onclick={() => openReviewNotifySettingsDialog(advancedEnabled)}>打开复习通知设置</button>
         </SettingRow>
     </SettingSection>
 

@@ -403,6 +403,18 @@ export async function getEnhancedDiaryIndexEntries(notebookId: string, dates?: s
     return Object.fromEntries(dates.filter((date) => loaded.index.docs[date]).map((date) => [date, loaded.index.docs[date]]));
 }
 
+export async function getEnhancedDiaryIndexEntriesStrict(notebookId: string): Promise<Record<string, DiaryIndexEntry>> {
+    const raw = await getFile(INDEX_PATH);
+    if (!hasIndexFileResponse(raw)) throw new Error("强化日记索引不存在，通知扫描已停止。");
+    const parsed = await fileToObject(raw);
+    if (!isIndexPayload(parsed)) throw new Error("强化日记索引文件损坏或版本无效，通知扫描已停止。");
+    if (parsed.notebookId !== notebookId) throw new Error("强化日记索引与当前日记笔记本不一致，通知扫描已停止。");
+    if (!parsed.complete) throw new Error("强化日记索引尚未完整，通知扫描已停止。");
+    cache = parsed;
+    cacheNotebookId = notebookId;
+    return { ...parsed.docs };
+}
+
 export async function getEnhancedDiaryIndexEntry(notebookId: string, date: string): Promise<DiaryIndexEntry | null> {
     return (await getEnhancedDiaryIndexEntries(notebookId, [date]))[date] || null;
 }

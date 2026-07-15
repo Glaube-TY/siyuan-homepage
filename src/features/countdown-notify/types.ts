@@ -11,11 +11,11 @@ export interface CountdownNotifyRule {
   time?: string; // HH:mm
   advanceDays?: number[]; // [1, 3, 7] etc.
   upcomingDays?: number; // e.g. 7 or 30
-  channelIds?: string[];
+  deliveryTargets: NotificationDeliveryTarget[];
 }
 
 export interface CountdownNotifySettings {
-  version: 2;
+  version: 3;
   enabled: boolean;
   scanIntervalMs: number;
   catchUpWindowMinutes: number;
@@ -47,6 +47,7 @@ export function createCountdownNotifyRule(type: CountdownNotifyRuleType): Countd
     time: d.time,
     advanceDays: d.advanceDays,
     upcomingDays: d.upcomingDays,
-    channelIds: undefined,
+    deliveryTargets: [],
   };
 }
+import type { NotificationDeliveryTarget } from "@/features/notification-center/types";

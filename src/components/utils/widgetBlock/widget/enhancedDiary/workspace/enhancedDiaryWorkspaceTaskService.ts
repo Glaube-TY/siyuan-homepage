@@ -37,6 +37,7 @@ import {
 import { readEnhancedDiaryProjectIndex } from "../enhancedDiaryProjectIndex";
 import { parseVisibleProjectTargetId, resolveProjectRelation } from "./enhancedDiaryWorkspaceProjectRelation";
 import { ENHANCED_DIARY_PROJECT_TARGET_ATTR, parseEnhancedDiaryBatchBlockAttrs } from "../enhancedDiaryProjectTypes";
+import type { EnhancedDiaryProjectIndexPayload } from "../enhancedDiaryProjectTypes";
 import {
     EnhancedDiaryProjectWriteTargetError,
     validateEnhancedDiaryProjectWriteTarget,
@@ -233,9 +234,8 @@ export async function queryWorkspaceTasks(
     if (options.requireFreshIndex && refreshStatus.lastStatus === "error") {
         throw new Error(`任务索引刷新失败：${refreshStatus.lastMessage || "未知错误"}`);
     }
-    const taskResult = await getTaskIndexResult([], plugin);
-    const rows = taskResult.items;
-    const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
+    const rows = (await getTaskIndexResult([], plugin)).items;
+    const projectIndex = options.projectIndex ?? await readEnhancedDiaryProjectIndex(config.projectStorage);
     const taskAttrs = rows?.length
         ? parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(rows.map((row) => row.id)))
         : {};
@@ -311,6 +311,7 @@ export async function queryWorkspaceTasks(
 export interface QueryWorkspaceTasksOptions {
     forceIndexRefresh?: boolean;
     requireFreshIndex?: boolean;
+    projectIndex?: EnhancedDiaryProjectIndexPayload;
 }
 
 async function readTaskBlockMarkdown(task: EnhancedDiaryWorkspaceTask): Promise<string | null> {

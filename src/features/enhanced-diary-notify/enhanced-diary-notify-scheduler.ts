@@ -1,4 +1,4 @@
-import { isNotifyBridgePremiumAvailable, loadNotifyBridgeSettings } from "@/features/notify-bridge";
+import { hasResolvableTargetsForCurrentRuntime, isNotificationCenterFeatureAvailable, NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT } from "@/features/notification-center";
 import { ENHANCED_DIARY_NOTIFY_SETTINGS_CHANGED_EVENT } from "./constants";
 import { loadEnhancedDiaryNotifySettings } from "./enhanced-diary-notify-settings-store";
 import { runEnhancedDiaryNotifyScan } from "./enhanced-diary-notify-service";
@@ -8,13 +8,16 @@ let started = false;
 let running = false;
 
 async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
-  if (!isNotifyBridgePremiumAvailable()) return { ok: false, intervalMs: 60000 };
-  const [notifySettings, diarySettings] = await Promise.all([
-    loadNotifyBridgeSettings(),
-    loadEnhancedDiaryNotifySettings(),
-  ]);
+  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000 };
+  let diarySettings: Awaited<ReturnType<typeof loadEnhancedDiaryNotifySettings>>;
+  try {
+    diarySettings = await loadEnhancedDiaryNotifySettings();
+  } catch {
+    return { ok: false, intervalMs: 60000 };
+  }
+  const enabledRules = diarySettings.rules.filter((rule) => rule.enabled && rule.deliveryTargets.length > 0);
   return {
-    ok: notifySettings.enabled && diarySettings.enabled && diarySettings.rules.some((r) => r.enabled),
+    ok: diarySettings.enabled && enabledRules.length > 0 && await hasResolvableTargetsForCurrentRuntime(enabledRules.flatMap((rule) => rule.deliveryTargets)),
     intervalMs: diarySettings.scanIntervalMs,
   };
 }
@@ -42,25 +45,27 @@ async function reconcileScheduler(): Promise<void> {
     return;
   }
   if (timer !== null) window.clearInterval(timer);
-  timer = window.setInterval(() => { void scanOnce(); }, runState.intervalMs);
-  void scanOnce();
+  timer = window.setInterval(() => { void scanOnce().catch((error) => console.error("[enhanced-diary-notify] scan failed", error)); }, runState.intervalMs);
+  void scanOnce().catch((error) => console.error("[enhanced-diary-notify] scan failed", error));
 }
 
 function handleSchedulerSignal(): void {
-  void reconcileScheduler();
+  reconcileScheduler().catch(() => {
+    stopEnhancedDiaryNotifyScheduler();
+  });
 }
 
 export function startEnhancedDiaryNotifyScheduler(): void {
   if (started) {
-    void reconcileScheduler();
+    handleSchedulerSignal();
     return;
   }
   started = true;
   window.addEventListener("homepage-advanced-ready", handleSchedulerSignal);
   window.addEventListener("homepage-advanced-unavailable", handleSchedulerSignal);
-  window.addEventListener("notify-bridge-settings-changed", handleSchedulerSignal);
+  window.addEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
   window.addEventListener(ENHANCED_DIARY_NOTIFY_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
-  void reconcileScheduler();
+  handleSchedulerSignal();
 }
 
 export function stopEnhancedDiaryNotifyScheduler(): void {
@@ -76,6 +81,6 @@ export function destroyEnhancedDiaryNotifyScheduler(): void {
   started = false;
   window.removeEventListener("homepage-advanced-ready", handleSchedulerSignal);
   window.removeEventListener("homepage-advanced-unavailable", handleSchedulerSignal);
-  window.removeEventListener("notify-bridge-settings-changed", handleSchedulerSignal);
+  window.removeEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
   window.removeEventListener(ENHANCED_DIARY_NOTIFY_SETTINGS_CHANGED_EVENT, handleSchedulerSignal);
 }

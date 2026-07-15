@@ -5,11 +5,12 @@ export const ENHANCED_DIARY_NOTIFY_HISTORY_KEY = "enhancedDiaryNotifyHistory.jso
 export const ENHANCED_DIARY_NOTIFY_SETTINGS_CHANGED_EVENT = "enhanced-diary-notify-settings-changed";
 
 export const DEFAULT_ENHANCED_DIARY_NOTIFY_SETTINGS: EnhancedDiaryNotifySettings = {
-  version: 1,
+  version: 3,
   enabled: false,
   scanIntervalMs: 60000,
   catchUpWindowMinutes: 30,
   maxItemsPerMessage: 20,
   includeSiyuanLink: true,
+  includeProjectPath: true,
   rules: [],
 };

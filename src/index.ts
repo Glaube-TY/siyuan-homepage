@@ -44,10 +44,25 @@ import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/stora
 import { saveData, loadData, removeData } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
 import { setPluginStorage } from "@/features/kb/services/agent-workbench/runtime/in-flight-turn-journal";
 import { setNotifyBridgePlugin } from "@/features/notify-bridge";
+import {
+    destroyNotificationCenterRuntime,
+    ensureNotificationCenterMigration,
+    registerMobileNotificationPlanProvider,
+    setNotificationCenterPlugin,
+    settleMobilePlanReconcile,
+    settleNotificationCenterOperations,
+    settleNotificationHistoryWrites,
+    startNotificationCenterRuntime,
+} from "@/features/notification-center";
+import { taskMobileNotificationPlanProvider } from "@/features/task-notify/task-notify-mobile-plans";
+import { countdownMobileNotificationPlanProvider } from "@/features/countdown-notify/countdown-notify-mobile-plans";
+import { enhancedDiaryMobileNotificationPlanProvider } from "@/features/enhanced-diary-notify/enhanced-diary-notify-mobile-plans";
+import { reviewMobileNotificationPlanProvider } from "@/features/review-notify/review-notify-mobile-plans";
 import { destroyChatActionBridge, setChatActionBridgePlugin, startChatActionBridgeIfNeeded } from "@/features/chat-action-bridge";
-import { destroyTaskNotifyScheduler, setTaskNotifyHistoryPlugin, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
-import { destroyCountdownNotifyScheduler, setCountdownNotifyHistoryPlugin, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
-import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyHistoryPlugin, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
+import { destroyTaskNotifyScheduler, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
+import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
+import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
+import { destroyReviewNotifyScheduler, setReviewNotifyPlugin, startReviewNotifyScheduler } from "@/features/review-notify";
 import { getSelectionAiToolbarSettingsSnapshot, loadSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
 import { clearSelectionAskPayloadHandler } from "@/features/kb/services/selection-ai/selection-ai-chat-bridge";
 import { destroySelectionAiPopup } from "@/features/kb/services/selection-ai/selection-ai-popup-controller";
@@ -72,6 +87,8 @@ import type {
     MobileQuickActionsPosition,
 } from "./homepage/mobileQuickActions/mobileQuickActionsConfig";
 import { openAccountingDetailDialogFromPlugin } from "./components/utils/widgetBlock/widget/accounting/openAccountingDetailDialog";
+
+let notificationPlanUnregisters: Array<() => void> = [];
 
 type HomepageMenuItem = {
     icon?: string;
@@ -434,15 +451,21 @@ export default class PluginHomepage extends Plugin {
         setReferenceNavigationPlugin(this);
         setNotebrainPlugin(this);
         setPluginStorage({ saveData, loadData, removeData });
+        setNotificationCenterPlugin(this);
         setNotifyBridgePlugin(this);
         setChatActionBridgePlugin(this);
         setTaskNotifyPlugin(this);
-        setTaskNotifyHistoryPlugin(this);
         setCountdownNotifyPlugin(this);
-        setCountdownNotifyHistoryPlugin(this);
         setEnhancedDiaryNotifyPlugin(this);
-        setEnhancedDiaryNotifyHistoryPlugin(this);
         setEnhancedDiaryNotifyRulesPlugin(this);
+        setReviewNotifyPlugin(this);
+        notificationPlanUnregisters.forEach((unregister) => unregister());
+        notificationPlanUnregisters = [
+            registerMobileNotificationPlanProvider(taskMobileNotificationPlanProvider),
+            registerMobileNotificationPlanProvider(countdownMobileNotificationPlanProvider),
+            registerMobileNotificationPlanProvider(enhancedDiaryMobileNotificationPlanProvider),
+            registerMobileNotificationPlanProvider(reviewMobileNotificationPlanProvider),
+        ];
         await loadSelectionAiToolbarSettingsSnapshot(this);
         initSelectionAiToolbarPointerTracker();
         this.registerIcon();
@@ -531,6 +554,15 @@ export default class PluginHomepage extends Plugin {
         destroyTaskNotifyScheduler();
         destroyCountdownNotifyScheduler();
         destroyEnhancedDiaryNotifyScheduler();
+        destroyReviewNotifyScheduler();
+        destroyNotificationCenterRuntime();
+        await settleMobilePlanReconcile();
+        notificationPlanUnregisters.forEach((unregister) => unregister());
+        notificationPlanUnregisters = [];
+        await Promise.all([
+            settleNotificationCenterOperations(),
+            settleNotificationHistoryWrites(),
+        ]);
         try {
             await flushPendingSharedWidgetWrites();
         } catch (error) {
@@ -639,9 +671,16 @@ export default class PluginHomepage extends Plugin {
             console.warn("[Homepage] 共享组件历史数据迁移启动失败", error);
         });
         void startChatActionBridgeIfNeeded();
-        startTaskNotifyScheduler();
-        startCountdownNotifyScheduler();
-        startEnhancedDiaryNotifyScheduler();
+        try {
+            await ensureNotificationCenterMigration();
+            startNotificationCenterRuntime();
+            startTaskNotifyScheduler();
+            startCountdownNotifyScheduler();
+            startEnhancedDiaryNotifyScheduler();
+            startReviewNotifyScheduler();
+        } catch (error) {
+            console.warn("[Homepage] 通知中心迁移失败，业务通知调度器未启动", error);
+        }
         this.ensureTabContainers();
         this.registerCustomTabs();
         this.ensureHomepageTabObserver();

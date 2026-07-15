@@ -1,6 +1,5 @@
-import { notifyBridge } from "@/features/notify-bridge";
+import { notificationCenter } from "@/features/notification-center";
 import { formatLocalDate, formatLocalDateTime, getDigestTasks, isDueWithinCatchUp, loadOpenTasks, resolveReminderScheduledAt, shouldRunDailyRuleAt } from "./task-notify-rules";
-import { hasTaskNotifySent, markTaskNotifySent } from "./task-notify-history-store";
 import { renderTaskDigestContent, renderTaskReminderContent } from "./task-notify-render";
 import type { TaskNotifySettings } from "./types";
 
@@ -18,26 +17,26 @@ export async function runTaskNotifyScan(settings: TaskNotifySettings, now = new 
         if (!scheduledAt || !isDueWithinCatchUp(scheduledAt, now, settings.catchUpWindowMinutes)) continue;
         const scheduledAtLocal = formatLocalDateTime(scheduledAt);
         const dedupeKey = `task-reminder:${task.id}:${scheduledAtLocal}`;
-        if (await hasTaskNotifySent(dedupeKey)) continue;
-        const result = await notifyBridge.send({
-          title: "任务提醒",
+        await notificationCenter.notify({
+          type: "task_reminder",
+          title: rule.title || "任务提醒",
           content: renderTaskReminderContent(task, scheduledAtLocal, settings),
           level: "warning",
           source: "task",
           sourceId: task.id,
           url: settings.includeSiyuanLink ? `siyuan://blocks/${task.id}` : undefined,
-          dedupeKey,
+          occurrenceKey: dedupeKey,
+          scheduledAt: scheduledAt.toISOString(),
+          expiresAt: new Date(scheduledAt.getTime() + settings.catchUpWindowMinutes * 60000).toISOString(),
           extra: {
             type: "task_reminder",
             taskId: task.id,
             scheduledAt: scheduledAtLocal,
           },
         }, {
-          channelIds: rule.channelIds,
-          force: true,
+          targets: rule.deliveryTargets,
           reason: "task-reminder",
         });
-        if (result.ok) await markTaskNotifySent(dedupeKey);
       }
       continue;
     }
@@ -46,25 +45,25 @@ export async function runTaskNotifyScan(settings: TaskNotifySettings, now = new 
     if (!scheduledAt) continue;
     const today = formatLocalDate(scheduledAt);
     const dedupeKey = `task-digest:${rule.id}:${today}`;
-    if (await hasTaskNotifySent(dedupeKey)) continue;
     const digestTasks = getDigestTasks(rule, tasks, now);
     if (digestTasks.length === 0) continue;
-    const result = await notifyBridge.send({
+    await notificationCenter.notify({
+      type: rule.type,
       title: rule.title,
       content: renderTaskDigestContent(digestTasks, settings),
       level: rule.type === "overdue_digest" ? "warning" : "info",
       source: "task",
       sourceId: rule.id,
-      dedupeKey,
+      occurrenceKey: dedupeKey,
+      scheduledAt: scheduledAt.toISOString(),
+      expiresAt: new Date(scheduledAt.getTime() + settings.catchUpWindowMinutes * 60000).toISOString(),
       extra: {
         type: rule.type,
         count: digestTasks.length,
       },
     }, {
-      channelIds: rule.channelIds,
-      force: true,
+      targets: rule.deliveryTargets,
       reason: "task-digest",
     });
-    if (result.ok) await markTaskNotifySent(dedupeKey);
   }
 }

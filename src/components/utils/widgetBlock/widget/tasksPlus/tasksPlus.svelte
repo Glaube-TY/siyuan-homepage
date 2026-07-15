@@ -35,96 +35,8 @@
     let taskDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
     let taskStatusMessage = $state("任务索引为空，请到主页设置 > 检索管理中建立任务索引或刷新最近文档增量索引。");
     let isInitializing = $state(false);
-    let reminderCheckInterval: number | null = null;
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
     let isDestroyed = false;
-
-    function showSystemNotification(title: string, body: string) {
-        if (!("Notification" in window)) {
-            showMessage("此浏览器不支持桌面通知", 3000);
-            return;
-        }
-
-        const symbol = document.querySelector("svg defs symbol#iconhomepage");
-        if (!symbol) {
-            showMessage("未找到主页图标，无法发送桌面通知", 3000);
-            return;
-        }
-
-        // 创建 SVG 图标
-        const svgNS = "http://www.w3.org/2000/svg";
-        const svg = document.createElementNS(svgNS, "svg");
-        svg.setAttribute("viewBox", "0 0 1024 1024");
-        svg.setAttribute("xmlns", svgNS);
-        svg.innerHTML = symbol.innerHTML;
-
-        // 转换为 base64
-        const serializer = new XMLSerializer();
-        const svgStr = serializer.serializeToString(svg);
-        const base64Svg = btoa(unescape(encodeURIComponent(svgStr)));
-        const iconUrl = `data:image/svg+xml;base64,${base64Svg}`;
-
-        if (Notification.permission === "granted") {
-            new Notification(title, { body, icon: iconUrl });
-        } else if (Notification.permission !== "denied") {
-            Notification.requestPermission();
-        }
-    }
-
-    function setupReminderChecker(tasks: any[]) {
-        const checkReminders = () => {
-            const now = new Date();
-
-            // 当前时间格式化为 "YYYY-MM-DD HH:mm"
-            const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-
-            tasks.forEach((task) => {
-                if (!task.parsed.reminder) return;
-
-                const reminderRaw = task.parsed.reminder.trim();
-                const [datePart, timePart] = reminderRaw.split(/\s+/);
-
-                let reminderDate: Date | null = null;
-
-                // ✅ 如果有日期+时间（如："2025-8-6 18:30"）
-                if (timePart) {
-                    const [y, m, d] = datePart.split("-").map(Number);
-                    const [h, min] = timePart.split(":").map(Number);
-                    reminderDate = new Date(y, m - 1, d, h || 0, min || 0);
-                }
-                // ✅ 如果只有时间（如："18:30"），则补上 deadline 或 startDate
-                else {
-                    const fallbackDate =
-                        task.parsed.deadline || task.parsed.startDate;
-                    if (!fallbackDate) return; // ❌ 缺少日期源，跳过
-
-                    const [y, m, d] = fallbackDate.split("-").map(Number);
-                    const [h, min] = datePart.split(":").map(Number);
-                    reminderDate = new Date(y, m - 1, d, h || 0, min || 0);
-                }
-
-                if (!reminderDate || isNaN(reminderDate.getTime())) return;
-
-                const reminderStr = `${reminderDate.getFullYear()}-${String(reminderDate.getMonth() + 1).padStart(2, "0")}-${String(reminderDate.getDate()).padStart(2, "0")} ${String(reminderDate.getHours()).padStart(2, "0")}:${String(reminderDate.getMinutes()).padStart(2, "0")}`;
-
-                // ✅ 只在第一次匹配的时候提醒
-                if (reminderStr === nowStr && !task.hasReminded) {
-                    showSystemNotification(
-                        "任务提醒",
-                        `${task.taskname}\n⏰ ${task.parsed.reminder}`,
-                    );
-                    task.hasReminded = true; // 标记为已提醒
-                }
-            });
-        };
-
-        // 每秒检查一次提醒
-        reminderCheckInterval = setInterval(
-            checkReminders,
-            1000,
-        ) as unknown as number;
-        checkReminders(); // 页面加载时立刻执行一次
-    }
 
     async function handleCheck(event: Event, task: any) {
         const isChecked = (event.target as HTMLInputElement).checked;
@@ -368,13 +280,6 @@
         );
         if (isDestroyed) return;
 
-        tasksListFormat = tasksListFormat.map((task) => ({
-            ...task,
-            hasReminded: false,
-        }));
-
-        setupReminderChecker(tasksListFormat);
-
         for (const task of tasksListFormat) {
             if (isDestroyed) return;
             await updateTaskBasedOnRecurrence(task);
@@ -408,9 +313,6 @@
 
     onDestroy(() => {
         isDestroyed = true;
-        if (reminderCheckInterval !== null) {
-            clearInterval(reminderCheckInterval);
-        }
     });
 </script>
 

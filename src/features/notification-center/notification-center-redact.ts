@@ -11,14 +11,12 @@ export function isSensitiveHeaderKey(key: string): boolean {
 
 export function redactSecret(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) return "未配置";
-  if (isEncryptedSecret(value)) return "已配置";
-  return SECRET_VALUE;
+  return isEncryptedSecret(value) ? "已配置" : SECRET_VALUE;
 }
 
 export function redactUrl(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) return "未配置";
   if (isEncryptedSecret(value)) return "已配置 Webhook";
-
   try {
     const url = new URL(value);
     const tail = (url.pathname + url.search).replace(/[/?#]+$/g, "").slice(-4);
@@ -30,17 +28,11 @@ export function redactUrl(value: unknown): string {
 
 export function redactHeaders(headers: Record<string, string> | undefined): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers ?? {})) {
-    result[key] = isSensitiveHeaderKey(key) || isEncryptedSecret(value) ? SECRET_VALUE : value;
-  }
+  for (const [key, value] of Object.entries(headers ?? {})) result[key] = isSensitiveHeaderKey(key) || isEncryptedSecret(value) ? SECRET_VALUE : value;
   return result;
 }
 
 export function redactMessage(message: unknown): string {
   const raw = message instanceof Error ? message.message : String(message ?? "");
-  return raw
-    .replace(ENCRYPTED_PATTERN, "[ENCRYPTED_SECRET]")
-    .replace(URL_PATTERN, (url) => redactUrl(url))
-    .replace(SIGN_PATTERN, (_match, prefix) => `${prefix}${SECRET_VALUE}`)
-    .slice(0, 500);
+  return raw.replace(ENCRYPTED_PATTERN, "[ENCRYPTED_SECRET]").replace(URL_PATTERN, (url) => redactUrl(url)).replace(SIGN_PATTERN, (_match, prefix) => `${prefix}${SECRET_VALUE}`).slice(0, 500);
 }

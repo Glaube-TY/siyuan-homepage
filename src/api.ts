@@ -12,7 +12,7 @@
  * - 参考 router.go: https://github.com/siyuan-note/siyuan/blob/master/kernel/api/router.go
  */
 
-import { fetchPost, fetchSyncPost, IWebSocketData } from "siyuan";
+import { fetchPost, fetchSyncPost, IWebSocketData, platformUtils } from "siyuan";
 
 
 export async function request(url: string, data: any) {
@@ -745,6 +745,72 @@ export async function pushErrMsg(msg: string, timeout: number = 7000) {
     };
     let url = "/api/notification/pushErrMsg";
     return request(url, payload);
+}
+
+export async function pushMsgChecked(msg: string, timeout: number = 7000): Promise<void> {
+    await requestChecked("/api/notification/pushMsg", { msg, timeout }, "pushMsg");
+}
+
+export async function pushErrMsgChecked(msg: string, timeout: number = 7000): Promise<void> {
+    await requestChecked("/api/notification/pushErrMsg", { msg, timeout }, "pushErrMsg");
+}
+
+export function isInMobileApp(): boolean {
+    if (typeof window !== "undefined") {
+        const container = String(window.siyuan?.config?.system?.container ?? "").toLowerCase();
+        if (container === "harmony" || Boolean((window as any).JSHarmony)) return true;
+    }
+    try {
+        return Boolean(
+            platformUtils.isInAndroid?.()
+            || platformUtils.isInIOS?.()
+            || platformUtils.isHuawei?.()
+        );
+    } catch {
+        return false;
+    }
+}
+
+export interface MobileLocalNotificationParams {
+    channel: string;
+    title: string;
+    body: string;
+    scheduledAt?: string;
+    delayInSeconds?: number;
+    timeoutType?: "default" | "never";
+}
+
+export async function sendMobileLocalNotification(params: MobileLocalNotificationParams): Promise<number> {
+    if (!isInMobileApp()) {
+        throw new Error("当前环境不是思源原生移动应用，无法发送系统通知。");
+    }
+    let delayInSeconds = params.delayInSeconds;
+    if (params.scheduledAt !== undefined) {
+        const scheduledAt = new Date(params.scheduledAt);
+        if (Number.isNaN(scheduledAt.getTime())) {
+            throw new Error("移动通知计划时间无效。");
+        }
+        delayInSeconds = Math.max(0, Math.ceil((scheduledAt.getTime() - Date.now()) / 1000));
+    }
+    if (delayInSeconds !== undefined && (!Number.isFinite(delayInSeconds) || delayInSeconds < 0)) {
+        throw new Error("移动通知延迟时间无效。");
+    }
+    const notificationId = await platformUtils.sendNotification({
+        channel: params.channel,
+        title: params.title,
+        body: params.body,
+        delayInSeconds: delayInSeconds === undefined ? 0 : Math.round(delayInSeconds),
+        timeoutType: params.timeoutType ?? "default",
+    });
+    if (!Number.isFinite(notificationId)) {
+        throw new Error("移动通知接口未返回有效通知 ID。");
+    }
+    return notificationId;
+}
+
+export function cancelMobileLocalNotification(id: number): void {
+    if (!Number.isFinite(id)) throw new Error("移动通知 ID 无效。");
+    platformUtils.cancelNotification(id);
 }
 
 // **************************************** Network ****************************************

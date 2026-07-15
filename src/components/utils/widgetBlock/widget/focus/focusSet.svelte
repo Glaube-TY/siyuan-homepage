@@ -2,6 +2,7 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import ImageSourceSetting from "../../shared/ImageSourceSetting.svelte";
+    import { openFocusNotifySettingsDialog } from "@/features/focus-notify";
 
     interface Props {
         focusImageType?: string;
@@ -10,6 +11,7 @@
         breakBgImage?: string;
         focusLocalImage?: string | null;
         breakLocalImage?: string | null;
+        advancedEnabled?: boolean;
     }
 
     let {
@@ -19,6 +21,7 @@
         breakBgImage = $bindable("https://haowallpaper.com/link/common/file/previewFileImg/019ba092d7bb53bcacfdb5a626cbff0d019ba092d7bb53bcacfdb5a626cbff0d"),
         focusLocalImage = $bindable(null),
         breakLocalImage = $bindable(null),
+        advancedEnabled = false,
     }: Props = $props();
 </script>
 
@@ -27,6 +30,20 @@
         title="本地共享"
         description="番茄钟统计保存在插件本地，并由所有番茄钟组件自动共享。"
     />
+</SettingSection>
+
+<SettingSection title="番茄钟通知">
+    <SettingRow
+        title="全局通知规则"
+        description="所有番茄钟组件共享专注结束和休息结束通知规则"
+    >
+        <button
+            type="button"
+            class="b3-button b3-button--text"
+            disabled={!advancedEnabled}
+            onclick={() => openFocusNotifySettingsDialog(advancedEnabled)}
+        >打开番茄钟通知设置</button>
+    </SettingRow>
 </SettingSection>
 
 <ImageSourceSetting

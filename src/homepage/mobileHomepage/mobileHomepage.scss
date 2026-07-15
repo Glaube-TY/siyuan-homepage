@@ -779,6 +779,21 @@
     color: var(--b3-theme-primary);
 }
 
+.mobile-form-notify-entry {
+    width: calc(100% - 28px);
+    min-height: 44px;
+    margin: 12px 14px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 10px;
+    background: var(--b3-theme-surface);
+    color: var(--b3-theme-on-surface);
+    font-weight: 600;
+
+    &:disabled {
+        opacity: 0.45;
+    }
+}
+
 .mobile-form-actions {
     flex: 0 0 auto;
     display: grid;

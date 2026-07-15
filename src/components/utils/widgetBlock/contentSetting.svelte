@@ -415,6 +415,7 @@
     let reviewDocsSelectedNotebookIds: NotebookOption[] = $state([]);
 
     let advancedEnabled = $state(false);
+    let focusExistingData: Record<string, unknown> = {};
 
     function resolveActiveTabForContentType(contentType: string): string {
         if (
@@ -710,6 +711,10 @@
                 showTasksDetails = parsedData.data?.showTasksDetails ?? true;
                 TaskManTitle = parsedData.data?.TaskManTitle || "📋任务管理";
             } else if (parsedData.type === "focus") {
+                // 旧 showSyNotif 已停止使用，但仍作为未知历史字段随组件配置原样保留。
+                focusExistingData = parsedData.data && typeof parsedData.data === "object"
+                    ? structuredClone(parsedData.data)
+                    : {};
                 focusImageType = parsedData.data?.focusImageType || "remote";
                 breakImageType = parsedData.data?.breakImageType || "remote";
 
@@ -1541,6 +1546,8 @@
             <div class="dynamic-content-area">
                 {#if selectedContentType === "countdown"}
                     <CountdownSet
+                        {advancedEnabled}
+                        {plugin}
                         bind:countdownStyle
                         bind:eventList
                         bind:countdownCard1BgSelect
@@ -1599,6 +1606,7 @@
                     />
                 {:else if selectedContentType === "focus"}
                     <FocusSet
+                        {advancedEnabled}
                         bind:focusImageType
                         bind:breakImageType
                         bind:focusBgImage
@@ -1938,6 +1946,7 @@
                         type: "focus",
                         blockId: currentBlockId,
                         data: {
+                            ...focusExistingData,
                             focusImageType,
                             focusBgImage,
                             focusLocalImage,

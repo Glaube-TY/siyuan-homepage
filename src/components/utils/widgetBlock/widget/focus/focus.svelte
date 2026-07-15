@@ -14,6 +14,10 @@
     } from "./focusData";
     import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
     import { registerSharedWidgetFlusher } from "../sharedLocalStorage/sharedLocalStorage";
+    import {
+        sendBreakCompletedNotification,
+        sendFocusCompletedNotification,
+    } from "@/features/focus-notify";
 
     interface Props {
         plugin: any;
@@ -29,6 +33,7 @@
     let sessionPlannedSeconds = 0;
     let accumulatedFocusMs = 0;
     let completionHandled = false;
+    let activeBreakCycleId: string | null = null;
     let endTimeout: ReturnType<typeof setTimeout> | null = null;
     let isRunning = $state(false);
     let isBreak = $state(false);
@@ -52,7 +57,7 @@
     let selectedTimerStyle = $state("classic");
     let timerFontSize = $state(3);
     let showFocusInfo = $state(false);
-    let showSyNotif = $state(true);
+    let savedWidgetData: Record<string, unknown> = {};
 
     let isDestroyed = false;
     let unsubscribeDataUpdated: (() => void) | null = null;
@@ -85,15 +90,18 @@
             const savedConfig = await plugin.loadData(
                 `widget-${contentTypeJsonObj.blockId}.json`,
             );
+            // 保留旧 showSyNotif 及其他未知字段；它们不再参与运行时，但保存设置时也不能被主动删除。
+            savedWidgetData = savedConfig?.data && typeof savedConfig.data === "object"
+                ? structuredClone(savedConfig.data)
+                : {};
             localFocusDuration =
-                savedConfig.data?.focusDuration || localFocusDuration;
+                savedConfig?.data?.focusDuration || localFocusDuration;
             localBreakDuration =
-                savedConfig.data?.breakDuration || localBreakDuration;
+                savedConfig?.data?.breakDuration || localBreakDuration;
             selectedTimerStyle =
-                savedConfig.data?.timerStyle || selectedTimerStyle;
-            timerFontSize = savedConfig.data?.timerFontSize || timerFontSize;
-            showFocusInfo = savedConfig.data?.showFocusInfo || showFocusInfo;
-            showSyNotif = savedConfig.data?.showSyNotif ?? true;
+                savedConfig?.data?.timerStyle || selectedTimerStyle;
+            timerFontSize = savedConfig?.data?.timerFontSize || timerFontSize;
+            showFocusInfo = savedConfig?.data?.showFocusInfo || showFocusInfo;
         }
 
         try {
@@ -136,6 +144,7 @@
         const cancelled = !isBreak ? createCurrentFocusSession("cancelled") : null;
         if (cancelled) queueFocusSession(cancelled);
         resetSessionTracking();
+        activeBreakCycleId = null;
         unsubscribeDataUpdated?.();
         unsubscribeDataUpdated = null;
         unregisterFocusFlusher?.();
@@ -144,51 +153,6 @@
             console.warn("[focus] 组件销毁时番茄钟会话暂未写入，已保留待重试", error);
         });
     });
-
-    function showSystemNotification(title: string, body: string) {
-        if (!("Notification" in window)) {
-            console.warn("此浏览器不支持桌面通知");
-            return;
-        }
-
-        const symbol = document.querySelector("svg defs symbol#iconhomepage");
-        if (!symbol) {
-            console.warn("未找到 iconhomepage 图标");
-            return;
-        }
-
-        // 创建一个完整的 SVG 元素
-        const svgNS = "http://www.w3.org/2000/svg";
-        const svg = document.createElementNS(svgNS, "svg");
-        svg.setAttribute("viewBox", "0 0 1024 1024");
-        svg.setAttribute("xmlns", svgNS);
-        svg.innerHTML = symbol.innerHTML;
-
-        // 转换为字符串并编码为 base64
-        const serializer = new XMLSerializer();
-        const svgStr = serializer.serializeToString(svg);
-        const base64Svg = btoa(unescape(encodeURIComponent(svgStr)));
-
-        const iconUrl = `data:image/svg+xml;base64,${base64Svg}`;
-
-        if (Notification.permission === "granted") {
-            new Notification(title, {
-                body,
-                icon: iconUrl,
-                requireInteraction: false,
-            });
-        } else if (Notification.permission !== "denied") {
-            Notification.requestPermission().then((permission) => {
-                if (permission === "granted") {
-                    new Notification(title, {
-                        body,
-                        icon: iconUrl,
-                        requireInteraction: false,
-                    });
-                }
-            });
-        }
-    }
 
     function resetTimer(mode: "focus" | "break") {
         if (mode === "focus") {
@@ -290,6 +254,7 @@
 
     async function stopTimer() {
         await flushActiveFocusSession();
+        activeBreakCycleId = null;
         isBreak = false;
         resetTimer("focus");
     }
@@ -317,21 +282,44 @@
         if (completionHandled) return;
         completionHandled = true;
         const message = isBreak ? "休息时间结束！" : "专注时间结束！";
-        if (showSyNotif) {
-            showSystemNotification(
-                isBreak ? "休息时间结束" : "专注时间结束",
-                isBreak
-                    ? "休息时间已经结束啦！"
-                    : "专注时间已完成，休息一下吧！",
-            );
-        }
         showMessage(message);
 
         if (!isBreak) {
             const completed = createCurrentFocusSession("completed");
-            if (completed) queueFocusSession(completed);
+            if (completed) {
+                activeBreakCycleId = completed.id;
+                queueFocusSession(completed);
+            }
             resetSessionTracking();
-            if (completed) await persistFocusSession(completed);
+            if (completed) {
+                let sessionSaved = false;
+                try {
+                    await persistFocusSession(completed);
+                    sessionSaved = true;
+                } catch (error) {
+                    console.warn("[focus] 专注会话保存失败，完成通知未发送；会话已保留待重试", error);
+                }
+                if (sessionSaved) {
+                    void sendFocusCompletedNotification({
+                        sessionId: completed.id,
+                        plannedSeconds: completed.plannedSeconds,
+                        actualFocusSeconds: completed.actualFocusSeconds,
+                    }).catch((error) => {
+                        console.warn("[focus] 专注结束通知发送失败，不影响进入休息阶段", error);
+                    });
+                }
+            }
+        } else {
+            const cycleId = activeBreakCycleId;
+            activeBreakCycleId = null;
+            if (cycleId) {
+                void sendBreakCompletedNotification({
+                    cycleId,
+                    breakSeconds: Math.max(0, Math.round(localBreakDuration * 60)),
+                }).catch((error) => {
+                    console.warn("[focus] 休息结束通知发送失败，不影响返回专注阶段", error);
+                });
+            }
         }
 
         isBreak = !isBreak;
@@ -386,6 +374,7 @@
 
     async function saveConfig() {
         contentTypeJsonObj.data = {
+            ...savedWidgetData,
             ...contentTypeJsonObj.data,
             focusDuration: localFocusDuration,
             breakDuration: localBreakDuration,
@@ -393,6 +382,7 @@
             timerFontSize: timerFontSize,
             showFocusInfo: showFocusInfo,
         };
+        savedWidgetData = structuredClone(contentTypeJsonObj.data);
         await plugin.saveData(
             `widget-${contentTypeJsonObj.blockId}.json`,
             contentTypeJsonObj,
@@ -479,15 +469,6 @@
                         type="checkbox"
                         bind:checked={showFocusInfo}
                     />显示专注信息
-                </label>
-            </div>
-            <div class="form-group">
-                <label for="timer-show-sy-notif">
-                    <input
-                        id="timer-show-sy-notif"
-                        type="checkbox"
-                        bind:checked={showSyNotif}
-                    />显示系统通知
                 </label>
             </div>
             <h4>专注统计</h4>

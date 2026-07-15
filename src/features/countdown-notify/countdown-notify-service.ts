@@ -1,8 +1,7 @@
-import { notifyBridge } from "@/features/notify-bridge";
+import { notificationCenter } from "@/features/notification-center";
 import { loadCountdownEvents } from "@/components/utils/widgetBlock/widget/countdown/countdownData";
 import { formatLocalDate, getAdvanceEvents, getTodayEvents, getUpcomingEvents, shouldRunDailyRuleAt } from "./countdown-notify-rules";
 import { renderAdvanceEventContent, renderTodayEventContent, renderUpcomingDigestContent } from "./countdown-notify-render";
-import { hasCountdownNotifySent, markCountdownNotifySent } from "./countdown-notify-history-store";
 import type { CountdownNotifySettings } from "./types";
 
 export async function runCountdownNotifyScan(settings: CountdownNotifySettings, now = new Date()): Promise<void> {
@@ -17,19 +16,24 @@ export async function runCountdownNotifyScan(settings: CountdownNotifySettings, 
   for (const rule of enabledRules) {
     const scheduled = shouldRunDailyRuleAt(rule, now, settings.catchUpWindowMinutes);
     if (!scheduled) continue;
+    const [hour, minute] = (rule.time ?? "00:00").split(":").map(Number);
+    const scheduledAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+    const expiresAt = new Date(scheduledAt.getTime() + settings.catchUpWindowMinutes * 60000).toISOString();
 
     if (rule.type === "today_events") {
       const todayEvents = getTodayEvents(events, now);
       for (const event of todayEvents) {
         const dedupeKey = `countdown:today:${rule.id}:${event.id}:${today}`;
-        if (await hasCountdownNotifySent(dedupeKey)) continue;
-        const result = await notifyBridge.send({
+        await notificationCenter.notify({
+          type: "today_events",
           title: rule.title || "纪念日提醒",
           content: renderTodayEventContent(event),
           level: "info",
           source: "countdown",
           sourceId: event.id,
-          dedupeKey,
+          occurrenceKey: dedupeKey,
+          scheduledAt: scheduledAt.toISOString(),
+          expiresAt,
           extra: {
             type: "today_events",
             eventId: event.id,
@@ -38,11 +42,9 @@ export async function runCountdownNotifyScan(settings: CountdownNotifySettings, 
             anniversary: event.anniversary,
           },
         }, {
-          channelIds: rule.channelIds,
-          force: true,
+          targets: rule.deliveryTargets,
           reason: "countdown-notify",
         });
-        if (result.ok) await markCountdownNotifySent(dedupeKey);
       }
       continue;
     }
@@ -53,14 +55,16 @@ export async function runCountdownNotifyScan(settings: CountdownNotifySettings, 
       const matches = getAdvanceEvents(events, advanceDays, now);
       for (const match of matches) {
         const dedupeKey = `countdown:advance:${rule.id}:${match.event.id}:${today}:${match.daysLeft}`;
-        if (await hasCountdownNotifySent(dedupeKey)) continue;
-        const result = await notifyBridge.send({
+        await notificationCenter.notify({
+          type: "advance_events",
           title: rule.title || "提前提醒",
           content: renderAdvanceEventContent(match),
           level: "info",
           source: "countdown",
           sourceId: match.event.id,
-          dedupeKey,
+          occurrenceKey: dedupeKey,
+          scheduledAt: scheduledAt.toISOString(),
+          expiresAt,
           extra: {
             type: "advance_events",
             eventId: match.event.id,
@@ -70,11 +74,9 @@ export async function runCountdownNotifyScan(settings: CountdownNotifySettings, 
             daysLeft: match.daysLeft,
           },
         }, {
-          channelIds: rule.channelIds,
-          force: true,
+          targets: rule.deliveryTargets,
           reason: "countdown-notify",
         });
-        if (result.ok) await markCountdownNotifySent(dedupeKey);
       }
       continue;
     }
@@ -84,25 +86,25 @@ export async function runCountdownNotifyScan(settings: CountdownNotifySettings, 
       const matches = getUpcomingEvents(events, upcomingDays, now);
       if (matches.length === 0) continue;
       const dedupeKey = `countdown:digest:${rule.id}:${today}`;
-      if (await hasCountdownNotifySent(dedupeKey)) continue;
-      const result = await notifyBridge.send({
-        title: `未来 ${upcomingDays} 天纪念日摘要`,
+      await notificationCenter.notify({
+        type: "upcoming_digest",
+        title: rule.title || `未来 ${upcomingDays} 天纪念日摘要`,
         content: renderUpcomingDigestContent(matches, settings.maxEventsPerMessage),
         level: "info",
         source: "countdown",
         sourceId: rule.id,
-        dedupeKey,
+        occurrenceKey: dedupeKey,
+        scheduledAt: scheduledAt.toISOString(),
+        expiresAt,
         extra: {
           type: "upcoming_digest",
           count: matches.length,
           upcomingDays,
         },
       }, {
-        channelIds: rule.channelIds,
-        force: true,
+        targets: rule.deliveryTargets,
         reason: "countdown-notify",
       });
-      if (result.ok) await markCountdownNotifySent(dedupeKey);
     }
   }
 }

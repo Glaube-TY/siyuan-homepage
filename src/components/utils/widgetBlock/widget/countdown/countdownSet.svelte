@@ -4,6 +4,7 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import { openCountdownNotifySettingsDialog } from "@/features/countdown-notify";
 
     interface Props {
         eventList?: Array<{
@@ -24,6 +25,8 @@
         countdownCard2BgColor?: string;
         // 列表2配置
         countdownList2BgColor?: string;
+        advancedEnabled?: boolean;
+        plugin?: any;
     }
 
     let {
@@ -33,8 +36,11 @@
         countdownCard1RemoteBg = $bindable("https://haowallpaper.com/link/common/file/previewFileImg/16665839129185664"),
         countdownCard1LocalBg = $bindable(""),
         countdownCard2BgColor = $bindable("#000000"),
-        countdownList2BgColor = $bindable("#000000")
+        countdownList2BgColor = $bindable("#000000"),
+        advancedEnabled = false,
+        plugin = undefined,
     }: Props = $props();
+    const canUseNotifications = $derived(Boolean(plugin?.ADVANCED || advancedEnabled));
 
     onMount(() => {
         // 组件挂载时的初始化逻辑
@@ -59,6 +65,12 @@
         title="本地共享"
         description="纪念日数据保存在插件本地，并由所有纪念日组件和纪念日通知自动共享。"
     />
+</SettingSection>
+
+<SettingSection title="纪念日通知">
+    <SettingRow title="全局通知规则" description="所有纪念日组件和移动设备共享同一套通知规则。">
+        <button type="button" class="b3-button b3-button--text" disabled={!canUseNotifications} onclick={() => openCountdownNotifySettingsDialog(canUseNotifications)}>打开纪念日通知设置</button>
+    </SettingRow>
 </SettingSection>
 
 <SettingSection title="倒数日事件">

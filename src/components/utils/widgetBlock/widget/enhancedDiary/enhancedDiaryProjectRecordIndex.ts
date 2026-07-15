@@ -75,6 +75,17 @@ export async function readEnhancedDiaryProjectRecordIndex(notebookId: string): P
     return index;
 }
 
+export async function readEnhancedDiaryProjectRecordIndexStrict(notebookId: string): Promise<EnhancedDiaryProjectRecordIndexPayload> {
+    const raw = await getFile(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
+    if (!hasIndexFileResponse(raw)) throw new Error("项目记录索引不存在，请先完成索引构建。");
+    const parsed = await decode(raw);
+    if (!valid(parsed)) throw new Error("项目记录索引文件损坏或版本无效，通知扫描已停止。");
+    if (parsed.notebookId !== notebookId) throw new Error("项目记录索引与当前日记笔记本不一致，通知扫描已停止。");
+    if (!parsed.complete) throw new Error("项目记录索引尚未完整，通知扫描已停止。");
+    caches.set(notebookId, parsed);
+    return parsed;
+}
+
 export async function getEnhancedDiaryProjectRecordIndexStatus(notebookId: string): Promise<ComponentMigrationStatus> {
     if (!notebookId) return { lastStatus: "idle", lastMessage: "尚未配置日记笔记本。" };
     try {

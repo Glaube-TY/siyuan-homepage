@@ -51,6 +51,7 @@ export interface EnhancedDiaryWorkspaceProject {
     rootProjectId: string;
     name: string;
     path: string[];
+    documentPath?: string;
     level: number;
     parentTargetId?: string;
     childTargetIds: string[];
@@ -104,17 +105,17 @@ const EMPTY_SUMMARY: EnhancedDiaryWorkspaceSummary = {
     projectCount: 0,
 };
 
-function buildProjectSummary(
+export function buildEnhancedDiaryWorkspaceProjectSummary(
     index: EnhancedDiaryProjectIndexPayload,
     tasks: EnhancedDiaryWorkspaceTask[],
     records: EnhancedDiaryProjectRecordIndexItem[],
     today: string,
 ): EnhancedDiaryWorkspaceProject[] {
     const targets = [
-        ...Object.values(index.roots).map((root) => ({ id: root.id, rootId: root.id, title: root.title, path: [root.title], level: 0, parentId: undefined as string | undefined, order: root.order, status: root.status, archivedAt: root.archivedAt })),
+        ...Object.values(index.roots).map((root) => ({ id: root.id, rootId: root.id, title: root.title, path: [root.title], documentPath: root.hpath || root.path, level: 0, parentId: undefined as string | undefined, order: root.order, status: root.status, archivedAt: root.archivedAt })),
         ...Object.values(index.nodes).map((node) => {
             const ancestorTitles = node.ancestorTargetIds.map((id) => index.roots[id]?.title || index.nodes[id]?.title).filter(Boolean);
-            return { id: node.id, rootId: node.rootProjectId, title: node.title, path: [...ancestorTitles, node.title], level: node.level, parentId: node.parentTargetId, order: node.order, status: node.status, archivedAt: node.archivedAt };
+            return { id: node.id, rootId: node.rootProjectId, title: node.title, path: [...ancestorTitles, node.title], documentPath: undefined as string | undefined, level: node.level, parentId: node.parentTargetId, order: node.order, status: node.status, archivedAt: node.archivedAt };
         }),
     ];
     return targets.sort((a, b) => a.level - b.level || a.order - b.order).map((target) => {
@@ -147,7 +148,7 @@ function buildProjectSummary(
                     ? { healthStatus: "done" as const, healthLabel: "任务完成", healthTone: "success" as const }
                     : { healthStatus: "healthy" as const, healthLabel: "正常", healthTone: "success" as const };
         return {
-            targetId: target.id, rootProjectId: target.rootId, name: target.title, path: target.path, level: target.level, parentTargetId: target.parentId,
+            targetId: target.id, rootProjectId: target.rootId, name: target.title, path: target.path, documentPath: target.documentPath, level: target.level, parentTargetId: target.parentId,
             childTargetIds: Object.values(index.nodes).filter((node) => node.parentTargetId === target.id).map((node) => node.id),
             directTaskCount: directTasks.length, taskCount: targetTasks.length, openTaskCount,
             todayTaskCount: target.status === "archived" ? 0 : targetTasks.filter((task) => task.isTodayTask).length, overdueTaskCount,
@@ -203,7 +204,7 @@ export async function loadEnhancedDiaryWorkspaceState(
     const projectRecordIndex = config.dailyNotebookId
         ? await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId)
         : { items: {} };
-    const projectTargets = buildProjectSummary(projectIndex, tasks, Object.values(projectRecordIndex.items), today);
+    const projectTargets = buildEnhancedDiaryWorkspaceProjectSummary(projectIndex, tasks, Object.values(projectRecordIndex.items), today);
     const projects = projectTargets.filter((project) => project.level === 0 && project.status === "active");
     summary.projectCount = projects.length;
     const reviewCards = await buildWorkspaceReviewCards(config, date);

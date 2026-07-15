@@ -104,6 +104,20 @@ export async function readEnhancedDiaryProjectIndex(
     return cache;
 }
 
+export async function readEnhancedDiaryProjectIndexStrict(
+    storage: EnhancedDiaryProjectStorageConfig,
+): Promise<EnhancedDiaryProjectIndexPayload> {
+    const signature = getEnhancedDiaryProjectContainerSignature(storage);
+    const raw = await getFile(ENHANCED_DIARY_PROJECT_INDEX_PATH);
+    if (!hasIndexFileResponse(raw)) throw new Error("项目索引不存在，请先在强化日记项目中心完成索引构建。");
+    const parsed = await fileToObject(raw);
+    if (!isIndex(parsed)) throw new Error("项目索引文件损坏或版本无效，通知扫描已停止。");
+    if (parsed.containerSignature !== signature) throw new Error("项目索引与当前项目容器不一致，通知扫描已停止。");
+    if (!parsed.complete) throw new Error("项目索引尚未完整，通知扫描已停止。");
+    cache = normalizeIndexLifecycle(parsed);
+    return cache;
+}
+
 export async function getEnhancedDiaryProjectIndexStatus(
     storage: EnhancedDiaryProjectStorageConfig,
 ): Promise<ComponentMigrationStatus> {

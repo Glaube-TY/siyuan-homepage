@@ -21,7 +21,7 @@
         customFilter = $bindable(""),
         tasksSort = $bindable("startdate"),
         tasksPlusSelectedNotebookIds = $bindable<NotebookOption[]>([]),
-        notebooks = []
+        notebooks = [],
     }: Props = $props();
 </script>
 

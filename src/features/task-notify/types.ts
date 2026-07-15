@@ -12,13 +12,13 @@ export interface TaskNotifyRule {
   type: TaskNotifyRuleType;
   title: string;
   time?: string;
-  channelIds?: string[];
+  deliveryTargets: NotificationDeliveryTarget[];
   priorityMin?: number;
   customFilter?: string;
 }
 
 export interface TaskNotifySettings {
-  version: 1;
+  version: 2;
   enabled: boolean;
   scanIntervalMs: number;
   catchUpWindowMinutes: number;
@@ -75,8 +75,9 @@ export function createTaskNotifyRule(type: TaskNotifyRuleType): TaskNotifyRule {
     type,
     title: d.title,
     time: d.time,
-    channelIds: undefined,
+    deliveryTargets: [],
     priorityMin: d.priorityMin,
     customFilter: d.customFilter,
   };
 }
+import type { NotificationDeliveryTarget } from "@/features/notification-center/types";

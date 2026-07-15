@@ -18,6 +18,9 @@
         normalizeRecentDocsSortBy,
         RECENT_DOCS_SORT_OPTIONS,
     } from "@/components/tools/siyuanComponentDataApi";
+    import { openCountdownNotifySettingsDialog } from "@/features/countdown-notify";
+    import { openReviewNotifySettingsDialog } from "@/features/review-notify";
+    import { openFocusNotifySettingsDialog } from "@/features/focus-notify";
 
     interface Props {
         plugin: any;
@@ -2369,6 +2372,27 @@
 
                     <button type="button" class="mobile-countdown-add" onclick={addCountdownEvent}>
                         添加事件
+                    </button>
+                </section>
+            {/if}
+
+            {#if widgetType === "countdown" || widgetType === "reviewDocs" || widgetType === "focus"}
+                <section class="mobile-form-section">
+                    <div class="mobile-form-section-title">
+                        <strong>{widgetType === "countdown" ? "纪念日通知" : widgetType === "reviewDocs" ? "复习通知" : "番茄钟通知"}</strong>
+                        <span>通知规则全局共享，不随当前组件重复保存。</span>
+                    </div>
+                    <button
+                        type="button"
+                        class="mobile-form-notify-entry"
+                        disabled={!plugin?.ADVANCED}
+                        onclick={() => widgetType === "countdown"
+                            ? openCountdownNotifySettingsDialog(Boolean(plugin?.ADVANCED))
+                            : widgetType === "reviewDocs"
+                                ? openReviewNotifySettingsDialog(Boolean(plugin?.ADVANCED))
+                                : openFocusNotifySettingsDialog(Boolean(plugin?.ADVANCED))}
+                    >
+                        打开{widgetType === "countdown" ? "纪念日" : widgetType === "reviewDocs" ? "复习" : "番茄钟"}通知设置
                     </button>
                 </section>
             {/if}
