@@ -1,4 +1,5 @@
 import { mount } from "svelte";
+import { getFrontend } from "siyuan";
 import { svelteDialog } from "@/libs/dialog";
 import TaskEditorDialog from "./components/TaskEditorDialog.svelte";
 import QuickRecordDialog from "./components/QuickRecordDialog.svelte";
@@ -95,6 +96,40 @@ interface OpenProjectMoveOptions {
     onClose?: () => void;
 }
 
+type WorkspaceDialogLayout = "full" | "compact";
+
+interface WorkspaceDialogPresentation {
+    width: string;
+    height?: string;
+    mobile: boolean;
+    layout: WorkspaceDialogLayout;
+}
+
+function isMobileWorkspaceFrontend(): boolean {
+    const frontend = getFrontend();
+    return frontend === "mobile" || frontend === "browser-mobile" || frontend.includes("mobile");
+}
+
+function getWorkspaceDialogPresentation(desktopWidth: string, layout: WorkspaceDialogLayout): WorkspaceDialogPresentation {
+    const mobile = isMobileWorkspaceFrontend();
+    if (!mobile) return { width: desktopWidth, mobile, layout };
+    if (layout === "full") return { width: "100vw", height: "100dvh", mobile, layout };
+    return { width: "calc(100vw - 24px)", mobile, layout };
+}
+
+function applyWorkspaceDialogPresentation(
+    dialogRef: ReturnType<typeof svelteDialog>,
+    presentation: WorkspaceDialogPresentation,
+): void {
+    dialogRef.dialog.element.classList.add(
+        "enhanced-diary-workspace-child-dialog",
+        `enhanced-diary-workspace-child-dialog--${presentation.layout}`,
+    );
+    if (presentation.mobile) {
+        dialogRef.dialog.element.classList.add("enhanced-diary-workspace-child-dialog--mobile");
+    }
+}
+
 function makeCloseGuard(onClose?: () => void) {
     let closeNotified = false;
     function notifyClose() {
@@ -117,6 +152,7 @@ function prepareWorkspaceDialogContainer(container: HTMLElement): void {
 export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void {
     const { mode = "create", initialInput = {}, task = null, onSubmit, onClose, projectStorage, tagSuggestions = [] } = options;
     const { notifyClose } = makeCloseGuard(onClose);
+    const presentation = getWorkspaceDialogPresentation("620px", "full");
 
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
 
@@ -126,7 +162,8 @@ export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void
 
     dialogRef = svelteDialog({
         title: mode === "create" ? "新建任务" : "编辑任务",
-        width: "620px",
+        width: presentation.width,
+        height: presentation.height,
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
             prepareWorkspaceDialogContainer(container);
@@ -151,6 +188,7 @@ export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void
             return component;
         },
     });
+    applyWorkspaceDialogPresentation(dialogRef, presentation);
 }
 
 export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): void {
@@ -164,6 +202,7 @@ export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): vo
         initialTags = [], initialProjectTargetId = "", initialIsKeyRecord = false, projectStorage,
     } = options;
     const { notifyClose } = makeCloseGuard(onClose);
+    const presentation = getWorkspaceDialogPresentation("560px", "full");
 
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
 
@@ -173,7 +212,8 @@ export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): vo
 
     dialogRef = svelteDialog({
         title: mode === "edit" ? "编辑记录" : "快速记录",
-        width: "560px",
+        width: presentation.width,
+        height: presentation.height,
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
             prepareWorkspaceDialogContainer(container);
@@ -198,6 +238,7 @@ export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): vo
             return component;
         },
     });
+    applyWorkspaceDialogPresentation(dialogRef, presentation);
 }
 
 export function openProjectRelationRepairDialog(options: OpenProjectRelationRepairOptions): void {
@@ -207,10 +248,11 @@ export function openProjectRelationRepairDialog(options: OpenProjectRelationRepa
         onSelect, onClose,
     } = options;
     const { notifyClose } = makeCloseGuard(onClose);
+    const presentation = getWorkspaceDialogPresentation("600px", "full");
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
     const closeDialog = () => dialogRef?.close();
     dialogRef = svelteDialog({
-        title: "修复项目关系", width: "600px", callback: notifyClose,
+        title: "修复项目关系", width: presentation.width, height: presentation.height, callback: notifyClose,
         constructor: (container: HTMLElement) => {
             prepareWorkspaceDialogContainer(container);
             return mount(ProjectRelationRepairDialog, {
@@ -226,16 +268,18 @@ export function openProjectRelationRepairDialog(options: OpenProjectRelationRepa
             });
         },
     });
+    applyWorkspaceDialogPresentation(dialogRef, presentation);
 }
 
 export function openArchiveProjectDialog(options: OpenArchiveProjectOptions): void {
     const { projectName, projectPath, descendantCount, pendingTaskCount, onSelect, onClose } = options;
     const { notifyClose } = makeCloseGuard(onClose);
+    const presentation = getWorkspaceDialogPresentation("560px", "compact");
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
     const closeDialog = () => dialogRef?.close();
     dialogRef = svelteDialog({
         title: "归档项目",
-        width: "560px",
+        width: presentation.width,
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
             prepareWorkspaceDialogContainer(container);
@@ -256,16 +300,19 @@ export function openArchiveProjectDialog(options: OpenArchiveProjectOptions): vo
             });
         },
     });
+    applyWorkspaceDialogPresentation(dialogRef, presentation);
 }
 
 export function openProjectMoveDialog(options: OpenProjectMoveOptions): void {
     const { index, sourceTargetId, onConfirm, onClose } = options;
     const { notifyClose } = makeCloseGuard(onClose);
+    const presentation = getWorkspaceDialogPresentation("620px", "full");
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
     const closeDialog = () => dialogRef?.close();
     dialogRef = svelteDialog({
         title: "调整项目归属",
-        width: "620px",
+        width: presentation.width,
+        height: presentation.height,
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
             prepareWorkspaceDialogContainer(container);
@@ -284,11 +331,13 @@ export function openProjectMoveDialog(options: OpenProjectMoveOptions): void {
             });
         },
     });
+    applyWorkspaceDialogPresentation(dialogRef, presentation);
 }
 
 export function openDeleteTaskSvelteDialog(options: OpenDeleteTaskOptions): void {
     const { task, onSelect, onClose } = options;
     const { notifyClose } = makeCloseGuard(onClose);
+    const presentation = getWorkspaceDialogPresentation("520px", "compact");
 
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
 
@@ -298,7 +347,7 @@ export function openDeleteTaskSvelteDialog(options: OpenDeleteTaskOptions): void
 
     dialogRef = svelteDialog({
         title: "删除任务",
-        width: "520px",
+        width: presentation.width,
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
             prepareWorkspaceDialogContainer(container);
@@ -319,11 +368,13 @@ export function openDeleteTaskSvelteDialog(options: OpenDeleteTaskOptions): void
             return component;
         },
     });
+    applyWorkspaceDialogPresentation(dialogRef, presentation);
 }
 
 export function openDeleteRecordSvelteDialog(options: OpenDeleteRecordOptions): void {
     const { record, onConfirm, onClose, title = "删除记录", message } = options;
     const { notifyClose } = makeCloseGuard(onClose);
+    const presentation = getWorkspaceDialogPresentation("520px", "compact");
 
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
 
@@ -333,7 +384,7 @@ export function openDeleteRecordSvelteDialog(options: OpenDeleteRecordOptions): 
 
     dialogRef = svelteDialog({
         title,
-        width: "520px",
+        width: presentation.width,
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
             prepareWorkspaceDialogContainer(container);
@@ -355,11 +406,13 @@ export function openDeleteRecordSvelteDialog(options: OpenDeleteRecordOptions): 
             return component;
         },
     });
+    applyWorkspaceDialogPresentation(dialogRef, presentation);
 }
 
 export function openMigrateTaskSvelteDialog(options: OpenMigrateTaskOptions): void {
     const { task, today, onConfirm, onClose } = options;
     const { notifyClose } = makeCloseGuard(onClose);
+    const presentation = getWorkspaceDialogPresentation("520px", "compact");
 
     let dialogRef: ReturnType<typeof svelteDialog> | null = null;
 
@@ -369,7 +422,7 @@ export function openMigrateTaskSvelteDialog(options: OpenMigrateTaskOptions): vo
 
     dialogRef = svelteDialog({
         title: "迁移到今日日记",
-        width: "520px",
+        width: presentation.width,
         callback: notifyClose,
         constructor: (container: HTMLElement) => {
             prepareWorkspaceDialogContainer(container);
@@ -391,4 +444,5 @@ export function openMigrateTaskSvelteDialog(options: OpenMigrateTaskOptions): vo
             return component;
         },
     });
+    applyWorkspaceDialogPresentation(dialogRef, presentation);
 }

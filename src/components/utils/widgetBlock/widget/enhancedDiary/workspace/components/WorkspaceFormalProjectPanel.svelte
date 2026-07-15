@@ -538,7 +538,10 @@
                                     <div class="filter-popover" bind:this={filterPopoverRef}>
                                         <div class="filter-popover-head">
                                             <strong>项目筛选</strong>
-                                            <button type="button" class="wk-btn wk-btn-ghost wk-btn-sm" onclick={resetFilters}>重置</button>
+                                            <div class="filter-popover-actions">
+                                                <button type="button" class="wk-btn wk-btn-ghost wk-btn-sm" onclick={resetFilters}>重置</button>
+                                                <button type="button" class="wk-btn wk-btn-secondary wk-btn-sm" onclick={closeFilterPopover}>关闭</button>
+                                            </div>
                                         </div>
                                         <label class="filter-field">
                                             <span>聚合范围</span>
@@ -674,6 +677,7 @@
     .filter-popover-wrap { position: relative; }
     .filter-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; min-width: 220px; max-width: min(320px, calc(100vw - 40px)); border: 1px solid var(--wk-border); border-radius: 12px; background: var(--wk-surface); padding: 12px; box-shadow: var(--wk-shadow-md); display: grid; gap: 10px; }
     .filter-popover-head { display: flex; align-items: center; justify-content: space-between; }
+    .filter-popover-actions { display: flex; align-items: center; gap: 6px; }
     .filter-field { display: grid; gap: 5px; }
     .filter-field span { font-size: var(--wk-text-sm); color: var(--wk-ink-muted); }
     .filter-select { border: 1px solid var(--wk-border); border-radius: 7px; background: var(--wk-surface); color: var(--wk-ink-secondary); padding: 6px 8px; }

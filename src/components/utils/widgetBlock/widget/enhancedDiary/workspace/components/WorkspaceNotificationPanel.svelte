@@ -377,7 +377,7 @@
                                         onclick={() => toggleNotifMoreActions(item.id)}
                                         aria-expanded={openMoreActionsId === item.id}
                                         aria-haspopup="menu"
-                                    >更多操作</button>
+                                    >{openMoreActionsId === item.id ? "关闭操作" : "更多操作"}</button>
                                     {#if openMoreActionsId === item.id}
                                     <div class="notif-more-popover" role="menu">
                                         {#if item.relatedDocId}

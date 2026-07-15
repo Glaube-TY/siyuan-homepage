@@ -1,0 +1,646 @@
+.enhanced-diary-workspace-mobile-dialog .b3-dialog__container {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    overflow: hidden;
+}
+
+.enhanced-diary-workspace-mobile-dialog .b3-dialog__header {
+    display: none;
+}
+
+.enhanced-diary-workspace-mobile-dialog .dialog-content {
+    flex: 1 1 auto;
+    height: auto !important;
+    min-height: 0;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+.workspace-page--mobile {
+    --wk-mobile-nav-height: 70px;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    overscroll-behavior: contain;
+}
+
+.workspace-page--mobile,
+.workspace-page--mobile * {
+    box-sizing: border-box;
+}
+
+.workspace-page--mobile .workspace-header,
+.workspace-page--mobile .global-search {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.workspace-page--mobile .workspace-layout {
+    position: relative !important;
+    display: flex !important;
+    flex: 1 1 auto;
+    flex-direction: column !important;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 !important;
+    gap: 0 !important;
+    overflow: hidden !important;
+}
+
+.workspace-page--mobile .workspace-layout > main {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    padding: 16px 12px calc(var(--wk-mobile-nav-height) + 48px + env(safe-area-inset-bottom)) !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-bottom: calc(var(--wk-mobile-nav-height) + 120px + env(safe-area-inset-bottom));
+}
+
+.workspace-page--mobile .workspace-sidebar {
+    position: absolute !important;
+    z-index: 60;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    display: flex !important;
+    flex: 0 0 auto;
+    flex-direction: row !important;
+    justify-content: flex-start;
+    width: 100% !important;
+    max-width: 100%;
+    min-height: var(--wk-mobile-nav-height);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    gap: 2px;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    border: 0;
+    border-top: 1px solid var(--wk-border-subtle);
+    border-radius: 0 !important;
+    background: var(--b3-theme-surface);
+    box-shadow: 0 -2px 10px color-mix(in srgb, var(--b3-theme-on-background) 8%, transparent);
+    scrollbar-width: none;
+    overscroll-behavior-inline: contain;
+    touch-action: pan-x;
+}
+
+.workspace-page--mobile .workspace-sidebar::-webkit-scrollbar,
+.workspace-page--mobile .workspace-sidebar .nav-group::-webkit-scrollbar {
+    display: none;
+}
+
+.workspace-page--mobile .workspace-sidebar .nav-group {
+    display: flex !important;
+    flex: 0 0 auto;
+    flex-direction: row !important;
+    gap: 2px;
+}
+
+.workspace-page--mobile .workspace-sidebar .nav-section-label,
+.workspace-page--mobile .workspace-sidebar .nav-divider {
+    display: none;
+}
+
+.workspace-page--mobile .workspace-sidebar button {
+    width: auto !important;
+    min-width: 58px;
+    min-height: 50px;
+    flex: 0 0 auto;
+    flex-direction: column !important;
+    justify-content: center;
+    gap: 3px;
+    padding: 5px 9px;
+    border-radius: 10px;
+    text-align: center;
+    touch-action: manipulation;
+}
+
+.workspace-page--mobile .workspace-sidebar button.active::before {
+    left: 22%;
+    right: 22%;
+    top: auto;
+    bottom: 1px;
+    width: auto;
+    height: 2px;
+}
+
+.workspace-page--mobile .workspace-sidebar .tab-label {
+    flex: 0 0 auto;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.workspace-page--mobile .workspace-sidebar .notification-badge {
+    position: absolute;
+    top: 2px;
+    right: 3px;
+    overflow: visible;
+}
+
+.workspace-page--mobile .global-search {
+    position: relative;
+    z-index: 55;
+    padding: 8px 12px;
+}
+
+.workspace-page--mobile .global-search input {
+    height: 44px;
+    font-size: 16px;
+}
+
+.workspace-page--mobile .global-search .clear-btn,
+.workspace-page--mobile .global-search .expand-btn {
+    min-height: 40px;
+}
+
+.workspace-page--mobile .global-search .search-results {
+    position: absolute;
+    z-index: 80;
+    top: calc(100% - 4px);
+    left: 12px;
+    right: 12px;
+    max-width: calc(100% - 24px);
+    max-height: min(52vh, 440px);
+    margin-top: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-shadow: var(--wk-shadow-popover);
+}
+
+.workspace-page--mobile .global-search .result-item {
+    min-height: 52px;
+}
+
+.workspace-page--mobile .palette-backdrop {
+    position: absolute;
+    z-index: 100000;
+    inset: 0;
+    padding: 0;
+}
+
+.workspace-page--mobile .command-palette {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100%;
+    margin: 0;
+    border-radius: 0;
+    transform: none;
+}
+
+.workspace-page--mobile .command-palette header {
+    padding-top: max(12px, env(safe-area-inset-top));
+}
+
+.workspace-page--mobile .command-palette input {
+    height: 44px;
+    font-size: 16px;
+}
+
+.workspace-page--mobile .command-palette header button {
+    width: 44px;
+    height: 44px;
+}
+
+.workspace-page--mobile .command-palette .command-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.workspace-page--mobile .command-palette footer {
+    padding-bottom: max(9px, env(safe-area-inset-bottom));
+}
+
+.workspace-page--mobile .command-palette footer span:last-child {
+    display: none;
+}
+
+.workspace-page--mobile .quick-create-fab {
+    position: absolute;
+    z-index: 70;
+    right: 14px;
+    bottom: calc(var(--wk-mobile-nav-height) + 14px + env(safe-area-inset-bottom));
+    max-width: calc(100% - 28px);
+}
+
+.workspace-page--mobile .quick-create-fab .fab-menu {
+    width: min(230px, calc(100vw - 28px));
+    max-height: min(50vh, 340px);
+    overflow-y: auto;
+}
+
+.workspace-page--mobile .quick-create-fab .fab-menu button {
+    min-height: 48px;
+}
+
+.workspace-page--mobile .task-floating-detail {
+    position: fixed !important;
+    z-index: 1200;
+    left: 10px !important;
+    right: 10px !important;
+    top: auto !important;
+    bottom: calc(var(--wk-mobile-nav-height) + 8px + env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: min(72dvh, calc(100dvh - var(--wk-mobile-nav-height) - 28px)) !important;
+    border-radius: 14px 14px 10px 10px;
+}
+
+.workspace-page--mobile .task-floating-detail .floating-content {
+    max-height: min(72dvh, calc(100dvh - var(--wk-mobile-nav-height) - 28px)) !important;
+    padding-top: 36px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.workspace-page--mobile .task-floating-detail .floating-close {
+    width: 40px;
+    height: 40px;
+}
+
+.workspace-page--mobile .task-filter-popover .popover-panel,
+.workspace-page--mobile .record-panel .filter-popover,
+.workspace-page--mobile .formal-project-panel .filter-popover,
+.workspace-page--mobile .notification-panel .notif-more-popover {
+    position: fixed !important;
+    z-index: 1000 !important;
+    top: auto !important;
+    left: 10px !important;
+    right: 10px !important;
+    bottom: calc(var(--wk-mobile-nav-height) + 8px + env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: min(72dvh, calc(100dvh - var(--wk-mobile-nav-height) - 28px)) !important;
+    overflow-y: auto;
+    border-radius: 14px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.workspace-page--mobile .notification-panel .notif-more-popover {
+    display: grid;
+    min-width: 0;
+    padding: 10px;
+}
+
+.workspace-page--mobile .task-filter-popover .popover-close,
+.workspace-page--mobile .task-filter-popover summary {
+    min-height: 44px;
+}
+
+.workspace-page--mobile :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    max-width: 100%;
+    font-size: 16px;
+}
+
+.workspace-page--mobile :where(.wk-btn, .btn-primary, .btn-secondary, .btn-danger) {
+    min-height: 40px;
+    touch-action: manipulation;
+}
+
+.workspace-page--mobile :where(
+    .task-toolbar button,
+    .task-toolbar summary,
+    .task-panel .batch-bar button,
+    .record-panel .mode-tabs button,
+    .record-panel .category-tabs button,
+    .review-panel .mode-tabs button,
+    .review-panel .period-tabs button,
+    .settings-page button,
+    .formal-project-panel .field-tabs button,
+    .plan-panel button,
+    .calendar-panel button,
+    .day-detail-panel button,
+    .task-calendar header button,
+    .task-calendar .unscheduled > button
+) {
+    min-height: 40px;
+    touch-action: manipulation;
+}
+
+.workspace-page--mobile :where(.wk-page-header, .page-heading, .panel-head, .notif-page-header, .settings-head, .project-header) {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.workspace-page--mobile .calendar-with-detail,
+.workspace-page--mobile .dashboard-body,
+.workspace-page--mobile .task-panel .list-layout,
+.workspace-page--mobile .formal-project-panel .project-layout,
+.workspace-page--mobile .formal-project-panel .overview-grid,
+.workspace-page--mobile .formal-project-panel .project-chart-grid,
+.workspace-page--mobile .record-panel .record-layout,
+.workspace-page--mobile .review-panel .history-layout,
+.workspace-page--mobile .review-panel .content-editor {
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.workspace-page--mobile .task-panel .list-detail-pane {
+    position: static;
+    max-height: none;
+    overflow: visible;
+}
+
+.workspace-page--mobile .task-toolbar .filter-row {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-page--mobile .task-toolbar .manual-controls,
+.workspace-page--mobile .task-panel .batch-bar,
+.workspace-page--mobile .task-panel .active-filters {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    max-width: 100%;
+}
+
+.workspace-page--mobile .task-toolbar .view-row,
+.workspace-page--mobile .task-toolbar .quick-filters,
+.workspace-page--mobile .task-panel .active-filters,
+.workspace-page--mobile .task-panel .batch-bar,
+.workspace-page--mobile .review-panel .period-tabs,
+.workspace-page--mobile .record-panel .category-tabs,
+.workspace-page--mobile .settings-page .settings-tabs,
+.workspace-page--mobile .settings-page .template-tabs,
+.workspace-page--mobile .formal-project-panel .field-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    overscroll-behavior-inline: contain;
+    touch-action: pan-x;
+}
+
+.workspace-page--mobile .task-toolbar .view-row > *,
+.workspace-page--mobile .task-toolbar .quick-filters > *,
+.workspace-page--mobile .record-panel .category-tabs > *,
+.workspace-page--mobile .settings-page .settings-tabs > *,
+.workspace-page--mobile .settings-page .template-tabs > *,
+.workspace-page--mobile .formal-project-panel .field-tabs > * {
+    flex: 0 0 auto;
+}
+
+.workspace-page--mobile .kanban-view {
+    max-width: 100%;
+    overscroll-behavior-inline: contain;
+    touch-action: pan-x;
+}
+
+.workspace-page--mobile .task-calendar {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+}
+
+.workspace-page--mobile .task-calendar .weekdays,
+.workspace-page--mobile .task-calendar .calendar-grid {
+    min-width: 680px;
+}
+
+.workspace-page--mobile .task-timeline .timeline > section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+}
+
+.workspace-page--mobile .task-timeline time {
+    text-align: left;
+}
+
+.workspace-page--mobile .task-matrix,
+.workspace-page--mobile .matrix {
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.workspace-page--mobile .analytics-view .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workspace-page--mobile .analytics-view .charts,
+.workspace-page--mobile .analytics-view .loads {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-page--mobile .gantt-view,
+.workspace-page--mobile .kanban-view,
+.workspace-page--mobile :where(.workspace-table-wrap, .table-scroll, .chart-scroll) {
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+}
+
+.workspace-page--mobile .formal-project-panel .tree-card,
+.workspace-page--mobile .formal-project-panel .detail-card,
+.workspace-page--mobile .record-panel .record-list-col,
+.workspace-page--mobile .record-panel .record-detail-col,
+.workspace-page--mobile .review-panel .history-list-col,
+.workspace-page--mobile .review-panel .history-detail-col {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.workspace-page--mobile .record-panel .record-list-col,
+.workspace-page--mobile .review-panel .history-list-col {
+    max-height: min(42dvh, 360px);
+}
+
+.workspace-page--mobile .record-panel .record-insights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workspace-page--mobile .record-panel .insight-wide {
+    grid-column: 1 / -1;
+}
+
+.workspace-page--mobile .record-panel .mode-bar,
+.workspace-page--mobile .record-panel .search-area,
+.workspace-page--mobile .formal-project-panel .target-head,
+.workspace-page--mobile .review-panel .panel-head,
+.workspace-page--mobile .notification-panel .notif-page-header {
+    align-items: stretch;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.workspace-page--mobile .record-panel .search-input {
+    min-width: 0;
+}
+
+.workspace-page--mobile .plan-panel {
+    padding: 4px 0;
+}
+
+.workspace-page--mobile .plan-panel .plan-item {
+    align-items: flex-start;
+}
+
+.workspace-page--mobile .plan-panel .item-content {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.workspace-page--mobile .review-panel,
+.workspace-page--mobile .notification-panel,
+.workspace-page--mobile .settings-page,
+.workspace-page--mobile .formal-project-panel,
+.workspace-page--mobile .record-panel,
+.workspace-page--mobile .task-panel,
+.workspace-page--mobile .calendar-panel,
+.workspace-page--mobile .day-detail-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.workspace-page--mobile .settings-page .field-mapping-grid,
+.workspace-page--mobile .settings-page .field-mapping-grid-2,
+.workspace-page--mobile .settings-page .preference-row,
+.workspace-page--mobile .settings-page .template-health-list {
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.workspace-page--mobile .settings-page :where(.settings-head, .switch-row, .input-row, .template-toolbar) {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.workspace-page--mobile .settings-page .template-toolbar-actions,
+.workspace-page--mobile .settings-page .parent-doc-input-wrap {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.workspace-page--mobile .settings-page :where(.settings-tabs, .template-tabs) {
+    width: 100%;
+    max-width: 100%;
+}
+
+.workspace-page--mobile .settings-page .settings-save-bar {
+    bottom: calc(var(--wk-mobile-nav-height) + env(safe-area-inset-bottom));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+
+.enhanced-diary-workspace-child-dialog--mobile .b3-dialog__container {
+    max-width: 100vw !important;
+    max-height: calc(100dvh - 24px) !important;
+    overflow: hidden;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile.enhanced-diary-workspace-child-dialog--full .b3-dialog__container {
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile .b3-dialog__header {
+    flex: 0 0 auto;
+    padding-top: max(8px, env(safe-area-inset-top));
+}
+
+.enhanced-diary-workspace-child-dialog--mobile .dialog-content {
+    min-width: 0;
+    min-height: 0;
+    padding: 0 !important;
+    overflow: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile .enhanced-diary-workspace-dialog {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 100%;
+    padding-bottom: env(safe-area-inset-bottom);
+    overflow-x: hidden;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    max-width: 100%;
+    font-size: 16px !important;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile :where(button, .wk-btn) {
+    min-height: 40px;
+    touch-action: manipulation;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile :where(.panel-footer, footer, .dialog-actions) {
+    position: sticky;
+    z-index: 2;
+    bottom: 0;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    background: var(--b3-theme-surface);
+}
+
+.enhanced-diary-workspace-child-dialog--mobile.enhanced-diary-workspace-child-dialog--compact .b3-dialog__container {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(100vh - 24px) !important;
+    max-height: calc(100dvh - 24px) !important;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile.enhanced-diary-workspace-child-dialog--compact .dialog-content {
+    max-height: calc(100vh - 88px);
+    max-height: calc(100dvh - 88px);
+}
+
+.enhanced-diary-workspace-child-dialog--mobile :where(.task-editor-panel, .quick-record-panel, .project-move-content, .repair-dialog) {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile :where(.task-editor-panel, .quick-record-panel) .panel-section {
+    padding-right: 14px;
+    padding-left: 14px;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile :where(.task-editor-panel, .quick-record-panel) .panel-footer {
+    padding-right: 14px;
+    padding-left: 14px;
+}
+
+.enhanced-diary-workspace-child-dialog--mobile .task-editor-panel :where(.date-row, .extended-grid) {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 380px) {
+    .workspace-page--mobile .workspace-layout > main {
+        padding-right: 10px;
+        padding-left: 10px;
+    }
+
+    .workspace-page--mobile .workspace-sidebar button {
+        min-width: 55px;
+        padding-right: 7px;
+        padding-left: 7px;
+    }
+
+    .workspace-page--mobile .record-panel .record-insights,
+    .workspace-page--mobile .analytics-view .kpis {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

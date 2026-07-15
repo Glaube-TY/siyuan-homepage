@@ -1,4 +1,4 @@
-export type MobileQuickActionId = "accounting-record" | "mobile-homepage" | "ai-knowledge-base" | "quick-notes" | "mobile-settings";
+export type MobileQuickActionId = "accounting-record" | "mobile-homepage" | "enhanced-diary-workspace" | "ai-knowledge-base" | "quick-notes" | "mobile-settings";
 
 export interface MobileQuickActionSetting {
     id: MobileQuickActionId;
@@ -39,6 +39,12 @@ export const MOBILE_QUICK_ACTION_DEFINITIONS: MobileQuickActionDefinition[] = [
         label: "打开主页",
         description: "打开移动端主页",
         icon: "iconhomepage",
+    },
+    {
+        id: "enhanced-diary-workspace",
+        label: "日记工作台",
+        description: "打开强化日记工作台",
+        icon: "tasks",
     },
     {
         id: "ai-knowledge-base",

@@ -74,6 +74,10 @@
         <WorkspaceTaskIcon name="filter" />筛选{activeCount > 0 ? ` ${activeCount}` : ""}
     </summary>
     <div class="popover-panel">
+        <div class="popover-heading">
+            <strong>任务筛选</strong>
+            <button type="button" class="popover-close" onclick={() => (open = false)}>关闭</button>
+        </div>
         <label>项目
             <select value={projectTargetId} onchange={(event) => onProjectChange((event.currentTarget as HTMLSelectElement).value)}>
                 <option value="">全部项目</option><option value="__none__">未关联项目</option>
@@ -121,6 +125,8 @@
     summary::-webkit-details-marker { display: none; }
     summary.active { color: var(--wk-primary); border-color: var(--wk-primary); }
     .popover-panel { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; display: grid; gap: 12px; width: min(390px, calc(100vw - 36px)); max-height: min(70vh, 620px); overflow: auto; padding: 14px; border: 1px solid var(--wk-border); border-radius: 12px; background: var(--wk-surface); box-shadow: var(--wk-shadow-popover); box-sizing: border-box; }
+    .popover-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--wk-ink); }
+    .popover-close { min-height: 34px; padding: 0 10px; border: 1px solid var(--wk-border); border-radius: 7px; background: var(--wk-background); color: var(--wk-ink-secondary); cursor: pointer; }
     label { display: grid; gap: 5px; color: var(--wk-ink-secondary); font-size: var(--wk-text-sm); }
     select, .tag-search { width: 100%; min-height: 34px; padding: 5px 8px; border: 1px solid var(--wk-border); border-radius: 7px; background: var(--wk-background); color: var(--wk-ink); box-sizing: border-box; }
     fieldset { min-width: 0; margin: 0; padding: 9px; border: 1px solid var(--wk-border-light); border-radius: 8px; }

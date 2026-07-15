@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { Dialog, showMessage } from "siyuan";
+    import { Dialog, getFrontend, showMessage } from "siyuan";
     import WorkspaceHeader from "./components/WorkspaceHeader.svelte";
     import WorkspaceSidebar, { type WorkspaceTab } from "./components/WorkspaceSidebar.svelte";
     import { getWorkspaceReviewFields, isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
@@ -28,6 +28,7 @@
         openArchiveProjectDialog,
     } from "./enhancedDiaryWorkspaceDialogs";
     import "./workspaceDesignTokens.css";
+    import "./workspaceMobile.css";
     import {
         loadReviewContent,
         saveReviewContent,
@@ -101,9 +102,11 @@
     interface Props {
         plugin: any;
         initialTab?: WorkspaceTab | string;
+        mobile?: boolean;
+        onClose?: () => void;
     }
 
-    let { plugin, initialTab = "overview" }: Props = $props();
+    let { plugin, initialTab = "overview", mobile = false, onClose }: Props = $props();
 
     let state = $state<EnhancedDiaryWorkspaceState | null>(null);
     let activeTab = $state<WorkspaceTab>("overview");
@@ -126,6 +129,7 @@
     let deletingRecord = $state<EnhancedDiaryWorkspaceRecord | null>(null);
     let migratingTask = $state<EnhancedDiaryWorkspaceTask | null>(null);
     let commandPaletteOpen = $state(false);
+    let mainScrollElement = $state<HTMLElement | null>(null);
     let taskStatusFilter = $state<WorkspaceTaskStatusFilter>("active");
     let taskCompletionScopeFilter = $state<WorkspaceTaskCompletionScope>("active");
     let taskQuickFilter = $state<WorkspaceTaskStatusFilter>("active");
@@ -590,9 +594,13 @@
     }
 
     function selectTab(tab: WorkspaceTab): void {
+        const tabChanged = activeTab !== tab;
         activeTab = tab;
         if (tab === "review") {
             void ensureReviewHistoryLoaded();
+        }
+        if (mobile && tabChanged) {
+            window.requestAnimationFrame(() => mainScrollElement?.scrollTo({ top: 0, behavior: "auto" }));
         }
     }
 
@@ -1553,6 +1561,8 @@
                 resolve(value);
             }
 
+            const frontend = getFrontend();
+            const mobileDialog = mobile || frontend === "mobile" || frontend === "browser-mobile" || frontend.includes("mobile");
             const dialog = new Dialog({
                 title: "取消跳过",
                 content: `<div style="padding:12px 0;">请选择取消跳过后的状态。</div>
@@ -1561,9 +1571,11 @@
                         <button class="b3-button b3-button--outline" data-mode="completed">直接标记完成</button>
                         <button class="b3-button b3-button--outline" data-mode="cancel">取消</button>
                     </div>`,
-                width: "420px",
+                width: mobileDialog ? "calc(100vw - 24px)" : "420px",
                 destroyCallback: () => finish(null),
             } as any);
+            dialog.element.classList.add("enhanced-diary-workspace-child-dialog", "enhanced-diary-workspace-child-dialog--compact");
+            if (mobileDialog) dialog.element.classList.add("enhanced-diary-workspace-child-dialog--mobile");
 
             dialog.element.querySelectorAll("button[data-mode]").forEach((button) => {
                 button.addEventListener("click", () => {
@@ -1714,7 +1726,7 @@
 </script>
 
 {#if advancedEnabled}
-<div class="workspace-page">
+<div class="workspace-page" class:workspace-page--mobile={mobile}>
         <WorkspaceHeader
             today={state?.today || ""}
             {loading}
@@ -1727,11 +1739,13 @@
             projectCount={state?.projects?.length || 0}
             reviewStatusText={reviewStatusText}
             {taskManagementEnabled}
-            showPulse={activeTab !== "overview"}
+            showPulse={mobile || activeTab !== "overview"}
             onGoTasks={(f) => goTasks(f as WorkspaceTaskStatusFilter)}
             onGoRecords={() => goRecords({ mode: "today" })}
             onGoProjects={() => selectTab("projects")}
             onGoReview={() => selectTab("review")}
+            {mobile}
+            {onClose}
         />
 
     {#if state}
@@ -1755,7 +1769,7 @@
                 taskManagementEnabled={taskManagementEnabled}
                 onSelect={selectTab}
             />
-            <main>
+            <main bind:this={mainScrollElement}>
                 {#if activeTab === "overview"}
                     <WorkspaceOverview
                         {state}
@@ -1960,7 +1974,7 @@
     {/if}
 </div>
 {:else}
-<div class="workspace-page">
+<div class="workspace-page" class:workspace-page--mobile={mobile}>
         <AdvancedFeatureLock
             title="强化日记工作台"
             subtitle="把日记、任务、记录、复盘和计划承接整合成一个专业工作台。"

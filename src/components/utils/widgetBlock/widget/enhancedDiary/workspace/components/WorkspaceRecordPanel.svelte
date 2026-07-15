@@ -342,7 +342,10 @@
                     <div class="filter-popover" bind:this={filterPopoverRef}>
                         <div class="filter-popover-head">
                             <strong>筛选记录</strong>
-                            <button type="button" class="wk-btn wk-btn-ghost wk-btn-sm" onclick={resetFilters}>重置</button>
+                            <div class="filter-popover-actions">
+                                <button type="button" class="wk-btn wk-btn-ghost wk-btn-sm" onclick={resetFilters}>重置</button>
+                                <button type="button" class="wk-btn wk-btn-secondary wk-btn-sm" onclick={closeFilterPopover}>关闭</button>
+                            </div>
                         </div>
                         {#if isHistoryMode}
                             <label class="filter-field">
@@ -762,6 +765,12 @@
     .filter-popover-head strong {
         font-size: var(--wk-text-base);
         color: var(--wk-ink-secondary);
+    }
+
+    .filter-popover-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
 
     .filter-field {

@@ -18,6 +18,9 @@ export function openDocs(plugin: any, id: string, mode?: DocOpenMode) {
             plugin.currentMobileDialog.close();
             plugin.currentMobileDialog = null;
         }
+        if (typeof plugin?.closeMobileEnhancedDiaryWorkspace === "function") {
+            plugin.closeMobileEnhancedDiaryWorkspace();
+        }
         openMobileFileById(plugin.app, id);
     } else {
         const docConfig: OpenDocOptions = { id };

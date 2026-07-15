@@ -163,6 +163,7 @@ export default class PluginHomepage extends Plugin {
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
     private currentMobileKbDialog: ReturnType<typeof svelteDialog> | null = null;
     private currentMobileSettingsDialog: ReturnType<typeof svelteDialog> | null = null;
+    private currentMobileEnhancedDiaryWorkspaceDialog: ReturnType<typeof svelteDialog> | null = null;
     private homepageInstance: Record<string, any> | null = null;
     private homepageTabDiv: HTMLDivElement | null = null;
     private enhancedDiaryWorkspaceInstance: Record<string, any> | null = null;
@@ -532,6 +533,10 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async handleHomepageAdvancedUnavailable(): Promise<void> {
+        if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
+            this.currentMobileEnhancedDiaryWorkspaceDialog.close();
+            this.currentMobileEnhancedDiaryWorkspaceDialog = null;
+        }
         await this.applyGlobalBackgroundImageStyle();
         if (this.currentMobileSettingsDialog) {
             this.currentMobileSettingsDialog.close();
@@ -541,6 +546,10 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onunload() {
+        if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
+            this.currentMobileEnhancedDiaryWorkspaceDialog.close();
+            this.currentMobileEnhancedDiaryWorkspaceDialog = null;
+        }
         if (this.mobileQuickActionsPositionSaveTimer !== null) {
             clearTimeout(this.mobileQuickActionsPositionSaveTimer);
             this.mobileQuickActionsPositionSaveTimer = null;
@@ -1239,6 +1248,7 @@ export default class PluginHomepage extends Plugin {
         const runById: Record<MobileQuickActionId, () => void | Promise<void>> = {
             "accounting-record": () => openAccountingDetailDialogFromPlugin(this, "record"),
             "mobile-homepage": () => this.openMobileHomepage(),
+            "enhanced-diary-workspace": () => this.openEnhancedDiaryWorkspace(),
             "ai-knowledge-base": () => this.openMobileKbChat(),
             "quick-notes": () => this.openQuickNotesDialog(),
             "mobile-settings": () => this.openMobileSettingsDialog(),
@@ -1371,13 +1381,13 @@ export default class PluginHomepage extends Plugin {
     }
 
     public openEnhancedDiaryWorkspace(initialTab = "overview"): void {
-        if (this.isMobileFrontend()) {
-            showMessage("移动端工作台还在开发中", 3000);
+        if (!this.ADVANCED) {
+            showMessage("强化日记工作台为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
             return;
         }
 
-        if (!this.ADVANCED) {
-            showMessage("强化日记工作台为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+        if (this.isMobileFrontend()) {
+            this.openMobileEnhancedDiaryWorkspace(initialTab);
             return;
         }
 
@@ -1399,6 +1409,60 @@ export default class PluginHomepage extends Plugin {
                 detail: { tab: initialTab },
             }));
         }, 0);
+    }
+
+    public closeMobileEnhancedDiaryWorkspace(): void {
+        const dialog = this.currentMobileEnhancedDiaryWorkspaceDialog;
+        if (!dialog) return;
+
+        this.currentMobileEnhancedDiaryWorkspaceDialog = null;
+        try {
+            dialog.close();
+        } catch (error) {
+            console.warn("[Plugin] 关闭移动强化日记工作台失败:", error);
+        }
+    }
+
+    private openMobileEnhancedDiaryWorkspace(initialTab: string): void {
+        if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
+            window.dispatchEvent(new CustomEvent("siyuan-homepage:enhanced-diary-workspace-tab", {
+                detail: { tab: initialTab },
+            }));
+            return;
+        }
+
+        let dialogRef: ReturnType<typeof svelteDialog> | null = null;
+        const closeWorkspace = () => {
+            if (!dialogRef) return;
+            dialogRef.close();
+            if (this.currentMobileEnhancedDiaryWorkspaceDialog === dialogRef) {
+                this.currentMobileEnhancedDiaryWorkspaceDialog = null;
+            }
+        };
+
+        dialogRef = svelteDialog({
+            title: "强化日记工作台",
+            width: "100vw",
+            height: "100dvh",
+            constructor: (containerEl: HTMLElement) => {
+                return mount(EnhancedDiaryWorkspacePage as any, {
+                    target: containerEl,
+                    props: {
+                        plugin: this,
+                        initialTab,
+                        mobile: true,
+                        onClose: closeWorkspace,
+                    },
+                } as any);
+            },
+            callback: () => {
+                if (this.currentMobileEnhancedDiaryWorkspaceDialog === dialogRef) {
+                    this.currentMobileEnhancedDiaryWorkspaceDialog = null;
+                }
+            },
+        });
+        this.currentMobileEnhancedDiaryWorkspaceDialog = dialogRef;
+        dialogRef.dialog.element.classList.add("enhanced-diary-workspace-mobile-dialog");
     }
 
     public openKbSettingsDialog(): void {
