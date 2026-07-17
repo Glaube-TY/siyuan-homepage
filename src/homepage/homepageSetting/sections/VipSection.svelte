@@ -52,6 +52,18 @@
         "https://www.ifdian.net/a/glaube-ty?utm_source=copylink&utm_medium=link";
     const AFDIAN_STORE_QR_URL =
         "https://blog.glaube-ty.top/upload/b407e281-c44c-4086-aabc-2d0209ab1909.webp";
+    const membershipBenefits = [
+        { name: "基础功能", free: true, vip: true },
+        { name: "移动端主页", free: false, vip: true },
+        { name: "侧边栏主页", free: false, vip: true },
+        { name: "AI 知识库相关所有功能", free: false, vip: true },
+        { name: "通知中心", free: false, vip: true },
+        { name: "机器人助手", free: false, vip: true },
+        { name: "高级样式", free: false, vip: true },
+        { name: "VIP组件", free: false, vip: true },
+        { name: "Quicker软件全局剪藏", free: false, vip: true },
+        { name: "持续更新的未来新功能", free: false, vip: true, future: true },
+    ];
     // 会员服务器是唯一正式云端地址，禁止由本地配置或页面输入覆盖。
     const serviceBaseUrl = DEFAULT_BASE_URL;
     const ACCOUNT_CHANGED_NO_MUTATION =
@@ -1128,9 +1140,58 @@
             rel="noopener noreferrer"
             class="vip-benefits-link"
         >
-            查看会员权益 <SiyuanIcon name="iconRight" size={14} />
+            查看完整权益介绍 <SiyuanIcon name="iconRight" size={14} />
         </a>
     </div>
+
+    <details class="membership-benefits-comparison">
+        <summary>
+            <span class="benefits-summary-title">
+                <SiyuanIcon name="iconVIP" size={18} />
+                核心权益对比
+            </span>
+            <span class="benefits-summary-hint">点击展开查看</span>
+        </summary>
+        <div class="membership-benefits-content">
+            <div class="membership-benefits-table-scroll">
+                <table class="membership-benefits-table">
+                    <colgroup>
+                        <col class="benefit-name-column" />
+                        <col class="benefit-free-column" />
+                        <col class="benefit-vip-column" />
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th scope="col">功能模块</th>
+                            <th scope="col">免费版</th>
+                            <th scope="col" class="vip-column">👑 VIP 尊享版</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#each membershipBenefits as benefit}
+                            <tr class:future-benefit={benefit.future === true}>
+                                <th scope="row">{benefit.name}</th>
+                                <td>
+                                    <span
+                                        class:available={benefit.free}
+                                        class:unavailable={!benefit.free}
+                                        aria-label={benefit.free ? "支持" : "不支持"}
+                                    >{benefit.free ? "✓" : "×"}</span>
+                                </td>
+                                <td class="vip-column">
+                                    <span
+                                        class:available={benefit.vip}
+                                        class:unavailable={!benefit.vip}
+                                        aria-label={benefit.vip ? "支持" : "不支持"}
+                                    >{benefit.vip ? "✓" : "×"}</span>
+                                </td>
+                            </tr>
+                        {/each}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </details>
 
     <div class="membership-plan-grid" aria-label="会员方案">
         <div class="membership-plan-card">
@@ -1172,13 +1233,19 @@
                 前往爱发电购买会员 <SiyuanIcon name="iconLink" size={16} />
             </a>
             <small>实际价格与商品内容以爱发电商品页面为准。</small>
-            <p>购买完成后，请复制爱发电自动发送的会员兑换码。</p>
+            <div class="membership-code-notice" role="note" aria-label="兑换码领取提醒">
+                <SiyuanIcon name="iconInfo" size={20} />
+                <div>
+                    <strong>购买后请务必查看爱发电私信</strong>
+                    <p>购买相应商品后，兑换码会由系统自动下发至爱发电私信，无需等待人工发送。</p>
+                </div>
+            </div>
         </div>
     </div>
 
     <div class="membership-steps" aria-label="会员激活流程">
         <div class="membership-step"><span>①</span>前往爱发电选择会员方案</div>
-        <div class="membership-step"><span>②</span>完成购买并复制自动发送的兑换码</div>
+        <div class="membership-step"><span>②</span>完成购买后，打开爱发电私信复制自动下发的兑换码</div>
         <div class="membership-step"><span>③</span>返回此处粘贴兑换码并激活</div>
     </div>
 
