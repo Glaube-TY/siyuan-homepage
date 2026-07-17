@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { saveWidgetContentPreservingSize } from "../../styleUtils";
     import { onMount, onDestroy, mount, untrack } from "svelte";
     import { Howl } from "howler";
     import { svelteDialog } from "@/libs/dialog";
@@ -632,7 +633,7 @@
     async function saveConfig() {
         try {
             const currentParsed = JSON.parse(contentTypeJson);
-            await plugin.saveData(`widget-${currentParsed.blockId}.json`, {
+            await saveWidgetContentPreservingSize(plugin, currentParsed.blockId, {
                 ...currentParsed,
                 data: {
                     ...currentParsed.data,

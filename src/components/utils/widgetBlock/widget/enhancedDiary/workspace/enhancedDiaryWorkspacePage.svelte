@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { Dialog, getFrontend, showMessage } from "siyuan";
+    import { constrainDialogToViewport } from "@/libs/dialog";
     import WorkspaceHeader from "./components/WorkspaceHeader.svelte";
     import WorkspaceSidebar, { type WorkspaceTab } from "./components/WorkspaceSidebar.svelte";
     import { getWorkspaceReviewFields, isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
@@ -1574,6 +1575,7 @@
                 width: mobileDialog ? "calc(100vw - 24px)" : "420px",
                 destroyCallback: () => finish(null),
             } as any);
+            constrainDialogToViewport(dialog);
             dialog.element.classList.add("enhanced-diary-workspace-child-dialog", "enhanced-diary-workspace-child-dialog--compact");
             if (mobileDialog) dialog.element.classList.add("enhanced-diary-workspace-child-dialog--mobile");
 

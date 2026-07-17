@@ -79,6 +79,10 @@
     .ac-icon-picker {
         min-width: 320px;
         max-width: 400px;
+        max-height: calc(100vh - 32px);
+        max-height: calc(100dvh - 32px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
         padding: 0.75rem;
         border: 1px solid var(--b3-border-color);
         border-radius: 12px;

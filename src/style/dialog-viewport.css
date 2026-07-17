@@ -1,0 +1,37 @@
+/* 插件创建的思源 Dialog 统一限制在可视区域内。 */
+.siyuan-homepage-viewport-dialog .b3-dialog__container {
+    display: flex;
+    flex-direction: column;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow: hidden;
+}
+
+.siyuan-homepage-viewport-dialog .b3-dialog__header,
+.siyuan-homepage-viewport-dialog .b3-dialog__action {
+    flex: 0 0 auto;
+}
+
+.siyuan-homepage-viewport-dialog .b3-dialog__content,
+.siyuan-homepage-viewport-dialog .dialog-content {
+    min-width: 0;
+    min-height: 0;
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+}
+
+.siyuan-homepage-viewport-dialog .dialog-content {
+    flex: 1 1 auto;
+}
+
+@media (max-height: 520px) {
+    .siyuan-homepage-viewport-dialog .b3-dialog__container {
+        max-height: calc(100vh - 12px);
+        max-height: calc(100dvh - 12px);
+    }
+}

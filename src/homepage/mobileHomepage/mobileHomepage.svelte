@@ -11,6 +11,7 @@
     import MobileWidgetDeleteSheet from "./MobileWidgetDeleteSheet.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import AdvancedFeatureLock from "../../components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte";
+    import { saveWidgetContentPreservingSize } from "@/components/utils/widgetBlock/styleUtils";
     import {
         MOBILE_WIDGET_CATEGORIES,
         getMobileWidgetActiveTab,
@@ -310,7 +311,11 @@
             instance.updateContent(contentTypeJson);
         }
 
-        await plugin.saveData(`widget-${contentSheet.blockId}.json`, JSON.parse(contentTypeJson));
+        await saveWidgetContentPreservingSize(
+            plugin,
+            contentSheet.blockId,
+            JSON.parse(contentTypeJson),
+        );
         await saveLayout(plugin, mobileHomepageWidgetContainer);
         setSelectedBlock(block);
         await refreshSelectedWidgetType(block);

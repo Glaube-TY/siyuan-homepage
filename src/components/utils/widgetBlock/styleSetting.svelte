@@ -20,7 +20,7 @@
         onClose: () => void;
         onHideForCurrentDevice: () => void;
         onDeleteGlobally: () => void;
-        onSetSize: (size: number) => void;
+        onSetSize: (size: number) => void | Promise<void>;
         currentBlockId?: string;
         layoutRuntimeOptions?: HomepageLayoutRuntimeOptions;
     }
@@ -68,9 +68,9 @@
     }
 
     async function handleApplySize() {
-        onSetSize(parseInt(`${rowSize}${colSize}`));
+        await onSetSize(parseInt(`${rowSize}${colSize}`));
         await saveWidgetSize(plugin, currentBlockId, rowSize, colSize);
-        saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
+        await saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
     }
 
     async function handleMoveToSection() {
@@ -138,7 +138,6 @@
         rowSize = size.rowSize;
         colSize = size.colSize;
 
-        handleStyleChange();
     });
 </script>
 

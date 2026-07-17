@@ -9,6 +9,85 @@ export interface StyleSettings {
     colSize: number;
 }
 
+interface WidgetGridSize {
+    rowSize: number;
+    colSize: number;
+}
+
+function parseGridSpan(...values: Array<string | null | undefined>): number | null {
+    for (const value of values) {
+        const match = value?.match(/span\s+(\d+)/i);
+        const span = match ? Number(match[1]) : 0;
+        if (Number.isInteger(span) && span > 0) return span;
+    }
+    return null;
+}
+
+function readElementGridSize(blockElement: HTMLElement): WidgetGridSize | null {
+    const computedStyle = window.getComputedStyle(blockElement);
+    const colSize = parseGridSpan(
+        blockElement.style.gridColumn,
+        blockElement.style.gridColumnStart,
+        blockElement.style.gridColumnEnd,
+        computedStyle.gridColumn,
+        computedStyle.gridColumnStart,
+        computedStyle.gridColumnEnd,
+    );
+    const rowSize = parseGridSpan(
+        blockElement.style.gridRow,
+        blockElement.style.gridRowStart,
+        blockElement.style.gridRowEnd,
+        computedStyle.gridRow,
+        computedStyle.gridRowStart,
+        computedStyle.gridRowEnd,
+    );
+    if (rowSize && colSize) return { rowSize, colSize };
+
+    // 侧边栏等非主页网格仍可能使用宽高比表示尺寸。
+    if (!blockElement.closest(".custom-content")) {
+        const [widthRatio, heightRatio] = computedStyle.aspectRatio.split("/").map((part) => Number(part.trim()));
+        if (
+            Number.isInteger(widthRatio) && widthRatio > 0 &&
+            Number.isInteger(heightRatio) && heightRatio > 0
+        ) {
+            return { rowSize: heightRatio, colSize: widthRatio };
+        }
+    }
+
+    return null;
+}
+
+function normalizeStoredWidgetSize(config: Record<string, unknown> | null): WidgetGridSize | null {
+    const rowSize = Number(config?.rowSize);
+    const colSize = Number(config?.colSize);
+    if (
+        !Number.isInteger(rowSize) || rowSize < 1 ||
+        !Number.isInteger(colSize) || colSize < 1
+    ) {
+        return null;
+    }
+    return { rowSize, colSize };
+}
+
+async function loadWidgetConfigForUpdate(plugin: any, currentBlockId: string): Promise<Record<string, unknown> | null> {
+    const delays = [0, 80, 200];
+    let lastError: unknown = null;
+    for (const delayMs of delays) {
+        if (delayMs > 0) {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+        }
+        try {
+            const normalized = normalizeWidgetConfigData(await plugin.loadData(`widget-${currentBlockId}.json`));
+            if (normalized) return normalized;
+            lastError = null;
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    if (lastError) throw lastError;
+    return null;
+}
+
 export function hexToRgba(hex: string, opacity: number): string {
     const bigint = parseInt(hex.slice(1), 16);
     const r = (bigint >> 16) & 255;
@@ -108,24 +187,10 @@ export function loadElementStyles(elementId: string): StyleSettings | null {
         }
     }
 
-    // 优先从 gridColumnEnd / gridRowEnd 读取 span 数值（主页 custom-content 已禁用 aspect-ratio）
-    const gridColumnEnd = computedStyle.gridColumnEnd;
-    const gridRowEnd = computedStyle.gridRowEnd;
-    const colSpanMatch = gridColumnEnd && gridColumnEnd.toString().match(/span\s+(\d+)/);
-    const rowSpanMatch = gridRowEnd && gridRowEnd.toString().match(/span\s+(\d+)/);
-    if (colSpanMatch && rowSpanMatch) {
-        result.colSize = parseInt(colSpanMatch[1]);
-        result.rowSize = parseInt(rowSpanMatch[1]);
-    } else {
-        // 回退到 aspectRatio
-        const aspectRatio = computedStyle.aspectRatio;
-        if (aspectRatio) {
-            const [widthRatio, heightRatio] = aspectRatio.split("/").map((s) => s.trim());
-            if (widthRatio && heightRatio) {
-                result.colSize = parseInt(widthRatio);
-                result.rowSize = parseInt(heightRatio);
-            }
-        }
+    const gridSize = readElementGridSize(blockElement);
+    if (gridSize) {
+        result.rowSize = gridSize.rowSize;
+        result.colSize = gridSize.colSize;
     }
 
     return result;
@@ -137,25 +202,33 @@ export async function loadWidgetSize(
     defaultRowSize: number = 1,
     defaultColSize: number = 1
 ): Promise<{ rowSize: number; colSize: number }> {
+    const blockElement = document.getElementById(currentBlockId);
+    const renderedSize = blockElement instanceof HTMLElement ? readElementGridSize(blockElement) : null;
+
     try {
-        const widgetConfig = await plugin.loadData(`widget-${currentBlockId}.json`);
-        if (widgetConfig && widgetConfig.rowSize && widgetConfig.colSize) {
-            return {
-                rowSize: widgetConfig.rowSize,
-                colSize: widgetConfig.colSize
-            };
+        const widgetConfig = normalizeWidgetConfigData(await plugin.loadData(`widget-${currentBlockId}.json`));
+        const storedSize = normalizeStoredWidgetSize(widgetConfig);
+
+        // 当前页面实际采用的网格跨度是尺寸设置弹窗的权威来源。
+        if (renderedSize) {
+            if (
+                widgetConfig &&
+                (!storedSize || storedSize.rowSize !== renderedSize.rowSize || storedSize.colSize !== renderedSize.colSize)
+            ) {
+                await plugin.saveData(`widget-${currentBlockId}.json`, {
+                    ...widgetConfig,
+                    ...renderedSize,
+                });
+            }
+            return renderedSize;
         }
+
+        if (storedSize) return storedSize;
     } catch (error) {
         console.warn(`Failed to load saved size for widget ${currentBlockId}:`, error);
     }
 
-    const styles = loadElementStyles(currentBlockId);
-    if (styles) {
-        return {
-            rowSize: styles.rowSize,
-            colSize: styles.colSize
-        };
-    }
+    if (renderedSize) return renderedSize;
 
     return { rowSize: defaultRowSize, colSize: defaultColSize };
 }
@@ -166,12 +239,28 @@ export async function saveWidgetSize(
     rowSize: number,
     colSize: number
 ): Promise<void> {
-    const widgetConfig = await plugin.loadData(`widget-${currentBlockId}.json`);
-    const base = normalizeWidgetConfigData(widgetConfig) || {};
+    const base = await loadWidgetConfigForUpdate(plugin, currentBlockId) || {};
     const updatedConfig = {
         ...base,
         rowSize,
         colSize
     };
     await plugin.saveData(`widget-${currentBlockId}.json`, updatedConfig);
+}
+
+export async function saveWidgetContentPreservingSize(
+    plugin: any,
+    currentBlockId: string,
+    contentConfig: Record<string, unknown>,
+): Promise<void> {
+    const existingConfig = await loadWidgetConfigForUpdate(plugin, currentBlockId);
+    const existingSize = normalizeStoredWidgetSize(existingConfig);
+    const blockElement = document.getElementById(currentBlockId);
+    const renderedSize = blockElement instanceof HTMLElement ? readElementGridSize(blockElement) : null;
+    const contentSize = normalizeStoredWidgetSize(contentConfig);
+    const sizeToKeep = renderedSize || existingSize || contentSize;
+    await plugin.saveData(`widget-${currentBlockId}.json`, {
+        ...contentConfig,
+        ...(sizeToKeep || {}),
+    });
 }

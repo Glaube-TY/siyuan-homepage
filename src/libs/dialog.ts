@@ -9,6 +9,14 @@
 import { Dialog } from "siyuan";
 import { unmount } from "svelte";
 
+/**
+ * 给插件创建的思源弹窗统一增加视口边界和滚动容器。
+ * 具体布局由全局 dialog-viewport.css 处理，调用方只需标记宿主元素。
+ */
+export const constrainDialogToViewport = (dialog: Pick<Dialog, "element">): void => {
+    dialog.element.classList.add("siyuan-homepage-viewport-dialog");
+};
+
 export const inputDialog = (args: {
     title: string, placeholder?: string, defaultText?: string,
     confirm?: (text: string) => void, cancel?: () => void,
@@ -28,6 +36,7 @@ export const inputDialog = (args: {
         height: args.height,
         destroyCallback: args.destroyCallback
     });
+    constrainDialogToViewport(dialog);
     const target: HTMLTextAreaElement = dialog.element.querySelector(".b3-dialog__content>div.ft__breakword>textarea");
     if (args.placeholder) target.placeholder = args.placeholder;
     if (args.defaultText) target.value = args.defaultText;
@@ -94,6 +103,7 @@ export const confirmDialog = (args: IConfirmDialogArgs) => {
         height: height,
         destroyCallback: args.destroyCallback
     });
+    constrainDialogToViewport(dialog);
 
     const target: HTMLElement = dialog.element.querySelector(".b3-dialog__content>div.ft__breakword");
     if (typeof content === "string") {
@@ -188,6 +198,7 @@ export const simpleDialog = (args: {
         height: args.height,
         destroyCallback: args.callback
     });
+    constrainDialogToViewport(dialog);
     dialog.element.querySelector(".dialog-content").appendChild(args.ele);
     return {
         dialog,

@@ -55,6 +55,59 @@ export interface WidgetLayoutData {
     widgetGap?: number;
 }
 
+const LAYOUT_LOAD_RETRY_DELAYS_MS = [0, 120, 360];
+
+function waitForLayoutRetry(delayMs: number): Promise<void> {
+    if (delayMs <= 0) return Promise.resolve();
+    return new Promise((resolve) => window.setTimeout(resolve, delayMs));
+}
+
+async function loadLayoutDataWithRetry(
+    plugin: Plugin,
+    layoutFileName: string,
+): Promise<WidgetLayoutData | null> {
+    let lastError: unknown = null;
+
+    for (const delayMs of LAYOUT_LOAD_RETRY_DELAYS_MS) {
+        await waitForLayoutRetry(delayMs);
+        try {
+            const value = await plugin.loadData(layoutFileName);
+            if (value === null || value === undefined) {
+                lastError = null;
+                continue;
+            }
+            if (typeof value === "object" && !Array.isArray(value)) {
+                return value as WidgetLayoutData;
+            }
+            lastError = new Error(`布局文件 ${layoutFileName} 的数据格式无效`);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    if (lastError) throw lastError;
+    return null;
+}
+
+async function loadWidgetConfigWithRetry(plugin: Plugin, widgetId: string): Promise<unknown> {
+    const delays = [0, 80, 200];
+    let lastError: unknown = null;
+
+    for (const delayMs of delays) {
+        await waitForLayoutRetry(delayMs);
+        try {
+            const value = await plugin.loadData(`widget-${widgetId}.json`);
+            if (value !== null && value !== undefined) return value;
+            lastError = null;
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    if (lastError) throw lastError;
+    return null;
+}
+
 export interface MoveWidgetToSectionOptions {
     fromSectionId?: string | null;
     toSectionId: string;
@@ -65,8 +118,10 @@ export interface MoveWidgetToSectionOptions {
 function normalizeLayoutItem(item: unknown): LayoutItem | null {
     if (typeof item !== "object" || item === null) return null;
     const raw = item as Record<string, unknown>;
+    const id = typeof raw.id === "string" ? raw.id.trim() : "";
+    if (!id) return null;
     return {
-        id: typeof raw.id === "string" ? raw.id : "",
+        id,
         style: typeof raw.style === "string" ? raw.style : null,
         index: typeof raw.index === "number" ? raw.index : 0,
     };
@@ -457,14 +512,23 @@ export async function saveLayoutForContainer(
     const container = options.containerEl || document.querySelector(options.containerSelector);
     if (!container) return;
 
-    const currentOrder: LayoutItem[] = Array.from(container.children).map((el: Element, index) => {
-        const widgetBlockElement = el as HTMLElement;
-        return {
+    if (
+        options.layoutFileName === "widgetLayout.json" &&
+        container instanceof HTMLElement &&
+        container.dataset.layoutRestoreState &&
+        container.dataset.layoutRestoreState !== "ready"
+    ) {
+        console.warn(`[Layout] 容器尚未完成恢复，拒绝保存不完整布局: ${container.dataset.layoutRestoreState}`);
+        return;
+    }
+
+    const currentOrder: LayoutItem[] = Array.from(container.children)
+        .filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains("widget-block") && Boolean(el.id))
+        .map((widgetBlockElement, index) => ({
             id: widgetBlockElement.id,
             style: sanitizeLayoutStyle(widgetBlockElement.getAttribute("style"), container),
-            index: index,
-        };
-    });
+            index,
+        }));
 
     // 读取现有布局数据
     const existingLayout = await plugin.loadData(options.layoutFileName) as WidgetLayoutData | null;
@@ -617,15 +681,74 @@ function destroyAndClearContainer(container: Element): void {
     }
 }
 
+function recoverGridSpanFromWidgetConfig(
+    style: string | null,
+    contentData: unknown,
+    fallbackStyle: string | null = null,
+): string | null {
+    const sanitizedStyle = style?.trim() || "";
+    const hasColumnSpan = /grid-column(?:-end)?\s*:\s*span\s+\d+/i.test(sanitizedStyle);
+    const hasRowSpan = /grid-row(?:-end)?\s*:\s*span\s+\d+/i.test(sanitizedStyle);
+    if (hasColumnSpan && hasRowSpan) return style;
+
+    const config = normalizeWidgetConfigData(contentData);
+    let rowSize = Number(config?.rowSize);
+    let colSize = Number(config?.colSize);
+    if (!Number.isInteger(rowSize) || rowSize < 1) {
+        rowSize = Number(fallbackStyle?.match(/grid-row(?:-end)?\s*:\s*span\s+(\d+)/i)?.[1]);
+    }
+    if (!Number.isInteger(colSize) || colSize < 1) {
+        colSize = Number(fallbackStyle?.match(/grid-column(?:-end)?\s*:\s*span\s+(\d+)/i)?.[1]);
+    }
+    if (!Number.isInteger(rowSize) || rowSize < 1 || !Number.isInteger(colSize) || colSize < 1) {
+        return style;
+    }
+
+    const declarations = [sanitizedStyle.replace(/;?\s*$/, "")];
+    if (!hasColumnSpan) declarations.push(`grid-column: span ${colSize}`);
+    if (!hasRowSpan) declarations.push(`grid-row: span ${rowSize}`);
+    return declarations.filter(Boolean).join(";") + ";";
+}
+
+function destroyPreparedWidgets(widgets: { widgetBlock: any }[]): void {
+    widgets.forEach(({ widgetBlock }) => {
+        try {
+            widgetBlock?.destroy?.();
+        } catch {
+            // 临时实例尚未挂载，销毁失败不影响保留旧布局
+        }
+    });
+}
+
 export async function restoreLayoutForContainer(
     plugin: Plugin,
     currentBlockForSettingsRef: { value: HTMLElement | null },
     options: RestoreLayoutOptions
-): Promise<void> {
+): Promise<boolean> {
     const container = options.containerEl || document.querySelector(options.containerSelector);
-    if (!container) return;
+    if (!container) return false;
 
-    let layout = await plugin.loadData(options.layoutFileName) as WidgetLayoutData | null;
+    if (container instanceof HTMLElement) {
+        container.dataset.layoutRestoreState = "restoring";
+    }
+
+    let layout: WidgetLayoutData | null;
+    try {
+        layout = await loadLayoutDataWithRetry(plugin, options.layoutFileName);
+    } catch (error) {
+        if (container instanceof HTMLElement) {
+            container.dataset.layoutRestoreState = "failed";
+        }
+        console.warn(`[Layout] 读取 ${options.layoutFileName} 失败，保留当前组件布局:`, error);
+        return false;
+    }
+
+    if (!layout) {
+        if (container instanceof HTMLElement) {
+            container.dataset.layoutRestoreState = "ready";
+        }
+        return true;
+    }
 
     // 迁移旧结构
     layout = await migrateLegacyLayout(plugin, layout, options.layoutFileName);
@@ -664,7 +787,10 @@ export async function restoreLayoutForContainer(
         if (sectionsEnabled) {
             destroyAndClearContainer(container);
         }
-        return;
+        if (container instanceof HTMLElement) {
+            container.dataset.layoutRestoreState = "ready";
+        }
+        return true;
     }
 
     // 新设备首次建档：若当前设备无 profile，自动创建
@@ -717,33 +843,44 @@ export async function restoreLayoutForContainer(
     // 注意：此阶段只创建 widgetBlock 和读取配置，不调用 updateContent
     // 避免组件 onMount 时宿主 DOM 尚未插入页面
     const widgetsToRestore: { widgetBlock: any; contentJson: string | null }[] = [];
+    const defaultStyleByWidgetId = new Map(defaultOrder.map((item) => [item.id, item.style]));
     for (const item of finalOrder) {
         try {
+            const contentData = await loadWidgetConfigWithRetry(plugin, item.id);
+            const restoredStyle = recoverGridSpanFromWidgetConfig(
+                item.style,
+                contentData,
+                defaultStyleByWidgetId.get(item.id) || null,
+            );
             const widgetBlock = new options.WidgetBlockClass(
                 plugin,
                 currentBlockForSettingsRef,
                 item.id,
-                item.style,
+                restoredStyle,
                 "",
                 { sectionsEnabled, sectionId }
             );
 
-            const contentData = await plugin.loadData(`widget-${item.id}.json`);
             const contentJson = contentData ? stringifyWidgetConfigForMount(contentData) : null;
 
             // 先保存 widgetBlock 和内容，稍后统一挂载
             widgetsToRestore.push({ widgetBlock, contentJson });
         } catch (e) {
-            console.warn(`[Layout] 构建 widget ${item.id} 失败:`, e);
+            destroyPreparedWidgets(widgetsToRestore);
+            if (container instanceof HTMLElement) {
+                container.dataset.layoutRestoreState = "failed";
+            }
+            console.warn(`[Layout] 构建 widget ${item.id} 失败，本次恢复已取消并保留旧布局:`, e);
+            return false;
         }
     }
 
     // 第二阶段：只有当成功构建出至少一个 widget 时，才清空并替换
     if (widgetsToRestore.length === 0) {
-        if (sectionsEnabled) {
-            destroyAndClearContainer(container);
+        if (container instanceof HTMLElement) {
+            container.dataset.layoutRestoreState = "ready";
         }
-        return;
+        return true;
     }
 
     // 清空容器前，先显式销毁已有 widget 实例，触发各自的 onDestroy
@@ -766,13 +903,22 @@ export async function restoreLayoutForContainer(
             }
         }
     }
+
+    if (container instanceof HTMLElement) {
+        container.dataset.layoutRestoreState = "ready";
+    }
+    return true;
 }
 
 export async function ensureComponentSectionsForCurrentDevice(
     plugin: Plugin,
     layoutFileName = "widgetLayout.json",
 ): Promise<void> {
-    const rawLayout = await plugin.loadData(layoutFileName) as WidgetLayoutData | null;
+    const rawLayout = await loadLayoutDataWithRetry(plugin, layoutFileName);
+    if (!rawLayout) {
+        console.warn(`[Layout] ${layoutFileName} 暂不可用，跳过启动期分区初始化以避免覆盖已有布局`);
+        return;
+    }
     const layout = await migrateLegacyLayout(plugin, rawLayout, layoutFileName);
     const sectionId = DEFAULT_COMPONENT_SECTION_ID;
 

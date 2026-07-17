@@ -422,10 +422,15 @@
     }
 
     .confirm-dialog {
+        display: flex;
+        flex-direction: column;
         background: var(--b3-theme-surface);
         border-radius: var(--b3-border-radius-b);
         width: 400px;
         max-width: 90vw;
+        max-height: calc(100vh - 32px);
+        max-height: calc(100dvh - 32px);
+        overflow: hidden;
         box-shadow: var(--b3-dialog-shadow);
         animation: dialog-enter 0.2s ease;
     }
@@ -461,6 +466,9 @@
     }
 
     .confirm-body {
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
         padding: 16px;
         font-size: 14px;
         line-height: 1.6;
@@ -475,6 +483,7 @@
     }
 
     .confirm-footer {
+        flex: 0 0 auto;
         display: flex;
         justify-content: flex-end;
         gap: 12px;

@@ -226,6 +226,7 @@
         display: flex;
         flex-direction: column;
         min-height: 0;
+        max-height: 100%;
         width: 100%;
         box-sizing: border-box;
     }
@@ -391,12 +392,17 @@
     }
 
     .panel-footer {
+        position: sticky;
+        z-index: 2;
+        bottom: 0;
+        flex: 0 0 auto;
         display: flex;
         align-items: center;
         justify-content: flex-end;
         gap: 8px;
         padding: 14px 20px;
         border-top: 1px solid var(--wk-border-light);
+        background: var(--wk-surface, var(--b3-theme-surface));
     }
 
     @container (max-width: 500px) {

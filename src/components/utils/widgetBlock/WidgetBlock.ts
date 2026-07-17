@@ -7,6 +7,7 @@ import { mount, unmount } from "svelte";
 import { hideWidgetForCurrentDevice, deleteWidgetGlobally, loadWidgetLayoutSettings, stringifyWidgetConfigForMount } from "./utils/layout-shared";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
 import type { HomepageLayoutRuntimeOptions } from "./utils/layout-handler";
+import { saveWidgetContentPreservingSize } from "./styleUtils";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -114,9 +115,9 @@ export class WidgetBlock {
                                                             }
                                                             dialogRef.close();
                                                         },
-                                                        onSetSize: (size: number) => {
+                                                        onSetSize: async (size: number) => {
                                                             const layoutNumber = this.widgetLayoutNumber || 4;
-                                                            setBlockSize(this.currentBlockForSettingsRef.value, size, layoutNumber);
+                                                            await setBlockSize(this.currentBlockForSettingsRef.value, size, layoutNumber);
                                                             dialogRef.close();
                                                         },
                                                         layoutRuntimeOptions: this.runtimeOptions,
@@ -144,12 +145,16 @@ export class WidgetBlock {
                                                         onClose: () => {
                                                             dialogRef.close();
                                                         },
-                                                        onConfirm: (contentTypeJson: string) => {
+                                                        onConfirm: async (contentTypeJson: string) => {
                                                             const blockElement = document.getElementById(this.id);
                                                             if (blockElement) {
                                                                 this.updateContent(contentTypeJson);
                                                             }
-                                                            this.plugin.saveData(`widget-${this.id}.json`, JSON.parse(contentTypeJson));
+                                                            await saveWidgetContentPreservingSize(
+                                                                this.plugin,
+                                                                this.id,
+                                                                JSON.parse(contentTypeJson),
+                                                            );
                                                             dialogRef.close();
                                                         }
                                                     },

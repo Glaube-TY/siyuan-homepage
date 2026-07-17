@@ -9,6 +9,7 @@ import {
 } from "siyuan";
 
 import { svelteDialog } from "@/libs/dialog";
+import "./style/dialog-viewport.css";
 import * as advanced from "@/components/tools/advanced";
 import { loadWidgetLayoutSettings, buildHomepageAppliedSignature } from "@/components/utils/widgetBlock/utils/layout-shared";
 import type { WidgetLayoutData } from "@/components/utils/widgetBlock/utils/layout-shared";

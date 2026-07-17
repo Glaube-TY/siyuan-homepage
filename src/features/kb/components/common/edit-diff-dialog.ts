@@ -6,6 +6,7 @@
 
 import { mount, unmount } from "svelte";
 import { Dialog } from "siyuan";
+import { constrainDialogToViewport } from "@/libs/dialog";
 import type { EditDiffPreview } from "../../services/doc-content-edit/doc-content-edit-types";
 import EditDiffDialogContent from "../common/edit-diff-dialog-content.svelte";
 
@@ -40,6 +41,7 @@ export function openEditDiffPreviewDialog(
 </div>`,
       width: "960px",
     });
+    constrainDialogToViewport(dialog);
 
     // Mount Svelte component into the content area
     const mountPoint: HTMLElement | null = dialog.element.querySelector(".diff-mount-point");

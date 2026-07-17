@@ -1016,6 +1016,8 @@
         top: var(--picker-top, 1rem);
         width: var(--picker-width, 320px);
         max-height: var(--picker-max-height, 70vh);
+        overflow-y: auto;
+        overscroll-behavior: contain;
         display: flex;
         flex-direction: column;
         gap: 0.75rem;

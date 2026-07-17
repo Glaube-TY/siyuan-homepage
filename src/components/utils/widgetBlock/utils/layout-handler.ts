@@ -26,8 +26,8 @@ export async function restoreLayout(
     currentBlockForSettingsRef: { value: HTMLElement | null },
     containerEl?: HTMLElement | null,
     runtimeOptions: HomepageLayoutRuntimeOptions = {},
-) {
-    await restoreLayoutForContainer(plugin, currentBlockForSettingsRef, {
+): Promise<boolean> {
+    return restoreLayoutForContainer(plugin, currentBlockForSettingsRef, {
         containerSelector: ".custom-content",
         layoutFileName: "widgetLayout.json",
         WidgetBlockClass: WidgetBlock,

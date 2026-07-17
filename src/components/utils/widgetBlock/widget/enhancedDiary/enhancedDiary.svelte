@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
     import { showMessage, Dialog } from "siyuan";
+    import { constrainDialogToViewport } from "@/libs/dialog";
     import {
         ENHANCED_DIARY_PERIODS,
         type EnhancedDiaryConfig,
@@ -409,6 +410,7 @@
                 width: "400px",
                 destroyCallback: () => finish(null),
             } as any);
+            constrainDialogToViewport(dialog);
             dialog.element.querySelectorAll("button[data-mode]").forEach((btn) => {
                 btn.addEventListener("click", () => {
                     const mode = (btn as HTMLButtonElement).getAttribute("data-mode");

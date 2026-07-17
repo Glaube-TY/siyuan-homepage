@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { saveWidgetContentPreservingSize } from "../../styleUtils";
     import { showMessage, openTab } from "siyuan";
     import { sql, getTag } from "@/api";
     import { getTaskIndexResult } from "@/components/tools/siyuanComponentDataApi";
@@ -342,7 +343,7 @@
     }
 
     async function saveConfig() {
-        await plugin.saveData(`widget-${parsedContent.blockId}.json`, {
+        await saveWidgetContentPreservingSize(plugin, parsedContent.blockId, {
             ...parsedContent,
             data: {
                 ...parsedContent.data,

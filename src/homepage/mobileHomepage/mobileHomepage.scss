@@ -255,6 +255,12 @@
     padding-bottom: env(safe-area-inset-bottom);
 }
 
+.mobile-widget-action-sheet,
+.mobile-widget-delete-sheet {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
 .mobile-widget-sheet-header {
     flex: 0 0 auto;
     padding: 14px 16px 12px;

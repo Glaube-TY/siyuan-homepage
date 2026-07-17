@@ -288,7 +288,7 @@
         const container = getComponentSectionContainer(sectionId);
         if (!container) return null;
         customContentContainer = container;
-        setupActiveCustomContentInfrastructure(container);
+        setupActiveCustomContentInfrastructure(container, sectionId);
         return container;
     }
 
@@ -311,7 +311,7 @@
         };
     }
 
-    function setupActiveCustomContentInfrastructure(container: HTMLElement): void {
+    function setupActiveCustomContentInfrastructure(container: HTMLElement, sectionId: string): void {
         customContentResizeObserver?.disconnect();
         sortable?.destroy();
 
@@ -325,7 +325,14 @@
             ghostClass: "sortable-ghost",
             handle: ".drag-handle",
             onEnd: () => {
-                saveLayout(plugin, customContentContainer, getHomepageLayoutRuntimeOptions());
+                if (!restoredComponentSectionIds.has(sectionId) || container.dataset.layoutRestoreState !== "ready") {
+                    console.warn(`[Homepage] 分区 ${sectionId} 尚未完整恢复，忽略本次拖拽保存`);
+                    return;
+                }
+                saveLayout(plugin, container, {
+                    sectionsEnabled: effectiveComponentSectionsEnabled,
+                    sectionId,
+                });
             },
         });
     }
@@ -337,16 +344,35 @@
         // 分区导航模式下，只 restore 当前 active section，避免非当前分区组件挂载请求数据
         if (effectiveComponentSectionsEnabled && sectionId !== activeComponentSectionId) return;
 
-        await restoreLayout(
-            plugin,
-            { value: container },
-            container,
-            {
-                sectionsEnabled: effectiveComponentSectionsEnabled,
-                sectionId,
-            },
-        );
-        restoredComponentSectionIds.add(sectionId);
+        const retryDelays = [0, 160, 500];
+        for (const delayMs of retryDelays) {
+            if (delayMs > 0) {
+                await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+            }
+            if (homepageComponentDestroyed) return;
+
+            let restored = false;
+            try {
+                restored = await restoreLayout(
+                    plugin,
+                    { value: container },
+                    container,
+                    {
+                        sectionsEnabled: effectiveComponentSectionsEnabled,
+                        sectionId,
+                    },
+                );
+            } catch (error) {
+                container.dataset.layoutRestoreState = "failed";
+                console.warn(`[Homepage] 分区 ${sectionId} 恢复失败，将自动重试:`, error);
+            }
+            if (restored) {
+                restoredComponentSectionIds.add(sectionId);
+                return;
+            }
+        }
+
+        console.warn(`[Homepage] 分区 ${sectionId} 连续恢复失败，已保留原布局且不会写回不完整状态`);
     }
 
     async function handleComponentSectionLayoutInvalidated(
@@ -444,7 +470,13 @@
         if (targetSectionId === activeComponentSectionId) return;
         const currentContainer = getComponentSectionContainer(activeComponentSectionId) || customContentContainer;
 
-        await saveLayout(plugin, currentContainer, getHomepageLayoutRuntimeOptions());
+        if (
+            currentContainer &&
+            restoredComponentSectionIds.has(activeComponentSectionId) &&
+            currentContainer.dataset.layoutRestoreState === "ready"
+        ) {
+            await saveLayout(plugin, currentContainer, getHomepageLayoutRuntimeOptions());
+        }
         await setActiveComponentSectionForCurrentDevice(plugin, targetSectionId);
         activeComponentSectionId = targetSectionId;
 
@@ -1081,16 +1113,7 @@
         // 监听 plugin 侧派发的外部同步变化事件（主通道：window）
         window.addEventListener("homepage-external-sync-changed", handleExternalSyncChanged as EventListener);
 
-        // 首设备首次冷启动：初始化 widgetLayout.json 最小结构
-        const existingLayout = await plugin.loadData("widgetLayout.json");
-        if (homepageComponentDestroyed) return;
-        if (!existingLayout) {
-            await plugin.saveData("widgetLayout.json", {
-                defaultOrder: [],
-                profiles: {},
-            });
-            if (homepageComponentDestroyed) return;
-        }
+        // 不在冷启动阶段写入空布局：存储暂不可用时，空读不能覆盖用户已有布局。
 
         // 注册当前设备到同步配置（必须在加载配置之前，确保设备 profile 已就绪）
         const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
