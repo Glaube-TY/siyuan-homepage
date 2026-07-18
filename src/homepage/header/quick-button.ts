@@ -309,6 +309,9 @@ function getButtonAction(item: ButtonItem): string {
     if (item.label.includes("清理空文档")) {
         return "cleanEmptyDocs";
     }
+    if (item.label.includes("布局模板")) {
+        return "templateCenter";
+    }
     return "";
 }
 

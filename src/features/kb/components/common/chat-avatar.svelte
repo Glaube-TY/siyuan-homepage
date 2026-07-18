@@ -16,7 +16,7 @@
 
   function getDefaultIconName(): string {
     if (role === "user") return "iconAccount";
-    if (role === "assistant") return "iconSparkles";
+    if (role === "assistant") return "iconNotebrain";
     if (role === "error") return "iconInfo";
     return "iconClock";
   }

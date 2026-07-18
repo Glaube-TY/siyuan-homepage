@@ -41,7 +41,7 @@
             <AdvancedFeatureLock
                 title="AI 知识库对话"
                 subtitle="把你的思源资料、网页正文和日常记录变成可追问、可引用、可持续管理的个人知识助手。"
-                icon="vip"
+                icon="notebrain"
                 features={[
                     "围绕本地知识库进行问答、整理和总结",
                     "结合网页正文与已选资料生成更可靠回答",

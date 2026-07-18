@@ -49,14 +49,12 @@
                 .button-list-item {
                     display: flex;
                     align-items: center;
-                    justify-content: space-between;
-                    padding: 0.5rem 0.75rem;
+                    gap: 0.25rem;
+                    padding: 0.25rem 0.5rem;
                     border-radius: 4px;
                     background-color: transparent;
                     border: 1px solid transparent;
-                    cursor: pointer;
                     transition: background $hs-dur-fast $hs-ease-out, border-color $hs-dur-fast $hs-ease-out, box-shadow $hs-dur-fast $hs-ease-out;
-                    text-align: left;
                     min-height: 36px;
 
                     &:hover {
@@ -68,6 +66,58 @@
                         border-color: var(--b3-theme-primary);
                     }
 
+                    &.button-sortable-ghost {
+                        opacity: 0.35;
+                        border-color: var(--b3-theme-primary);
+                        background-color: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+                    }
+
+                    &.button-sortable-chosen,
+                    &.button-sortable-drag {
+                        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+                    }
+
+                    .button-drag-handle {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        flex: 0 0 28px;
+                        width: 28px;
+                        height: 28px;
+                        padding: 0;
+                        border: 0;
+                        border-radius: 4px;
+                        background: transparent;
+                        color: var(--b3-theme-on-surface);
+                        opacity: 0.55;
+                        cursor: grab;
+                        touch-action: none;
+
+                        &:hover {
+                            opacity: 0.9;
+                            background-color: var(--b3-list-hover);
+                        }
+
+                        &:active {
+                            cursor: grabbing;
+                        }
+                    }
+
+                    .button-select {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.45rem;
+                        flex: 1;
+                        align-self: stretch;
+                        min-width: 0;
+                        padding: 0 0.25rem;
+                        border: 0;
+                        background: transparent;
+                        color: inherit;
+                        text-align: left;
+                        cursor: pointer;
+                    }
+
                     .button-name {
                         font-size: 0.9rem;
                         color: var(--b3-theme-on-background);
@@ -75,7 +125,6 @@
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
-                        margin-right: 0.5rem;
                     }
 
                     input[type="checkbox"] {

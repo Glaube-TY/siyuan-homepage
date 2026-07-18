@@ -178,7 +178,7 @@
               {:else if preview.type === "text"}
                 <span>{preview.value}</span>
               {:else}
-                <SiyuanIcon name={target === "userAvatar" ? "iconAccount" : "iconSparkles"} size={18} />
+                <SiyuanIcon name={target === "userAvatar" ? "iconAccount" : "iconNotebrain"} size={18} />
               {/if}
             </div>
             <div>

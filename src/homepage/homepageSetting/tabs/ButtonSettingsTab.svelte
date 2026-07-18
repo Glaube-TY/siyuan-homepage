@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { onDestroy, onMount, tick } from 'svelte';
+    import Sortable from 'sortablejs';
     import type { ButtonItem, ButtonSettingsActions } from '../types';
     import { displayShortcut, eventToShortcutString } from '../../header/quick-button';
     import { isCoreButton, getButtonActionMeta } from '../buttonSettings';
@@ -9,23 +11,51 @@
     interface Props {
         buttonsList: ButtonItem[];
         selectedButton: ButtonItem | null;
-        selectedButtonIndex: number;
         actions: ButtonSettingsActions;
     }
 
     let {
         buttonsList,
         selectedButton,
-        selectedButtonIndex,
         actions
     }: Props = $props();
 
     let currentLabel = $derived(selectedButton?.label ?? "");
     let isCapturingShortcut = $state(false);
     let shortcutInputEl: HTMLInputElement | null = $state(null);
+    let buttonsListEl: HTMLDivElement | null = $state(null);
+    let sortable: Sortable | null = null;
 
     let selectedButtonMeta = $derived(selectedButton ? getButtonActionMeta(selectedButton) : null);
     let selectedIsCore = $derived(selectedButton ? isCoreButton(selectedButton) : false);
+
+    onMount(() => {
+        void initSortable();
+    });
+
+    onDestroy(() => {
+        sortable?.destroy();
+        sortable = null;
+    });
+
+    async function initSortable() {
+        await tick();
+        if (!buttonsListEl || sortable) return;
+
+        sortable = new Sortable(buttonsListEl, {
+            animation: 150,
+            handle: '.button-drag-handle',
+            draggable: '.button-list-item',
+            ghostClass: 'button-sortable-ghost',
+            chosenClass: 'button-sortable-chosen',
+            dragClass: 'button-sortable-drag',
+            onEnd: (event) => {
+                const { oldIndex, newIndex } = event;
+                if (typeof oldIndex !== 'number' || typeof newIndex !== 'number' || oldIndex === newIndex) return;
+                actions.onReorderButtons(oldIndex, newIndex);
+            },
+        });
+    }
 
     function handleShortcutKeydown(e: KeyboardEvent) {
         if (!isCapturingShortcut) return;
@@ -68,7 +98,7 @@
 <!-- 上层：说明区域 -->
 <SettingSection>
     <div class="button-settings-intro">
-        <p class="intro-text">请选择左侧按钮以查看或编辑详情，勾选表示该按钮启用，核心按钮不可删除</p>
+        <p class="intro-text">拖动左侧按钮可调整所有快捷按钮的顺序；开关控制是否显示。内置按钮只提供功能说明，不能修改功能或删除。</p>
     </div>
 </SettingSection>
 
@@ -170,30 +200,40 @@
     <div class="buttons-editor">
         <!-- 左栏：按钮列表 -->
         <div class="buttons-list-panel">
-            <div class="buttons-list">
+            <div class="buttons-list" bind:this={buttonsListEl}>
                 {#each buttonsList as item (item.id)}
-                    <button
-                        type="button"
+                    <div
                         class="button-list-item"
                         class:active={selectedButton?.id === item.id}
-                        onclick={() => actions.onSelectButton(item)}
-                        onkeydown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                                actions.onSelectButton(item);
-                                e.preventDefault();
-                            }
-                        }}
-                        aria-label={`选择按钮 ${item.label}`}
+                        data-button-id={item.id}
                     >
-                        <span class="button-name">{item.label}</span>
+                        <button
+                            type="button"
+                            class="button-drag-handle"
+                            title="拖动排序"
+                            aria-label={`拖动 ${item.label} 调整顺序`}
+                        >
+                            <SiyuanIcon name="drag" size={14} />
+                        </button>
+                        <button
+                            type="button"
+                            class="button-select"
+                            onclick={() => actions.onSelectButton(item)}
+                            aria-label={`选择按钮 ${item.label}`}
+                        >
+                            {#if getButtonActionMeta(item)?.icon}
+                                <SiyuanIcon name={getButtonActionMeta(item)!.icon} size={15} />
+                            {/if}
+                            <span class="button-name">{item.label}</span>
+                        </button>
                         <input
                             type="checkbox"
                             class="b3-switch fn__flex-center"
                             checked={item.checked}
-                            onclick={(e) => e.stopPropagation()}
                             onchange={(e) => actions.onToggleButtonChecked(item.id, (e.currentTarget as HTMLInputElement).checked)}
+                            aria-label={`${item.checked ? '隐藏' : '显示'} ${item.label}`}
                         />
-                    </button>
+                    </div>
                 {/each}
             </div>
             <button
@@ -215,10 +255,13 @@
                 {#if selectedIsCore}
                     <div class="builtin-info-card">
                         <div class="builtin-info-header">
+                            {#if selectedButtonMeta?.icon}
+                                <SiyuanIcon name={selectedButtonMeta.icon} size={18} />
+                            {/if}
                             <span class="builtin-info-title">{selectedButtonMeta?.title ?? selectedButton.label}</span>
                             <span class="builtin-info-badge">{selectedButtonMeta?.badge ?? "内置功能"}</span>
                         </div>
-                        <p class="builtin-lock-tip">该按钮可在左侧控制是否在主页显示，但不支持修改标签、快捷键或删除。</p>
+                        <p class="builtin-lock-tip">该按钮可以拖动排序，也可以控制是否在主页显示，但不支持修改标签、功能、快捷键或删除。</p>
                         <p class="builtin-info-desc">{selectedButtonMeta?.description ?? "这是插件内置功能按钮，可控制是否在主页显示，但不支持自定义。"}</p>
                         {#if selectedButtonMeta?.sourceText}
                             <div class="builtin-info-section">
@@ -291,26 +334,6 @@
 
                     <!-- 底部操作区 -->
                     <div class="detail-actions">
-                        <button
-                            class="action-btn move-up"
-                            onclick={actions.onMoveUpButton}
-                            disabled={selectedButtonIndex <= 0}
-                            title="上移"
-                        >
-                            <span>↑</span>
-                            <span>上移</span>
-                        </button>
-
-                        <button
-                            class="action-btn move-down"
-                            onclick={actions.onMoveDownButton}
-                            disabled={selectedButtonIndex >= buttonsList.length - 1 || selectedButtonIndex === -1}
-                            title="下移"
-                        >
-                            <span>↓</span>
-                            <span>下移</span>
-                        </button>
-
                         <button
                             class="action-btn delete"
                             onclick={actions.onDeleteCustomButton}

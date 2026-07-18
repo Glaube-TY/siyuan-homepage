@@ -22,8 +22,7 @@ export interface ButtonSettingsActions {
     onUpdateButtonShortcut: (value: string) => void;
     onToggleButtonChecked: (id: number, checked: boolean) => void;
     onDeleteCustomButton: () => void;
-    onMoveUpButton: () => void;
-    onMoveDownButton: () => void;
+    onReorderButtons: (oldIndex: number, newIndex: number) => void;
 }
 
 export type DocPreviewMode = "preview" | "wysiwyg";

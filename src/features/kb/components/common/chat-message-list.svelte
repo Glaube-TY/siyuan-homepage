@@ -25,7 +25,7 @@
   > = {
     minimal: { title: "有什么可以帮你？", desc: "随时提问，我会基于你的知识库作答。", icon: null },
     prose: { title: "开始整理你的知识库", desc: "输入问题，探索知识之间的关联。", icon: null },
-    card: { title: "今天想聊点什么？", desc: "我可以帮你整理思路、查找资料或撰写内容。", icon: "iconSparkles" },
+    card: { title: "今天想聊点什么？", desc: "我可以帮你整理思路、查找资料或撰写内容。", icon: "iconNotebrain" },
   };
 
   $: displayEmptyTitle = chatAppearanceStyle === "default"
@@ -35,7 +35,7 @@
     ? emptyDescription
     : STYLE_EMPTY_META[chatAppearanceStyle].desc;
   $: displayEmptyIconName = chatAppearanceStyle === "default"
-    ? "iconFeedback"
+    ? "iconNotebrain"
     : STYLE_EMPTY_META[chatAppearanceStyle].icon;
 
   // 快捷建议问题

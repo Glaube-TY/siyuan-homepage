@@ -7,34 +7,58 @@ export interface HomepageButtonItem {
     action?: string;
 }
 
-export const CORE_ACTIONS = ["search", "diary", "aiKnowledgeBase", "addWidget", "cleanEmptyDocs", "templateCenter", "settings"] as const;
+export const CORE_ACTIONS = ["search", "diary", "aiKnowledgeBase", "addWidget", "templateCenter", "cleanEmptyDocs", "settings"] as const;
 export type CoreAction = typeof CORE_ACTIONS[number];
+
+interface BuiltinButtonDefinition {
+    id: number;
+    label: string;
+    icon: string;
+    shortcut: string;
+    checked: boolean;
+}
+
+const BUILTIN_BUTTONS: Record<CoreAction, BuiltinButtonDefinition> = {
+    search: { id: 1728000000000, label: "搜索笔记", icon: "iconSearch", shortcut: "Ctrl+P", checked: true },
+    diary: { id: 1728000001000, label: "今日日记", icon: "iconCalendar", shortcut: "Alt+5", checked: true },
+    aiKnowledgeBase: { id: 1728000001500, label: "AI 知识库", icon: "iconNotebrain", shortcut: "", checked: true },
+    addWidget: { id: 1728000002000, label: "添加组件", icon: "iconAdd", shortcut: "", checked: true },
+    templateCenter: { id: 1728000002400, label: "布局模板", icon: "iconMarkdown", shortcut: "", checked: true },
+    cleanEmptyDocs: { id: 1728000002500, label: "清理空文档", icon: "iconTrashcan", shortcut: "", checked: true },
+    settings: { id: 1728000003000, label: "主页设置", icon: "iconSettings", shortcut: "", checked: true },
+};
 
 const LABEL_TO_ACTION: Record<string, CoreAction> = {
     "🔍 搜索笔记": "search",
     "搜索笔记": "search",
     "📅 今日日记": "diary",
     "今日日记": "diary",
+    "🤖 AI 知识库": "aiKnowledgeBase",
     "AI 知识库": "aiKnowledgeBase",
     "AI知识库": "aiKnowledgeBase",
     "➕ 添加组件": "addWidget",
     "添加组件": "addWidget",
+    "🎨 布局模板": "templateCenter",
+    "布局模板": "templateCenter",
+    "🧹 清理空文档": "cleanEmptyDocs",
+    "清理空文档": "cleanEmptyDocs",
     "⚙ 主页设置": "settings",
+    "⚙️ 主页设置": "settings",
     "主页设置": "settings",
 };
 
-const PROTECTED_ACTIONS: CoreAction[] = ["aiKnowledgeBase", "addWidget", "settings", "cleanEmptyDocs", "templateCenter"];
-
 export function createDefaultButtons(): HomepageButtonItem[] {
-    return [
-        { id: 1728000000000, label: "搜索笔记", checked: true, shortcut: "Ctrl+P", order: 0, action: "search" },
-        { id: 1728000001000, label: "今日日记", checked: true, shortcut: "Alt+5", order: 1, action: "diary" },
-        { id: 1728000001500, label: "AI 知识库", checked: true, shortcut: "", order: 2, action: "aiKnowledgeBase" },
-        { id: 1728000002000, label: "添加组件", checked: true, shortcut: "", order: 3, action: "addWidget" },
-        { id: 1728000002400, label: "布局模板", checked: true, shortcut: "", order: 4, action: "templateCenter" },
-        { id: 1728000002500, label: "清理空文档", checked: true, shortcut: "", order: 5, action: "cleanEmptyDocs" },
-        { id: 1728000003000, label: "主页设置", checked: true, shortcut: "", order: 6, action: "settings" },
-    ];
+    return CORE_ACTIONS.map((action, order) => {
+        const definition = BUILTIN_BUTTONS[action];
+        return {
+            id: definition.id,
+            label: definition.label,
+            checked: definition.checked,
+            shortcut: definition.shortcut,
+            action,
+            order,
+        };
+    });
 }
 
 function normalizeNumber(value: unknown, defaultValue: number, min?: number, max?: number): number {
@@ -120,28 +144,29 @@ export function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
         });
     }
 
-    // 统一内置按钮 label，老用户旧 label 强制刷新
+    // 统一内置按钮的显示信息与固定功能，清理旧配置中残留的表情图标和被修改的快捷键。
     for (const item of normalized) {
-        if (item.action === "templateCenter") {
-            item.label = "布局模板";
-        } else if (item.action === "aiKnowledgeBase") {
-            item.label = "AI 知识库";
+        if (item.action && CORE_ACTIONS.includes(item.action as CoreAction)) {
+            const definition = BUILTIN_BUTTONS[item.action as CoreAction];
+            item.label = definition.label;
+            item.shortcut = definition.shortcut;
         }
     }
 
-    return normalized;
+    return normalized
+        .map((item, index) => ({ item, index }))
+        .sort((a, b) => a.item.order - b.item.order || a.index - b.index)
+        .map(({ item }, order) => ({ ...item, order }));
 }
 
 export function isCoreButton(button: { action?: string; label: string }): boolean {
-    if (button.action && PROTECTED_ACTIONS.includes(button.action as CoreAction)) {
-        return true;
-    }
-    return false;
+    return Boolean(button.action && CORE_ACTIONS.includes(button.action as CoreAction));
 }
 
 export interface ButtonActionMeta {
     action: string;
     title: string;
+    icon: string;
     badge?: string;
     description: string;
     sourceText?: string;
@@ -152,9 +177,26 @@ export interface ButtonActionMeta {
 }
 
 const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
+    search: {
+        action: "search",
+        title: "搜索笔记",
+        icon: BUILTIN_BUTTONS.search.icon,
+        badge: "内置功能",
+        description: "打开思源笔记的全局搜索，快速查找工作空间中的笔记内容。",
+        usage: ["点击后打开思源全局搜索。", "也可以使用思源默认快捷键 Ctrl+P 调用。"],
+    },
+    diary: {
+        action: "diary",
+        title: "今日日记",
+        icon: BUILTIN_BUTTONS.diary.icon,
+        badge: "内置功能",
+        description: "打开或创建当前日期的日记，快速进入今天的记录。",
+        usage: ["点击后执行思源的今日日记命令。", "日记位置和模板遵循思源笔记自身设置。"],
+    },
     addWidget: {
         action: "addWidget",
         title: "添加组件",
+        icon: BUILTIN_BUTTONS.addWidget.icon,
         badge: "内置功能",
         description: "打开组件添加入口，用于向主页添加新的功能组件。",
         usage: [
@@ -165,6 +207,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
     settings: {
         action: "settings",
         title: "主页设置",
+        icon: BUILTIN_BUTTONS.settings.icon,
         badge: "内置功能",
         description: "打开主页设置窗口，用于调整主页行为、横幅、标题、按钮、组件和样式。",
         usage: [
@@ -175,6 +218,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
     aiKnowledgeBase: {
         action: "aiKnowledgeBase",
         title: "AI 知识库",
+        icon: BUILTIN_BUTTONS.aiKnowledgeBase.icon,
         badge: "内置功能",
         description: "打开 AI 知识库问答标签页，用于在主工作区中进行知识库对话。",
         usage: [
@@ -188,6 +232,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
     cleanEmptyDocs: {
         action: "cleanEmptyDocs",
         title: "清理空文档",
+        icon: BUILTIN_BUTTONS.cleanEmptyDocs.icon,
         badge: "迁移优化",
         description: "扫描当前工作空间中的空文档，支持预览、多选和删除前复检。",
         sourceText: "该功能来自作者的独立项目，已迁移并针对当前主页插件优化。",
@@ -207,6 +252,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
     templateCenter: {
         action: "templateCenter",
         title: "布局模板",
+        icon: BUILTIN_BUTTONS.templateCenter.icon,
         badge: "会员功能",
         description: "打开布局模板中心，保存和应用你自己的主页布局方案。",
         usage: [
@@ -228,4 +274,14 @@ export function getButtonActionMeta(button: { action?: string }): ButtonActionMe
         return BUTTON_ACTION_META[button.action];
     }
     return null;
+}
+
+export function getButtonIconName(button: { action?: string }): string {
+    if (!button.action || !CORE_ACTIONS.includes(button.action as CoreAction)) return "";
+    return BUILTIN_BUTTONS[button.action as CoreAction].icon;
+}
+
+export function getButtonDisplayLabel(button: { action?: string; label: string }): string {
+    if (!button.action || !CORE_ACTIONS.includes(button.action as CoreAction)) return button.label || "";
+    return BUILTIN_BUTTONS[button.action as CoreAction].label;
 }

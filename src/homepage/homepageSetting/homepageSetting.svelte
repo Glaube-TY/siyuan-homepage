@@ -24,7 +24,7 @@
         normalizeComponentMigrationStatus,
     } from "./config"
     import type { BackgroundImageType, BannerDeviceProfile, BannerGlassColorMode, ComponentMigrationStatus, ComponentSection, ComponentSectionsNavAlign, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
-    import { createDefaultButtons, normalizeButtons, addButton, moveButtonUp, moveButtonDown, deleteButton, isCoreButton } from "./buttonSettings"
+    import { createDefaultButtons, normalizeButtons, addButton, reorderButtons, deleteButton, isCoreButton } from "./buttonSettings"
     import { getLocalDeviceId, isDesktopDeviceProfileEnabled, getCurrentDeviceInfo, updateDeviceProfile, findExistingDeviceByHardware, deduplicateDeviceProfiles } from "../utils/deviceProfile"
     import { ensureComponentSectionsForCurrentDevice, loadWidgetLayoutSettings, removeComponentSectionLayouts, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
     import { svelteDialog, confirmDialogBoolean, safeConfirmContent } from "../../libs/dialog"
@@ -147,7 +147,6 @@
     // 当前选中的按钮项
     let selectedButton: ButtonItem | null = $state(null);
     let nextId = Date.now();
-    let selectedButtonIndex: number = $state(-1);
 
     // 组件设置内容
     let widgetLayoutNumber = $state(4);
@@ -805,21 +804,6 @@
         }
     }
 
-    $effect(() => {
-        // 获取当前选中按钮在列表中的索引
-        selectedButtonIndex = selectedButton
-            ? buttonsList.findIndex((item) => item.id === selectedButton.id)
-            : -1;
-    });
-
-    function moveUpButton() {
-        buttonsList = moveButtonUp(buttonsList, selectedButtonIndex);
-    }
-
-    function moveDownButton() {
-        buttonsList = moveButtonDown(buttonsList, selectedButtonIndex);
-    }
-
     let buttonSettingsActions: ButtonSettingsActions = {
         onSelectButton: (item) => selectedButton = item,
         onAddNewButton: addNewButton,
@@ -838,8 +822,9 @@
             );
         },
         onDeleteCustomButton: deleteCustomButton,
-        onMoveUpButton: moveUpButton,
-        onMoveDownButton: moveDownButton,
+        onReorderButtons: (oldIndex, newIndex) => {
+            buttonsList = reorderButtons(buttonsList, oldIndex, newIndex);
+        },
     };
 
     const DELETE_INVALID_LICENSE_CODES = new Set([25, 30, 40, 41, 42, 43, 44]);
@@ -1407,7 +1392,6 @@
                         <ButtonSettingsTab
                             buttonsList={buttonsList}
                             selectedButton={selectedButton}
-                            selectedButtonIndex={selectedButtonIndex}
                             actions={buttonSettingsActions}
                         />
                     {/if}

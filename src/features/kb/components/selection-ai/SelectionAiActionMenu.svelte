@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import type {
     SelectionAiRect,
     SelectionAiSkill,
@@ -104,7 +105,7 @@
       title={skill.name}
       on:click={() => handleSkillClick(skill)}
     >
-      <span class="shp-selection-ai-action-menu__icon">AI</span>
+      <span class="shp-selection-ai-action-menu__icon"><SiyuanIcon name="iconNotebrain" size={16} /></span>
       <span class="shp-selection-ai-action-menu__title">{skill.name}</span>
     </button>
   {/each}
@@ -130,7 +131,7 @@
           title={skill.name}
           on:click={() => handleSkillClick(skill)}
         >
-          <span class="shp-selection-ai-action-menu__icon">AI</span>
+          <span class="shp-selection-ai-action-menu__icon"><SiyuanIcon name="iconNotebrain" size={16} /></span>
           <span class="shp-selection-ai-action-menu__title">{skill.name}</span>
         </button>
       {/each}
@@ -182,6 +183,14 @@
 
   .shp-selection-ai-action-menu__toggle {
     color: var(--b3-theme-on-surface-light, #999);
+  }
+
+  .shp-selection-ai-action-menu__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    flex: 0 0 18px;
   }
 
   .shp-selection-ai-action-menu__arrow {

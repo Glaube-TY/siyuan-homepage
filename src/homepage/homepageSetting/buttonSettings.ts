@@ -25,26 +25,20 @@ export function addButton(buttons: ButtonItem[], nextId: number): { buttons: But
     };
 }
 
-export function moveButtonUp(buttons: ButtonItem[], selectedIndex: number): ButtonItem[] {
-    if (selectedIndex <= 0) {
+export function reorderButtons(buttons: ButtonItem[], oldIndex: number, newIndex: number): ButtonItem[] {
+    if (
+        oldIndex < 0
+        || newIndex < 0
+        || oldIndex >= buttons.length
+        || newIndex >= buttons.length
+        || oldIndex === newIndex
+    ) {
         return buttons;
     }
 
-    const newIndex = selectedIndex - 1;
     const newList = [...buttons];
-    [newList[selectedIndex], newList[newIndex]] = [newList[newIndex], newList[selectedIndex]];
-
-    return newList.map((item, index) => ({ ...item, order: index }));
-}
-
-export function moveButtonDown(buttons: ButtonItem[], selectedIndex: number): ButtonItem[] {
-    if (selectedIndex === -1 || selectedIndex >= buttons.length - 1) {
-        return buttons;
-    }
-
-    const newIndex = selectedIndex + 1;
-    const newList = [...buttons];
-    [newList[selectedIndex], newList[newIndex]] = [newList[newIndex], newList[selectedIndex]];
+    const [movedItem] = newList.splice(oldIndex, 1);
+    newList.splice(newIndex, 0, movedItem);
 
     return newList.map((item, index) => ({ ...item, order: index }));
 }

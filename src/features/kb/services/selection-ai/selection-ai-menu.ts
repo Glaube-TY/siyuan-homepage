@@ -143,9 +143,9 @@ export function createSelectionAiToolbarItems(options: {
     "|",
     {
       name: TOOLBAR_MENU_NAME,
-      icon: "iconSparkles",
+      icon: "iconNotebrain",
       // Toolbar-only entry; do not add a hotkey here.
-      tip: "AI",
+      tip: "AI 知识库",
       tipPosition: "n",
       click: (protyle: Protyle) => {
         openSelectionAiMenu({ ...options, protyle });

@@ -28,6 +28,7 @@
     // 图标名称归一化：将营销卡片常用的 icon 名映射到项目已存在的安全图标
     function resolveFeatureLockIcon(name: string): string {
         const map: Record<string, string> = {
+            notebrain: "iconNotebrain",
             lock: "vip",
             check: "confirm",
             star: "vip",

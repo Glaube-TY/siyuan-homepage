@@ -7,6 +7,7 @@
     SELECTION_AI_ACTION_TOOLTIPS,
   } from "../../services/selection-ai/selection-ai-defaults";
   import { mdToHtml } from "@/components/tools/mdToHtml";
+  import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import type {
     SelectionAiRect,
     SelectionAiRequest,
@@ -224,7 +225,7 @@
     on:pointerdown={handlePointerDown}
   >
     <div class="popup-title">
-      <span class="sparkle">AI</span>
+      <span class="brand-icon"><SiyuanIcon name="iconNotebrain" size={18} /></span>
       <span>{actionLabel}</span>
     </div>
     <button type="button" class="icon-btn" title="关闭" on:click={closePopup}>×</button>
@@ -302,18 +303,16 @@
     font-weight: 600;
   }
 
-  .sparkle {
+  .brand-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 20px;
-    min-width: 28px;
-    padding: 0 6px;
+    width: 24px;
+    height: 24px;
     border-radius: 4px;
     background: var(--b3-theme-primary-light, rgba(64, 144, 255, 0.14));
     color: var(--b3-theme-primary, #3578e5);
-    font-size: 11px;
-    font-weight: 700;
+    flex-shrink: 0;
   }
 
   .icon-btn {
