@@ -3,6 +3,11 @@
         display: flex;
         flex-direction: column;
         min-width: 0;
+
+        &.initial-widget-grid-preparing {
+            opacity: 0;
+            pointer-events: none;
+        }
     }
 
     .component-section-panels {

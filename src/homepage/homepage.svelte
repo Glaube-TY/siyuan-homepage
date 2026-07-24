@@ -225,6 +225,7 @@
 
     let widgetLayoutNumber = $state(DEFAULT_WIDGET_LAYOUT_NUMBER);
     let widgetGap = $state(DEFAULT_WIDGET_GAP);
+    let initialWidgetGridReady = $state(false);
     let componentSectionsEnabled = $state(false);
     let componentSections = $state<ComponentSection[]>(normalizeComponentSections(undefined));
     let componentSectionsNavAlign = $state<ComponentSectionsNavAlign>("left");
@@ -295,20 +296,25 @@
     let customContentInitialized = false;
 
     // CSS 变量更新：统一基础格子高度，并同步 grid 列数与间距。
-    function updateCustomGridMetricsForContainer(container: HTMLElement | null, layoutNumber: number, gap: number): void {
-        if (!container) return;
+    // 返回 true 表示网格参数已成功写入容器；false 表示前置条件不满足。
+    function updateCustomGridMetricsForContainer(container: HTMLElement | null, layoutNumber: number, gap: number): boolean {
+        if (!container) return false;
+        if (!Number.isInteger(layoutNumber) || layoutNumber <= 0) return false;
+        if (!Number.isFinite(gap) || gap < 0) return false;
+        if (!container.isConnected) return false;
         const clientWidth = container.clientWidth;
-        if (clientWidth <= 0) return;
+        if (clientWidth <= 0) return false;
 
         const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const gapPx = gap * rootFontSize;
         const cellSize = (clientWidth - gapPx * (layoutNumber - 1)) / layoutNumber;
 
-        if (cellSize > 0) {
-            container.style.setProperty("--widget-cell-size", `${cellSize}px`);
-        }
-        container.style.gridTemplateColumns = `repeat(${layoutNumber}, 1fr)`;
+        if (!Number.isFinite(cellSize) || cellSize <= 0) return false;
+
+        container.style.setProperty("--widget-cell-size", `${cellSize}px`);
+        container.style.gridTemplateColumns = `repeat(${layoutNumber}, minmax(0, 1fr))`;
         container.style.gap = `${gap}rem`;
+        return true;
     }
 
     function countVisibleWidgetsInContainer(container: HTMLElement | null): number {
@@ -536,10 +542,18 @@
         cleanupContainerInfrastructure(sectionId);
         sectionInfrastructureContainers.set(sectionId, container);
 
+        let resizeRafId = 0;
         const resizeObserver = new ResizeObserver(() => {
-            const layoutNumber = sectionWidgetLayoutNumbers.get(sectionId) ?? widgetLayoutNumber;
-            const gap = sectionWidgetGaps.get(sectionId) ?? widgetGap;
-            updateCustomGridMetricsForContainer(container, layoutNumber, gap);
+            if (resizeRafId) return;
+            resizeRafId = requestAnimationFrame(() => {
+                resizeRafId = 0;
+                // 容器销毁后不再回调；确保仍然属于当前实例。
+                if (!container.isConnected) return;
+                if (sectionInfrastructureContainers.get(sectionId) !== container) return;
+                const layoutNumber = sectionWidgetLayoutNumbers.get(sectionId) ?? widgetLayoutNumber;
+                const gap = sectionWidgetGaps.get(sectionId) ?? widgetGap;
+                updateCustomGridMetricsForContainer(container, layoutNumber, gap);
+            });
         });
         resizeObserver.observe(container);
         sectionResizeObservers.set(sectionId, resizeObserver);
@@ -2092,7 +2106,8 @@
 
         // 普通模式下恢复普通组件区。
         if (showRootComponentSection) {
-            const rootContainer = getComponentSectionContainer(ROOT_COMPONENT_SECTION_ID) ?? activateComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+            activateComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+            const rootContainer = getComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
             if (!rootContainer) return;
             await ensureComponentSectionRestored(ROOT_COMPONENT_SECTION_ID);
             if (homepageComponentDestroyed) return;
@@ -2100,7 +2115,8 @@
 
         // 分栏模式下恢复当前活动用户分栏。
         if (effectiveComponentSectionsEnabled && activeComponentSectionId) {
-            const sectionContainer = getComponentSectionContainer(activeComponentSectionId) ?? activateComponentSectionContainer(activeComponentSectionId);
+            activateComponentSectionContainer(activeComponentSectionId);
+            const sectionContainer = getComponentSectionContainer(activeComponentSectionId);
             if (sectionContainer) {
                 await ensureComponentSectionRestored(activeComponentSectionId);
             }
@@ -2122,7 +2138,8 @@
 
         try {
             if (showRootComponentSection) {
-                const rootContainer = getComponentSectionContainer(ROOT_COMPONENT_SECTION_ID) ?? activateComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+                activateComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+                const rootContainer = getComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
                 if (!rootContainer) return;
                 const rootLayoutSettings = await loadWidgetLayoutSettings(plugin, { sectionsEnabled: false, sectionId: null });
                 if (homepageComponentDestroyed) return;
@@ -2133,7 +2150,8 @@
             }
 
             if (effectiveComponentSectionsEnabled && activeComponentSectionId) {
-                const sectionContainer = getComponentSectionContainer(activeComponentSectionId) ?? activateComponentSectionContainer(activeComponentSectionId);
+                activateComponentSectionContainer(activeComponentSectionId);
+                const sectionContainer = getComponentSectionContainer(activeComponentSectionId);
                 if (sectionContainer) {
                     const sectionLayoutSettings = await loadWidgetLayoutSettings(plugin, {
                         sectionsEnabled: true,
@@ -2195,6 +2213,29 @@
             await tick();
             if (homepageComponentDestroyed) return;
             await initCustomContentLayout();
+            if (homepageComponentDestroyed) return;
+
+            // 首次恢复后的最终校准：等待滚动条和容器宽度稳定后执行一次精确网格计算。
+            await tick();
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            if (homepageComponentDestroyed) return;
+            const visibleSectionId = showRootComponentSection
+                ? ROOT_COMPONENT_SECTION_ID
+                : (activeComponentSectionId || ROOT_COMPONENT_SECTION_ID);
+            const visibleContainer = getComponentSectionContainer(visibleSectionId);
+            if (visibleContainer) {
+                activateComponentSectionContainer(visibleSectionId);
+                const layoutNumber = visibleSectionId === ROOT_COMPONENT_SECTION_ID
+                    ? widgetLayoutNumber
+                    : (sectionWidgetLayoutNumbers.get(visibleSectionId) ?? widgetLayoutNumber);
+                const gap = visibleSectionId === ROOT_COMPONENT_SECTION_ID
+                    ? widgetGap
+                    : (sectionWidgetGaps.get(visibleSectionId) ?? widgetGap);
+                const gridApplied = updateCustomGridMetricsForContainer(visibleContainer, layoutNumber, gap);
+                if (gridApplied) {
+                    initialWidgetGridReady = true;
+                }
+            }
         });
         if (homepageComponentDestroyed) return;
 
@@ -2315,11 +2356,14 @@
         componentSectionRestoreInFlight.clear();
     });
 
-    // 监听 widgetLayoutNumber / widgetGap 变化，更新格子尺寸
+    // 监听 widgetLayoutNumber / widgetGap 变化，更新格子尺寸。
+    // 仅在真实布局设置已解析且初始网格准备完成后才应用；默认值阶段不污染可见容器。
     $effect(() => {
         widgetLayoutNumber;
         widgetGap;
+        if (!homepageConfigLoaded || !initialWidgetGridReady) return;
         tick().then(() => {
+            if (homepageComponentDestroyed) return;
             updateCustomGridMetrics();
         });
     });
@@ -2548,6 +2592,25 @@
                 : ROOT_COMPONENT_SECTION_ID;
             const targetContainer = getComponentSectionContainer(targetSectionId);
             if (!targetContainer) throw new Error("目标主页组件容器尚未建立");
+
+            // 初始恢复前保证目标容器基础设施和精确网格已提交。
+            // 无条件调用 activate 确保 ResizeObserver/Sortable 已建立，不依赖 ?? 短路。
+            activateComponentSectionContainer(targetSectionId);
+            const mountable = await waitForContainerMountable(targetContainer);
+            if (homepageComponentDestroyed || currentVersion !== updateHomepageVersion) return;
+            if (!mountable) throw new Error("目标主页组件容器宽度暂不可用");
+
+            const targetEffectiveColumns = initialSectionIdentity?.effectiveColumns ?? rootLayoutSettings.widgetLayoutNumber;
+            const targetEffectiveGap = initialSectionIdentity?.effectiveGap ?? rootLayoutSettings.widgetGap;
+            sectionWidgetLayoutNumbers.set(targetSectionId, targetEffectiveColumns);
+            sectionWidgetGaps.set(targetSectionId, targetEffectiveGap);
+            const gridApplied = updateCustomGridMetricsForContainer(
+                targetContainer,
+                targetEffectiveColumns,
+                targetEffectiveGap,
+            );
+            if (!gridApplied) throw new Error("目标主页组件容器网格参数应用失败");
+
             const restored = await restoreComponentSectionWithRetry(targetSectionId, {
                 force: true,
                 fixedContext: context,
@@ -3285,7 +3348,7 @@
 
     <!-- 自定义组件区域 -->
     <!-- 分栏真实生效时只显示分栏导航与当前活动分栏；否则显示普通组件区并按全局 order 渲染全部组件。 -->
-    <div class="section component-section-area">
+    <div class="section component-section-area" class:initial-widget-grid-preparing={!initialWidgetGridReady}>
         {#if showRootComponentSection}
             <div
                 use:registerCustomContentContainer={ROOT_COMPONENT_SECTION_ID}

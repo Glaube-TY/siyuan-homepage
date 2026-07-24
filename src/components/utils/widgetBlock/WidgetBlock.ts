@@ -48,6 +48,8 @@ export class WidgetBlock {
         // 从当前设备 desktop-homepage/layout.json 读取列数。
         loadWidgetLayoutSettings(plugin, runtimeOptions, runtimeOptions.deviceViewContext).then((settings) => {
             this.widgetLayoutNumber = settings.widgetLayoutNumber;
+        }).catch((error) => {
+            console.warn(`[WidgetBlock] 异步读取布局列数失败 (${this.id})`, error);
         });
 
         this.element = document.createElement("div");
@@ -250,7 +252,7 @@ export class WidgetBlock {
                                                             dialogRef.close();
                                                         },
                                                         onSetSize: async (size: number) => {
-                                                            const layoutNumber = this.widgetLayoutNumber || 4;
+                                                            const layoutNumber = this.widgetLayoutNumber;
                                                             await setBlockSize(this.currentBlockForSettingsRef.value, size, layoutNumber);
                                                             dialogRef.close();
                                                         },
