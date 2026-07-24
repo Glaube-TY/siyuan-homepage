@@ -1799,7 +1799,8 @@ function reindexLayoutItems(items: LayoutItem[]): LayoutItem[] {
 }
 
 function removeWidgetFromOrder(order: LayoutItem[], widgetId: string): LayoutItem[] {
-    return order.filter(item => item.id !== widgetId);
+    // 从全局 order 删除组件后必须重新编号，否则设备布局严格验证会拒绝提交。
+    return reindexLayoutItems(order.filter(item => item.id !== widgetId));
 }
 
 /**
