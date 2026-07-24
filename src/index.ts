@@ -406,7 +406,6 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async initializeHomepageSurface(config: PluginConfig): Promise<void> {
-        this.registerMinimalHomepageEntry();
         this.syncHomepageConfigDependentListeners(config);
 
         if (config.sidebarEnabled === true && !this.isMobile && !this.sidebarDockRegistered) {
@@ -1233,7 +1232,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     private registerHomepageTopBar(): void {
-        if (this.homepageTopBarElement?.isConnected) return;
+        if (this.homepageTopBarElement !== null) return;
         this.removeExistingTopBar("homepage", this.homepageTopBarElement);
         const homepageTopBar = this.addTopBar({
             icon: "iconhomepage",
@@ -1253,7 +1252,7 @@ export default class PluginHomepage extends Plugin {
 
     private syncKbTopBar(config: PluginConfig | null): void {
         if (config?.aiKbTabEnabled === true) {
-            if (this.kbTopBarElement?.isConnected) return;
+            if (this.kbTopBarElement !== null) return;
             this.removeExistingTopBar("kb-chat", this.kbTopBarElement);
             const kbTopBar = this.addTopBar({
                 icon: "iconNotebrain",
