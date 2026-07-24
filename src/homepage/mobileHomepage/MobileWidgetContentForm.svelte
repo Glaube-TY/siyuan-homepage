@@ -47,6 +47,7 @@
     activeTab?: string;
     type?: string;
     blockId?: string;
+    instanceId?: string;
     data?: any;
   }
 
@@ -430,6 +431,13 @@
         : normalizeString(ySource, next.databaseChartLineYAxisSourceText);
     }
 
+    if (type === "weather") {
+      // 4.8.4 兼容：旧 data.city 映射到 cityName 表单字段
+      if (!next.cityName && source?.city) {
+        next.cityName = normalizeString(source.city);
+      }
+    }
+
     if (type === "custom-protyle") {
       next.customBlockId = source?.customBlockId || source?.customBlockID || "";
     }
@@ -559,6 +567,9 @@
       ...getMatchingData(),
       ...overrides,
     };
+    if (widgetType === "weather") {
+      delete data.city;
+    }
     if (widgetType === "focus") delete data.focusDatabaseId;
     if (widgetType === "CYBMOK") {
       delete data.CYBMOKDatabaseId;

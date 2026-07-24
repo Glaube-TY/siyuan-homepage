@@ -4,6 +4,7 @@
 
     import Simple1 from "./_simple1.svelte";
     import Simple2 from "./_simple2.svelte";
+    import { parseWeatherConfig } from "./weatherConfigParser";
 
     interface Props {
         plugin: any;
@@ -21,9 +22,10 @@
     }
 
     const parsedContent = $derived(parseContentTypeJson(contentTypeJson));
-    const cityName = $derived(parsedContent?.data?.cityName || "");
-    const cityCode = $derived(parsedContent?.data?.cityCode || "");
-    const weatherStyle = $derived(parsedContent?.data?.weatherStyle || "default");
+    const weatherConfig = $derived(parseWeatherConfig(parsedContent?.data));
+    const cityName = $derived(weatherConfig.cityName);
+    const cityCode = $derived(weatherConfig.cityCode);
+    const weatherStyle = $derived(weatherConfig.weatherStyle);
 
     let city: string = $state("加载中...");
     let temperature: string = $state("加载中...");
@@ -32,75 +34,67 @@
     let wind_power: string = $state("加载中...");
     let humidity: string = $state("加载中...");
     let reportTime: string = $state("加载中...");
-    let result: WeatherResponse | null = null;
+    let destroyed = false;
 
-    // 定义新的天气数据接口
-    interface WeatherResponse {
-        province: string;
-        city: string;
-        adcode: string;
-        weather: string;
-        temperature: number;
-        wind_direction: string;
-        wind_power: string;
-        humidity: number;
-        report_time: string;
+    function buildWeatherParams(cityName: string, cityCode: string): Record<string, string> {
+        // cityCode 优先，因为更精确
+        if (cityCode) {
+            return { adcode: cityCode };
+        }
+        if (cityName) {
+            return { city: cityName };
+        }
+        // 两者都为空时传空对象，不携带 city 和 adcode 字段
+        return {};
     }
 
     async function loadWeather() {
-        try {
-            const client = new UapiClient("https://uapis.cn");
-            const payload = {
-                city: cityName,
-                adcode: cityCode,
-            };
-            // @ts-ignore - 临时忽略类型检查
-            const response = await client.misc.getMiscWeather(payload);
-
-            return response;
-        } catch (error) {
-            console.error("uapis API调用失败:", error);
-            // 可以在这里添加备用处理逻辑
-        }
+        const client = new UapiClient("https://uapis.cn");
+        const payload = buildWeatherParams(cityName, cityCode);
+        // @ts-expect-error - SDK 通过 (this as any) 动态挂载 misc，类型声明中不存在
+        const response = await client.misc.getMiscWeather(payload);
+        return response;
     }
 
-    onMount(async () => {
-        try {
-            result = await loadWeather();
+    onMount(() => {
+        void (async () => {
+            try {
+                const result = await loadWeather();
 
-            // 处理新的接口数据格式
-            if (result) {
-                city = result.city || "未知城市";
-                temperature =
-                    result.temperature !== undefined
-                        ? `${result.temperature}`
-                        : "未知";
-                weather = result.weather || "未知";
+                if (destroyed) return;
 
-                wind_direction =
-                    result.wind_direction && result.wind_direction !== "无"
-                        ? `${result.wind_direction}`
-                        : "未知";
-                wind_power =
-                    result.wind_power && result.wind_power !== "无"
-                        ? `${result.wind_power}`
-                        : "未知";
-                humidity =
-                    result.humidity !== undefined
-                        ? `${result.humidity}`
-                        : "未知";
-                reportTime = result.report_time ? `${result.report_time}` : "";
+                if (result) {
+                    city = result.city || "未知城市";
+                    temperature =
+                        result.temperature !== undefined
+                            ? `${result.temperature}`
+                            : "未知";
+                    weather = result.weather || "未知";
+
+                    wind_direction =
+                        result.wind_direction && result.wind_direction !== "无"
+                            ? `${result.wind_direction}`
+                            : "未知";
+                    wind_power =
+                        result.wind_power && result.wind_power !== "无"
+                            ? `${result.wind_power}`
+                            : "未知";
+                    humidity =
+                        result.humidity !== undefined
+                            ? `${result.humidity}`
+                            : "未知";
+                    reportTime = result.report_time ? `${result.report_time}` : "";
+                }
+            } catch (error) {
+                if (destroyed) return;
+                city = temperature = weather = wind_direction = wind_power = humidity =
+                    "加载失败";
             }
-        } catch (error) {
-            console.error("获取天气数据出错:", error);
-            city =
-                temperature =
-                weather =
-                wind_direction =
-                wind_power =
-                humidity =
-                    "网络错误";
-        }
+        })();
+
+        return () => {
+            destroyed = true;
+        };
     });
 </script>
 
@@ -143,9 +137,9 @@
             </div>
         </div>
     {:else if weatherStyle === "simple1"}
-        <Simple1 bind:city bind:temperature bind:weather bind:plugin />
+        <Simple1 {city} {temperature} {weather} {plugin} />
     {:else if weatherStyle === "simple2"}
-        <Simple2 bind:city bind:temperature bind:weather bind:humidity bind:wind_direction bind:wind_power bind:plugin />
+        <Simple2 {city} {temperature} {weather} {humidity} {wind_direction} {wind_power} {plugin} />
     {/if}
 </div>
 

@@ -588,7 +588,8 @@
         countdownList2BgColor =
           parsedData.data?.countdownList2BgColor || "#000000";
       } else if (parsedData.type === "weather") {
-        customWeatherCityName = parsedData.data?.cityName || "";
+        customWeatherCityName =
+          parsedData.data?.cityName || parsedData.data?.city || "";
         customWeatherCityCode = parsedData.data?.cityCode || "";
         weatherStyle = parsedData.data?.weatherStyle || "default";
       } else if (parsedData.type === "HOT") {
