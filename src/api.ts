@@ -271,10 +271,63 @@ export function clearSiyuanSystemConfigCache(): void {
 
 // **************************************** Noteboook ****************************************
 
+let lsNotebooksInFlight: Promise<IReslsNotebooks> | null = null;
 
+/**
+ * 获取所有笔记本列表。使用原生 fetch 而非 fetchSyncPost，
+ * 避免触发 siyuan 运行时 common.js 中的 fileTree 访问异常。
+ * 同一时间只允许一个 in-flight 请求。
+ */
 export async function lsNotebooks(): Promise<IReslsNotebooks> {
-    let url = '/api/notebook/lsNotebooks';
-    return request(url, {});
+    if (lsNotebooksInFlight) return lsNotebooksInFlight;
+
+    lsNotebooksInFlight = (async () => {
+        try {
+            const response = await fetch("/api/notebook/lsNotebooks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+            });
+
+            if (!response.ok) {
+                throw new Error(
+                    `[lsNotebooks] HTTP ${response.status}: ${response.statusText}`,
+                );
+            }
+
+            const contentType = response.headers.get("content-type") || "";
+            if (!contentType.includes("application/json")) {
+                throw new Error(
+                    `[lsNotebooks] 非 JSON 响应: ${contentType}`,
+                );
+            }
+
+            let body: any;
+            try {
+                body = await response.json();
+            } catch {
+                throw new Error("[lsNotebooks] 响应体 JSON 解析失败");
+            }
+
+            if (body.code !== 0) {
+                throw new Error(
+                    `[lsNotebooks] API 错误: code=${body.code}, msg=${body.msg ?? "(无)"}`,
+                );
+            }
+
+            if (!body.data || !Array.isArray(body.data.notebooks)) {
+                throw new Error(
+                    `[lsNotebooks] 响应 data.notebooks 缺失或不是数组: ${JSON.stringify(body.data ?? null).slice(0, 120)}`,
+                );
+            }
+
+            return { notebooks: body.data.notebooks as Notebook[] };
+        } finally {
+            lsNotebooksInFlight = null;
+        }
+    })();
+
+    return lsNotebooksInFlight;
 }
 
 

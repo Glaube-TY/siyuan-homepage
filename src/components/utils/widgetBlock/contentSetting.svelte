@@ -474,8 +474,13 @@
   onMount(async () => {
     const settingData = await loadWidgetInstanceConfig(deviceViewContext, currentBlockId);
 
-    const result = await lsNotebooks();
-    notebooks = result.notebooks;
+    try {
+      const result = await lsNotebooks();
+      notebooks = result.notebooks;
+    } catch (error) {
+      notebooks = [];
+      console.warn("[contentSetting] 读取笔记本失败，设置页面中笔记本相关选择器将不可用", error);
+    }
 
     if (settingData && !forceInitialContentType) {
       let parsedData: any;

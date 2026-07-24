@@ -138,8 +138,12 @@
     }
 
     async function getNotebooks() {
-        const result = await lsNotebooks();
-        notebooksList = result.notebooks || [];
+        try {
+            const result = await lsNotebooks();
+            notebooksList = result.notebooks || [];
+        } catch {
+            notebooksList = [];
+        }
     }
 
     function formatTimestamp(ts: string): string {
@@ -171,9 +175,11 @@
         return [...orderedKeys, ...remainingKeys];
     }
 
-    onMount(async () => {
-        await getNotebooks();
-        runSql();
+    onMount(() => {
+        void (async () => {
+            await getNotebooks();
+            runSql();
+        })();
     });
 </script>
 
