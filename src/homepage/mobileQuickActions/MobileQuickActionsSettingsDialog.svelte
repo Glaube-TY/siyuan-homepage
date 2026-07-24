@@ -73,7 +73,7 @@
     async function loadConfig(): Promise<void> {
         isLoading = true;
         try {
-            const config = await loadHomepageSettingConfig(plugin);
+            const config = await loadHomepageSettingConfig(plugin, "mobile-homepage");
             autoOpenMobileHomepage = config?.autoOpenMobileHomepage ?? false;
             mobileQuickActionsEnabled = config?.mobileQuickActionsEnabled ?? true;
             mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(config?.mobileQuickActionsButtonSize);
@@ -92,7 +92,7 @@
     async function saveMobileSettings(): Promise<void> {
         isSaving = true;
         try {
-            const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
+            const existingConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {} as HomepageSettingConfig;
             await saveHomepageSettingConfig(plugin, {
                 ...existingConfig,
                 autoOpenMobileHomepage,
@@ -162,7 +162,7 @@
             dragClass: "shp-mobile-quick-settings__sortable-drag",
             dataIdAttr: "data-action-id",
             onEnd: handleActionSortableEnd,
-        });
+            }, "mobile-homepage");
     }
 
     function readActionIds(): MobileQuickActionId[] {

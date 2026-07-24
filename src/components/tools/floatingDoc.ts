@@ -6,6 +6,7 @@ import {
     shift
 } from "@floating-ui/dom";
 import { Protyle } from "siyuan";
+import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
 
 // 浮窗预览模式类型
 type FloatingDocMode = "preview" | "wysiwyg";
@@ -278,7 +279,7 @@ class FloatingDocManager {
         // 优先级2：读取主页设置中的全局默认模式
         if (plugin) {
             try {
-                const config = await plugin.loadData("homepageSettingConfig.json");
+                const config = (await loadHomepageConfigDataStrict(plugin)).data;
                 const globalMode = config?.defaultDocPreviewMode;
                 if (globalMode === 'preview' || globalMode === 'wysiwyg') {
                     return globalMode;

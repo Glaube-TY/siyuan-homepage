@@ -18,13 +18,16 @@
         sendBreakCompletedNotification,
         sendFocusCompletedNotification,
     } from "@/features/focus-notify";
+    import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import { loadWidgetInstanceConfig, saveWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        runtimeContext?: WidgetRuntimeContext;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
 
     let contentTypeJsonObj: any;
     let segmentStartedAt = 0;
@@ -87,9 +90,9 @@
             breakBgImage = data.breakBgImage || breakBgImage;
             focusLocalImage = data.focusLocalImage || focusLocalImage;
             breakLocalImage = data.breakLocalImage || breakLocalImage;
-            const savedConfig = await plugin.loadData(
-                `widget-${contentTypeJsonObj.blockId}.json`,
-            );
+            const savedConfig = runtimeContext.deviceViewContext
+                ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, contentTypeJsonObj.instanceId ?? contentTypeJsonObj.blockId)
+                : null;
             // 保留旧 showSyNotif 及其他未知字段；它们不再参与运行时，但保存设置时也不能被主动删除。
             savedWidgetData = savedConfig?.data && typeof savedConfig.data === "object"
                 ? structuredClone(savedConfig.data)
@@ -383,10 +386,8 @@
             showFocusInfo: showFocusInfo,
         };
         savedWidgetData = structuredClone(contentTypeJsonObj.data);
-        await plugin.saveData(
-            `widget-${contentTypeJsonObj.blockId}.json`,
-            contentTypeJsonObj,
-        );
+        if (!runtimeContext.deviceViewContext) throw new Error("专注组件缺少设备视图上下文");
+        await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, contentTypeJsonObj.instanceId ?? contentTypeJsonObj.blockId, contentTypeJsonObj);
         clearTimerHandles();
         resetTimer(isBreak ? "break" : "focus");
         showSettings = false;

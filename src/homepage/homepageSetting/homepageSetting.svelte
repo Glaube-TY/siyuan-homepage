@@ -22,14 +22,20 @@
         saveHomepageSettingConfig,
         normalizeNotebookOptions,
         normalizeComponentMigrationStatus,
+        isComponentSectionsEffective,
     } from "./config"
-    import type { BackgroundImageType, BannerDeviceProfile, BannerGlassColorMode, ComponentMigrationStatus, ComponentSection, ComponentSectionsNavAlign, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
+    import type { BackgroundImageType, BannerGlassColorMode, ComponentMigrationStatus, ComponentSection, ComponentSectionsNavAlign, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, reorderButtons, deleteButton, isCoreButton } from "./buttonSettings"
-    import { getLocalDeviceId, isDesktopDeviceProfileEnabled, getCurrentDeviceInfo, updateDeviceProfile, findExistingDeviceByHardware, deduplicateDeviceProfiles } from "../utils/deviceProfile"
-    import { ensureComponentSectionsForCurrentDevice, loadWidgetLayoutSettings, removeComponentSectionLayouts, saveWidgetLayoutSettings } from "../../components/utils/widgetBlock/utils/layout-shared"
+    import { getCurrentDeviceInfo } from "../utils/deviceProfile"
+    import {
+        loadWidgetLayoutSettings,
+        saveHomepageSettingsInTransaction,
+        SyncLayoutAndViewError,
+        UnrecoverableSectionHalfCommitError,
+    } from "../../components/utils/widgetBlock/utils/layout-shared"
     import { svelteDialog, confirmDialogBoolean, safeConfirmContent } from "../../libs/dialog"
-    import HiddenWidgetsDialog from "./HiddenWidgetsDialog.svelte"
     import MobileHomepagePreviewDialog from "../mobileHomepage/MobileHomepagePreviewDialog.svelte"
+    import { backupAndResetCurrentInterface, createTemplateBackup } from "../templates/templateBackup"
     import AboutSection from "./sections/AboutSection.svelte"
     import VipSection from "./sections/VipSection.svelte"
     import HomepageGlobalSection from "./sections/HomepageGlobalSection.svelte"
@@ -251,7 +257,17 @@
             return;
         }
         componentSectionsEnabled = value;
-        componentSections = normalizeComponentSections(componentSections);
+        if (value && componentSections.length === 0) {
+            const now = Date.now();
+            componentSections = [{
+                id: createComponentSectionId(),
+                name: "新分区",
+                createdAt: now,
+                updatedAt: now,
+            }];
+        } else {
+            componentSections = normalizeComponentSections(componentSections);
+        }
     }
 
     function handleAddComponentSection(): void {
@@ -277,22 +293,14 @@
     }
 
     async function handleDeleteComponentSection(sectionId: string): Promise<void> {
-        if (sectionId === "overview") {
-            showMessage("总览分区不能删除", 3000);
-            return;
-        }
         const normalizedSections = normalizeComponentSections(componentSections);
-        if (normalizedSections.length <= 1) {
-            showMessage("至少保留一个分区", 3000);
-            return;
-        }
         const target = normalizedSections.find((section) => section.id === sectionId);
         if (!target) return;
 
         const confirmed = await confirmDialogBoolean({
             title: "删除分区",
             content: safeConfirmContent(
-                "确定要删除该组件分区吗？\n\n只会移除该分区的布局引用，不会删除组件内容文件。\n\n分区：",
+                "确定要删除该组件分区吗？\n\n删除普通分栏后，组件会迁入相邻分栏：\n- 优先迁入前一个分栏；\n- 删除第一个分栏时迁入后一个分栏；\n- 删除最后一个分栏时保留全部组件并关闭分栏模式。\n\n组件内容文件不会删除。\n\n分区：",
                 target.name,
             ),
         });
@@ -300,6 +308,9 @@
 
         componentSections = normalizeComponentSections(normalizedSections.filter((section) => section.id !== sectionId));
         deletedComponentSectionIds = [...new Set([...deletedComponentSectionIds, sectionId])];
+        if (componentSections.length === 0) {
+            componentSectionsEnabled = false;
+        }
     }
 
     function moveComponentSection(sectionId: string, direction: -1 | 1): void {
@@ -377,38 +388,8 @@
     let activated: boolean = $state();
     let activationResult: any = $state();
 
-    // 设备管理
+    // 当前设备
     let currentDeviceInfo = $state<ReturnType<typeof getCurrentDeviceInfo> | null>(null);
-    let deviceProfiles = $state<Record<string, any>>({});
-
-    function isSameDeviceHardwareProfile(a: any, b: any): boolean {
-        return Boolean(a && b
-            && a.hostname === b.hostname
-            && a.platform === b.platform
-            && a.arch === b.arch
-            && a.isMobile === b.isMobile);
-    }
-
-    function mergeBannerDeviceProfile(config: any, fromDeviceId: string, toDeviceId: string): boolean {
-        if (!fromDeviceId || !toDeviceId || fromDeviceId === toDeviceId) {
-            return false;
-        }
-
-        const bannerProfiles = config.bannerDeviceProfiles;
-        if (!bannerProfiles?.[fromDeviceId]) {
-            return false;
-        }
-
-        const source = bannerProfiles[fromDeviceId] as BannerDeviceProfile;
-        const target = (bannerProfiles[toDeviceId] || {}) as BannerDeviceProfile;
-
-        bannerProfiles[toDeviceId] = {
-            bannerHeight: target.bannerHeight ?? source.bannerHeight,
-            scrollTop: target.scrollTop ?? source.scrollTop,
-        };
-        delete bannerProfiles[fromDeviceId];
-        return true;
-    }
 
     let stylesSettingsState = $derived<StylesSettingsState>({
         footerEnabled,
@@ -514,18 +495,7 @@
             bannerLocalData = savedConfig.bannerLocalData || "";
             bannerRemoteUrl = savedConfig.bannerRemoteUrl || "";
 
-            // 横幅高度：桌面端优先读取当前设备配置，否则回退到全局
-            const globalBannerHeight = savedConfig.bannerHeight || "300";
-            if (isDesktopDeviceProfileEnabled()) {
-                const deviceId = getLocalDeviceId();
-                if (deviceId && savedConfig.bannerDeviceProfiles?.[deviceId]?.bannerHeight !== undefined) {
-                    bannerHeight = String(savedConfig.bannerDeviceProfiles[deviceId].bannerHeight);
-                } else {
-                    bannerHeight = globalBannerHeight;
-                }
-            } else {
-                bannerHeight = globalBannerHeight;
-            }
+            bannerHeight = savedConfig.bannerHeight || "300";
 
             // 标题配置
             showIcon = savedConfig.showIcon ?? true;
@@ -565,7 +535,7 @@
                 selectedButton = found ?? null;
             }
 
-            // 组件设置 - 从 widgetLayout.json 读取（与组件顺序存储方式一致）
+            // 组件设置从当前设备桌面主页布局读取。
             const layoutSettings = await loadWidgetLayoutSettings(plugin);
             widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
             widgetGap = layoutSettings.widgetGap;
@@ -625,94 +595,7 @@
             FallingDensity = savedConfig.FallingDensity || "medium";
             FallingSpeed = savedConfig.FallingSpeed || "medium";
 
-            // 设备管理 - 登记当前设备并加载所有设备（带同机匹配和去重）
             currentDeviceInfo = getCurrentDeviceInfo();
-            let loadedDeviceProfiles = savedConfig.deviceProfiles || {};
-            
-            // 先做一次去重清理
-            const originalDeviceProfiles = loadedDeviceProfiles;
-            const { cleanedProfiles, deletedIds } = deduplicateDeviceProfiles(loadedDeviceProfiles);
-            if (deletedIds.length > 0) {
-                for (const deletedId of deletedIds) {
-                    const deletedProfile = originalDeviceProfiles[deletedId];
-                    const retainedEntry = Object.entries(cleanedProfiles).find(([, profile]) =>
-                        isSameDeviceHardwareProfile(profile, deletedProfile)
-                    );
-                    if (retainedEntry) {
-                        mergeBannerDeviceProfile(savedConfig, deletedId, retainedEntry[0]);
-                    }
-                }
-                loadedDeviceProfiles = cleanedProfiles;
-                
-                // 同步清理 widgetLayout.json 中的重复 profiles
-                const widgetLayout = await plugin.loadData("widgetLayout.json");
-                if (widgetLayout?.profiles) {
-                    for (const oldId of deletedIds) {
-                        delete widgetLayout.profiles[oldId];
-                    }
-                    await plugin.saveData("widgetLayout.json", widgetLayout);
-                }
-            }
-            
-            // 桌面端：登记当前设备
-            if (isDesktopDeviceProfileEnabled() && currentDeviceInfo.deviceId) {
-                // 先按当前 deviceId 查找
-                let existingProfile = loadedDeviceProfiles[currentDeviceInfo.deviceId];
-                let oldDeviceId: string | null = null;
-                
-                // 如果没找到，尝试同机匹配（修复 localStorage 漂移）
-                if (!existingProfile) {
-                    const matchedId = findExistingDeviceByHardware(loadedDeviceProfiles, currentDeviceInfo);
-                    if (matchedId) {
-                        existingProfile = loadedDeviceProfiles[matchedId];
-                        oldDeviceId = matchedId;
-                    }
-                }
-                
-                if (existingProfile) {
-                    // 更新现有 profile 的设备信息，保留 layout
-                    loadedDeviceProfiles[currentDeviceInfo.deviceId] = {
-                        ...existingProfile,
-                        deviceName: currentDeviceInfo.deviceName,
-                        platform: currentDeviceInfo.platform,
-                        arch: currentDeviceInfo.arch,
-                        hostname: currentDeviceInfo.hostname,
-                        isMobile: currentDeviceInfo.isMobile,
-                        lastSeenAt: new Date().toISOString(),
-                    };
-                    
-                    // 如果发生了迁移，删除旧 key
-                    if (oldDeviceId && oldDeviceId !== currentDeviceInfo.deviceId) {
-                        delete loadedDeviceProfiles[oldDeviceId];
-                        
-                        // 同步迁移 widgetLayout.json 中的 profile
-                        const widgetLayout = await plugin.loadData("widgetLayout.json");
-                        if (widgetLayout?.profiles?.[oldDeviceId]) {
-                            widgetLayout.profiles[currentDeviceInfo.deviceId] = widgetLayout.profiles[oldDeviceId];
-                            delete widgetLayout.profiles[oldDeviceId];
-                            await plugin.saveData("widgetLayout.json", widgetLayout);
-                        }
-                        mergeBannerDeviceProfile(savedConfig, oldDeviceId, currentDeviceInfo.deviceId);
-                    }
-                } else {
-                    // 创建新 profile（不含 layout，layout 已移到 widgetLayout.json）
-                    loadedDeviceProfiles[currentDeviceInfo.deviceId] = {
-                        deviceId: currentDeviceInfo.deviceId,
-                        deviceName: currentDeviceInfo.deviceName,
-                        platform: currentDeviceInfo.platform,
-                        arch: currentDeviceInfo.arch,
-                        hostname: currentDeviceInfo.hostname,
-                        isMobile: currentDeviceInfo.isMobile,
-                        lastSeenAt: new Date().toISOString(),
-                    };
-                }
-                // 保存回配置
-                savedConfig.deviceProfiles = loadedDeviceProfiles;
-                await saveHomepageSettingConfig(plugin, savedConfig);
-            }
-            
-            // 更新页面状态
-            deviceProfiles = { ...loadedDeviceProfiles };
         }
 
         // 同步到临时变量
@@ -979,69 +862,11 @@
     // 保存配置并关闭对话框
     async function confirmSave() {
         const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
-        const deviceProfiles = existingConfig.deviceProfiles || {};
-
-        // 初始化 bannerDeviceProfiles（如果不存在）
-        let bannerDeviceProfiles = existingConfig.bannerDeviceProfiles || {};
-        existingConfig.bannerDeviceProfiles = bannerDeviceProfiles;
-
-        // 桌面端：登记当前设备信息，并保存设备特定的横幅高度
-        if (isDesktopDeviceProfileEnabled()) {
-            const deviceId = getLocalDeviceId();
-            if (deviceId) {
-                const deviceInfo = getCurrentDeviceInfo();
-                let existingProfile = deviceProfiles[deviceId];
-                let oldDeviceId: string | null = null;
-                if (!existingProfile) {
-                    const matchedId = findExistingDeviceByHardware(deviceProfiles, deviceInfo);
-                    if (matchedId) {
-                        existingProfile = deviceProfiles[matchedId];
-                        oldDeviceId = matchedId;
-                    }
-                }
-                if (existingProfile) {
-                    deviceProfiles[deviceId] = updateDeviceProfile(existingProfile, deviceInfo);
-                    if (oldDeviceId && oldDeviceId !== deviceId) {
-                        delete deviceProfiles[oldDeviceId];
-                        mergeBannerDeviceProfile(existingConfig, oldDeviceId, deviceId);
-                    }
-                } else {
-                    deviceProfiles[deviceId] = {
-                        deviceId: deviceInfo.deviceId,
-                        deviceName: deviceInfo.deviceName,
-                        platform: deviceInfo.platform,
-                        arch: deviceInfo.arch,
-                        hostname: deviceInfo.hostname,
-                        isMobile: deviceInfo.isMobile,
-                        lastSeenAt: new Date().toISOString(),
-                    };
-                }
-
-                // 保存当前设备的横幅高度
-                if (!bannerDeviceProfiles[deviceId]) {
-                    bannerDeviceProfiles[deviceId] = {};
-                }
-                bannerDeviceProfiles[deviceId].bannerHeight = Number(tempBannerHeight) || 300;
-            }
-        }
 
         const normalizedComponentSections = normalizeComponentSections(componentSections);
-        const effectiveComponentSectionsEnabled = advancedEnabled && componentSectionsEnabled;
-
-        if (deletedComponentSectionIds.length > 0) {
-            await removeComponentSectionLayouts(plugin, deletedComponentSectionIds);
-            deletedComponentSectionIds = [];
-        }
-
-        if (componentSectionsEnabled) {
-            await ensureComponentSectionsForCurrentDevice(plugin);
-        }
-
-        // 保存布局设置到 widgetLayout.json（与组件顺序存储方式一致）
-        await saveWidgetLayoutSettings(
-            plugin,
-            { widgetLayoutNumber, widgetGap },
-            { sectionsEnabled: effectiveComponentSectionsEnabled },
+        const effectiveComponentSectionsEnabled = isComponentSectionsEffective(
+            { componentSectionsEnabled, componentSections: normalizedComponentSections },
+            advancedEnabled,
         );
 
         const config = {
@@ -1051,7 +876,9 @@
             autoOpenMobileHomepage: autoOpenMobileHomepage,
             mobileQuickActionsEnabled: mobileQuickActionsEnabled,
             mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
-            mobileQuickActionsPosition: existingConfig.mobileQuickActionsPosition,
+            ...(existingConfig.mobileQuickActionsPosition !== undefined
+                ? { mobileQuickActionsPosition: existingConfig.mobileQuickActionsPosition }
+                : {}),
             mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),
 
             // 横幅配置
@@ -1102,11 +929,7 @@
             })),
             selectedButton: selectedButton,
 
-            // 组件配置 - widgetLayoutNumber/widgetGap 已移到 widgetLayout.json
-            // 这里保留移动端的全局值，桌面端不再使用
-            widgetLayoutNumber: widgetLayoutNumber,
-            widgetGap: widgetGap,
-            componentSectionsEnabled: componentSectionsEnabled,
+            componentSectionsEnabled: effectiveComponentSectionsEnabled,
             componentSections: normalizedComponentSections,
             componentSectionsNavAlign: normalizeComponentSectionsNavAlign(componentSectionsNavAlign),
             quickNotesEnabled: quickNotesEnabled,
@@ -1156,20 +979,42 @@
             FallingDensity: FallingDensity,
             FallingSpeed: FallingSpeed,
 
-            // 设备 profiles
-            deviceProfiles: deviceProfiles,
-
-            // 横幅设备特定配置
-            bannerDeviceProfiles: bannerDeviceProfiles,
         };
 
-        await saveHomepageSettingConfig(plugin, config);
-        setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
+        let result;
+        try {
+            result = await saveHomepageSettingsInTransaction(plugin, {
+                config,
+                sectionsEnabled: effectiveComponentSectionsEnabled,
+                sectionIds: normalizedComponentSections.map((section) => section.id),
+                deletedSectionIds: deletedComponentSectionIds,
+                widgetLayoutNumber,
+                widgetGap,
+            });
+        } catch (error) {
+            if (error instanceof UnrecoverableSectionHalfCommitError) {
+                showMessage(`当前分栏状态无法根据本次设置安全恢复：${error.reason}。已停止写入，请导出数据检查。`, 7000, "error");
+            } else if (error instanceof SyncLayoutAndViewError && error.manualCheckRequired) {
+                showMessage(`设置保存状态无法确认，请人工检查：${error.message}`, 6000, "error");
+            } else {
+                const message = error instanceof Error ? error.message : String(error);
+                showMessage(`设置保存失败：${message}`, 5000, "error");
+            }
+            return;
+        }
 
-        // 派发全局事件通知主页配置已保存
-        window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
-
-        if (close) close();
+        deletedComponentSectionIds = [];
+        try {
+            setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
+            window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
+            if (close) close();
+        } catch {
+            showMessage("设置已保存，但界面刷新失败", 5000, "error");
+            return;
+        }
+        if (result.warning) {
+            showMessage("设置已保存，但界面刷新失败", 5000, "error");
+        }
     }
 
     function cancelSave() {
@@ -1178,62 +1023,22 @@
         }
     }
 
-    // 移除设备配置（带确认）
-    async function removeDeviceProfile(deviceIdToRemove: string) {
-        const isCurrentDevice = deviceIdToRemove === getLocalDeviceId();
-        if (isCurrentDevice) {
-            showMessage("当前设备不可移除");
-            return;
-        }
-
-        // 确认对话框
-        const confirmed = await confirmDialogBoolean({
-            title: "移除设备配置",
-            content: safeConfirmContent(
-                "确定要移除该设备配置吗？\n\n只会移除该设备的布局配置，不会删除组件内容文件。\n\n设备: ",
-                deviceIdToRemove.slice(0, 8) + "..."
-            ),
+    async function backupCurrentInterface() {
+        await createTemplateBackup(plugin, {
+            deviceId: currentDeviceInfo?.physicalDeviceId || null,
+            reason: "manual-current-interface-backup",
         });
-        if (!confirmed) return;
-
-        // 从 homepageSettingConfig 中删除
-        const savedConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
-        const profiles = savedConfig.deviceProfiles || {};
-        delete profiles[deviceIdToRemove];
-        savedConfig.deviceProfiles = profiles;
-        await saveHomepageSettingConfig(plugin, savedConfig);
-
-        // 从 widgetLayout.json 中删除
-        const widgetLayout = await plugin.loadData("widgetLayout.json");
-        if (widgetLayout?.profiles && widgetLayout.profiles[deviceIdToRemove]) {
-            delete widgetLayout.profiles[deviceIdToRemove];
-            await plugin.saveData("widgetLayout.json", widgetLayout);
-        }
-
-        // 更新本地状态
-        deviceProfiles = profiles;
-
-        showMessage(`已移除设备配置: ${deviceIdToRemove.slice(0, 8)}...`);
+        showMessage("当前设备桌面主页已备份");
     }
 
-    // 打开隐藏组件管理弹窗
-    function openHiddenWidgetsDialog() {
-        svelteDialog({
-            title: "管理隐藏组件",
-            width: "960px",
-            height: "70vh",
-            constructor: (containerEl: HTMLElement) => {
-                return mount(HiddenWidgetsDialog, {
-                    target: containerEl,
-                    props: {
-                        plugin: plugin,
-                        close: () => {
-                            // 弹窗关闭时会自动处理
-                        },
-                    },
-                });
-            },
+    async function resetCurrentInterface() {
+        const confirmed = await confirmDialogBoolean({
+            title: "重置当前界面",
+            content: "将先备份，再清空当前设备桌面主页的布局引用。不会删除任何组件文件或业务数据。确定继续吗？",
         });
+        if (!confirmed) return;
+        await backupAndResetCurrentInterface(plugin);
+        showMessage("当前设备桌面主页已重置，重新打开主页后生效");
     }
 
     function openMobileHomepagePreviewDialog() {
@@ -1430,35 +1235,28 @@
                     {/if}
 
                     {#if settingsActiveTab === "devices"}
-                        {@const otherDevices = Object.entries(deviceProfiles).filter(([id]) => id !== currentDeviceInfo?.deviceId)}
                         <div class="devices-section">
                             <SettingSection title="当前设备">
-                                <SettingRow
-                                    title="管理隐藏组件"
-                                    description="查看并恢复当前设备已隐藏的组件"
-                                >
-                                    <button
-                                        class="device-action-btn"
-                                        onclick={openHiddenWidgetsDialog}
-                                    >
-                                        管理
-                                    </button>
+                                <SettingRow title="备份当前界面" description="备份当前设备 desktop-homepage 的布局和组件配置">
+                                    <button class="device-action-btn" onclick={backupCurrentInterface}>备份</button>
+                                </SettingRow>
+                                <SettingRow title="重置当前界面" description="先备份，再仅清空当前设备 desktop-homepage 布局引用">
+                                    <button class="device-action-btn" onclick={resetCurrentInterface}>重置</button>
                                 </SettingRow>
 
                                 {#if currentDeviceInfo}
-                                    {@const currentProfile = currentDeviceInfo?.deviceId ? deviceProfiles[currentDeviceInfo.deviceId] : null}
                                     <div class="device-info-panel current">
                                         <div class="device-info-item">
                                             <span class="device-info-label">设备名称</span>
                                             <span class="device-info-value">{currentDeviceInfo.deviceName}</span>
                                         </div>
                                         <div class="device-info-item">
-                                            <span class="device-info-label">平台/架构</span>
-                                            <span class="device-info-value">{currentDeviceInfo.platform} / {currentDeviceInfo.arch}</span>
+                                            <span class="device-info-label">系统</span>
+                                            <span class="device-info-value">{currentDeviceInfo.os} / {currentDeviceInfo.osPlatform}</span>
                                         </div>
                                         <div class="device-info-item">
-                                            <span class="device-info-label">最后活跃</span>
-                                            <span class="device-info-value">{currentProfile?.lastSeenAt ? new Date(currentProfile.lastSeenAt).toLocaleString() : '未知'}</span>
+                                            <span class="device-info-label">设备 ID</span>
+                                            <span class="device-info-value">{currentDeviceInfo.physicalDeviceId}</span>
                                         </div>
                                     </div>
                                 {:else}
@@ -1466,44 +1264,8 @@
                                 {/if}
                             </SettingSection>
 
-                            <SettingSection title={`已登记设备 (${otherDevices.length})`}>
-                                {#if otherDevices.length > 0}
-                                    {@const sortedDevices = otherDevices.sort((a, b) => {
-                                        const timeA = a[1].lastSeenAt ? new Date(a[1].lastSeenAt).getTime() : 0;
-                                        const timeB = b[1].lastSeenAt ? new Date(b[1].lastSeenAt).getTime() : 0;
-                                        return timeB - timeA;
-                                    })}
-                                    <div class="device-list">
-                                        {#each sortedDevices as [id, profile]}
-                                            <div class="device-card">
-                                                <div class="device-card-info">
-                                                    <div class="device-info-item">
-                                                        <span class="device-info-label">设备名称</span>
-                                                        <span class="device-info-value">{profile.deviceName || '未知'}</span>
-                                                    </div>
-                                                    <div class="device-info-item">
-                                                        <span class="device-info-label">平台/架构</span>
-                                                        <span class="device-info-value">{profile.platform || '未知'} / {profile.arch || '未知'}</span>
-                                                    </div>
-                                                    <div class="device-info-item">
-                                                        <span class="device-info-label">最后活跃</span>
-                                                        <span class="device-info-value">{profile.lastSeenAt ? new Date(profile.lastSeenAt).toLocaleString() : '未知'}</span>
-                                                    </div>
-                                                </div>
-                                                <div class="device-card-actions">
-                                                    <button
-                                                        class="device-remove-btn"
-                                                        onclick={() => removeDeviceProfile(id)}
-                                                    >
-                                                        移除配置
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        {/each}
-                                    </div>
-                                {:else}
-                                    <p class="no-devices">暂无其他已登记设备</p>
-                                {/if}
+                            <SettingSection title="设备隔离说明">
+                                <p class="no-devices">这里只管理当前设备的桌面主页视图，不读取或删除其他设备配置。</p>
                             </SettingSection>
                         </div>
                     {/if}

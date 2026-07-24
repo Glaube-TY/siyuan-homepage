@@ -1,5 +1,4 @@
 import type { ButtonItem } from './types';
-import type { DeviceProfilesMap } from '../utils/deviceProfile';
 import type { HomepageStatusStatKey, HomepageStatusTextMode } from '../status-text-config';
 import type { SelectionAiToolbarSettings } from '@/features/kb/services/selection-ai/selection-ai-types';
 import type { MobileQuickActionSetting, MobileQuickActionsPosition } from '../mobileQuickActions/mobileQuickActionsConfig';
@@ -7,6 +6,11 @@ import type {
     ComponentMigrationStatus,
     NotebookOption,
 } from '@/components/utils/widgetBlock/widget/common/componentMigrationTypes';
+import { getCurrentDeviceViewContext } from '@/homepage/deviceView/deviceViewContext';
+import { ensureCurrentDeviceViewMigrated } from '@/homepage/deviceView/deviceViewMigration';
+import { readDeviceViewSettings, updateDeviceViewSettings } from '@/homepage/deviceView/deviceViewStorage';
+import type { DeviceViewSurface } from '@/homepage/deviceView/deviceViewTypes';
+import { cloneJsonSafeOmittingUndefinedObjectProperties } from '@/homepage/deviceView/jsonSafe';
 export type { ComponentMigrationStatus, NotebookOption };
 
 export type DocPreviewMode = "preview" | "wysiwyg";
@@ -33,6 +37,8 @@ export const DEFAULT_BANNER_GLASS_BLUR = 12;
 export const DEFAULT_BACKGROUND_IMAGE_TYPE: BackgroundImageType = "local";
 export const DEFAULT_BACKGROUND_IMAGE_OPACITY = 35;
 export const DEFAULT_BACKGROUND_IMAGE_BLUR = 0;
+// 历史常量：仅用于识别旧数据中的 overview/总览分栏。
+// 最终 Schema 中 overview 与普通分栏完全平等，新代码不得再赋予其特殊行为。
 export const DEFAULT_COMPONENT_SECTION_ID = "overview";
 export const DEFAULT_COMPONENT_SECTION_NAME = "总览";
 export const DEFAULT_COMPONENT_SECTIONS_NAV_ALIGN: ComponentSectionsNavAlign = "left";
@@ -130,15 +136,15 @@ export function normalizeComponentMigrationStatus(value: unknown): ComponentMigr
     const normalizedStatus: ComponentMigrationStatus["lastStatus"] =
         status === "success" || status === "error" ? status : "idle";
     return {
-        lastRunAt: typeof raw.lastRunAt === "string" ? raw.lastRunAt : undefined,
         lastStatus: normalizedStatus,
-        lastMessage: typeof raw.lastMessage === "string" ? raw.lastMessage : undefined,
-        migratedCount: typeof raw.migratedCount === "number" ? Math.max(0, raw.migratedCount) : undefined,
-        skippedCount: typeof raw.skippedCount === "number" ? Math.max(0, raw.skippedCount) : undefined,
-        cleanedCount: typeof raw.cleanedCount === "number" ? Math.max(0, raw.cleanedCount) : undefined,
-        cleanupFailedCount: typeof raw.cleanupFailedCount === "number" ? Math.max(0, raw.cleanupFailedCount) : undefined,
-        refreshedCount: typeof raw.refreshedCount === "number" ? Math.max(0, raw.refreshedCount) : undefined,
-        removedCount: typeof raw.removedCount === "number" ? Math.max(0, raw.removedCount) : undefined,
+        ...(typeof raw.lastRunAt === "string" ? { lastRunAt: raw.lastRunAt } : {}),
+        ...(typeof raw.lastMessage === "string" ? { lastMessage: raw.lastMessage } : {}),
+        ...(typeof raw.migratedCount === "number" ? { migratedCount: Math.max(0, raw.migratedCount) } : {}),
+        ...(typeof raw.skippedCount === "number" ? { skippedCount: Math.max(0, raw.skippedCount) } : {}),
+        ...(typeof raw.cleanedCount === "number" ? { cleanedCount: Math.max(0, raw.cleanedCount) } : {}),
+        ...(typeof raw.cleanupFailedCount === "number" ? { cleanupFailedCount: Math.max(0, raw.cleanupFailedCount) } : {}),
+        ...(typeof raw.refreshedCount === "number" ? { refreshedCount: Math.max(0, raw.refreshedCount) } : {}),
+        ...(typeof raw.removedCount === "number" ? { removedCount: Math.max(0, raw.removedCount) } : {}),
     };
 }
 
@@ -160,7 +166,7 @@ export function normalizeComponentSections(value: unknown): ComponentSection[] {
         if (!id || usedIds.has(id)) continue;
         const name = typeof raw.name === "string" && raw.name.trim()
             ? raw.name.trim()
-            : (id === DEFAULT_COMPONENT_SECTION_ID ? DEFAULT_COMPONENT_SECTION_NAME : "新分区");
+            : "新分区";
         const createdAt = typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)
             ? raw.createdAt
             : now;
@@ -171,26 +177,20 @@ export function normalizeComponentSections(value: unknown): ComponentSection[] {
         usedIds.add(id);
     }
 
-    if (!usedIds.has(DEFAULT_COMPONENT_SECTION_ID)) {
-        result.unshift({
-            id: DEFAULT_COMPONENT_SECTION_ID,
-            name: DEFAULT_COMPONENT_SECTION_NAME,
-            createdAt: now,
-            updatedAt: now,
-        });
-    }
-
-    return result.length > 0 ? result : [{
-        id: DEFAULT_COMPONENT_SECTION_ID,
-        name: DEFAULT_COMPONENT_SECTION_NAME,
-        createdAt: now,
-        updatedAt: now,
-    }];
+    return result;
 }
 
-export interface BannerDeviceProfile {
-    bannerHeight?: number;
-    scrollTop?: number;
+/**
+ * 判断用户分栏是否真实生效。
+ * 必须同时满足：高级功能开启、用户主动开启分栏开关、存在至少一个有效用户分栏。
+ */
+export function isComponentSectionsEffective(
+    config: { componentSectionsEnabled?: boolean; componentSections?: unknown } | null | undefined,
+    advancedEnabled: boolean,
+): boolean {
+    return advancedEnabled === true
+        && config?.componentSectionsEnabled === true
+        && normalizeComponentSections(config.componentSections).length > 0;
 }
 
 export interface HomepageSettingConfig {
@@ -235,8 +235,6 @@ export interface HomepageSettingConfig {
     statusAiStatKeys?: HomepageStatusStatKey[];
     buttonsList: ButtonItem[];
     selectedButton: ButtonItem | null;
-    widgetLayoutNumber: number;
-    widgetGap: number;
     quickNotesEnabled: boolean;
     quickNotesPosition: string;
     quickNotesTimestampEnabled: boolean;
@@ -261,8 +259,6 @@ export interface HomepageSettingConfig {
     FallingIcon: string;
     FallingDensity: string;
     FallingSpeed: string;
-    deviceProfiles?: DeviceProfilesMap;
-    bannerDeviceProfiles?: Record<string, BannerDeviceProfile>;
     defaultDocPreviewMode?: DocPreviewMode;
     componentSectionsEnabled?: boolean;
     componentSections?: ComponentSection[];
@@ -284,10 +280,32 @@ export interface HomepageSettingConfig {
     enhancedDiaryIndexStatus?: ComponentMigrationStatus;
 }
 
-export async function loadHomepageSettingConfig(plugin: any): Promise<HomepageSettingConfig | null> {
-    return await plugin.loadData("homepageSettingConfig.json");
+export async function loadHomepageSettingConfig(
+    plugin: any,
+    surface: DeviceViewSurface = "desktop-homepage",
+): Promise<HomepageSettingConfig | null> {
+    const context = getCurrentDeviceViewContext(plugin, surface);
+    await ensureCurrentDeviceViewMigrated(context);
+    const settings = await readDeviceViewSettings(context);
+    return settings?.config as unknown as HomepageSettingConfig | null;
 }
 
-export async function saveHomepageSettingConfig(plugin: any, config: HomepageSettingConfig): Promise<void> {
-    await plugin.saveData("homepageSettingConfig.json", config);
+export async function saveHomepageSettingConfig(
+    plugin: any,
+    config: HomepageSettingConfig,
+    surface: DeviceViewSurface = "desktop-homepage",
+): Promise<void> {
+    const context = getCurrentDeviceViewContext(plugin, surface);
+    await ensureCurrentDeviceViewMigrated(context);
+    const current = await readDeviceViewSettings(context);
+    if (!current) throw new Error(`当前设备 ${surface} 的 view.json 缺失`);
+    const safeConfig = cloneJsonSafeOmittingUndefinedObjectProperties(
+        config as unknown as Record<string, unknown>,
+        "主页设置配置",
+    );
+    await updateDeviceViewSettings(
+        context,
+        () => safeConfig,
+        { expectedRevision: current.revision },
+    );
 }

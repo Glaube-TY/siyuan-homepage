@@ -1,4 +1,5 @@
 import { appendBlock, getChildBlocks, insertBlock } from "@/api";
+import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
 
 export type QuickNoteSource = "local" | "feishu" | "quicker" | "external";
 
@@ -58,7 +59,7 @@ async function loadQuickNoteOptions(input: QuickNoteWriteInput) {
     };
   }
 
-  const config = (await getPlugin().loadData("homepageSettingConfig.json")) || {};
+  const config = (await loadHomepageConfigDataStrict(getPlugin())).data;
   return {
     quickNotesPosition: typeof config.quickNotesPosition === "string" ? config.quickNotesPosition : "",
     quickNotesTimestampEnabled: config.quickNotesTimestampEnabled ?? true,

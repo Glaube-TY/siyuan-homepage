@@ -1,4 +1,10 @@
 import { normalizeWidgetConfigData } from "./utils/layout-shared";
+import {
+    createWidgetInstanceConfig,
+    loadWidgetInstanceConfig,
+    saveWidgetInstanceConfig,
+} from "@/homepage/deviceView/widgetInstanceRepository";
+import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
 export interface StyleSettings {
     backgroundColor: string;
@@ -69,7 +75,7 @@ function normalizeStoredWidgetSize(config: Record<string, unknown> | null): Widg
     return { rowSize, colSize };
 }
 
-async function loadWidgetConfigForUpdate(plugin: any, currentBlockId: string): Promise<Record<string, unknown> | null> {
+async function loadWidgetConfigForUpdate(context: DeviceViewContext, currentBlockId: string): Promise<Record<string, unknown> | null> {
     const delays = [0, 80, 200];
     let lastError: unknown = null;
     for (const delayMs of delays) {
@@ -77,7 +83,7 @@ async function loadWidgetConfigForUpdate(plugin: any, currentBlockId: string): P
             await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
         }
         try {
-            const normalized = normalizeWidgetConfigData(await plugin.loadData(`widget-${currentBlockId}.json`));
+            const normalized = normalizeWidgetConfigData(await loadWidgetInstanceConfig(context, currentBlockId));
             if (normalized) return normalized;
             lastError = null;
         } catch (error) {
@@ -122,23 +128,25 @@ export function convertToHex(color: string): string | null {
 }
 
 export function updateElementBackground(
-    elementId: string,
+    _elementId: string,
     backgroundColor: string,
-    backgroundOpacity: number
+    backgroundOpacity: number,
+    element: HTMLElement | null,
 ): void {
     const rgbaColor = hexToRgba(backgroundColor, backgroundOpacity);
-    const blockElement = document.getElementById(elementId);
+    const blockElement = element;
     if (blockElement) {
         blockElement.style.backgroundColor = rgbaColor;
     }
 }
 
 export function updateElementBorder(
-    elementId: string,
+    _elementId: string,
     borderColor: string,
-    borderWidth: number
+    borderWidth: number,
+    element: HTMLElement | null,
 ): void {
-    const blockElement = document.getElementById(elementId);
+    const blockElement = element;
     if (blockElement) {
         blockElement.style.borderColor = borderColor;
         blockElement.style.borderWidth = `${borderWidth}px`;
@@ -146,8 +154,8 @@ export function updateElementBorder(
     }
 }
 
-export function loadElementStyles(elementId: string): StyleSettings | null {
-    const blockElement = document.getElementById(elementId);
+export function loadElementStyles(_elementId: string, element: HTMLElement | null): StyleSettings | null {
+    const blockElement = element;
     if (!blockElement) return null;
 
     const computedStyle = window.getComputedStyle(blockElement);
@@ -197,16 +205,17 @@ export function loadElementStyles(elementId: string): StyleSettings | null {
 }
 
 export async function loadWidgetSize(
-    plugin: any,
+    _plugin: any,
     currentBlockId: string,
+    context: DeviceViewContext,
     defaultRowSize: number = 1,
-    defaultColSize: number = 1
+    defaultColSize: number = 1,
+    blockElement?: HTMLElement | null,
 ): Promise<{ rowSize: number; colSize: number }> {
-    const blockElement = document.getElementById(currentBlockId);
     const renderedSize = blockElement instanceof HTMLElement ? readElementGridSize(blockElement) : null;
 
     try {
-        const widgetConfig = normalizeWidgetConfigData(await plugin.loadData(`widget-${currentBlockId}.json`));
+        const widgetConfig = normalizeWidgetConfigData(await loadWidgetInstanceConfig(context, currentBlockId));
         const storedSize = normalizeStoredWidgetSize(widgetConfig);
 
         // 当前页面实际采用的网格跨度是尺寸设置弹窗的权威来源。
@@ -215,7 +224,7 @@ export async function loadWidgetSize(
                 widgetConfig &&
                 (!storedSize || storedSize.rowSize !== renderedSize.rowSize || storedSize.colSize !== renderedSize.colSize)
             ) {
-                await plugin.saveData(`widget-${currentBlockId}.json`, {
+                await saveWidgetInstanceConfig(context, currentBlockId, {
                     ...widgetConfig,
                     ...renderedSize,
                 });
@@ -234,33 +243,42 @@ export async function loadWidgetSize(
 }
 
 export async function saveWidgetSize(
-    plugin: any,
+    _plugin: any,
     currentBlockId: string,
     rowSize: number,
-    colSize: number
+    colSize: number,
+    context: DeviceViewContext,
 ): Promise<void> {
-    const base = await loadWidgetConfigForUpdate(plugin, currentBlockId) || {};
+    const base = await loadWidgetConfigForUpdate(context, currentBlockId);
+    if (!base) throw new Error(`组件 ${currentBlockId} 配置不存在，拒绝仅以尺寸创建空配置`);
     const updatedConfig = {
         ...base,
         rowSize,
         colSize
     };
-    await plugin.saveData(`widget-${currentBlockId}.json`, updatedConfig);
+    await saveWidgetInstanceConfig(context, currentBlockId, updatedConfig);
 }
 
 export async function saveWidgetContentPreservingSize(
-    plugin: any,
+    _plugin: any,
     currentBlockId: string,
     contentConfig: Record<string, unknown>,
+    context: DeviceViewContext,
+    blockElement?: HTMLElement | null,
+    createIfMissing = false,
 ): Promise<void> {
-    const existingConfig = await loadWidgetConfigForUpdate(plugin, currentBlockId);
+    const existingConfig = await loadWidgetConfigForUpdate(context, currentBlockId);
     const existingSize = normalizeStoredWidgetSize(existingConfig);
-    const blockElement = document.getElementById(currentBlockId);
     const renderedSize = blockElement instanceof HTMLElement ? readElementGridSize(blockElement) : null;
     const contentSize = normalizeStoredWidgetSize(contentConfig);
     const sizeToKeep = renderedSize || existingSize || contentSize;
-    await plugin.saveData(`widget-${currentBlockId}.json`, {
+    const nextConfig = {
         ...contentConfig,
         ...(sizeToKeep || {}),
-    });
+    };
+    if (createIfMissing) {
+        await createWidgetInstanceConfig(context, currentBlockId, nextConfig);
+    } else {
+        await saveWidgetInstanceConfig(context, currentBlockId, nextConfig);
+    }
 }

@@ -48,16 +48,15 @@
     type CountdownWidgetViewConfig,
   } from "./widget/countdown/countdownData";
   import { normalizeCountdownWidgetView } from "./widget/countdown/countdownCenterSettings";
-  import {
-    loadHomepageSettingConfig,
-    normalizeNotebookOptions,
-  } from "@/homepage/homepageSetting/config";
+  import { normalizeNotebookOptions } from "@/homepage/homepageSetting/config";
   import {
     clampRecentDocsLimit,
     normalizeRecentDocsSortBy,
     type RecentDocsSortBy,
   } from "@/components/tools/siyuanComponentDataApi";
   import type { NotebookOption } from "./widget/common/componentMigrationTypes";
+  import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
+  import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
   // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
   interface Props {
@@ -71,6 +70,7 @@
     initialContentType?: string;
     initialActiveTab?: string;
     forceInitialContentType?: boolean;
+    deviceViewContext: DeviceViewContext;
   }
 
   let {
@@ -81,6 +81,7 @@
     initialContentType = "",
     initialActiveTab = "",
     forceInitialContentType = false,
+    deviceViewContext,
   }: Props = $props();
 
   let loadedWidgetConfig: Record<string, any> | null = $state(null);
@@ -471,15 +472,10 @@
   }
 
   onMount(async () => {
-    const settingData = await plugin.loadData(`widget-${currentBlockId}.json`);
+    const settingData = await loadWidgetInstanceConfig(deviceViewContext, currentBlockId);
 
     const result = await lsNotebooks();
     notebooks = result.notebooks;
-
-    // 加载全局配置（迁移状态等）
-    const homepageConfig = await loadHomepageSettingConfig(plugin);
-    if (homepageConfig) {
-    }
 
     if (settingData && !forceInitialContentType) {
       let parsedData: any;
@@ -1422,7 +1418,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "latest-docs",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: [
               {
                 limit: clampRecentDocsLimit(docLimit, 5),
@@ -1446,7 +1442,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "favorites",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               favoritiesTitle,
               favoritiesSortOrder,
@@ -1462,7 +1458,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "heatmap",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               timeRangeType,
               heatmapTitle,
@@ -1477,7 +1473,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "recent-journals",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               limit: docJournalLimit,
               recentJournalsShowType,
@@ -1496,7 +1492,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "TaskMan",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               showCompletedTasks,
               tasksNotebookId,
@@ -1508,7 +1504,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "countdown",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               countdownStyle,
               countdownDisplaySystem,
@@ -1524,7 +1520,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "weather",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               cityName: customWeatherCityName,
               cityCode: customWeatherCityCode,
@@ -1535,21 +1531,21 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "custom-text",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: [{ customText: customTextInputValue }],
           };
         } else if (selectedContentType === "custom-web") {
           contentTypeJson = {
             activeTab: activeTab,
             type: "custom-web",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: [{ url: customWebUrl }],
           };
         } else if (selectedContentType === "HOT") {
           contentTypeJson = {
             activeTab: activeTab,
             type: "HOT",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               source: hotSource,
             },
@@ -1558,7 +1554,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "custom-protyle",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: [
               {
                 isRandomDoc,
@@ -1570,7 +1566,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "timedate",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               // 时钟组件相关变量
               timeType,
@@ -1629,7 +1625,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "focus",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               ...focusExistingData,
               focusImageType,
@@ -1644,7 +1640,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "sql",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               sqlTitle,
               sqlInput,
@@ -1656,7 +1652,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "TaskManPlus",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               TaskManPlusTitle,
               isCustomFilter,
@@ -1670,14 +1666,14 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "quick-notes",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: { quickNotesTitle, quickNotesSort },
           };
         } else if (selectedContentType === "dailyQuote") {
           contentTypeJson = {
             activeTab: activeTab,
             type: "dailyQuote",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               dailyQuoteMode,
               customDailyQuoteContent,
@@ -1692,7 +1688,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "visualChart",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               visualChartType,
             },
@@ -1707,7 +1703,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "musicPlayer",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               ...existingMusicPlayerData,
               musicFolderPath,
@@ -1723,28 +1719,28 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "almanac",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: { almanacStyle },
           };
         } else if (selectedContentType === "stikynot") {
           contentTypeJson = {
             activeTab: activeTab,
             type: "stikynot",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: { stikynotStyle },
           };
         } else if (selectedContentType === "News") {
           contentTypeJson = {
             activeTab: activeTab,
             type: "News",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: { NewsType },
           };
         } else if (selectedContentType === "databaseChart") {
           contentTypeJson = {
             activeTab: activeTab,
             type: "databaseChart",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               databaseChartID,
               databaseChartType,
@@ -1775,7 +1771,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "childDocs",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               childDocsTitle,
               childDocsPrefix,
@@ -1791,7 +1787,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "constellation",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               selectedConstellation,
             },
@@ -1800,7 +1796,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "historyDays",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               historyDaysType,
             },
@@ -1809,7 +1805,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "statisticalCard",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               statisticalCardTitle,
               statisticalCardTitleSize,
@@ -1824,7 +1820,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "PicCaro",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               PicFolderPath,
               PicAutoPlay,
@@ -1843,7 +1839,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "CYBMOK",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               CMKnockSound,
             },
@@ -1852,7 +1848,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "countdownTimer",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               advancedEnabled,
               countdownTimerStyle,
@@ -1862,7 +1858,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "fixedAssets",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               fixedAssetsTitle,
               fixedAssetsListLimit,
@@ -1879,7 +1875,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "accounting",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               accountingTitle,
               accountingHomeRecentLimit,
@@ -1891,7 +1887,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "reviewDocs",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               reviewDocsTitle,
               reviewDocsLimit,
@@ -1914,7 +1910,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "conditionDocs",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {
               conditionDocsTitle,
               conditionDocsCondition,
@@ -1931,7 +1927,7 @@
           contentTypeJson = {
             activeTab: activeTab,
             type: "enhancedDiary",
-            blockId: currentBlockId,
+            instanceId: currentBlockId,
             data: {},
           };
         }
@@ -1940,6 +1936,7 @@
           const { exists } = await checkExistingMusicPlayer(
             plugin,
             currentBlockId,
+            deviceViewContext,
           );
           if (exists) {
             showMessage(

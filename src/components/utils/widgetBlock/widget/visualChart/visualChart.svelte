@@ -7,13 +7,16 @@
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "echarts";
     import "echarts-wordcloud";
+    import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        runtimeContext?: WidgetRuntimeContext;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
 
     const parsedContent = $derived(JSON.parse(contentTypeJson));
     const visualChartType = $derived(
@@ -343,7 +346,7 @@
     }
 
     async function saveConfig() {
-        await saveWidgetContentPreservingSize(plugin, parsedContent.blockId, {
+        await saveWidgetContentPreservingSize(plugin, parsedContent.instanceId ?? parsedContent.blockId, {
             ...parsedContent,
             data: {
                 ...parsedContent.data,
@@ -360,7 +363,7 @@
                     taskId: bar.taskId,
                 })),
             },
-        });
+        }, runtimeContext.deviceViewContext!);
     }
 
     async function getTasks() {
@@ -505,9 +508,9 @@
 
     onMount(async () => {
         isDestroyed = false;
-        const savedConfig = await plugin.loadData(
-            `widget-${parsedContent.blockId}.json`,
-        );
+        const savedConfig = runtimeContext.deviceViewContext
+            ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId ?? parsedContent.blockId)
+            : null;
         if (isDestroyed) return;
 
         if (savedConfig?.data?.progressBars) {

@@ -5,15 +5,15 @@ import { saveLayoutForContainer, restoreLayoutForContainer } from "../widgetBloc
 export async function saveLayout(plugin: Plugin, containerEl?: HTMLElement | null) {
     await saveLayoutForContainer(plugin, {
         containerSelector: ".sidebar-widget",
-        layoutFileName: "sidebarWidgetLayout.json",
+        layoutFileName: "desktop-sidebar",
         containerEl,
     });
 }
 
 export async function restoreLayout(plugin: Plugin, currentBlockForSettingsRef: { value: HTMLElement | null }, containerEl?: HTMLElement | null) {
-    await restoreLayoutForContainer(plugin, currentBlockForSettingsRef, {
+    return await restoreLayoutForContainer(plugin, currentBlockForSettingsRef, {
         containerSelector: ".sidebar-widget",
-        layoutFileName: "sidebarWidgetLayout.json",
+        layoutFileName: "desktop-sidebar",
         WidgetBlockClass: WidgetBlock,
         containerEl,
     });

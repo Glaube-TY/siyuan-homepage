@@ -2,6 +2,8 @@
     import { run } from 'svelte/legacy';
 
     import { onMount, onDestroy, tick } from "svelte";
+    import { SvelteMap } from "svelte/reactivity";
+    import { showMessage } from "siyuan";
 
     import { writable } from "svelte/store";
     import Sortable from "sortablejs";
@@ -9,19 +11,22 @@
     import {
         saveLayout,
         restoreLayout,
+        type HomepageLayoutRuntimeOptions,
     } from "../components/utils/widgetBlock/utils/layout-handler";
     import {
-        ensureComponentSectionsForCurrentDevice,
-        getActiveComponentSectionForCurrentDevice,
+        DEFAULT_WIDGET_GAP,
+        DEFAULT_WIDGET_LAYOUT_NUMBER,
         loadWidgetLayoutSettings,
+        loadLayoutSnapshotForContext,
         setActiveComponentSectionForCurrentDevice,
-        buildHomepageAppliedSignature,
-        computeMusicPlayerAffectingSignature,
-        type WidgetLayoutData,
+        normalizeLayoutItems,
+        readCoordinatedSnapshotForContext,
+        resolveEffectiveWidgetLayoutSettings,
+        validateLayoutViewSectionConsistency,
+        type RestoreLayoutResult,
     } from "../components/utils/widgetBlock/utils/layout-shared";
     import { handleLoad } from "./topBanner/drag";
     import {
-        loadStatsData,
         loadStatsDataResult,
         parseDurationExpression,
         prepareHomepageStatistics,
@@ -59,7 +64,7 @@
     } from "./effects/fallingEffects";
     import type { FallingEffectConfig } from "./effects/fallingEffects";
     import {
-        loadHomepageConfig,
+        normalizeHomepageConfigData,
         resolveBannerImage,
         resolveBackgroundImage,
         resolveButtonsList,
@@ -67,22 +72,23 @@
         saveBannerDisplaySettings,
         type HomepageStatusTextMode,
     } from "./configLoader";
+    import { getCurrentDeviceViewContext } from "./deviceView/deviceViewContext";
+    import { readWidgetInstanceDocument } from "./deviceView/widgetInstanceRepository";
+    import { readDeviceViewManifest } from "./deviceView/deviceViewStorage";
+    import { hasSameJsonSemantic } from "./deviceView/jsonSafe";
     import {
         DEFAULT_BACKGROUND_IMAGE_BLUR,
         DEFAULT_BACKGROUND_IMAGE_OPACITY,
-        DEFAULT_BACKGROUND_IMAGE_TYPE,
         DEFAULT_BANNER_GLASS_BLUR,
         DEFAULT_BANNER_GLASS_COLOR,
         DEFAULT_BANNER_GLASS_COLOR_MODE,
         DEFAULT_BANNER_GLASS_OPACITY,
         DEFAULT_BANNER_INTEGRATED_COLOR,
-        DEFAULT_COMPONENT_SECTION_ID,
         DEFAULT_HOMEPAGE_TITLE_ALIGN,
         DEFAULT_QUICK_BUTTON_STYLE,
+        isComponentSectionsEffective,
         normalizeComponentSections,
         normalizeComponentSectionsNavAlign,
-        type BackgroundImageType,
-        type BannerDeviceProfile,
         type BannerGlassColorMode,
         type ComponentSection,
         type ComponentSectionsNavAlign,
@@ -103,15 +109,21 @@
         normalizeStatusAiStatKeys,
         type HomepageStatusStatKey,
     } from "./status-text-config";
-    import {
-        getCurrentDeviceInfo,
-        isDesktopDeviceProfileEnabled,
-        updateDeviceProfile,
-        findExistingDeviceByHardware,
-        deduplicateDeviceProfiles,
-    } from "./utils/deviceProfile";
     import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import { assertSectionLayoutInvariants } from "@/components/utils/widgetBlock/utils/layout-section-ops";
+    import {
+        clearPreservedWidgetElementAfterAppend,
+        captureHomepageWidgetDomSnapshot,
+        cleanupStalePreservedWidgetEntries,
+        enumerateHomepageWidgetElements,
+        getDirectWidgetElements,
+        isElementDirectChildOfScopedContainer,
+        matchesHomepageWidgetDomSnapshot,
+        restoreHomepageWidgetDomSnapshot,
+        storePreservedWidgetElement,
+        type HomepageWidgetDomSnapshot,
+    } from "./homepage-widget-dom";
 
     import "./style/homepage.scss"
 
@@ -141,7 +153,6 @@
     let bannerGlassBlur = $state(12);
     let backgroundImageEnabled = $state(false);
     let backgroundImageGlobalEnabled = $state(false);
-    let backgroundImageType = $state<BackgroundImageType>(DEFAULT_BACKGROUND_IMAGE_TYPE);
     let backgroundImageSrc = $state("");
     let backgroundImageOpacity = $state(DEFAULT_BACKGROUND_IMAGE_OPACITY);
     let backgroundImageBlur = $state(DEFAULT_BACKGROUND_IMAGE_BLUR);
@@ -205,270 +216,1701 @@
         checked: boolean;
         shortcut?: string;
         order: number;
+        action?: string;
     };
     let buttonsList: ButtonItem[] = $state([]);
     let showMoreMenu = $state(false);
     let isHoveringNavBar = $state(false);
     let moreButtonEl: HTMLButtonElement | null = $state(null);
 
-    let widgetLayoutNumber = $state(4);
-    let widgetGap = $state(0.2);
+    let widgetLayoutNumber = $state(DEFAULT_WIDGET_LAYOUT_NUMBER);
+    let widgetGap = $state(DEFAULT_WIDGET_GAP);
     let componentSectionsEnabled = $state(false);
     let componentSections = $state<ComponentSection[]>(normalizeComponentSections(undefined));
     let componentSectionsNavAlign = $state<ComponentSectionsNavAlign>("left");
-    let activeComponentSectionId = $state(DEFAULT_COMPONENT_SECTION_ID);
-    let effectiveComponentSectionsEnabled = $derived(advanced && componentSectionsEnabled);
-    let sortable: Sortable | null = null;
+    let requestedComponentSectionId = $state<string | undefined>(undefined);
+    let preparingComponentSectionId = $state<string | undefined>(undefined);
+    let activeComponentSectionId = $state<string | undefined>(undefined);
+    let effectiveComponentSectionsEnabled = $derived(
+        isComponentSectionsEffective(
+            { componentSectionsEnabled, componentSections },
+            advanced,
+        ),
+    );
     let destroyBannerDrag: (() => void) | null = null;
 
+    // 普通组件区不是分栏，使用空字符串作为内部运行时标识，不写入也不显示为导航项。
+    const ROOT_COMPONENT_SECTION_ID = "";
+
     // 本地容器引用：避免全局 selector 在实例重叠时命中错容器
-    let customContentContainer: HTMLElement | null = null;
     const componentSectionContainers = new Map<string, HTMLElement>();
-    const restoredComponentSectionIds = new Set<string>();
+    type SectionRuntimeStatus = "unloaded" | "loading" | "ready" | "degraded" | "failed" | "stale";
+    interface SectionRuntimeState {
+        layoutRevision: number;
+        sectionContentSignature: string;
+        declaredWidgetIds: string[];
+        expectedIds: string[];
+        failedWidgetIds: string[];
+        unresolvedWidgetIds: string[];
+        effectiveColumns?: number;
+        effectiveGap?: number;
+        structuralComplete: boolean;
+        status: SectionRuntimeStatus;
+        reason?: string;
+    }
+    let sectionRuntimeStates = new SvelteMap<string, SectionRuntimeState>();
+    const componentSectionRestoreInFlight = new Map<string, Promise<RestoreLayoutResult>>();
+    const preservedWidgetElements = new Map<string, HTMLElement>();
+    let preserveMountedWidgetsOnNextContainerDestroy = false;
+
+    // 每个可见容器独立运行状态
+    const sectionSortables = new Map<string, Sortable>();
+    const sectionResizeObservers = new Map<string, ResizeObserver>();
+    const sectionInfrastructureContainers = new Map<string, HTMLElement>();
+    let sectionWidgetLayoutNumbers = new SvelteMap<string, number>();
+    let sectionWidgetGaps = new SvelteMap<string, number>();
+
+    // 普通组件区是否有可见组件；用于在分栏开启且根区为空时折叠空白。
+    let rootComponentSectionHasWidgets = $state(false);
+
+    function getCurrentHomepageDomScope(currentContainer?: HTMLElement | null) {
+        return {
+            componentSectionContainers,
+            preservedWidgetElements,
+            currentContainer,
+        };
+    }
+
+    // 分栏真实生效时不再显示普通组件区，全部组件按全局 order 渲染在活动分栏中。
+    let showRootComponentSection = $derived(!effectiveComponentSectionsEnabled);
+
+    // 普通组件区已完成恢复且没有可见组件时才折叠自身；恢复前必须保持可见，避免 ECharts 拿不到尺寸。
+    let rootComponentSectionCollapsed = $derived(
+        showRootComponentSection &&
+        ["ready", "degraded"].includes(sectionRuntimeStates.get(ROOT_COMPONENT_SECTION_ID)?.status || "") &&
+        !rootComponentSectionHasWidgets
+    );
 
     // 初始化状态标记：确保只初始化一次
     let customContentInitialized = false;
 
-    // CSS 变量更新：统一基础格子高度
-    function updateCustomGridMetrics() {
-        if (!customContentContainer) return;
-        const container = customContentContainer;
+    // CSS 变量更新：统一基础格子高度，并同步 grid 列数与间距。
+    function updateCustomGridMetricsForContainer(container: HTMLElement | null, layoutNumber: number, gap: number): void {
+        if (!container) return;
         const clientWidth = container.clientWidth;
         if (clientWidth <= 0) return;
 
         const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-        const gapPx = widgetGap * rootFontSize;
-        const cellSize = (clientWidth - gapPx * (widgetLayoutNumber - 1)) / widgetLayoutNumber;
+        const gapPx = gap * rootFontSize;
+        const cellSize = (clientWidth - gapPx * (layoutNumber - 1)) / layoutNumber;
 
         if (cellSize > 0) {
             container.style.setProperty("--widget-cell-size", `${cellSize}px`);
         }
+        container.style.gridTemplateColumns = `repeat(${layoutNumber}, 1fr)`;
+        container.style.gap = `${gap}rem`;
     }
 
-    function getCurrentComponentSectionId(): string {
-        return effectiveComponentSectionsEnabled ? activeComponentSectionId : DEFAULT_COMPONENT_SECTION_ID;
+    function countVisibleWidgetsInContainer(container: HTMLElement | null): number {
+        if (!container) return 0;
+        return Array.from(container.children).filter(
+            (child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains("widget-block"),
+        ).length;
+    }
+
+    // 更新所有可见容器的网格参数；优先使用容器自身保存的列数/间距，未设置则回退到根布局值。
+    function updateCustomGridMetrics(): void {
+        const rootContainer = getComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+        if (rootContainer) {
+            updateCustomGridMetricsForContainer(rootContainer, widgetLayoutNumber, widgetGap);
+            rootComponentSectionHasWidgets = countVisibleWidgetsInContainer(rootContainer) > 0;
+        } else {
+            rootComponentSectionHasWidgets = false;
+        }
+        for (const sectionId of componentSections.map((section) => section.id)) {
+            const container = getComponentSectionContainer(sectionId);
+            if (!container || container.classList.contains("hidden")) continue;
+            const layoutNumber = sectionWidgetLayoutNumbers.get(sectionId) ?? widgetLayoutNumber;
+            const gap = sectionWidgetGaps.get(sectionId) ?? widgetGap;
+            updateCustomGridMetricsForContainer(container, layoutNumber, gap);
+        }
+    }
+
+    function getCurrentComponentSectionId(): string | undefined {
+        return effectiveComponentSectionsEnabled ? activeComponentSectionId : ROOT_COMPONENT_SECTION_ID;
     }
 
     function normalizeRuntimeSectionId(sectionId: string | null | undefined): string {
-        const trimmed = typeof sectionId === "string" ? sectionId.trim() : "";
-        return trimmed || DEFAULT_COMPONENT_SECTION_ID;
+        return typeof sectionId === "string" ? sectionId.trim() : "";
+    }
+
+    function setSectionRuntimeState(sectionId: string, state: SectionRuntimeState): void {
+        sectionRuntimeStates.set(sectionId, {
+            ...state,
+            declaredWidgetIds: [...state.declaredWidgetIds],
+            expectedIds: [...state.expectedIds],
+            failedWidgetIds: [...state.failedWidgetIds],
+            unresolvedWidgetIds: [...state.unresolvedWidgetIds],
+        });
+    }
+
+    function markSectionRuntimeState(sectionId: string, status: SectionRuntimeStatus, reason?: string): void {
+        const previous = sectionRuntimeStates.get(sectionId);
+        setSectionRuntimeState(sectionId, {
+            layoutRevision: previous?.layoutRevision ?? 0,
+            sectionContentSignature: previous?.sectionContentSignature ?? "",
+            declaredWidgetIds: previous?.declaredWidgetIds ?? [],
+            expectedIds: previous?.expectedIds ?? [],
+            failedWidgetIds: previous?.failedWidgetIds ?? [],
+            unresolvedWidgetIds: previous?.unresolvedWidgetIds ?? [],
+            effectiveColumns: previous?.effectiveColumns,
+            effectiveGap: previous?.effectiveGap,
+            structuralComplete: previous?.structuralComplete ?? false,
+            status,
+            ...(reason ? { reason } : {}),
+        });
+    }
+
+    function clearSectionRuntimeState(sectionId: string): void {
+        sectionRuntimeStates.delete(sectionId);
+    }
+
+    function haveSameOrderedIds(left: readonly string[], right: readonly string[]): boolean {
+        return left.length === right.length && left.every((id, index) => id === right[index]);
+    }
+
+    function getContainerWidgetIds(container: HTMLElement): string[] {
+        return Array.from(container.children)
+            .filter((child): child is HTMLElement => (
+                child instanceof HTMLElement && child.classList.contains("widget-block") && Boolean(child.id)
+            ))
+            .map((element) => element.id);
+    }
+
+    function snapshotComponentSectionsForRuntime(sections: ComponentSection[]): ComponentSection[] {
+        return Array.from(sections, (section) => ({
+            id: section.id,
+            name: section.name,
+            createdAt: section.createdAt,
+            updatedAt: section.updatedAt,
+        }));
     }
 
     function getComponentSectionContainer(sectionId: string): HTMLElement | null {
         return componentSectionContainers.get(sectionId) || null;
     }
 
-    function activateComponentSectionContainer(sectionId = getCurrentComponentSectionId()): HTMLElement | null {
-        const container = getComponentSectionContainer(sectionId);
+    function activateComponentSectionContainer(sectionId: string | undefined = getCurrentComponentSectionId()): HTMLElement | null {
+        const effectiveSectionId = sectionId ?? ROOT_COMPONENT_SECTION_ID;
+        const container = getComponentSectionContainer(effectiveSectionId);
         if (!container) return null;
-        customContentContainer = container;
-        setupActiveCustomContentInfrastructure(container, sectionId);
+        setupContainerInfrastructure(container, effectiveSectionId);
         return container;
     }
 
     function registerCustomContentContainer(node: HTMLElement, sectionId: string) {
+        const sectionsEnabledAtRegistration = effectiveComponentSectionsEnabled;
         componentSectionContainers.set(sectionId, node);
-        if (sectionId === getCurrentComponentSectionId()) {
-            customContentContainer = node;
-        }
 
         return {
             destroy() {
-                if (componentSectionContainers.get(sectionId) === node) {
-                    componentSectionContainers.delete(sectionId);
+                // 仅在“普通布局 ↔ 分栏布局”真实切换时暂存健康实例；普通配置更新和标签切换不触发。
+                const shouldPreserve = (
+                    !homepageComponentDestroyed
+                    && (
+                        preserveMountedWidgetsOnNextContainerDestroy
+                        || sectionsEnabledAtRegistration !== effectiveComponentSectionsEnabled
+                    )
+                );
+                const widgetElements = getDirectWidgetElements(node);
+                const healthyElements = new Set(widgetElements.filter((element) => (
+                    (element as any).__widgetBlockInstance?.hasMountedContent?.() === true
+                )));
+                let preservationSucceeded = false;
+                let preservationFailure: string | undefined;
+
+                try {
+                    if (shouldPreserve) {
+                        const scope = getCurrentHomepageDomScope(node);
+                        const enumeration = enumerateHomepageWidgetElements(scope);
+                        const duplicate = Array.from(enumeration.elementsById.entries())
+                            .find(([, elements]) => elements.length > 1);
+                        preservationFailure = enumeration.ownershipErrors[0]
+                            ?? (duplicate ? `存在重复组件实例 ${duplicate[0]}` : undefined);
+                        if (!preservationFailure) {
+                            for (const element of healthyElements) {
+                                const existing = preservedWidgetElements.get(element.id);
+                                if (existing && existing !== element) {
+                                    preservationFailure = `preserved Map 中已存在另一个组件实例 ${element.id}`;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!preservationFailure) {
+                            const transactionSnapshot = captureHomepageWidgetDomSnapshot(scope);
+                            const staleElements = new Set(
+                                enumeration.stalePreservedEntries.map(([, element]) => element),
+                            );
+                            transactionSnapshot.preservedEntries = transactionSnapshot.preservedEntries
+                                .filter(([, element]) => !staleElements.has(element));
+
+                            const staleCleanup = cleanupStalePreservedWidgetEntries(
+                                enumeration,
+                                preservedWidgetElements,
+                            );
+                            if ("reason" in staleCleanup) {
+                                preservationFailure = staleCleanup.reason;
+                            } else {
+                                for (const element of healthyElements) {
+                                    const stored = storePreservedWidgetElement(
+                                        element.id,
+                                        element,
+                                        scope,
+                                    );
+                                    if ("reason" in stored) {
+                                        preservationFailure = stored.reason;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (preservationFailure) {
+                                const rolledBack = restoreHomepageWidgetDomSnapshot(
+                                    transactionSnapshot,
+                                    scope,
+                                );
+                                if ("reason" in rolledBack) {
+                                    preservationFailure = `${preservationFailure}；容器销毁交接回滚失败：${rolledBack.reason}`;
+                                }
+                            } else {
+                                preservationSucceeded = true;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    preservationFailure = error instanceof Error ? error.message : String(error);
+                } finally {
+                    // Svelte action destroy 无法取消 node 拆除：未成功交接的实例必须在容器注销前显式销毁。
+                    const elementsToDestroy = shouldPreserve && preservationSucceeded
+                        ? widgetElements.filter((element) => !healthyElements.has(element))
+                        : widgetElements;
+                    for (const element of new Set(elementsToDestroy)) {
+                        const preserved = preservedWidgetElements.get(element.id);
+                        if (preserved === element) {
+                            preservedWidgetElements.delete(element.id);
+                        }
+                        const instance = (element as any).__widgetBlockInstance;
+                        try {
+                            instance?.destroy?.();
+                        } catch (error) {
+                            console.warn(`[Homepage] 销毁已注销容器中的组件 ${element.id} 失败`, error);
+                        }
+                    }
+
+                    const registeredContainer = componentSectionContainers.get(sectionId);
+                    const ownsRegistration = registeredContainer === node;
+                    if (ownsRegistration) {
+                        componentSectionContainers.delete(sectionId);
+                    }
+                    cleanupContainerInfrastructure(sectionId, node);
+
+                    // 若同一 section 已登记了更新的 node，旧 action 不覆盖新容器正在建立的 runtime 状态。
+                    if (ownsRegistration || !registeredContainer) {
+                        if (shouldPreserve && !preservationSucceeded) {
+                            markSectionRuntimeState(
+                                sectionId,
+                                "failed",
+                                preservationFailure || "容器销毁时健康组件未能安全交接",
+                            );
+                        } else {
+                            clearSectionRuntimeState(sectionId);
+                        }
+                    }
                 }
-                if (customContentContainer === node) {
-                    customContentContainer = null;
-                }
-                restoredComponentSectionIds.delete(sectionId);
             },
         };
     }
 
-    function setupActiveCustomContentInfrastructure(container: HTMLElement, sectionId: string): void {
-        customContentResizeObserver?.disconnect();
-        sortable?.destroy();
+    function setupContainerInfrastructure(container: HTMLElement, sectionId: string): void {
+        cleanupContainerInfrastructure(sectionId);
+        sectionInfrastructureContainers.set(sectionId, container);
 
-        customContentResizeObserver = new ResizeObserver(() => {
-            updateCustomGridMetrics();
+        const resizeObserver = new ResizeObserver(() => {
+            const layoutNumber = sectionWidgetLayoutNumbers.get(sectionId) ?? widgetLayoutNumber;
+            const gap = sectionWidgetGaps.get(sectionId) ?? widgetGap;
+            updateCustomGridMetricsForContainer(container, layoutNumber, gap);
         });
-        customContentResizeObserver.observe(container);
+        resizeObserver.observe(container);
+        sectionResizeObservers.set(sectionId, resizeObserver);
 
-        sortable = new Sortable(container, {
+        const sortable = new Sortable(container, {
             animation: 150,
             ghostClass: "sortable-ghost",
             handle: ".drag-handle",
             onEnd: () => {
-                if (!restoredComponentSectionIds.has(sectionId) || container.dataset.layoutRestoreState !== "ready") {
-                    console.warn(`[Homepage] 分区 ${sectionId} 尚未完整恢复，忽略本次拖拽保存`);
+                const runtimeStatus = sectionRuntimeStates.get(sectionId)?.status;
+                if (!["ready", "degraded"].includes(runtimeStatus || "")) {
                     return;
                 }
                 saveLayout(plugin, container, {
-                    sectionsEnabled: effectiveComponentSectionsEnabled,
-                    sectionId,
+                    sectionsEnabled: sectionId !== ROOT_COMPONENT_SECTION_ID,
+                    sectionId: sectionId === ROOT_COMPONENT_SECTION_ID ? null : sectionId,
                 });
             },
         });
+        sectionSortables.set(sectionId, sortable);
     }
 
-    async function ensureComponentSectionRestored(sectionId: string, force = false): Promise<void> {
-        const container = getComponentSectionContainer(sectionId);
-        if (!container) return;
-        if (!force && restoredComponentSectionIds.has(sectionId)) return;
-        // 分区导航模式下，只 restore 当前 active section，避免非当前分区组件挂载请求数据
-        if (effectiveComponentSectionsEnabled && sectionId !== activeComponentSectionId) return;
+    function cleanupContainerInfrastructure(sectionId: string, expectedContainer?: HTMLElement): void {
+        if (
+            expectedContainer
+            && sectionInfrastructureContainers.get(sectionId) !== expectedContainer
+        ) {
+            return;
+        }
+        const existingObserver = sectionResizeObservers.get(sectionId);
+        if (existingObserver) {
+            try {
+                existingObserver.disconnect();
+            } catch (error) {
+                console.warn(`[Homepage] 断开分栏 ${sectionId || "root"} ResizeObserver 失败`, error);
+            } finally {
+                sectionResizeObservers.delete(sectionId);
+            }
+        }
+        const existingSortable = sectionSortables.get(sectionId);
+        if (existingSortable) {
+            try {
+                existingSortable.destroy();
+            } catch (error) {
+                console.warn(`[Homepage] 销毁分栏 ${sectionId || "root"} Sortable 失败`, error);
+            } finally {
+                sectionSortables.delete(sectionId);
+            }
+        }
+        sectionInfrastructureContainers.delete(sectionId);
+    }
 
-        const retryDelays = [0, 160, 500];
-        for (const delayMs of retryDelays) {
+    interface SectionRestoreOptions {
+        force?: boolean;
+        fixedContext?: ReturnType<typeof getCurrentDeviceViewContext>;
+        expectedLayoutRevision?: number;
+        expectedWidgetIds?: readonly string[];
+        expectedDeclaredWidgetIds?: readonly string[];
+        sectionContentSignature?: string;
+        effectiveColumns?: number;
+        effectiveGap?: number;
+        identityResolved?: boolean;
+    }
+
+    async function resolveSectionRestoreOptions(
+        sectionId: string,
+        options: SectionRestoreOptions,
+    ): Promise<SectionRestoreOptions> {
+        if (sectionId === ROOT_COMPONENT_SECTION_ID || options.identityResolved === true) {
+            return options;
+        }
+        const fixedContext = options.fixedContext
+            ?? getCurrentDeviceViewContext(plugin, "desktop-homepage");
+        const snapshot = await loadLayoutSnapshotForContext(fixedContext, { assumeReady: true });
+        if (
+            options.expectedLayoutRevision !== undefined
+            && options.expectedLayoutRevision !== snapshot.revision
+        ) {
+            throw new Error("分栏布局 revision 在身份计算前发生变化");
+        }
+        const manifest = await readDeviceViewManifest(fixedContext);
+        if (!manifest) throw new Error("当前设备视图 manifest 缺失");
+        const settings = resolveEffectiveWidgetLayoutSettings(
+            snapshot.layout,
+            fixedContext.scopeId,
+            { sectionsEnabled: true, sectionId },
+        );
+        const identity = computeSectionIdentity(
+            sectionId,
+            snapshot.layout,
+            fixedContext,
+            new Set(manifest.migration?.unresolvedLegacyWidgetIds ?? []),
+            componentSections.map((section) => section.id),
+            settings.widgetLayoutNumber,
+            settings.widgetGap,
+        );
+        return {
+            ...options,
+            fixedContext,
+            expectedLayoutRevision: snapshot.revision,
+            expectedWidgetIds: identity.renderableWidgetIds,
+            expectedDeclaredWidgetIds: identity.declaredWidgetIds,
+            sectionContentSignature: identity.sectionContentSignature,
+            effectiveColumns: identity.effectiveColumns,
+            effectiveGap: identity.effectiveGap,
+            identityResolved: true,
+        };
+    }
+
+    async function ensureComponentSectionRestored(
+        sectionId: string | undefined,
+        options: SectionRestoreOptions = {},
+    ): Promise<RestoreLayoutResult> {
+        const effectiveSectionId = sectionId ?? ROOT_COMPONENT_SECTION_ID;
+        let resolvedOptions: SectionRestoreOptions;
+        try {
+            resolvedOptions = await resolveSectionRestoreOptions(effectiveSectionId, options);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            markSectionRuntimeState(effectiveSectionId, "failed", reason);
+            return {
+                status: "fatal",
+                layoutRevision: options.expectedLayoutRevision ?? 0,
+                expectedIds: [],
+                failedWidgetIds: [],
+                unresolvedWidgetIds: [],
+                structuralComplete: false,
+                reason,
+            };
+        }
+        const cachedState = sectionRuntimeStates.get(effectiveSectionId);
+        const cachedContainer = getComponentSectionContainer(effectiveSectionId);
+        const cachedReuse = cachedState && cachedContainer
+            ? canReuseSectionRuntime(
+                effectiveSectionId,
+                resolvedOptions.expectedWidgetIds ?? cachedState.expectedIds,
+                resolvedOptions.sectionContentSignature ?? cachedState.sectionContentSignature,
+                cachedContainer,
+                resolvedOptions.fixedContext ?? getCurrentDeviceViewContext(plugin, "desktop-homepage"),
+            )
+            : SectionReuse.No;
+        if (resolvedOptions.force !== true && cachedState && cachedReuse === SectionReuse.PureReuse) {
+            return {
+                status: cachedState.status === "ready" ? "complete" : "degraded",
+                layoutRevision: cachedState.layoutRevision,
+                expectedIds: [...cachedState.expectedIds],
+                failedWidgetIds: [...cachedState.failedWidgetIds],
+                unresolvedWidgetIds: [...cachedState.unresolvedWidgetIds],
+                structuralComplete: cachedState.structuralComplete,
+                ...(cachedState.reason ? { reason: cachedState.reason } : {}),
+            };
+        }
+        const inFlight = componentSectionRestoreInFlight.get(effectiveSectionId);
+        if (inFlight) {
+            return await inFlight;
+        }
+
+        const restorePromise = restoreComponentSectionWithRetry(effectiveSectionId, resolvedOptions);
+        componentSectionRestoreInFlight.set(effectiveSectionId, restorePromise);
+        try {
+            return await restorePromise;
+        } finally {
+            if (componentSectionRestoreInFlight.get(effectiveSectionId) === restorePromise) {
+                componentSectionRestoreInFlight.delete(effectiveSectionId);
+            }
+        }
+    }
+
+    async function restoreComponentSectionWithRetry(
+        sectionId: string,
+        options: SectionRestoreOptions = {},
+    ): Promise<RestoreLayoutResult> {
+        let resolvedOptions: SectionRestoreOptions;
+        try {
+            resolvedOptions = await resolveSectionRestoreOptions(sectionId, options);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            markSectionRuntimeState(sectionId, "failed", reason);
+            return {
+                status: "fatal",
+                layoutRevision: options.expectedLayoutRevision ?? 0,
+                expectedIds: [],
+                failedWidgetIds: [],
+                unresolvedWidgetIds: [],
+                structuralComplete: false,
+                reason,
+            };
+        }
+        options = resolvedOptions;
+        const container = getComponentSectionContainer(sectionId);
+        if (!container) {
+            return {
+                status: "fatal",
+                layoutRevision: 0,
+                expectedIds: [],
+                failedWidgetIds: [],
+                unresolvedWidgetIds: [],
+                structuralComplete: false,
+                reason: "分栏容器不存在",
+            };
+        }
+        // 分区导航模式下，只 restore 当前 visible 分栏或正在切换的目标分栏；普通组件区（sectionId 为空字符串）始终需要恢复。
+        if (effectiveComponentSectionsEnabled && sectionId && sectionId !== activeComponentSectionId && sectionId !== requestedComponentSectionId) {
+            return {
+                status: "fatal",
+                layoutRevision: sectionRuntimeStates.get(sectionId)?.layoutRevision ?? 0,
+                expectedIds: sectionRuntimeStates.get(sectionId)?.expectedIds ?? [],
+                failedWidgetIds: sectionRuntimeStates.get(sectionId)?.failedWidgetIds ?? [],
+                unresolvedWidgetIds: sectionRuntimeStates.get(sectionId)?.unresolvedWidgetIds ?? [],
+                structuralComplete: false,
+                reason: "目标分栏不是当前本地活动分栏",
+            };
+        }
+
+        markSectionRuntimeState(sectionId, "loading");
+        let result: RestoreLayoutResult;
+        try {
+            const isRootSection = sectionId === ROOT_COMPONENT_SECTION_ID;
+            result = await restoreLayout(
+                plugin,
+                { value: container },
+                container,
+                {
+                    sectionsEnabled: !isRootSection && effectiveComponentSectionsEnabled,
+                    sectionId: isRootSection ? null : sectionId,
+                    preservedWidgetElements,
+                    componentSectionContainers,
+                    readOnly: true,
+                    ...(options.fixedContext ? { deviceViewContext: options.fixedContext } : {}),
+                    expectedLayoutRevision: options.expectedLayoutRevision,
+                    expectedWidgetIds: options.expectedDeclaredWidgetIds ?? options.expectedWidgetIds,
+                },
+            );
+        } catch (error) {
+            result = {
+                status: "fatal",
+                layoutRevision: options.expectedLayoutRevision ?? 0,
+                expectedIds: [...(options.expectedWidgetIds ?? [])],
+                failedWidgetIds: [],
+                unresolvedWidgetIds: [],
+                structuralComplete: false,
+                reason: error instanceof Error ? error.message : String(error),
+            };
+        }
+        if (result.status !== "fatal") {
+            container.dataset.layoutRestoreState = result.status === "complete" ? "ready" : result.status;
+        }
+        setSectionRuntimeState(sectionId, {
+            layoutRevision: result.layoutRevision,
+            sectionContentSignature: options.sectionContentSignature ?? "",
+            declaredWidgetIds: [...(options.expectedDeclaredWidgetIds ?? [
+                ...result.expectedIds,
+                ...result.unresolvedWidgetIds,
+            ])],
+            expectedIds: result.expectedIds,
+            failedWidgetIds: result.failedWidgetIds,
+            unresolvedWidgetIds: result.unresolvedWidgetIds,
+            effectiveColumns: options.effectiveColumns,
+            effectiveGap: options.effectiveGap,
+            structuralComplete: result.structuralComplete,
+            status: result.status === "complete"
+                ? "ready"
+                : result.status === "degraded"
+                    ? "degraded"
+                    : "failed",
+            ...(result.reason ? { reason: result.reason } : {}),
+        });
+        return result;
+    }
+
+    function getCompleteRestoreExpectedIds(container: HTMLElement): string[] | null {
+        if (!container.isConnected) return null;
+        const registration = Array.from(componentSectionContainers.entries())
+            .find(([, registeredContainer]) => registeredContainer === container);
+        if (!registration) return null;
+        const state = sectionRuntimeStates.get(registration[0]);
+        if (
+            !state
+            || !["ready", "degraded"].includes(state.status)
+            || !state.structuralComplete
+            || state.failedWidgetIds.length > 0
+            || (registration[0] !== ROOT_COMPONENT_SECTION_ID && !state.sectionContentSignature)
+            || (state.status === "degraded" && state.unresolvedWidgetIds.length === 0)
+            || (state.status === "ready" && state.unresolvedWidgetIds.length > 0)
+        ) return null;
+        const unresolvedSet = new Set(state.unresolvedWidgetIds);
+        if (!haveSameOrderedIds(
+            state.declaredWidgetIds.filter((id) => !unresolvedSet.has(id)),
+            state.expectedIds,
+        )) return null;
+        const expectedIds = state.expectedIds;
+        const actualElements = Array.from(container.children)
+            .filter((child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains("widget-block"));
+        if (actualElements.length !== expectedIds.length) return null;
+        if (!expectedIds.every((id, index) => actualElements[index]?.id === id)) return null;
+        if (!actualElements.every((element) => (element as any).__widgetBlockInstance?.hasMountedContent?.())) return null;
+        return expectedIds;
+    }
+
+    function getStructuralRestoreExpectedIds(container: HTMLElement): string[] | null {
+        if (!container.isConnected) return null;
+        if (!["ready", "degraded"].includes(container.dataset.layoutRestoreState || "")) return null;
+        let expectedIds: string[];
+        try {
+            const parsed = JSON.parse(container.dataset.layoutExpectedWidgetIds || "");
+            if (!Array.isArray(parsed) || !parsed.every((id) => typeof id === "string" && id)) return null;
+            expectedIds = parsed;
+        } catch {
+            return null;
+        }
+        return haveSameOrderedIds(getContainerWidgetIds(container), expectedIds) ? expectedIds : null;
+    }
+
+    function captureCompleteContainerSnapshot(
+        container: HTMLElement | null,
+    ): {
+        expectedIds: string[];
+        elements: HTMLElement[];
+        preservedEntries: Array<[string, HTMLElement]>;
+        domSnapshot: HomepageWidgetDomSnapshot;
+        runtimeState: SectionRuntimeState;
+    } | null {
+        if (!container) return null;
+        const enumeration = enumerateHomepageWidgetElements(getCurrentHomepageDomScope(container));
+        if (enumeration.ownershipErrors.length > 0) return null;
+        if (Array.from(enumeration.elementsById.values()).some((elements) => elements.length > 1)) return null;
+        const staleCleanup = cleanupStalePreservedWidgetEntries(enumeration, preservedWidgetElements);
+        if ("reason" in staleCleanup) return null;
+        const expectedIds = getCompleteRestoreExpectedIds(container);
+        if (expectedIds === null) return null;
+        const elements = Array.from(container.children)
+            .filter((child): child is HTMLElement => (
+                child instanceof HTMLElement && child.classList.contains("widget-block")
+            ));
+        if (elements.length !== expectedIds.length) return null;
+        if (!expectedIds.every((id, index) => elements[index]?.id === id)) return null;
+        if (!elements.every((element) => (element as any).__widgetBlockInstance?.hasMountedContent?.())) return null;
+        const sectionId = Array.from(componentSectionContainers.entries())
+            .find(([, registeredContainer]) => registeredContainer === container)?.[0];
+        const runtimeState = sectionId === undefined ? undefined : sectionRuntimeStates.get(sectionId);
+        if (!runtimeState) return null;
+        return {
+            expectedIds: [...expectedIds],
+            elements: [...elements],
+            preservedEntries: Array.from(preservedWidgetElements.entries()),
+            domSnapshot: captureHomepageWidgetDomSnapshot(getCurrentHomepageDomScope(container)),
+            runtimeState: {
+                ...runtimeState,
+                declaredWidgetIds: [...runtimeState.declaredWidgetIds],
+                expectedIds: [...runtimeState.expectedIds],
+                failedWidgetIds: [...runtimeState.failedWidgetIds],
+                unresolvedWidgetIds: [...runtimeState.unresolvedWidgetIds],
+            },
+        };
+    }
+
+    async function waitForRegisteredConnectedContainer(
+        sectionId: string,
+    ): Promise<HTMLElement | null> {
+        const delays = [0, 0, 50];
+        for (const delayMs of delays) {
+            await tick();
             if (delayMs > 0) {
                 await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
             }
-            if (homepageComponentDestroyed) return;
-
-            let restored = false;
-            try {
-                restored = await restoreLayout(
-                    plugin,
-                    { value: container },
-                    container,
-                    {
-                        sectionsEnabled: effectiveComponentSectionsEnabled,
-                        sectionId,
-                    },
-                );
-            } catch (error) {
-                container.dataset.layoutRestoreState = "failed";
-                console.warn(`[Homepage] 分区 ${sectionId} 恢复失败，将自动重试:`, error);
-            }
-            if (restored) {
-                restoredComponentSectionIds.add(sectionId);
-                return;
+            const container = getComponentSectionContainer(sectionId);
+            if (container?.isConnected && componentSectionContainers.get(sectionId) === container) {
+                return container;
             }
         }
-
-        console.warn(`[Homepage] 分区 ${sectionId} 连续恢复失败，已保留原布局且不会写回不完整状态`);
+        return null;
     }
 
-    async function handleComponentSectionLayoutInvalidated(
-        event: CustomEvent<{ sectionIds?: string[]; forceCurrent?: boolean }>,
+    async function applyComponentSectionLayoutInvalidated(
+        event: CustomEvent<{ refreshRoot?: boolean; sectionIds?: string[]; forceCurrent?: boolean }>,
     ): Promise<void> {
         const detail = event.detail || {};
-        const sectionIds = Array.isArray(detail.sectionIds)
-            ? [...new Set(detail.sectionIds.map(normalizeRuntimeSectionId))]
-            : null;
+        const refreshRoot = detail.refreshRoot === true;
+        const normalizedSectionIds = Array.isArray(detail.sectionIds)
+            ? [...new Set(detail.sectionIds.map(normalizeRuntimeSectionId).filter((id) => id))]
+            : [];
 
-        if (sectionIds && sectionIds.length > 0) {
-            sectionIds.forEach((sectionId) => restoredComponentSectionIds.delete(sectionId));
-        } else {
-            restoredComponentSectionIds.clear();
+        // 清理受影响作用域的恢复标记；空 sectionId 不能混入 sectionIds。
+        if (refreshRoot) {
+            markSectionRuntimeState(ROOT_COMPONENT_SECTION_ID, "stale");
+        }
+        for (const sectionId of normalizedSectionIds) {
+            markSectionRuntimeState(sectionId, "stale");
         }
 
-        if (effectiveComponentSectionsEnabled) {
-            const shouldRestoreCurrent =
-                detail.forceCurrent === true ||
-                (sectionIds && sectionIds.includes(activeComponentSectionId));
-            if (!shouldRestoreCurrent) return;
+        const shouldRestoreRoot = showRootComponentSection && (refreshRoot || !effectiveComponentSectionsEnabled);
+        const shouldRestoreActiveSection =
+            effectiveComponentSectionsEnabled &&
+            (detail.forceCurrent === true || normalizedSectionIds.includes(activeComponentSectionId));
 
-            await tick();
-            if (homepageComponentDestroyed) return;
-            activateComponentSectionContainer(activeComponentSectionId);
-            await ensureComponentSectionRestored(activeComponentSectionId, true);
-            if (homepageComponentDestroyed) return;
-            await tick();
-            updateCustomGridMetrics();
+        if (!shouldRestoreRoot && !shouldRestoreActiveSection) {
             return;
         }
 
         await tick();
         if (homepageComponentDestroyed) return;
-        activateComponentSectionContainer(DEFAULT_COMPONENT_SECTION_ID);
-        await ensureComponentSectionRestored(DEFAULT_COMPONENT_SECTION_ID, true);
-        if (homepageComponentDestroyed) return;
+
+        if (shouldRestoreRoot) {
+            activateComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+            await ensureComponentSectionRestored(ROOT_COMPONENT_SECTION_ID, { force: true });
+            if (homepageComponentDestroyed) return;
+        }
+
+        if (shouldRestoreActiveSection) {
+            activateComponentSectionContainer(activeComponentSectionId);
+            await ensureComponentSectionRestored(activeComponentSectionId, { force: true });
+            if (homepageComponentDestroyed) return;
+        }
+
         await tick();
         updateCustomGridMetrics();
+    }
+
+    function handleComponentSectionLayoutInvalidated(
+        event: CustomEvent<{ refreshRoot?: boolean; sectionIds?: string[]; forceCurrent?: boolean }>,
+    ): void {
+        void enqueueSectionUiOperation(() => applyComponentSectionLayoutInvalidated(event));
     }
 
     // 异步请求版本戳，用于丢弃过期结果
     let updateHomepageVersion = 0;
     let updateStatsVersion = 0;
 
-    // ResizeObserver for custom-content container
-    let customContentResizeObserver: ResizeObserver | null = null;
-
-    // 首次初始化标记：用于确保只在启动期写盘动作完成后记录一次签名基线
-    let initialSignaturesRecorded = false;
     let homepageComponentDestroyed = false;
-
-    // 局部热刷新失败后整页自愈的冷却与锁，避免连续重建导致音乐播放中断
-    const HOMEPAGE_SELF_HEAL_COOLDOWN_MS = 30000;
-    let homepageSelfHealLocked = false;
-    let homepageSelfHealLastTime = 0;
-    let pendingHotReloadMusicAffectingSignature = "";
 
     // 实时获取高级功能启用状态
     function getAdvancedEnabled(): boolean {
         return Boolean(plugin?.ADVANCED);
     }
 
-    function isComponentSectionsEffectiveForConfig(config: Record<string, unknown> | null): boolean {
-        return getAdvancedEnabled() && config?.componentSectionsEnabled === true;
-    }
-
-    function getSafeActiveComponentSectionId(sectionId: string | null | undefined, sections = componentSections): string {
+    function getSafeActiveComponentSectionId(sectionId: string | null | undefined, sections = componentSections): string | undefined {
         const normalizedSections = normalizeComponentSections(sections);
         if (sectionId && normalizedSections.some((section) => section.id === sectionId)) {
             return sectionId;
         }
-        return normalizedSections[0]?.id || DEFAULT_COMPONENT_SECTION_ID;
+        return normalizedSections[0]?.id;
     }
 
-    function getHomepageLayoutRuntimeOptions() {
+    interface WidgetAddTargetContext {
+        containerEl: HTMLElement | null;
+        sectionsEnabled: boolean;
+        sectionId: string | null;
+        targetKind: "root" | "active-section";
+    }
+
+    /**
+     * 获取“添加组件”的目标作用域。
+     * 分栏真实生效且活动分栏有效时，目标为活动分栏；不得自动回退到普通组件区。
+     */
+    function getWidgetAddTargetContext(): WidgetAddTargetContext {
+        if (
+            effectiveComponentSectionsEnabled &&
+            activeComponentSectionId &&
+            componentSections.some((section) => section.id === activeComponentSectionId)
+        ) {
+            return {
+                containerEl: getComponentSectionContainer(activeComponentSectionId),
+                sectionsEnabled: true,
+                sectionId: activeComponentSectionId,
+                targetKind: "active-section",
+            };
+        }
         return {
-            sectionsEnabled: effectiveComponentSectionsEnabled,
-            sectionId: activeComponentSectionId,
+            containerEl: getComponentSectionContainer(ROOT_COMPONENT_SECTION_ID),
+            sectionsEnabled: false,
+            sectionId: null,
+            targetKind: "root",
         };
     }
 
-    async function updateActiveComponentSectionFromLayout(): Promise<void> {
-        const storedActiveSectionId = await getActiveComponentSectionForCurrentDevice(plugin);
-        const safeSectionId = getSafeActiveComponentSectionId(storedActiveSectionId);
-        activeComponentSectionId = safeSectionId;
-        if (effectiveComponentSectionsEnabled && safeSectionId !== storedActiveSectionId) {
-            await setActiveComponentSectionForCurrentDevice(plugin, safeSectionId);
+    /**
+     * 确认添加组件的目标容器已就绪；未就绪时先恢复对应作用域。
+     * 失败返回 null，调用方应停止添加并提示用户。
+     */
+    async function ensureWidgetAddTargetReady(): Promise<WidgetAddTargetContext | null> {
+        const context = getWidgetAddTargetContext();
+        const targetSectionId = context.sectionId ?? ROOT_COMPONENT_SECTION_ID;
+        const container = context.containerEl;
+        if (!container || !container.isConnected) {
+            if (context.targetKind === "active-section") {
+                showMessage("目标分栏容器尚未就绪，无法添加组件", 3000, "info");
+            } else {
+                showMessage("目标组件区尚未就绪，请稍后重试", 3000, "info");
+            }
+            return null;
+        }
+        if (
+            !["ready", "degraded"].includes(sectionRuntimeStates.get(targetSectionId)?.status || "")
+        ) {
+            const restored = await ensureComponentSectionRestored(targetSectionId, { force: true });
+            if (restored.status === "fatal") {
+                showMessage("组件区恢复失败，无法添加组件", 3000, "info");
+                return null;
+            }
+        }
+        return context;
+    }
+
+    async function handleFirstContentCommitted(widgetId: string, options: HomepageLayoutRuntimeOptions): Promise<boolean> {
+        const sectionId = options.sectionId ?? ROOT_COMPONENT_SECTION_ID;
+        const container = getComponentSectionContainer(sectionId);
+        if (!container) return false;
+
+        const saved = await saveLayout(plugin, container, {
+            ...options,
+            committedWidgetIds: [widgetId],
+        });
+        return saved;
+    }
+
+    async function handleAddWidgetButtonClick(item: ButtonItem): Promise<void> {
+        const context = await ensureWidgetAddTargetReady();
+        if (!context) return;
+        handleButtonClick(
+            item,
+            plugin,
+            currentBlockForSettingsRef,
+            saveLayout,
+            {
+                containerEl: context.containerEl,
+                sectionsEnabled: context.sectionsEnabled,
+                sectionId: context.sectionId,
+                onFirstContentCommitted: handleFirstContentCommitted,
+            },
+        );
+    }
+
+    // 恢复当前可见组件区：分栏模式下只恢复活动分栏，普通模式下只恢复普通组件区。
+    async function restoreVisibleComponentSections(): Promise<void> {
+        if (homepageComponentDestroyed) return;
+        if (showRootComponentSection) {
+            const rootContainer = activateComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+            if (rootContainer) {
+                await ensureComponentSectionRestored(ROOT_COMPONENT_SECTION_ID);
+            }
+        }
+        if (homepageComponentDestroyed) return;
+        if (effectiveComponentSectionsEnabled && activeComponentSectionId) {
+            const sectionContainer = activateComponentSectionContainer(activeComponentSectionId);
+            if (sectionContainer) {
+                await ensureComponentSectionRestored(activeComponentSectionId);
+            }
+        }
+        if (homepageComponentDestroyed) return;
+        updateCustomGridMetrics();
+    }
+
+    function waitForContainerMountable(container: HTMLElement, timeoutMs = 1000): Promise<boolean> {
+        return new Promise((resolve) => {
+            const isMountable = () => {
+                const style = getComputedStyle(container);
+                const isPreparingPanel = container.classList.contains("section-preparing");
+                return (
+                    container.isConnected
+                    && container.clientWidth > 0
+                    && style.display !== "none"
+                    // 准备面板允许 visibility:hidden，仍可测量 clientWidth 进行结构对账。
+                    && (style.visibility !== "hidden" || isPreparingPanel)
+                    // 容器必须由当前 Homepage 实例注册。
+                    && componentSectionContainers.get(
+                        container.dataset.componentSectionId || "",
+                    ) === container
+                );
+            };
+            if (isMountable()) {
+                resolve(true);
+                return;
+            }
+            const observer = new ResizeObserver(() => {
+                if (isMountable()) {
+                    cleanup();
+                    resolve(true);
+                }
+            });
+            let rafId = 0;
+            let timer = 0;
+            const cleanup = () => {
+                observer.disconnect();
+                if (rafId) cancelAnimationFrame(rafId);
+                if (timer) window.clearTimeout(timer);
+            };
+            observer.observe(container);
+            rafId = requestAnimationFrame(() => {
+                if (isMountable()) {
+                    cleanup();
+                    resolve(true);
+                }
+            });
+            timer = window.setTimeout(() => {
+                cleanup();
+                resolve(isMountable());
+            }, timeoutMs);
+        });
+    }
+
+    let sectionUiQueue: Promise<void> = Promise.resolve();
+
+    function enqueueSectionUiOperation<T>(operation: () => Promise<T>): Promise<T> {
+        const result = sectionUiQueue.then(operation, operation);
+        sectionUiQueue = result.then(() => undefined, () => undefined);
+        return result;
+    }
+
+    function getValidatedSectionExpectedIds(
+        layout: Awaited<ReturnType<typeof loadLayoutSnapshotForContext>>["layout"],
+        context: ReturnType<typeof getCurrentDeviceViewContext>,
+        sectionId: string,
+        validSectionIds: string[],
+    ): string[] {
+        const profile = layout.profiles?.[context.scopeId];
+        const sections = profile?.sections || {};
+        if (!validSectionIds.includes(sectionId) || !sections[sectionId]) {
+            throw new Error("目标分栏不存在于最新布局");
+        }
+        const globalOrder = normalizeLayoutItems(profile?.order || layout.order);
+        assertSectionLayoutInvariants(globalOrder, sections, validSectionIds, { requireAllAssigned: true });
+        const expectedIds = [...sections[sectionId].widgetIds];
+        if (new Set(expectedIds).size !== expectedIds.length) {
+            throw new Error("目标分栏包含重复组件 ID");
+        }
+        return expectedIds;
+    }
+
+    /** 分栏复用决策。 */
+    const SectionReuse = {
+        No: 0,
+        PureReuse: 1,
+        TargetedRetry: 2,
+    } as const;
+    type SectionReuse = typeof SectionReuse[keyof typeof SectionReuse];
+
+    interface SectionIdentity {
+        /** 分栏声明的全部成员 ID（含 unresolved）。 */
+        declaredWidgetIds: string[];
+        /** 当前分栏中属于 manifest unresolved 的 ID。 */
+        unresolvedWidgetIds: string[];
+        /** 可渲染的组件 ID（declared 减去 unresolved）。 */
+        renderableWidgetIds: string[];
+        /** 分栏内容签名：含 declared IDs、样式、有效 columns/gap、section 存在状态及 unresolved 集合。 */
+        sectionContentSignature: string;
+        effectiveColumns: number | undefined;
+        effectiveGap: number | undefined;
+    }
+
+    /** 统一计算分栏运行身份：初始加载与点击切换必须共用此函数。 */
+    function computeSectionIdentity(
+        sectionId: string,
+        layout: Awaited<ReturnType<typeof loadLayoutSnapshotForContext>>["layout"],
+        context: ReturnType<typeof getCurrentDeviceViewContext>,
+        unresolvedLegacyWidgetIds: ReadonlySet<string>,
+        validSectionIds: string[],
+        effectiveColumns: number | undefined,
+        effectiveGap: number | undefined,
+    ): SectionIdentity {
+        const declaredWidgetIds = getValidatedSectionExpectedIds(layout, context, sectionId, validSectionIds);
+        const unresolvedWidgetIds = declaredWidgetIds.filter((id) => unresolvedLegacyWidgetIds.has(id));
+        const renderableWidgetIds = declaredWidgetIds.filter((id) => !unresolvedLegacyWidgetIds.has(id));
+        const sectionContentSignature = computeSectionContentSignature(
+            declaredWidgetIds,
+            layout,
+            context.scopeId,
+            sectionId,
+            effectiveColumns,
+            effectiveGap,
+            unresolvedWidgetIds,
+        );
+        return {
+            declaredWidgetIds,
+            unresolvedWidgetIds,
+            renderableWidgetIds,
+            sectionContentSignature,
+            effectiveColumns,
+            effectiveGap,
+        };
+    }
+
+    function computeSectionContentSignature(
+        expectedIds: readonly string[],
+        layout: Awaited<ReturnType<typeof loadLayoutSnapshotForContext>>["layout"],
+        deviceId: string,
+        sectionId: string,
+        colOrNumber: number | undefined,
+        colOrGap: number | undefined,
+        unresolvedIds?: readonly string[],
+    ): string {
+        const profile = layout.profiles?.[deviceId];
+        const sectionData = profile?.sections?.[sectionId];
+        if (!profile || !sectionData) {
+            throw new Error(`分栏 ${sectionId} 缺少严格签名所需的 profile/section`);
+        }
+        const effectiveColumns = colOrNumber ?? sectionData.widgetLayoutNumber;
+        const effectiveGap = colOrGap ?? sectionData.widgetGap;
+        if (!Number.isFinite(effectiveColumns) || !Number.isFinite(effectiveGap)) {
+            throw new Error(`分栏 ${sectionId} 缺少严格签名所需的 columns/gap`);
+        }
+        const globalOrder = normalizeLayoutItems(profile.order || layout.order);
+        const itemById = new Map(globalOrder.map((item) => [item.id, item] as const));
+        const unresolvedSet = new Set(unresolvedIds ?? []);
+        const styles = expectedIds
+            .filter((id) => !unresolvedSet.has(id))
+            .map((id) => {
+                const item = itemById.get(id);
+                if (!item) throw new Error(`分栏 ${sectionId} 的可渲染组件 ${id} 缺少布局样式`);
+                return { id, style: item.style };
+            });
+        return JSON.stringify({
+            ids: [...expectedIds],
+            styles,
+            col: effectiveColumns,
+            gap: effectiveGap,
+            exists: true,
+            unresolved: [...unresolvedSet].sort(),
+        });
+    }
+
+    /**
+     * 判断分栏是否可复用运行时，区分三种状态：
+     * - PureReuse: ready 无 failed；或 degraded 仅有 unresolved（failedWidgetIds 为空）。
+     * - TargetedRetry: degraded 且存在实际 failed IDs，只重建失败组件。
+     * - No: 结构不匹配或签名变化，必须完整 restore。
+     */
+    function canReuseSectionRuntime(
+        sectionId: string,
+        expectedIds: readonly string[],
+        sectionContentSignature: string,
+        container: HTMLElement,
+        _context: ReturnType<typeof getCurrentDeviceViewContext>,
+    ): SectionReuse {
+        const state = sectionRuntimeStates.get(sectionId);
+        if (
+            !state
+            || !state.structuralComplete
+            || state.sectionContentSignature !== sectionContentSignature
+            || !haveSameOrderedIds(state.expectedIds, expectedIds)
+        ) {
+            return SectionReuse.No;
+        }
+        const scopedDom = enumerateHomepageWidgetElements(getCurrentHomepageDomScope(container));
+        if (scopedDom.ownershipErrors.length > 0) return SectionReuse.No;
+        const staleCleanup = cleanupStalePreservedWidgetEntries(scopedDom, preservedWidgetElements);
+        if ("reason" in staleCleanup) return SectionReuse.No;
+        if (Array.from(scopedDom.elementsById.values()).some((elements) => elements.length > 1)) {
+            return SectionReuse.No;
+        }
+        const hasUnhealthyRenderable = expectedIds.some((widgetId) => {
+            const targetMatches = getDirectWidgetElements(container)
+                .filter((element) => element.id === widgetId);
+            const runtimeMatches = scopedDom.elementsById.get(widgetId) ?? [];
+            if (
+                targetMatches.length !== 1
+                || runtimeMatches.length !== 1
+                || runtimeMatches[0] !== targetMatches[0]
+            ) {
+                return true;
+            }
+            const instance = (targetMatches[0] as any).__widgetBlockInstance;
+            return !instance || instance.hasMountedContent?.() !== true;
+        });
+        if (hasUnhealthyRenderable) {
+            return SectionReuse.TargetedRetry;
+        }
+        if (!haveSameOrderedIds(getContainerWidgetIds(container), expectedIds)) {
+            return SectionReuse.No;
+        }
+        if (
+            state.status === "ready"
+            && state.failedWidgetIds.length === 0
+            && state.unresolvedWidgetIds.length === 0
+        ) {
+            return SectionReuse.PureReuse;
+        }
+        // Degraded 且仅有 unresolved → 直接复用，不重新 mount 健康组件。
+        if (
+            state.status === "degraded"
+            && state.failedWidgetIds.length === 0
+            && state.unresolvedWidgetIds.length > 0
+        ) {
+            return SectionReuse.PureReuse;
+        }
+        // Degraded 且存在实际 failed IDs → 只重试失败组件。
+        if (state.status === "degraded" && state.failedWidgetIds.length > 0) {
+            return SectionReuse.TargetedRetry;
+        }
+        return SectionReuse.No;
+    }
+
+    async function switchComponentSectionTransaction(sectionId: string): Promise<void> {
+        if (!effectiveComponentSectionsEnabled || homepageComponentDestroyed) return;
+        const targetSectionId = getSafeActiveComponentSectionId(sectionId);
+        if (!targetSectionId) return;
+
+        // 立即设置请求状态，导航按钮显示正在切换。
+        requestedComponentSectionId = targetSectionId;
+
+        const previousVisibleSectionId = activeComponentSectionId;
+        const fixedContext = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+
+        // 阶段 1：固定 context，读取目标 layout、manifest 和分栏身份。
+        let snapshot: Awaited<ReturnType<typeof loadLayoutSnapshotForContext>>;
+        let sectionIdentity: SectionIdentity;
+        try {
+            snapshot = await loadLayoutSnapshotForContext(fixedContext, { assumeReady: true });
+            const manifest = await readDeviceViewManifest(fixedContext);
+            if (!manifest) throw new Error("当前设备视图 manifest 缺失");
+            const unresolvedLegacyWidgetIds = new Set(manifest.migration?.unresolvedLegacyWidgetIds ?? []);
+            const effectiveSettings = resolveEffectiveWidgetLayoutSettings(
+                snapshot.layout,
+                fixedContext.scopeId,
+                { sectionsEnabled: true, sectionId: targetSectionId },
+            );
+            const validSectionIds = componentSections.map((section) => section.id);
+            sectionIdentity = computeSectionIdentity(
+                targetSectionId,
+                snapshot.layout,
+                fixedContext,
+                unresolvedLegacyWidgetIds,
+                validSectionIds,
+                effectiveSettings.widgetLayoutNumber,
+                effectiveSettings.widgetGap,
+            );
+        } catch (error) {
+            failPreparing("分栏结构不可用", previousVisibleSectionId, error);
+            return;
+        }
+
+        const targetContainer = getComponentSectionContainer(targetSectionId);
+        if (!targetContainer) {
+            failPreparing(undefined, previousVisibleSectionId);
+            return;
+        }
+
+        // 阶段 2：判断复用决策。
+        // 使用 renderableWidgetIds 比较 DOM 与 runtime state。
+        const reuseDecision = canReuseSectionRuntime(
+            targetSectionId,
+            sectionIdentity.renderableWidgetIds,
+            sectionIdentity.sectionContentSignature,
+            targetContainer,
+            fixedContext,
+        );
+        if (reuseDecision === SectionReuse.PureReuse) {
+            await switchVisibleComponentSection(targetSectionId, fixedContext, snapshot.revision);
+            return;
+        }
+
+        // 阶段 3：TargetedRetry — degraded 且有实际 failed IDs，只重建失败组件。
+        if (reuseDecision === SectionReuse.TargetedRetry) {
+            // 进入准备状态：目标面板可测量但不可见。
+            preparingComponentSectionId = targetSectionId;
+            await tick();
+            if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+            const prepContainer = getComponentSectionContainer(targetSectionId);
+            if (!prepContainer) { failPreparing(undefined, previousVisibleSectionId); return; }
+            const prepMountable = await waitForContainerMountable(prepContainer);
+            if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+            if (!prepMountable) {
+                failPreparing("目标分栏容器宽度暂不可用", previousVisibleSectionId);
+                return;
+            }
+
+            activateComponentSectionContainer(targetSectionId);
+            if (
+                sectionIdentity.effectiveColumns === undefined
+                || sectionIdentity.effectiveGap === undefined
+            ) {
+                failPreparing("分栏布局设置不可读", previousVisibleSectionId);
+                return;
+            }
+            sectionWidgetLayoutNumbers.set(targetSectionId, sectionIdentity.effectiveColumns);
+            sectionWidgetGaps.set(targetSectionId, sectionIdentity.effectiveGap);
+            updateCustomGridMetricsForContainer(
+                prepContainer,
+                sectionIdentity.effectiveColumns,
+                sectionIdentity.effectiveGap,
+            );
+            const restored = await ensureComponentSectionRestored(targetSectionId, {
+                force: true,
+                fixedContext,
+                expectedLayoutRevision: snapshot.revision,
+                expectedWidgetIds: sectionIdentity.renderableWidgetIds,
+                expectedDeclaredWidgetIds: sectionIdentity.declaredWidgetIds,
+                sectionContentSignature: sectionIdentity.sectionContentSignature,
+                effectiveColumns: sectionIdentity.effectiveColumns,
+                effectiveGap: sectionIdentity.effectiveGap,
+                identityResolved: true,
+            });
+            if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+            if (restored.status === "fatal") {
+                failPreparing("分栏恢复失败", previousVisibleSectionId, restored.reason);
+                return;
+            }
+            await switchVisibleComponentSection(targetSectionId, fixedContext, snapshot.revision);
+            return;
+        }
+
+        // 阶段 4：目标未加载或 stale/failed，在不可见准备面板中完成结构对账。
+        // 设置 preparing 后模板会使用 section-preparing 类（visibility:hidden, position:absolute, 有宽度）。
+        preparingComponentSectionId = targetSectionId;
+        await tick();
+        if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+
+        // 重新从 container map 取得已进入准备状态的容器。
+        const prepContainer = getComponentSectionContainer(targetSectionId);
+        if (!prepContainer) { failPreparing(undefined, previousVisibleSectionId); return; }
+
+        const mountable = await waitForContainerMountable(prepContainer);
+        if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+        if (!mountable) {
+            failPreparing("目标分栏容器宽度暂不可用", previousVisibleSectionId);
+            return;
+        }
+
+        activateComponentSectionContainer(targetSectionId);
+        if (
+            sectionIdentity.effectiveColumns === undefined
+            || sectionIdentity.effectiveGap === undefined
+        ) {
+            failPreparing("分栏布局设置不可读", previousVisibleSectionId);
+            return;
+        }
+        sectionWidgetLayoutNumbers.set(targetSectionId, sectionIdentity.effectiveColumns);
+        sectionWidgetGaps.set(targetSectionId, sectionIdentity.effectiveGap);
+        updateCustomGridMetricsForContainer(
+            prepContainer,
+            sectionIdentity.effectiveColumns,
+            sectionIdentity.effectiveGap,
+        );
+
+        const restored = await ensureComponentSectionRestored(targetSectionId, {
+            force: true,
+            fixedContext,
+            expectedLayoutRevision: snapshot.revision,
+            expectedWidgetIds: sectionIdentity.renderableWidgetIds,
+            expectedDeclaredWidgetIds: sectionIdentity.declaredWidgetIds,
+            sectionContentSignature: sectionIdentity.sectionContentSignature,
+            effectiveColumns: sectionIdentity.effectiveColumns,
+            effectiveGap: sectionIdentity.effectiveGap,
+            identityResolved: true,
+        });
+        if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+        if (restored.status === "fatal") {
+            failPreparing(
+                restored.failureKind === "widget-read" ? "组件配置读取失败，分栏未就绪" : "分栏恢复失败",
+                previousVisibleSectionId,
+                restored.failureKind !== "widget-read" ? restored.reason : undefined,
+            );
+            // widget-read 失败不再保留 preparing 面板；目标面板重新进入 hidden。
+            markSectionRuntimeState(targetSectionId, "stale", restored.reason);
+            return;
+        }
+        // complete 或 degraded 均视为目标可显示。
+        await switchVisibleComponentSection(targetSectionId, fixedContext, snapshot.revision);
+    }
+
+    function failPreparing(
+        message: string | undefined,
+        previousVisibleSectionId: string | undefined,
+        error?: unknown,
+    ): void {
+        preparingComponentSectionId = undefined;
+        requestedComponentSectionId = previousVisibleSectionId ?? activeComponentSectionId;
+        if (message) {
+            showMessage(
+                `${message}${error instanceof Error ? `：${error.message}` : error ? `：${String(error)}` : ""}`,
+                5000,
+                "error",
+            );
+        }
+    }
+
+    async function switchVisibleComponentSection(
+        targetSectionId: string,
+        fixedContext: ReturnType<typeof getCurrentDeviceViewContext>,
+        layoutRevision: number,
+    ): Promise<void> {
+        preparingComponentSectionId = undefined;
+        requestedComponentSectionId = targetSectionId;
+        activeComponentSectionId = targetSectionId;
+        await tick();
+        if (homepageComponentDestroyed) return;
+        updateCustomGridMetrics();
+        try {
+            await setActiveComponentSectionForCurrentDevice(
+                plugin,
+                targetSectionId,
+                "desktop-homepage",
+                fixedContext,
+                layoutRevision,
+            );
+        } catch {
+            showMessage("当前分栏已显示，但活动分栏状态未保存。", 5000, "info");
         }
     }
 
     async function handleComponentSectionSwitch(sectionId: string): Promise<void> {
-        if (!effectiveComponentSectionsEnabled) return;
-        const targetSectionId = getSafeActiveComponentSectionId(sectionId);
-        if (targetSectionId === activeComponentSectionId) return;
-        const currentContainer = getComponentSectionContainer(activeComponentSectionId) || customContentContainer;
+        await enqueueSectionUiOperation(() => switchComponentSectionTransaction(sectionId));
+    }
 
-        if (
-            currentContainer &&
-            restoredComponentSectionIds.has(activeComponentSectionId) &&
-            currentContainer.dataset.layoutRestoreState === "ready"
-        ) {
-            await saveLayout(plugin, currentContainer, getHomepageLayoutRuntimeOptions());
+    interface WidgetSectionMovedEventDetail {
+        widgetId: string;
+        fromSectionId?: string | null;
+        toSectionId: string;
+        layoutRevision?: number;
+        sourceElement?: HTMLElement | null;
+        handled: boolean;
+        complete: (result: { success: boolean; error?: string }) => void;
+    }
+
+    function reorderExistingSectionElements(container: HTMLElement, expectedIds: readonly string[]): void {
+        for (const widgetId of expectedIds) {
+            const matches = getDirectWidgetElements(container)
+                .filter((element) => element.id === widgetId);
+            if (matches.length !== 1) continue;
+            container.appendChild(matches[0]);
+            const cleared = clearPreservedWidgetElementAfterAppend(matches[0], preservedWidgetElements);
+            if ("reason" in cleared) throw new Error(cleared.reason);
         }
-        await setActiveComponentSectionForCurrentDevice(plugin, targetSectionId);
-        activeComponentSectionId = targetSectionId;
+    }
 
-        await tick();
-        const targetContainer = activateComponentSectionContainer(targetSectionId);
-        if (!targetContainer) return;
-
-        const layoutSettings = await loadWidgetLayoutSettings(plugin, {
-            sectionsEnabled: true,
-            sectionId: targetSectionId,
+    function updateSectionRuntimeAfterMove(
+        sectionId: string,
+        layoutRevision: number,
+        identity: SectionIdentity,
+    ): void {
+        const container = getComponentSectionContainer(sectionId);
+        const previous = sectionRuntimeStates.get(sectionId);
+        if (!container || !previous || previous.status === "unloaded") {
+            setSectionRuntimeState(sectionId, {
+                layoutRevision,
+                sectionContentSignature: identity.sectionContentSignature,
+                declaredWidgetIds: identity.declaredWidgetIds,
+                expectedIds: identity.renderableWidgetIds,
+                failedWidgetIds: [],
+                unresolvedWidgetIds: identity.unresolvedWidgetIds,
+                effectiveColumns: identity.effectiveColumns,
+                effectiveGap: identity.effectiveGap,
+                structuralComplete: false,
+                status: "stale",
+            });
+            return;
+        }
+        const actualIds = getContainerWidgetIds(container);
+        const scoped = enumerateHomepageWidgetElements(getCurrentHomepageDomScope(container));
+        const failedWidgetIds = identity.renderableWidgetIds.filter((widgetId) => {
+            const matches = scoped.elementsById.get(widgetId) ?? [];
+            return (
+                matches.length !== 1
+                || matches[0].parentElement !== container
+                || (matches[0] as any).__widgetBlockInstance?.hasMountedContent?.() !== true
+            );
         });
-        widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
-        widgetGap = layoutSettings.widgetGap;
+        const structuralComplete = (
+            scoped.ownershipErrors.length === 0
+            && !Array.from(scoped.elementsById.values()).some((elements) => elements.length > 1)
+            && haveSameOrderedIds(actualIds, identity.renderableWidgetIds)
+        );
+        setSectionRuntimeState(sectionId, {
+            layoutRevision,
+            sectionContentSignature: identity.sectionContentSignature,
+            declaredWidgetIds: identity.declaredWidgetIds,
+            expectedIds: identity.renderableWidgetIds,
+            failedWidgetIds,
+            unresolvedWidgetIds: identity.unresolvedWidgetIds,
+            effectiveColumns: identity.effectiveColumns,
+            effectiveGap: identity.effectiveGap,
+            structuralComplete,
+            status: structuralComplete
+                ? (failedWidgetIds.length === 0 && identity.unresolvedWidgetIds.length === 0 ? "ready" : "degraded")
+                : "stale",
+        });
+    }
 
-        await tick();
-        await ensureComponentSectionRestored(targetSectionId);
-        await tick();
-        updateCustomGridMetrics();
+    function haveSameSectionIdentity(left: SectionIdentity, right: SectionIdentity): boolean {
+        return (
+            left.sectionContentSignature === right.sectionContentSignature
+            && haveSameOrderedIds(left.declaredWidgetIds, right.declaredWidgetIds)
+            && haveSameOrderedIds(left.renderableWidgetIds, right.renderableWidgetIds)
+            && haveSameOrderedIds(left.unresolvedWidgetIds, right.unresolvedWidgetIds)
+            && left.effectiveColumns === right.effectiveColumns
+            && left.effectiveGap === right.effectiveGap
+        );
+    }
+
+    async function applyWidgetSectionMoved(detail: WidgetSectionMovedEventDetail): Promise<void> {
+        if (homepageComponentDestroyed) throw new Error("主页实例已销毁");
+        const fromSectionId = normalizeRuntimeSectionId(detail.fromSectionId);
+        const toSectionId = normalizeRuntimeSectionId(detail.toSectionId);
+        const sourceContainer = fromSectionId ? getComponentSectionContainer(fromSectionId) : null;
+        if (!detail.sourceElement || !sourceContainer) {
+            throw new Error("迁移事件缺少当前实例的来源元素或来源分栏");
+        }
+        const sourceMatches = getDirectWidgetElements(sourceContainer)
+            .filter((element) => element.id === detail.widgetId);
+        if (sourceMatches.length === 0) throw new Error("来源分栏中不存在迁移组件");
+        if (sourceMatches.length > 1) throw new Error("来源分栏中存在重复组件实例");
+        if (sourceMatches[0] !== detail.sourceElement) {
+            throw new Error("迁移来源元素不属于当前主页实例");
+        }
+        const fixedContext = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+        const snapshot = await loadLayoutSnapshotForContext(fixedContext, { assumeReady: true });
+        if (detail.layoutRevision !== snapshot.revision) {
+            throw new Error("迁移后的布局 revision 已变化");
+        }
+        const validSectionIds = componentSections.map((section) => section.id);
+        const manifest = await readDeviceViewManifest(fixedContext);
+        if (!manifest) throw new Error("迁移后的设备视图 manifest 缺失");
+        const unresolvedLegacyWidgetIds = new Set(manifest.migration?.unresolvedLegacyWidgetIds ?? []);
+        const targetSettings = resolveEffectiveWidgetLayoutSettings(
+            snapshot.layout,
+            fixedContext.scopeId,
+            { sectionsEnabled: true, sectionId: toSectionId },
+        );
+        const targetIdentity = computeSectionIdentity(
+            toSectionId,
+            snapshot.layout,
+            fixedContext,
+            unresolvedLegacyWidgetIds,
+            validSectionIds,
+            targetSettings.widgetLayoutNumber,
+            targetSettings.widgetGap,
+        );
+        const sourceIdentity = fromSectionId
+            ? (() => {
+                const settings = resolveEffectiveWidgetLayoutSettings(
+                    snapshot.layout,
+                    fixedContext.scopeId,
+                    { sectionsEnabled: true, sectionId: fromSectionId },
+                );
+                return computeSectionIdentity(
+                    fromSectionId,
+                    snapshot.layout,
+                    fixedContext,
+                    unresolvedLegacyWidgetIds,
+                    validSectionIds,
+                    settings.widgetLayoutNumber,
+                    settings.widgetGap,
+                );
+            })()
+            : null;
+        if (
+            !targetIdentity.declaredWidgetIds.includes(detail.widgetId)
+            || sourceIdentity?.declaredWidgetIds.includes(detail.widgetId)
+        ) {
+            throw new Error("迁移后的来源/目标成员关系不成立");
+        }
+        const profile = snapshot.layout.profiles?.[fixedContext.scopeId];
+        const ownerCount = Object.values(profile?.sections || {})
+            .filter((section) => section.widgetIds.includes(detail.widgetId)).length;
+        if (ownerCount !== 1) {
+            throw new Error("迁移后的组件不属于唯一目标分栏");
+        }
+        const verifyMoveDataSnapshot = async (): Promise<void> => {
+            const latestSnapshot = await loadLayoutSnapshotForContext(fixedContext, { assumeReady: true });
+            if (latestSnapshot.revision !== snapshot.revision) {
+                throw new Error("迁移提交期间布局 revision 已变化");
+            }
+            const latestManifest = await readDeviceViewManifest(fixedContext);
+            if (!latestManifest) throw new Error("迁移提交期间设备视图 manifest 缺失");
+            const latestUnresolved = new Set(latestManifest.migration?.unresolvedLegacyWidgetIds ?? []);
+            const latestValidSectionIds = componentSections.map((section) => section.id);
+            if (!haveSameOrderedIds(latestValidSectionIds, validSectionIds)) {
+                throw new Error("迁移提交期间分栏列表已变化");
+            }
+            const latestTargetSettings = resolveEffectiveWidgetLayoutSettings(
+                latestSnapshot.layout,
+                fixedContext.scopeId,
+                { sectionsEnabled: true, sectionId: toSectionId },
+            );
+            const latestTargetIdentity = computeSectionIdentity(
+                toSectionId,
+                latestSnapshot.layout,
+                fixedContext,
+                latestUnresolved,
+                latestValidSectionIds,
+                latestTargetSettings.widgetLayoutNumber,
+                latestTargetSettings.widgetGap,
+            );
+            const latestSourceIdentity = fromSectionId
+                ? (() => {
+                    const settings = resolveEffectiveWidgetLayoutSettings(
+                        latestSnapshot.layout,
+                        fixedContext.scopeId,
+                        { sectionsEnabled: true, sectionId: fromSectionId },
+                    );
+                    return computeSectionIdentity(
+                        fromSectionId,
+                        latestSnapshot.layout,
+                        fixedContext,
+                        latestUnresolved,
+                        latestValidSectionIds,
+                        settings.widgetLayoutNumber,
+                        settings.widgetGap,
+                    );
+                })()
+                : null;
+            if (
+                !haveSameSectionIdentity(latestTargetIdentity, targetIdentity)
+                || Boolean(latestSourceIdentity) !== Boolean(sourceIdentity)
+                || (
+                    latestSourceIdentity
+                    && sourceIdentity
+                    && !haveSameSectionIdentity(latestSourceIdentity, sourceIdentity)
+                )
+            ) {
+                throw new Error("迁移提交期间来源或目标分栏身份已变化");
+            }
+            if (
+                !latestTargetIdentity.declaredWidgetIds.includes(detail.widgetId)
+                || latestSourceIdentity?.declaredWidgetIds.includes(detail.widgetId)
+            ) {
+                throw new Error("迁移提交期间来源/目标成员关系已变化");
+            }
+            const latestProfile = latestSnapshot.layout.profiles?.[fixedContext.scopeId];
+            const latestOwnerCount = Object.values(latestProfile?.sections || {})
+                .filter((section) => section.widgetIds.includes(detail.widgetId)).length;
+            if (latestOwnerCount !== 1) {
+                throw new Error("迁移提交期间组件唯一归属已变化");
+            }
+        };
+
+        const scopedDom = enumerateHomepageWidgetElements(getCurrentHomepageDomScope());
+        if (scopedDom.ownershipErrors.length > 0) throw new Error(scopedDom.ownershipErrors[0]);
+        const staleCleanup = cleanupStalePreservedWidgetEntries(scopedDom, preservedWidgetElements);
+        if ("reason" in staleCleanup) throw new Error(staleCleanup.reason);
+        const moveDomSnapshot = captureHomepageWidgetDomSnapshot(getCurrentHomepageDomScope());
+        const candidates = scopedDom.elementsById.get(detail.widgetId) ?? [];
+        if (candidates.length > 1) {
+            throw new Error("页面中存在重复组件实例");
+        }
+        if (candidates.length !== 1 || candidates[0] !== detail.sourceElement) {
+            throw new Error("迁移来源实例在当前主页中已变化");
+        }
+
+        const healthyElement = candidates[0] && (candidates[0] as any).__widgetBlockInstance?.hasMountedContent?.()
+            ? candidates[0]
+            : null;
+        if (homepageComponentDestroyed) throw new Error("主页实例已销毁");
+        if (healthyElement) {
+            const targetContainer = getComponentSectionContainer(toSectionId);
+            if (!targetContainer) throw new Error("目标分栏容器不存在");
+            const instance = (healthyElement as any).__widgetBlockInstance;
+            if (
+                typeof instance?.getRuntimeOptionsSnapshot !== "function"
+                || typeof instance?.updateRuntimeOptions !== "function"
+            ) {
+                throw new Error("迁移组件不支持严格运行时选项事务");
+            }
+            const previousRuntimeOptions = instance.getRuntimeOptionsSnapshot();
+            let runtimeOptionsUpdated = false;
+            try {
+                if (!matchesHomepageWidgetDomSnapshot(moveDomSnapshot, getCurrentHomepageDomScope())) {
+                    throw new Error("迁移提交前 DOM 已变化");
+                }
+                await verifyMoveDataSnapshot();
+                if (!matchesHomepageWidgetDomSnapshot(moveDomSnapshot, getCurrentHomepageDomScope())) {
+                    throw new Error("迁移数据复核期间 DOM 已变化");
+                }
+                targetContainer.appendChild(healthyElement);
+                const cleared = clearPreservedWidgetElementAfterAppend(healthyElement, preservedWidgetElements);
+                if ("reason" in cleared) throw new Error(cleared.reason);
+                await instance.updateRuntimeOptions({
+                    sectionsEnabled: true,
+                    sectionId: toSectionId,
+                    deviceViewContext: fixedContext,
+                    componentSectionContainers,
+                    preservedWidgetElements,
+                });
+                runtimeOptionsUpdated = true;
+                reorderExistingSectionElements(targetContainer, targetIdentity.renderableWidgetIds);
+                const sourceContainer = fromSectionId ? getComponentSectionContainer(fromSectionId) : null;
+                if (sourceContainer && sourceIdentity) {
+                    reorderExistingSectionElements(sourceContainer, sourceIdentity.renderableWidgetIds);
+                }
+                await verifyMoveDataSnapshot();
+                const committedDom = enumerateHomepageWidgetElements(getCurrentHomepageDomScope());
+                const committedDuplicate = Array.from(committedDom.elementsById.entries())
+                    .find(([, elements]) => elements.length > 1);
+                if (
+                    committedDom.ownershipErrors.length > 0
+                    || committedDuplicate
+                    || healthyElement.parentElement !== targetContainer
+                    || instance.hasMountedContent?.() !== true
+                    || !haveSameOrderedIds(
+                        getContainerWidgetIds(targetContainer),
+                        targetIdentity.renderableWidgetIds,
+                    )
+                    || (
+                        sourceContainer
+                        && sourceIdentity
+                        && !haveSameOrderedIds(
+                            getContainerWidgetIds(sourceContainer),
+                            sourceIdentity.renderableWidgetIds,
+                        )
+                    )
+                ) {
+                    throw new Error("迁移提交后的 DOM 身份或成员关系不完整");
+                }
+                updateSectionRuntimeAfterMove(toSectionId, snapshot.revision, targetIdentity);
+                if (fromSectionId && sourceIdentity) {
+                    updateSectionRuntimeAfterMove(fromSectionId, snapshot.revision, sourceIdentity);
+                }
+            } catch (error) {
+                let runtimeRollbackReason: string | undefined;
+                if (runtimeOptionsUpdated) {
+                    try {
+                        await instance.updateRuntimeOptions(previousRuntimeOptions);
+                    } catch (runtimeRollbackError) {
+                        runtimeRollbackReason = runtimeRollbackError instanceof Error
+                            ? runtimeRollbackError.message
+                            : String(runtimeRollbackError);
+                    }
+                }
+                const rolledBack = restoreHomepageWidgetDomSnapshot(
+                    moveDomSnapshot,
+                    getCurrentHomepageDomScope(),
+                );
+                const reason = error instanceof Error ? error.message : String(error);
+                const rollbackReasons = [
+                    "reason" in rolledBack ? `DOM 回滚失败：${rolledBack.reason}` : "",
+                    runtimeRollbackReason ? `运行时选项回滚失败：${runtimeRollbackReason}` : "",
+                ].filter(Boolean);
+                throw new Error(
+                    rollbackReasons.length > 0 ? `${reason}；${rollbackReasons.join("；")}` : reason,
+                );
+            }
+            return;
+        }
+
+        markSectionRuntimeState(toSectionId, "stale", "迁移组件实例未在当前主页中健康挂载");
+        if (fromSectionId && sourceIdentity) {
+            updateSectionRuntimeAfterMove(fromSectionId, snapshot.revision, sourceIdentity);
+        }
+    }
+
+    function handleWidgetSectionMoved(event: CustomEvent<WidgetSectionMovedEventDetail>): void {
+        const detail = event.detail;
+        if (
+            detail?.handled
+            || !detail?.widgetId
+            || !detail.toSectionId
+            || !detail.sourceElement
+            || typeof detail.complete !== "function"
+        ) return;
+        const fromSectionId = normalizeRuntimeSectionId(detail.fromSectionId);
+        const sourceContainer = fromSectionId ? getComponentSectionContainer(fromSectionId) : null;
+        if (!sourceContainer) return;
+        const sourceMatches = getDirectWidgetElements(sourceContainer)
+            .filter((element) => element.id === detail.widgetId);
+        if (sourceMatches.length !== 1 || sourceMatches[0] !== detail.sourceElement) return;
+        if (!isElementDirectChildOfScopedContainer(
+            detail.sourceElement,
+            getCurrentHomepageDomScope(),
+        )) return;
+        detail.handled = true;
+        void enqueueSectionUiOperation(() => applyWidgetSectionMoved(detail))
+            .then(() => detail.complete({ success: true }))
+            .catch((error) => {
+                const fromSectionId = normalizeRuntimeSectionId(detail.fromSectionId);
+                const toSectionId = normalizeRuntimeSectionId(detail.toSectionId);
+                if (fromSectionId) markSectionRuntimeState(fromSectionId, "stale");
+                if (toSectionId) markSectionRuntimeState(toSectionId, "stale");
+                detail.complete({
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            });
     }
 
     // 点击特效包装函数
@@ -561,442 +2003,81 @@
         }
     }
 
-    // 计算配置签名（归一化后）：排除设备管理态字段，避免误判
-    function computeConfigSignature(config: any): string {
-        try {
-            const normalized = normalizeConfigForSignature(config);
-            return JSON.stringify(normalized);
-        } catch {
-            return "";
-        }
-    }
-
-    // 归一化配置用于签名：排除不应触发 reload 的设备管理态字段
-    // 与 src/index.ts 中的逻辑保持一致
-    function normalizeConfigForSignature(config: any): any {
-        if (!config || typeof config !== 'object') {
-            return config;
-        }
-
-        // 获取当前设备 ID 用于提取当前设备的 banner 配置
-        const deviceId = getLocalDeviceIdForSignature();
-
-        // 构建归一化后的配置对象
-        const normalized: any = {};
-
-        for (const key of Object.keys(config)) {
-            // 完全排除 deviceProfiles
-            if (key === 'deviceProfiles') {
-                continue;
-            }
-
-            // bannerDeviceProfiles 只保留当前设备的 bannerHeight，排除 scrollTop
-            if (key === 'bannerDeviceProfiles') {
-                if (deviceId && config[key]?.[deviceId]?.bannerHeight !== undefined) {
-                    normalized[key] = {
-                        [deviceId]: {
-                            bannerHeight: config[key][deviceId].bannerHeight
-                        }
-                    };
-                }
-                continue;
-            }
-
-            // 其他字段原样保留
-            normalized[key] = config[key];
-        }
-
-        return normalized;
-    }
-
-    // 获取本地设备 ID（用于签名归一化）
-    function getLocalDeviceIdForSignature(): string | null {
-        try {
-            // 优先从 localStorage 读取
-            const storedId = localStorage.getItem('syhomepage-device-id');
-            if (storedId) {
-                return storedId;
-            }
-        } catch {
-            // localStorage 不可用，忽略
-        }
-        return null;
-    }
-
-    function isSameDeviceHardwareProfile(a: any, b: any): boolean {
-        return Boolean(a && b
-            && a.hostname === b.hostname
-            && a.platform === b.platform
-            && a.arch === b.arch
-            && a.isMobile === b.isMobile);
-    }
-
-    function mergeBannerDeviceProfile(config: any, fromDeviceId: string, toDeviceId: string): boolean {
-        if (!fromDeviceId || !toDeviceId || fromDeviceId === toDeviceId) {
-            return false;
-        }
-
-        const bannerProfiles = config.bannerDeviceProfiles;
-        if (!bannerProfiles?.[fromDeviceId]) {
-            return false;
-        }
-
-        const source = bannerProfiles[fromDeviceId] as BannerDeviceProfile;
-        const target = (bannerProfiles[toDeviceId] || {}) as BannerDeviceProfile;
-
-        bannerProfiles[toDeviceId] = {
-            bannerHeight: target.bannerHeight ?? source.bannerHeight,
-            scrollTop: target.scrollTop ?? source.scrollTop,
-        };
-        delete bannerProfiles[fromDeviceId];
-        return true;
-    }
-
-    // 计算布局签名
-    function computeLayoutSignature(layout: any): string {
-        try {
-            return JSON.stringify(layout);
-        } catch {
-            return "";
-        }
-    }
-
-    // 外部同步变化时局部热刷新：不整页 reload，局部刷新配置、布局和组件内容
-    async function handleExternalSyncChanged(event: CustomEvent<{ reason: string }>): Promise<void> {
-        const reason = event.detail?.reason || "unknown";
-        if (homepageComponentDestroyed) {
-            // 组件已销毁时也要释放热刷新锁，避免旧实例遗留状态导致锁永久占用
-            plugin.markHomepageHotReloadFinished?.(reason);
-            return;
-        }
-
-        // 二次校验：若当前签名已等于 applied 基线，说明是运行态变化导致的误触发，直接释放锁
-        try {
-            const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-            const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
-            const latestDeviceId = getLocalDeviceIdForSignature();
-            const latestSectionsEnabled = isComponentSectionsEffectiveForConfig(latestConfig);
-            const currentCompositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, latestDeviceId, latestSectionsEnabled);
-            const appliedSigs = plugin.getAppliedSignatures();
-            if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
-                plugin.markHomepageHotReloadFinished?.(reason);
-                return;
-            }
-            // 记录热刷新前的音乐相关签名，失败自愈时用于判断是否与音乐播放器布局/静态配置有关
-            pendingHotReloadMusicAffectingSignature = await computeMusicPlayerAffectingSignature(plugin, latestLayout, latestDeviceId, latestSectionsEnabled);
-        } catch {
-            // 签名校验失败时继续执行刷新，避免遗漏真正的同步变化
-            pendingHotReloadMusicAffectingSignature = "";
-        }
-
-        try {
-            invalidateStatusAiCache();
-            await updateHomepage();
-            if (homepageComponentDestroyed) return;
-            await updateDisplayedStatsInfoText();
-            if (homepageComponentDestroyed) return;
-            await tick();
-            if (homepageComponentDestroyed) return;
-            const container = activateComponentSectionContainer();
-            if (container) {
-                await ensureComponentSectionRestored(getCurrentComponentSectionId(), true);
-            }
-            if (homepageComponentDestroyed) return;
-            updateCustomGridMetrics();
-            reRegisterAllShortcuts(buttonsList);
-            // 重启飘落/鼠标等副作用
-            cleanupFallingEffects();
-            startFallingEffects();
-            updateCursorStyle({
-                advanced: getAdvancedEnabled(),
-                mouseIcon,
-                mouseGlobalEnabled,
-                ClickEffectEnabled,
-                ClickEffectContent,
-                MouseTrailEnabled,
-            });
-            // 更新已应用签名
-            const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-            if (homepageComponentDestroyed) return;
-            const latestLayoutForSig = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
-            if (homepageComponentDestroyed) return;
-            const deviceIdForSig = getLocalDeviceIdForSignature();
-            const latestSectionsEnabledForSig = isComponentSectionsEffectiveForConfig(latestConfig);
-            const compositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayoutForSig, deviceIdForSig, latestSectionsEnabledForSig);
-            plugin.updateAppliedSignatures("", "", compositeSig);
-        } catch (e) {
-            console.warn("[Homepage] 局部热刷新失败:", e);
-
-            // 谨慎自愈：只有在确认存在真实变化且不是运行态误触发时才允许整页重建，
-            // 避免音乐播放等运行态被连续中断。
-            if (homepageComponentDestroyed) {
-                // 组件已销毁，无需重建，由后续挂载流程处理
-                return;
-            }
-
-            try {
-                const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-                const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
-                const latestDeviceId = getLocalDeviceIdForSignature();
-                const latestSectionsEnabled = isComponentSectionsEffectiveForConfig(latestConfig);
-                const currentCompositeSig = await buildHomepageAppliedSignature(plugin, latestConfig, latestLayout, latestDeviceId, latestSectionsEnabled);
-                const appliedSigs = plugin.getAppliedSignatures();
-                if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
-                    // 签名已一致，说明只是运行态/容器暂不可用导致的误判，不重建
-                    return;
-                }
-                // 若热刷新失败前后音乐相关签名未变，说明变化与音乐播放器布局/静态配置无关，
-                // 优先不整页重建，避免打断正在播放的音乐
-                if (pendingHotReloadMusicAffectingSignature) {
-                    const currentMusicAffectingSig = await computeMusicPlayerAffectingSignature(plugin, latestLayout, latestDeviceId, latestSectionsEnabled);
-                    if (currentMusicAffectingSig === pendingHotReloadMusicAffectingSignature) {
-                        return;
-                    }
-                }
-            } catch {
-                // 签名校验失败继续尝试自愈，但受冷却保护
-            }
-
-            if (homepageSelfHealLocked) {
-                return;
-            }
-            const now = Date.now();
-            if (now - homepageSelfHealLastTime < HOMEPAGE_SELF_HEAL_COOLDOWN_MS) {
-                return;
-            }
-
-            homepageSelfHealLocked = true;
-            homepageSelfHealLastTime = now;
-            try {
-                if (typeof plugin.reloadHomepageInstance === "function") {
-                    plugin.reloadHomepageInstance();
-                } else {
-                    plugin.ensureHomepageMounted?.('hot-reload-failed');
-                }
-            } catch (healErr) {
-                console.warn("[Homepage] 自愈失败:", healErr);
-            } finally {
-                window.setTimeout(() => {
-                    homepageSelfHealLocked = false;
-                }, HOMEPAGE_SELF_HEAL_COOLDOWN_MS);
-            }
-        } finally {
-            // 释放热刷新短期锁
-            try {
-                plugin.markHomepageHotReloadFinished?.(reason);
-            } catch {
-                // 忽略释放锁的异常
-            }
-        }
-    }
-
     // 会员验证成功后重新加载配置
     async function handleAdvancedReady() {
-        invalidateStatusAiCache();
-        await updateHomepage();
-        await updateDisplayedStatsInfoText();
+        await enqueueSectionUiOperation(async () => {
+            try {
+                invalidateStatusAiCache();
+                await updateHomepage("config-refresh");
+                await updateDisplayedStatsInfoText();
+                await tick();
+                await restoreVisibleComponentSections();
 
-        // 重应用 advanced 相关副作用
-        cleanupFallingEffects();
-        startFallingEffects();
-        updateCursorStyle({
-            advanced: getAdvancedEnabled(),
-            mouseIcon,
-            mouseGlobalEnabled,
-            ClickEffectEnabled,
-            ClickEffectContent,
-            MouseTrailEnabled,
+                cleanupFallingEffects();
+                startFallingEffects();
+                updateCursorStyle({
+                    advanced: getAdvancedEnabled(),
+                    mouseIcon,
+                    mouseGlobalEnabled,
+                    ClickEffectEnabled,
+                    ClickEffectContent,
+                    MouseTrailEnabled,
+                });
+            } catch (error) {
+                console.error("[Homepage] 会员状态刷新失败，已保留或回滚到上一次健康主页", error);
+            }
         });
     }
 
     // 会员状态不可用时重新加载配置
     async function handleAdvancedUnavailable() {
-        invalidateStatusAiCache();
-        await updateHomepage();
-        await updateDisplayedStatsInfoText();
+        await enqueueSectionUiOperation(async () => {
+            try {
+                invalidateStatusAiCache();
+                await updateHomepage("config-refresh");
+                await updateDisplayedStatsInfoText();
+                await tick();
+                await restoreVisibleComponentSections();
 
-        // 清理 advanced 相关副作用
-        cleanupFallingEffects();
-        updateCursorStyle({
-            advanced: getAdvancedEnabled(),
-            mouseIcon,
-            mouseGlobalEnabled,
-            ClickEffectEnabled,
-            ClickEffectContent,
-            MouseTrailEnabled,
+                cleanupFallingEffects();
+                updateCursorStyle({
+                    advanced: getAdvancedEnabled(),
+                    mouseIcon,
+                    mouseGlobalEnabled,
+                    ClickEffectEnabled,
+                    ClickEffectContent,
+                    MouseTrailEnabled,
+                });
+            } catch (error) {
+                console.error("[Homepage] 会员状态刷新失败，已保留或回滚到上一次健康主页", error);
+            }
         });
     }
 
     // 处理主页设置保存事件 - 本地热应用配置
     async function handleHomepageSettingsSaved() {
-        // 1. 重新读取并应用最新配置
-        invalidateStatusAiCache();
-        await updateHomepage();
-        await updateDisplayedStatsInfoText();
-
-        // 2. 等待 DOM 更新
-        await tick();
-
-        // 3. 重新恢复当前组件区布局
-        const container = activateComponentSectionContainer();
-        if (container) {
-            await ensureComponentSectionRestored(getCurrentComponentSectionId());
-            await tick();
-            updateCustomGridMetrics();
-        }
-
-        // 4. 重新注册快捷按钮
-        reRegisterAllShortcuts(buttonsList);
-
-        // 5. 重新处理飘落特效
-        cleanupFallingEffects();
-        startFallingEffects();
-
-        // 6. 重新应用鼠标样式
-        updateCursorStyle({
-            advanced: getAdvancedEnabled(),
-            mouseIcon,
-            mouseGlobalEnabled,
-            ClickEffectEnabled,
-            ClickEffectContent,
-            MouseTrailEnabled,
+        await enqueueSectionUiOperation(async () => {
+            try {
+                invalidateStatusAiCache();
+                await updateHomepage("config-refresh");
+                await updateDisplayedStatsInfoText();
+                await tick();
+                await restoreVisibleComponentSections();
+                reRegisterAllShortcuts(buttonsList);
+                cleanupFallingEffects();
+                startFallingEffects();
+                updateCursorStyle({
+                    advanced: getAdvancedEnabled(),
+                    mouseIcon,
+                    mouseGlobalEnabled,
+                    ClickEffectEnabled,
+                    ClickEffectContent,
+                    MouseTrailEnabled,
+                });
+            } catch (error) {
+                console.error("[Homepage] 设置热刷新失败，已保留或回滚到上一次健康主页", error);
+            }
         });
-
-        // 6. 同步更新已应用签名，避免后续检测误判成本地刚保存的配置为外部同步变化
-        const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-        const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
-        const deviceId = getLocalDeviceIdForSignature();
-        const compositeSig = await buildHomepageAppliedSignature(
-            plugin,
-            rawConfig,
-            latestLayout,
-            deviceId,
-            isComponentSectionsEffectiveForConfig(rawConfig),
-        );
-        plugin.updateAppliedSignatures(
-            computeConfigSignature(rawConfig),
-            computeLayoutSignature(latestLayout),
-            compositeSig,
-        );
-    }
-
-    // 注册当前设备到同步配置（带同机匹配和去重）
-    async function registerCurrentDevice(config: any): Promise<void> {
-        if (!isDesktopDeviceProfileEnabled()) {
-            return;
-        }
-
-        const deviceInfo = getCurrentDeviceInfo();
-        if (!deviceInfo.deviceId) {
-            return;
-        }
-
-        let deviceProfiles = config.deviceProfiles || {};
-        let hasConfigChanged = false;
-        let hasWidgetLayoutChanged = false;
-        
-        // 先做一次去重清理
-        const originalDeviceProfiles = deviceProfiles;
-        const { cleanedProfiles, deletedIds } = deduplicateDeviceProfiles(deviceProfiles);
-        if (deletedIds.length > 0) {
-            for (const deletedId of deletedIds) {
-                const deletedProfile = originalDeviceProfiles[deletedId];
-                const retainedEntry = Object.entries(cleanedProfiles).find(([, profile]) =>
-                    isSameDeviceHardwareProfile(profile, deletedProfile)
-                );
-                if (retainedEntry && mergeBannerDeviceProfile(config, deletedId, retainedEntry[0])) {
-                    hasConfigChanged = true;
-                }
-            }
-            deviceProfiles = cleanedProfiles;
-            hasConfigChanged = true;
-            
-            // 同步清理 widgetLayout.json 中的重复 profiles
-            const widgetLayout = await plugin.loadData("widgetLayout.json");
-            if (widgetLayout?.profiles) {
-                for (const oldId of deletedIds) {
-                    if (widgetLayout.profiles[oldId]) {
-                        delete widgetLayout.profiles[oldId];
-                        hasWidgetLayoutChanged = true;
-                    }
-                }
-                if (hasWidgetLayoutChanged) {
-                    await plugin.saveData("widgetLayout.json", widgetLayout);
-                }
-            }
-        }
-        
-        // 先按当前 deviceId 查找
-        let existingProfile = deviceProfiles[deviceInfo.deviceId];
-        let oldDeviceId: string | null = null;
-        
-        // 如果没找到，尝试同机匹配（修复 localStorage 漂移）
-        if (!existingProfile) {
-            const matchedId = findExistingDeviceByHardware(deviceProfiles, deviceInfo);
-            if (matchedId) {
-                existingProfile = deviceProfiles[matchedId];
-                oldDeviceId = matchedId;
-                hasConfigChanged = true;
-            }
-        }
-        
-        if (existingProfile) {
-            // 检查设备信息字段是否需要更新
-            const needsUpdate = 
-                existingProfile.deviceName !== deviceInfo.deviceName ||
-                existingProfile.platform !== deviceInfo.platform ||
-                existingProfile.arch !== deviceInfo.arch ||
-                existingProfile.hostname !== deviceInfo.hostname;
-            
-            // 检查 lastSeenAt 是否需要更新（至少间隔 1 分钟才更新，避免频繁写盘）
-            const now = new Date();
-            const lastSeen = existingProfile.lastSeenAt ? new Date(existingProfile.lastSeenAt) : null;
-            const needsUpdateLastSeen = !lastSeen || (now.getTime() - lastSeen.getTime() > 60000);
-            
-            if (needsUpdate || oldDeviceId || needsUpdateLastSeen) {
-                // 更新设备信息（不含 layout，layout 已移到 widgetLayout.json）
-                const updatedProfile = updateDeviceProfile(existingProfile, deviceInfo);
-                deviceProfiles[deviceInfo.deviceId] = updatedProfile;
-                hasConfigChanged = true;
-                
-                // 如果发生了迁移，删除旧 key
-                if (oldDeviceId && oldDeviceId !== deviceInfo.deviceId) {
-                    delete deviceProfiles[oldDeviceId];
-                    
-                    // 同步迁移 widgetLayout.json 中的 profile
-                    const widgetLayout = await plugin.loadData("widgetLayout.json");
-                    if (widgetLayout?.profiles?.[oldDeviceId]) {
-                        widgetLayout.profiles[deviceInfo.deviceId] = widgetLayout.profiles[oldDeviceId];
-                        delete widgetLayout.profiles[oldDeviceId];
-                        await plugin.saveData("widgetLayout.json", widgetLayout);
-                    }
-
-                    if (mergeBannerDeviceProfile(config, oldDeviceId, deviceInfo.deviceId)) {
-                        hasConfigChanged = true;
-                    }
-                }
-            }
-        } else {
-            // 新设备：只保存设备信息，layout 从 widgetLayout.json 读取
-            deviceProfiles[deviceInfo.deviceId] = {
-                deviceId: deviceInfo.deviceId,
-                deviceName: deviceInfo.deviceName,
-                platform: deviceInfo.platform,
-                arch: deviceInfo.arch,
-                hostname: deviceInfo.hostname,
-                isMobile: deviceInfo.isMobile,
-                lastSeenAt: new Date().toISOString(),
-            };
-            hasConfigChanged = true;
-        }
-
-        // 只有真正有变化时才保存
-        if (hasConfigChanged) {
-            config.deviceProfiles = deviceProfiles;
-            await plugin.saveData("homepageSettingConfig.json", config);
-        } else {
-            return;
-        }
     }
 
     // 初始化主页组件区布局（Sortable、ResizeObserver、restoreLayout）
@@ -1004,99 +2085,117 @@
         if (homepageComponentDestroyed) return;
         await tick();
         if (homepageComponentDestroyed) return;
-        const sectionId = getCurrentComponentSectionId();
-        const container = activateComponentSectionContainer(sectionId);
-        if (!container) {
-            console.warn("[Homepage] customContentContainer 不存在，跳过布局初始化");
-            return;
-        }
         if (customContentInitialized) {
             return;
         }
         customContentInitialized = true;
 
-        // 恢复布局
-        await ensureComponentSectionRestored(sectionId);
+        // 普通模式下恢复普通组件区。
+        if (showRootComponentSection) {
+            const rootContainer = getComponentSectionContainer(ROOT_COMPONENT_SECTION_ID) ?? activateComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+            if (!rootContainer) return;
+            await ensureComponentSectionRestored(ROOT_COMPONENT_SECTION_ID);
+            if (homepageComponentDestroyed) return;
+        }
+
+        // 分栏模式下恢复当前活动用户分栏。
+        if (effectiveComponentSectionsEnabled && activeComponentSectionId) {
+            const sectionContainer = getComponentSectionContainer(activeComponentSectionId) ?? activateComponentSectionContainer(activeComponentSectionId);
+            if (sectionContainer) {
+                await ensureComponentSectionRestored(activeComponentSectionId);
+            }
+        }
         if (homepageComponentDestroyed) return;
 
         await tick();
         if (homepageComponentDestroyed) return;
+        // 初始加载完成后同步 requested 状态。
+        if (effectiveComponentSectionsEnabled && !requestedComponentSectionId) {
+            requestedComponentSectionId = activeComponentSectionId;
+        }
         updateCustomGridMetrics();
 
-        // restoreLayout 完成后，启动期写盘动作已结束，此时记录签名基线
-        if (!initialSignaturesRecorded) {
-            initialSignaturesRecorded = true;
-            // 重新读取最新文件内容，确保签名基线与实际落盘数据一致
-            const latestConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-            if (homepageComponentDestroyed) return;
-            const latestLayout = await plugin.loadData("widgetLayout.json") as WidgetLayoutData | null;
-            if (homepageComponentDestroyed) return;
-            const deviceId = getLocalDeviceIdForSignature();
-            const compositeSig = await buildHomepageAppliedSignature(
-                plugin,
-                latestConfig,
-                latestLayout,
-                deviceId,
-                isComponentSectionsEffectiveForConfig(latestConfig),
-            );
-            plugin.updateAppliedSignatures("", "", compositeSig);
-        }
     }
 
     async function refreshCustomContentLayoutFromTemplate() {
         if (homepageComponentDestroyed) return;
-        const container = activateComponentSectionContainer();
-        if (!container) return;
 
         try {
-            const layoutSettings = await loadWidgetLayoutSettings(plugin, getHomepageLayoutRuntimeOptions());
-            if (homepageComponentDestroyed) return;
-            widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
-            widgetGap = layoutSettings.widgetGap;
+            if (showRootComponentSection) {
+                const rootContainer = getComponentSectionContainer(ROOT_COMPONENT_SECTION_ID) ?? activateComponentSectionContainer(ROOT_COMPONENT_SECTION_ID);
+                if (!rootContainer) return;
+                const rootLayoutSettings = await loadWidgetLayoutSettings(plugin, { sectionsEnabled: false, sectionId: null });
+                if (homepageComponentDestroyed) return;
+                widgetLayoutNumber = rootLayoutSettings.widgetLayoutNumber;
+                widgetGap = rootLayoutSettings.widgetGap;
+                await ensureComponentSectionRestored(ROOT_COMPONENT_SECTION_ID, { force: true });
+                if (homepageComponentDestroyed) return;
+            }
+
+            if (effectiveComponentSectionsEnabled && activeComponentSectionId) {
+                const sectionContainer = getComponentSectionContainer(activeComponentSectionId) ?? activateComponentSectionContainer(activeComponentSectionId);
+                if (sectionContainer) {
+                    const sectionLayoutSettings = await loadWidgetLayoutSettings(plugin, {
+                        sectionsEnabled: true,
+                        sectionId: activeComponentSectionId,
+                    });
+                    if (homepageComponentDestroyed) return;
+                    sectionWidgetLayoutNumbers.set(activeComponentSectionId, sectionLayoutSettings.widgetLayoutNumber);
+                    sectionWidgetGaps.set(activeComponentSectionId, sectionLayoutSettings.widgetGap);
+                    await ensureComponentSectionRestored(activeComponentSectionId, { force: true });
+                    if (homepageComponentDestroyed) return;
+                }
+            }
 
             await tick();
             if (homepageComponentDestroyed) return;
-
-            await ensureComponentSectionRestored(getCurrentComponentSectionId(), true);
-            if (homepageComponentDestroyed) return;
-            await tick();
-            if (homepageComponentDestroyed) return;
-
             updateCustomGridMetrics();
-        } catch (e) {
-            console.warn("[Homepage] 模板应用后刷新组件区失败:", e);
+        } catch {
+            // 模板应用后刷新组件区失败，保持现有组件。
         }
     }
 
     async function handleTemplateLayoutChanged() {
-        await refreshCustomContentLayoutFromTemplate();
+        await enqueueSectionUiOperation(refreshCustomContentLayoutFromTemplate);
+    }
+
+    function handleHomepageTabBeforeDestroy(): void {
+        homepageComponentDestroyed = true;
+        abortStatusAiRequest();
+        unregisterAllShortcuts();
+        cleanupFallingEffects();
+        cleanupMouseEffects();
     }
 
     onMount(async () => {
         homepageComponentDestroyed = false;
+        try {
         // 先添加事件监听器，确保不会错过 VIP 状态变化事件
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.addEventListener("siyuan-homepage:tab-before-destroy", handleHomepageTabBeforeDestroy);
         window.addEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
         window.addEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
         window.addEventListener(
             "homepage-component-section-layout-invalidated",
             handleComponentSectionLayoutInvalidated as EventListener,
         );
-        // 监听 plugin 侧派发的外部同步变化事件（主通道：window）
-        window.addEventListener("homepage-external-sync-changed", handleExternalSyncChanged as EventListener);
+        window.addEventListener(
+            "homepage-widget-section-moved",
+            handleWidgetSectionMoved as EventListener,
+        );
 
         // 不在冷启动阶段写入空布局：存储暂不可用时，空读不能覆盖用户已有布局。
 
-        // 注册当前设备到同步配置（必须在加载配置之前，确保设备 profile 已就绪）
-        const rawConfig = (await plugin.loadData("homepageSettingConfig.json")) || {};
-        if (homepageComponentDestroyed) return;
-        await registerCurrentDevice(rawConfig);
-        if (homepageComponentDestroyed) return;
-
-        // 加载配置（此时设备已注册，loadWidgetLayoutSettings 可正确读取设备 profile）
-        await updateHomepage();
+        // 加载配置并恢复首个可见分栏；两者与后续切换共用同一 UI 队列。
+        await enqueueSectionUiOperation(async () => {
+            await updateHomepage("initial-load");
+            if (homepageComponentDestroyed) return;
+            await tick();
+            if (homepageComponentDestroyed) return;
+            await initCustomContentLayout();
+        });
         if (homepageComponentDestroyed) return;
 
         // 注意：此时不立即记录已应用签名，因为后续 restoreLayout 可能还会写盘
@@ -1113,10 +2212,6 @@
         } else {
             window.addEventListener("load", onWindowLoad);
         }
-
-        // 初始化主页组件区布局
-        await initCustomContentLayout();
-        if (homepageComponentDestroyed) return;
 
         // 配置加载完成后初始化特效和事件监听
         reRegisterAllShortcuts(buttonsList);
@@ -1137,14 +2232,33 @@
             ClickEffectContent,
             MouseTrailEnabled,
         });
+        } catch (error) {
+            console.error("[Homepage] 初始主页恢复失败", error);
+        }
     });
 
     onDestroy(() => {
         homepageComponentDestroyed = true;
-        if (sortable) {
-            sortable.destroy();
-            sortable = null;
+
+        for (const sortable of sectionSortables.values()) {
+            try {
+                sortable.destroy();
+            } catch {
+                // 忽略销毁错误
+            }
         }
+        sectionSortables.clear();
+
+        for (const observer of sectionResizeObservers.values()) {
+            try {
+                observer.disconnect();
+            } catch {
+                // 忽略断开错误
+            }
+        }
+        sectionResizeObservers.clear();
+        sectionInfrastructureContainers.clear();
+
         if (destroyBannerDrag) {
             destroyBannerDrag();
             destroyBannerDrag = null;
@@ -1160,13 +2274,17 @@
             handleAdvancedUnavailable,
         );
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.removeEventListener("siyuan-homepage:tab-before-destroy", handleHomepageTabBeforeDestroy);
         window.removeEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
         window.removeEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
         window.removeEventListener(
             "homepage-component-section-layout-invalidated",
             handleComponentSectionLayoutInvalidated as EventListener,
         );
-        window.removeEventListener("homepage-external-sync-changed", handleExternalSyncChanged as EventListener);
+        window.removeEventListener(
+            "homepage-widget-section-moved",
+            handleWidgetSectionMoved as EventListener,
+        );
         document.removeEventListener("click", handleDocumentClick);
         document.removeEventListener("click", handleClickEffect);
         document.removeEventListener("mousemove", handleMouseMoveTrail);
@@ -1179,31 +2297,22 @@
         cleanupHomepageBackgroundImageStyle();
         abortStatusAiRequest();
 
-        // 显式销毁所有 widget 实例，触发各自的 onDestroy
-        const containersToDestroy = new Set<HTMLElement>([
-            ...Array.from(componentSectionContainers.values()),
-            ...(customContentContainer ? [customContentContainer] : []),
-        ]);
-        containersToDestroy.forEach((container) => {
-            const widgetBlocks = container.querySelectorAll(".widget-block");
-            widgetBlocks.forEach((block) => {
-                const instance = (block as any).__widgetBlockInstance;
-                if (instance && typeof instance.destroy === "function") {
-                    try {
-                        instance.destroy();
-                    } catch {
-                        // 忽略销毁错误
-                    }
-                }
-            });
+        // 仅销毁当前实例登记的直接子组件和 preserved 元素；同一 HTMLElement 只销毁一次。
+        const widgetElementsToDestroy = new Set(
+            enumerateHomepageWidgetElements(getCurrentHomepageDomScope()).elements,
+        );
+        widgetElementsToDestroy.forEach((element) => {
+            const instance = (element as any).__widgetBlockInstance;
+            try {
+                instance?.destroy?.();
+            } catch {
+                // 忽略销毁错误
+            }
         });
-        customContentContainer = null;
+        preservedWidgetElements.clear();
         componentSectionContainers.clear();
-        restoredComponentSectionIds.clear();
-        if (customContentResizeObserver) {
-            customContentResizeObserver.disconnect();
-            customContentResizeObserver = null;
-        }
+        sectionRuntimeStates.clear();
+        componentSectionRestoreInFlight.clear();
     });
 
     // 监听 widgetLayoutNumber / widgetGap 变化，更新格子尺寸
@@ -1231,31 +2340,321 @@
         applyBackgroundImageStyle();
     });
 
+    type HomepageUpdateMode = "initial-load" | "config-refresh" | "explicit-storage-refresh";
+
     // 更新加载主页配置
-    async function updateHomepage() {
+    async function updateHomepage(mode: HomepageUpdateMode) {
         const currentVersion = ++updateHomepageVersion;
         const previousStatusAiConfigSignature = getStatusAiConfigSignature();
-        const config = await loadHomepageConfig(plugin);
+        const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+        const coordinated = await readCoordinatedSnapshotForContext(context);
+        if (!coordinated.view) throw new Error("当前桌面主页 view.json 缺失，无法刷新主页");
+        const consistency = validateLayoutViewSectionConsistency(
+            coordinated.layout.layout,
+            context.scopeId,
+            coordinated.view.config,
+        );
+        if (!consistency.ok) {
+            throw new Error(`当前主页 layout/view 不一致：${(consistency as { ok: false; reason: string }).reason}`);
+        }
+
+        const config = normalizeHomepageConfigData(coordinated.view.config);
+        const nextAdvanced = getAdvancedEnabled();
+        const nextComponentSections = normalizeComponentSections(config.componentSections);
+        const nextEffectiveSectionsEnabled = isComponentSectionsEffective(
+            {
+                componentSectionsEnabled: config.componentSectionsEnabled,
+                componentSections: nextComponentSections,
+            },
+            nextAdvanced,
+        );
+        const profile = coordinated.layout.layout.profiles?.[context.scopeId];
+        const storedActiveSectionId = profile?.activeSectionId;
+        const localActiveStillValid = Boolean(
+            activeComponentSectionId
+            && nextComponentSections.some((section) => section.id === activeComponentSectionId),
+        );
+        const nextActiveSectionId = (
+            mode === "config-refresh" && localActiveStillValid
+                ? activeComponentSectionId
+                : getSafeActiveComponentSectionId(storedActiveSectionId, nextComponentSections)
+        );
+        const rootLayoutSettings = resolveEffectiveWidgetLayoutSettings(
+            coordinated.layout.layout,
+            context.scopeId,
+            { sectionsEnabled: false, sectionId: null },
+        );
+        const nextSectionLayoutSettings = nextEffectiveSectionsEnabled && nextActiveSectionId
+            ? resolveEffectiveWidgetLayoutSettings(
+                coordinated.layout.layout,
+                context.scopeId,
+                { sectionsEnabled: true, sectionId: nextActiveSectionId },
+            )
+            : null;
+        const globalOrder = normalizeLayoutItems(profile?.order || coordinated.layout.layout.order);
+
+        // 读取 manifest 获取分栏级 unresolved 列表，只对可渲染的 ID 执行双重稳定读取。
+        const manifest = await readDeviceViewManifest(context);
+        if (!manifest) throw new Error("当前桌面主页 manifest 缺失，无法刷新主页");
+        const unresolvedLegacyWidgetIds = new Set(manifest.migration?.unresolvedLegacyWidgetIds ?? []);
+        const initialSectionIdentity = nextEffectiveSectionsEnabled && nextActiveSectionId
+            ? computeSectionIdentity(
+                nextActiveSectionId,
+                coordinated.layout.layout,
+                context,
+                unresolvedLegacyWidgetIds,
+                nextComponentSections.map((section) => section.id),
+                nextSectionLayoutSettings?.widgetLayoutNumber,
+                nextSectionLayoutSettings?.widgetGap,
+            )
+            : null;
+        const targetWidgetIds = initialSectionIdentity?.declaredWidgetIds
+            ?? globalOrder.map((item) => item.id);
+        if (!initialSectionIdentity && new Set(targetWidgetIds).size !== targetWidgetIds.length) {
+            throw new Error("当前主页目标组件列表包含重复实例 ID");
+        }
+        const targetRenderableWidgetIds = initialSectionIdentity?.renderableWidgetIds
+            ?? targetWidgetIds.filter((id) => !unresolvedLegacyWidgetIds.has(id));
+        const currentSectionUnresolvedWidgetIds = initialSectionIdentity?.unresolvedWidgetIds
+            ?? targetWidgetIds.filter((id) => unresolvedLegacyWidgetIds.has(id));
+
+        // UI 切换前完成所有目标组件的严格读取，并复核协调快照与组件 revision/语义均未变化。
+        // 只读取缺失或实际不健康的 renderable IDs；健康实例既不重读配置，也不重新 mount。
+        const currentDom = enumerateHomepageWidgetElements(getCurrentHomepageDomScope());
+        if (currentDom.ownershipErrors.length > 0) throw new Error(currentDom.ownershipErrors[0]);
+        const duplicateCurrentWidget = Array.from(currentDom.elementsById.entries())
+            .find(([, elements]) => elements.length > 1);
+        if (duplicateCurrentWidget) {
+            throw new Error(`当前主页存在重复组件实例 ${duplicateCurrentWidget[0]}`);
+        }
+        const staleCleanup = cleanupStalePreservedWidgetEntries(currentDom, preservedWidgetElements);
+        if ("reason" in staleCleanup) throw new Error(staleCleanup.reason);
+        const widgetIdsNeedingRead = targetRenderableWidgetIds.filter((widgetId) => {
+            const matches = currentDom.elementsById.get(widgetId) ?? [];
+            return (
+                matches.length !== 1
+                || (matches[0] as any).__widgetBlockInstance?.hasMountedContent?.() !== true
+            );
+        });
+        const initialWidgetDocuments = new Map<string, Awaited<ReturnType<typeof readWidgetInstanceDocument>>>();
+        for (const widgetId of widgetIdsNeedingRead) {
+            const document = await readWidgetInstanceDocument(context, widgetId);
+            if (!document) throw new Error(`主页组件 ${widgetId} 配置明确缺失，拒绝切换当前健康主页`);
+            initialWidgetDocuments.set(widgetId, document);
+        }
+        const coordinatedRecheck = await readCoordinatedSnapshotForContext(context);
+        if (
+            coordinatedRecheck.layout.revision !== coordinated.layout.revision
+            || !hasSameJsonSemantic(coordinatedRecheck.layout.layout, coordinated.layout.layout)
+            || coordinatedRecheck.view?.revision !== coordinated.view.revision
+            || !hasSameJsonSemantic(coordinatedRecheck.view?.config, coordinated.view.config)
+        ) {
+            throw new Error("主页协调快照在 UI 切换前发生变化，已保留当前健康主页");
+        }
+        for (const [widgetId, initialDocument] of initialWidgetDocuments) {
+            const currentDocument = await readWidgetInstanceDocument(context, widgetId);
+            if (
+                !currentDocument
+                || !initialDocument
+                || currentDocument.revision !== initialDocument.revision
+                || !hasSameJsonSemantic(currentDocument.config, initialDocument.config)
+            ) {
+                throw new Error(`主页组件 ${widgetId} 在 UI 切换前发生变化，已保留当前健康主页`);
+            }
+        }
 
         // 丢弃过期请求结果
         if (currentVersion !== updateHomepageVersion) return;
 
-        advanced = getAdvancedEnabled();
-        componentSectionsEnabled = config.componentSectionsEnabled;
-        componentSections = normalizeComponentSections(config.componentSections);
-        componentSectionsNavAlign = normalizeComponentSectionsNavAlign(config.componentSectionsNavAlign);
-        if (advanced && componentSectionsEnabled) {
-            await ensureComponentSectionsForCurrentDevice(plugin);
+        const previousRuntimeState = {
+            advanced,
+            componentSectionsEnabled,
+            componentSections: snapshotComponentSectionsForRuntime(componentSections),
+            componentSectionsNavAlign,
+            activeComponentSectionId,
+            requestedComponentSectionId,
+            preparingComponentSectionId,
+            widgetLayoutNumber,
+            widgetGap,
+            sectionWidgetLayoutNumbers: new SvelteMap(Array.from(sectionWidgetLayoutNumbers.entries())),
+            sectionWidgetGaps: new SvelteMap(Array.from(sectionWidgetGaps.entries())),
+            sectionRuntimeStates: new SvelteMap(Array.from(sectionRuntimeStates.entries()).map(
+                ([sectionId, state]) => [sectionId, {
+                    ...state,
+                    declaredWidgetIds: [...state.declaredWidgetIds],
+                    expectedIds: [...state.expectedIds],
+                    failedWidgetIds: [...state.failedWidgetIds],
+                    unresolvedWidgetIds: [...state.unresolvedWidgetIds],
+                }],
+            )),
+        };
+        const previousVisibleSectionId = showRootComponentSection
+            ? ROOT_COMPONENT_SECTION_ID
+            : (activeComponentSectionId || ROOT_COMPONENT_SECTION_ID);
+        const previousContainer = getComponentSectionContainer(previousVisibleSectionId);
+        const previousCompleteSnapshot = captureCompleteContainerSnapshot(previousContainer);
+
+        try {
+            preserveMountedWidgetsOnNextContainerDestroy = true;
+            // 保存切换前状态用于 config-refresh 规则判断。
+            const previousActive = activeComponentSectionId;
+            const previousRequested = requestedComponentSectionId;
+            const wasSwitching = String(requestedComponentSectionId ?? "") !== String(activeComponentSectionId ?? "");
+            advanced = nextAdvanced;
+            componentSectionsEnabled = config.componentSectionsEnabled;
+            componentSections = nextComponentSections;
+            componentSectionsNavAlign = normalizeComponentSectionsNavAlign(config.componentSectionsNavAlign);
+            activeComponentSectionId = nextActiveSectionId;
+            // config-refresh 规则：
+            // 1. requested 已不在新分栏集合 → 回退到 nextActive。
+            // 2. 没有进行中切换 → 同步 nextActive。
+            // 3. 有效的用户切换目标不得被覆盖。
+            if (mode !== "initial-load") {
+                const validIds = new Set(nextComponentSections.map((s) => s.id));
+                if (previousRequested && !validIds.has(previousRequested)) {
+                    requestedComponentSectionId = nextActiveSectionId;
+                    preparingComponentSectionId = undefined;
+                } else if (!wasSwitching && previousActive === previousRequested) {
+                    requestedComponentSectionId = nextActiveSectionId;
+                }
+            }
+            widgetLayoutNumber = rootLayoutSettings.widgetLayoutNumber;
+            widgetGap = rootLayoutSettings.widgetGap;
+            if (mode === "initial-load") {
+                sectionWidgetLayoutNumbers = new SvelteMap();
+                sectionWidgetGaps = new SvelteMap();
+                sectionRuntimeStates = new SvelteMap();
+            }
+            const validSectionIdSet = new Set(nextComponentSections.map((section) => section.id));
+            for (const sectionId of [...sectionRuntimeStates.keys()]) {
+                if (sectionId && !validSectionIdSet.has(sectionId)) sectionRuntimeStates.delete(sectionId);
+            }
+            for (const sectionId of [...sectionWidgetLayoutNumbers.keys()]) {
+                if (!validSectionIdSet.has(sectionId)) sectionWidgetLayoutNumbers.delete(sectionId);
+            }
+            for (const sectionId of [...sectionWidgetGaps.keys()]) {
+                if (!validSectionIdSet.has(sectionId)) sectionWidgetGaps.delete(sectionId);
+            }
+            if (nextSectionLayoutSettings && nextActiveSectionId) {
+                sectionWidgetLayoutNumbers.set(nextActiveSectionId, nextSectionLayoutSettings.widgetLayoutNumber);
+                sectionWidgetGaps.set(nextActiveSectionId, nextSectionLayoutSettings.widgetGap);
+            }
+            await tick();
+            preserveMountedWidgetsOnNextContainerDestroy = false;
+            if (currentVersion !== updateHomepageVersion) return;
+
+            const targetSectionId = nextEffectiveSectionsEnabled && nextActiveSectionId
+                ? nextActiveSectionId
+                : ROOT_COMPONENT_SECTION_ID;
+            const targetContainer = getComponentSectionContainer(targetSectionId);
+            if (!targetContainer) throw new Error("目标主页组件容器尚未建立");
+            const restored = await restoreComponentSectionWithRetry(targetSectionId, {
+                force: true,
+                fixedContext: context,
+                expectedLayoutRevision: coordinated.layout.revision,
+                expectedWidgetIds: targetRenderableWidgetIds,
+                expectedDeclaredWidgetIds: targetWidgetIds,
+                sectionContentSignature: initialSectionIdentity?.sectionContentSignature ?? "",
+                effectiveColumns: initialSectionIdentity?.effectiveColumns ?? rootLayoutSettings.widgetLayoutNumber,
+                effectiveGap: initialSectionIdentity?.effectiveGap ?? rootLayoutSettings.widgetGap,
+                identityResolved: initialSectionIdentity !== null,
+            });
+            // 恢复验证：任何 renderable 组件缺失或顺序错误都视为恢复失败。
+            // 仅存在明确 manifest unresolved 历史组件时允许 degraded。
+            const restoredIds = getStructuralRestoreExpectedIds(targetContainer);
+            const restoredRenderableIds = (restoredIds ?? []).filter((id) => !unresolvedLegacyWidgetIds.has(id));
+            const renderableStructureComplete = (
+                restored.status !== "fatal"
+                && restoredIds !== null
+                && restoredRenderableIds.length === targetRenderableWidgetIds.length
+                && targetRenderableWidgetIds.every((id, index) => restoredRenderableIds[index] === id)
+            );
+            if (!renderableStructureComplete) {
+                throw new Error("目标主页组件未完整恢复");
+            }
+            // renderable 结构完整 + 仅存在 unresolved → degraded，不标记 stale。
+            if (currentSectionUnresolvedWidgetIds.length > 0 && restored.failedWidgetIds.length === 0) {
+                // 保持现有 runtime 状态的 degraded 标记；后续切回可直接复用健康结构。
+            }
+        } catch (error) {
+            preserveMountedWidgetsOnNextContainerDestroy = true;
+            advanced = previousRuntimeState.advanced;
+            componentSectionsEnabled = previousRuntimeState.componentSectionsEnabled;
+            componentSections = previousRuntimeState.componentSections;
+            componentSectionsNavAlign = previousRuntimeState.componentSectionsNavAlign;
+            activeComponentSectionId = previousRuntimeState.activeComponentSectionId;
+            requestedComponentSectionId = previousRuntimeState.requestedComponentSectionId;
+            preparingComponentSectionId = previousRuntimeState.preparingComponentSectionId;
+            widgetLayoutNumber = previousRuntimeState.widgetLayoutNumber;
+            widgetGap = previousRuntimeState.widgetGap;
+            sectionWidgetLayoutNumbers = previousRuntimeState.sectionWidgetLayoutNumbers;
+            sectionWidgetGaps = previousRuntimeState.sectionWidgetGaps;
+            sectionRuntimeStates = previousRuntimeState.sectionRuntimeStates;
+            try {
+                const rollbackContainer = await waitForRegisteredConnectedContainer(previousVisibleSectionId);
+                if (!rollbackContainer || !previousCompleteSnapshot) {
+                    if (rollbackContainer) {
+                        rollbackContainer.dataset.layoutRestoreState = "incomplete";
+                        markSectionRuntimeState(previousVisibleSectionId, "failed");
+                    }
+                    throw new Error("上一次主页不是可确认的完整基线，无法宣称回滚成功");
+                }
+
+                const rolledBack = restoreHomepageWidgetDomSnapshot(
+                    previousCompleteSnapshot.domSnapshot,
+                    getCurrentHomepageDomScope(rollbackContainer),
+                );
+                if ("reason" in rolledBack) throw new Error(rolledBack.reason);
+                rollbackContainer.dataset.layoutExpectedWidgetIds = JSON.stringify(previousCompleteSnapshot.expectedIds);
+                rollbackContainer.dataset.layoutUnresolvedWidgetIds = JSON.stringify(
+                    previousCompleteSnapshot.runtimeState.unresolvedWidgetIds,
+                );
+                rollbackContainer.dataset.layoutRestoreState = previousCompleteSnapshot.runtimeState.status;
+                setSectionRuntimeState(previousVisibleSectionId, previousCompleteSnapshot.runtimeState);
+                setupContainerInfrastructure(rollbackContainer, previousVisibleSectionId);
+                updateCustomGridMetricsForContainer(
+                    rollbackContainer,
+                    previousVisibleSectionId === ROOT_COMPONENT_SECTION_ID
+                        ? previousRuntimeState.widgetLayoutNumber
+                        : (previousRuntimeState.sectionWidgetLayoutNumbers.get(previousVisibleSectionId)
+                            ?? previousRuntimeState.widgetLayoutNumber),
+                    previousVisibleSectionId === ROOT_COMPONENT_SECTION_ID
+                        ? previousRuntimeState.widgetGap
+                        : (previousRuntimeState.sectionWidgetGaps.get(previousVisibleSectionId)
+                            ?? previousRuntimeState.widgetGap),
+                );
+            } catch (rollbackError) {
+                console.warn("[Homepage] 主页恢复回滚未完整完成，已保留可用组件元素", rollbackError);
+                const fallbackContainer = getComponentSectionContainer(previousVisibleSectionId);
+                if (fallbackContainer?.isConnected && previousCompleteSnapshot) {
+                    const fallbackSafe = previousCompleteSnapshot.elements.every((element) => {
+                        const preserved = preservedWidgetElements.get(element.id);
+                        const sameIdChildren = getDirectWidgetElements(fallbackContainer)
+                            .filter((child) => child.id === element.id);
+                        return (
+                            (preserved === undefined || preserved === element)
+                            && sameIdChildren.every((child) => child === element)
+                            && (element as any).__widgetBlockInstance?.hasMountedContent?.() === true
+                        );
+                    });
+                    if (fallbackSafe) {
+                        for (const element of previousCompleteSnapshot.elements) {
+                            fallbackContainer.appendChild(element);
+                            const cleared = clearPreservedWidgetElementAfterAppend(element, preservedWidgetElements);
+                            if ("reason" in cleared) break;
+                        }
+                    }
+                    fallbackContainer.dataset.layoutRestoreState = "failed";
+                    markSectionRuntimeState(previousVisibleSectionId, "failed");
+                }
+            } finally {
+                preserveMountedWidgetsOnNextContainerDestroy = false;
+            }
+            throw error;
+        } finally {
+            preserveMountedWidgetsOnNextContainerDestroy = false;
         }
         if (currentVersion !== updateHomepageVersion) return;
-        await updateActiveComponentSectionFromLayout();
-        if (currentVersion !== updateHomepageVersion) return;
-
-        // 组件设置 - 优先从 widgetLayout.json 读取（与组件顺序存储方式一致）
-        const layoutSettings = await loadWidgetLayoutSettings(plugin, getHomepageLayoutRuntimeOptions());
-        if (currentVersion !== updateHomepageVersion) return;
-        widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
-        widgetGap = layoutSettings.widgetGap;
 
         // 横幅相关配置
         bannerEnabled = config.bannerEnabled;
@@ -1310,7 +2709,6 @@
         FallingSpeed = config.FallingSpeed;
         backgroundImageEnabled = advanced && config.backgroundImageEnabled;
         backgroundImageGlobalEnabled = advanced && config.backgroundImageGlobalEnabled;
-        backgroundImageType = advanced ? config.backgroundImageType : DEFAULT_BACKGROUND_IMAGE_TYPE;
         backgroundImageOpacity = advanced ? config.backgroundImageOpacity : DEFAULT_BACKGROUND_IMAGE_OPACITY;
         backgroundImageBlur = advanced ? config.backgroundImageBlur : DEFAULT_BACKGROUND_IMAGE_BLUR;
 
@@ -1319,9 +2717,8 @@
             const displaySettings = await loadBannerDisplaySettings(plugin);
             if (currentVersion !== updateHomepageVersion) return;
             bannerHeight = displaySettings.bannerHeight;
-        } catch (e) {
+        } catch {
             if (currentVersion !== updateHomepageVersion) return;
-            console.warn("[Homepage] 加载设备横幅配置失败，回退到全局配置:", e);
             bannerHeight = config.bannerHeight;
         }
 
@@ -1353,21 +2750,6 @@
 
     function setStatusAiRuntimeState(state: HomepageStatusAiRuntimeState, _message = ""): void {
         statusAiRuntimeState = state;
-    }
-
-    function sanitizeStatusAiDiagnosticMessage(value: unknown): string {
-        const raw = value instanceof Error ? value.message : String(value || "未知错误");
-        return raw
-            .replace(/\s+/g, " ")
-            .replace(/Bearer\s+[^\s]+/gi, "Bearer ***")
-            .replace(/sk-[A-Za-z0-9_-]+/gi, "sk-***")
-            .replace(/(api[-_\s]?key\s*[:=]\s*)[^\s,;]+/gi, "$1***")
-            .replace(/(baseUrl|baseURL|base_url)\s*[:=]\s*[^\s,;]+/gi, "$1=***")
-            .replace(/https?:\/\/[^\s)]+/gi, "[url]")
-            .replace(/[A-Za-z]:\\[^\s)]+/g, "[path]")
-            .replace(/\/(?:Users|home|mnt|var|tmp|src|dist|node_modules)\/[^\s)]+/g, "[path]")
-            .replace(/[A-Za-z0-9_-]{32,}/g, "***")
-            .slice(0, 240);
     }
 
     function getHomepageStatusAiFailureText(reason: "not_premium" | "no_model" | "model_error" | "empty_output" | "aborted" | "unknown"): string {
@@ -1471,7 +2853,6 @@
         if (!advanced) {
             setStatusAiRuntimeState("no_premium");
             setVisibleStatusTextError(getHomepageStatusAiFailureText("not_premium"));
-            console.warn("[Homepage] AI 状态语未生成：会员状态不可用。");
             return;
         }
 
@@ -1479,7 +2860,6 @@
         if (!aiConfig.providerId || !aiConfig.modelId) {
             setStatusAiRuntimeState("no_model");
             setVisibleStatusTextError(getHomepageStatusAiFailureText("no_model"));
-            console.warn("[Homepage] AI 状态语未生成：未选择可用模型。");
             return;
         }
 
@@ -1512,17 +2892,12 @@
 
             if (result.ok === false) {
                 const reason = result.reason;
-                const message = result.message;
                 if (reason === "aborted") {
                     setStatusAiRuntimeState("aborted");
                     setVisibleStatusTextError(getHomepageStatusAiFailureText("aborted"));
                 } else {
                     setStatusAiRuntimeState(reason === "no_model" ? "no_model" : reason === "not_premium" ? "no_premium" : "failed");
                     setVisibleStatusTextError(getHomepageStatusAiFailureText(reason));
-                    console.warn(
-                        "[Homepage] AI 状态语生成失败:",
-                        sanitizeStatusAiDiagnosticMessage(message),
-                    );
                 }
                 return;
             }
@@ -1531,14 +2906,10 @@
             statusAiCachedText = result.text;
             formattedStatsInfoText = result.text;
             setStatusAiRuntimeState("success");
-        } catch (error) {
+        } catch {
             if (!abortController.signal.aborted) {
                 setStatusAiRuntimeState("failed");
                 setVisibleStatusTextError(getHomepageStatusAiFailureText("unknown"));
-                console.warn(
-                    "[Homepage] AI 状态语生成异常:",
-                    sanitizeStatusAiDiagnosticMessage(error),
-                );
             }
         } finally {
             if (statusAiAbortController === abortController) {
@@ -1731,70 +3102,52 @@
                             {#if sortedButtons.checked}
                                 <button
                                     class="nav-button"
-                                    onclick={() =>
-                                        handleButtonClick(
-                                            sortedButtons,
-                                            plugin,
-                                            currentBlockForSettingsRef,
-                                            saveLayout,
-                                            {
-                                                containerEl: customContentContainer,
-                                                ...getHomepageLayoutRuntimeOptions(),
-                                            },
-                                        )}
-                                >
-                                    {#if getButtonIconName(sortedButtons)}
-                                        <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
-                                    {/if}
-                                    <span>{getButtonDisplayLabel(sortedButtons)}</span>
-                                </button>
-                            {/if}
-                        {/each}
-                    </div>
+                                    onclick={() => void handleAddWidgetButtonClick(sortedButtons)}
+                            >
+                                {#if getButtonIconName(sortedButtons)}
+                                    <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
+                                {/if}
+                                <span>{getButtonDisplayLabel(sortedButtons)}</span>
+                            </button>
+                        {/if}
+                    {/each}
+                </div>
 
-                    <div class="nav-bar-right">
-                        <button
-                            class="nav-button more-button"
-                            bind:this={moreButtonEl}
-                            class:hidden={(!isHoveringNavBar && !showMoreMenu) ||
-                                filteredButtons.length === 0}
-                            onclick={() => {
-                                const newShowMoreMenu =
-                                    handleMoreButtonClick(showMoreMenu);
-                                showMoreMenu = newShowMoreMenu;
+                <div class="nav-bar-right">
+                    <button
+                        class="nav-button more-button"
+                        bind:this={moreButtonEl}
+                        class:hidden={(!isHoveringNavBar && !showMoreMenu) ||
+                            filteredButtons.length === 0}
+                        onclick={() => {
+                            const newShowMoreMenu =
+                                handleMoreButtonClick(showMoreMenu);
+                            showMoreMenu = newShowMoreMenu;
+                        }}
+                    >
+                        更多
+                    </button>
+
+                    {#if showMoreMenu && filteredButtons.length > 0}
+                        <div
+                            class="more-menu"
+                            use:floatingPopoverAction={{
+                                referenceEl: moreButtonEl ?? undefined,
+                                placement: "bottom-start",
+                                offset: 8,
+                                open: showMoreMenu,
+                                shiftPadding: 8,
                             }}
                         >
-                            更多
-                        </button>
-
-                        {#if showMoreMenu && filteredButtons.length > 0}
-                            <div
-                                class="more-menu"
-                                use:floatingPopoverAction={{
-                                    referenceEl: moreButtonEl ?? undefined,
-                                    placement: "bottom-start",
-                                    offset: 8,
-                                    open: showMoreMenu,
-                                    shiftPadding: 8,
-                                }}
-                            >
-                                {#each filteredButtons as item}
-                                    <button
-                                        class="more-menu-item"
-                                        onclick={() => {
-                                            handleButtonClick(
-                                                item,
-                                                plugin,
-                                                currentBlockForSettingsRef,
-                                                saveLayout,
-                                                {
-                                                    containerEl: customContentContainer,
-                                                    ...getHomepageLayoutRuntimeOptions(),
-                                                },
-                                            );
+                            {#each filteredButtons as item}
+                                <button
+                                    class="more-menu-item"
+                                    onclick={() => {
+                                        void handleAddWidgetButtonClick(item).then(() => {
                                             showMoreMenu = false;
-                                        }}
-                                    >
+                                        });
+                                    }}
+                                >
                                         {#if getButtonIconName(item)}
                                             <SiyuanIcon name={getButtonIconName(item)} size={14} />
                                         {/if}
@@ -1871,19 +3224,9 @@
                         {#if sortedButtons.checked}
                             <button
                                 class="nav-button"
-                                onclick={() =>
-                                    handleButtonClick(
-                                        sortedButtons,
-                                        plugin,
-                                        currentBlockForSettingsRef,
-                                        saveLayout,
-                                        {
-                                            containerEl: customContentContainer,
-                                            ...getHomepageLayoutRuntimeOptions(),
-                                        },
-                                    )}
-                            >
-                                {#if getButtonIconName(sortedButtons)}
+                                onclick={() => void handleAddWidgetButtonClick(sortedButtons)}
+                        >
+                            {#if getButtonIconName(sortedButtons)}
                                     <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
                                 {/if}
                                 <span>{getButtonDisplayLabel(sortedButtons)}</span>
@@ -1922,17 +3265,9 @@
                                 <button
                                     class="more-menu-item"
                                     onclick={() => {
-                                        handleButtonClick(
-                                            item,
-                                            plugin,
-                                            currentBlockForSettingsRef,
-                                            saveLayout,
-                                            {
-                                                containerEl: customContentContainer,
-                                                ...getHomepageLayoutRuntimeOptions(),
-                                            },
-                                        );
-                                        showMoreMenu = false;
+                                        void handleAddWidgetButtonClick(item).then(() => {
+                                            showMoreMenu = false;
+                                        });
                                     }}
                                 >
                                     {#if getButtonIconName(item)}
@@ -1949,7 +3284,18 @@
     {/if}
 
     <!-- 自定义组件区域 -->
+    <!-- 分栏真实生效时只显示分栏导航与当前活动分栏；否则显示普通组件区并按全局 order 渲染全部组件。 -->
     <div class="section component-section-area">
+        {#if showRootComponentSection}
+            <div
+                use:registerCustomContentContainer={ROOT_COMPONENT_SECTION_ID}
+                class="custom-content"
+                class:root-empty={rootComponentSectionCollapsed}
+                data-component-section-id={ROOT_COMPONENT_SECTION_ID}
+                role="region"
+                aria-label="普通组件区"
+            ></div>
+        {/if}
         {#if effectiveComponentSectionsEnabled && componentSections.length >= 1}
             <div
                 class="component-section-nav"
@@ -1962,37 +3308,31 @@
                     <button
                         type="button"
                         class="component-section-nav__button"
-                        class:active={section.id === activeComponentSectionId}
+                        class:active={section.id === requestedComponentSectionId}
                         role="tab"
-                        aria-selected={section.id === activeComponentSectionId}
+                        aria-selected={section.id === requestedComponentSectionId}
                         onclick={() => void handleComponentSectionSwitch(section.id)}
                     >
                         {section.name}
                     </button>
                 {/each}
             </div>
-            {#each componentSections as section (section.id)}
-                <div
-                    use:registerCustomContentContainer={section.id}
-                    class="custom-content component-section-panel"
-                    data-component-section-id={section.id}
-                    class:hidden={section.id !== activeComponentSectionId}
-                    role="region"
-                    aria-label={`自定义组件区域 - ${section.name}`}
-                    aria-hidden={section.id !== activeComponentSectionId}
-                    style="grid-template-columns: repeat({widgetLayoutNumber}, 1fr);
-                    gap: {widgetGap}rem;"
-                ></div>
-            {/each}
-        {:else}
-            <div
-                use:registerCustomContentContainer={DEFAULT_COMPONENT_SECTION_ID}
-                class="custom-content"
-                role="region"
-                aria-label="自定义组件区域"
-                style="grid-template-columns: repeat({widgetLayoutNumber}, 1fr);
-                gap: {widgetGap}rem;"
-            ></div>
+            <div class="component-section-panels">
+                {#each componentSections as section (section.id)}
+                    {@const isActive = section.id === activeComponentSectionId}
+                    {@const isPreparing = !isActive && section.id === preparingComponentSectionId}
+                    <div
+                        use:registerCustomContentContainer={section.id}
+                        class="custom-content component-section-panel"
+                        class:section-preparing={isPreparing}
+                        class:hidden={!isActive && !isPreparing}
+                        data-component-section-id={section.id}
+                        role="region"
+                        aria-label={`自定义组件区域 - ${section.name}`}
+                        aria-hidden={!isActive}
+                    ></div>
+                {/each}
+            </div>
         {/if}
     </div>
 

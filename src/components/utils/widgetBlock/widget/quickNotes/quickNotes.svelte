@@ -5,6 +5,7 @@
     import { mdToHtml } from "@/components/tools/mdToHtml";
     import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
     import { getChildBlocks, deleteBlock } from "@/api";
+    import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
 
     interface Props {
         plugin: any;
@@ -20,19 +21,29 @@
     let quickNotesEnabled = $state();
     let quickNotesPosition;
 
+    const SIYUAN_NODE_ID_RE = /^\d{14}-[a-z0-9]{7}$/;
+    function isValidSiyuanNodeId(value) {
+        return typeof value === "string" && SIYUAN_NODE_ID_RE.test(value);
+    }
+
     let quickNotesList = $state([]);
 
     onMount(async () => {
-        const homepageSettingConfig = await plugin.loadData(
-            "homepageSettingConfig.json",
-        );
+        const homepageSettingConfig = (await loadHomepageConfigDataStrict(plugin)).data;
         quickNotesEnabled = homepageSettingConfig.quickNotesEnabled;
         quickNotesPosition = homepageSettingConfig.quickNotesPosition;
-
+        if (!quickNotesEnabled || !isValidSiyuanNodeId(quickNotesPosition)) {
+            quickNotesList = [];
+            return;
+        }
         await getQuickNotes();
     });
 
     async function getQuickNotes() {
+        if (!isValidSiyuanNodeId(quickNotesPosition)) {
+            quickNotesList = [];
+            return;
+        }
         const quickNotes = await getChildBlocks(quickNotesPosition);
 
         if (!quickNotes || !Array.isArray(quickNotes)) {

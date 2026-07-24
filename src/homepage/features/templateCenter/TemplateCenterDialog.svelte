@@ -1,8 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
-    import { getTemplateRuntimeContext } from "@/homepage/templates/templateRuntimeContext";
-    import { restoreLatestTemplateBackup } from "@/homepage/templates/templateBackup";
     import {
         loadUserLayoutTemplates,
         saveCurrentDeviceAsLayoutTemplate,
@@ -11,12 +9,16 @@
         getUserLayoutTemplateAvailability,
         updateUserLayoutTemplateFromCurrentDevice,
         buildUserLayoutTemplatePreview,
+        buildUserLayoutTemplateItemStyle,
+        isLegacyUserLayoutTemplate,
+        resolveCurrentLayoutTarget,
         type UserLayoutTemplate,
         type UserLayoutTemplateAvailability,
         type UserLayoutTemplatePreview,
         type UserLayoutTemplatePreviewItem,
     } from "@/homepage/templates/userLayoutTemplates";
-    import { saveLayout } from "@/components/utils/widgetBlock/utils/layout-handler";
+    import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+    import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
     interface Props {
         plugin: any;
@@ -26,9 +28,8 @@
 
     let advancedEnabled = $derived(plugin.ADVANCED);
     let loading = $state(true);
-    let context: any = $state(null);
-    let restoring = $state(false);
-    let showRestoreConfirm = $state(false);
+    let currentTargetType = $state<"homepage" | "section">("homepage");
+    let currentColumns = $state<number | null>(null);
     let loadError = $state<string | null>(null);
 
     let userLayoutTemplates: UserLayoutTemplate[] = $state([]);
@@ -44,19 +45,21 @@
     let detailMode = $state<"template" | "saveLayout">("template");
     let selectedPreview: UserLayoutTemplatePreview | null = $state(null);
     let loadingPreview = $state(false);
+    let previewError = $state<string | null>(null);
     let updatingLayoutTemplate = $state(false);
     let showUpdateConfirm = $state(false);
 
-    async function refreshSelectedPreview(template = selectedTemplate) {
+    async function refreshSelectedPreview(template = selectedTemplate, fixedContext?: DeviceViewContext) {
+        previewError = null;
         if (!template) {
             selectedPreview = null;
             return;
         }
         loadingPreview = true;
         try {
-            selectedPreview = await buildUserLayoutTemplatePreview(plugin, template);
+            selectedPreview = await buildUserLayoutTemplatePreview(plugin, template, fixedContext);
         } catch (error) {
-            console.warn("[TemplateCenter] 加载布局模板预览失败:", error);
+            previewError = error instanceof Error ? error.message : "加载布局模板预览失败";
             selectedPreview = null;
         } finally {
             loadingPreview = false;
@@ -76,14 +79,17 @@
                 return;
             }
 
-            context = await getTemplateRuntimeContext(plugin);
+            const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+            const target = await resolveCurrentLayoutTarget(plugin, context);
+            currentTargetType = target.targetType;
+            currentColumns = target.columns;
             userLayoutTemplates = await loadUserLayoutTemplates(plugin);
             for (const t of userLayoutTemplates) {
-                userLayoutAvailabilityMap[t.id] = await getUserLayoutTemplateAvailability(plugin, t);
+                userLayoutAvailabilityMap[t.id] = await getUserLayoutTemplateAvailability(plugin, t, context, target);
             }
             selectedTemplate = userLayoutTemplates[0] ?? null;
             if (selectedTemplate) {
-                await refreshSelectedPreview(selectedTemplate);
+                await refreshSelectedPreview(selectedTemplate, context);
             }
         } catch (error: any) {
             loadError = error?.message || "加载失败";
@@ -95,12 +101,15 @@
 
     async function refreshTemplateCenterState(options?: { keepSelection?: boolean }) {
         const prevId = selectedTemplate?.id ?? null;
-        context = await getTemplateRuntimeContext(plugin);
+        const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+        const target = await resolveCurrentLayoutTarget(plugin, context);
+        currentTargetType = target.targetType;
+        currentColumns = target.columns;
         userLayoutTemplates = await loadUserLayoutTemplates(plugin);
         userLayoutAvailabilityMap = {};
 
         for (const t of userLayoutTemplates) {
-            userLayoutAvailabilityMap[t.id] = await getUserLayoutTemplateAvailability(plugin, t);
+            userLayoutAvailabilityMap[t.id] = await getUserLayoutTemplateAvailability(plugin, t, context, target);
         }
 
         if (options?.keepSelection !== false && prevId) {
@@ -110,7 +119,10 @@
         }
 
         if (selectedTemplate) {
-            await refreshSelectedPreview(selectedTemplate);
+            await refreshSelectedPreview(selectedTemplate, context);
+        } else {
+            selectedPreview = null;
+            previewError = "";
         }
     }
 
@@ -128,16 +140,6 @@
         layoutTemplateDescription = "";
     }
 
-    async function persistCurrentHomepageLayoutBeforeCapture() {
-        const container = document.querySelector(".custom-content") as HTMLElement | null;
-        if (!container) return;
-        try {
-            await saveLayout(plugin, container);
-        } catch (error) {
-            console.warn("[TemplateCenter] 保存当前主页布局失败，继续使用已有布局数据:", error);
-        }
-    }
-
     async function handleSaveLayoutTemplate() {
         if (savingLayoutTemplate) return;
         if (!advancedEnabled) {
@@ -151,7 +153,6 @@
         savingLayoutTemplate = true;
 
         try {
-            await persistCurrentHomepageLayoutBeforeCapture();
             const savedTemplate = await saveCurrentDeviceAsLayoutTemplate(plugin, {
                 name: layoutTemplateName.trim(),
                 description: layoutTemplateDescription.trim() || undefined,
@@ -160,12 +161,12 @@
             layoutTemplateName = "";
             layoutTemplateDescription = "";
             detailMode = "template";
-            userLayoutTemplates = await loadUserLayoutTemplates(plugin);
-            for (const t of userLayoutTemplates) {
-                userLayoutAvailabilityMap[t.id] = await getUserLayoutTemplateAvailability(plugin, t);
-            }
             selectedTemplate = savedTemplate;
-            await refreshSelectedPreview(savedTemplate);
+            try {
+                await refreshTemplateCenterState({ keepSelection: true });
+            } catch {
+                showMessage("模板已提交，但界面刷新失败，请重新打开或刷新页面。", 7000, "error");
+            }
         } catch (error: any) {
             showMessage(error?.message || "保存布局模板失败", 5000, "error");
         } finally {
@@ -193,13 +194,23 @@
         try {
             const result = await applyUserLayoutTemplateToCurrentDevice(plugin, selectedTemplate.id);
             if (result.success) {
-                window.dispatchEvent(new CustomEvent("homepage-template-layout-changed"));
-                await refreshTemplateCenterState({ keepSelection: true });
-                showMessage("布局模板已应用，主页组件区已刷新", 3000, "info");
+                showMessage("布局模板已应用", 3000, "info");
+                if (result.warning) showMessage(result.warning, 6000, "info");
                 if (result.skippedWidgetIds.length > 0) {
                     showMessage(`已跳过 ${result.skippedWidgetIds.length} 个已不存在的组件`, 5000, "info");
                 }
+                try {
+                    window.dispatchEvent(new CustomEvent("homepage-template-layout-changed"));
+                    window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
+                    await refreshTemplateCenterState({ keepSelection: true });
+                } catch {
+                    showMessage("布局已提交，但模板中心刷新失败，请重新打开或刷新页面。", 7000, "error");
+                }
             } else {
+                if (result.manualCheckRequired || result.uncertainWidgetIds?.length) {
+                    const ids = result.uncertainWidgetIds?.join("、") || "未知";
+                    showMessage(`部分组件状态无法确认，请人工检查：${ids}`, 8000, "error");
+                }
                 showMessage(result.reason || "布局模板应用失败", 5000, "error");
             }
         } catch (error: any) {
@@ -227,14 +238,13 @@
             const deletedId = selectedTemplate.id;
             const success = await deleteUserLayoutTemplate(plugin, deletedId);
             if (success) {
-                userLayoutTemplates = await loadUserLayoutTemplates(plugin);
-                userLayoutAvailabilityMap = {};
-                for (const t of userLayoutTemplates) {
-                    userLayoutAvailabilityMap[t.id] = await getUserLayoutTemplateAvailability(plugin, t);
-                }
-                selectedTemplate = userLayoutTemplates[0] ?? null;
-                await refreshSelectedPreview(selectedTemplate);
                 showMessage("布局模板已删除", 3000, "info");
+                selectedTemplate = null;
+                try {
+                    await refreshTemplateCenterState({ keepSelection: false });
+                } catch {
+                    showMessage("模板已提交，但界面刷新失败，请重新打开或刷新页面。", 7000, "error");
+                }
             } else {
                 showMessage("删除布局模板失败", 3000, "error");
             }
@@ -243,69 +253,6 @@
         } finally {
             deletingUserLayout = false;
         }
-    }
-
-    async function handleRestoreBackup() {
-        if (restoring) return;
-        showRestoreConfirm = true;
-    }
-
-    async function confirmRestore() {
-        if (restoring) return;
-        showRestoreConfirm = false;
-        restoring = true;
-
-        try {
-            const success = await restoreLatestTemplateBackup(plugin);
-            if (success) {
-                window.dispatchEvent(new CustomEvent("homepage-template-layout-changed"));
-                await refreshTemplateCenterState({ keepSelection: true });
-                showMessage("已恢复上一次模板备份，主页组件区已刷新", 3000, "info");
-            } else {
-                showMessage("暂无可恢复的模板备份", 3000, "info");
-            }
-        } catch (error: any) {
-            showMessage(error?.message || "恢复备份失败", 5000, "error");
-        } finally {
-            restoring = false;
-        }
-    }
-
-    function getApplyButtonText(): string {
-        if (detailMode === "saveLayout") return "正在保存布局";
-        if (applyingUserLayout) return "应用中...";
-        if (!selectedTemplate) return "应用模板";
-        if (!advancedEnabled) return "会员可应用";
-        return userLayoutAvailabilityMap[selectedTemplate.id]?.available ? "应用模板" : "列数不支持";
-    }
-
-    function isApplyDisabled(): boolean {
-        if (detailMode === "saveLayout") return true;
-        if (applyingUserLayout || restoring) return true;
-        if (!selectedTemplate) return true;
-        if (!advancedEnabled) return true;
-        return !userLayoutAvailabilityMap[selectedTemplate.id]?.available;
-    }
-
-    function extractPreviewStyle(item: UserLayoutTemplatePreviewItem): string {
-        const gridColumnSpan = Math.max(1, Math.floor(item.colSpan || 1));
-        const gridRowSpan = Math.max(1, Math.floor(item.rowSpan || 1));
-        const parts: string[] = [
-            `grid-column: span ${gridColumnSpan};`,
-            `grid-row: span ${gridRowSpan};`,
-        ];
-
-        const rules = item.style?.split(";").map((r) => r.trim()).filter(Boolean) ?? [];
-        const allowedProps = ["background-color", "background", "border", "border-radius", "box-shadow", "transition"];
-        for (const rule of rules) {
-            const colonIndex = rule.indexOf(":");
-            if (colonIndex === -1) continue;
-            const prop = rule.substring(0, colonIndex).trim().toLowerCase();
-            if (allowedProps.includes(prop)) {
-                parts.push(rule);
-            }
-        }
-        return parts.join("; ");
     }
 
     async function handleUpdateUserLayoutTemplate() {
@@ -317,23 +264,42 @@
         showUpdateConfirm = true;
     }
 
+    function getApplyButtonText(): string {
+        if (detailMode === "saveLayout") return "正在保存";
+        if (applyingUserLayout) return "添加中...";
+        const targetLabel = currentTargetType === "section" ? "当前分栏" : "当前主页";
+        if (!selectedTemplate) return `添加到${targetLabel}`;
+        if (!advancedEnabled) return "会员可用";
+        return userLayoutAvailabilityMap[selectedTemplate.id]?.available ? `添加到${targetLabel}` : "暂不可添加";
+    }
+
+    function isApplyDisabled(): boolean {
+        if (detailMode === "saveLayout") return true;
+        if (applyingUserLayout) return true;
+        if (!selectedTemplate) return true;
+        if (!advancedEnabled) return true;
+        return !userLayoutAvailabilityMap[selectedTemplate.id]?.available;
+    }
+
+    function extractPreviewStyle(item: UserLayoutTemplatePreviewItem): string {
+        return buildUserLayoutTemplateItemStyle(item.style, item.colSpan, item.rowSpan);
+    }
+
     async function confirmUpdateUserLayoutTemplate() {
         if (!selectedTemplate || updatingLayoutTemplate) return;
         showUpdateConfirm = false;
         updatingLayoutTemplate = true;
 
         try {
-            await persistCurrentHomepageLayoutBeforeCapture();
             const updated = await updateUserLayoutTemplateFromCurrentDevice(plugin, selectedTemplate.id);
             if (updated) {
-                userLayoutTemplates = await loadUserLayoutTemplates(plugin);
-                userLayoutAvailabilityMap = {};
-                for (const t of userLayoutTemplates) {
-                    userLayoutAvailabilityMap[t.id] = await getUserLayoutTemplateAvailability(plugin, t);
-                }
-                selectedTemplate = updated;
-                await refreshSelectedPreview(updated);
                 showMessage("布局模板已更新", 3000, "info");
+                selectedTemplate = updated;
+                try {
+                    await refreshTemplateCenterState({ keepSelection: true });
+                } catch {
+                    showMessage("模板已提交，但界面刷新失败，请重新打开或刷新页面。", 7000, "error");
+                }
             } else {
                 showMessage("布局模板更新失败", 3000, "error");
             }
@@ -360,25 +326,25 @@
             <div class="vip-gate-badge">会员功能</div>
             <h2 class="vip-gate-title">布局模板</h2>
             <p class="vip-gate-desc">
-                将当前主主页的组件分布、尺寸和样式保存为模板，之后可以一键恢复到熟悉的布局。
+                将当前主页或活动分栏中的普通组件布局保存为模板，并可追加到多个布局。
             </p>
 
             <div class="vip-gate-grid">
                 <div class="vip-gate-item">
                     <h3>保存布局方案</h3>
-                    <p>把当前设备主主页的组件排列保存成自定义模板。</p>
+                    <p>保存当前主页或活动分栏中的普通组件排列。</p>
                 </div>
                 <div class="vip-gate-item">
-                    <h3>一键恢复</h3>
-                    <p>调整主页后不满意，可以快速应用之前保存的布局。</p>
+                    <h3>重复添加</h3>
+                    <p>同一模板可以添加到多个主页或分栏，每次都会创建独立组件实例。</p>
                 </div>
                 <div class="vip-gate-item">
-                    <h3>自动备份</h3>
-                    <p>应用模板前会先备份当前布局，降低误操作成本。</p>
+                    <h3>安全追加</h3>
+                    <p>新组件追加到当前布局末尾，不清空已有组件。</p>
                 </div>
                 <div class="vip-gate-item">
                     <h3>只改布局</h3>
-                    <p>模板不保存组件内容，也不会影响侧边栏和移动端主页。</p>
+                    <p>保存组件实例配置副本，不复制任务、项目、记账等共享业务数据，也不会影响侧边栏和移动端主页。</p>
                 </div>
             </div>
 
@@ -393,13 +359,13 @@
         <div class="info-card">
             <div class="info-row">
                 <span class="info-label">当前每行组件数：</span>
-                <span class="info-value">{context?.currentColumns ?? "未知"}</span>
+                <span class="info-value">{currentColumns ?? "未知"}</span>
             </div>
             <div class="info-tips">
-                <p>布局模板只保存当前设备主主页的组件分布、尺寸和样式。</p>
-                <p>不保存组件内容。</p>
-                <p>不会修改侧边栏和移动端主页。</p>
-                <p>应用前会自动备份。</p>
+                <p>模板只保存当前主页或活动分栏中的普通组件布局和组件实例配置副本。</p>
+                <p>新组件追加到当前布局末尾，不清空已有组件；同一模板可添加到多个布局。</p>
+                <p>不复制任务、项目、记账等共享业务数据。</p>
+                <p>不影响其他分栏、侧边栏和移动端主页。</p>
             </div>
         </div>
 
@@ -418,7 +384,11 @@
                             >
                                 <div class="template-list-header">
                                     <span class="template-list-name">{t.name}</span>
-                                    <span class="custom-badge">自定义</span>
+                                    {#if isLegacyUserLayoutTemplate(t)}
+                                        <span class="custom-badge legacy-badge">旧公开模板</span>
+                                    {:else}
+                                        <span class="custom-badge">自定义</span>
+                                    {/if}
                                 </div>
                                 {#if t.description}
                                     <div class="template-list-desc">{t.description}</div>
@@ -428,9 +398,9 @@
                                 </div>
                                 <div class="template-list-status">
                                     {#if userLayoutAvailabilityMap[t.id]?.available}
-                                        <span class="status-available">可应用</span>
+                                        <span class="status-available">{userLayoutAvailabilityMap[t.id]?.reason || "可应用"}</span>
                                     {:else}
-                                        <span class="status-unavailable">列数不匹配</span>
+                                        <span class="status-unavailable">{userLayoutAvailabilityMap[t.id]?.reason || "暂不可应用"}</span>
                                     {/if}
                                 </div>
                             </button>
@@ -450,7 +420,7 @@
                         disabled={savingLayoutTemplate}
                         onclick={openSaveLayoutPanel}
                     >
-                        保存当前布局为模板
+                        {currentTargetType === "section" ? "保存当前分栏模板" : "保存当前主页模板"}
                     </button>
                 </div>
             </div>
@@ -460,9 +430,9 @@
                 {#if detailMode === "saveLayout"}
                     <div class="detail-header">
                         <div class="detail-title-row">
-                            <h3 class="detail-title">保存当前布局为模板</h3>
+                            <h3 class="detail-title">{currentTargetType === "section" ? "保存当前分栏模板" : "保存当前主页模板"}</h3>
                         </div>
-                        <p class="detail-desc">布局模板只保存当前设备主主页的组件分布、尺寸和样式，不保存组件内容。</p>
+                        <p class="detail-desc">模板保存当前分栏（或主页）的组件分布、尺寸、样式和组件实例配置副本，不复制共享业务数据。应用时新组件追加到末尾，不清空已有组件。</p>
                     </div>
 
                     <div class="save-form standalone-save-form">
@@ -509,7 +479,11 @@
                     <div class="detail-header">
                         <div class="detail-title-row">
                             <h3 class="detail-title">{t.name}</h3>
-                            <span class="custom-badge">自定义</span>
+                            {#if isLegacyUserLayoutTemplate(t)}
+                                <span class="custom-badge legacy-badge">旧公开模板</span>
+                            {:else}
+                                <span class="custom-badge">自定义</span>
+                            {/if}
                         </div>
                         {#if t.description}
                             <p class="detail-desc">{t.description}</p>
@@ -519,7 +493,9 @@
                     <div class="detail-info">
                         <div class="detail-info-row">
                             <span class="detail-info-label">模板类型：</span>
-                            <span class="detail-info-value">自定义布局模板</span>
+                            <span class="detail-info-value">
+                                {isLegacyUserLayoutTemplate(t) ? "旧公开模板" : "自定义布局模板"}
+                            </span>
                         </div>
                         <div class="detail-info-row">
                             <span class="detail-info-label">保存时列数：</span>
@@ -527,15 +503,15 @@
                         </div>
                         <div class="detail-info-row">
                             <span class="detail-info-label">当前列数：</span>
-                            <span class="detail-info-value">{context?.currentColumns ?? "未知"}</span>
+                            <span class="detail-info-value">{currentColumns ?? "未知"}</span>
                         </div>
                         <div class="detail-info-row">
                             <span class="detail-info-label">兼容状态：</span>
                             {#if userLayoutAvailabilityMap[t.id]?.available}
-                                <span class="status-available">当前列数支持</span>
+                                <span class="status-available">{userLayoutAvailabilityMap[t.id]?.reason || "当前列数支持"}</span>
                             {:else}
                                 <span class="status-unavailable">
-                                    {userLayoutAvailabilityMap[t.id]?.reason || "列数不匹配"}
+                                    {userLayoutAvailabilityMap[t.id]?.reason || "暂不可应用"}
                                 </span>
                             {/if}
                         </div>
@@ -545,14 +521,19 @@
                         </div>
                     </div>
 
-                    <p class="template-light-note">该模板只记录布局，不保存组件内容。已不存在的组件会在应用时自动跳过。</p>
-                    <p class="template-light-note">未设置内容的空白组件会作为占位保留，用来对齐主页分布。</p>
+                    <p class="template-light-note">该模板只保存普通组件布局和组件实例配置副本，不复制任务、项目、记账等共享业务数据。新组件将追加到当前布局末尾。</p>
+                    <p class="template-light-note">同一模板可重复添加到不同分栏，彼此不绑定。</p>
                     <p class="template-light-note">旧模板如预览不准，可用当前布局更新一次。</p>
 
                     {#if loadingPreview}
                         <div class="layout-preview-section">
                             <h4 class="detail-section-title">布局预览</h4>
                             <p class="template-light-note">正在加载预览...</p>
+                        </div>
+                    {:else if previewError}
+                        <div class="layout-preview-section">
+                            <h4 class="detail-section-title">布局预览</h4>
+                            <p class="template-light-note warning-text">预览加载失败：{previewError}</p>
                         </div>
                     {:else if selectedPreview}
                         {#if selectedPreview.items.length > 0}
@@ -615,46 +596,12 @@
         <!-- 底部操作 -->
         <div class="bottom-actions">
             <button
-                class="b3-button b3-button--outline restore-btn"
-                disabled={restoring || applyingUserLayout}
-                onclick={handleRestoreBackup}
-            >
-                {#if restoring}
-                    恢复中...
-                {:else}
-                    恢复上一次备份
-                {/if}
-            </button>
-            <button
                 class="b3-button apply-btn"
                 disabled={isApplyDisabled()}
                 onclick={handleApply}
             >
                 {getApplyButtonText()}
             </button>
-        </div>
-    </div>
-{/if}
-
-<!-- 恢复二次确认弹窗 -->
-{#if showRestoreConfirm}
-    <div class="confirm-overlay">
-        <div class="confirm-dialog">
-            <div class="confirm-header">
-                <h2>确认恢复备份</h2>
-            </div>
-            <div class="confirm-body">
-                <p>确定要恢复上一次模板备份吗？</p>
-                <p class="warning-text">当前主页布局将被替换为备份时的状态。</p>
-            </div>
-            <div class="confirm-footer">
-                <button class="b3-button b3-button--text" onclick={() => showRestoreConfirm = false}>
-                    取消
-                </button>
-                <button class="b3-button b3-button--outline" onclick={confirmRestore}>
-                    确认恢复
-                </button>
-            </div>
         </div>
     </div>
 {/if}
@@ -669,10 +616,10 @@
             <div class="confirm-body">
                 <p>确定要应用布局模板 <strong>{selectedTemplate?.name ?? ""}</strong> 吗？</p>
                 <div class="confirm-tips">
-                    <p>本次只切换当前设备主主页布局；</p>
-                    <p>不修改组件内容；</p>
-                    <p>不影响侧边栏和移动端；</p>
-                    <p>应用前会自动备份。</p>
+                    <p>本次只向{currentTargetType === "section" ? "当前分栏" : "当前主页"}追加普通组件，不清空已有组件；</p>
+                    <p>不复制任务、项目、记账等共享业务数据；</p>
+                    <p>不影响其他分栏、侧边栏和移动端；</p>
+                    <p>同一模板可添加到多个布局。</p>
                 </div>
             </div>
             <div class="confirm-footer">
@@ -718,10 +665,10 @@
                 <h2>确认更新模板</h2>
             </div>
             <div class="confirm-body">
-                <p>确定要用当前设备主主页的布局更新模板 <strong>{selectedTemplate?.name ?? ""}</strong> 吗？</p>
+                <p>确定要用{currentTargetType === "section" ? "当前分栏" : "当前主页"}的布局更新模板 <strong>{selectedTemplate?.name ?? ""}</strong> 吗？</p>
                 <div class="confirm-tips">
-                    <p>这会用当前设备主主页的组件分布、尺寸和样式覆盖当前模板；</p>
-                    <p>不会修改组件内容；</p>
+                    <p>这会用{currentTargetType === "section" ? "当前分栏" : "当前主页"}的普通组件分布、尺寸和样式覆盖当前模板；</p>
+                    <p>不复制任务、项目、记账等共享业务数据；</p>
                     <p>不影响侧边栏和移动端。</p>
                 </div>
             </div>
@@ -1079,10 +1026,6 @@
         width: 100%;
         box-sizing: border-box;
         flex-shrink: 0;
-    }
-
-    .restore-btn {
-        flex: 1;
     }
 
     .apply-btn {

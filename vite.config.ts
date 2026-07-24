@@ -12,6 +12,7 @@ import vitePluginYamlI18n from './yaml-plugin';
 const env = process.env;
 const isSrcmap = env.VITE_SOURCEMAP === 'inline';
 const isDev = env.NODE_ENV === 'development';
+const livereloadClientUrl = env.VITE_LIVERELOAD_CLIENT_URL?.trim() || '';
 
 const outputDir = isDev ? "dev" : "dist";
 const nodeBuiltins = Array.from(new Set([
@@ -81,7 +82,10 @@ export default defineConfig({
             cache: isDev ? false : undefined,
             plugins: [
                 ...(isDev ? [
-                    livereload(outputDir),
+                    ...(livereloadClientUrl ? [livereload({
+                        watch: outputDir,
+                        clientUrl: livereloadClientUrl,
+                    })] : []),
                     {
                         name: 'watch-external',
                         async buildStart() {

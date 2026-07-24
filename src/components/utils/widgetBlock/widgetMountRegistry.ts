@@ -36,6 +36,7 @@ import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
 import accounting from "./widget/accounting/accounting.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
 import { sanitizeWidgetTypeClass } from "@/homepage/mobileHomepage/mobile-widget-categories";
+import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
 const widgetRegistry: Record<string, any> = {
     "latest-docs": latestDocs,
@@ -117,6 +118,7 @@ export interface WidgetRuntimeContext {
     previewMode?: boolean;
     forceIndexRefresh?: boolean;
     refreshReason?: "initial" | "manual" | "settings";
+    deviceViewContext?: DeviceViewContext;
 }
 
 export function mountWidgetContent(
@@ -167,6 +169,7 @@ export function mountWidgetContent(
         previewMode: runtimeContext.previewMode ?? false,
         forceIndexRefresh: runtimeContext.forceIndexRefresh === true,
         refreshReason: runtimeContext.refreshReason || "initial",
+        deviceViewContext: runtimeContext.deviceViewContext,
     };
     props.previewMode = runtimeContext.previewMode ?? false;
 

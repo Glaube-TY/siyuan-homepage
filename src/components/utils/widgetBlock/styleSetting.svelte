@@ -9,8 +9,17 @@
         loadWidgetSize,
         saveWidgetSize
     } from "./styleUtils";
-    import { loadWidgetLayoutSettings, moveWidgetToComponentSectionForCurrentDevice } from "./utils/layout-shared";
-    import { normalizeComponentSections, type ComponentSection } from "@/homepage/homepageSetting/config";
+    import {
+        loadWidgetLayoutSettings,
+        moveWidgetToComponentSectionForCurrentDevice,
+    } from "./utils/layout-shared";
+    import {
+        isComponentSectionsEffective,
+        normalizeComponentSections,
+        type ComponentSection,
+    } from "@/homepage/homepageSetting/config";
+    import { loadHomepageSettingConfig } from "@/homepage/homepageSetting/config";
+    import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
@@ -18,21 +27,23 @@
     interface Props {
         plugin: any;
         onClose: () => void;
-        onHideForCurrentDevice: () => void;
-        onDeleteGlobally: () => void;
+        onDeleteFromCurrentSurface: () => void;
         onSetSize: (size: number) => void | Promise<void>;
         currentBlockId?: string;
         layoutRuntimeOptions?: HomepageLayoutRuntimeOptions;
+        deviceViewContext: DeviceViewContext;
+        blockElement?: HTMLElement | null;
     }
 
     let {
         plugin,
         onClose,
-        onHideForCurrentDevice,
-        onDeleteGlobally,
+        onDeleteFromCurrentSurface,
         onSetSize,
         currentBlockId = "",
         layoutRuntimeOptions = {},
+        deviceViewContext,
+        blockElement = null,
     }: Props = $props();
 
     let backgroundColor: string = $state("#ffffff");
@@ -50,26 +61,30 @@
     let availableTargetSections = $derived(
         componentSections.filter((section) => section.id !== layoutRuntimeOptions.sectionId)
     );
+    let effectiveComponentSectionsEnabled = $derived(
+        isComponentSectionsEffective(
+            { componentSectionsEnabled, componentSections },
+            Boolean(plugin?.ADVANCED),
+        ),
+    );
     let canMigrateToSection = $derived(
-        Boolean(plugin?.ADVANCED) &&
-        layoutRuntimeOptions.sectionsEnabled === true &&
-        componentSectionsEnabled &&
+        effectiveComponentSectionsEnabled &&
         availableTargetSections.length > 0
     );
 
     function getCurrentContainer(): HTMLElement | null {
-        return document.getElementById(currentBlockId)?.parentElement || null;
+        return blockElement?.parentElement || null;
     }
 
     function handleStyleChange() {
-        updateElementBackground(currentBlockId, backgroundColor, backgroundOpacity);
-        updateElementBorder(currentBlockId, borderColor, borderWidth);
+        updateElementBackground(currentBlockId, backgroundColor, backgroundOpacity, blockElement);
+        updateElementBorder(currentBlockId, borderColor, borderWidth, blockElement);
         saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
     }
 
     async function handleApplySize() {
         await onSetSize(parseInt(`${rowSize}${colSize}`));
-        await saveWidgetSize(plugin, currentBlockId, rowSize, colSize);
+        await saveWidgetSize(plugin, currentBlockId, rowSize, colSize, deviceViewContext);
         await saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
     }
 
@@ -78,55 +93,70 @@
             showMessage("组件分区导航开启且会员有效后可迁移", 3000);
             return;
         }
-        const blockElement = document.getElementById(currentBlockId) as HTMLElement | null;
-        const currentContainer = getCurrentContainer();
-        const success = await moveWidgetToComponentSectionForCurrentDevice(plugin, currentBlockId, {
+        const result = await moveWidgetToComponentSectionForCurrentDevice(plugin, currentBlockId, {
             fromSectionId: layoutRuntimeOptions.sectionId,
             toSectionId: targetSectionId,
             style: blockElement?.getAttribute("style") || null,
-            currentContainerEl: currentContainer,
+            deviceViewContext,
         });
-        if (!success) {
-            showMessage("迁移失败，请确认组件分区导航已开启", 3000);
+        if (!result.success) {
+            showMessage(`迁移失败：${result.error ?? "请确认组件分区导航已开启"}`, 3000);
             return;
         }
 
-        if (blockElement) {
-            const instance = (blockElement as any).__widgetBlockInstance;
-            if (instance && typeof instance.destroy === "function") {
-                try {
-                    instance.destroy();
-                } catch {
-                    // 忽略旧实例销毁失败，后续强制恢复会重新挂载
+        let completeUiUpdate!: (result: { success: boolean; error?: string }) => void;
+        const uiUpdateCompleted = new Promise<{ success: boolean; error?: string }>((resolve) => {
+            completeUiUpdate = resolve;
+        });
+        const detail = {
+            widgetId: currentBlockId,
+            fromSectionId: layoutRuntimeOptions.sectionId,
+            toSectionId: targetSectionId,
+            layoutRevision: result.layoutRevision,
+            sourceElement: blockElement,
+            handled: false,
+            complete: completeUiUpdate,
+        };
+        window.dispatchEvent(new CustomEvent("homepage-widget-section-moved", { detail }));
+        if (!detail.handled) {
+            showMessage("迁移已保存，但当前主页实例未能即时更新", 4000, "info");
+            onClose();
+            return;
+        }
+        let uiUpdateTimeoutId = 0;
+        const uiResult = await Promise.race([
+            uiUpdateCompleted.finally(() => {
+                if (uiUpdateTimeoutId) {
+                    window.clearTimeout(uiUpdateTimeoutId);
                 }
-            }
-            blockElement.remove();
+            }),
+            new Promise<{ success: boolean; error?: string }>((resolve) => {
+                uiUpdateTimeoutId = window.setTimeout(() => {
+                    resolve({ success: false, error: "界面更新确认超时，请切换分栏重试" });
+                }, 5000);
+            }),
+        ]);
+        if (!uiResult.success) {
+            showMessage(`迁移已保存，但界面更新失败：${uiResult.error || "请切换分栏重试"}`, 4000, "info");
+            onClose();
+            return;
         }
 
-        const sectionIds = [layoutRuntimeOptions.sectionId, targetSectionId]
-            .filter((sectionId): sectionId is string => Boolean(sectionId));
-        window.dispatchEvent(new CustomEvent("homepage-component-section-layout-invalidated", {
-            detail: {
-                sectionIds,
-                forceCurrent: true,
-            },
-        }));
-
-        showMessage("组件已迁移，切换到目标分区后可查看");
+        showMessage("组件已迁移", 3000);
         onClose();
     }
 
     onMount(async () => {
-        const settings = await loadWidgetLayoutSettings(plugin, layoutRuntimeOptions);
+        const settings = await loadWidgetLayoutSettings(plugin, layoutRuntimeOptions, deviceViewContext);
         widgetLayoutNumber = settings.widgetLayoutNumber;
 
-        const config = await plugin.loadData("homepageSettingConfig.json");
+        const config = await loadHomepageSettingConfig(plugin);
         componentSectionsEnabled = config?.componentSectionsEnabled === true;
         const normalizedSections = normalizeComponentSections(config?.componentSections);
         componentSections = normalizedSections;
         targetSectionId = normalizedSections.find((section) => section.id !== layoutRuntimeOptions.sectionId)?.id || "";
 
-        const styles = loadElementStyles(currentBlockId);
+        const styles = loadElementStyles(currentBlockId, blockElement);
         if (styles) {
             backgroundColor = styles.backgroundColor;
             backgroundOpacity = styles.backgroundOpacity;
@@ -134,7 +164,7 @@
             borderWidth = styles.borderWidth;
         }
 
-        const size = await loadWidgetSize(plugin, currentBlockId);
+        const size = await loadWidgetSize(plugin, currentBlockId, deviceViewContext, 1, 1, blockElement);
         rowSize = size.rowSize;
         colSize = size.colSize;
 
@@ -230,13 +260,9 @@
     </SettingSection>
 
     <div class="danger-actions">
-        <button class="hide-button" onclick={onHideForCurrentDevice}>
-            <SiyuanIcon name="hide" size={14} />
-            <span>当前设备隐藏</span>
-        </button>
-        <button class="delete-button" onclick={onDeleteGlobally}>
+        <button class="delete-button" onclick={onDeleteFromCurrentSurface}>
             <SiyuanIcon name="delete" size={14} />
-            <span>全局删除</span>
+            <span>从当前界面删除</span>
         </button>
         <button class="cancel-button" onclick={onClose}>
             <SiyuanIcon name="cancel" size={14} />
@@ -331,25 +357,6 @@
         justify-content: space-between;
         gap: 0.5rem;
         padding-top: 0.5rem;
-    }
-
-    .hide-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        background: #f59e0b;
-        color: white;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 13px;
-        transition: background 0.2s ease;
-
-        &:hover {
-            background: #d97706;
-        }
     }
 
     .delete-button {

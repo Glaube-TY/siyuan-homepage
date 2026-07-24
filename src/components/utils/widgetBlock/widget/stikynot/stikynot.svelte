@@ -3,13 +3,16 @@
     import Quill from "quill";
     import "quill/dist/quill.snow.css";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import { loadWidgetInstanceConfig, saveWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        runtimeContext?: WidgetRuntimeContext;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
 
     const parsedContent = $derived(JSON.parse(contentTypeJson));
     const stikynotStyle = $derived(parsedContent.data?.stikynotStyle || "default");
@@ -67,8 +70,9 @@
             return;
         }
 
-        plugin
-            .loadData(`widget-${parsedContent.blockId}.json`)
+        Promise.resolve(runtimeContext.deviceViewContext
+            ? loadWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId ?? parsedContent.blockId)
+            : null)
             .then((saved: any) => {
                 if (saved && saved.html) {
                     editor.root.innerHTML = saved.html;
@@ -122,10 +126,8 @@
                 ...parsedContent,
                 html,
             };
-            await plugin.saveData(
-                `widget-${parsedContent.blockId}.json`,
-                saveconf,
-            );
+            if (!runtimeContext.deviceViewContext) return;
+            await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId ?? parsedContent.blockId, saveconf);
         }, 1000);
     }
 </script>

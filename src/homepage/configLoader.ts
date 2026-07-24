@@ -1,6 +1,13 @@
 import { getImage } from "@/components/tools/getImage";
-import type { DeviceProfilesMap } from "./utils/deviceProfile";
-import { getLocalDeviceId, isDesktopDeviceProfileEnabled } from "./utils/deviceProfile";
+import { getCurrentDeviceViewContext } from "./deviceView/deviceViewContext";
+import { ensureCurrentDeviceViewMigrated } from "./deviceView/deviceViewMigration";
+import { readDeviceViewSettings, updateDeviceViewSettings } from "./deviceView/deviceViewStorage";
+import {
+    DeviceViewMigrationBlockedError,
+    DeviceViewTemporarilyIncompleteError,
+    recordDeviceViewBlockedState,
+} from "./deviceView/deviceViewErrors";
+import type { DeviceViewSurface } from "./deviceView/deviceViewTypes";
 import {
     DEFAULT_BANNER_INTEGRATED_COLOR,
     DEFAULT_BANNER_GLASS_BLUR,
@@ -26,7 +33,6 @@ import {
     normalizeQuickButtonStyle,
     type BackgroundImageType,
     type BannerGlassColorMode,
-    type BannerDeviceProfile,
     type ComponentSection,
     type ComponentSectionsNavAlign,
     type HomepageTitleAlign,
@@ -110,11 +116,56 @@ export interface HomepageConfig {
     bannerHeight: number;
     bannerType?: string;
     buttonsList: HomepageButtonItem[];
-    deviceProfiles: DeviceProfilesMap;
-    bannerDeviceProfiles: Record<string, BannerDeviceProfile>;
     componentSectionsEnabled: boolean;
     componentSections: ComponentSection[];
     componentSectionsNavAlign: ComponentSectionsNavAlign;
+}
+
+export interface StrictHomepageConfigRead {
+    data: Record<string, unknown>;
+    fileExists: boolean;
+}
+
+/**
+ * 用于任何可能继续写盘的初始化流程。只有“文件明确不存在”才返回空配置；
+ * 文件存在但为空、损坏或暂时不可读时一律抛错，调用方不得据此保存默认值。
+ */
+export async function loadHomepageConfigDataStrict(
+    plugin: any,
+    surface: DeviceViewSurface = "desktop-homepage",
+): Promise<StrictHomepageConfigRead> {
+    const context = getCurrentDeviceViewContext(plugin, surface);
+    try {
+        await ensureCurrentDeviceViewMigrated(context);
+    } catch (error) {
+        if (error instanceof DeviceViewMigrationBlockedError) {
+            recordDeviceViewBlockedState(error);
+            throw error;
+        }
+        throw error;
+    }
+    let settings: Awaited<ReturnType<typeof readDeviceViewSettings>>;
+    try {
+        settings = await readDeviceViewSettings(context);
+    } catch (error) {
+        if (error instanceof DeviceViewMigrationBlockedError) {
+            recordDeviceViewBlockedState(error);
+            throw error;
+        }
+        throw new DeviceViewTemporarilyIncompleteError({
+            deviceId: context.scopeId,
+            surface: context.surface,
+            missingType: "view",
+        });
+    }
+    if (!settings) {
+        throw new DeviceViewTemporarilyIncompleteError({
+            deviceId: context.scopeId,
+            surface: context.surface,
+            missingType: "view",
+        });
+    }
+    return { data: settings.config, fileExists: true };
 }
 
 export interface BannerImageResult {
@@ -137,7 +188,7 @@ const VALID_FALLING_SPEEDS: FallingSpeed[] = ["low", "medium", "high"];
 const MIN_BANNER_SCROLL_TOP = -10000;
 const MAX_BANNER_SCROLL_TOP = 10000;
 
-const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDeviceProfiles'> & { deviceProfiles: DeviceProfilesMap; bannerDeviceProfiles: Record<string, BannerDeviceProfile> } = {
+const DEFAULT_HOMEPAGE_CONFIG: HomepageConfig = {
     bannerEnabled: true,
     bannerGlobalType: "custom",
     bannerLocalData: "",
@@ -189,8 +240,6 @@ const DEFAULT_HOMEPAGE_CONFIG: Omit<HomepageConfig, 'deviceProfiles' | 'bannerDe
     FallingSpeed: "medium",
     bannerHeight: 300,
     buttonsList: createDefaultButtons(),
-    deviceProfiles: {},
-    bannerDeviceProfiles: {},
     componentSectionsEnabled: false,
     componentSections: normalizeComponentSections(undefined),
     componentSectionsNavAlign: "left",
@@ -224,63 +273,10 @@ function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
     return normalizeButtonsListFromRegistry(rawList);
 }
 
-function normalizeDeviceProfiles(value: unknown): DeviceProfilesMap {
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        return value as DeviceProfilesMap;
-    }
-    return {};
-}
-
-function normalizeBannerDeviceProfiles(value: unknown): Record<string, BannerDeviceProfile> {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return {};
-    }
-    const result: Record<string, BannerDeviceProfile> = {};
-    const raw = value as Record<string, unknown>;
-    for (const [deviceId, profile] of Object.entries(raw)) {
-        if (typeof profile !== "object" || profile === null) continue;
-        const rawProfile = profile as Record<string, unknown>;
-        const normalized: BannerDeviceProfile = {};
-        if (rawProfile.bannerHeight !== undefined) {
-            const height = normalizeNumber(rawProfile.bannerHeight, 300, 50, 1000);
-            if (height !== 300) normalized.bannerHeight = height;
-        }
-        if (rawProfile.scrollTop !== undefined) {
-            const scroll = normalizeNumber(rawProfile.scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP);
-            if (scroll !== 0) normalized.scrollTop = scroll;
-        }
-        result[deviceId] = normalized;
-    }
-    return result;
-}
-
-async function loadLegacyBannerScrollTop(plugin: any): Promise<number> {
-    try {
-        const oldPosition = await plugin.loadData("bannerPosition.json");
-        if (oldPosition && typeof oldPosition.scrollTop === "number") {
-            return normalizeNumber(oldPosition.scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP);
-        }
-    } catch {
-        // 忽略读取错误
-    }
-    return 0;
-}
-
-async function saveLegacyBannerScrollTop(plugin: any, scrollTop: number): Promise<void> {
-    await plugin.saveData("bannerPosition.json", {
-        scrollTop: normalizeNumber(scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP),
-    });
-}
-
-// 注意：getDeviceLayout 已废弃，请使用 loadWidgetLayoutSettings(plugin) 从 widgetLayout.json 读取
+// 注意：getDeviceLayout 已废弃，请使用当前设备视图布局读取接口。
 // 保留此函数仅为兼容旧代码，新代码不应再使用
 
-export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
-    const config = (await plugin.loadData("homepageSettingConfig.json")) || {};
-
-    // 注意：widgetLayoutNumber/widgetGap 已从本配置移除
-    // 请使用 loadWidgetLayoutSettings(plugin) 从 widgetLayout.json 读取
-
+export function normalizeHomepageConfigData(config: any): HomepageConfig {
     return {
         bannerEnabled: config.bannerEnabled !== false,
         bannerGlobalType: normalizeEnum(config.bannerGlobalType, VALID_BANNER_GLOBAL_TYPES, DEFAULT_HOMEPAGE_CONFIG.bannerGlobalType),
@@ -334,12 +330,25 @@ export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
         bannerHeight: normalizeNumber(config.bannerHeight, DEFAULT_HOMEPAGE_CONFIG.bannerHeight, 50, 1000),
         bannerType: config.bannerType ? normalizeString(config.bannerType, "") : undefined,
         buttonsList: normalizeButtonsList(config.buttonsList),
-        deviceProfiles: normalizeDeviceProfiles(config.deviceProfiles),
-        bannerDeviceProfiles: normalizeBannerDeviceProfiles(config.bannerDeviceProfiles),
         componentSectionsEnabled: config.componentSectionsEnabled === true,
         componentSections: normalizeComponentSections(config.componentSections),
         componentSectionsNavAlign: normalizeComponentSectionsNavAlign(config.componentSectionsNavAlign),
     };
+}
+
+export async function loadHomepageConfig(plugin: any): Promise<HomepageConfig> {
+    let config: any = {};
+    try {
+        config = (await loadHomepageConfigDataStrict(plugin)).data;
+    } catch (error) {
+        // 展示层可以使用内存默认值，但该回退对象绝不能进入任何保存流程。
+        console.warn("[Homepage] 主页配置暂时不可读，本轮仅使用内存默认值:", error);
+    }
+
+    // 注意：widgetLayoutNumber/widgetGap 已从本配置移除
+    // 列数和间距由当前设备 desktop-homepage/layout.json 提供。
+
+    return normalizeHomepageConfigData(config);
 }
 
 export interface BannerDisplaySettings {
@@ -350,37 +359,20 @@ export interface BannerDisplaySettings {
 }
 
 export async function loadBannerDisplaySettings(plugin: any): Promise<BannerDisplaySettings> {
-    const config = (await plugin.loadData("homepageSettingConfig.json")) || {};
+    let config: Record<string, any> = {};
+    try {
+        config = (await loadHomepageConfigDataStrict(plugin)).data;
+    } catch (error) {
+        console.warn("[Homepage] 横幅设备配置暂时不可读，本轮仅使用展示默认值:", error);
+    }
     const globalBannerHeight = normalizeNumber(config.bannerHeight, 300, 50, 1000);
 
-    // 桌面端：尝试读取设备特定的配置
-    if (isDesktopDeviceProfileEnabled()) {
-        const deviceId = getLocalDeviceId();
-        if (deviceId && config.bannerDeviceProfiles?.[deviceId]) {
-            const profile = config.bannerDeviceProfiles[deviceId] as BannerDeviceProfile;
-            const deviceHeight = profile.bannerHeight !== undefined
-                ? normalizeNumber(profile.bannerHeight, globalBannerHeight, 50, 1000)
-                : globalBannerHeight;
-            const deviceScrollTop = profile.scrollTop !== undefined
-                ? normalizeNumber(profile.scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP)
-                : await loadLegacyBannerScrollTop(plugin);
-
-            return {
-                bannerHeight: deviceHeight,
-                scrollTop: deviceScrollTop,
-                source: `device profile (${deviceId})`,
-                deviceId,
-            };
-        }
-    }
-
-    // 回退：读取旧的 bannerPosition.json
-    const scrollTop = await loadLegacyBannerScrollTop(plugin);
-
+    const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
     return {
         bannerHeight: globalBannerHeight,
-        scrollTop,
-        source: "global",
+        scrollTop: normalizeNumber(config.bannerScrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP),
+        source: `device view (${context.scopeId})`,
+        deviceId: context.scopeId,
     };
 }
 
@@ -393,53 +385,19 @@ export async function saveBannerDisplaySettings(
     plugin: any,
     partialSettings: BannerDisplaySettingsPartial
 ): Promise<void> {
-    const config = (await plugin.loadData("homepageSettingConfig.json")) || {};
-
-    // 桌面端：保存到设备特定的 profile
-    if (isDesktopDeviceProfileEnabled()) {
-        const deviceId = getLocalDeviceId();
-        if (deviceId) {
-            if (!config.bannerDeviceProfiles) {
-                config.bannerDeviceProfiles = {};
-            }
-            if (!config.bannerDeviceProfiles[deviceId]) {
-                config.bannerDeviceProfiles[deviceId] = {};
-            }
-
-            if (partialSettings.bannerHeight !== undefined) {
-                config.bannerDeviceProfiles[deviceId].bannerHeight = normalizeNumber(
-                    partialSettings.bannerHeight,
-                    300,
-                    50,
-                    1000
-                );
-            }
-            if (partialSettings.scrollTop !== undefined) {
-                const normalizedScrollTop = normalizeNumber(
-                    partialSettings.scrollTop,
-                    0,
-                    MIN_BANNER_SCROLL_TOP,
-                    MAX_BANNER_SCROLL_TOP
-                );
-                config.bannerDeviceProfiles[deviceId].scrollTop = normalizedScrollTop;
-                await saveLegacyBannerScrollTop(plugin, normalizedScrollTop);
-            }
-
-            await plugin.saveData("homepageSettingConfig.json", config);
-            return;
-        }
-    }
-
-    // 移动端或无设备ID：保存到全局配置
-    if (partialSettings.bannerHeight !== undefined) {
-        config.bannerHeight = normalizeNumber(partialSettings.bannerHeight, 300, 50, 1000);
-    }
-    await plugin.saveData("homepageSettingConfig.json", config);
-
-    // scrollTop 仍保存到旧文件以保持兼容
-    if (partialSettings.scrollTop !== undefined) {
-        await saveLegacyBannerScrollTop(plugin, partialSettings.scrollTop);
-    }
+    await loadHomepageConfigDataStrict(plugin);
+    const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+    const current = await readDeviceViewSettings(context);
+    if (!current) throw new Error("当前设备 desktop-homepage 的 view.json 缺失");
+    await updateDeviceViewSettings(context, (config) => ({
+        ...config,
+        ...(partialSettings.bannerHeight !== undefined ? {
+            bannerHeight: normalizeNumber(partialSettings.bannerHeight, 300, 50, 1000),
+        } : {}),
+        ...(partialSettings.scrollTop !== undefined ? {
+            bannerScrollTop: normalizeNumber(partialSettings.scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP),
+        } : {}),
+    }), { expectedRevision: current.revision });
 }
 
 export async function resolveBannerImage(

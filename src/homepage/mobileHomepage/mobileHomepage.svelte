@@ -21,9 +21,14 @@
     } from "./mobile-widget-categories";
     import {
         getWidgetTypeFromBlock,
-        removeWidgetConfigIfUnreferenced,
     } from "./mobile-widget-utils";
+    import {
+        deleteWidgetFromSurface,
+        type DeleteWidgetResult,
+    } from "@/components/utils/widgetBlock/utils/layout-shared";
     import "./mobileHomepage.scss";
+    import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+    import { createWidgetInstanceId } from "@/homepage/deviceView/widgetInstanceRepository";
 
     export const app = undefined;
 
@@ -40,6 +45,7 @@
     };
 
     let { plugin, close, previewMode = false }: Props = $props();
+    const deviceViewContext = $derived(getCurrentDeviceViewContext(plugin, "mobile-homepage"));
 
     const currentBlockForSettingsRef: { value: HTMLElement | null } = { value: null };
 
@@ -280,7 +286,7 @@
     function openNewWidgetContentSheet(widgetType: string): void {
         addSheetOpen = false;
         contentSheet = {
-            blockId: `block-${Date.now()}`,
+            blockId: createWidgetInstanceId(),
             initialContentType: widgetType,
             isNew: true,
         };
@@ -296,7 +302,7 @@
                 currentBlockForSettingsRef,
                 mobileHomepageWidgetContainer,
                 contentSheet.blockId,
-                { previewMode },
+                { previewMode, deviceViewContext },
             );
             block = created?.element || null;
         }
@@ -315,6 +321,9 @@
             plugin,
             contentSheet.blockId,
             JSON.parse(contentTypeJson),
+            deviceViewContext,
+            block,
+            contentSheet.isNew,
         );
         await saveLayout(plugin, mobileHomepageWidgetContainer);
         setSelectedBlock(block);
@@ -338,25 +347,27 @@
 
         const widgetId = block.id;
         const instance = (block as any).__widgetBlockInstance;
-        if (instance && typeof instance.destroy === "function") {
-            instance.destroy();
-        }
-        block.remove();
 
-        await saveLayout(plugin, mobileHomepageWidgetContainer);
-        const result = await removeWidgetConfigIfUnreferenced(plugin, widgetId);
+        const result = await deleteWidgetFromSurface(deviceViewContext, widgetId);
 
-        actionSheetOpen = false;
-        styleSheetBlock = null;
-        deleteSheetBlock = null;
-        setSelectedBlock(null);
-        await applyCategoryFilter();
-        syncWidgetCount();
+        if (result.status === "success" || result.status === "layoutCommittedConfigRetained") {
+            if (instance && typeof instance.destroy === "function") {
+                try { instance.destroy(); } catch (e) { console.warn("[MobileHomepage] destroy failed after delete:", e); }
+            }
+            block.remove();
 
-        if (result.removedConfig) {
-            showMessage("已删除移动端组件");
+            actionSheetOpen = false;
+            styleSheetBlock = null;
+            deleteSheetBlock = null;
+            setSelectedBlock(null);
+            await applyCategoryFilter();
+            syncWidgetCount();
+
+            showMessage(result.status === "success" ? "已删除移动端组件" : "已从移动主页移除组件，配置文件已保留");
+        } else if (result.status === "notCommitted") {
+            showMessage(`组件删除失败：${result.reason}`, 5000, "error");
         } else {
-            showMessage("已删除移动端组件");
+            showMessage(`组件删除状态无法确认，请人工检查：${result.reason}`, 6000, "error");
         }
     }
 
@@ -488,6 +499,7 @@
                 initialContentType={contentSheet.initialContentType || selectedWidgetType}
                 onClose={() => (contentSheet = null)}
                 onConfirm={handleContentConfirm}
+                {deviceViewContext}
             />
         {/if}
 

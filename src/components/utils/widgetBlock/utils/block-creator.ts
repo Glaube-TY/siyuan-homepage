@@ -1,6 +1,7 @@
 import { WidgetBlock } from '../WidgetBlock';
 import { addCustomBlockToContainer } from './block-creator-shared';
-import { saveLayout, type HomepageLayoutRuntimeOptions } from './layout-handler';
+import { type HomepageLayoutRuntimeOptions } from './layout-handler';
+import { getCurrentDeviceViewContext } from '@/homepage/deviceView/deviceViewContext';
 
 export function addCustomBlock(
     plugin: any,
@@ -11,10 +12,10 @@ export function addCustomBlock(
     addCustomBlockToContainer(plugin, currentBlockForSettingsRef, {
         containerSelector: ".custom-content",
         WidgetBlockClass: WidgetBlock,
-        afterAppend: () => {
-            saveLayout(plugin, containerEl, runtimeOptions);
-        },
         containerEl,
-        widgetOptions: runtimeOptions,
+        widgetOptions: {
+            ...runtimeOptions,
+            deviceViewContext: runtimeOptions.deviceViewContext || getCurrentDeviceViewContext(plugin, "desktop-homepage"),
+        },
     });
 }

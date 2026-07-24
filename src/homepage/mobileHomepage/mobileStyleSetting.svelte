@@ -6,17 +6,15 @@
         plugin: any;
         onClose: () => void;
         onDelete: () => void;
-        currentBlockId?: string;
+        blockElement: HTMLElement | null;
     }
 
     let {
         plugin,
         onClose,
         onDelete,
-        currentBlockId = "",
+        blockElement,
     }: Props = $props();
-
-    const blockElement = $derived(document.getElementById(currentBlockId) as HTMLElement | null);
 </script>
 
 {#if blockElement}

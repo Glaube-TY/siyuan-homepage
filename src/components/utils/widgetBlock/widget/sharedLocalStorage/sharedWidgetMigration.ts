@@ -6,6 +6,9 @@ import {
   type DatabaseWidgetType,
   type LegacyWidgetConfigRecord,
 } from "../sharedDatabaseId";
+import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+import { loadWidgetInstanceConfig, saveWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
+import type { DeviceViewSurface } from "@/homepage/deviceView/deviceViewTypes";
 import {
   createEmptyFocusIndexFile,
   listFocusSessionYears,
@@ -111,10 +114,20 @@ export type MigrationStore =
   | "review-docs";
 
 export interface SharedWidgetMigrationState {
-  status: "idle" | "running" | "complete" | "failed";
+  status: "idle" | "running" | "complete" | "failed" | "waiting_device_view_recovery";
   error?: string;
   migratedStores: MigrationStore[];
   failedStores?: Partial<Record<MigrationStore, string>>;
+}
+
+export class SharedWidgetMigrationPartialError extends Error {
+  public readonly failedStores: Readonly<Partial<Record<MigrationStore, string>>>;
+
+  constructor(failedStores: Partial<Record<MigrationStore, string>>) {
+    super("部分组件历史数据迁移未完成，旧数据未删除，可在下次明确操作时重试。");
+    this.name = "SharedWidgetMigrationPartialError";
+    this.failedStores = Object.freeze({ ...failedStores });
+  }
 }
 
 let migrationPromise: Promise<void> | null = null;
@@ -421,8 +434,9 @@ async function cleanWidgetConfigs(
   const plugin = getSharedWidgetStoragePlugin();
   for (const record of configs.filter((item) => item.config.type === type)) {
     try {
+      const context = getCurrentDeviceViewContext(plugin, record.surface);
       const latest = parseLegacyWidgetConfig(
-        await plugin.loadData(record.path),
+        await loadWidgetInstanceConfig(context, record.widgetId),
       );
       if (!latest) throw new Error("无法重新读取最新组件配置");
       if (latest.type !== type) throw new Error("组件类型已经变化");
@@ -450,9 +464,9 @@ async function cleanWidgetConfigs(
       }
       fields.forEach((field) => delete latestData[field]);
       const expected = { ...latest, data: latestData };
-      await plugin.saveData(record.path, expected);
+      await saveWidgetInstanceConfig(context, record.widgetId, expected);
       const reloaded = parseLegacyWidgetConfig(
-        await plugin.loadData(record.path),
+        await loadWidgetInstanceConfig(context, record.widgetId),
       );
       if (
         !reloaded ||
@@ -1588,10 +1602,10 @@ async function migrateReviewDocs(
   return needsImport;
 }
 
-async function runMigration(): Promise<void> {
+async function runMigration(readySurfaces: readonly DeviceViewSurface[]): Promise<void> {
   migrationState = { status: "running", migratedStores: [] };
   const plugin = getSharedWidgetStoragePlugin();
-  const configs = await collectLegacyWidgetConfigs(plugin);
+  const configs = await collectLegacyWidgetConfigs(plugin, readySurfaces);
   const notifyRaw = (await readPluginData(
     "countdownNotifySettings.json",
   )) as any;
@@ -1660,47 +1674,71 @@ async function runMigration(): Promise<void> {
   migrationState = {
     status: failed ? "failed" : "complete",
     error: failed
-      ? "部分组件历史数据迁移未完成，旧数据未删除，请重新加载插件后重试。"
+      ? "部分组件历史数据迁移未完成，旧数据未删除，可在下次明确操作时重试。"
       : undefined,
     migratedStores,
     failedStores: failed ? failedStores : undefined,
   };
   if (failed) {
     console.warn(
-      "[sharedWidgetMigration] 部分组件历史数据迁移未完成，旧数据未删除，请重新加载插件后重试。",
+      "[sharedWidgetMigration] 部分组件历史数据迁移未完成，旧数据未删除，可在下次明确操作时重试。",
     );
+    throw new SharedWidgetMigrationPartialError(failedStores);
   }
 }
 
 export async function assertSharedWidgetMigrationReady(
   store: MigrationStore,
 ): Promise<void> {
-  await ensureLegacySharedWidgetMigration();
+  if (!migrationPromise) {
+    throw new Error("共享组件历史迁移尚未由设备视图 readiness 启动");
+  }
+  await migrationPromise;
   if (migrationState.failedStores?.[store]) {
-    throw new Error("旧数据迁移尚未完成，请重新加载插件后重试。");
+    throw new Error("旧数据迁移尚未完成，请在下一次明确操作时重试。");
   }
 }
 
-export function ensureLegacySharedWidgetMigration(plugin?: any): Promise<void> {
+export function ensureLegacySharedWidgetMigration(
+  plugin: any,
+  readySurfaces: readonly DeviceViewSurface[],
+): Promise<void> {
   if (plugin && plugin !== getSharedWidgetStoragePlugin()) {
     throw new Error("共享组件迁移使用了未初始化的插件实例");
   }
+  if (readySurfaces.length === 0) {
+    migrationState = {
+      status: "waiting_device_view_recovery",
+      error: "相关设备视图尚未 ready，共享组件历史迁移未启动",
+      migratedStores: [...migrationState.migratedStores],
+    };
+    throw new Error("相关设备视图尚未 ready，共享组件历史迁移未启动");
+  }
   if (!migrationPromise) {
-    migrationPromise = runSharedWidgetExclusive(
+    const currentMigration = runSharedWidgetExclusive(
       SHARED_WIDGET_MIGRATION_LOCK,
-      runMigration,
+      () => runMigration(readySurfaces),
     ).catch((error) => {
-      migrationState = {
-        status: "failed",
-        error: error instanceof Error ? error.message : String(error),
-        migratedStores: [...migrationState.migratedStores],
-      };
+      if (!(error instanceof SharedWidgetMigrationPartialError)) {
+        migrationState = {
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+          migratedStores: [...migrationState.migratedStores],
+          failedStores: migrationState.failedStores
+            ? { ...migrationState.failedStores }
+            : undefined,
+        };
+      }
       console.warn(
         "[sharedWidgetMigration] 部分组件历史数据迁移未完成，旧数据未删除",
         error,
       );
+      if (migrationPromise === currentMigration) {
+        migrationPromise = null;
+      }
       throw error;
     });
+    migrationPromise = currentMigration;
   }
   return migrationPromise;
 }

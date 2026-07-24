@@ -2,14 +2,15 @@ import { svelteDialog } from "../../../libs/dialog";
 import WidgetBlockStyle from "./sidebarStyleSetting.svelte";
 import WidgetBlockContent from "../widgetBlock/contentSetting.svelte";
 import { setBlockSize } from "../widgetBlock/utils/block-size-handler";
-import { saveLayout } from "../widgetBlock/utils/layout-handler";
-import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
-import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobileHomepage_layout";
 import { mountWidgetContent, type WidgetRuntimeContext } from "../widgetBlock/widgetMountRegistry";
 import { mount, unmount } from "svelte";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
-import { stringifyWidgetConfigForMount } from "../widgetBlock/utils/layout-shared";
+import { stringifyWidgetConfigForMount, deleteWidgetFromSurface } from "../widgetBlock/utils/layout-shared";
 import { saveWidgetContentPreservingSize } from "../widgetBlock/styleUtils";
+import { createWidgetInstanceId, loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
+import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
+import { showMessage } from "siyuan";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -19,24 +20,30 @@ export class WidgetBlock {
 
     private readonly plugin: any;
     private readonly currentBlockForSettingsRef: { value: HTMLElement | null };
+    private readonly deviceViewContext: DeviceViewContext;
     private mountedWidget: Record<string, any> | null = null;
+    private isNewInstance: boolean;
 
     constructor(
         plugin: any,
         currentBlockForSettingsRef: { value: HTMLElement | null },
         id?: string,
         style?: string,
-        loadcontent?: string
+        loadcontent?: string,
+        runtimeOptions: { deviceViewContext?: DeviceViewContext } = {},
     ) {
-        this.id = id || `block-${Date.now()}`;
+        this.isNewInstance = !id;
+        this.id = id || createWidgetInstanceId();
         this.plugin = plugin;
         this.currentBlockForSettingsRef = currentBlockForSettingsRef;
+        this.deviceViewContext = runtimeOptions.deviceViewContext || getCurrentDeviceViewContext(plugin, "desktop-sidebar");
         this.style = style || 'aspect-ratio: 1 / 1;background-color: rgba(0, 0, 0, 0.03);draggable: true;border: 2px solid var(--b3-theme-primary);box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);transition: all 0.2s ease-in-out;border-radius: 8px;';
         this.loadcontent = loadcontent || '';
 
         this.element = document.createElement("div");
         this.element.className = "widget-block";
         this.element.id = this.id;
+        this.element.dataset.widgetMountState = "idle";
 
         this.element.innerHTML = this.renderControls(false);
 
@@ -68,6 +75,18 @@ export class WidgetBlock {
             unmount(this.mountedWidget);
             this.mountedWidget = null;
         }
+        this.element.dataset.widgetMountState = "idle";
+    }
+
+    public hasMountedContent(): boolean {
+        return this.mountedWidget !== null && this.element.dataset.widgetMountState === "ready";
+    }
+
+    public ensureContentMounted(contentTypeJson?: string, runtimeContext: WidgetRuntimeContext = {}): boolean {
+        if (this.hasMountedContent()) return true;
+        if (!contentTypeJson) return false;
+        this.updateContent(contentTypeJson, runtimeContext);
+        return this.hasMountedContent();
     }
 
     private setupEventListeners() {
@@ -87,20 +106,32 @@ export class WidgetBlock {
                                                     props: {
                                                         plugin: this.plugin,
                                                         currentBlockId: this.element.id,
+                                                        deviceViewContext: this.deviceViewContext,
+                                                        blockElement: this.element,
                                                         onClose: () => {
                                                             dialogRef.close();
                                                         },
-                                                        onDelete: () => {
-                                                            this.cleanupMountedWidget();
-                                                            if (this.currentBlockForSettingsRef.value) {
-                                                                this.currentBlockForSettingsRef.value.remove();
+                                                        onDelete: async () => {
+                                                            const result = await deleteWidgetFromSurface(
+                                                                this.deviceViewContext,
+                                                                this.id,
+                                                            );
+                                                             if (result.status === "success" || result.status === "layoutCommittedConfigRetained") {
+                                                                 try { this.cleanupMountedWidget(); } catch (e) { console.warn("[Sidebar] destroy failed after delete:", e); }
+                                                                this.element.remove();
                                                                 this.currentBlockForSettingsRef.value = null;
+                                                                if (result.status === "layoutCommittedConfigRetained") {
+                                                                    showMessage(
+                                                                        result.warning || "组件已从侧边栏移除，配置文件因保护性错误保留",
+                                                                        5000,
+                                                                    );
+                                                                }
+                                                            } else if (result.status === "notCommitted") {
+                                                                throw new Error(`组件删除失败（布局未提交）：${result.reason}`);
+                                                            } else {
+                                                                throw new Error(`组件删除状态无法确认，请人工检查：${result.reason}`);
                                                             }
                                                             dialogRef.close();
-                                                            saveLayout(this.plugin);
-                                                            saveSidebarLayout(this.plugin);
-                                                            saveMobileLayout(this.plugin);
-                                                            this.plugin.removeData(`widget-${this.id}.json`);
                                                         },
                                                         onSetSize: (size: number) => {
                                                             setBlockSize(this.currentBlockForSettingsRef.value, size, 4);
@@ -127,19 +158,21 @@ export class WidgetBlock {
                                                     props: {
                                                         plugin: this.plugin,
                                                         currentBlockId: this.element.id,
+                                                        deviceViewContext: this.deviceViewContext,
                                                         onClose: () => {
                                                             dialogRef.close();
                                                         },
                                                         onConfirm: async (contentTypeJson: string) => {
-                                                            const blockElement = document.getElementById(this.id);
-                                                            if (blockElement) {
-                                                                this.updateContent(contentTypeJson);
-                                                            }
+                                                            this.updateContent(contentTypeJson);
                                                             await saveWidgetContentPreservingSize(
                                                                 this.plugin,
                                                                 this.id,
                                                                 JSON.parse(contentTypeJson),
+                                                                this.deviceViewContext,
+                                                                this.element,
+                                                                this.isNewInstance,
                                                             );
+                                                            this.isNewInstance = false;
                                                             dialogRef.close();
                                                         }
                                                     },
@@ -151,7 +184,7 @@ export class WidgetBlock {
 
         if (updateButton) {
             updateButton.addEventListener("click", async () => {
-                const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
+                const widgetConfig = await loadWidgetInstanceConfig(this.deviceViewContext, this.id);
                 if (widgetConfig) {
                     this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '', {
                         forceIndexRefresh: true,
@@ -176,11 +209,14 @@ export class WidgetBlock {
         this.cleanupMountedWidget();
 
         this.element.innerHTML = this.renderControls(true);
+        this.element.dataset.widgetMountState = "mounting";
 
         this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson, {
             placement: "sidebar",
+            deviceViewContext: this.deviceViewContext,
             ...runtimeContext,
         });
+        this.element.dataset.widgetMountState = this.mountedWidget ? "ready" : "failed";
 
         // 重新绑定按钮事件（如果需要）
         this.setupEventListeners();

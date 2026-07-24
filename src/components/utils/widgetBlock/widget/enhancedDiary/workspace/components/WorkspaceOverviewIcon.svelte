@@ -1,23 +1,21 @@
 <script lang="ts">
-    import {
-        Activity,
-        ArrowRight,
-        BellDot,
-        CalendarCheck,
-        CalendarDays,
-        CircleCheckBig,
-        ClockAlert,
-        FolderKanban,
-        FolderTree,
-        LayoutDashboard,
-        ListPlus,
-        ListTodo,
-        NotebookPen,
-        NotebookText,
-        RefreshCw,
-        Star,
-        Target,
-    } from "@lucide/svelte/icons";
+    import Activity from "@lucide/svelte/icons/activity";
+    import ArrowRight from "@lucide/svelte/icons/arrow-right";
+    import BellDot from "@lucide/svelte/icons/bell-dot";
+    import CalendarCheck from "@lucide/svelte/icons/calendar-check";
+    import CalendarDays from "@lucide/svelte/icons/calendar-days";
+    import CircleCheckBig from "@lucide/svelte/icons/circle-check-big";
+    import ClockAlert from "@lucide/svelte/icons/clock-alert";
+    import FolderKanban from "@lucide/svelte/icons/folder-kanban";
+    import FolderTree from "@lucide/svelte/icons/folder-tree";
+    import LayoutDashboard from "@lucide/svelte/icons/layout-dashboard";
+    import ListPlus from "@lucide/svelte/icons/list-plus";
+    import ListTodo from "@lucide/svelte/icons/list-todo";
+    import NotebookPen from "@lucide/svelte/icons/notebook-pen";
+    import NotebookText from "@lucide/svelte/icons/notebook-text";
+    import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+    import Star from "@lucide/svelte/icons/star";
+    import Target from "@lucide/svelte/icons/target";
 
     export type WorkspaceOverviewIconName =
         | "activity" | "arrow" | "attention" | "calendar" | "check" | "clock"

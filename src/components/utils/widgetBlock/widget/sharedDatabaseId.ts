@@ -1,9 +1,15 @@
-import { readDir } from "@/api";
+import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+import { getWidgetPath } from "@/homepage/deviceView/deviceViewPaths";
+import { readDeviceViewLayout, readDeviceViewManifest } from "@/homepage/deviceView/deviceViewStorage";
+import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
+import type { DeviceViewSurface } from "@/homepage/deviceView/deviceViewTypes";
+import { isMobileDevice } from "@/homepage/utils/deviceProfile";
 
 export type DatabaseWidgetType = "fixedAssets" | "CYBMOK" | "focus" | "countdown" | "reviewDocs";
 
 export interface LegacyWidgetConfigRecord {
     widgetId: string;
+    surface: DeviceViewSurface;
     path: string;
     config: Record<string, any>;
 }
@@ -14,80 +20,132 @@ export function parseLegacyWidgetConfig(value: unknown): Record<string, any> | n
         try {
             const parsed = JSON.parse(value);
             return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
-        } catch (error) {
-            console.warn("[legacySharedWidgetDataDiscovery] 无法解析组件配置", error);
+        } catch {
             return null;
         }
     }
     return typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : null;
 }
 
-function addWidgetId(ids: Set<string>, value: unknown): void {
-    if (typeof value === "string" && value.trim()) ids.add(value.trim());
+function getActiveHomepageSurface(): DeviceViewSurface {
+    return isMobileDevice() ? "mobile-homepage" : "desktop-homepage";
 }
 
-function addWidgetIds(ids: Set<string>, values: unknown): void {
-    if (Array.isArray(values)) values.forEach((value) => addWidgetId(ids, value));
+/**
+ * 返回当前设备需要扫描的相关 surface：
+ * - 桌面端：desktop-homepage、desktop-sidebar；
+ * - 移动端：mobile-homepage。
+ *
+ * 第一铁律约束：不扫描其他设备目录；不在桌面端迁移其他设备的 mobile-homepage。
+ */
+function getActiveHomepageSurfaces(): DeviceViewSurface[] {
+    return isMobileDevice()
+        ? ["mobile-homepage"]
+        : ["desktop-homepage", "desktop-sidebar"];
 }
 
-function addProfileWidgetIds(ids: Set<string>, profiles: unknown): void {
-    if (!profiles || typeof profiles !== "object") return;
-    const list = Array.isArray(profiles) ? profiles : Object.values(profiles as Record<string, unknown>);
-    for (const profile of list as any[]) {
-        addWidgetIds(ids, profile?.defaultOrder);
-        addWidgetIds(ids, profile?.order);
-        addWidgetIds(ids, profile?.hiddenWidgetIds);
-    }
-}
-
-export async function collectKnownWidgetIds(plugin: any): Promise<string[]> {
+function collectLayoutReferencedIds(layout: { order: Array<{ id: string }>; sections?: Record<string, { widgetIds: string[] }> }): string[] {
     const ids = new Set<string>();
-    try {
-        const layout = parseLegacyWidgetConfig(await plugin.loadData("widgetLayout.json")) || {};
-        addWidgetIds(ids, layout.defaultOrder);
-        addWidgetIds(ids, layout.order);
-        addWidgetIds(ids, layout.hiddenWidgetIds);
-        addProfileWidgetIds(ids, layout.profiles);
-    } catch (error) {
-        console.warn("[legacySharedWidgetDataDiscovery] 读取 widgetLayout.json 失败", error);
+    for (const item of layout.order) {
+        ids.add(item.id);
     }
-
-    if (typeof document !== "undefined") {
-        document.querySelectorAll<HTMLElement>(".custom-content > .widget-block, .widget-block[id]")
-            .forEach((element) => addWidgetId(ids, element.id));
-    }
-
-    const storageDir = `/data/storage/petal/${plugin?.name || "siyuan-homepage"}`;
-    try {
-        const entries = await readDir(storageDir);
-        for (const entry of Array.isArray(entries) ? entries : []) {
-            const match = String(entry?.name || "").match(/^widget-(.+)\.json$/);
-            if (match) addWidgetId(ids, match[1]);
+    for (const section of Object.values(layout.sections || {})) {
+        for (const id of section.widgetIds) {
+            ids.add(id);
         }
-    } catch (error) {
-        console.warn("[legacySharedWidgetDataDiscovery] 扫描旧组件配置失败", error);
     }
-    return Array.from(ids);
+    return [...ids];
 }
 
-export async function collectLegacyWidgetConfigs(plugin: any): Promise<LegacyWidgetConfigRecord[]> {
+function buildReferenceSnapshot(layout: { order: Array<{ id: string }>; sections?: Record<string, { widgetIds: string[] }> }): string {
+    const ids = collectLayoutReferencedIds(layout);
+    return JSON.stringify({
+        revision: (layout as unknown as Record<string, unknown>).revision,
+        ids: [...ids].sort(),
+    });
+}
+
+export async function collectKnownWidgetIds(
+    plugin: any,
+    surface: DeviceViewSurface = getActiveHomepageSurface(),
+): Promise<string[]> {
+    const ids = new Set<string>();
+    const context = getCurrentDeviceViewContext(plugin, surface);
+    const layout = await readDeviceViewLayout(context);
+    if (!layout) {
+        throw new Error(`当前设备 ${surface} 的 layout.json 缺失，共享组件迁移中止`);
+    }
+    layout.order.forEach((item) => ids.add(item.id));
+    Object.values(layout.sections || {}).forEach((section) => {
+        section.widgetIds.forEach((id) => ids.add(id));
+    });
+    return [...ids];
+}
+
+export async function collectLegacyWidgetConfigs(
+    plugin: any,
+    readySurfaces: readonly DeviceViewSurface[],
+): Promise<LegacyWidgetConfigRecord[]> {
+    // 共享组件迁移覆盖当前设备相关 surface：
+    // - 桌面端扫描 desktop-homepage、desktop-sidebar；
+    // - 移动端扫描 mobile-homepage。
+    // 每个 surface 先完成自己的当前设备视图迁移，再读取布局和组件配置。
+    // 通过 surface + widgetId 去重记录。不扫描其他设备目录。
+    // 任一相关 surface 出现真实读取错误时抛错，整体共享组件迁移不得标记 complete。
+    const activeSurfaces = getActiveHomepageSurfaces();
+    if (
+        readySurfaces.length !== activeSurfaces.length
+        || activeSurfaces.some((surface) => !readySurfaces.includes(surface))
+    ) {
+        throw new Error("共享组件迁移未获得全部相关 surface 的 ready 授权");
+    }
     const result: LegacyWidgetConfigRecord[] = [];
-    for (const widgetId of await collectKnownWidgetIds(plugin)) {
-        const path = `widget-${widgetId}.json`;
-        try {
-            const config = parseLegacyWidgetConfig(await plugin.loadData(path));
-            if (config) result.push({ widgetId, path, config });
-        } catch (error) {
-            console.warn(`[legacySharedWidgetDataDiscovery] 读取 ${path} 失败`, error);
+    const seen = new Set<string>();
+    for (const currentSurface of readySurfaces) {
+        const context = getCurrentDeviceViewContext(plugin, currentSurface);
+
+        const firstLayout = await readDeviceViewLayout(context);
+        if (!firstLayout) {
+            throw new Error(`当前设备 ${currentSurface} 的 layout.json 缺失，共享组件迁移中止`);
         }
+        const firstSnapshot = buildReferenceSnapshot(firstLayout);
+        const referencedIds = collectLayoutReferencedIds(firstLayout);
+        const manifest = await readDeviceViewManifest(context);
+        if (!manifest) throw new Error(`当前设备 ${currentSurface} 的 manifest.json 缺失，共享组件迁移中止`);
+        const unresolvedIds = new Set(manifest.migration.unresolvedLegacyWidgetIds ?? []);
+
+        // 任一布局引用的组件配置为 null、损坏或读取失败时立即抛错，
+        // 不静默跳过，不启动后续共享业务迁移和旧字段清理。
+        const surfaceConfigs: LegacyWidgetConfigRecord[] = [];
+        for (const widgetId of referencedIds) {
+            const key = `${currentSurface}:${widgetId}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const config = await loadWidgetInstanceConfig(context, widgetId);
+            if (!config) {
+                if (unresolvedIds.has(widgetId)) continue;
+                throw new Error(`当前设备 ${currentSurface} 的组件 ${widgetId} 配置缺失或损坏，共享组件迁移中止`);
+            }
+            surfaceConfigs.push({ widgetId, surface: currentSurface, path: getWidgetPath(context, widgetId), config });
+        }
+
+        // 读取全部组件后重新读取布局；revision 或引用集合发生变化时中止本次迁移，
+        // 不使用前后不一致的快照。
+        const secondLayout = await readDeviceViewLayout(context);
+        if (!secondLayout) {
+            throw new Error(`当前设备 ${currentSurface} 的 layout.json 在组件读取后缺失，共享组件迁移中止`);
+        }
+        const secondSnapshot = buildReferenceSnapshot(secondLayout);
+        if (secondSnapshot !== firstSnapshot) {
+            throw new Error(`当前设备 ${currentSurface} 的布局在组件读取期间发生变化，共享组件迁移中止`);
+        }
+
+        result.push(...surfaceConfigs);
     }
     return result;
 }
 
-export function readDatabaseIdsFromWidgetConfig(
-    type: DatabaseWidgetType,
-    config: Record<string, any>,
-): string[] {
+export function readDatabaseIdsFromWidgetConfig(type: DatabaseWidgetType, config: Record<string, any>): string[] {
     if (config.type !== type) return [];
     const data = config.data || {};
     const values = type === "fixedAssets"
@@ -107,11 +165,7 @@ export function collectLegacyDatabaseIds(
     countdownNotifyDatabaseId = "",
 ): Record<DatabaseWidgetType, string[]> {
     const ids: Record<DatabaseWidgetType, Set<string>> = {
-        fixedAssets: new Set(),
-        CYBMOK: new Set(),
-        focus: new Set(),
-        countdown: new Set(),
-        reviewDocs: new Set(),
+        fixedAssets: new Set(), CYBMOK: new Set(), focus: new Set(), countdown: new Set(), reviewDocs: new Set(),
     };
     for (const record of configs) {
         for (const type of Object.keys(ids) as DatabaseWidgetType[]) {
@@ -119,5 +173,5 @@ export function collectLegacyDatabaseIds(
         }
     }
     if (countdownNotifyDatabaseId.trim()) ids.countdown.add(countdownNotifyDatabaseId.trim());
-    return Object.fromEntries(Object.entries(ids).map(([type, values]) => [type, Array.from(values)])) as Record<DatabaseWidgetType, string[]>;
+    return Object.fromEntries(Object.entries(ids).map(([type, values]) => [type, [...values]])) as Record<DatabaseWidgetType, string[]>;
 }

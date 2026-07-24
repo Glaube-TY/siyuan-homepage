@@ -14,15 +14,71 @@
 
 import { fetchPost, fetchSyncPost, IWebSocketData, platformUtils } from "siyuan";
 
+function isIdLikeParameterName(name: string): boolean {
+    return name === "id"
+        || name === "ids"
+        || /(?:ID|IDs|Id|Ids)$/.test(name)
+        || /[_-]ids?$/i.test(name);
+}
+
+function safeIdDiagnosticValue(value: unknown): string {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return String(value).slice(0, 160);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.slice(0, 20).map((item) => safeIdDiagnosticValue(item)).join(", ")}${value.length > 20 ? ", …" : ""}]`;
+    }
+    return `[${typeof value}]`;
+}
+
+function collectIdParameterDiagnostics(value: unknown, path = "", depth = 0): Record<string, string> {
+    if (!value || typeof value !== "object" || depth > 5) return {};
+    if (Array.isArray(value)) {
+        return value.reduce<Record<string, string>>((result, item, index) => ({
+            ...result,
+            ...collectIdParameterDiagnostics(item, `${path}[${index}]`, depth + 1),
+        }), {});
+    }
+    const result: Record<string, string> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        const itemPath = path ? `${path}.${key}` : key;
+        if (isIdLikeParameterName(key)) {
+            result[itemPath] = safeIdDiagnosticValue(item);
+            continue;
+        }
+        if (/^(content|markdown|text|html|stmt)$/i.test(key)) continue;
+        Object.assign(result, collectIdParameterDiagnostics(item, itemPath, depth + 1));
+    }
+    return result;
+}
+
+function diagnoseInvalidIdArgument(
+    url: string,
+    label: string,
+    data: unknown,
+    response: IWebSocketData,
+): void {
+    if (!String(response.msg || "").includes("invalid ID argument")) return;
+    console.warn("[SiyuanAPI] invalid ID argument", {
+        url,
+        label,
+        idParameters: collectIdParameterDiagnostics(data),
+    });
+}
 
 export async function request(url: string, data: any) {
     let response: IWebSocketData = await fetchSyncPost(url, data);
+    diagnoseInvalidIdArgument(url, "request", data, response);
     let res = response.code === 0 ? response.data : null;
     return res;
 }
 
 export async function requestRaw(url: string, data: any): Promise<IWebSocketData> {
-    return await fetchSyncPost(url, data);
+    const response = await fetchSyncPost(url, data);
+    diagnoseInvalidIdArgument(url, "requestRaw", data, response);
+    return response;
 }
 
 /**
@@ -32,6 +88,7 @@ export async function requestRaw(url: string, data: any): Promise<IWebSocketData
  */
 export async function requestChecked(url: string, data: any, label?: string): Promise<any> {
     const response: IWebSocketData = await fetchSyncPost(url, data);
+    diagnoseInvalidIdArgument(url, label || "requestChecked", data, response);
     if (response.code !== 0) {
         const prefix = label ? `[${label}] ` : "";
         throw new Error(`${prefix}思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
@@ -119,6 +176,96 @@ export async function getSiyuanCloudIdentity(): Promise<SiyuanCloudIdentity> {
         userName: "",
         source: "none",
     };
+}
+
+// ========================================
+// 思源系统配置（基于本地API实测）
+// ========================================
+
+/** 实测 /api/system/getConf 返回的 system 字段结构。思源官方不提供 arch 字段。 */
+export interface SiyuanSystemConfig {
+    /** 设备唯一标识（UUID），如 "96c76c9c-a969-488f-a8b1-f923c556da42" */
+    id: string;
+    /** 设备名称（主机名），如 "DESKTOP-NFR7FE7" */
+    name: string;
+    /** 内核版本，如 "3.7.3" */
+    kernelVersion: string;
+    /** 操作系统，如 "windows" | "linux" | "darwin" | "android" | "ios" */
+    os: string;
+    /** 操作系统详细描述，如 "Microsoft Windows 10 Pro" */
+    osPlatform: string;
+    /** 容器类型，如 "std" | "docker" */
+    container: string;
+    /** 是否为 Microsoft Store 版 */
+    isMicrosoftStore: boolean;
+    /** 是否为 Insider 版 */
+    isInsider: boolean;
+}
+
+let siyuanSystemConfigCache: SiyuanSystemConfig | null = null;
+let siyuanSystemConfigInitPromise: Promise<SiyuanSystemConfig> | null = null;
+
+/**
+ * 读取思源系统配置。
+ * 优先从已初始化的 window.siyuan.config.system 同步读取；
+ * 不可用时通过项目统一 requestChecked 调用 API 一次。
+ * 同一个初始化 Promise 被缓存，禁止各模块重复请求。
+ * 初始化失败后清空缓存，允许下一次明确操作重新尝试。
+ */
+export async function getSiyuanSystemConfig(): Promise<SiyuanSystemConfig> {
+    if (siyuanSystemConfigCache) return siyuanSystemConfigCache;
+    if (siyuanSystemConfigInitPromise) return siyuanSystemConfigInitPromise;
+
+    siyuanSystemConfigInitPromise = (async () => {
+        try {
+            // 优先从已初始化的全局配置同步读取。
+            const raw = (window as any).siyuan?.config?.system;
+            if (raw && typeof raw.id === "string" && raw.id) {
+                siyuanSystemConfigCache = {
+                    id: String(raw.id).trim(),
+                    name: typeof raw.name === "string" ? String(raw.name).trim() : "",
+                    kernelVersion: typeof raw.kernelVersion === "string" ? String(raw.kernelVersion).trim() : "",
+                    os: typeof raw.os === "string" ? String(raw.os).trim() : "",
+                    osPlatform: typeof raw.osPlatform === "string" ? String(raw.osPlatform).trim() : "",
+                    container: typeof raw.container === "string" ? String(raw.container).trim() : "",
+                    isMicrosoftStore: Boolean(raw.isMicrosoftStore),
+                    isInsider: Boolean(raw.isInsider),
+                };
+                return siyuanSystemConfigCache;
+            }
+
+            // API 回退读取。
+            const data = await requestChecked("/api/system/getConf", {}, "getSiyuanSystemConfig");
+            const system = data?.conf?.system;
+            if (!system || typeof system.id !== "string" || !system.id) {
+                throw new Error("API 返回的 system.id 缺失或无效");
+            }
+            siyuanSystemConfigCache = {
+                id: String(system.id).trim(),
+                name: typeof system.name === "string" ? String(system.name).trim() : "",
+                kernelVersion: typeof system.kernelVersion === "string" ? String(system.kernelVersion).trim() : "",
+                os: typeof system.os === "string" ? String(system.os).trim() : "",
+                osPlatform: typeof system.osPlatform === "string" ? String(system.osPlatform).trim() : "",
+                container: typeof system.container === "string" ? String(system.container).trim() : "",
+                isMicrosoftStore: Boolean(system.isMicrosoftStore),
+                isInsider: Boolean(system.isInsider),
+            };
+            return siyuanSystemConfigCache;
+        } catch (error) {
+            // 失败后清空缓存，允许下一次调用重新尝试。
+            siyuanSystemConfigCache = null;
+            siyuanSystemConfigInitPromise = null;
+            throw error;
+        }
+    })();
+
+    return siyuanSystemConfigInitPromise;
+}
+
+/** 清空系统配置缓存（仅在需要强制刷新时使用）。 */
+export function clearSiyuanSystemConfigCache(): void {
+    siyuanSystemConfigCache = null;
+    siyuanSystemConfigInitPromise = null;
 }
 
 
@@ -1568,8 +1715,40 @@ export async function readDirChecked(path: string): Promise<IResReadDir[]> {
     return await requestChecked('/api/file/readDir', { path }, 'readDir');
 }
 
+export async function readDirOrNullChecked(path: string): Promise<IResReadDir[] | null> {
+    const response: IWebSocketData = await fetchSyncPost('/api/file/readDir', { path });
+    if (response.code === 404) return null;
+    if (response.code !== 0) {
+        throw new Error(`[readDir] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
+    }
+    if (!Array.isArray(response.data)) {
+        throw new Error(`[readDir] 思源 API 返回了无效目录数据，路径: ${path}`);
+    }
+    return response.data as IResReadDir[];
+}
+
 export async function copyFileChecked(params: { path: string; targetPath: string }): Promise<void> {
-    await requestChecked('/api/file/copyFile', params, 'copyFile');
+    // /api/file/copyFile 使用资产路径语义，不能复制 /data/storage/petal 下的插件文件。
+    // 插件存储备份统一通过严格读取后重新写入目标路径完成。
+    const content = await getFileChecked(params.path);
+    let file: Blob;
+    if (content instanceof Blob) {
+        file = content;
+    } else if (typeof content === "string") {
+        file = new Blob([content], { type: "application/octet-stream" });
+    } else if (content instanceof ArrayBuffer) {
+        file = new Blob([content], { type: "application/octet-stream" });
+    } else if (ArrayBuffer.isView(content)) {
+        const view = content as ArrayBufferView;
+        const bytes = new Uint8Array(view.byteLength);
+        bytes.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+        file = new Blob([bytes.buffer], { type: "application/octet-stream" });
+    } else {
+        const serialized = JSON.stringify(content);
+        if (!serialized) throw new Error(`无法序列化待复制文件，路径: ${params.path}`);
+        file = new Blob([serialized], { type: "application/json;charset=utf-8" });
+    }
+    await putFileChecked(params.targetPath, false, file);
 }
 
 export async function renameFileChecked(path: string, newPath: string): Promise<void> {

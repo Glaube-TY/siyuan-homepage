@@ -3,6 +3,7 @@ import {
   normalizeSelectionAiToolbarSettings,
 } from "./selection-ai-defaults";
 import type { SelectionAiToolbarSettings } from "./selection-ai-types";
+import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
 
 let settingsSnapshot: SelectionAiToolbarSettings = {
   ...DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS,
@@ -21,11 +22,9 @@ export function getSelectionAiToolbarSettingsSnapshot(): SelectionAiToolbarSetti
   };
 }
 
-export async function loadSelectionAiToolbarSettingsSnapshot(plugin: {
-  loadData?: (name: string) => Promise<unknown>;
-}): Promise<SelectionAiToolbarSettings> {
+export async function loadSelectionAiToolbarSettingsSnapshot(plugin: any): Promise<SelectionAiToolbarSettings> {
   try {
-    const config = await plugin.loadData?.("homepageSettingConfig.json");
+    const config = (await loadHomepageConfigDataStrict(plugin)).data;
     const rawSettings = config && typeof config === "object"
       ? (config as { selectionAiToolbar?: unknown }).selectionAiToolbar
       : undefined;

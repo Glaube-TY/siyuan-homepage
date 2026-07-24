@@ -33,13 +33,15 @@
     import { MusicPlaybackStatsStore, getTrackKey } from "./musicPlaybackStatsStore";
     import { MusicLibraryStore } from "./musicLibraryStore";
     import { registerFloatingMiniHost, unregisterFloatingMiniHost } from "./musicFloatingMiniManager";
+    import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        runtimeContext?: WidgetRuntimeContext;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
 
     const initialConfig = untrack(() => safeParseMusicPlayerConfig(contentTypeJson));
     const initialParsed = untrack(() => {
@@ -50,7 +52,9 @@
         }
     });
     const musicFolderPath = initialConfig.musicFolderPath;
-    const blockId = typeof initialParsed.blockId === "string" ? initialParsed.blockId : "";
+    const blockId = typeof (initialParsed.instanceId ?? initialParsed.blockId) === "string"
+        ? String(initialParsed.instanceId ?? initialParsed.blockId)
+        : "";
 
     let destroyed = false;
     let loadToken = 0;
@@ -597,7 +601,7 @@
                 buildIndex: buildLightIndex,
                 rebuildIndex: rebuildLightIndex,
                 getProgress: () => metadataIndexProgress,
-            });
+            }, runtimeContext.deviceViewContext!);
 
             preloadAdjacentTracks(currentTrackIndex);
             scheduleCurrentDisplayMetadata("initial-current-display");
@@ -633,7 +637,7 @@
     async function saveConfig() {
         try {
             const currentParsed = JSON.parse(contentTypeJson);
-            await saveWidgetContentPreservingSize(plugin, currentParsed.blockId, {
+            await saveWidgetContentPreservingSize(plugin, currentParsed.instanceId ?? currentParsed.blockId, {
                 ...currentParsed,
                 data: {
                     ...currentParsed.data,
@@ -650,7 +654,7 @@
                     sortDirection,
                     showFloatingMini,
                 },
-            });
+            }, runtimeContext.deviceViewContext!);
         } catch {
             // 保存失败时静默处理，避免阻塞播放
         }

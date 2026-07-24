@@ -98,7 +98,7 @@
                         <button
                             type="button"
                             class="component-section-action danger"
-                            disabled={state.componentSections.length <= 1 || section.id === "overview"}
+                            disabled={state.componentSections.length === 0}
                             onclick={() => actions.onDeleteComponentSection(section.id)}
                         >
                             删除
@@ -106,6 +106,9 @@
                     </div>
                 </div>
             {/each}
+            {#if state.componentSections.length === 0}
+                <p class="component-sections-empty-hint">尚未添加分栏，主页继续使用普通组件布局。</p>
+            {/if}
             <button
                 type="button"
                 class="component-section-add"
@@ -223,6 +226,13 @@
     .component-section-add {
         align-self: flex-start;
         color: var(--b3-theme-primary, #3575f0);
+    }
+
+    .component-sections-empty-hint {
+        margin: 0;
+        padding: 8px 0;
+        font-size: 13px;
+        color: var(--b3-theme-on-surface-light, #6b7280);
     }
 
     @media (max-width: 620px) {

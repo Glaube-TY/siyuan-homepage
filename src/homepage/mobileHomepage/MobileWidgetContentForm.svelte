@@ -26,6 +26,8 @@
   import { openCountdownCenterDialog } from "@/features/countdown-center";
   import { openReviewNotifySettingsDialog } from "@/features/review-notify";
   import { openFocusNotifySettingsDialog } from "@/features/focus-notify";
+  import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
+  import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
 
   interface Props {
     plugin: any;
@@ -33,6 +35,7 @@
     widgetType: string;
     onClose: () => void;
     onConfirm: (contentTypeJson: string) => void | Promise<void>;
+    deviceViewContext: DeviceViewContext;
   }
 
   interface Notebook {
@@ -76,7 +79,7 @@
   }
 
   type FormState = Record<string, any>;
-  let { plugin, currentBlockId, widgetType, onClose, onConfirm }: Props =
+  let { plugin, currentBlockId, widgetType, onClose, onConfirm, deviceViewContext }: Props =
     $props();
 
   let form = $state<FormState>({});
@@ -461,7 +464,7 @@
     if (currentBlockId) {
       try {
         loadedConfig = parseWidgetConfig(
-          await plugin.loadData(`widget-${currentBlockId}.json`),
+          await loadWidgetInstanceConfig(deviceViewContext, currentBlockId),
         );
       } catch (error) {
         console.warn("[mobile content form] 读取组件配置失败", error);
@@ -545,7 +548,7 @@
     return {
       activeTab,
       type: widgetType,
-      blockId: currentBlockId,
+      instanceId: currentBlockId,
     };
   }
 

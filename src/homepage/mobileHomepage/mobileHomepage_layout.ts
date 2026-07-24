@@ -1,173 +1,140 @@
 import type { Plugin } from "siyuan";
 import { WidgetBlock } from "./mobileWidgetBlock";
-import { stringifyWidgetConfigForMount, type LayoutItem, type WidgetLayoutData } from "../../components/utils/widgetBlock/utils/layout-shared";
+import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+import { ensureCurrentDeviceViewMigrated } from "@/homepage/deviceView/deviceViewMigration";
+import { readDeviceViewLayout, replaceDeviceViewLayout } from "@/homepage/deviceView/deviceViewStorage";
+import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
+import { stringifyWidgetConfigForMount, type LayoutItem } from "../../components/utils/widgetBlock/utils/layout-shared";
+import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
-const MOBILE_LAYOUT_FILE = "mobileHomepageWidgetLayout.json";
+export const MOBILE_LAYOUT_SURFACE = "mobile-homepage" as const;
 
-function normalizeLayoutItem(item: unknown): LayoutItem | null {
-    if (typeof item !== "object" || item === null) return null;
-    const raw = item as Record<string, unknown>;
-    const id = typeof raw.id === "string" ? raw.id : "";
-    if (!id) return null;
-    return {
-        id,
-        style: typeof raw.style === "string" ? raw.style : null,
-        index: typeof raw.index === "number" ? raw.index : 0,
-    };
-}
-
-function normalizeLayoutItems(items: unknown): LayoutItem[] {
-    if (!Array.isArray(items)) return [];
-    return items.map(normalizeLayoutItem).filter((item): item is LayoutItem => !!item);
-}
-
-/**
- * Deduplicate layout items by id. When the same id appears multiple times,
- * keeps the LAST occurrence (most recent = user's last drag/save state).
- * Drops items with empty id. Returns sequential indices.
- */
-function dedupeLayoutItems(items: LayoutItem[]): { items: LayoutItem[]; changed: boolean } {
-    const seen = new Map<string, LayoutItem>();
-    const order: string[] = [];
-    for (const item of items) {
-        if (!item.id) continue;
-        if (!seen.has(item.id)) {
-            order.push(item.id);
-        }
-        seen.set(item.id, item);
-    }
-    const changed = order.length !== items.length;
-    const deduped = order.map((id, index) => {
-        const item = seen.get(id)!;
+function validateLayoutItems(items: LayoutItem[]): LayoutItem[] {
+    const seen = new Set<string>();
+    return items.map((item, index) => {
+        if (!item.id) throw new Error(`移动主页布局第 ${index + 1} 项缺少组件 ID`);
+        if (seen.has(item.id)) throw new Error(`移动主页布局包含重复组件 ${item.id}`);
+        seen.add(item.id);
         return { ...item, index };
-    });
-    return { items: deduped, changed };
-}
-
-function getFirstProfileOrder(layout: WidgetLayoutData | null): LayoutItem[] {
-    if (!layout?.profiles) return [];
-    for (const profile of Object.values(layout.profiles)) {
-        const order = normalizeLayoutItems(profile?.order);
-        if (order.length > 0) return order;
-    }
-    return [];
-}
-
-function getMobileOrder(layout: WidgetLayoutData | null): LayoutItem[] {
-    const defaultOrder = normalizeLayoutItems(layout?.defaultOrder);
-    if (defaultOrder.length > 0) return dedupeLayoutItems(defaultOrder).items;
-
-    const legacyOrder = normalizeLayoutItems(layout?.order);
-    if (legacyOrder.length > 0) return dedupeLayoutItems(legacyOrder).items;
-
-    return dedupeLayoutItems(getFirstProfileOrder(layout)).items;
-}
-
-function destroyExistingWidgets(container: Element): void {
-    const existingBlocks = container.querySelectorAll(".widget-block");
-    existingBlocks.forEach((block) => {
-        const instance = (block as any).__widgetBlockInstance;
-        if (instance && typeof instance.destroy === "function") {
-            try {
-                instance.destroy();
-            } catch {
-                // ignore widget cleanup errors
-            }
-        }
     });
 }
 
 function readCurrentOrder(container: Element): LayoutItem[] {
-    const raw = Array.from(container.children)
-        .filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains("widget-block"))
-        .map((widgetBlockElement, index) => ({
-            id: widgetBlockElement.id,
-            style: widgetBlockElement.getAttribute("style"),
-            index,
-        }));
-    return dedupeLayoutItems(raw).items;
+    return validateLayoutItems(Array.from(container.children)
+        .filter((element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains("widget-block") && Boolean(element.id))
+        .map((element, index) => ({ id: element.id, style: element.getAttribute("style"), index })));
+}
+
+async function getReadyContext(plugin: Plugin): Promise<DeviceViewContext> {
+    const context = getCurrentDeviceViewContext(plugin, MOBILE_LAYOUT_SURFACE);
+    await ensureCurrentDeviceViewMigrated(context);
+    return context;
 }
 
 export async function saveLayout(plugin: Plugin, containerEl?: HTMLElement | null): Promise<void> {
     const container = containerEl || document.querySelector(".mobile-homepage-widget");
     if (!container) return;
-
-    const currentOrder = readCurrentOrder(container);
-    const layoutData: WidgetLayoutData = {
-        defaultOrder: currentOrder,
-        profiles: {},
-    };
-
-    await plugin.saveData(MOBILE_LAYOUT_FILE, layoutData);
+    const context = await getReadyContext(plugin);
+    const latest = await readDeviceViewLayout(context);
+    if (!latest) throw new Error("移动主页 layout.json 缺失");
+    await replaceDeviceViewLayout(context, {
+        order: readCurrentOrder(container),
+        widgetLayoutNumber: latest.widgetLayoutNumber,
+        widgetGap: latest.widgetGap,
+        activeSectionId: latest.activeSectionId,
+        sections: latest.sections,
+        componentSectionsModeEnabled: latest.componentSectionsModeEnabled,
+    }, { expectedRevision: latest.revision });
 }
 
 export async function restoreLayout(
     plugin: Plugin,
     currentBlockForSettingsRef: { value: HTMLElement | null },
     containerEl?: HTMLElement | null,
-    runtimeContext: { previewMode?: boolean } = {},
+    runtimeContext: { previewMode?: boolean; deviceViewContext?: DeviceViewContext } = {},
 ): Promise<void> {
     const container = containerEl || document.querySelector(".mobile-homepage-widget");
-    if (!container) return;
+    if (!(container instanceof HTMLElement)) return;
+    container.dataset.layoutRestoreState = "restoring";
+    const context = runtimeContext.deviceViewContext || await getReadyContext(plugin);
 
-    const layout = (await plugin.loadData(MOBILE_LAYOUT_FILE)) as WidgetLayoutData | null;
-
-    // Auto-repair: detect and fix duplicate widgets in the stored layout
-    const rawOrder = normalizeLayoutItems(layout?.defaultOrder) || normalizeLayoutItems(layout?.order) || [];
-    const dedupeResult = dedupeLayoutItems(rawOrder);
-    if (dedupeResult.changed) {
-        const fixedLayout: WidgetLayoutData = {
-            ...layout,
-            defaultOrder: dedupeResult.items,
-            order: undefined,
-        };
-        await plugin.saveData(MOBILE_LAYOUT_FILE, fixedLayout);
-    }
-
-    const order = getMobileOrder(layout);
-
-    destroyExistingWidgets(container);
-    while (container.firstChild) {
-        container.removeChild(container.firstChild);
-    }
-
-    if (order.length === 0) {
+    let layout;
+    try {
+        layout = await readDeviceViewLayout(context);
+        if (!layout) throw new Error("移动主页 layout.json 缺失");
+    } catch (error) {
+        container.dataset.layoutRestoreState = "incomplete";
+        console.warn("[MobileLayout] 布局暂时不可读，保留已挂载组件:", error);
         return;
     }
 
-    const widgetsToRestore: { widgetBlock: WidgetBlock; contentJson: string | null }[] = [];
+    const order = validateLayoutItems(layout.order);
+    const prepared: Array<{ item: LayoutItem; instance: WidgetBlock; contentJson: string }> = [];
+    const existing = new Map<string, HTMLElement>();
+    for (const child of Array.from(container.children)) {
+        if (child instanceof HTMLElement && child.classList.contains("widget-block") && child.id) existing.set(child.id, child);
+    }
+    if (order.length === 0 && [...existing.values()].some((element) => (element as any).__widgetBlockInstance?.hasMountedContent?.())) {
+        container.dataset.layoutRestoreState = "incomplete";
+        console.warn("[MobileLayout] 空布局与当前健康组件冲突，本轮保留已挂载组件");
+        return;
+    }
 
+    let allWidgetsComplete = true;
     for (const item of order) {
         try {
-            const widgetBlock = new WidgetBlock(
-                plugin,
-                currentBlockForSettingsRef,
-                item.id,
-                item.style || undefined,
-                "",
-                runtimeContext,
-            );
-            const contentData = await plugin.loadData(`widget-${item.id}.json`);
-            const contentJson = contentData ? stringifyWidgetConfigForMount(contentData) : null;
-            widgetsToRestore.push({ widgetBlock, contentJson });
+            const current = existing.get(item.id);
+            if ((current as any)?.__widgetBlockInstance?.hasMountedContent?.()) continue;
+            const config = await loadWidgetInstanceConfig(context, item.id);
+            const contentJson = stringifyWidgetConfigForMount(config);
+            if (!contentJson) throw new Error(`移动组件 ${item.id} 配置缺失或无效`);
+            prepared.push({
+                item,
+                instance: new WidgetBlock(plugin, currentBlockForSettingsRef, item.id, item.style || undefined, "", {
+                    ...runtimeContext,
+                    deviceViewContext: context,
+                }),
+                contentJson,
+            });
         } catch (error) {
-            console.warn(`[MobileLayout] 构建 widget ${item.id} 失败:`, error);
+            allWidgetsComplete = false;
+            console.warn(`[MobileLayout] 组件 ${item.id} 暂时无法恢复，已继续处理其他健康组件:`, error);
         }
     }
 
-    for (const { widgetBlock } of widgetsToRestore) {
-        container.appendChild(widgetBlock.element);
-    }
-
-    for (const { widgetBlock, contentJson } of widgetsToRestore) {
-        if (!contentJson) continue;
+    for (const { item, instance, contentJson } of prepared) {
         try {
-            widgetBlock.loadcontent = contentJson;
-            widgetBlock.updateContent(contentJson);
+            const old = existing.get(item.id);
+            if (old?.parentElement === container) {
+                (old as any).__widgetBlockInstance?.destroy?.();
+                old.replaceWith(instance.element);
+            } else {
+                container.appendChild(instance.element);
+            }
+            instance.loadcontent = contentJson;
+            instance.updateContent(contentJson, { deviceViewContext: context });
+            existing.set(item.id, instance.element);
         } catch (error) {
-            console.warn(`[MobileLayout] 更新 widget ${widgetBlock.id} 内容失败:`, error);
+            allWidgetsComplete = false;
+            instance.destroy();
+            instance.element.remove();
+            existing.delete(item.id);
+            console.warn(`[MobileLayout] 组件 ${item.id} 挂载失败，已保留其他健康组件:`, error);
         }
     }
-}
 
-export { MOBILE_LAYOUT_FILE };
+    const expected = new Set(order.map((item) => item.id));
+    if (allWidgetsComplete) {
+        for (const [id, element] of existing) {
+            if (expected.has(id)) continue;
+            (element as any).__widgetBlockInstance?.destroy?.();
+            element.remove();
+        }
+    }
+    for (const item of order) {
+        const element = existing.get(item.id);
+        if (element) container.appendChild(element);
+    }
+    const healthyCount = order.filter((item) => (existing.get(item.id) as any)?.__widgetBlockInstance?.hasMountedContent?.()).length;
+    container.dataset.layoutRestoreState = allWidgetsComplete && healthyCount === order.length ? "ready" : "incomplete";
+}

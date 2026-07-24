@@ -287,7 +287,7 @@ export function handleMoreButtonClick(showMoreMenu: boolean): boolean {
     return !showMoreMenu;
 }
 
-function getButtonAction(item: ButtonItem): string {
+export function getButtonAction(item: ButtonItem): string {
     if (item.action) {
         return item.action;
     }
@@ -319,16 +319,16 @@ export function handleButtonClick(
     item: ButtonItem,
     plugin: any,
     currentBlockForSettingsRef: { value: HTMLElement | null },
-    saveLayoutFn: (plugin: any, containerEl?: HTMLElement | null, runtimeOptions?: HomepageLayoutRuntimeOptions) => void,
+    saveLayoutFn?: (plugin: any, containerEl?: HTMLElement | null, runtimeOptions?: HomepageLayoutRuntimeOptions) => void,
     layoutContext: HomepageLayoutRuntimeOptions & { containerEl?: HTMLElement | null } = {},
 ): void {
+    void saveLayoutFn;
     const OpenHomepageSetting = createOpenHomepageSetting(plugin);
 
     const action = getButtonAction(item);
 
     if (action === "addWidget") {
         addCustomBlock(plugin, currentBlockForSettingsRef, layoutContext.containerEl, layoutContext);
-        saveLayoutFn(plugin, layoutContext.containerEl, layoutContext);
     } else if (action === "settings") {
         OpenHomepageSetting();
     } else if (action === "cleanEmptyDocs") {

@@ -1,8 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { saveLayout } from "@/components/utils/widgetBlock/utils/layout-handler";
     import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
-    import { saveLayout as saveMobileLayout } from "@/homepage/mobileHomepage/mobileHomepage_layout";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     interface Props {
@@ -19,6 +17,7 @@
         // 新增：边框颜色和粗细
         borderColor?: string;
         borderWidth?: number;
+        blockElement?: HTMLElement | null;
     }
 
     let {
@@ -30,14 +29,13 @@
         backgroundColor = $bindable("#ffffff"),
         backgroundOpacity = $bindable(0.5),
         borderColor = $bindable("#000000"),
-        borderWidth = $bindable(1)
+        borderWidth = $bindable(1),
+        blockElement = null,
     }: Props = $props();
 
     // 更新背景的方法
     function updateBackground() {
         const rgbaColor = hexToRgba(backgroundColor, backgroundOpacity);
-        const blockElement = document.getElementById(currentBlockId);
-
         if (blockElement) {
             blockElement.style.backgroundColor = rgbaColor;
         }
@@ -45,8 +43,6 @@
 
     // 更新边框的方法
     function updateBorder() {
-        const blockElement = document.getElementById(currentBlockId);
-
         if (blockElement) {
             blockElement.style.borderColor = borderColor;
             blockElement.style.borderWidth = `${borderWidth}px`;
@@ -65,7 +61,6 @@
 
     // 从元素获取当前样式并赋值给变量
     function loadCurrentStyles() {
-        const blockElement = document.getElementById(currentBlockId);
         if (!blockElement) return;
 
         const computedStyle = window.getComputedStyle(blockElement);
@@ -155,9 +150,7 @@
                     aria-label="设置为 1x1 尺寸"
                     onclick={() => {
                         onSetSize(11);
-                        saveLayout(plugin);
                         saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -198,9 +191,7 @@
                     aria-label="设置为 2x1 尺寸"
                     onclick={() => {
                         onSetSize(21);
-                        saveLayout(plugin);
                         saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -241,9 +232,7 @@
                     aria-label="设置为 3x1 尺寸"
                     onclick={() => {
                         onSetSize(31);
-                        saveLayout(plugin);
                         saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -324,9 +313,7 @@
                     aria-label="设置为 4x1 尺寸"
                     onclick={() => {
                         onSetSize(41);
-                        saveLayout(plugin);
                         saveSidebarLayout(plugin);
-                        saveMobileLayout(plugin);
                     }}
                 >
                     <svg
@@ -468,9 +455,7 @@
                         bind:value={backgroundColor}
                         onchange={() => {
                             updateBackground();
-                            saveLayout(plugin);
-                            saveSidebarLayout(plugin);
-                            saveMobileLayout(plugin);
+                        saveSidebarLayout(plugin);
                         }}
                     />
                 </div>
@@ -487,9 +472,7 @@
                         bind:value={backgroundOpacity}
                         oninput={() => {
                             updateBackground();
-                            saveLayout(plugin);
-                            saveSidebarLayout(plugin);
-                            saveMobileLayout(plugin);
+                        saveSidebarLayout(plugin);
                         }}
                     />
                     <span>{Math.round(backgroundOpacity * 100)}%</span>
@@ -507,9 +490,7 @@
                         bind:value={borderColor}
                         onchange={() => {
                             updateBorder();
-                            saveLayout(plugin);
-                            saveSidebarLayout(plugin);
-                            saveMobileLayout(plugin);
+                        saveSidebarLayout(plugin);
                         }}
                     />
                 </div>
@@ -526,9 +507,7 @@
                         bind:value={borderWidth}
                         oninput={() => {
                             updateBorder();
-                            saveLayout(plugin);
                             saveSidebarLayout(plugin);
-                            saveMobileLayout(plugin);
                         }}
                     />
                     <span>{borderWidth}px</span>

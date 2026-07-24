@@ -2,12 +2,18 @@
     import { onDestroy, onMount } from "svelte";
     import { Protyle } from "siyuan";
     import { getRootDocumentCandidates } from "@/components/tools/siyuanComponentDataApi";
+    import { isValidSiyuanNodeId } from "../../utils/widget-instance-utils";
 
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
     let isDestroyed = false;
+    let protyleGeneration = 0;
 
     onDestroy(() => {
         isDestroyed = true;
+        if (protyle) {
+            try { protyle.destroy(); } catch (e) { console.warn("[Protyle] destroy failed:", e); }
+            protyle = null;
+        }
     });
 
     interface Props {
@@ -31,17 +37,47 @@
     let blockID = $state("");
     let lastConfiguredBlockID = $state("");
 
+    // ID变化时销毁旧实例
     $effect(() => {
         if (configuredBlockID === lastConfiguredBlockID) {
             return;
         }
         lastConfiguredBlockID = configuredBlockID;
+        if (protyle) {
+            try { protyle.destroy(); } catch (e) { console.warn("[Protyle] destroy on ID change failed:", e); }
+            protyle = null;
+        }
         blockID = configuredBlockID;
     });
 
+    // blockID变化时重建实例
+    $effect(() => {
+        if (!blockID) return;
+        if (!isValidSiyuanNodeId(blockID)) return;
+        destroyAndCreateProtyle(blockID);
+    });
+
     let divProtyle: HTMLDivElement = $state();
-    // 保留 Protyle 实例引用，防止编辑器被垃圾回收
     let protyle: any;
+
+    function destroyAndCreateProtyle(validId: string): void {
+        if (protyle) {
+            try { protyle.destroy(); } catch (e) { console.warn("[Protyle] destroy failed:", e); }
+            protyle = null;
+        }
+        if (!validId || !isValidSiyuanNodeId(validId) || isDestroyed) return;
+        if (!divProtyle || !divProtyle.isConnected) return;
+        const gen = ++protyleGeneration;
+        queueMicrotask(() => {
+            if (gen !== protyleGeneration || isDestroyed) return;
+            if (!divProtyle || !divProtyle.isConnected) return;
+            try {
+                protyle = new Protyle(plugin.app, divProtyle, { blockId: validId as string });
+            } catch (error) {
+                console.warn("[Protyle] new Protyle failed:", error);
+            }
+        });
+    }
 
     onMount(async () => {
         isDestroyed = false;
@@ -49,22 +85,20 @@
             await getRandomDocID();
             if (isDestroyed) return;
         }
-        protyle = await initProtyle(); // 初始化编辑器
+        if (blockID && isValidSiyuanNodeId(blockID)) {
+            destroyAndCreateProtyle(blockID);
+        }
     });
 
-    // 初始化 Protyle 编辑器
-    async function initProtyle() {
-        return new Protyle(plugin.app, divProtyle, {
-            blockId: blockID,
-        });
-    }
-
-    async function getRandomDocID() {
+    async function getRandomDocID(): Promise<void> {
         const docs = await getRootDocumentCandidates(200);
         if (isDestroyed || docs.length === 0) {
             return;
         }
-        blockID = docs[Math.floor(Math.random() * docs.length)].id;
+        const candidate = docs.find((doc) => isValidSiyuanNodeId(doc.id));
+        if (candidate) {
+            blockID = candidate.id;
+        }
     }
 </script>
 

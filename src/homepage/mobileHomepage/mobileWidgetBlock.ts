@@ -2,19 +2,14 @@ import { unmount } from "svelte";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
 import { mountWidgetContent, type WidgetRuntimeContext } from "../../components/utils/widgetBlock/widgetMountRegistry";
 import { stringifyWidgetConfigForMount } from "../../components/utils/widgetBlock/utils/layout-shared";
+import { createWidgetInstanceId, loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
+import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
 type MobileWidgetEventName =
     | "mobile-widget-action"
     | "mobile-widget-longpress"
     | "mobile-widget-refreshed";
-
-function createMobileWidgetId(): string {
-    try {
-        return `block-${crypto.randomUUID()}`;
-    } catch {
-        return `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    }
-}
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -25,6 +20,7 @@ export class WidgetBlock {
     private readonly plugin: any;
     private readonly currentBlockForSettingsRef: { value: HTMLElement | null };
     private readonly previewMode: boolean;
+    private readonly deviceViewContext: DeviceViewContext;
     private mountedWidget: Record<string, any> | null = null;
     private longPressTimer: number | null = null;
     private pointerStart: { x: number; y: number } | null = null;
@@ -35,12 +31,13 @@ export class WidgetBlock {
         id?: string,
         style?: string,
         loadcontent?: string,
-        runtimeContext: { previewMode?: boolean } = {},
+        runtimeContext: { previewMode?: boolean; deviceViewContext?: DeviceViewContext } = {},
     ) {
-        this.id = id || createMobileWidgetId();
+        this.id = id || createWidgetInstanceId();
         this.plugin = plugin;
         this.currentBlockForSettingsRef = currentBlockForSettingsRef;
         this.previewMode = runtimeContext.previewMode ?? false;
+        this.deviceViewContext = runtimeContext.deviceViewContext || getCurrentDeviceViewContext(plugin, "mobile-homepage");
         this.style =
             style ||
             "aspect-ratio: 1 / 1;background-color: rgba(255, 255, 255, 0.72);border: 1px solid var(--b3-border-color);box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);transition: transform 0.2s ease, box-shadow 0.2s ease;border-radius: 12px;position: relative;overflow: hidden;";
@@ -49,6 +46,7 @@ export class WidgetBlock {
         this.element = document.createElement("div");
         this.element.className = "widget-block mobile-widget-card";
         this.element.id = this.id;
+        this.element.dataset.widgetMountState = "idle";
         this.element.innerHTML = this.renderControls(false);
         this.element.setAttribute("style", this.style);
 
@@ -153,6 +151,11 @@ export class WidgetBlock {
             unmount(this.mountedWidget);
             this.mountedWidget = null;
         }
+        this.element.dataset.widgetMountState = "idle";
+    }
+
+    public hasMountedContent(): boolean {
+        return this.mountedWidget !== null && this.element.dataset.widgetMountState === "ready";
     }
 
     public appendTo(container: Element | null): void {
@@ -168,16 +171,19 @@ export class WidgetBlock {
 
         this.cleanupMountedWidget();
         this.element.innerHTML = this.renderControls(true);
+        this.element.dataset.widgetMountState = "mounting";
         this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson, {
             placement: "mobile",
             previewMode: this.previewMode,
+            deviceViewContext: this.deviceViewContext,
             ...runtimeContext,
         });
+        this.element.dataset.widgetMountState = this.mountedWidget ? "ready" : "failed";
         this.setupChromeEventListeners();
     }
 
     public async refreshContent(): Promise<void> {
-        const widgetConfig = await this.plugin.loadData(`widget-${this.id}.json`);
+        const widgetConfig = await loadWidgetInstanceConfig(this.deviceViewContext, this.id);
         if (!widgetConfig) {
             return;
         }

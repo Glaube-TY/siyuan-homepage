@@ -11,14 +11,25 @@ import {
 import { svelteDialog } from "@/libs/dialog";
 import "./style/dialog-viewport.css";
 import * as advanced from "@/components/tools/advanced";
-import { loadWidgetLayoutSettings, buildHomepageAppliedSignature } from "@/components/utils/widgetBlock/utils/layout-shared";
-import type { WidgetLayoutData } from "@/components/utils/widgetBlock/utils/layout-shared";
 import { destroyFloatingDoc } from "@/components/tools/floatingDoc";
 import { destroyFloatingMini } from "@/components/utils/widgetBlock/widget/musicPlayer/musicFloatingMiniManager";
 import {
     loadHomepageConfig,
+    loadHomepageConfigDataStrict,
     resolveBackgroundImage,
 } from "./homepage/configLoader";
+import { getCurrentDeviceViewContext } from "./homepage/deviceView/deviceViewContext";
+import { ensureCurrentDeviceViewMigrated } from "./homepage/deviceView/deviceViewMigration";
+import type { DeviceViewSurface } from "./homepage/deviceView/deviceViewTypes";
+import { ensureDeviceIdentityReady } from "./homepage/utils/deviceProfile";
+import {
+    DeviceViewMigrationBlockedError,
+    DeviceViewTemporarilyIncompleteError,
+    formatDeviceViewBlockedUserMessage,
+    markDeviceViewBlockedNotified,
+    recordDeviceViewBlockedState,
+} from "./homepage/deviceView/deviceViewErrors";
+import { readDeviceViewSettings, updateDeviceViewSettings } from "./homepage/deviceView/deviceViewStorage";
 import {
     cleanupGlobalBackgroundImageStyle,
     updateGlobalBackgroundImageStyle,
@@ -174,12 +185,12 @@ export default class PluginHomepage extends Plugin {
     private kbChatTabDiv: HTMLDivElement | null = null;
     private kbDockInstance: Record<string, any> | null = null;
     private kbDockRegistered = false;
+    private kbDockInitGeneration = 0;
     private sidebarDockInstance: Record<string, any> | null = null;
     private mobileQuickActionsHost: HTMLDivElement | null = null;
     private mobileQuickActionsInstance: Record<string, any> | null = null;
     private mobileQuickActionsPositionSaveTimer: number | null = null;
     private pendingMobileQuickActionsPosition: MobileQuickActionsPosition | null = null;
-    private homepageTabObserver: MutationObserver | null = null;
     private customTabsRegistered = false;
     private homepageTopBarElement: HTMLElement | null = null;
     private kbTopBarElement: HTMLElement | null = null;
@@ -192,262 +203,91 @@ export default class PluginHomepage extends Plugin {
     private homepageAdvancedReadyBindThis = this.handleHomepageAdvancedReady.bind(this);
     private homepageAdvancedUnavailableBindThis = this.handleHomepageAdvancedUnavailable.bind(this);
 
-    // 已应用签名状态：用于检测外部同步变化
-    private lastAppliedConfigSignature = "";
-    private lastAppliedLayoutSignature = "";
-    private lastAppliedCompositeSignature = "";
-
-    // 主页热刷新短期锁：只防同一轮事件重入，必须可自动释放
-    private homepageReloadTriggered = false;
-    private activeHomepageHotReloadReason: string | null = null;
-    private pendingHomepageHotReloadReason: string | null = null;
-    private homepageHotReloadWatchdogTimer: number | null = null;
-    private homepagePendingFlushTimer: number | null = null;
-
     // 全局背景异步刷新版本号：防止旧请求覆盖新状态
     private globalBackgroundApplyVersion = 0;
 
-    // 更新已应用签名（homepage 初始化完成后调用）
-    public updateAppliedSignatures(configSig: string, layoutSig: string, compositeSig?: string): void {
-        this.lastAppliedConfigSignature = configSig;
-        this.lastAppliedLayoutSignature = layoutSig;
-        if (compositeSig !== undefined) {
-            this.lastAppliedCompositeSignature = compositeSig;
-        }
+    // 设备视图迁移阻断状态：结构化错误被捕获后保存，用于阻止依赖设备视图的功能
+    private deviceViewBlocked: Readonly<DeviceViewMigrationBlockedError> | null = null;
+
+    // 主页 surface 暂不可用只影响主页，不阻断独立业务。
+    private homepageSurfaceUnavailable: Readonly<DeviceViewTemporarilyIncompleteError> | null = null;
+    // 未分类的主页 surface 读取错误：只停用主页，显式重新打开时允许重试。
+    private homepageSurfaceReadError: Error | null = null;
+    // 设备身份不可用：不阻断通知/日记/AI/桥接等独立业务，但阻止设备视图初始化。
+    private deviceIdentityUnavailable: Error | null = null;
+    private deviceIdentityInitialization: Promise<void> | null = null;
+    private homepageLayoutReadyFinalized = false;
+    private readonly readyDeviceViewSurfaces = new Set<DeviceViewSurface>();
+    private homepageCommandRegistered = false;
+    private quickNotesCommandRegistered = false;
+    private homepageWindowListenersRegistered = false;
+    private baseEventListenersRegistered = false;
+    private contentMenuListenerRegistered = false;
+    private sidebarDockRegistered = false;
+    private legacySharedMigrationInFlight: Promise<void> | null = null;
+    private legacySharedMigrationCompleted = false;
+
+    public override onDataChanged(): void {
+        // 安全空实现：不调用基类实现，不卸载插件，不启动迁移，不重建主页。
+        // 标签重新打开时通过标准init读取当前设备视图。
+        console.debug("[Homepage] onDataChanged 触发，当前版本不做处理");
     }
 
-    // 获取当前已应用签名
-    public getAppliedSignatures(): { config: string; layout: string; composite: string } {
-        return {
-            config: this.lastAppliedConfigSignature,
-            layout: this.lastAppliedLayoutSignature,
-            composite: this.lastAppliedCompositeSignature,
+    private ensureDeviceIdentityForRuntime(): Promise<void> {
+        if (this.deviceIdentityInitialization) return this.deviceIdentityInitialization;
+
+        const initialization = ensureDeviceIdentityReady().then(
+            () => {
+                this.deviceIdentityUnavailable = null;
+            },
+            (error: unknown) => {
+                const structuredError = error instanceof Error
+                    ? error
+                    : new Error("设备身份初始化失败");
+                this.deviceIdentityUnavailable = structuredError;
+                throw structuredError;
+            },
+        );
+        this.deviceIdentityInitialization = initialization;
+        const clearInFlight = () => {
+            if (this.deviceIdentityInitialization === initialization) {
+                this.deviceIdentityInitialization = null;
+            }
         };
+        void initialization.then(clearInFlight, clearInFlight);
+        return initialization;
     }
 
-    // 签名变化时触发局部热刷新（短期锁 + pending 队列 + window 事件）
-    public triggerHomepageFullReload(reason: string): void {
-        if (this.homepageReloadTriggered) {
-            this.pendingHomepageHotReloadReason = reason;
+    private captureHomepageSurfaceError(surface: DeviceViewSurface, error: unknown): void {
+        this.readyDeviceViewSurfaces.delete(surface);
+        if (error instanceof DeviceViewMigrationBlockedError) {
+            this.deviceViewBlocked = Object.freeze(error);
+            this.homepageSurfaceUnavailable = null;
+            this.homepageSurfaceReadError = null;
+            recordDeviceViewBlockedState(error);
             return;
         }
-
-        this.pendingHomepageHotReloadReason = reason;
-        this.flushPendingHomepageHotReload(`trigger:${reason}`);
-    }
-
-    private dispatchHomepageExternalSyncChanged(reason: string): void {
-        const eventInit = {
-            detail: { reason },
-            bubbles: false,
-        };
-        window.dispatchEvent(new CustomEvent("homepage-external-sync-changed", eventInit));
-        if (this.homepageTabDiv?.isConnected) {
-            this.homepageTabDiv.dispatchEvent(
-                new CustomEvent("homepage-external-sync-changed", eventInit)
-            );
-        }
-    }
-
-    private startHomepageHotReloadWatchdog(_reason: string): void {
-        this.clearHomepageHotReloadWatchdog();
-        this.homepageHotReloadWatchdogTimer = window.setTimeout(() => {
-            this.homepageHotReloadWatchdogTimer = null;
-            if (!this.homepageReloadTriggered) {
-                return;
-            }
-            // watchdog 触发释放锁，同时清理 active reason，避免旧事件长期占用。
-            const activeReason = this.activeHomepageHotReloadReason;
-            this.homepageReloadTriggered = false;
-            this.activeHomepageHotReloadReason = null;
-
-            const pending = this.pendingHomepageHotReloadReason;
-            if (!pending) {
-                return;
-            }
-            // pending 与当前 active reason 相同，说明是同一个旧事件，不重放并清理。
-            if (pending === activeReason) {
-                this.pendingHomepageHotReloadReason = null;
-                return;
-            }
-            // pending 与当前 active reason 不同，可能是锁期间来的新事件，允许刷新一次。
-            this.scheduleFlushPendingHomepageHotReload("watchdog-release");
-        }, 30000);
-    }
-
-    private clearHomepageHotReloadWatchdog(): void {
-        if (this.homepageHotReloadWatchdogTimer) {
-            clearTimeout(this.homepageHotReloadWatchdogTimer);
-            this.homepageHotReloadWatchdogTimer = null;
-        }
-    }
-
-    private scheduleFlushPendingHomepageHotReload(reason: string): void {
-        if (this.homepagePendingFlushTimer) {
-            clearTimeout(this.homepagePendingFlushTimer);
-        }
-        this.homepagePendingFlushTimer = window.setTimeout(() => {
-            this.homepagePendingFlushTimer = null;
-            this.flushPendingHomepageHotReload(reason);
-        }, 0);
-    }
-
-    private flushPendingHomepageHotReload(reason: string): void {
-        if (this.homepageReloadTriggered) {
+        if (error instanceof DeviceViewTemporarilyIncompleteError) {
+            this.homepageSurfaceUnavailable = Object.freeze(error);
+            this.homepageSurfaceReadError = null;
             return;
         }
-        const pendingReason = this.pendingHomepageHotReloadReason;
-        if (!pendingReason) {
-            return;
-        }
-
-        if (!this.isHomepageMountedHealthy()) {
-            this.ensureHomepageMounted(`flush-pending:${reason}`);
-            if (!this.isHomepageMountedHealthy()) {
-                return;
-            }
-        }
-
-        this.pendingHomepageHotReloadReason = null;
-        this.homepageReloadTriggered = true;
-        this.activeHomepageHotReloadReason = pendingReason;
-        this.startHomepageHotReloadWatchdog(pendingReason);
-
-        window.setTimeout(() => {
-            if (!this.homepageReloadTriggered) {
-                return;
-            }
-            if (!this.isHomepageMountedHealthy()) {
-                this.pendingHomepageHotReloadReason = pendingReason;
-                this.homepageReloadTriggered = false;
-                this.activeHomepageHotReloadReason = null;
-                this.clearHomepageHotReloadWatchdog();
-                this.scheduleFlushPendingHomepageHotReload("dispatch-target-lost");
-                return;
-            }
-            this.dispatchHomepageExternalSyncChanged(pendingReason);
-        }, 0);
+        this.homepageSurfaceUnavailable = null;
+        this.homepageSurfaceReadError = error instanceof Error
+            ? error
+            : new Error("主页设备视图读取失败");
     }
 
-    // 计算配置签名（归一化后）：排除设备管理态字段，避免误判
-    private computeConfigSignature(config: any): string {
-        try {
-            const normalized = this.normalizeConfigForSignature(config);
-            return JSON.stringify(normalized);
-        } catch {
-            return "";
-        }
-    }
-
-    // 归一化配置用于签名：排除不应触发 reload 的设备管理态字段
-    private normalizeConfigForSignature(config: any): any {
-        if (!config || typeof config !== 'object') {
-            return config;
-        }
-
-        // 获取当前设备 ID 用于提取当前设备的 banner 配置
-        const deviceId = this.getLocalDeviceIdForSignature();
-
-        // 构建归一化后的配置对象
-        const normalized: any = {};
-
-        for (const key of Object.keys(config)) {
-            // 完全排除 deviceProfiles
-            if (key === 'deviceProfiles') {
-                continue;
-            }
-
-            // bannerDeviceProfiles 只保留当前设备的 bannerHeight，排除 scrollTop
-            if (key === 'bannerDeviceProfiles') {
-                if (deviceId && config[key]?.[deviceId]?.bannerHeight !== undefined) {
-                    normalized[key] = {
-                        [deviceId]: {
-                            bannerHeight: config[key][deviceId].bannerHeight
-                        }
-                    };
-                }
-                continue;
-            }
-
-            // 其他字段原样保留
-            normalized[key] = config[key];
-        }
-
-        return normalized;
-    }
-
-    // 获取本地设备 ID（用于签名归一化）
-    private getLocalDeviceIdForSignature(): string | null {
-        try {
-            // 优先从 localStorage 读取
-            const storedId = localStorage.getItem('syhomepage-device-id');
-            if (storedId) {
-                return storedId;
-            }
-        } catch {
-            // localStorage 不可用，忽略
-        }
-        return null;
-    }
-
-    // 计算布局签名
-    private computeLayoutSignature(layout: any): string {
-        try {
-            return JSON.stringify(layout);
-        } catch {
-            return "";
-        }
-    }
-
-    // plugin 侧签名检查：用于检测外部同步变化
-    // 返回 true 表示签名已变化（已触发热刷新），调用方不应阻止挂载
-    public async checkHomepageSignatureAndReload(reason: string): Promise<boolean> {
-        // 热刷新执行中时不重复比较，新的变化会由 pending 队列接住
-        if (this.homepageReloadTriggered) {
-            return true;
-        }
-
-        // 如果没有已应用签名（首次加载），跳过检查
-        const appliedSigs = this.getAppliedSignatures();
-        if (!appliedSigs.composite && !appliedSigs.config && !appliedSigs.layout) {
-            return false;
-        }
-
-        try {
-            // 读取最新配置和布局
-            const rawConfig = (await this.loadData("homepageSettingConfig.json")) || {};
-            const layout = await this.loadData("widgetLayout.json") as WidgetLayoutData | null;
-            const deviceId = this.getLocalDeviceIdForSignature();
-            const sectionsEnabled = Boolean((this as any).ADVANCED) && rawConfig?.componentSectionsEnabled === true;
-
-            // 使用统一 helper 计算复合签名（覆盖 config + layout + widget 内容）
-            const currentCompositeSig = await buildHomepageAppliedSignature(this, rawConfig, layout, deviceId, sectionsEnabled);
-
-            // 比较：优先用 composite，回退到旧 config+layout 字段
-            if (appliedSigs.composite && currentCompositeSig === appliedSigs.composite) {
-                return false;
-            }
-            if (!appliedSigs.composite) {
-                // 兼容旧签名（无 composite）
-                const layoutSettings = await loadWidgetLayoutSettings(this);
-                const currentConfigSig = this.computeConfigSignature(rawConfig);
-                const currentLayoutSig = this.computeLayoutSignature(layoutSettings);
-                if (currentConfigSig === appliedSigs.config && currentLayoutSig === appliedSigs.layout) {
-                    return false;
-                }
-            }
-
-            this.triggerHomepageFullReload(`plugin-signature-changed: ${reason}`);
-            return true;
-        } catch (e) {
-            console.warn('[Homepage] plugin 侧签名检查失败:', e);
-        }
-
-        return false;
+    private clearHomepageSurfaceReadErrors(_surface: DeviceViewSurface): void {
+        this.homepageSurfaceUnavailable = null;
+        this.homepageSurfaceReadError = null;
     }
 
     async onload() {
-        const config = await this.getPluginConfig();
+        const frontEnd = getFrontend();
+        this.isMobile = frontEnd === "mobile" || frontEnd === "browser-mobile";
+
+        // 第一部分：首个 await 前同步完成所有独立能力和最小主页入口注册。
         setSharedWidgetStoragePlugin(this);
         setKbSettingsPlugin(this);
         setReferenceNavigationPlugin(this);
@@ -461,6 +301,7 @@ export default class PluginHomepage extends Plugin {
         setEnhancedDiaryNotifyPlugin(this);
         setEnhancedDiaryNotifyRulesPlugin(this);
         setReviewNotifyPlugin(this);
+
         notificationPlanUnregisters.forEach((unregister) => unregister());
         notificationPlanUnregisters = [
             registerMobileNotificationPlanProvider(taskMobileNotificationPlanProvider),
@@ -468,41 +309,46 @@ export default class PluginHomepage extends Plugin {
             registerMobileNotificationPlanProvider(enhancedDiaryMobileNotificationPlanProvider),
             registerMobileNotificationPlanProvider(reviewMobileNotificationPlanProvider),
         ];
-        await loadSelectionAiToolbarSettingsSnapshot(this);
-        initSelectionAiToolbarPointerTracker();
         this.registerIcon();
-
-        const frontEnd = getFrontend();
-        this.isMobile = frontEnd === "mobile" || frontEnd === "browser-mobile";
         this.ensureTabContainers();
         this.registerCustomTabs();
-
-        this.eventBus.on("open-menu-doctree", this.docTreeMenuEventBindThis);
-        this.eventBus.on("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
-        this.eventBus.on("click-blockicon", this.blockIconMenuEventBindThis);
-        if (config.taskEditorEnabled ?? true) {
-            this.eventBus.on("open-menu-content", this.contentMenuEventBindThis);
-        }
+        this.registerBaseIndependentListeners();
+        this.registerMinimalHomepageEntry();
         this.data[STORAGE_NAME] = { readonlyText: "Readonly" };
 
-        this.registerTopBar(config);
-        this.registerCommand();
+        // 第二部分：启动共享身份 Promise 并立即附加失败处理，但暂不等待。
+        const identityPromise = this.ensureDeviceIdentityForRuntime();
+        void identityPromise.catch(() => undefined);
 
-        // 在非移动端时注册 dock 侧边栏
-        if ((config.sidebarEnabled ?? false) && !this.isMobile) {
-            this.registerDock();
+        // 独立业务逐项隔离失败，不能被设备身份长期 pending 阻塞。
+        try {
+            await loadSelectionAiToolbarSettingsSnapshot(this);
+        } catch (error) {
+            console.warn("[Homepage] 划词 AI 设置读取失败，划词 AI 本次停用", error);
         }
-        if ((config.aiKbDockEnabled ?? true) && !this.isMobile) {
-            this.registerKbDock();
+        initSelectionAiToolbarPointerTracker();
+        void startChatActionBridgeIfNeeded().catch((error) => {
+            console.warn("[Homepage] 聊天桥接初始化失败，本次仅停用聊天桥接", error);
+        });
+
+        // 第三部分：独立能力完成后才等待身份；失败只停用设备视图。
+        try {
+            await identityPromise;
+            const config = await this.recoverDeviceViewRuntimeAfterIdentityReady();
+            this.syncHomepageConfigDependentListeners(config);
+            this.maybeStartLegacySharedWidgetMigration();
+        } catch (error) {
+            this.syncHomepageConfigDependentListeners(null);
+            if (error instanceof DeviceViewMigrationBlockedError) {
+                if (markDeviceViewBlockedNotified(error.deviceId, error.surface)) {
+                    showMessage(formatDeviceViewBlockedUserMessage(error), 0, "error");
+                }
+            } else if (this.deviceIdentityUnavailable) {
+                showMessage("设备身份初始化失败，主页和侧边栏暂不可用；独立业务仍可使用。", 0, "error");
+            } else {
+                console.warn("[Homepage] 设备视图初始化失败；独立业务继续运行", error);
+            }
         }
-
-        // 监听全局背景相关事件：设置保存、会员状态变化
-        window.addEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
-        window.addEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
-        window.addEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
-
-        // 插件加载时应用全局背景（会员校验是异步的，后续事件会再次触发刷新）
-        await this.applyGlobalBackgroundImageStyle();
     }
 
     private async applyGlobalBackgroundImageStyle(): Promise<void> {
@@ -521,29 +367,133 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
+    private registerBaseIndependentListeners(): void {
+        if (this.baseEventListenersRegistered) return;
+        this.eventBus.on("open-menu-doctree", this.docTreeMenuEventBindThis);
+        this.eventBus.on("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
+        this.eventBus.on("click-blockicon", this.blockIconMenuEventBindThis);
+        window.addEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
+        this.baseEventListenersRegistered = true;
+    }
+
+    private syncHomepageConfigDependentListeners(config: PluginConfig | null): void {
+        const enableContentMenu = config?.taskEditorEnabled === true;
+        if (enableContentMenu && !this.contentMenuListenerRegistered) {
+            this.eventBus.on("open-menu-content", this.contentMenuEventBindThis);
+            this.contentMenuListenerRegistered = true;
+        } else if (!enableContentMenu && this.contentMenuListenerRegistered) {
+            this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
+            this.contentMenuListenerRegistered = false;
+        }
+
+        const enableWindowListeners = config !== null;
+        if (enableWindowListeners && !this.homepageWindowListenersRegistered) {
+            window.addEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
+            window.addEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
+            this.homepageWindowListenersRegistered = true;
+        } else if (!enableWindowListeners && this.homepageWindowListenersRegistered) {
+            window.removeEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
+            window.removeEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
+            this.homepageWindowListenersRegistered = false;
+        }
+        this.syncConfigCommands(config);
+        this.syncKbTopBar(config);
+    }
+
+    private registerMinimalHomepageEntry(): void {
+        this.registerHomepageTopBar();
+        if (!this.isMobile) this.registerHomepageCommand();
+    }
+
+    private async initializeHomepageSurface(config: PluginConfig): Promise<void> {
+        this.registerMinimalHomepageEntry();
+        this.syncHomepageConfigDependentListeners(config);
+
+        if (config.sidebarEnabled === true && !this.isMobile && !this.sidebarDockRegistered) {
+            this.registerDock();
+        }
+        if (config.aiKbDockEnabled === true && !this.isMobile) {
+            this.registerKbDock();
+        }
+
+        // 全局背景应用失败是非致命副作用，单独捕获，避免整个主页初始化永久卡死。
+        try {
+            // 插件加载时应用全局背景（会员校验是异步的，后续事件会再次触发刷新）
+            await this.applyGlobalBackgroundImageStyle();
+        } catch (error) {
+            console.warn("[Homepage] 初始化全局背景样式失败:", error);
+        }
+    }
+
     private async handleHomepageSettingsSaved(): Promise<void> {
-        await this.applyGlobalBackgroundImageStyle();
-        const config = await this.getPluginConfig();
-        this.mountMobileQuickActions(config);
+        const surface: DeviceViewSurface = this.isMobileFrontend() ? "mobile-homepage" : "desktop-homepage";
+        try {
+            const config = await this.getPluginConfig();
+            this.clearHomepageSurfaceReadErrors(surface);
+            this.readyDeviceViewSurfaces.add(surface);
+            await this.initializeHomepageSurface(config);
+            this.syncHomepageConfigDependentListeners(config);
+            try {
+                this.mountMobileQuickActions(config);
+            } catch (error) {
+                console.warn("[Homepage] 设置保存后刷新移动快捷操作失败:", error);
+            }
+        } catch (error) {
+            this.captureHomepageSurfaceError(surface, error);
+            this.syncHomepageConfigDependentListeners(null);
+        }
     }
 
     private async handleHomepageAdvancedReady(): Promise<void> {
-        await this.applyGlobalBackgroundImageStyle();
-        const config = await this.getPluginConfig();
-        this.mountMobileQuickActions(config);
+        const surface: DeviceViewSurface = this.isMobileFrontend() ? "mobile-homepage" : "desktop-homepage";
+        try {
+            const config = await this.getPluginConfig();
+            this.clearHomepageSurfaceReadErrors(surface);
+            this.readyDeviceViewSurfaces.add(surface);
+            this.syncHomepageConfigDependentListeners(config);
+            try {
+                this.mountMobileQuickActions(config);
+            } catch (error) {
+                console.warn("[Homepage] 高级功能就绪后刷新移动快捷操作失败:", error);
+            }
+        } catch (error) {
+            this.captureHomepageSurfaceError(surface, error);
+            this.syncHomepageConfigDependentListeners(null);
+        }
+        try {
+            await this.applyGlobalBackgroundImageStyle();
+        } catch (error) {
+            console.warn("[Homepage] 高级功能就绪后刷新全局背景样式失败:", error);
+        }
     }
 
     private async handleHomepageAdvancedUnavailable(): Promise<void> {
-        if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
-            this.currentMobileEnhancedDiaryWorkspaceDialog.close();
-            this.currentMobileEnhancedDiaryWorkspaceDialog = null;
+        try {
+            if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
+                this.currentMobileEnhancedDiaryWorkspaceDialog.close();
+                this.currentMobileEnhancedDiaryWorkspaceDialog = null;
+            }
+        } catch (error) {
+            console.warn("[Homepage] 关闭移动端增强日记工作区失败:", error);
         }
-        await this.applyGlobalBackgroundImageStyle();
-        if (this.currentMobileSettingsDialog) {
-            this.currentMobileSettingsDialog.close();
-            this.currentMobileSettingsDialog = null;
+        try {
+            await this.applyGlobalBackgroundImageStyle();
+        } catch (error) {
+            console.warn("[Homepage] 高级功能不可用后刷新全局背景样式失败:", error);
         }
-        this.destroyMobileQuickActions();
+        try {
+            if (this.currentMobileSettingsDialog) {
+                this.currentMobileSettingsDialog.close();
+                this.currentMobileSettingsDialog = null;
+            }
+        } catch (error) {
+            console.warn("[Homepage] 关闭移动端设置对话框失败:", error);
+        }
+        try {
+            this.destroyMobileQuickActions();
+        } catch (error) {
+            console.warn("[Homepage] 销毁移动快捷操作失败:", error);
+        }
     }
 
     async onunload() {
@@ -558,7 +508,12 @@ export default class PluginHomepage extends Plugin {
         if (this.pendingMobileQuickActionsPosition) {
             const pendingPosition = this.pendingMobileQuickActionsPosition;
             this.pendingMobileQuickActionsPosition = null;
-            await this.persistMobileQuickActionsPosition(pendingPosition);
+            try {
+                await this.persistMobileQuickActionsPosition(pendingPosition);
+            } catch (error) {
+                this.pendingMobileQuickActionsPosition = pendingPosition;
+                console.warn("[Homepage] 卸载时保存移动快捷操作位置失败，已保留待保存位置:", error);
+            }
         }
         await destroyChatActionBridge();
         destroyTaskNotifyScheduler();
@@ -587,6 +542,9 @@ export default class PluginHomepage extends Plugin {
         window.removeEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
         window.removeEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
         window.removeEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
+        this.baseEventListenersRegistered = false;
+        this.contentMenuListenerRegistered = false;
+        this.homepageWindowListenersRegistered = false;
         this.globalBackgroundApplyVersion++;
         cleanupGlobalBackgroundImageStyle();
 
@@ -594,14 +552,6 @@ export default class PluginHomepage extends Plugin {
         this.destroyHomepageInstance();
         this.destroyEnhancedDiaryWorkspaceInstance();
         this.destroyKbChatInstance();
-        this.clearHomepageHotReloadWatchdog();
-        this.pendingHomepageHotReloadReason = null;
-        this.activeHomepageHotReloadReason = null;
-        this.homepageReloadTriggered = false;
-        if (this.homepagePendingFlushTimer) {
-            clearTimeout(this.homepagePendingFlushTimer);
-            this.homepagePendingFlushTimer = null;
-        }
 
         // 关闭移动端对话框
         if (this.currentMobileDialog) {
@@ -639,6 +589,7 @@ export default class PluginHomepage extends Plugin {
             this.sidebarDockInstance = null;
         }
 
+        this.kbDockInitGeneration += 1;
         if (this.kbDockInstance) {
             try {
                 unmount(this.kbDockInstance);
@@ -648,12 +599,8 @@ export default class PluginHomepage extends Plugin {
             this.kbDockInstance = null;
         }
         this.kbDockRegistered = false;
+        this.sidebarDockRegistered = false;
 
-        // 断开主页 tab 连接状态观察器
-        if (this.homepageTabObserver) {
-            this.homepageTabObserver.disconnect();
-            this.homepageTabObserver = null;
-        }
         this.customTabsRegistered = false;
         this.customTab = undefined;
         this.enhancedDiaryWorkspaceTab = undefined;
@@ -677,10 +624,10 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onLayoutReady() {
-        void ensureLegacySharedWidgetMigration(this).catch((error) => {
-            console.warn("[Homepage] 共享组件历史数据迁移启动失败", error);
+        // 独立业务先启动：聊天桥接、通知中心、日记通知等不依赖设备身份。
+        void startChatActionBridgeIfNeeded().catch((error) => {
+            console.warn("[Homepage] 聊天桥接初始化失败，本次仅停用聊天桥接", error);
         });
-        void startChatActionBridgeIfNeeded();
         try {
             await ensureNotificationCenterMigration();
             startNotificationCenterRuntime();
@@ -691,24 +638,42 @@ export default class PluginHomepage extends Plugin {
         } catch (error) {
             console.warn("[Homepage] 通知中心迁移失败，业务通知调度器未启动", error);
         }
-        this.ensureTabContainers();
-        this.registerCustomTabs();
-        this.ensureHomepageTabObserver();
 
+        try {
+            await this.ensureDeviceIdentityForRuntime();
+        } catch {
+            return;
+        }
+
+        try {
+            const config = await this.recoverDeviceViewRuntimeAfterIdentityReady();
+            this.syncHomepageConfigDependentListeners(config);
+            this.maybeStartLegacySharedWidgetMigration();
+            if (!this.homepageLayoutReadyFinalized) {
+                await this.finalizeHomepageSurfaceOnLayoutReady(config);
+                this.homepageLayoutReadyFinalized = true;
+            }
+        } catch (error) {
+            this.syncHomepageConfigDependentListeners(null);
+            console.warn("[Homepage] onLayoutReady 设备视图恢复失败，独立业务继续运行", error);
+        }
+    }
+
+    private async finalizeHomepageSurfaceOnLayoutReady(config: PluginConfig): Promise<void> {
         // 检查是否在新窗口中打开
         const isNewWindow = this.isNewWindow();
 
         // 只在非新窗口中自动打开主页
         if (!isNewWindow) {
-            const config = await this.getPluginConfig();
             if (this.isMobileFrontend()) {
-                await this.verifyLicense();
-                if (this.ADVANCED && config.autoOpenMobileHomepage === true) {
-                    this.openMobileHomepage();
+                if (config.autoOpenMobileHomepage === true) {
+                    await this.openMobileHomepage();
+                } else {
+                    await this.verifyLicense();
                 }
                 this.mountMobileQuickActions(config);
             } else if (config.autoOpenHomepage === true) {
-                this.openHomepage();
+                await this.openHomepage();
                 void this.verifyLicense();
             } else {
                 this.destroyMobileQuickActions();
@@ -721,80 +686,12 @@ export default class PluginHomepage extends Plugin {
     }
 
     private ensureTabContainers(): void {
-        if (!this.homepageTabDiv) {
-            this.homepageTabDiv = document.createElement("div");
-        }
-        this.prepareHomepageContainer(this.homepageTabDiv);
-
         if (!this.enhancedDiaryWorkspaceTabDiv) {
             this.enhancedDiaryWorkspaceTabDiv = document.createElement("div");
         }
         if (!this.kbChatTabDiv) {
             this.kbChatTabDiv = document.createElement("div");
         }
-    }
-
-    private ensureHomepageTabObserver(): void {
-        if (this.homepageTabObserver) {
-            return;
-        }
-
-        // 建立防抖观察：强化日记/KB 仍可在长时间断开后销毁。
-        // 主页不因 disconnect 自动销毁，避免同步/setUILayout 临时断开导致空白。
-        const DISCONNECT_GRACE_MS = 1500;
-        let diaryDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
-        let kbDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-        const cancelDiaryDisconnect = () => {
-            if (diaryDisconnectTimer) {
-                clearTimeout(diaryDisconnectTimer);
-                diaryDisconnectTimer = null;
-            }
-        };
-        const cancelKbDisconnect = () => {
-            if (kbDisconnectTimer) {
-                clearTimeout(kbDisconnectTimer);
-                kbDisconnectTimer = null;
-            }
-        };
-
-        this.homepageTabObserver = new MutationObserver(() => {
-            // 主页：只在重新连接后自愈，不在断开时销毁实例。
-            if (this.homepageTabDiv && this.homepageTabDiv.isConnected) {
-                if (!this.isHomepageMountedHealthy()) {
-                    this.ensureHomepageMounted('mutation-reconnect');
-                }
-            }
-
-            // 强化日记工作台
-            if (this.enhancedDiaryWorkspaceTabDiv && !this.enhancedDiaryWorkspaceTabDiv.isConnected) {
-                if (!diaryDisconnectTimer && this.enhancedDiaryWorkspaceInstance) {
-                    diaryDisconnectTimer = setTimeout(() => {
-                        diaryDisconnectTimer = null;
-                        if (this.enhancedDiaryWorkspaceTabDiv && !this.enhancedDiaryWorkspaceTabDiv.isConnected) {
-                            this.destroyEnhancedDiaryWorkspaceInstance();
-                        }
-                    }, DISCONNECT_GRACE_MS);
-                }
-            } else if (this.enhancedDiaryWorkspaceTabDiv && this.enhancedDiaryWorkspaceTabDiv.isConnected) {
-                cancelDiaryDisconnect();
-            }
-
-            // KB 聊天
-            if (this.kbChatTabDiv && !this.kbChatTabDiv.isConnected) {
-                if (!kbDisconnectTimer && this.kbChatInstance) {
-                    kbDisconnectTimer = setTimeout(() => {
-                        kbDisconnectTimer = null;
-                        if (this.kbChatTabDiv && !this.kbChatTabDiv.isConnected) {
-                            this.destroyKbChatInstance();
-                        }
-                    }, DISCONNECT_GRACE_MS);
-                }
-            } else if (this.kbChatTabDiv && this.kbChatTabDiv.isConnected) {
-                cancelKbDisconnect();
-            }
-        });
-        this.homepageTabObserver.observe(document.body, { childList: true, subtree: true });
     }
 
     private registerCustomTabs(): void {
@@ -807,21 +704,48 @@ export default class PluginHomepage extends Plugin {
         this.customTab = this.addTab({
             type: TAB_TYPE,
             async init() {
-                // 轻量保护：确保 custom tab 上下文完整
-                if (!this.element) {
+                if (!this.element) return;
+                // 无论此前是未决还是失败，都先等待同一个可重试身份屏障。
+                try {
+                    await self.ensureDeviceIdentityForRuntime();
+                } catch {
+                    self.renderIdentityUnavailableNotice(this.element as HTMLElement);
                     return;
                 }
-
-                if (self.homepageTabDiv) {
-                    self.prepareHomepageTabElement(this.element as HTMLElement);
-                    self.prepareHomepageContainer(self.homepageTabDiv);
-                    this.element.replaceChildren(self.homepageTabDiv);
-                    // 先按 AI 标签页的方式恢复挂载，再处理同步签名，避免事件无人监听。
-                    self.ensureHomepageMounted('customTab.init');
+                if (self.deviceViewBlocked) {
+                    self.renderHomepageBlockedNotice(this.element as HTMLElement);
+                    return;
                 }
-
-                // plugin 侧检查签名变化；若已变化，触发局部热刷新但不阻止挂载
-                await self.checkHomepageSignatureAndReload('customTab.init');
+                try {
+                    await self.recoverDeviceViewRuntimeAfterIdentityReady();
+                } catch (error) {
+                    if (error instanceof DeviceViewMigrationBlockedError) {
+                        self.renderHomepageBlockedNotice(this.element as HTMLElement);
+                        return;
+                    }
+                    self.renderHomepageUnavailableNotice(this.element as HTMLElement);
+                    return;
+                }
+                self.destroyHomepageInstance();
+                self.homepageTabDiv = document.createElement("div");
+                self.prepareHomepageTabElement(this.element as HTMLElement);
+                self.prepareHomepageContainer(self.homepageTabDiv);
+                this.element.replaceChildren(self.homepageTabDiv);
+                self.createHomepageInstance();
+            },
+            beforeDestroy() {
+                window.dispatchEvent(new CustomEvent("siyuan-homepage:tab-before-destroy"));
+            },
+            destroy() {
+                self.destroyHomepageInstance();
+                self.homepageTabDiv = null;
+                this.element?.replaceChildren();
+            },
+            resize() {
+                self.homepageTabDiv?.dispatchEvent(new CustomEvent("homepage-tab-resize"));
+            },
+            update() {
+                self.homepageTabDiv?.dispatchEvent(new CustomEvent("homepage-tab-update"));
             },
         });
 
@@ -856,8 +780,19 @@ export default class PluginHomepage extends Plugin {
                 self.prepareKbChatContainer(this.element as HTMLElement);
                 if (!self.kbChatTabDiv) return;
 
-                const config: PluginConfig = (await self.loadData("homepageSettingConfig.json")) || {};
-                if (config.aiKbTabEnabled === false) {
+                let aiKbTabEnabled = true;
+                const primarySurface: DeviceViewSurface = self.isMobile
+                    ? "mobile-homepage"
+                    : "desktop-homepage";
+                if (!self.deviceViewBlocked && self.readyDeviceViewSurfaces.has(primarySurface)) {
+                    try {
+                        const config = await self.getPluginConfig();
+                        aiKbTabEnabled = config.aiKbTabEnabled ?? true;
+                    } catch {
+                        aiKbTabEnabled = true;
+                    }
+                }
+                if (aiKbTabEnabled === false) {
                     self.kbChatTabDiv.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:24px;text-align:center;color:var(--b3-theme-on-surface-light,#666);font-size:13px;">此功能需要开启 AI 知识库标签页，请在主页设置中启用「开启标签页对话」</div>`;
                     this.element.appendChild(self.kbChatTabDiv);
                     return;
@@ -890,6 +825,9 @@ export default class PluginHomepage extends Plugin {
 
     // 创建主页实例（仅在容器已连接到 DOM 时执行）
     private createHomepageInstance(): void {
+        if (!this.isHomepageDeviceViewAvailable()) {
+            return;
+        }
         if (!this.homepageTabDiv || !this.homepageTabDiv.isConnected) {
             // 容器未创建或未进入 DOM，暂不 mount
             return;
@@ -904,9 +842,6 @@ export default class PluginHomepage extends Plugin {
                     plugin: this,
                 }
             } as any);
-            if (this.pendingHomepageHotReloadReason) {
-                this.scheduleFlushPendingHomepageHotReload("created-instance");
-            }
         } catch (e) {
             this.homepageInstance = null;
             if (this.homepageTabDiv) {
@@ -932,54 +867,157 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
-    // 检查主页挂载是否健康
-    private isHomepageMountedHealthy(): boolean {
-        if (!this.homepageTabDiv) return false;
-        if (!this.homepageTabDiv.isConnected) return false;
-        if (!this.homepageInstance) return false;
-        if (!this.homepageTabDiv.querySelector(".homepage-container")) return false;
-        return true;
+    // 判断主页设备视图是否可用。
+    private isHomepageDeviceViewAvailable(): boolean {
+        return this.deviceViewBlocked === null
+            && this.homepageSurfaceUnavailable === null
+            && this.homepageSurfaceReadError === null
+            && this.deviceIdentityUnavailable === null;
     }
 
-    // 确保主页已挂载：若缺失则重建，若部分损坏则先销毁再重建
-    public ensureHomepageMounted(reason: string): void {
-        if (!this.homepageTabDiv || !this.homepageTabDiv.isConnected) {
-            return;
-        }
-        if (!this.homepageInstance) {
-            this.createHomepageInstance();
-            this.scheduleFlushPendingHomepageHotReload(`ensure-created:${reason}`);
-            return;
-        }
-        if (!this.homepageTabDiv.querySelector(".homepage-container")) {
-            this.destroyHomepageInstance();
-            this.createHomepageInstance();
-            this.scheduleFlushPendingHomepageHotReload(`ensure-recreated:${reason}`);
-            return;
-        }
-        if (this.pendingHomepageHotReloadReason) {
-            this.scheduleFlushPendingHomepageHotReload(`ensure-healthy:${reason}`);
-        }
-    }
+    /**
+     * 身份重试成功后执行完整设备视图恢复，不重复注册命令/Dock/事件监听器。
+     * 顺序：confirm identity → migrate primary → sidebar readiness → shared migration → verify license。
+     */
+    private async recoverDeviceViewRuntimeAfterIdentityReady(): Promise<PluginConfig> {
+        await this.ensureDeviceIdentityForRuntime();
+        if (this.deviceViewBlocked) throw this.deviceViewBlocked;
 
-    private scheduleHomepageMountedEnsure(reason: string): void {
-        [0, 80, 300, 1000].forEach((delay, index) => {
-            window.setTimeout(() => {
-                if (this.homepageTabDiv?.isConnected) {
-                    this.ensureHomepageMounted(`${reason}:${index}`);
+        const primarySurface: DeviceViewSurface = this.isMobile ? "mobile-homepage" : "desktop-homepage";
+
+        // primary 未 ready 或存在任何局部读取错误时，都必须真实重读。
+        if (
+            !this.readyDeviceViewSurfaces.has(primarySurface)
+            || this.homepageSurfaceUnavailable !== null
+            || this.homepageSurfaceReadError !== null
+        ) {
+            try {
+                const context = getCurrentDeviceViewContext(this, primarySurface);
+                await ensureCurrentDeviceViewMigrated(context);
+            } catch (error) {
+                this.captureHomepageSurfaceError(primarySurface, error);
+                if (error instanceof DeviceViewMigrationBlockedError) {
+                    if (markDeviceViewBlockedNotified(error.deviceId, error.surface)) {
+                        showMessage(formatDeviceViewBlockedUserMessage(error), 0, "error");
+                    }
                 }
-            }, delay);
-        });
+                throw error;
+            }
+        }
+
+        // sidebar 失败只影响 sidebar，并保留 primary 的独立恢复结果。
+        if (!this.isMobile && !this.readyDeviceViewSurfaces.has("desktop-sidebar")) {
+            try {
+                const sidebarContext = getCurrentDeviceViewContext(this, "desktop-sidebar");
+                await ensureCurrentDeviceViewMigrated(sidebarContext);
+                this.readyDeviceViewSurfaces.add("desktop-sidebar");
+            } catch (error) {
+                console.warn("[Homepage] desktop-sidebar readiness 未完成；仅侧边栏暂不可用", error);
+            }
+        }
+
+        try {
+            const config = await this.getPluginConfig();
+            this.clearHomepageSurfaceReadErrors(primarySurface);
+            this.readyDeviceViewSurfaces.add(primarySurface);
+            await this.initializeHomepageSurface(config);
+            this.syncHomepageConfigDependentListeners(config);
+            this.maybeStartLegacySharedWidgetMigration();
+            return config;
+        } catch (error) {
+            this.captureHomepageSurfaceError(primarySurface, error);
+            this.syncHomepageConfigDependentListeners(null);
+            throw error;
+        }
     }
 
-    // 标记热刷新完成，释放短期锁
-    public markHomepageHotReloadFinished(_reason?: string): void {
-        this.clearHomepageHotReloadWatchdog();
-        this.homepageReloadTriggered = false;
-        this.activeHomepageHotReloadReason = null;
-        if (this.pendingHomepageHotReloadReason) {
-            this.scheduleFlushPendingHomepageHotReload("hot-reload-finished");
+    private maybeStartLegacySharedWidgetMigration(): void {
+        if (this.legacySharedMigrationCompleted || this.legacySharedMigrationInFlight) return;
+        const requiredSurfaces: DeviceViewSurface[] = this.isMobile
+            ? ["mobile-homepage"]
+            : ["desktop-homepage", "desktop-sidebar"];
+        if (!requiredSurfaces.every((surface) => this.readyDeviceViewSurfaces.has(surface))) return;
+
+        let migrationStart: Promise<void>;
+        try {
+            migrationStart = ensureLegacySharedWidgetMigration(this, requiredSurfaces);
+        } catch (error) {
+            console.warn("[Homepage] 启动共享组件历史数据迁移失败；surface 保持 ready，可在下次明确操作重试", error);
+            return;
         }
+        const migration = migrationStart
+            .then(() => {
+                this.legacySharedMigrationCompleted = true;
+            })
+            .catch((error) => {
+                console.warn("[Homepage] 共享组件历史数据迁移失败；surface 保持 ready，可在下次明确操作重试", error);
+            })
+            .finally(() => {
+                if (this.legacySharedMigrationInFlight === migration) {
+                    this.legacySharedMigrationInFlight = null;
+                }
+            });
+        this.legacySharedMigrationInFlight = migration;
+    }
+
+    // 在容器内渲染设备视图阻断安全提示；不调用 showMessage，不输出完整堆栈
+    private renderHomepageBlockedNotice(container: HTMLElement): void {
+        const error = this.deviceViewBlocked;
+        if (!error) return;
+        container.innerHTML = "";
+        const root = document.createElement("div");
+        root.className = "siyuan-homepage-blocked-notice";
+        root.style.cssText = "height:100%;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;background:var(--b3-theme-background,#fff);color:var(--b3-theme-on-background,#333);";
+        const card = document.createElement("div");
+        card.style.cssText = "max-width:560px;line-height:1.7;font-size:14px;";
+        const title = document.createElement("div");
+        title.style.cssText = "font-weight:600;font-size:16px;margin-bottom:12px;color:var(--b3-theme-error,#d23f31);";
+        title.textContent = "设备视图需要手动处理";
+        const body = document.createElement("pre");
+        body.style.cssText = "white-space:pre-wrap;word-break:break-word;margin:0;font-family:inherit;";
+        body.textContent = formatDeviceViewBlockedUserMessage(error);
+        card.appendChild(title);
+        card.appendChild(body);
+        root.appendChild(card);
+        container.appendChild(root);
+    }
+
+    // 在容器内渲染主页视图暂不可用提示；不调用 showMessage，不输出错误细节
+    private renderHomepageUnavailableNotice(container: HTMLElement): void {
+        container.innerHTML = "";
+        const root = document.createElement("div");
+        root.className = "siyuan-homepage-unavailable-notice";
+        root.style.cssText = "height:100%;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;background:var(--b3-theme-background,#fff);color:var(--b3-theme-on-background,#333);";
+        const card = document.createElement("div");
+        card.style.cssText = "max-width:560px;line-height:1.7;font-size:14px;";
+        const title = document.createElement("div");
+        title.style.cssText = "font-weight:600;font-size:16px;margin-bottom:12px;color:var(--b3-theme-on-surface-light,#666);";
+        title.textContent = "主页视图暂不可用";
+        const body = document.createElement("div");
+        body.style.cssText = "white-space:pre-wrap;word-break:break-word;";
+        body.textContent = "当前设备主页视图暂时无法安全读取。请稍后关闭并重新打开主页重试；插件不会主动重建或覆盖视图。";
+        card.appendChild(title);
+        card.appendChild(body);
+        root.appendChild(card);
+        container.appendChild(root);
+    }
+
+    private renderIdentityUnavailableNotice(container: HTMLElement): void {
+        container.replaceChildren();
+        const root = document.createElement("div");
+        root.className = "homepage-blocked-notice";
+        const card = document.createElement("div");
+        card.className = "homepage-blocked-card";
+        const title = document.createElement("div");
+        title.className = "homepage-blocked-title";
+        title.textContent = "设备身份暂不可用";
+        const body = document.createElement("div");
+        body.className = "homepage-blocked-body";
+        body.textContent = "思源系统配置读取失败，主页功能暂不可用。请检查网络连接或重启思源后重新打开主页。";
+        card.appendChild(title);
+        card.appendChild(body);
+        root.appendChild(card);
+        container.appendChild(root);
     }
 
     private createEnhancedDiaryWorkspaceInstance(): void {
@@ -1060,17 +1098,6 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
-    // 重建主页实例（用于恢复坏掉的实例）
-    public reloadHomepageInstance(): void {
-        if (this.homepageTabDiv && this.homepageTabDiv.isConnected) {
-            this.destroyHomepageInstance();
-            this.createHomepageInstance();
-            this.ensureHomepageMounted('reloadHomepageInstance');
-        } else {
-            this.destroyHomepageInstance();
-        }
-    }
-
     private async verifyLicense() {
         try {
             const vipInfo = await advanced.updateVIP();
@@ -1130,16 +1157,8 @@ export default class PluginHomepage extends Plugin {
         this.addIcons(svg);
     }
 
-    private registerCommand() {
-        this.addCommand({
-            langKey: "快速笔记",
-            hotkey: "⇧⌘Q",
-            callback: () => {
-                void this.openQuickNotesDialog();
-            },
-        });
-
-        // 添加快速打开主页的快捷键命令
+    private registerHomepageCommand(): void {
+        if (this.homepageCommandRegistered) return;
         this.addCommand({
             langKey: "打开主页",
             hotkey: "⇧⌘H",
@@ -1153,61 +1172,89 @@ export default class PluginHomepage extends Plugin {
                 }
             },
         });
+        this.homepageCommandRegistered = true;
     }
 
-    private async openQuickNotesDialog(): Promise<void> {
-        const config = await this.getPluginConfig();
-        const quickNotesEnabled = config.quickNotesEnabled;
-        const quickNotesPosition = config.quickNotesPosition;
-        const quickNotesTimestampEnabled = config.quickNotesTimestampEnabled;
-        const quickNotesAddPosition = config.quickNotesAddPosition;
-
-        if (!quickNotesEnabled) {
-            showMessage("❌请先在主页设置中开启快速笔记");
-            return;
-        } else if (!quickNotesPosition || !String(quickNotesPosition).trim()) {
-            showMessage("❌请先在主页设置中设置快速笔记的位置");
-            return;
-        } else {
-            const dialog = svelteDialog({
-                title: "快速笔记",
-                constructor: (containerEl: HTMLElement) => {
-                    return mount(QuickNotesDialog as any, {
-                        target: containerEl,
-                        props: {
-                            quickNotesPosition,
-                            quickNotesTimestampEnabled,
-                            quickNotesAddPosition,
-                            close: () => {
-                                dialog.close();
-                            },
-                        },
-                    });
+    private syncConfigCommands(config: PluginConfig | null): void {
+        const shouldRegisterQuickNotes = config?.quickNotesEnabled === true;
+        if (shouldRegisterQuickNotes && !this.quickNotesCommandRegistered) {
+            this.addCommand({
+                langKey: "快速笔记",
+                hotkey: "⇧⌘Q",
+                callback: () => {
+                    void this.openQuickNotesDialog();
                 },
             });
+            this.quickNotesCommandRegistered = true;
+        } else if (!shouldRegisterQuickNotes && this.quickNotesCommandRegistered) {
+            for (let index = this.commands.length - 1; index >= 0; index -= 1) {
+                if (this.commands[index]?.langKey === "快速笔记") this.commands.splice(index, 1);
+            }
+            this.quickNotesCommandRegistered = false;
         }
     }
 
-    private registerTopBar(config: PluginConfig) {
-        this.removeExistingTopBar("homepage", this.homepageTopBarElement);
-        this.removeExistingTopBar("kb-chat", this.kbTopBarElement);
+    private async openQuickNotesDialog(): Promise<void> {
+        try {
+            const config = await this.getPluginConfig();
+            const quickNotesEnabled = config.quickNotesEnabled;
+            const quickNotesPosition = config.quickNotesPosition;
+            const quickNotesTimestampEnabled = config.quickNotesTimestampEnabled;
+            const quickNotesAddPosition = config.quickNotesAddPosition;
 
+            if (!quickNotesEnabled) {
+                showMessage("❌请先在主页设置中开启快速笔记");
+                return;
+            } else if (!quickNotesPosition || !String(quickNotesPosition).trim()) {
+                showMessage("❌请先在主页设置中设置快速笔记的位置");
+                return;
+            } else {
+                const dialog = svelteDialog({
+                    title: "快速笔记",
+                    constructor: (containerEl: HTMLElement) => {
+                        return mount(QuickNotesDialog as any, {
+                            target: containerEl,
+                            props: {
+                                quickNotesPosition,
+                                quickNotesTimestampEnabled,
+                                quickNotesAddPosition,
+                                close: () => {
+                                    dialog.close();
+                                },
+                            },
+                        });
+                    },
+                });
+            }
+        } catch (error) {
+            console.warn("[Homepage] 打开快速笔记失败:", error);
+            showMessage("快速笔记配置暂不可读，请稍后重试");
+        }
+    }
+
+    private registerHomepageTopBar(): void {
+        if (this.homepageTopBarElement?.isConnected) return;
+        this.removeExistingTopBar("homepage", this.homepageTopBarElement);
         const homepageTopBar = this.addTopBar({
             icon: "iconhomepage",
             title: "打开主页",
             position: "left",
             callback: () => {
                 if (this.isMobile) {
-                    this.openMobileHomepage();
+                    void this.openMobileHomepage();
                 } else {
-                    this.openHomepage();
+                    void this.openHomepage();
                 }
             }
         });
         homepageTopBar.dataset.siyuanHomepageTopbar = "homepage";
         this.homepageTopBarElement = homepageTopBar;
+    }
 
-        if (config.aiKbTabEnabled ?? true) {
+    private syncKbTopBar(config: PluginConfig | null): void {
+        if (config?.aiKbTabEnabled === true) {
+            if (this.kbTopBarElement?.isConnected) return;
+            this.removeExistingTopBar("kb-chat", this.kbTopBarElement);
             const kbTopBar = this.addTopBar({
                 icon: "iconNotebrain",
                 title: "打开 AI 知识库",
@@ -1217,6 +1264,7 @@ export default class PluginHomepage extends Plugin {
             kbTopBar.dataset.siyuanHomepageTopbar = "kb-chat";
             this.kbTopBarElement = kbTopBar;
         } else {
+            this.removeExistingTopBar("kb-chat", this.kbTopBarElement);
             this.kbTopBarElement = null;
         }
     }
@@ -1326,7 +1374,9 @@ export default class PluginHomepage extends Plugin {
                 this.mobileQuickActionsPositionSaveTimer = null;
             }
             this.pendingMobileQuickActionsPosition = null;
-            void this.persistMobileQuickActionsPosition(normalizedPosition);
+            void this.persistMobileQuickActionsPosition(normalizedPosition).catch((error) => {
+                this.restorePendingMobileQuickActionsPosition(normalizedPosition, error);
+            });
             return;
         }
 
@@ -1336,17 +1386,32 @@ export default class PluginHomepage extends Plugin {
             const pendingPosition = this.pendingMobileQuickActionsPosition;
             this.pendingMobileQuickActionsPosition = null;
             if (pendingPosition) {
-                void this.persistMobileQuickActionsPosition(pendingPosition);
+                void this.persistMobileQuickActionsPosition(pendingPosition).catch((error) => {
+                    this.restorePendingMobileQuickActionsPosition(pendingPosition, error);
+                });
             }
         }, 160);
     }
 
+    private restorePendingMobileQuickActionsPosition(
+        position: MobileQuickActionsPosition,
+        error: unknown,
+    ): void {
+        if (!this.pendingMobileQuickActionsPosition) {
+            this.pendingMobileQuickActionsPosition = position;
+        }
+        console.warn("[Homepage] 保存移动快捷操作位置失败，已保留最后待保存位置:", error);
+    }
+
     private async persistMobileQuickActionsPosition(position: MobileQuickActionsPosition): Promise<void> {
-        const config = await this.getPluginConfig();
-        await this.saveData("homepageSettingConfig.json", {
+        const context = getCurrentDeviceViewContext(this, "mobile-homepage");
+        await loadHomepageConfigDataStrict(this, "mobile-homepage");
+        const current = await readDeviceViewSettings(context);
+        if (!current) throw new Error("当前设备 mobile-homepage 的 view.json 缺失");
+        await updateDeviceViewSettings(context, (config) => ({
             ...config,
             mobileQuickActionsPosition: normalizeMobileQuickActionsPosition(position),
-        });
+        }), { expectedRevision: current.revision });
     }
 
     private destroyMobileQuickActions(): void {
@@ -1374,11 +1439,6 @@ export default class PluginHomepage extends Plugin {
                 id: TAB_ID,
             },
         });
-
-        this.scheduleHomepageMountedEnsure('openHomepage');
-        window.setTimeout(async () => {
-            await this.checkHomepageSignatureAndReload('openHomepage');
-        }, 0);
     }
 
     public openEnhancedDiaryWorkspace(initialTab = "overview"): void {
@@ -1490,7 +1550,7 @@ export default class PluginHomepage extends Plugin {
             return;
         }
 
-        const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
+        const config = await this.getPluginConfig();
         if (config.aiKbTabEnabled === false) {
             showMessage("AI 知识库标签页对话未开启，请在主页设置中启用", 3000);
             return;
@@ -1630,7 +1690,7 @@ export default class PluginHomepage extends Plugin {
             return true;
         }
 
-        const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
+        const config = await this.getPluginConfig();
         if (config.aiKbDockEnabled === false) {
             pushAgentDebugEvent("SELECTION_AI_DOCK_OPEN_FAILED", {
                 reason: "ai_kb_dock_disabled",
@@ -1718,7 +1778,19 @@ export default class PluginHomepage extends Plugin {
         return false;
     }
 
-    private openMobileHomepage() {
+    private async openMobileHomepage(): Promise<void> {
+        try {
+            await this.ensureDeviceIdentityForRuntime();
+            await this.recoverDeviceViewRuntimeAfterIdentityReady();
+            await this.verifyLicense();
+        } catch (error) {
+            if (error instanceof DeviceViewMigrationBlockedError) {
+                showMessage(formatDeviceViewBlockedUserMessage(error), 0, "error");
+            } else {
+                showMessage("移动主页暂不可用；未修改现有主页数据，请稍后重试。", 5000, "error");
+            }
+            return;
+        }
         if (!this.ADVANCED) {
             showMessage("移动端主页为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
             return;
@@ -1816,10 +1888,12 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async getPluginConfig(): Promise<PluginConfig> {
-        return (await this.loadData("homepageSettingConfig.json")) || {};
+        const surface = this.isMobileFrontend() ? "mobile-homepage" : "desktop-homepage";
+        return (await loadHomepageConfigDataStrict(this, surface)).data as PluginConfig;
     }
 
     private registerDock() {
+        if (this.sidebarDockRegistered) return;
         this.addDock({
             config: {
                 position: "RightTop",
@@ -1859,6 +1933,7 @@ export default class PluginHomepage extends Plugin {
                 dock.element.appendChild(sidebarContainer);
             },
         });
+        this.sidebarDockRegistered = true;
     }
 
     private registerKbDock() {
@@ -1874,6 +1949,7 @@ export default class PluginHomepage extends Plugin {
             data: {},
             type: KB_DOCK_TYPE,
             init: (dock) => {
+                const initGeneration = ++this.kbDockInitGeneration;
                 if (this.kbDockInstance) {
                     try {
                         unmount(this.kbDockInstance);
@@ -1893,26 +1969,64 @@ export default class PluginHomepage extends Plugin {
                 kbContainer.style.height = "100%";
                 kbContainer.style.width = "100%";
 
-                void (async () => {
-                    const config: PluginConfig = (await this.loadData("homepageSettingConfig.json")) || {};
-                    if (config.aiKbDockEnabled === false) {
-                        kbContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;padding:24px;text-align:center;color:var(--b3-theme-on-surface-light,#666);font-size:13px;">此功能需要开启 AI 知识库侧边栏，请在主页设置中启用「开启侧边栏对话」</div>`;
-                        dock.element.appendChild(kbContainer);
-                        return;
-                    }
-
-                    this.kbDockInstance = mount(KbPremiumGatePanel as any, {
-                        target: kbContainer,
-                        props: {
-                            plugin: this,
-                            placement: "dock",
-                            onOpenSettings: () => this.openKbSettingsDialog(),
-                        },
-                    } as any);
+                const isCurrentDockInit = (): boolean => (
+                    this.kbDockInitGeneration === initGeneration
+                    && dock.element.isConnected
+                );
+                const appendContainerOnce = (): boolean => {
+                    if (!isCurrentDockInit()) return false;
+                    if (kbContainer.parentElement === dock.element) return true;
+                    if (kbContainer.parentElement) return false;
                     dock.element.appendChild(kbContainer);
+                    return true;
+                };
+                const showLocalNotice = (message: string): void => {
+                    if (!appendContainerOnce()) return;
+                    const notice = document.createElement("div");
+                    notice.style.cssText = "display:flex;align-items:center;justify-content:center;height:100%;padding:24px;text-align:center;color:var(--b3-theme-on-surface-light,#666);font-size:13px;";
+                    notice.textContent = message;
+                    kbContainer.replaceChildren(notice);
+                };
+
+                void (async () => {
+                    try {
+                        const config = await this.getPluginConfig();
+                        if (!isCurrentDockInit()) return;
+                        if (config.aiKbDockEnabled === false) {
+                            showLocalNotice("此功能需要开启 AI 知识库侧边栏，请在主页设置中启用「开启侧边栏对话」");
+                            return;
+                        }
+                        if (!appendContainerOnce()) return;
+                        const instance = mount(KbPremiumGatePanel as any, {
+                            target: kbContainer,
+                            props: {
+                                plugin: this,
+                                placement: "dock",
+                                onOpenSettings: () => this.openKbSettingsDialog(),
+                            },
+                        } as any);
+                        if (!isCurrentDockInit()) {
+                            try {
+                                unmount(instance);
+                            } catch {
+                                // Dock 已销毁，忽略延迟实例的局部收尾错误。
+                            }
+                            return;
+                        }
+                        this.kbDockInstance = instance;
+                    } catch {
+                        if (!isCurrentDockInit()) return;
+                        try {
+                            showLocalNotice("AI 知识库配置暂不可读，请关闭并重新打开 Dock 后重试。");
+                        } catch {
+                            // Dock 局部提示失败也不得形成未处理的 Promise rejection。
+                        }
+                        console.warn("[Homepage] KB Dock 初始化失败，请关闭并重新打开 Dock 后重试");
+                    }
                 })();
             },
             destroy: () => {
+                this.kbDockInitGeneration += 1;
                 if (this.kbDockInstance) {
                     try {
                         unmount(this.kbDockInstance);

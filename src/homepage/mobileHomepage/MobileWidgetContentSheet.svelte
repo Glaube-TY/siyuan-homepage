@@ -8,6 +8,7 @@
         getMobileWidgetLabel,
         type MobileAddCategoryId,
     } from "./mobile-widget-categories";
+    import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
     interface Props {
         plugin: any;
@@ -15,6 +16,7 @@
         initialContentType?: string;
         onClose: () => void;
         onConfirm: (contentTypeJson: string) => void | Promise<void>;
+        deviceViewContext: DeviceViewContext;
     }
 
     let {
@@ -23,6 +25,7 @@
         initialContentType = "",
         onClose,
         onConfirm,
+        deviceViewContext,
     }: Props = $props();
 
     type SheetView = "categories" | "widgets" | "settings";
@@ -129,6 +132,7 @@
                     widgetType={selectedContentType}
                     onClose={onClose}
                     onConfirm={onConfirm}
+                    {deviceViewContext}
                 />
             {/key}
         {/if}
