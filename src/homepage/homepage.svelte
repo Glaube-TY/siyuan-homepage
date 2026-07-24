@@ -3104,7 +3104,7 @@
             </button>
         </div>
 
-        {#if bannerTitleIntegrated && $showBanner}
+        {#if homepageConfigLoaded && bannerTitleIntegrated && $showBanner}
             <div class="banner-title-layer">
                 <div class="banner-title-content">
                     <div class="header-content">
@@ -3227,7 +3227,7 @@
     </div>
 
     <!-- 头部快捷区域 -->
-    {#if !(bannerTitleIntegrated && $showBanner)}
+    {#if homepageConfigLoaded && !(bannerTitleIntegrated && $showBanner)}
         <div class="section workspace-header">
             <div class="header-content">
                 {#if $showIcon}
