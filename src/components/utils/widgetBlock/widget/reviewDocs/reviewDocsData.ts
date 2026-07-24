@@ -1,5 +1,6 @@
 import {
     assertSharedWidgetYearFilesComplete,
+    hasValidatedSharedWidgetMigration,
     loadSharedJson,
     mutateSharedJson,
     readSharedWidgetDirectoryChecked,
@@ -286,13 +287,21 @@ async function loadOrRepairIndex(): Promise<ReviewLogIndexFile> {
     return index;
 }
 
+async function loadReviewLogIndexForRead(): Promise<ReviewLogIndexFile> {
+    const existing = await loadSharedJson(REVIEW_LOG_INDEX_FILE, normalizeReviewLogIndexFile);
+    if (hasValidatedSharedWidgetMigration(existing)) return existing;
+
+    await assertSharedWidgetMigrationReady("review-docs");
+    const migrated = await runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, loadOrRepairIndex);
+    if (!hasValidatedSharedWidgetMigration(migrated)) {
+        throw new Error("复习日志历史迁移尚未完成");
+    }
+    return migrated;
+}
+
 export async function getReviewLogStoreStatus(): Promise<ReviewLogStoreStatus> {
     try {
-        await assertSharedWidgetMigrationReady("review-docs");
-        const index = await runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, loadOrRepairIndex);
-        if (index.migration?.status === "failed") {
-            return { ok: false, missingFields: [], message: "旧数据迁移尚未完成，请重新加载插件后重试。" };
-        }
+        const index = await loadReviewLogIndexForRead();
         return {
             ok: true,
             missingFields: [],
@@ -360,9 +369,8 @@ export async function appendReviewLog(entry: ReviewLogEntry): Promise<ReviewLogW
 }
 
 export async function loadReviewLogStats(): Promise<ReviewLogStats> {
-    await assertSharedWidgetMigrationReady("review-docs");
+    const index = await loadReviewLogIndexForRead();
     return runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, async () => {
-        const index = await loadOrRepairIndex();
         const year = new Date().getFullYear();
         const current = await loadSharedJson(getReviewLogsFile(year), (raw) => normalizeReviewLogsYearFile(raw, year));
         const today = toLocalDateString();

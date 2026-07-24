@@ -73,6 +73,7 @@
     let form = $state<FixedAssetForm>(createEmptyForm());
     let iconPickerButtonRef = $state<HTMLButtonElement | null>(null);
     let unsubscribeDataUpdated: (() => void) | null = null;
+    let destroyed = false;
 
     let sortedAssets = $derived(sortAssets(assets, sortBy).slice(0, listLimit));
     let totalCost = $derived(assets.reduce((sum, asset) => sum + getAssetTotalCost(asset), 0));
@@ -147,18 +148,24 @@
         return cards;
     });
 
-    onMount(async () => {
+    onMount(() => {
         advancedEnabled = Boolean(plugin?.ADVANCED);
         if (!advancedEnabled) {
             isLoading = false;
             return;
         }
 
-        await refreshAssets();
-        unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("fixed-assets", () => void refreshAssets());
+        unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("fixed-assets", () => {
+            void refreshAssets();
+        });
+        void refreshAssets();
     });
 
-    onDestroy(() => unsubscribeDataUpdated?.());
+    onDestroy(() => {
+        destroyed = true;
+        unsubscribeDataUpdated?.();
+        unsubscribeDataUpdated = null;
+    });
 
     function parseContent(value: string): any {
         try {
@@ -218,11 +225,24 @@
     }
 
     async function refreshAssets(): Promise<void> {
+        if (destroyed) return;
         isLoading = true;
-        const result = await loadFixedAssets();
-        assets = result.assets;
-        status = result.status;
-        isLoading = false;
+        try {
+            const result = await loadFixedAssets();
+            if (destroyed) return;
+            assets = result.assets;
+            status = result.status;
+        } catch (error) {
+            if (destroyed) return;
+            assets = [];
+            status = {
+                ok: false,
+                missingFields: [],
+                message: error instanceof Error ? error.message : "固定资产数据加载失败",
+            };
+        } finally {
+            if (!destroyed) isLoading = false;
+        }
     }
 
     function sortAssets(list: FixedAssetRecord[], sortValue: FixedAssetSortBy): FixedAssetRecord[] {

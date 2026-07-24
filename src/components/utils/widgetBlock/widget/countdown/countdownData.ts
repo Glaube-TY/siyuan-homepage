@@ -1,5 +1,6 @@
 import {
   COUNTDOWN_STORE_TRANSACTION_LOCK,
+  hasValidatedSharedWidgetMigration,
   loadSharedJson,
   loadSharedRawJson,
   mutateSharedJson,
@@ -419,19 +420,45 @@ async function loadFileUnlocked(): Promise<CountdownEventsFile> {
   );
 }
 
+async function loadCountdownFileForRead(): Promise<CountdownEventsFile> {
+  const raw = await loadSharedRawJson(COUNTDOWN_EVENTS_FILE);
+  const existing =
+    raw === null ? null : normalizeCountdownEventsFile(raw);
+  const hasCurrentSchema =
+    raw !== null &&
+    typeof raw === "object" &&
+    !Array.isArray(raw) &&
+    (raw as Record<string, unknown>).version === COUNTDOWN_EVENTS_VERSION;
+  if (
+    hasCurrentSchema &&
+    hasValidatedSharedWidgetMigration(existing)
+  ) {
+    return existing;
+  }
+
+  await assertSharedWidgetMigrationReady("countdown");
+  await runSharedWidgetExclusive(
+    COUNTDOWN_STORE_TRANSACTION_LOCK,
+    migrateV1IfNeeded,
+  );
+  const migrated = await loadSharedJson(
+    COUNTDOWN_EVENTS_FILE,
+    normalizeCountdownEventsFile,
+  );
+  if (!migrated) throw new Error("纪念日数据文件不存在或尚未同步完成");
+  if (!hasValidatedSharedWidgetMigration(migrated)) {
+    throw new Error("纪念日历史迁移尚未完成");
+  }
+  return migrated;
+}
+
+export async function ensureCountdownStoreReadable(): Promise<void> {
+  await loadCountdownFileForRead();
+}
+
 export async function getCountdownStoreStatus(): Promise<CountdownStoreStatus> {
   try {
-    await assertSharedWidgetMigrationReady("countdown");
-    const file = await loadSharedJson(
-      COUNTDOWN_EVENTS_FILE,
-      normalizeCountdownEventsFile,
-    );
-    if (file?.migration?.status === "failed")
-      return {
-        ok: false,
-        missingFields: [],
-        message: "旧数据迁移尚未完成，请重新加载插件后重试。",
-      };
+    const file = await loadCountdownFileForRead();
     return {
       ok: true,
       missingFields: [],
@@ -452,12 +479,7 @@ export async function getCountdownStoreStatus(): Promise<CountdownStoreStatus> {
 export async function loadCountdownCenterData(
   options: { includeArchived?: boolean } = {},
 ): Promise<CountdownCenterLoadResult> {
-  await assertSharedWidgetMigrationReady("countdown");
-  await runSharedWidgetExclusive(
-    COUNTDOWN_STORE_TRANSACTION_LOCK,
-    migrateV1IfNeeded,
-  );
-  const file = await loadFileUnlocked();
+  const file = await loadCountdownFileForRead();
   const includeArchived = options.includeArchived === true;
   return {
     file,

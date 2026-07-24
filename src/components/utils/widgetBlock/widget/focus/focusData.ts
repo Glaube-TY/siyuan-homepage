@@ -1,6 +1,7 @@
 import {
     assertSharedWidgetYearFilesComplete,
     FOCUS_STORE_TRANSACTION_LOCK,
+    hasValidatedSharedWidgetMigration,
     loadSharedJson,
     mutateSharedJson,
     readSharedWidgetDirectoryChecked,
@@ -436,13 +437,21 @@ async function loadOrRepairFocusIndex(): Promise<FocusIndexFile> {
     return index;
 }
 
+async function loadFocusIndexForRead(): Promise<FocusIndexFile> {
+    const existing = await loadSharedJson(FOCUS_INDEX_FILE, normalizeFocusIndexFile);
+    if (hasValidatedSharedWidgetMigration(existing)) return existing;
+
+    await assertSharedWidgetMigrationReady("focus");
+    const migrated = await runSharedWidgetExclusive(FOCUS_STORE_TRANSACTION_LOCK, loadOrRepairFocusIndex);
+    if (!hasValidatedSharedWidgetMigration(migrated)) {
+        throw new Error("专注历史迁移尚未完成");
+    }
+    return migrated;
+}
+
 export async function getFocusStoreStatus(): Promise<FocusStoreStatus> {
     try {
-        await assertSharedWidgetMigrationReady("focus");
-        const index = await runSharedWidgetExclusive(FOCUS_STORE_TRANSACTION_LOCK, loadOrRepairFocusIndex);
-        if (index.migration?.status === "failed") {
-            return { ok: false, missingFields: [], message: "旧数据迁移尚未完成，请重新加载插件后重试。" };
-        }
+        const index = await loadFocusIndexForRead();
         return {
             ok: true,
             missingFields: [],
@@ -454,8 +463,7 @@ export async function getFocusStoreStatus(): Promise<FocusStoreStatus> {
 }
 
 export async function loadFocusStatistics(): Promise<FocusStatistics> {
-    await assertSharedWidgetMigrationReady("focus");
-    const index = await runSharedWidgetExclusive(FOCUS_STORE_TRANSACTION_LOCK, loadOrRepairFocusIndex);
+    const index = await loadFocusIndexForRead();
     return { totalFocusTime: index.totalFocusTime, totalFocusTimes: index.totalFocusTimes };
 }
 

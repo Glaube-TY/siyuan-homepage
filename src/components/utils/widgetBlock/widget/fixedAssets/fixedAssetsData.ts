@@ -1,5 +1,6 @@
 import {
     FIXED_ASSETS_STORE_TRANSACTION_LOCK,
+    hasValidatedSharedWidgetMigration,
     loadSharedJson,
     mutateSharedJson,
     runSharedWidgetExclusive,
@@ -158,17 +159,26 @@ function validateAssets(actual: FixedAssetsFile, expected: FixedAssetsFile): voi
     validateFixedAssetRecords(actual.assets, expected.assets);
 }
 
+async function loadFixedAssetsFileForRead(): Promise<FixedAssetsFile> {
+    const existing = await loadSharedJson(FIXED_ASSETS_FILE, normalizeFixedAssetsFile);
+    if (hasValidatedSharedWidgetMigration(existing)) return existing;
+
+    await assertSharedWidgetMigrationReady("fixed-assets");
+    const migrated = await loadSharedJson(FIXED_ASSETS_FILE, normalizeFixedAssetsFile);
+    if (!migrated) throw new Error("固定资产数据文件不存在或尚未同步完成");
+    if (!hasValidatedSharedWidgetMigration(migrated)) {
+        throw new Error("固定资产历史迁移尚未完成");
+    }
+    return migrated;
+}
+
 export async function getFixedAssetsStoreStatus(): Promise<FixedAssetsStoreStatus> {
     try {
-        await assertSharedWidgetMigrationReady("fixed-assets");
-        const file = await loadSharedJson(FIXED_ASSETS_FILE, normalizeFixedAssetsFile);
-        if (file?.migration?.status === "failed") {
-            return { ok: false, missingFields: [], message: "旧数据迁移尚未完成，请重新加载插件后重试。" };
-        }
+        const file = await loadFixedAssetsFileForRead();
         return {
             ok: true,
             missingFields: [],
-            message: file?.migration?.cleanupStatus === "pending" ? "旧数据库清理待重试" : "本地数据已就绪",
+            message: file.migration?.cleanupStatus === "pending" ? "旧数据库清理待重试" : "本地数据已就绪",
         };
     } catch (error) {
         return { ok: false, missingFields: [], message: error instanceof Error ? error.message : "本地存储不可用" };
@@ -176,10 +186,9 @@ export async function getFixedAssetsStoreStatus(): Promise<FixedAssetsStoreStatu
 }
 
 export async function loadFixedAssets(): Promise<FixedAssetsLoadResult> {
-    await assertSharedWidgetMigrationReady("fixed-assets");
-    const file = await loadSharedJson(FIXED_ASSETS_FILE, normalizeFixedAssetsFile);
+    const file = await loadFixedAssetsFileForRead();
     return {
-        assets: (file?.assets || []).filter((asset) => !asset.archived),
+        assets: file.assets.filter((asset) => !asset.archived),
         status: { ok: true, missingFields: [], message: "本地数据已就绪" },
     };
 }

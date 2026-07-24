@@ -1,6 +1,7 @@
 import {
     assertSharedWidgetYearFilesComplete,
     CYBMOK_STORE_TRANSACTION_LOCK,
+    hasValidatedSharedWidgetMigration,
     loadSharedJson,
     mutateSharedJson,
     readSharedWidgetDirectoryChecked,
@@ -398,13 +399,24 @@ export async function rebuildCYBMOKIndexFromFiles(options: {
     });
 }
 
+async function loadCYBMOKIndexForRead(): Promise<CYBMOKIndexFile> {
+    const existing = await loadSharedJson(CYBMOK_INDEX_FILE, normalizeCYBMOKIndexFile);
+    if (hasValidatedSharedWidgetMigration(existing)) return existing;
+
+    await assertSharedWidgetMigrationReady("cybmok");
+    const migrated = await runSharedWidgetExclusive(
+        CYBMOK_STORE_TRANSACTION_LOCK,
+        () => loadOrRepairCYBMOKIndex({ dispatch: false }),
+    );
+    if (!hasValidatedSharedWidgetMigration(migrated)) {
+        throw new Error("敲木鱼历史迁移尚未完成");
+    }
+    return migrated;
+}
+
 export async function getCYBMOKStoreStatus(): Promise<CYBMOKStoreStatus> {
     try {
-        await assertSharedWidgetMigrationReady("cybmok");
-        const index = await runSharedWidgetExclusive(CYBMOK_STORE_TRANSACTION_LOCK, loadOrRepairCYBMOKIndex);
-        if (index.migration?.status === "failed") {
-            return { ok: false, missingFields: [], message: "旧数据迁移尚未完成，请重新加载插件后重试。" };
-        }
+        const index = await loadCYBMOKIndexForRead();
         return {
             ok: true,
             missingFields: [],
@@ -416,8 +428,7 @@ export async function getCYBMOKStoreStatus(): Promise<CYBMOKStoreStatus> {
 }
 
 export async function loadCYBMOKStats(): Promise<CYBMOKStats> {
-    await assertSharedWidgetMigrationReady("cybmok");
-    const index = await runSharedWidgetExclusive(CYBMOK_STORE_TRANSACTION_LOCK, loadOrRepairCYBMOKIndex);
+    const index = await loadCYBMOKIndexForRead();
     const max = index.maxDay;
     const formatted = max.localDate
         ? `${max.localDate.slice(0, 4)}年${max.localDate.slice(5, 7)}月${max.localDate.slice(8, 10)}日`

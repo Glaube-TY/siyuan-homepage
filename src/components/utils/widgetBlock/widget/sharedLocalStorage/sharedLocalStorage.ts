@@ -38,6 +38,15 @@ export interface SharedWidgetMigrationMetadata {
     }>;
 }
 
+export function hasValidatedSharedWidgetMigration(
+    file: (SharedRevisionedFile & { migration?: SharedWidgetMigrationMetadata }) | null,
+): boolean {
+    const migration = file?.migration;
+    return migration?.dataValidated === true
+        && (migration.status === "complete" || migration.status === "cleanup-pending")
+        && (migration.cleanupStatus === "complete" || migration.cleanupStatus === "pending");
+}
+
 export type SharedJsonNormalizer<T extends SharedRevisionedFile> = (raw: unknown) => T;
 export type SharedJsonValidator<T extends SharedRevisionedFile> = (actual: T, expected: T) => void;
 

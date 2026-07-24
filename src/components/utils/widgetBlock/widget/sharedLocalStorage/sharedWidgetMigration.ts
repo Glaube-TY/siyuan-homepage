@@ -72,6 +72,7 @@ import {
   FIXED_ASSETS_STORE_TRANSACTION_LOCK,
   FOCUS_STORE_TRANSACTION_LOCK,
   getSharedWidgetStoragePlugin,
+  hasValidatedSharedWidgetMigration,
   loadSharedRawJson,
   loadSharedJson,
   mutateSharedJson,
@@ -242,11 +243,7 @@ function hasCompletedMigration(
     | (SharedRevisionedFile & { migration?: SharedWidgetMigrationMetadata })
     | null,
 ): boolean {
-  return (
-    file?.migration?.dataValidated === true &&
-    (file.migration.status === "complete" ||
-      file.migration.status === "cleanup-pending")
-  );
+  return hasValidatedSharedWidgetMigration(file);
 }
 
 function mergePendingDatabaseRows(

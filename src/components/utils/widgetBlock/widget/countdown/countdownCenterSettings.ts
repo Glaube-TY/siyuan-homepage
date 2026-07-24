@@ -16,6 +16,7 @@ import {
   type CountdownDisplayPreferences,
   type CountdownWidgetViewConfig,
 } from "./countdownTypes";
+import { ensureCountdownStoreReadable } from "./countdownData";
 
 export const COUNTDOWN_CENTER_SETTINGS_VERSION = 1;
 export const COUNTDOWN_CENTER_SETTINGS_CHANGED_EVENT =
@@ -212,7 +213,7 @@ function validate(
 }
 
 export async function loadCountdownCenterSettings(): Promise<CountdownCenterSettingsFile> {
-  await assertSharedWidgetMigrationReady("countdown");
+  await ensureCountdownStoreReadable();
   return (
     (await loadSharedJson(
       COUNTDOWN_CENTER_SETTINGS_FILE,
