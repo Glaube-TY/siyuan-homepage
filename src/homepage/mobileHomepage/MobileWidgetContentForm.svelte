@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { showMessage } from "siyuan";
   import { lsNotebooks } from "@/api";
   import {
@@ -17,13 +17,18 @@
   import {
     FAVORITES_SORT_OPTIONS,
     normalizeFavoritesSortOrder,
+    loadGroupListForSettings,
   } from "../../components/utils/widgetBlock/widget/favorites/favorites";
+  import { VIRTUAL_UNGROUPED_ID, VIRTUAL_UNGROUPED_NAME } from "@/features/favorites-manager/types";
   import {
     clampRecentDocsLimit,
     normalizeRecentDocsSortBy,
     RECENT_DOCS_SORT_OPTIONS,
   } from "@/components/tools/siyuanComponentDataApi";
   import { openCountdownCenterDialog } from "@/features/countdown-center";
+  import { openFavoritesManagerDialog } from "@/features/favorites-manager/open-favorites-manager";
+  import { onFavoritesUpdated } from "@/features/favorites-manager/favorites-events";
+  import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { openReviewNotifySettingsDialog } from "@/features/review-notify";
   import { openFocusNotifySettingsDialog } from "@/features/focus-notify";
   import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
@@ -77,6 +82,7 @@
     max?: number;
     step?: number;
     rows?: number;
+    vipOnly?: boolean;
   }
 
   type FormState = Record<string, any>;
@@ -172,6 +178,8 @@
         favoritesNotebookId: "",
         showNoteMeta: true,
         useBuiltinDocIcon: false,
+        favoritesGroupingEnabled: false,
+        favoritesGroupIds: "",
       },
       "recent-journals": {
         limit: 5,
@@ -504,6 +512,10 @@
         }
       }
     }
+    if (widgetType === "favorites") {
+      originalMobileFavGrouping = Boolean(form.favoritesGroupingEnabled);
+      originalMobileFavIds = form.favoritesGroupIds || "";
+    }
     isReady = true;
   }
 
@@ -665,6 +677,12 @@
             ),
             useBuiltinDocIcon: normalizeBoolean(form.useBuiltinDocIcon, false),
             favoritesNotebookId: normalizeString(form.favoritesNotebookId),
+            favoritesGroupingEnabled: mobileAdvancedEnabled
+              ? normalizeBoolean(form.favoritesGroupingEnabled, false)
+              : (originalMobileFavGrouping ?? normalizeBoolean(form.favoritesGroupingEnabled, false)),
+            favoritesGroupIds: mobileAdvancedEnabled
+              ? normalizeString(form.favoritesGroupIds)
+              : (originalMobileFavIds ?? normalizeString(form.favoritesGroupIds)),
             showFavFloatDoc: false,
             favFloatDocShowTime: 0.1,
           }),
@@ -1316,6 +1334,12 @@
             key: "useBuiltinDocIcon",
             type: "switch",
             label: "优先使用文档图标",
+          },
+          {
+            key: "favoritesGroupingEnabled",
+            type: "switch",
+            label: "按分组显示",
+            vipOnly: true,
           },
         ];
       case "recent-journals":
@@ -2136,8 +2160,96 @@
     }
   }
 
+  // 收藏分组多选状态
+  let mobileFavGroupOptions: Array<{ label: string; value: string }> = $state([]);
+  let mobileFavGroupLoading = $state(true);
+  let mobileFavGroupError = $state("");
+  let mobileFavGroupVersion = 0;
+  let mobileFavGroupLoaded = false;
+  let mobileAdvancedEnabled = $state(false);
+  let originalMobileFavGrouping: boolean | undefined;
+  let originalMobileFavIds: string | undefined;
+
+  async function loadMobileFavGroups() {
+    if (!mobileAdvancedEnabled) return;
+    if (mobileFavGroupLoaded) return;
+    mobileFavGroupLoading = true;
+    mobileFavGroupError = "";
+    const version = ++mobileFavGroupVersion;
+    try {
+      const result = await loadGroupListForSettings();
+      if (version !== mobileFavGroupVersion) return;
+      if (result.kind === "error") {
+        mobileFavGroupError = result.message;
+      } else {
+        const validIds = new Set(result.groups.map((g) => g.id));
+        const selectedIds = (form.favoritesGroupIds || "").split(",").filter(Boolean);
+        const staleIds = selectedIds.filter((id: string) => id !== VIRTUAL_UNGROUPED_ID && !validIds.has(id));
+        mobileFavGroupOptions = [
+          { label: "全部分组", value: "__all__" },
+          { label: VIRTUAL_UNGROUPED_NAME, value: VIRTUAL_UNGROUPED_ID },
+          ...result.groups.map((g) => ({ label: g.name, value: g.id })),
+          ...staleIds.map((id: string) => ({ label: `已失效 (${id.slice(0, 8)}...)`, value: id })),
+        ];
+      }
+    } catch (error) {
+      if (version !== mobileFavGroupVersion) return;
+      mobileFavGroupError = error instanceof Error ? error.message : "分组列表暂不可用";
+    } finally {
+      if (version === mobileFavGroupVersion) {
+        mobileFavGroupLoading = false;
+        mobileFavGroupLoaded = true;
+      }
+    }
+  }
+
+  function toggleMobileGroupId(groupId: string) {
+    if (groupId === "__all__") {
+      form.favoritesGroupIds = "";
+      return;
+    }
+    const ids = (form.favoritesGroupIds || "").split(",").filter(Boolean);
+    const idx = ids.indexOf(groupId);
+    if (idx >= 0) ids.splice(idx, 1);
+    else ids.push(groupId);
+    form.favoritesGroupIds = ids.join(",");
+  }
+
+  $effect(() => {
+    if (widgetType === "favorites" && mobileAdvancedEnabled && form.favoritesGroupingEnabled) {
+      void loadMobileFavGroups();
+    }
+  });
+
   onMount(() => {
+    mobileAdvancedEnabled = Boolean(plugin?.ADVANCED);
     void initialize();
+    // VIP 事件
+    const onReady = () => { mobileAdvancedEnabled = true; };
+    const onUnavail = () => {
+      mobileAdvancedEnabled = false;
+      mobileFavGroupVersion++;
+      mobileFavGroupLoaded = false;
+      mobileFavGroupLoading = false;
+    };
+    window.addEventListener("homepage-advanced-ready", onReady);
+    window.addEventListener("homepage-advanced-unavailable", onUnavail);
+    // 订阅收藏更新事件，管理弹窗操作后自动刷新组选项
+    const unsubMobileFav = onFavoritesUpdated(() => {
+      if (widgetType !== "favorites" || !mobileAdvancedEnabled || !form.favoritesGroupingEnabled) return;
+      mobileFavGroupLoaded = false;
+      mobileFavGroupVersion++;
+      void loadMobileFavGroups();
+    });
+    return () => {
+      unsubMobileFav();
+      window.removeEventListener("homepage-advanced-ready", onReady);
+      window.removeEventListener("homepage-advanced-unavailable", onUnavail);
+    };
+  });
+
+  onDestroy(() => {
+    mobileFavGroupVersion++;
   });
 </script>
 
@@ -2167,15 +2279,19 @@
               {/if}
             </div>
           {:else if field.type === "switch"}
+            {@const isVipField = field.vipOnly === true}
             <label class="mobile-form-row mobile-form-row-switch">
               <span>
-                <strong>{field.label}</strong>
+                <strong>
+                    {#if isVipField}<SiyuanIcon name="vip" size={12} title="高级会员专属" />{/if}
+                    {field.label}
+                </strong>
                 {#if field.description}
                   <small>{field.description}</small>
                 {/if}
               </span>
               <span class="mobile-switch">
-                <input type="checkbox" bind:checked={form[field.key]} />
+                <input type="checkbox" bind:checked={form[field.key]} disabled={isVipField && !mobileAdvancedEnabled} />
                 <i></i>
               </span>
             </label>
@@ -2244,6 +2360,49 @@
             </label>
           {/if}
         {/each}
+
+        {#if widgetType === "favorites"}
+          <section class="mobile-form-section">
+            <button type="button" class="mobile-form-notify-entry fm-mobile-manager-btn" class:fm-mobile-locked={!mobileAdvancedEnabled}
+              onclick={() => {
+                if (!mobileAdvancedEnabled) {
+                  showMessage("收藏文档管理与分组为 VIP 专属功能。已有分组和组件设置会完整保留，开通或续费后可继续使用。", 5000, "info");
+                  return;
+                }
+                void openFavoritesManagerDialog(plugin);
+              }}>
+              <SiyuanIcon name="vip" size={14} title="高级会员专属" />
+              打开收藏文档管理
+            </button>
+          </section>
+        {/if}
+
+        {#if widgetType === "favorites" && form.favoritesGroupingEnabled && !mobileAdvancedEnabled}
+          <div class="fm-loading-hint" style="padding:8px 0;font-size:12px;color:var(--b3-theme-secondary)">已有分组设置已保留，当前按免费版平铺方式展示，开通后自动恢复。</div>
+        {:else if widgetType === "favorites" && form.favoritesGroupingEnabled && mobileAdvancedEnabled}
+          <section class="mobile-form-section">
+            <div class="mobile-form-section-title">
+              <strong>选择显示的分组</strong>
+              <span>选中"全部分组"或留空表示显示全部分组。</span>
+            </div>
+            <div class="mobile-favorites-group-selector">
+              {#if mobileFavGroupLoading}
+                <div class="fm-loading-hint">分组列表加载中...</div>
+              {:else if mobileFavGroupError}
+                <div class="fm-loading-hint">分组列表暂不可用（{mobileFavGroupError}），已保留原选择</div>
+              {:else}
+                {#each mobileFavGroupOptions as option (option.value)}
+                  <label class="mobile-form-checkbox-row">
+                    <input type="checkbox"
+                      checked={option.value === "__all__" ? !(form.favoritesGroupIds || "") : (form.favoritesGroupIds || "").split(",").includes(option.value)}
+                      onchange={() => toggleMobileGroupId(option.value)} />
+                    <span>{option.label}</span>
+                  </label>
+                {/each}
+              {/if}
+            </div>
+          </section>
+        {/if}
       </section>
 
       {#if widgetType === "countdown"}
@@ -2496,5 +2655,19 @@
     border-color: var(--b3-theme-primary);
     color: var(--b3-theme-primary);
     background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+  }
+
+  .fm-mobile-manager-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+
+    &.fm-mobile-locked {
+      opacity: 1;
+      border: 1px dashed var(--b3-border-color);
+      background: var(--b3-theme-surface);
+      color: var(--b3-theme-secondary);
+    }
   }
 </style>

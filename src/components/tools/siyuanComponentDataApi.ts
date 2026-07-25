@@ -20,6 +20,15 @@ import {
 import { validateSafeSelectSql } from "@/features/kb/services/siyuan/safe-sql";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 import {
+    addFavoriteItem,
+    removeFavoriteItem,
+    removeFavoriteItemsByIds,
+    reorderFavoriteItems,
+    readFavoritesIndexStrict,
+    loadFavoritesForUI,
+    doesFavoritesIndexExist,
+} from "@/features/favorites-manager/favorites-store";
+import {
     ENHANCED_DIARY_PROJECT_TARGET_ATTR,
     readEnhancedDiaryProjectTargetId,
 } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectTypes";
@@ -117,7 +126,6 @@ const SEARCH_MAX_ROWS = 200;
 const DOC_INFO_LIMIT = 20;
 const COMPONENT_INDEX_DIR = "/data/storage/petal/siyuan-homepage";
 const TASK_INDEX_PATH = `${COMPONENT_INDEX_DIR}/task-index.json`;
-const FAVORITES_INDEX_PATH = `${COMPONENT_INDEX_DIR}/favorites-index.json`;
 const REVIEW_INDEX_PATH = `${COMPONENT_INDEX_DIR}/review-index.json`;
 const RECENT_DOC_SNAPSHOT_PATH = `${COMPONENT_INDEX_DIR}/recent-doc-snapshot.json`;
 const HEATMAP_DAILY_INDEX_PATH = `${COMPONENT_INDEX_DIR}/heatmap-daily-index.json`;
@@ -1912,9 +1920,48 @@ export async function getFavoritesIndexResult(
     plugin?: any,
 ): Promise<ComponentDataResult<ComponentDocInfo>> {
     void plugin;
-    const rows = await readJsonIndex<ComponentDocInfo>(FAVORITES_INDEX_PATH);
-    const existing = await filterExistingItems(rows, FAVORITES_INDEX_PATH);
-    const hydrated = await hydrateDocBlockFields(existing, true);
+    const strict = await readFavoritesIndexStrict();
+    if (strict.kind === "corrupt") {
+        return {
+            items: [],
+            status: "error",
+            message: `收藏索引损坏: ${strict.reason}`,
+            mode: "index",
+        };
+    }
+    if (strict.kind === "missing") {
+        return disabledResult("收藏索引为空，可重新收藏文档，或到主页设置 > 检索管理中迁移旧收藏属性。", "index");
+    }
+
+    let items = strict.payload.items;
+    // 检查失效文档：只检查前100条，收集失效ID
+    const staleIds: string[] = [];
+    const maxChecks = Math.min(items.length, 100);
+    for (let i = 0; i < maxChecks; i++) {
+        const item = items[i];
+        if (!item?.id) continue;
+        try {
+            const exists = await isExistingBlock(item.id);
+            if (!exists) {
+                staleIds.push(item.id);
+            }
+        } catch {
+            // 无法确认存在性时保留该文档
+        }
+    }
+
+    // 精准删除失效ID（通过严格存储层，保留groups并派发事件）
+    if (staleIds.length > 0) {
+        try {
+            await removeFavoriteItemsByIds(staleIds);
+        } catch (error) {
+            console.warn("[Homepage] 清理失效收藏文档失败", error);
+        }
+        // 重新读取过滤后的items
+        items = items.filter((item) => !staleIds.includes(item.id));
+    }
+
+    const hydrated = await hydrateDocBlockFields(items as ComponentDocInfo[], true);
     const filtered = notebookIds.length > 0
         ? hydrated.filter((item) => item.box && notebookIds.includes(item.box))
         : hydrated;
@@ -1925,9 +1972,11 @@ export async function getFavoritesIndexResult(
 }
 
 export async function mergeFavoriteIndexItems(items: ComponentDocInfo[]): Promise<number> {
-    const rows = await readJsonIndex<ComponentDocInfo>(FAVORITES_INDEX_PATH);
-    const map = new Map(rows.filter((row) => row?.id).map((row) => [row.id, row]));
-    let nextOrder = rows.reduce(
+    const payload = await loadFavoritesForUI();
+    const map = new Map<string, FavoriteItemRecordForMerge>(
+        payload.items.filter((row) => row?.id).map((row) => [row.id, row as unknown as FavoriteItemRecordForMerge]),
+    );
+    let nextOrder = payload.items.reduce(
         (maximum, row, index) =>
             Math.max(
                 maximum,
@@ -1939,19 +1988,33 @@ export async function mergeFavoriteIndexItems(items: ComponentDocInfo[]): Promis
     for (const item of items) {
         if (!item?.id) continue;
         const previous = map.get(item.id);
-        map.set(item.id, {
+        const merged = {
             ...previous,
             ...item,
             favoriteOrder: Number.isFinite(previous?.favoriteOrder)
                 ? previous?.favoriteOrder
-                : Number.isFinite(item.favoriteOrder)
-                    ? item.favoriteOrder
+                : Number.isFinite((item as any).favoriteOrder)
+                    ? (item as any).favoriteOrder
                     : nextOrder++,
-        });
+        };
+        map.set(item.id, merged as unknown as FavoriteItemRecordForMerge);
         mergedIds.add(item.id);
     }
-    await writeJsonIndex(FAVORITES_INDEX_PATH, Array.from(map.values()));
-    return mergedIds.size;
+    // 使用批量 add 写入每个合并的文档
+    let count = 0;
+    for (const [id, merged] of map) {
+        if (mergedIds.has(id)) {
+            await addFavoriteItem(merged as any);
+            count++;
+        }
+    }
+    return count;
+}
+
+interface FavoriteItemRecordForMerge {
+    id: string;
+    favoriteOrder?: number;
+    [key: string]: unknown;
 }
 
 export async function migrateFavoritesIndexFromGlobalSql(
@@ -2067,27 +2130,21 @@ export async function ensureFavoritesIndexInitialized(
     plugin: any,
 ): Promise<IndexInitializationResult> {
     void plugin;
-    if (await doesIndexFileExist(FAVORITES_INDEX_PATH)) {
+    const exists = await doesFavoritesIndexExist();
+    if (exists) {
         return { initialized: false, status: { lastStatus: "idle" } };
     }
-    const now = new Date().toISOString();
-    await writeJsonIndex(FAVORITES_INDEX_PATH, []);
+    // 存储层会在首次写操作时自动初始化空索引
     return {
-        initialized: true,
-        status: {
-            lastRunAt: now,
-            lastStatus: "success",
-            lastMessage: "已创建空收藏索引；新增收藏后会自动写入。",
-        },
+        initialized: false,
+        status: { lastStatus: "idle" },
     };
 }
 
 export async function updateFavoriteIndex(docId: string, active: boolean): Promise<void> {
-    const rows = await readJsonIndex<ComponentDocInfo>(FAVORITES_INDEX_PATH);
-    const map = new Map(rows.filter((row) => row?.id).map((row) => [row.id, row]));
+    // 使用严格收藏存储层进行写操作
     if (!active) {
-        map.delete(docId);
-        await writeJsonIndex(FAVORITES_INDEX_PATH, Array.from(map.values()));
+        await removeFavoriteItem(docId);
         try {
             await setBlockAttrsChecked(docId, { "custom-homepage-favorites": "" });
         } catch {
@@ -2101,63 +2158,32 @@ export async function updateFavoriteIndex(docId: string, active: boolean): Promi
     } catch {
         info = {};
     }
-    const previous = map.get(docId);
-    const nextOrder = rows.reduce(
-        (maximum, row, index) =>
-            Math.max(
-                maximum,
-                Number.isFinite(row.favoriteOrder) ? Number(row.favoriteOrder) : index,
-            ),
-        -1,
-    ) + 1;
+
+    // 先读取现有索引以保留已有字段
+    const existing = await readFavoritesIndexStrict();
+    const previous = existing.kind === "ok"
+        ? existing.payload.items.find((item) => item.id === docId)
+        : undefined;
+
     const [documentInfo] = await hydrateDocBlockFields([{
-        ...previous,
         id: docId,
         content: info?.rootTitle || docId,
         box: info?.box || "",
         path: info?.path || "",
         icon: info?.rootIcon || "",
         favoritedAt: previous?.favoritedAt || new Date().toISOString(),
-        favoriteOrder: Number.isFinite(previous?.favoriteOrder)
-            ? previous?.favoriteOrder
-            : nextOrder,
+        favoriteOrder: previous?.favoriteOrder,
+        ...(previous ? { favoriteGroupId: previous.favoriteGroupId } : {}),
+        created: info?.created || "",
+        updated: info?.updated || "",
     }], true);
     if (!documentInfo?.created || !documentInfo.updated) {
         throw new Error("无法读取文档创建或更新时间，收藏索引未写入");
     }
-    map.set(docId, documentInfo);
-    await writeJsonIndex(FAVORITES_INDEX_PATH, Array.from(map.values()));
+    await addFavoriteItem(documentInfo as any);
 }
-
 export async function reorderFavoriteIndexItems(orderedIds: string[]): Promise<void> {
-    const rows = await readJsonIndex<ComponentDocInfo>(FAVORITES_INDEX_PATH);
-    const byId = new Map(rows.filter((row) => row?.id).map((row) => [row.id, row]));
-    const ids = Array.from(new Set(orderedIds.filter((id) => byId.has(id))));
-    if (ids.length < 1) return;
-    const selectedIds = new Set(ids);
-    const current = rows
-        .map((row, index) => ({ row, index }))
-        .sort(
-            (a, b) =>
-                (Number.isFinite(a.row.favoriteOrder)
-                    ? Number(a.row.favoriteOrder)
-                    : a.index) -
-                    (Number.isFinite(b.row.favoriteOrder)
-                        ? Number(b.row.favoriteOrder)
-                        : b.index),
-        )
-        .map((item) => item.row);
-    let selectedIndex = 0;
-    const reordered = current.map((row) => {
-        if (!selectedIds.has(row.id)) return row;
-        const replacement = byId.get(ids[selectedIndex]);
-        selectedIndex += 1;
-        return replacement || row;
-    });
-    await writeJsonIndex(
-        FAVORITES_INDEX_PATH,
-        reordered.map((row, index) => ({ ...row, favoriteOrder: index })),
-    );
+    await reorderFavoriteItems(orderedIds);
 }
 
 export async function getReviewIndexResult<T = any>(
@@ -2409,16 +2435,46 @@ export async function refreshFavoritesIndex(plugin?: any): Promise<ComponentMigr
     void plugin;
     const now = new Date().toISOString();
     try {
-        const rows = await readJsonIndex<ComponentDocInfo>(FAVORITES_INDEX_PATH);
-        const existing = await filterExistingItems(rows, FAVORITES_INDEX_PATH);
-        const removedCount = rows.length - existing.length;
+        const strict = await readFavoritesIndexStrict();
+        if (strict.kind === "corrupt") {
+            return { lastRunAt: now, lastStatus: "error", lastMessage: `收藏索引损坏: ${strict.reason}` };
+        }
+        if (strict.kind === "missing") {
+            return { lastRunAt: now, lastStatus: "success", lastMessage: "收藏索引不存在，无需刷新。" };
+        }
+
+        const items = strict.payload.items;
+        const staleIds: string[] = [];
+        const maxChecks = Math.min(items.length, 100);
+        for (let i = 0; i < maxChecks; i++) {
+            const item = items[i];
+            if (!item?.id) continue;
+            try {
+                const exists = await checkBlockExist(item.id);
+                if (!exists) staleIds.push(item.id);
+            } catch {
+                // 无法确认存在性时保留
+            }
+        }
+
+        const itemCount = items.length;
+        const checkedAll = itemCount <= 100;
+        const removedCount = staleIds.length;
+        if (removedCount > 0) {
+            await removeFavoriteItemsByIds(staleIds);
+        }
+
         return {
             lastRunAt: now,
             lastStatus: "success",
             lastMessage: removedCount > 0
-                ? `收藏索引刷新完成：保留 ${existing.length} 条，移除 ${removedCount} 条无效记录。`
-                : `收藏索引刷新完成：${existing.length} 条记录均有效，无变更。`,
-            migratedCount: existing.length,
+                ? (checkedAll
+                    ? `收藏索引刷新完成：保留 ${itemCount - removedCount} 条，移除 ${removedCount} 条无效记录。`
+                    : `已检查前 100 条收藏记录（共 ${itemCount} 条），移除 ${removedCount} 条无效记录。`)
+                : (checkedAll
+                    ? `收藏索引刷新完成：${itemCount} 条记录均有效，无变更。`
+                    : `已检查前 100 条收藏记录（共 ${itemCount} 条），均有效，无变更。`),
+            migratedCount: itemCount - removedCount,
             removedCount,
         };
     } catch (error) {

@@ -149,6 +149,10 @@
   );
   let showFavFloatDoc: boolean = $state(true);
   let favFloatDocShowTime: number = $state(0.1);
+  let favoritesGroupingEnabled: boolean = $state(false);
+  let favoritesGroupIds: string = $state("");
+  let originalFavoritesGroupingEnabled = false;
+  let originalFavoritesGroupIds = "";
 
   // 任务管理相关变量
   let showCompletedTasks = $state(true); // 默认显示已完成任务
@@ -550,6 +554,10 @@
         favFloatDocShowTime = parsedData.data?.favFloatDocShowTime || 0.1;
         favoritesUseBuiltinDocIcon =
           parsedData.data?.useBuiltinDocIcon ?? false;
+        favoritesGroupingEnabled = parsedData.data?.favoritesGroupingEnabled ?? false;
+        favoritesGroupIds = parsedData.data?.favoritesGroupIds || "";
+        originalFavoritesGroupingEnabled = favoritesGroupingEnabled;
+        originalFavoritesGroupIds = favoritesGroupIds;
       } else if (parsedData.type === "heatmap") {
         heatmapTitle = parsedData.data?.heatmapTitle || "";
         pastMonthCount = parsedData.data?.pastMonthCount || 6;
@@ -952,6 +960,18 @@
 
     advancedEnabled = plugin.ADVANCED;
   });
+
+  // VIP 事件监听
+  onMount(() => {
+    const onReady = () => { advancedEnabled = true; };
+    const onUnavail = () => { advancedEnabled = false; };
+    window.addEventListener("homepage-advanced-ready", onReady);
+    window.addEventListener("homepage-advanced-unavailable", onUnavail);
+    return () => {
+      window.removeEventListener("homepage-advanced-ready", onReady);
+      window.removeEventListener("homepage-advanced-unavailable", onUnavail);
+    };
+  });
 </script>
 
 <div class="settings-container">
@@ -1030,7 +1050,11 @@
             bind:selectedFavoritesNotebookIds
             bind:showFavFloatDoc
             bind:favFloatDocShowTime
+            bind:favoritesGroupingEnabled
+            bind:favoritesGroupIds
+            {advancedEnabled}
             {notebooks}
+            {plugin}
           />
         {:else if selectedContentType === "recent-journals"}
           <LatestDailyNotesSet
@@ -1458,6 +1482,8 @@
               favoritesNotebookId,
               showFavFloatDoc,
               favFloatDocShowTime,
+              favoritesGroupingEnabled: advancedEnabled ? favoritesGroupingEnabled : originalFavoritesGroupingEnabled,
+              favoritesGroupIds: advancedEnabled ? favoritesGroupIds : originalFavoritesGroupIds,
             },
           };
         } else if (selectedContentType === "heatmap") {

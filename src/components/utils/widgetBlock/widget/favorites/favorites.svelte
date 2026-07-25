@@ -6,6 +6,7 @@
         favoriteTimeValue,
         getLatestFavoritesNotes,
         normalizeFavoritesSortOrder,
+        groupFavoritesByGroup,
     } from "./favorites";
     import { openDocs } from "@/components/tools/openDocs";
 
@@ -20,6 +21,10 @@
         reorderFavoriteIndexItems,
         type ComponentDocInfo,
     } from "@/components/tools/siyuanComponentDataApi";
+    import {
+        onFavoritesUpdated,
+    } from "@/features/favorites-manager/favorites-events";
+    import { loadFavoritesForUI } from "@/features/favorites-manager/favorites-store";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
 
@@ -37,6 +42,14 @@
     let favoritesNotes: ComponentDocInfo[] = $state([]);
     let favoritesDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
     let favoritesStatusMessage = $state("收藏索引为空，可重新收藏文档，或到主页设置 > 检索管理中迁移旧收藏属性。");
+
+    // 分组加载状态机
+    type GroupLoadState = { kind: "idle" } | { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
+    let groupLoadState = $state<GroupLoadState>({ kind: "idle" });
+    let groupedResult = $state<Awaited<ReturnType<typeof groupFavoritesByGroup>> | null>(null);
+    let invalidSelectedGroupIds = $state<string[]>([]);
+    let orphanedItems = $state<ComponentDocInfo[]>([]);
+
     const favoritiesTitle =
         $derived(contentTypeJsonObj.data?.favoritiesTitle || "💖收藏文档");
     const showNoteMeta = $derived(contentTypeJsonObj.data?.showNoteMeta ?? true);
@@ -49,11 +62,20 @@
     const favoritesSortOrder = $derived(
         normalizeFavoritesSortOrder(contentTypeJsonObj.data?.favoritiesSortOrder),
     );
+    const favoritesGroupIds = $derived(contentTypeJsonObj.data?.favoritesGroupIds || "");
+
+    // VIP 状态
+    let advancedEnabled = $state(false);
+    let groupLoadVersion = 0;
+    const configuredGroupingEnabled = $derived(contentTypeJsonObj.data?.favoritesGroupingEnabled ?? false);
+    const effectiveGroupingEnabled = $derived(advancedEnabled && configuredGroupingEnabled);
+
     let favoritesListElement: HTMLUListElement | null = $state(null);
     let dragHandleSuppressed = $state(false);
 
     // 组件销毁后丢弃异步 SQL 结果，避免更新已卸载状态
     let isDestroyed = false;
+    let unsubscribeFavoritesUpdate: (() => void) | null = null;
 
     // 获取文档图标（优先内置图标，否则回退到前缀）
     function getDocIcon(note: ComponentDocInfo): DocIconResult {
@@ -109,6 +131,16 @@
         }
     }
 
+    async function safeLoadFavorites(): Promise<void> {
+        try {
+            await loadFavorites();
+        } catch (error) {
+            if (isDestroyed) return;
+            favoritesDataStatus = "error";
+            favoritesStatusMessage = error instanceof Error ? error.message : "加载收藏数据失败";
+        }
+    }
+
     async function loadFavorites(): Promise<void> {
         const result = await getLatestFavoritesNotes(
             favoritesSortOrder,
@@ -120,6 +152,32 @@
         favoritesNotes = result.items;
         favoritesDataStatus = result.status;
         favoritesStatusMessage = result.message || favoritesStatusMessage;
+
+        // 有效分组关闭时不读取分组数据
+        if (!effectiveGroupingEnabled) {
+            groupLoadState = { kind: "idle" };
+            groupedResult = null;
+            invalidSelectedGroupIds = [];
+            orphanedItems = [];
+            return;
+        }
+
+        // 分组功能开启时加载分组（带版本号守卫）
+        groupLoadVersion++;
+        const version = groupLoadVersion;
+        groupLoadState = { kind: "loading" };
+        try {
+            const payload = await loadFavoritesForUI();
+            if (isDestroyed || version !== groupLoadVersion) return;
+            const resolved = groupFavoritesByGroup(favoritesNotes, payload.groups, favoritesGroupIds);
+            groupedResult = resolved;
+            invalidSelectedGroupIds = resolved.invalidSelectedGroupIds;
+            orphanedItems = resolved.orphanedItems;
+            groupLoadState = { kind: "ready" };
+        } catch (error) {
+            if (isDestroyed || version !== groupLoadVersion) return;
+            groupLoadState = { kind: "error", message: error instanceof Error ? error.message : "收藏分组数据暂不可用" };
+        }
     }
 
     async function persistManualOrder(
@@ -173,16 +231,125 @@
         return () => sortable.destroy();
     });
 
+    // 分组模式的组内 Sortable（仅桌面、manual 排序、分组开启）
+    const groupListElements = new Map<string, HTMLUListElement>();
+    function registerGroupList(node: HTMLUListElement, groupId: string) {
+        groupListElements.set(groupId, node);
+        return {
+            destroy() {
+                if (groupListElements.get(groupId) === node) {
+                    groupListElements.delete(groupId);
+                }
+            },
+        };
+    }
+
+    let groupSortables = new Map<string, Sortable>();
+    $effect(() => {
+        if (
+            isMobilePlacement ||
+            favoritesSortOrder !== "manual" ||
+            groupedResult?.groups === undefined ||
+            groupedResult.groups.size === 0
+        ) {
+            for (const s of groupSortables.values()) s.destroy();
+            groupSortables.clear();
+            return;
+        }
+        // 清理旧实例
+        for (const s of groupSortables.values()) s.destroy();
+        groupSortables.clear();
+
+        for (const [groupId] of groupedResult!.groups.entries()) {
+            const el = groupListElements.get(groupId);
+            if (!el || el.querySelectorAll(".favorites-item").length < 2) continue;
+            const sortable = new Sortable(el, {
+                animation: 150,
+                handle: ".favorites-drag-handle",
+                draggable: ".favorites-item",
+                onEnd: (event) => {
+                    const oldIdx = event.oldIndex;
+                    const newIdx = event.newIndex;
+                    if (
+                        typeof oldIdx !== "number" ||
+                        typeof newIdx !== "number" ||
+                        oldIdx === newIdx
+                    ) return;
+                    const itemEls = el.querySelectorAll(".favorites-item");
+                    const orderedIds = Array.from(itemEls)
+                        .map((child) => child.getAttribute("data-favorite-id") || "")
+                        .filter(Boolean);
+                    void persistManualOrderForGroup(orderedIds);
+                },
+            });
+            groupSortables.set(groupId, sortable);
+        }
+    });
+
+    async function persistManualOrderForGroup(orderedIds: string[]) {
+        try {
+            await reorderFavoriteIndexItems(orderedIds);
+            await loadFavorites();
+        } catch (error) {
+            showMessage(error instanceof Error ? error.message : "排序保存失败", 4000, "error");
+            try { await loadFavorites(); } catch { /* 二次刷新失败不再抛出 */ }
+        }
+    }
+
     onMount(() => {
         isDestroyed = false;
-        ensureFavoritesIndexInitialized(plugin).finally(() => {
-            if (isDestroyed) return;
-            void loadFavorites();
-        });
+        advancedEnabled = Boolean(plugin?.ADVANCED);
 
+        // VIP 事件监听（同步定义以便 cleanup 引用）
+        function handleAdvancedReady() {
+            advancedEnabled = true;
+            if (!isDestroyed) void safeLoadFavorites();
+        }
+        function handleAdvancedUnavailable() {
+            advancedEnabled = false;
+            groupLoadVersion++;
+            groupLoadState = { kind: "idle" };
+            groupedResult = null;
+            orphanedItems = [];
+            invalidSelectedGroupIds = [];
+            for (const s of groupSortables.values()) s.destroy();
+            groupSortables.clear();
+        }
+        window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
+        window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
+
+        // 异步初始化（IIFE，不阻塞 onMount 返回清理函数）
+        void (async () => {
+            try {
+                await ensureFavoritesIndexInitialized(plugin);
+            } catch {
+                // 初始化失败仍尝试读取已有索引
+            }
+            if (isDestroyed) return;
+            void safeLoadFavorites();
+            // 订阅收藏更新（最多一次）
+            if (!unsubscribeFavoritesUpdate) {
+                unsubscribeFavoritesUpdate = onFavoritesUpdated(() => {
+                    if (isDestroyed) return;
+                    void safeLoadFavorites();
+                });
+            }
+        })();
+
+        // 同步返回清理函数
         return () => {
             isDestroyed = true;
+            groupLoadVersion++;
+            window.removeEventListener("homepage-advanced-ready", handleAdvancedReady);
+            window.removeEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
             clearFloatDocTimeouts();
+            if (unsubscribeFavoritesUpdate) {
+                unsubscribeFavoritesUpdate();
+                unsubscribeFavoritesUpdate = null;
+            }
+            for (const s of groupSortables.values()) s.destroy();
+            groupSortables.clear();
+            groupListElements.clear();
         };
     });
 </script>
@@ -198,27 +365,79 @@
 
         <div class="mobile-favorites-list">
             {#if favoritesNotes.length}
-                {#each favoritesNotes as note (note.id)}
-                    {@const iconResult = getDocIcon(note)}
-                    {@const meta = noteMeta(note)}
-                    <button type="button" class="mobile-favorite-row" onclick={() => openDocs(plugin, note.id, 0)}>
-                        <span class="mobile-favorite-icon">
-                            {#if iconResult.type === "image"}
-                                <img src={iconResult.value} alt="" />
-                            {:else}
-                                {iconResult.value}
-                            {/if}
-                        </span>
-                        <span class="mobile-favorite-main">
-                            <strong>{note.content || "无标题文档"}</strong>
-                            {#if showNoteMeta}
-                                <small>
-                                    {meta.mobileLabel} {formatMobileDate(meta.value)}
-                                </small>
-                            {/if}
-                        </span>
-                    </button>
-                {/each}
+                {#if effectiveGroupingEnabled && groupLoadState.kind === "loading"}
+                    <div class="mobile-favorites-empty">正在加载收藏分组...</div>
+                {:else if effectiveGroupingEnabled && groupLoadState.kind === "error"}
+                    <div class="mobile-favorites-empty">收藏分组数据暂不可用（{groupLoadState.message}）</div>
+                {:else if effectiveGroupingEnabled && groupedResult !== null}
+                    {#if groupedResult.groups.size > 0}
+                        {#each [...groupedResult.groups.entries()] as [groupId, groupData] (groupId)}
+                            <div class="mobile-favorites-group-title">{groupData.name}</div>
+                            {#each groupData.items as note (note.id)}
+                                {@const iconResult = getDocIcon(note)}
+                                {@const meta = noteMeta(note)}
+                                <button type="button" class="mobile-favorite-row" onclick={() => openDocs(plugin, note.id, 0)}>
+                                    <span class="mobile-favorite-icon">
+                                        {#if iconResult.type === "image"}
+                                            <img src={iconResult.value} alt="" />
+                                        {:else}
+                                            {iconResult.value}
+                                        {/if}
+                                    </span>
+                                    <span class="mobile-favorite-main">
+                                        <strong>{note.content || "无标题文档"}</strong>
+                                        {#if showNoteMeta}
+                                            <small>{meta.mobileLabel} {formatMobileDate(meta.value)}</small>
+                                        {/if}
+                                    </span>
+                                </button>
+                            {/each}
+                        {/each}
+                    {/if}
+                    {#if orphanedItems.length > 0}
+                        <div class="mobile-favorites-group-title">未识别分组</div>
+                        {#each orphanedItems as note (note.id)}
+                            {@const iconResult = getDocIcon(note)}
+                            {@const meta = noteMeta(note)}
+                            <button type="button" class="mobile-favorite-row" onclick={() => openDocs(plugin, note.id, 0)}>
+                                <span class="mobile-favorite-icon">
+                                    {#if iconResult.type === "image"}<img src={iconResult.value} alt="" />{:else}{iconResult.value}{/if}
+                                </span>
+                                <span class="mobile-favorite-main">
+                                    <strong>{note.content || "无标题文档"}</strong>
+                                </span>
+                            </button>
+                        {/each}
+                    {/if}
+                    {#if invalidSelectedGroupIds.length > 0}
+                        <div class="mobile-favorites-empty">部分所选分组已失效，请检查组件设置</div>
+                    {/if}
+                    {#if groupedResult.groups.size === 0 && orphanedItems.length === 0}
+                        <div class="mobile-favorites-empty">所选分组暂无收藏文档</div>
+                    {/if}
+                {:else}
+                    {#each favoritesNotes as note (note.id)}
+                        {@const iconResult = getDocIcon(note)}
+                        {@const meta = noteMeta(note)}
+                        <button type="button" class="mobile-favorite-row" onclick={() => openDocs(plugin, note.id, 0)}>
+                            <span class="mobile-favorite-icon">
+                                {#if iconResult.type === "image"}
+                                    <img src={iconResult.value} alt="" />
+                                {:else}
+                                    {iconResult.value}
+                                {/if}
+                            </span>
+                            <span class="mobile-favorite-main">
+                                <strong>{note.content || "无标题文档"}</strong>
+                                {#if showNoteMeta}
+                                    <small>
+                                        {meta.mobileLabel} {formatMobileDate(meta.value)}
+                                    </small>
+                                {/if}
+                            </span>
+                        </button>
+                    {/each}
+                {/if}
             {:else}
                 {#if favoritesDataStatus === "disabled"}
                     <LocalIndexEmptyState
@@ -238,106 +457,155 @@
         <h3 class="widget-title">{favoritiesTitle}</h3>
         <div class="favorites-content-container">
             {#if favoritesNotes.length}
-                <ul
-                    class="favorites-list"
-                    class:suppress-drag-handle={dragHandleSuppressed}
-                    bind:this={favoritesListElement}
-                >
-                    {#each favoritesNotes as note (note.id)}
-                        {@const iconResult = getDocIcon(note)}
-                        {@const meta = noteMeta(note)}
-                        <li
-                            class="favorites-item"
-                            data-favorite-id={note.id}
-                            onpointerleave={() => (dragHandleSuppressed = false)}
-                        >
-                            {#if favoritesSortOrder === "manual"}
-                                <div class="favorites-manual-actions">
-                                    <button
-                                        type="button"
-                                        class="favorites-manual-button favorites-drag-handle"
-                                        title="拖动排序"
-                                        aria-label={`拖动 ${note.content || "无标题文档"} 调整顺序`}
-                                    ><SiyuanIcon name="drag" size={14} /></button>
-                                </div>
-                            {/if}
-                            <div
-                                class="favorites-item-content"
-                                onkeydown={(e) => {
-                                    if (e.key === "Enter" || e.key === " ") {
-                                        openDocs(plugin, note.id, 0);
-                                    }
-                                }}
-                                onmouseenter={(e) => {
-                                    if (showFavFloatDoc && !plugin.isMobile) {
-                                        // 清除之前的定时器
-                                        if (floatDocTimeout) {
-                                            clearTimeout(floatDocTimeout);
-                                        }
-                                        // 设置新的定时器
-                                        floatDocTimeout = window.setTimeout(() => {
-                                            createFloatingDocPopup(note, e, plugin);
-                                            floatDocTimeout = null;
-                                        }, favFloatDocShowTime * 1000);
-                                    }
-                                }}
-                                onmouseleave={() => {
-                                    if (showFavFloatDoc && !plugin.isMobile) {
-                                        // 清除悬浮窗显示定时器
-                                        if (floatDocTimeout) {
-                                            clearTimeout(floatDocTimeout);
-                                            floatDocTimeout = null;
-                                        }
-                                        // 清除之前的 mouseleave timeout
-                                        if (mouseLeaveTimeout) {
-                                            clearTimeout(mouseLeaveTimeout);
-                                        }
-                                        // 使用配置的延迟时间，确保用户有足够时间查看弹窗
-                                        mouseLeaveTimeout = window.setTimeout(() => {
-                                            setMouseOnTrigger(false);
-                                            mouseLeaveTimeout = null;
-                                        }, 150);
-                                    }
-                                }}
-                                onclick={() => {
-                                    // 点击时立即隐藏弹窗并打开文档
-                                    if (showFavFloatDoc && !plugin.isMobile) {
-                                        hideImmediately();
-                                    }
-                                    openDocs(plugin, note.id, 0);
-                                }}
-                                role="button"
-                                tabindex="0"
-                                aria-label="打开收藏文档：{note.content}"
-                            >
-                                {#if iconResult.type === "image"}
-                                    <img class="doc-icon-image" src={iconResult.value} alt="" />
-                                {:else}
-                                    <span class="doc-icon">{iconResult.value}</span>
-                                {/if}
-                                <span class="doc-title">{note.content}</span>
-                            </div>
-                            {#if showNoteMeta}
-                                <div class="note-meta">
-                                    {meta.label}：{formatDate(meta.value)}
-                                </div>
-                            {/if}
-                        </li>
+                {#if effectiveGroupingEnabled && groupLoadState.kind === "loading"}
+                    <div class="favorites-empty-state">正在加载收藏分组...</div>
+                {:else if effectiveGroupingEnabled && groupLoadState.kind === "error"}
+                    <div class="favorites-empty-state"><strong>收藏分组数据暂不可用</strong><span>{groupLoadState.message}</span></div>
+                {:else if effectiveGroupingEnabled && groupedResult !== null}
+                    {#if groupedResult.groups.size === 0 && favoritesNotes.length > 0}
+                        <div class="favorites-empty-state"><strong>所选分组暂无收藏文档</strong></div>
+                    {/if}
+                    <!-- 分组模式 -->
+                    {#each [...groupedResult.groups.entries()] as [groupId, groupData] (groupId)}
+                        <section class="favorites-group-section">
+                            <h4 class="favorites-group-title">{groupData.name}</h4>
+                            <ul class="favorites-list" use:registerGroupList={groupId}>
+                                {#each groupData.items as note (note.id)}
+                                    {@const iconResult = getDocIcon(note)}
+                                    {@const meta = noteMeta(note)}
+                                    <li class="favorites-item" data-favorite-id={note.id} onpointerleave={() => (dragHandleSuppressed = false)}>
+                                        {#if favoritesSortOrder === "manual"}
+                                            <div class="favorites-manual-actions">
+                                                <button type="button" class="favorites-manual-button favorites-drag-handle" title="拖动排序"
+                                                    aria-label="拖动 {note.content || "无标题文档"} 调整顺序">
+                                                    <SiyuanIcon name="drag" size={14} /></button>
+                                            </div>
+                                        {/if}
+                                        <div
+                                            class="favorites-item-content"
+                                            onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { openDocs(plugin, note.id, 0); } }}
+                                            onmouseenter={(e) => {
+                                                if (showFavFloatDoc && !plugin.isMobile) {
+                                                    if (floatDocTimeout) clearTimeout(floatDocTimeout);
+                                                    floatDocTimeout = window.setTimeout(() => {
+                                                        createFloatingDocPopup(note, e, plugin);
+                                                        floatDocTimeout = null;
+                                                    }, favFloatDocShowTime * 1000);
+                                                }
+                                            }}
+                                            onmouseleave={() => {
+                                                if (showFavFloatDoc && !plugin.isMobile) {
+                                                    if (floatDocTimeout) { clearTimeout(floatDocTimeout); floatDocTimeout = null; }
+                                                    if (mouseLeaveTimeout) clearTimeout(mouseLeaveTimeout);
+                                                    mouseLeaveTimeout = window.setTimeout(() => {
+                                                        setMouseOnTrigger(false);
+                                                        mouseLeaveTimeout = null;
+                                                    }, 150);
+                                                }
+                                            }}
+                                            onclick={() => {
+                                                if (showFavFloatDoc && !plugin.isMobile) hideImmediately();
+                                                openDocs(plugin, note.id, 0);
+                                            }}
+                                            role="button"
+                                            tabindex="0"
+                                            aria-label="打开收藏文档：{note.content}"
+                                        >
+                                            {#if iconResult.type === "image"}
+                                                <img class="doc-icon-image" src={iconResult.value} alt="" />
+                                            {:else}
+                                                <span class="doc-icon">{iconResult.value}</span>
+                                            {/if}
+                                            <span class="doc-title">{note.content}</span>
+                                        </div>
+                                        {#if showNoteMeta}
+                                            <div class="note-meta">{meta.label}：{formatDate(meta.value)}</div>
+                                        {/if}
+                                    </li>
+                                {/each}
+                            </ul>
+                        </section>
                     {/each}
-                </ul>
+                    {#if orphanedItems.length > 0}
+                        <section class="favorites-group-section">
+                            <h4 class="favorites-group-title">未识别分组</h4>
+                            <div class="favorites-empty-state" style="padding:4px 0;font-size:12px">以下收藏引用已删除的分组，数据保留</div>
+                            <ul class="favorites-list">
+                                {#each orphanedItems as note (note.id)}
+                                    {@const iconResult = getDocIcon(note)}
+                                    {@const meta = noteMeta(note)}
+                                    <li class="favorites-item" data-favorite-id={note.id}>
+                                        <div class="favorites-item-content"
+                                            onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { openDocs(plugin, note.id, 0); } }}
+                                            onclick={() => openDocs(plugin, note.id, 0)}
+                                            role="button" tabindex="0" aria-label="打开收藏文档：{note.content}">
+                                            {#if iconResult.type === "image"}<img class="doc-icon-image" src={iconResult.value} alt="" />{:else}<span class="doc-icon">{iconResult.value}</span>{/if}
+                                            <span class="doc-title">{note.content}</span>
+                                        </div>
+                                    </li>
+                                {/each}
+                            </ul>
+                        </section>
+                    {/if}
+                    {#if invalidSelectedGroupIds.length > 0}
+                        <div class="favorites-empty-state" style="padding:4px 0;font-size:12px;color:var(--b3-theme-warning, #d08215)">部分所选分组已失效，请检查组件设置</div>
+                    {/if}
+                {:else if !effectiveGroupingEnabled || groupLoadState.kind === "idle"}
+                    <!-- 平铺模式 -->
+                    <ul class="favorites-list" class:suppress-drag-handle={dragHandleSuppressed} bind:this={favoritesListElement}>
+                        {#each favoritesNotes as note (note.id)}
+                            {@const iconResult = getDocIcon(note)}
+                            {@const meta = noteMeta(note)}
+                            <li class="favorites-item" data-favorite-id={note.id} onpointerleave={() => (dragHandleSuppressed = false)}>
+                                {#if favoritesSortOrder === "manual"}
+                                    <div class="favorites-manual-actions">
+                                        <button type="button" class="favorites-manual-button favorites-drag-handle" title="拖动排序"
+                                            aria-label="拖动 {note.content || "无标题文档"} 调整顺序">
+                                            <SiyuanIcon name="drag" size={14} />
+                                        </button>
+                                    </div>
+                                {/if}
+                                <div class="favorites-item-content"
+                                    onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { openDocs(plugin, note.id, 0); } }}
+                                    onmouseenter={(e) => {
+                                        if (showFavFloatDoc && !plugin.isMobile) {
+                                            if (floatDocTimeout) clearTimeout(floatDocTimeout);
+                                            floatDocTimeout = window.setTimeout(() => {
+                                                createFloatingDocPopup(note, e, plugin);
+                                                floatDocTimeout = null;
+                                            }, favFloatDocShowTime * 1000);
+                                        }
+                                    }}
+                                    onmouseleave={() => {
+                                        if (showFavFloatDoc && !plugin.isMobile) {
+                                            if (floatDocTimeout) { clearTimeout(floatDocTimeout); floatDocTimeout = null; }
+                                            if (mouseLeaveTimeout) clearTimeout(mouseLeaveTimeout);
+                                            mouseLeaveTimeout = window.setTimeout(() => {
+                                                setMouseOnTrigger(false);
+                                                mouseLeaveTimeout = null;
+                                            }, 150);
+                                        }
+                                    }}
+                                    onclick={() => {
+                                        if (showFavFloatDoc && !plugin.isMobile) hideImmediately();
+                                        openDocs(plugin, note.id, 0);
+                                    }}
+                                    role="button" tabindex="0" aria-label="打开收藏文档：{note.content}">
+                                    {#if iconResult.type === "image"}<img class="doc-icon-image" src={iconResult.value} alt="" />
+                                    {:else}<span class="doc-icon">{iconResult.value}</span>{/if}
+                                    <span class="doc-title">{note.content}</span>
+                                </div>
+                                {#if showNoteMeta}<div class="note-meta">{meta.label}：{formatDate(meta.value)}</div>{/if}
+                            </li>
+                        {/each}
+                    </ul>
+                {/if}
             {:else}
                 {#if favoritesDataStatus === "disabled"}
-                    <LocalIndexEmptyState
-                        title="本地索引为空"
-                        message="收藏本地索引为空，请迁移或重建索引。"
-                        {plugin}
-                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中迁移旧收藏属性。"
-                    />
+                    <LocalIndexEmptyState title="本地索引为空" message="收藏本地索引为空，请迁移或重建索引。" {plugin}
+                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中迁移旧收藏属性。" />
                 {:else}
-                    <div class="favorites-empty-state">
-                        <strong>收藏索引为空</strong>
-                        <span>{favoritesStatusMessage}</span>
-                    </div>
+                    <div class="favorites-empty-state"><strong>收藏索引为空</strong><span>{favoritesStatusMessage}</span></div>
                 {/if}
             {/if}
         </div>
@@ -354,6 +622,20 @@
         text-align: center;
         display: inline-block;
         line-height: 1.2;
+    }
+
+    .favorites-group-section {
+        margin-bottom: 12px;
+
+        .favorites-group-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0 0 6px 0;
+            padding: 4px 8px;
+            color: var(--b3-theme-on-surface);
+            background: var(--b3-theme-surface);
+            border-radius: 4px;
+        }
     }
 
     .content-display {
