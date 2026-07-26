@@ -362,10 +362,12 @@ export function getDesktopLayout(
     const sectionsEnabled = legacySettings?.componentSectionsEnabled === true;
     const componentSectionsModeEnabled = sectionsEnabled && realSectionIds.length > 0;
     const assignedIds = new Set<string>();
+    const styleCache = new Map<string, string | null>();
     const sections: Record<string, DeviceLayoutSection> = {};
     const globalOrder: DeviceLayoutItem[] = [];
 
     if (componentSectionsModeEnabled) {
+        // Phase 1: 构建所有分栏的 widgetIds（不写 globalOrder），同时缓存样式。
         for (const sectionId of realSectionIds) {
             const rawSection = mergedRawSections[sectionId];
             const widgetIds: string[] = [];
@@ -384,11 +386,15 @@ export function getDesktopLayout(
             if (typeof rawSection?.widgetLayoutNumber === "number") section.widgetLayoutNumber = rawSection.widgetLayoutNumber;
             if (typeof rawSection?.widgetGap === "number") section.widgetGap = rawSection.widgetGap;
             sections[sectionId] = section;
+            // 缓存本分栏成员的样式（sectionId 非 null）
             for (const id of widgetIds) {
-                const style = resolveStyleBySource(id, sectionId, profile, defaultSections, legacy);
-                globalOrder.push({ id, style, index: globalOrder.length });
+                if (!styleCache.has(id)) {
+                    styleCache.set(id, resolveStyleBySource(id, sectionId, profile, defaultSections, legacy));
+                }
             }
         }
+
+        // Phase 2: 收集兼容组件池。
         const poolIds: string[] = [];
         const appendToPool = (id: string) => {
             if (!id || assignedIds.has(id) || poolIds.includes(id)) return;
@@ -408,6 +414,8 @@ export function getDesktopLayout(
                 }
             }
         }
+
+        // Phase 3: 兼容池追加到第一个分栏末尾（sectionId 为 null）。
         if (realSectionIds.length > 0) {
             const firstSectionId = realSectionIds[0];
             const firstSection = sections[firstSectionId];
@@ -415,7 +423,17 @@ export function getDesktopLayout(
                 if (assignedIds.has(id)) continue;
                 assignedIds.add(id);
                 firstSection.widgetIds.push(id);
-                const style = resolveStyleBySource(id, null, profile, defaultSections, legacy);
+                if (!styleCache.has(id)) {
+                    styleCache.set(id, resolveStyleBySource(id, null, profile, defaultSections, legacy));
+                }
+            }
+        }
+
+        // Phase 4: 所有成员归属完成后，按 realSectionIds 顺序一次性构造 globalOrder。
+        for (const sectionId of realSectionIds) {
+            const section = sections[sectionId];
+            for (const id of section.widgetIds) {
+                const style = styleCache.get(id) ?? null;
                 globalOrder.push({ id, style, index: globalOrder.length });
             }
         }
