@@ -4,7 +4,6 @@
     formatCountdownOriginalDate,
   } from "./countdownDateEngine";
   import {
-    COUNTDOWN_PRIORITY_LABELS,
     type CountdownDisplayPreferences,
     type CountdownEventViewModel,
   } from "./countdownTypes";
@@ -76,13 +75,11 @@
       occurrenceDate &&
       originalDiffersFromOccurrence
     )
-      details.push(`原始 ${originalDate}`);
+      details.push(`${originalDate}`);
     if (preferences.showCountLabel && model.countLabel)
       details.push(model.countLabel);
     if (preferences.showCategory && model.categoryLabel)
       details.push(model.categoryLabel);
-    if (preferences.showPriority)
-      details.push(`${COUNTDOWN_PRIORITY_LABELS[model.event.priority]}优先级`);
     if (preferences.showLunarDate && model.occurrence.lunarDateLabel)
       details.push(model.occurrence.lunarDateLabel);
     if (preferences.showTags && model.event.tags.length)
@@ -102,6 +99,64 @@
         Math.max(0, limit - lines.length),
       ),
     ].slice(0, limit);
+  });
+
+  // --- image 变体专用：日期与元数据 ---
+  const imagePrimaryDate = $derived.by(() => {
+    if (variant !== "image") return "";
+    const isYearly = model.event.recurrence === "yearly";
+    if (isYearly) {
+      return preferences.showOriginalDate
+        ? formatCountdownOriginalDate(model.event, preferences)
+        : "";
+    }
+    return (
+      (preferences.showOccurrenceDate
+        ? formatCountdownOccurrenceDate(model.occurrence, preferences)
+        : "") ||
+      (preferences.showOriginalDate
+        ? formatCountdownOriginalDate(model.event, preferences)
+        : "")
+    );
+  });
+
+  const imageDetailText = $derived.by(() => {
+    if (variant !== "image") return "";
+    const details: string[] = [];
+    if (preferences.showCountLabel && model.countLabel)
+      details.push(model.countLabel);
+    if (preferences.showCategory && model.categoryLabel)
+      details.push(model.categoryLabel);
+    return details.join(" · ");
+  });
+
+  const imageMetadataLines = $derived.by(() => {
+    if (variant !== "image") return [];
+    const limit = 1;
+    const lines: string[] = [];
+    if (imagePrimaryDate) {
+      lines.push(truncateCountdownSvgText(imagePrimaryDate, textWidth));
+    }
+    const extraLines = wrapCountdownSvgText(
+      imageDetailText,
+      textWidth,
+      Math.max(0, limit - lines.length),
+    );
+    return [...lines, ...extraLines].slice(0, 2);
+  });
+
+  const imageTitleBaseY = $derived.by(() => {
+    if (variant !== "image") return 0;
+    const titleHeight = titleLines.length * 8;
+    const topBoundary = 50;
+    const bottomBoundary = 85;
+    const availableSpace = bottomBoundary - topBoundary;
+    return Math.round(topBoundary + (availableSpace - titleHeight) / 2);
+  });
+
+  const imageDateBaseY = $derived.by(() => {
+    if (variant !== "image") return 0;
+    return 78;
   });
 </script>
 
@@ -130,31 +185,36 @@
     />
     <line
       class="shp-countdown-card-svg-divider"
-      x1="10"
-      y1="48"
-      x2="90"
-      y2="48"
+      x1="15"
+      y1="52"
+      x2="85"
+      y2="52"
     />
+    <!-- 1. 大数字 -->
     <text
       class="shp-countdown-card-svg-relative"
       x="50"
-      y="25"
+      y="28"
       style={`font-size:${countdownFontSize}px`}>{countdownText}</text
     >
+    <!-- 2. 单位 -->
     {#if relativeSuffix}<text
         class="shp-countdown-card-svg-relative-suffix"
         x="50"
-        y="43">{relativeSuffix}</text
+        y="45">{relativeSuffix}</text
       >{/if}
+    <!-- 3. 分隔线（上移并缩窄） -->
+    <!-- 4. 标题（动态居中） -->
     {#each titleLines as titleLine, index}<text
         class="shp-countdown-card-svg-title"
         x="50"
-        y={58 + index * 8}>{titleLine}</text
+        y={imageTitleBaseY + index * 8}>{titleLine}</text
       >{/each}
-    {#each metadataLines as metadataLine, index}<text
+    <!-- 5. 日期（底部简洁信息） -->
+    {#each imageMetadataLines as metadataLine, index}<text
         class="shp-countdown-card-svg-date"
         x="50"
-        y={84 + index * 9}>{metadataLine}</text
+        y={imageDateBaseY + index * 9}>{metadataLine}</text
       >{/each}
   {:else if variant === "classic"}
     <rect
@@ -167,7 +227,7 @@
     {#each titleLines as titleLine, index}<text
         class="shp-countdown-card-svg-classic-title"
         x="50"
-        y={10 + index * 11}>{titleLine}</text
+        y={15 + index * 11}>{titleLine}</text
       >{/each}
     <text
       class="shp-countdown-card-svg-classic-relative"
@@ -186,12 +246,14 @@
         y={84 + index * 10}>{metadataLine}</text
       >{/each}
   {:else}
+    <!-- 1. 右上角圆形装饰 -->
     <circle
       class="shp-countdown-card-svg-center-decoration"
       cx="88"
       cy="14"
       r="19"
     />
+    <!-- 2. 标题左侧强调色条 -->
     <rect
       class="shp-countdown-card-svg-center-accent"
       x="10"
@@ -200,36 +262,38 @@
       height={titleLines.length > 1 ? 20 : 13}
       rx="1.5"
     />
+    <!-- 3. 标题文字（多行） -->
     {#each titleLines as titleLine, index}<text
         class="shp-countdown-card-svg-center-title"
         x="17"
         y={14 + index * 9}>{titleLine}</text
       >{/each}
-    <text class="shp-countdown-card-svg-center-direction" x="50" y="34"
-      >{model.relativeLabel}</text
-    >
+    <!-- 5. 核心倒计时数字（动态字号） -->
     <text
       class="shp-countdown-card-svg-center-relative"
       x="50"
-      y="51"
+      y="50"
       style={`font-size:${countdownFontSize}px`}>{countdownText}</text
     >
+    <!-- 6. 单位后缀（如"天"） -->
     {#if relativeSuffix}<text
         class="shp-countdown-card-svg-center-unit"
         x="50"
-        y="65">{relativeSuffix}</text
+        y="68">{relativeSuffix}</text
       >{/if}
+    <!-- 7. 分割线 -->
     <line
       class="shp-countdown-card-svg-center-divider"
       x1="13"
-      y1="70"
+      y1="75"
       x2="87"
-      y2="70"
+      y2="75"
     />
+    <!-- 8. 底部日期/元数据信息 -->
     {#each metadataLines as metadataLine, index}<text
         class="shp-countdown-card-svg-center-date"
         x="50"
-        y={78 + index * 8}>{metadataLine}</text
+        y={83 + index * 8}>{metadataLine}</text
       >{/each}
   {/if}
 </svg>
@@ -316,10 +380,6 @@
     font-size: 8px;
     font-weight: 650;
     text-anchor: start !important;
-  }
-  .shp-countdown-card-svg-center-direction {
-    fill: var(--b3-theme-on-surface, #69707a);
-    font-size: 6.5px;
   }
   .shp-countdown-card-svg-center-relative {
     fill: var(--b3-theme-primary, #4285f4);

@@ -108,12 +108,6 @@
         )
       : [],
   );
-  const currentIndex = $derived(
-    Math.max(
-      0,
-      models.findIndex((item) => item.event.id === currentId),
-    ),
-  );
   const timeline = $derived.by(() => {
     const groups = new Map<string, CountdownEventViewModel[]>();
     for (const model of models) {
@@ -212,6 +206,20 @@
       ? ` · ${model.event.tags.join("、")}`
       : "";
   }
+  function subtitleFullText(model: CountdownEventViewModel): string {
+    const parts = [formatWidgetDate(model)];
+    if (preferences.showCategory && model.categoryLabel)
+      parts.push(model.categoryLabel);
+    if (preferences.showPriority)
+      parts.push(
+        `${COUNTDOWN_PRIORITY_LABELS[model.event.priority]}优先级`,
+      );
+    if (preferences.showTags && model.event.tags.length)
+      parts.push(model.event.tags.join("、"));
+    if (preferences.showLunarDate && model.occurrence.lunarDateLabel)
+      parts.push(model.occurrence.lunarDateLabel);
+    return parts.join(" · ");
+  }
   onMount(() => {
     if (!advancedEnabled) {
       loading = false;
@@ -278,204 +286,210 @@
   aria-label="纪念日组件"
 >
   {#if advancedEnabled}
-  {#if loading}<div class="shp-countdown-widget-state">
-      纪念日加载中…
-    </div>{:else if error}<div class="shp-countdown-widget-state error">
-      <strong>纪念日数据文件异常</strong><small>{error}</small><button
-        type="button"
-        class="b3-button b3-button--text"
-        onclick={() => void reload()}>重新加载</button
+    {#if loading}<div class="shp-countdown-widget-state">
+        纪念日加载中…
+      </div>{:else if error}<div class="shp-countdown-widget-state error">
+        <strong>纪念日数据文件异常</strong><small>{error}</small><button
+          type="button"
+          class="b3-button b3-button--text"
+          onclick={() => void reload()}>重新加载</button
+        >
+      </div>{:else if models.length === 0}<div
+        class="shp-countdown-widget-state"
       >
-    </div>{:else if models.length === 0}<div class="shp-countdown-widget-state">
-      <strong>{events.length ? "当前筛选没有结果" : "还没有纪念日"}</strong
-      ><small
-        >{events.length
-          ? "请调整当前组件的数据范围。"
-          : "在纪念日中心添加重要日期。"}</small
-      ><button
-        type="button"
-        class="b3-button b3-button--text shp-countdown-widget-state-action"
-        onclick={() =>
-          void openCountdownCenterDialog(plugin, {
-            initialTab: events.length ? "settings" : "overview",
-            createNew: !events.length,
-          })}><CountdownIcon
-          name={events.length ? "calendar" : "add"}
-          size={17}
-        /><span>{events.length ? "打开纪念日中心" : "新增纪念日"}</span></button
+        <strong>{events.length ? "当前筛选没有结果" : "还没有纪念日"}</strong
+        ><small
+          >{events.length
+            ? "请调整当前组件的数据范围。"
+            : "在纪念日中心添加重要日期。"}</small
+        ><button
+          type="button"
+          class="b3-button b3-button--text shp-countdown-widget-state-action"
+          onclick={() =>
+            void openCountdownCenterDialog(plugin, {
+              initialTab: events.length ? "settings" : "overview",
+              createNew: !events.length,
+            })}
+          ><CountdownIcon
+            name={events.length ? "calendar" : "add"}
+            size={17}
+          /><span>{events.length ? "打开纪念日中心" : "新增纪念日"}</span
+          ></button
+        >
+      </div>{:else if view.viewMode === "compact"}<div
+        class="shp-countdown-widget-compact"
+        class:classic={displaySystem === "classic"}
+        style={`--shp-list2-bg:${config.data?.countdownList2BgColor || "var(--b3-theme-primary)"}`}
       >
-    </div>{:else if view.viewMode === "compact"}<div
-      class="shp-countdown-widget-compact"
-      class:classic={displaySystem === "classic"}
-      style={`--shp-list2-bg:${config.data?.countdownList2BgColor || "var(--b3-theme-primary)"}`}
-    >
-      {#each models as model (model.event.id)}<article>
-          {#if displaySystem === "classic"}<button
+        {#each models as model (model.event.id)}<article>
+            {#if displaySystem === "classic"}<button
+                type="button"
+                onclick={() => openEvent(model)}
+                ><span>{model.displayName}</span><strong
+                  >{compactDays(model)}</strong
+                ></button
+              >{:else}<button type="button" onclick={() => openEvent(model)}
+                ><CountdownIcon name={model.icon} /><span
+                  >{model.displayName}</span
+                >{#if preferences.showCategory && model.categoryLabel}<small
+                    >{model.categoryLabel}</small
+                  >{/if}{#if preferences.showPriority}<small
+                    >{COUNTDOWN_PRIORITY_LABELS[
+                      model.event.priority
+                    ]}优先级</small
+                  >{/if}<strong
+                  >{model.occurrence.daysDelta === 0
+                    ? "今天"
+                    : model.occurrence.daysDelta > 0
+                      ? `${model.occurrence.daysDelta} 天`
+                      : `-${Math.abs(model.occurrence.daysDelta)} 天`}</strong
+                ></button
+              >{/if}{#if preferences.showLinkedNoteAction && model.event.linkedBlockId}<button
+                type="button"
+                class="shp-countdown-widget-compact-linked"
+                title="打开关联笔记"
+                aria-label="打开关联笔记"
+                onclick={(event) => openLinked(event, model)}
+                ><CountdownIcon name="external-link" size={17} /></button
+              >{/if}
+          </article>{/each}
+      </div>{:else if view.viewMode === "cards"}<div
+        class="shp-countdown-widget-cards-wrap"
+        style={`--shp-card-bg:var(--b3-theme-surface);--shp-card2-accent:${config.data?.countdownCard2BgColor || "#000000"};--shp-card-image:url("${bg}")`}
+      >
+        <div
+          class="shp-countdown-widget-cards"
+          bind:this={cardScroller}
+          role="group"
+          aria-label="纪念日卡片"
+          onscroll={syncCard}
+          onpointerdown={() => (touched = true)}
+        >
+          {#each models as model (model.event.id)}<button
               type="button"
-              onclick={() => openEvent(model)}><span>{model.displayName}</span
-              ><strong>{compactDays(model)}</strong></button
-            >{:else}<button type="button" onclick={() => openEvent(model)}
-              ><CountdownIcon name={model.icon} /><span>{model.displayName}</span
-              >{#if preferences.showCategory && model.categoryLabel}<small
-                  >{model.categoryLabel}</small
-                >{/if}{#if preferences.showPriority}<small
-                  >{COUNTDOWN_PRIORITY_LABELS[model.event.priority]}优先级</small
-                >{/if}<strong
-                >{model.occurrence.daysDelta === 0
-                  ? "今天"
-                  : model.occurrence.daysDelta > 0
-                    ? `${model.occurrence.daysDelta} 天`
-                    : `-${Math.abs(model.occurrence.daysDelta)} 天`}</strong
-              ></button
-            >{/if}{#if preferences.showLinkedNoteAction && model.event.linkedBlockId}<button
-              type="button"
-              class="shp-countdown-widget-compact-linked"
-              title="打开关联笔记"
-              aria-label="打开关联笔记"
-              onclick={(event) => openLinked(event, model)}><CountdownIcon
-                name="external-link"
-                size={17}
-              /></button
-            >{/if}
-        </article>{/each}
-    </div>{:else if view.viewMode === "cards"}<div
-      class="shp-countdown-widget-cards-wrap"
-      style={`--shp-card-bg:var(--b3-theme-surface);--shp-card2-accent:${config.data?.countdownCard2BgColor || "#000000"};--shp-card-image:url("${bg}")`}
-    >
-      <div
-        class="shp-countdown-widget-cards"
-        bind:this={cardScroller}
-        role="group"
-        aria-label="纪念日卡片"
-        onscroll={syncCard}
-        onpointerdown={() => (touched = true)}
-      >
-        {#each models as model (model.event.id)}<button
-            type="button"
-            class:image={displaySystem === "classic" && legacyStyle === "card1"}
-            onclick={() => openEvent(model)}
-            aria-label={`${model.displayName}，${model.relativeLabel}`}
-            onkeydown={(event) => {
-              if (event.key === "ArrowLeft") go(cardIndex - 1);
-              if (event.key === "ArrowRight") go(cardIndex + 1);
-            }}
-            ><CountdownCardSvg
-              {model}
-              {preferences}
-              variant={displaySystem === "center"
-                ? "center"
-                : legacyStyle === "card1"
-                  ? "image"
-                  : "classic"}
-            /></button
-          >{/each}
-      </div>
-      <button
-        type="button"
-        class="previous"
-        title="上一个"
-        aria-label="上一个"
-        onclick={() => go(cardIndex - 1)}><CountdownIcon
-          name="chevron-left"
-          size={22}
-        /></button
-      ><button
-        type="button"
-        class="next"
-        title="下一个"
-        aria-label="下一个"
-        onclick={() => go(cardIndex + 1)}><CountdownIcon
-          name="chevron-right"
-          size={22}
-        /></button
-      >
-    </div>{:else if view.viewMode === "timeline"}<div
-      class="shp-countdown-widget-timeline"
-    >
-      {#each timeline as group}<section>
-          <header>{group[0]}</header>
-          {#each group[1] as model (model.event.id)}<button
-              type="button"
+              class:image={displaySystem === "classic" &&
+                legacyStyle === "card1"}
               onclick={() => openEvent(model)}
-              ><span
-                style={`--shp-event-color:${model.color || "var(--b3-theme-primary)"}`}
-              ></span><CountdownIcon name={model.icon} />
-              <div>
-                <strong>{model.displayName}</strong><small
-                  >{formatWidgetDate(model)}{preferences.showCategory &&
-                  model.categoryLabel
-                    ? ` · ${model.categoryLabel}`
-                    : ""}{prioritySuffix(model)}{tagsSuffix(
-                    model,
-                  )}{preferences.showLunarDate &&
-                  model.occurrence.lunarDateLabel
-                    ? ` · ${model.occurrence.lunarDateLabel}`
-                    : ""}{preferences.showCountLabel && model.countLabel
-                    ? ` · ${model.countLabel}`
-                    : ""}</small
-                >
-              </div></button
+              aria-label={`${model.displayName}，${model.relativeLabel}`}
+              onkeydown={(event) => {
+                if (event.key === "ArrowLeft") go(cardIndex - 1);
+                if (event.key === "ArrowRight") go(cardIndex + 1);
+              }}
+              ><CountdownCardSvg
+                {model}
+                {preferences}
+                variant={displaySystem === "center"
+                  ? "center"
+                  : legacyStyle === "card1"
+                    ? "image"
+                    : "classic"}
+              /></button
             >{/each}
-        </section>{/each}
-    </div>{:else}<div
-      class="shp-countdown-widget-list"
-      class:classic={displaySystem === "classic"}
-    >
-      {#if displaySystem === "classic"}<h3
-          class="shp-countdown-widget-list-title"
-        ><CountdownIcon name="calendar" size={16} />倒数日</h3
-        >{/if}
-      {#each models as model (model.event.id)}<article>
-          {#if displaySystem === "classic"}<button
-              type="button"
-              class="shp-countdown-widget-list-main"
-              onclick={() => openEvent(model)}><span
-                class="shp-countdown-widget-list-classic-copy"
-                ><strong>{model.displayName}</strong><small
-                  >{formatWidgetDate(model)}</small
-                ></span
-              ><em>{compactDays(model)}</em></button
-            >{:else}<button
-              type="button"
-              class="shp-countdown-widget-list-main"
-              onclick={() => openEvent(model)}
-              ><span
-                style={`--shp-event-color:${model.color || "var(--b3-theme-primary)"}`}
-                ><CountdownIcon name={model.icon} /></span
-              >
-              <div>
-                <strong>{model.displayName}</strong><small
-                  >{formatWidgetDate(model)}{preferences.showCategory &&
-                  model.categoryLabel
-                    ? ` · ${model.categoryLabel}`
-                    : ""}{prioritySuffix(model)}{tagsSuffix(
-                    model,
-                  )}{preferences.showLunarDate && model.occurrence.lunarDateLabel
-                    ? ` · ${model.occurrence.lunarDateLabel}`
-                    : ""}</small
-                >{#if preferences.showNotePreview && model.event.note}<p>
-                    {model.event.note}
-                  </p>{/if}
-              </div>
-              <em
-                >{model.relativeLabel}{preferences.showCountLabel &&
-                model.countLabel
-                  ? ` · ${model.countLabel}`
-                  : ""}</em
-              ></button
-            >{/if}
-          >{#if preferences.showLinkedNoteAction && model.event.linkedBlockId}<button
-              type="button"
-              class="shp-countdown-widget-linked"
-              title="打开关联笔记"
-              aria-label="打开关联笔记"
-              onclick={(event) => openLinked(event, model)}><CountdownIcon
-                name="external-link"
-                size={17}
-              /></button
-            >{/if}
-        </article>{/each}
-    </div>{/if}
+        </div>
+        <button
+          type="button"
+          class="previous"
+          title="上一个"
+          aria-label="上一个"
+          onclick={() => go(cardIndex - 1)}
+          ><CountdownIcon name="chevron-left" size={22} /></button
+        ><button
+          type="button"
+          class="next"
+          title="下一个"
+          aria-label="下一个"
+          onclick={() => go(cardIndex + 1)}
+          ><CountdownIcon name="chevron-right" size={22} /></button
+        >
+      </div>{:else if view.viewMode === "timeline"}<div
+        class="shp-countdown-widget-timeline"
+      >
+        {#each timeline as group}<section>
+            <header>{group[0]}</header>
+            {#each group[1] as model (model.event.id)}<button
+                type="button"
+                onclick={() => openEvent(model)}
+                ><span
+                  style={`--shp-event-color:${model.color || "var(--b3-theme-primary)"}`}
+                ></span><CountdownIcon name={model.icon} />
+                <div>
+                  <strong>{model.displayName}</strong><small
+                    >{formatWidgetDate(model)}{preferences.showCategory &&
+                    model.categoryLabel
+                      ? ` · ${model.categoryLabel}`
+                      : ""}{prioritySuffix(model)}{tagsSuffix(
+                      model,
+                    )}{preferences.showLunarDate &&
+                    model.occurrence.lunarDateLabel
+                      ? ` · ${model.occurrence.lunarDateLabel}`
+                      : ""}{preferences.showCountLabel && model.countLabel
+                      ? ` · ${model.countLabel}`
+                      : ""}</small
+                  >
+                </div></button
+              >{/each}
+          </section>{/each}
+      </div>{:else}<div
+        class="shp-countdown-widget-list"
+        class:classic={displaySystem === "classic"}
+      >
+        {#if displaySystem === "classic"}<h3
+            class="shp-countdown-widget-list-title"
+          >
+            <CountdownIcon name="calendar" size={16} />倒数日
+          </h3>{/if}
+        {#each models as model (model.event.id)}<article>
+            {#if displaySystem === "classic"}<button
+                type="button"
+                class="shp-countdown-widget-list-main"
+                onclick={() => openEvent(model)}
+                ><span class="shp-countdown-widget-list-classic-copy"
+                  ><strong>{model.displayName}</strong><small
+                    >{formatWidgetDate(model)}</small
+                  ></span
+                ><em>{compactDays(model)}</em></button
+              >{:else}<button
+                type="button"
+                class="shp-countdown-widget-list-main"
+                onclick={() => openEvent(model)}
+                ><span
+                  class="shp-countdown-widget-list-icon"
+                  style={`--shp-event-color:${model.color || "var(--b3-theme-primary)"}`}
+                  ><CountdownIcon name={model.icon} /></span
+                >
+                <div class="shp-countdown-widget-list-copy">
+                  <strong title={model.displayName}>{model.displayName}</strong
+                  ><small title={subtitleFullText(model)}
+                    >{formatWidgetDate(model)}{preferences.showCategory &&
+                    model.categoryLabel
+                      ? ` · ${model.categoryLabel}`
+                      : ""}{prioritySuffix(model)}{tagsSuffix(
+                      model,
+                    )}{preferences.showLunarDate &&
+                    model.occurrence.lunarDateLabel
+                      ? ` · ${model.occurrence.lunarDateLabel}`
+                      : ""}</small
+                  >{#if preferences.showNotePreview && model.event.note}<p>
+                      {model.event.note}
+                    </p>{/if}
+                </div>
+                <em class="shp-countdown-widget-list-relative"
+                  >{model.relativeLabel}{preferences.showCountLabel &&
+                  model.countLabel
+                    ? ` · ${model.countLabel}`
+                    : ""}</em
+                ></button
+              >{/if}
+            {#if displaySystem !== "classic" && preferences.showLinkedNoteAction && model.event.linkedBlockId}<button
+                type="button"
+                class="shp-countdown-widget-linked"
+                title="打开关联笔记"
+                aria-label="打开关联笔记"
+                onclick={(event) => openLinked(event, model)}
+                ><CountdownIcon name="external-link" size={17} /></button
+              >{/if}
+          </article>{/each}
+      </div>{/if}
   {/if}
 </div>
 
@@ -516,6 +530,11 @@
     display: grid;
     gap: 7px;
     padding: 8px;
+  }
+  .shp-countdown-widget-list:not(.classic) {
+    container-type: inline-size;
+    container-name: countdown-widget-list;
+    min-width: 0;
   }
   .shp-countdown-widget-list article {
     display: flex;
@@ -561,6 +580,7 @@
     color: var(--b3-theme-on-surface);
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
@@ -600,8 +620,7 @@
     grid-template-columns: minmax(0, 1fr) auto;
     padding: 12px 16px;
   }
-  .shp-countdown-widget-list-main
-    > .shp-countdown-widget-list-classic-copy {
+  .shp-countdown-widget-list-main > .shp-countdown-widget-list-classic-copy {
     width: auto;
     height: auto;
     display: grid;
@@ -658,9 +677,7 @@
     overflow: hidden;
     background: var(--b3-theme-background);
   }
-  .shp-countdown-widget-compact.classic
-    > article
-    > button:first-child {
+  .shp-countdown-widget-compact.classic > article > button:first-child {
     display: flex;
     justify-content: space-between;
     min-height: 44px;
@@ -668,10 +685,7 @@
     font-size: 18px;
     font-weight: 600;
   }
-  .shp-countdown-widget-compact.classic
-    > article
-    > button:first-child
-    strong {
+  .shp-countdown-widget-compact.classic > article > button:first-child strong {
     align-self: stretch;
     min-width: 72px;
     display: inline-flex;
@@ -793,6 +807,82 @@
       text-align: left;
     }
     .shp-countdown-widget-compact small {
+      display: none;
+    }
+  }
+  /* center 列表响应式：基于组件自身宽度的容器查询 */
+  .shp-countdown-widget-list-relative {
+    white-space: nowrap;
+  }
+  .shp-countdown-widget-list-copy strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 中等窄宽度：≤279px → 两列两行布局 */
+  @container countdown-widget-list (max-width: 279px) {
+    .shp-countdown-widget-list-main {
+      grid-template-columns: auto minmax(0, 1fr);
+      row-gap: 4px;
+    }
+    .shp-countdown-widget-list-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 7px;
+    }
+    .shp-countdown-widget-list-copy strong {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      white-space: normal;
+      overflow: hidden;
+    }
+    .shp-countdown-widget-list-copy small {
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      white-space: normal;
+    }
+    .shp-countdown-widget-list-relative {
+      grid-column: 2;
+      text-align: left;
+    }
+    .shp-countdown-widget-linked {
+      display: none;
+    }
+  }
+  /* 极窄宽度：≤179px → 垂直居中紧凑布局 */
+  @container countdown-widget-list (max-width: 179px) {
+    .shp-countdown-widget-list-main {
+      grid-template-columns: minmax(0, 1fr);
+      justify-items: center;
+      text-align: center;
+      row-gap: 4px;
+    }
+    .shp-countdown-widget-list-icon {
+      justify-self: center;
+    }
+    .shp-countdown-widget-list-copy small,
+    .shp-countdown-widget-list-copy p {
+      display: none;
+    }
+    .shp-countdown-widget-list-copy strong {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      white-space: normal;
+      overflow: hidden;
+    }
+    .shp-countdown-widget-list-relative {
+      grid-column: auto;
+      text-align: center;
+    }
+    .shp-countdown-widget-linked {
       display: none;
     }
   }
