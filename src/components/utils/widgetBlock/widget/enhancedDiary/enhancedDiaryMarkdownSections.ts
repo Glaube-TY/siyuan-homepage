@@ -456,6 +456,104 @@ export function findSectionByTitlePath(
     return { found: true, node: currentNode };
 }
 
+/**
+ * 从 Markdown 字符串末尾移除连续的脚注定义区域（思源 exportMdContent 附加的引用定义附录）。
+ *
+ * 只移除位于字符串末尾、连续出现的脚注定义起始行及其缩进续行；
+ * 不删除正文中间的脚注定义，不修改普通链接、行内脚注标记或方括号内容。
+ *
+ * 算法：先跳过末尾空白行确定有效内容终点，再从终点反向扫描找到最早的脚注定义候选行，
+ * 正向验证候选行到有效终点之间所有非空行都属于脚注定义或缩进续行。
+ *
+ * 脚注定义起始行识别规则：^\[\^[^\]]+\]:[ \t]*.*$
+ * 兼容格式：[^1]: 文档标题 /  ((2026... "标题")) /  # 文档标题
+ *
+ * 缩进续行：至少4个空格或制表符开头（Markdown 合法续行缩进）。
+ *
+ * @param markdown 原始 Markdown 字符串
+ * @returns 移除末尾脚注附录后的 Markdown 字符串；无匹配时原样返回
+ */
+export function stripTrailingMarkdownFootnoteDefinitions(markdown: string): string {
+    const normalized = markdown.replace(/\r\n/g, "\n");
+    const lines = normalized.split("\n");
+
+    // 脚注定义起始行正则：[^标识符]:[空格或制表符]内容
+    const footnoteDefRegex = /^\[\^[^\]]+\]:[ \t]*.*$/;
+
+    // 缩进续行检测：至少4个空格或制表符开头
+    function isIndentedContinuation(line: string): boolean {
+        return line.startsWith("    ") || line.startsWith("\t");
+    }
+
+    // 1. 找到有效内容终点（跳过末尾所有空白行）
+    let effectiveEnd = lines.length - 1;
+    while (effectiveEnd >= 0 && lines[effectiveEnd].trim() === "") {
+        effectiveEnd--;
+    }
+
+    if (effectiveEnd < 0) return normalized;
+
+    // 2. 正向验证从 startIndex 到 effectiveEnd 是否为合法的脚注附录区域
+    function isTrailingFootnoteRegion(startIdx: number): boolean {
+        let hasActiveDef = false;
+        for (let i = startIdx; i <= effectiveEnd; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            // 空行：允许存在于脚注定义之间
+            if (trimmed === "") continue;
+
+            // 脚注定义起始行
+            if (footnoteDefRegex.test(trimmed)) {
+                hasActiveDef = true;
+                continue;
+            }
+
+            // 缩进续行：仅当已有活动脚注定义时才允许
+            if (isIndentedContinuation(line)) {
+                if (hasActiveDef) continue;
+                return false;
+            }
+
+            // 任何其他非空行 → 不是脚注附录
+            return false;
+        }
+        return hasActiveDef;
+    }
+
+    // 3. 从有效内容终点反向扫描，找到最靠前且验证成功的脚注定义起始位置
+    let firstValidDefIndex = -1;
+    for (let i = effectiveEnd; i >= 0; i--) {
+        const trimmed = lines[i].trim();
+
+        // 跳过空行（在有效区域内不应出现，但防御处理）
+        if (trimmed === "") continue;
+
+        // 跳过缩进续行（必须依附于前面的脚注定义行，继续反向查找）
+        if (isIndentedContinuation(lines[i])) continue;
+
+        // 脚注定义起始行 → 验证整段区域
+        if (footnoteDefRegex.test(trimmed)) {
+            if (isTrailingFootnoteRegion(i)) {
+                firstValidDefIndex = i;
+                continue; // 继续反向查找更早的脚注定义
+            }
+            // 验证失败 → 这片区域不是合法的脚注附录
+            break;
+        }
+
+        // 非脚注定义的普通内容行 → 到达正文边界，停止扫描
+        break;
+    }
+
+    // 4. 如果找到有效的尾部脚注附录，截断并清理尾部空白
+    if (firstValidDefIndex >= 0) {
+        return lines.slice(0, firstValidDefIndex).join("\n").trimEnd();
+    }
+
+    return normalized;
+}
+
 export function getSectionMarkdown(markdown: string, node: EnhancedDiaryHeadingNode): string {
     if (!node || node.startLine === undefined || node.endLine === undefined) {
         return "";

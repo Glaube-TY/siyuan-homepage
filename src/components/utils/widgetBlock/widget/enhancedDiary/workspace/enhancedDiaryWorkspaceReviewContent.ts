@@ -4,6 +4,8 @@ import {
     normalizeHeadingTitle,
     parseMarkdownHeadingTree,
     getSectionMarkdown,
+    stripTrailingMarkdownFootnoteDefinitions,
+    getLines,
     type EnhancedDiaryHeadingNode,
 } from "../enhancedDiaryMarkdownSections";
 import { readDiaryMarkdownResult } from "../enhancedDiaryDoc";
@@ -113,6 +115,8 @@ export async function loadReviewContent(
     }
     const markdown = readResult.content;
     const roots = parseMarkdownHeadingTree(markdown);
+    const normalizedLines = getLines(markdown);
+    const documentLastLineIndex = normalizedLines.length - 1;
     const reviewRoot = findReviewRootNode(roots, period, mapping);
 
     if (!reviewRoot) {
@@ -133,10 +137,15 @@ export async function loadReviewContent(
         const lookupAliases = getReviewFieldLookupAliases(mapping, period, fieldTitle, i);
         const lookup = findDescendantByTitleInScopeWithAliases(reviewRoot, lookupAliases);
         if (lookup.found && lookup.node) {
+            const sectionMarkdown = getSectionMarkdown(markdown, lookup.node);
+            const reachesDocumentEnd = lookup.node.endLine === documentLastLineIndex;
+            const cleaned = reachesDocumentEnd
+                ? stripTrailingMarkdownFootnoteDefinitions(sectionMarkdown)
+                : sectionMarkdown;
             fields.push({
                 key: fieldTitle,
                 label: fieldTitle,
-                content: getSectionMarkdown(markdown, lookup.node).trim(),
+                content: cleaned.trim(),
                 missing: false,
             });
         } else {
