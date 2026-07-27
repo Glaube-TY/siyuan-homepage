@@ -119,6 +119,54 @@ export function normalizeMobileQuickActionButtonSize(value: unknown): number {
     );
 }
 
+// ---------------------------------------------------------------------------
+// 自动打开目标（复用悬浮快捷操作定义，但不允许 mobile-settings）
+// ---------------------------------------------------------------------------
+
+export type MobileAutoOpenTargetId = Exclude<MobileQuickActionId, "mobile-settings">;
+
+export const MOBILE_AUTO_OPEN_TARGET_DEFINITIONS: MobileQuickActionDefinition[] =
+    MOBILE_QUICK_ACTION_DEFINITIONS.filter((item) => item.id !== "mobile-settings");
+
+const KNOWN_MOBILE_AUTO_OPEN_TARGET_IDS = new Set<MobileAutoOpenTargetId>(
+    MOBILE_AUTO_OPEN_TARGET_DEFINITIONS.map((item) => item.id as MobileAutoOpenTargetId),
+);
+
+export const DEFAULT_MOBILE_AUTO_OPEN_TARGET: MobileAutoOpenTargetId = "mobile-homepage";
+
+export function isMobileAutoOpenTargetId(value: unknown): value is MobileAutoOpenTargetId {
+    return typeof value === "string" && KNOWN_MOBILE_AUTO_OPEN_TARGET_IDS.has(value as MobileAutoOpenTargetId);
+}
+
+export function normalizeMobileAutoOpenTarget(value: unknown): MobileAutoOpenTargetId {
+    if (isMobileAutoOpenTargetId(value)) return value;
+    return DEFAULT_MOBILE_AUTO_OPEN_TARGET;
+}
+
+export function resolveMobileAutoOpenConfig(config: {
+    mobileAutoOpenEnabled?: boolean;
+    mobileAutoOpenTarget?: unknown;
+    autoOpenMobileHomepage?: boolean;
+}): { enabled: boolean; target: MobileAutoOpenTargetId } {
+    // 1. mobileAutoOpenEnabled 是 boolean 时，以它为准
+    if (typeof config.mobileAutoOpenEnabled === "boolean") {
+        return {
+            enabled: config.mobileAutoOpenEnabled,
+            target: normalizeMobileAutoOpenTarget(config.mobileAutoOpenTarget),
+        };
+    }
+
+    // 2. 新字段不存在时：旧字段为 true → 自动打开移动主页
+    if (config.autoOpenMobileHomepage === true) {
+        return { enabled: true, target: DEFAULT_MOBILE_AUTO_OPEN_TARGET };
+    }
+
+    // 3. 旧字段不存在或为 false 时，不自动开启
+    return { enabled: false, target: DEFAULT_MOBILE_AUTO_OPEN_TARGET };
+}
+
+// ---------------------------------------------------------------------------
+
 export function normalizeMobileQuickActionsPosition(
     value: unknown,
     options: {

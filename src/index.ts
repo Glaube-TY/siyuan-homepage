@@ -92,6 +92,8 @@ import {
     normalizeMobileQuickActionButtonSize,
     normalizeMobileQuickActionItems,
     normalizeMobileQuickActionsPosition,
+    resolveMobileAutoOpenConfig,
+    isMobileAutoOpenTargetId,
 } from "./homepage/mobileQuickActions/mobileQuickActionsConfig";
 import type {
     MobileQuickActionId,
@@ -157,6 +159,8 @@ interface PluginConfig {
     taskEditorEnabled?: boolean;
     sidebarEnabled?: boolean;
     autoOpenMobileHomepage?: boolean;
+    mobileAutoOpenEnabled?: boolean;
+    mobileAutoOpenTarget?: string;
     mobileQuickActionsEnabled?: boolean;
     mobileQuickActionsButtonSize?: number;
     mobileQuickActionsPosition?: MobileQuickActionsPosition;
@@ -191,6 +195,7 @@ export default class PluginHomepage extends Plugin {
     private mobileQuickActionsInstance: Record<string, any> | null = null;
     private mobileQuickActionsPositionSaveTimer: number | null = null;
     private pendingMobileQuickActionsPosition: MobileQuickActionsPosition | null = null;
+    private mobileAutoOpenAttempted = false;
     private customTabsRegistered = false;
     private homepageTopBarElement: HTMLElement | null = null;
     private kbTopBarElement: HTMLElement | null = null;
@@ -665,12 +670,26 @@ export default class PluginHomepage extends Plugin {
         // 只在非新窗口中自动打开主页
         if (!isNewWindow) {
             if (this.isMobileFrontend()) {
-                if (config.autoOpenMobileHomepage === true) {
-                    await this.openMobileHomepage();
-                } else {
-                    await this.verifyLicense();
-                }
+                // 先验证许可
+                await this.verifyLicense();
+
+                // 挂载悬浮快捷按钮
                 this.mountMobileQuickActions(config);
+
+                // 移动端自动打开窗口（仅一次）
+                if (!this.mobileAutoOpenAttempted && this.ADVANCED) {
+                    this.mobileAutoOpenAttempted = true;
+                    const { enabled, target } = resolveMobileAutoOpenConfig(config);
+                    if (enabled && isMobileAutoOpenTargetId(target)) {
+                        try {
+                            await this.runMobileQuickAction(target);
+                        } catch (_error) {
+                            const definition = MOBILE_QUICK_ACTION_DEFINITIONS.find((d) => d.id === target);
+                            const targetLabel = definition?.label || target;
+                            showMessage(`自动打开“${targetLabel}”失败`, 3500, "error");
+                        }
+                    }
+                }
             } else if (config.autoOpenHomepage === true) {
                 await this.openHomepage();
                 void this.verifyLicense();
@@ -1292,15 +1311,26 @@ export default class PluginHomepage extends Plugin {
         return urlParams.has("json");
     }
 
+    private runMobileQuickAction(actionId: MobileQuickActionId): void | Promise<void> {
+        switch (actionId) {
+            case "accounting-record":
+                return openAccountingDetailDialogFromPlugin(this, "record");
+            case "mobile-homepage":
+                return this.openMobileHomepage();
+            case "enhanced-diary-workspace":
+                return this.openEnhancedDiaryWorkspace();
+            case "ai-knowledge-base":
+                return this.openMobileKbChat();
+            case "quick-notes":
+                return this.openQuickNotesDialog();
+            case "mobile-settings":
+                return this.openMobileSettingsDialog();
+            default:
+                return;
+        }
+    }
+
     private buildMobileQuickActions(config: PluginConfig): MobileQuickAction[] {
-        const runById: Record<MobileQuickActionId, () => void | Promise<void>> = {
-            "accounting-record": () => openAccountingDetailDialogFromPlugin(this, "record"),
-            "mobile-homepage": () => this.openMobileHomepage(),
-            "enhanced-diary-workspace": () => this.openEnhancedDiaryWorkspace(),
-            "ai-knowledge-base": () => this.openMobileKbChat(),
-            "quick-notes": () => this.openQuickNotesDialog(),
-            "mobile-settings": () => this.openMobileSettingsDialog(),
-        };
         const definitionById = new Map(MOBILE_QUICK_ACTION_DEFINITIONS.map((item) => [item.id, item]));
 
         return normalizeMobileQuickActionItems(config.mobileQuickActionItems)
@@ -1314,7 +1344,7 @@ export default class PluginHomepage extends Plugin {
                     label: definition.label,
                     description: definition.description,
                     icon: definition.icon,
-                    run: runById[definition.id],
+                    run: () => this.runMobileQuickAction(definition.id),
                 };
             })
             .filter((item): item is MobileQuickAction => item !== null);

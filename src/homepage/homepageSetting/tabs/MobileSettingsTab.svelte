@@ -9,6 +9,8 @@
         MAX_MOBILE_QUICK_ACTION_BUTTON_SIZE,
         MIN_MOBILE_QUICK_ACTION_BUTTON_SIZE,
         MOBILE_QUICK_ACTION_DEFINITIONS,
+        MOBILE_AUTO_OPEN_TARGET_DEFINITIONS,
+        normalizeMobileAutoOpenTarget,
         normalizeMobileQuickActionButtonSize,
         normalizeMobileQuickActionItems,
         isMobileQuickActionId,
@@ -17,12 +19,14 @@
 
     interface Props {
         advancedEnabled?: boolean;
-        autoOpenMobileHomepage: boolean;
+        mobileAutoOpenEnabled: boolean;
+        mobileAutoOpenTarget: string;
         mobileQuickActionsEnabled: boolean;
         mobileQuickActionsButtonSize: number;
         mobileQuickActionItems: MobileQuickActionSetting[];
         showMobilePreview?: boolean;
-        onAutoOpenMobileHomepageChange: (value: boolean) => void;
+        onMobileAutoOpenEnabledChange: (value: boolean) => void;
+        onMobileAutoOpenTargetChange: (value: string) => void;
         onMobileQuickActionsEnabledChange: (value: boolean) => void;
         onMobileQuickActionsButtonSizeChange: (value: number) => void;
         onMobileQuickActionItemsChange: (value: MobileQuickActionSetting[]) => void;
@@ -31,12 +35,14 @@
 
     let {
         advancedEnabled = false,
-        autoOpenMobileHomepage,
+        mobileAutoOpenEnabled,
+        mobileAutoOpenTarget,
         mobileQuickActionsEnabled,
         mobileQuickActionsButtonSize,
         mobileQuickActionItems,
         showMobilePreview = false,
-        onAutoOpenMobileHomepageChange,
+        onMobileAutoOpenEnabledChange,
+        onMobileAutoOpenTargetChange,
         onMobileQuickActionsEnabledChange,
         onMobileQuickActionsButtonSizeChange,
         onMobileQuickActionItemsChange,
@@ -49,6 +55,7 @@
     const mobileSettingsEditable = $derived(advancedEnabled === true);
     const normalizedButtonSize = $derived(normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize));
     const sortedActionItems = $derived(normalizeMobileQuickActionItems(mobileQuickActionItems));
+    const normalizedAutoOpenTarget = $derived(normalizeMobileAutoOpenTarget(mobileAutoOpenTarget));
 
     function getActionDefinition(id: MobileQuickActionSetting["id"]) {
         return MOBILE_QUICK_ACTION_DEFINITIONS.find((item) => item.id === id);
@@ -136,17 +143,49 @@
     {/if}
 
     <SettingRow
-        title="自动打开移动端主页👑"
-        description={mobileSettingsEditable ? "移动端启动后自动进入主页" : "会员专属，当前不会自动打开"}
+        title="移动端自动打开窗口👑"
+        description={mobileSettingsEditable ? "移动端启动后自动打开所选界面" : "会员专属，当前不会自动打开"}
     >
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
-            checked={autoOpenMobileHomepage}
+            checked={mobileAutoOpenEnabled}
             disabled={!mobileSettingsEditable}
-            onchange={(e) => onAutoOpenMobileHomepageChange((e.currentTarget as HTMLInputElement).checked)}
+            onchange={(e) => onMobileAutoOpenEnabledChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
+
+    {#if mobileAutoOpenEnabled}
+        <SettingRow
+            title="自动打开"
+            description="选择启动后默认打开的界面"
+        >
+            <div class="shp-mobile-settings-target-list control-full">
+                {#each MOBILE_AUTO_OPEN_TARGET_DEFINITIONS as definition (definition.id)}
+                    <label class="shp-mobile-settings-target-option">
+                        <input
+                            type="radio"
+                            name="mobileAutoOpenTarget"
+                            checked={normalizedAutoOpenTarget === definition.id}
+                            disabled={!mobileSettingsEditable}
+                            onchange={() => onMobileAutoOpenTargetChange(definition.id)}
+                        />
+                        <span class="shp-mobile-settings-action-icon">
+                            {#if definition.icon === "wallet"}
+                                <AccountingIcon name="wallet" size={17} />
+                            {:else}
+                                <SiyuanIcon name={definition.icon} size={17} />
+                            {/if}
+                        </span>
+                        <span class="shp-mobile-settings-action-text">
+                            <span class="shp-mobile-settings-action-label">{definition.label}</span>
+                            <span class="shp-mobile-settings-action-description">{definition.description}</span>
+                        </span>
+                    </label>
+                {/each}
+            </div>
+        </SettingRow>
+    {/if}
 
     {#if showMobilePreview}
         <SettingRow
@@ -357,5 +396,32 @@
             grid-column: 3;
             justify-self: start;
         }
+    }
+
+    .shp-mobile-settings-target-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .shp-mobile-settings-target-option {
+        display: grid;
+        grid-template-columns: 16px 32px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        padding: 8px;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        background: var(--b3-theme-surface);
+        cursor: pointer;
+    }
+
+    .shp-mobile-settings-target-option:has(input:checked) {
+        border-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-surface));
+    }
+
+    .shp-mobile-settings-target-option input[type="radio"] {
+        accent-color: var(--b3-theme-primary);
     }
 </style>

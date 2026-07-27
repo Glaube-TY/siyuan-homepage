@@ -79,8 +79,10 @@
     import type { SelectionAiToolbarSettings } from "@/features/kb/services/selection-ai/selection-ai-types";
     import {
         DEFAULT_MOBILE_QUICK_ACTION_BUTTON_SIZE,
+        normalizeMobileAutoOpenTarget,
         normalizeMobileQuickActionButtonSize,
         normalizeMobileQuickActionItems,
+        resolveMobileAutoOpenConfig,
         type MobileQuickActionSetting,
     } from "../mobileQuickActions/mobileQuickActionsConfig";
 
@@ -91,7 +93,8 @@
     // 主页设置相关配置变量
     let tempAutoOpenHomepage = $state(true);
     let sidebarEnabled = $state(false);
-    let autoOpenMobileHomepage = $state(false);
+    let mobileAutoOpenEnabled = $state(false);
+    let mobileAutoOpenTarget = $state("mobile-homepage");
     let mobileQuickActionsEnabled = $state(true);
     let mobileQuickActionsButtonSize = $state(DEFAULT_MOBILE_QUICK_ACTION_BUTTON_SIZE);
     let mobileQuickActionItems = $state<MobileQuickActionSetting[]>(normalizeMobileQuickActionItems(undefined));
@@ -479,14 +482,75 @@
     onMount(async () => {
         const savedConfig = await loadHomepageSettingConfig(plugin);
         if (savedConfig) {
-            // 全局配置
+            // 全局配置（桌面）
             tempAutoOpenHomepage = savedConfig.autoOpenHomepage ?? true;
             sidebarEnabled = savedConfig.sidebarEnabled ?? false;
-            autoOpenMobileHomepage =
-                savedConfig.autoOpenMobileHomepage ?? false;
-            mobileQuickActionsEnabled = savedConfig.mobileQuickActionsEnabled ?? true;
-            mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(savedConfig.mobileQuickActionsButtonSize);
-            mobileQuickActionItems = normalizeMobileQuickActionItems(savedConfig.mobileQuickActionItems);
+
+            // 移动端配置：统一从 mobile-homepage 读取，mobile-shared 优先于 desktop
+            try {
+                const mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {};
+
+                // --- 悬浮按钮设置：mobile-shared 优先，每个字段独立判断 ---
+                mobileQuickActionsEnabled =
+                    typeof (mobileConfig as any).mobileQuickActionsEnabled === "boolean"
+                        ? (mobileConfig as any).mobileQuickActionsEnabled
+                        : savedConfig.mobileQuickActionsEnabled ?? true;
+
+                mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(
+                    (mobileConfig as any).mobileQuickActionsButtonSize !== undefined
+                        ? (mobileConfig as any).mobileQuickActionsButtonSize
+                        : savedConfig.mobileQuickActionsButtonSize,
+                );
+
+                mobileQuickActionItems = normalizeMobileQuickActionItems(
+                    Array.isArray((mobileConfig as any).mobileQuickActionItems)
+                        ? (mobileConfig as any).mobileQuickActionItems
+                        : savedConfig.mobileQuickActionItems,
+                );
+
+                // --- 自动打开设置：mobile 新字段 > mobile 旧字段 > desktop 旧字段 > 默认值 ---
+                const hasNewMobileAutoOpenConfig =
+                    typeof (mobileConfig as any).mobileAutoOpenEnabled === "boolean"
+                    || typeof (mobileConfig as any).mobileAutoOpenTarget === "string";
+
+                const hasOldMobileAutoOpenConfig =
+                    typeof (mobileConfig as any).autoOpenMobileHomepage === "boolean";
+
+                if (hasNewMobileAutoOpenConfig) {
+                    // 1. 新字段存在，以 mobile 配置为准
+                    const resolved = resolveMobileAutoOpenConfig(mobileConfig);
+                    mobileAutoOpenEnabled = resolved.enabled;
+                    mobileAutoOpenTarget = resolved.target;
+                } else if (hasOldMobileAutoOpenConfig) {
+                    // 2. 旧字段在 mobile 中存在，仍以 mobile 为准（优先于 desktop 旧副本）
+                    const resolved = resolveMobileAutoOpenConfig(mobileConfig);
+                    mobileAutoOpenEnabled = resolved.enabled;
+                    mobileAutoOpenTarget = resolved.target;
+                } else if (savedConfig && typeof savedConfig.autoOpenMobileHomepage === "boolean") {
+                    // 3. mobile 中无任何自动打开配置，回退 desktop 旧字段（仅 UI 回退，不自动写盘）
+                    mobileAutoOpenEnabled = savedConfig.autoOpenMobileHomepage === true;
+                    mobileAutoOpenTarget = "mobile-homepage";
+                } else {
+                    // 4. 两边都没有，默认值
+                    mobileAutoOpenEnabled = false;
+                    mobileAutoOpenTarget = "mobile-homepage";
+                }
+            } catch {
+                // mobile 配置读取失败：使用 desktop 旧字段作为 UI 回退
+                mobileQuickActionsEnabled = savedConfig.mobileQuickActionsEnabled ?? true;
+                mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(
+                    savedConfig.mobileQuickActionsButtonSize,
+                );
+                mobileQuickActionItems = normalizeMobileQuickActionItems(savedConfig.mobileQuickActionItems);
+
+                if (savedConfig && typeof savedConfig.autoOpenMobileHomepage === "boolean") {
+                    mobileAutoOpenEnabled = savedConfig.autoOpenMobileHomepage === true;
+                    mobileAutoOpenTarget = "mobile-homepage";
+                } else {
+                    mobileAutoOpenEnabled = false;
+                    mobileAutoOpenTarget = "mobile-homepage";
+                }
+            }
             // 横幅配置
             bannerEnabled = savedConfig.bannerEnabled ?? true;
             bannerGlobalType = savedConfig.bannerGlobalType || "custom";
@@ -873,7 +937,7 @@
             // 全局配置
             autoOpenHomepage: tempAutoOpenHomepage,
             sidebarEnabled: sidebarEnabled,
-            autoOpenMobileHomepage: autoOpenMobileHomepage,
+            autoOpenMobileHomepage: mobileAutoOpenEnabled && normalizeMobileAutoOpenTarget(mobileAutoOpenTarget) === "mobile-homepage",
             mobileQuickActionsEnabled: mobileQuickActionsEnabled,
             mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
             ...(existingConfig.mobileQuickActionsPosition !== undefined
@@ -1006,6 +1070,25 @@
         deletedComponentSectionIds = [];
         try {
             setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
+
+            // 保存移动端专属字段到 mobile-homepage
+            try {
+                const mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {} as HomepageSettingConfig;
+                const target = normalizeMobileAutoOpenTarget(mobileAutoOpenTarget);
+                const compatAutoOpenMobileHomepage = mobileAutoOpenEnabled && target === "mobile-homepage";
+                await saveHomepageSettingConfig(plugin, {
+                    ...mobileConfig,
+                    mobileAutoOpenEnabled,
+                    mobileAutoOpenTarget: target,
+                    autoOpenMobileHomepage: compatAutoOpenMobileHomepage,
+                    mobileQuickActionsEnabled,
+                    mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
+                    mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),
+                } as HomepageSettingConfig, "mobile-homepage");
+            } catch (mobileError) {
+                showMessage("桌面主页设置已保存，但移动端设置保存失败。", 5000, "error");
+            }
+
             window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
             if (close) close();
         } catch {
@@ -1103,12 +1186,14 @@
                     {#if settingsActiveTab === "mobile"}
                         <MobileSettingsTab
                             advancedEnabled={advancedEnabled}
-                            autoOpenMobileHomepage={autoOpenMobileHomepage}
+                            mobileAutoOpenEnabled={mobileAutoOpenEnabled}
+                            mobileAutoOpenTarget={mobileAutoOpenTarget}
                             mobileQuickActionsEnabled={mobileQuickActionsEnabled}
                             mobileQuickActionsButtonSize={mobileQuickActionsButtonSize}
                             mobileQuickActionItems={mobileQuickActionItems}
                             showMobilePreview={!plugin?.isMobile}
-                            onAutoOpenMobileHomepageChange={(value) => autoOpenMobileHomepage = value}
+                            onMobileAutoOpenEnabledChange={(value) => mobileAutoOpenEnabled = value}
+                            onMobileAutoOpenTargetChange={(value) => mobileAutoOpenTarget = value}
                             onMobileQuickActionsEnabledChange={(value) => mobileQuickActionsEnabled = value}
                             onMobileQuickActionsButtonSizeChange={(value) => mobileQuickActionsButtonSize = value}
                             onMobileQuickActionItemsChange={(value) => mobileQuickActionItems = value}

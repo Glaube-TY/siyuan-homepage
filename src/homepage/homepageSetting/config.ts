@@ -197,6 +197,8 @@ export interface HomepageSettingConfig {
     autoOpenHomepage: boolean;
     sidebarEnabled: boolean;
     autoOpenMobileHomepage: boolean;
+    mobileAutoOpenEnabled?: boolean;
+    mobileAutoOpenTarget?: string;
     mobileQuickActionsEnabled?: boolean;
     mobileQuickActionsButtonSize?: number;
     mobileQuickActionsPosition?: MobileQuickActionsPosition;

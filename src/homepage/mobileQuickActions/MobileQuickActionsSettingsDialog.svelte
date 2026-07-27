@@ -14,6 +14,9 @@
         MAX_MOBILE_QUICK_ACTION_BUTTON_SIZE,
         MIN_MOBILE_QUICK_ACTION_BUTTON_SIZE,
         MOBILE_QUICK_ACTION_DEFINITIONS,
+        MOBILE_AUTO_OPEN_TARGET_DEFINITIONS,
+        normalizeMobileAutoOpenTarget,
+        resolveMobileAutoOpenConfig,
         isMobileQuickActionId,
         normalizeMobileQuickActionButtonSize,
         normalizeMobileQuickActionItems,
@@ -26,14 +29,15 @@
         close: () => void;
     }
 
-    type MobileSettingsPage = "main" | "homepage" | "quickActions" | "actionList" | "notifications";
+    type MobileSettingsPage = "main" | "autoOpen" | "quickActions" | "actionList" | "notifications";
 
     let { plugin, close }: Props = $props();
 
     let page = $state<MobileSettingsPage>("main");
     let isLoading = $state(true);
     let isSaving = $state(false);
-    let autoOpenMobileHomepage = $state(false);
+    let mobileAutoOpenEnabled = $state(false);
+    let mobileAutoOpenTarget = $state<string>("mobile-homepage");
     let mobileQuickActionsEnabled = $state(true);
     let mobileQuickActionsButtonSize = $state(52);
     let mobileQuickActionItems = $state<MobileQuickActionSetting[]>(normalizeMobileQuickActionItems(undefined));
@@ -43,9 +47,13 @@
     const sortedActionItems = $derived(normalizeMobileQuickActionItems(mobileQuickActionItems));
     const enabledActionCount = $derived(sortedActionItems.filter((item) => item.enabled).length);
     const normalizedButtonSize = $derived(normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize));
+    const normalizedAutoOpenTarget = $derived(normalizeMobileAutoOpenTarget(mobileAutoOpenTarget));
+    const autoOpenTargetLabel = $derived(
+        MOBILE_AUTO_OPEN_TARGET_DEFINITIONS.find((d) => d.id === normalizedAutoOpenTarget)?.label || "移动端主页"
+    );
     const pageTitle = $derived(
-        page === "homepage"
-            ? "移动端主页"
+        page === "autoOpen"
+            ? "自动打开窗口"
             : page === "quickActions"
                 ? "悬浮快捷按钮"
                 : page === "notifications"
@@ -54,6 +62,13 @@
                     ? "快捷按钮管理"
                     : "移动端设置",
     );
+
+    // 保存队列：串行化避免 revision 竞争
+    let saveQueue: Promise<void> = Promise.resolve();
+
+    function enqueueSave(fn: () => Promise<void>): void {
+        saveQueue = saveQueue.then(fn, fn);
+    }
 
     function getActionDefinition(id: MobileQuickActionId) {
         return MOBILE_QUICK_ACTION_DEFINITIONS.find((item) => item.id === id);
@@ -74,12 +89,15 @@
         isLoading = true;
         try {
             const config = await loadHomepageSettingConfig(plugin, "mobile-homepage");
-            autoOpenMobileHomepage = config?.autoOpenMobileHomepage ?? false;
+            const resolved = resolveMobileAutoOpenConfig(config ?? {});
+            mobileAutoOpenEnabled = resolved.enabled;
+            mobileAutoOpenTarget = resolved.target;
             mobileQuickActionsEnabled = config?.mobileQuickActionsEnabled ?? true;
             mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(config?.mobileQuickActionsButtonSize);
             mobileQuickActionItems = normalizeMobileQuickActionItems(config?.mobileQuickActionItems);
         } catch {
-            autoOpenMobileHomepage = false;
+            mobileAutoOpenEnabled = false;
+            mobileAutoOpenTarget = "mobile-homepage";
             mobileQuickActionsEnabled = true;
             mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(undefined);
             mobileQuickActionItems = normalizeMobileQuickActionItems(undefined);
@@ -93,13 +111,18 @@
         isSaving = true;
         try {
             const existingConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {} as HomepageSettingConfig;
+            const target = normalizeMobileAutoOpenTarget(mobileAutoOpenTarget);
+            // 兼容字段：只有自动打开且目标是 mobile-homepage 时旧字段才为 true
+            const compatAutoOpenMobileHomepage = mobileAutoOpenEnabled && target === "mobile-homepage";
             await saveHomepageSettingConfig(plugin, {
                 ...existingConfig,
-                autoOpenMobileHomepage,
+                mobileAutoOpenEnabled,
+                mobileAutoOpenTarget: target,
+                autoOpenMobileHomepage: compatAutoOpenMobileHomepage,
                 mobileQuickActionsEnabled,
                 mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
                 mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),
-            } as HomepageSettingConfig);
+            } as HomepageSettingConfig, "mobile-homepage");
             window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
         } catch {
             showMessage("保存移动端设置失败", 3000, "error");
@@ -108,26 +131,31 @@
         }
     }
 
-    function setAutoOpenMobileHomepage(value: boolean): void {
-        autoOpenMobileHomepage = value;
-        void saveMobileSettings();
+    function setMobileAutoOpenEnabled(value: boolean): void {
+        mobileAutoOpenEnabled = value;
+        enqueueSave(saveMobileSettings);
+    }
+
+    function setMobileAutoOpenTarget(value: unknown): void {
+        mobileAutoOpenTarget = typeof value === "string" ? value : "mobile-homepage";
+        enqueueSave(saveMobileSettings);
     }
 
     function setMobileQuickActionsEnabled(value: boolean): void {
         mobileQuickActionsEnabled = value;
-        void saveMobileSettings();
+        enqueueSave(saveMobileSettings);
     }
 
     function updateButtonSize(value: unknown, persist = false): void {
         mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(value);
         if (persist) {
-            void saveMobileSettings();
+            enqueueSave(saveMobileSettings);
         }
     }
 
     function updateActionItems(items: MobileQuickActionSetting[]): void {
         mobileQuickActionItems = normalizeMobileQuickActionItems(items);
-        void saveMobileSettings();
+        enqueueSave(saveMobileSettings);
     }
 
     function setActionEnabled(actionId: MobileQuickActionId, enabled: boolean): void {
@@ -162,7 +190,7 @@
             dragClass: "shp-mobile-quick-settings__sortable-drag",
             dataIdAttr: "data-action-id",
             onEnd: handleActionSortableEnd,
-            }, "mobile-homepage");
+        });
     }
 
     function readActionIds(): MobileQuickActionId[] {
@@ -222,13 +250,13 @@
         <div class="shp-mobile-quick-settings__state">加载中...</div>
     {:else if page === "main"}
         <main class="shp-mobile-quick-settings__body">
-            <button type="button" class="shp-mobile-quick-settings__nav-card" onclick={() => (page = "homepage")}>
+            <button type="button" class="shp-mobile-quick-settings__nav-card" onclick={() => (page = "autoOpen")}>
                 <span class="shp-mobile-quick-settings__nav-icon">
                     <SiyuanIcon name="iconhomepage" size={20} />
                 </span>
                 <span class="shp-mobile-quick-settings__nav-text">
-                    <strong>移动端主页</strong>
-                    <small>{autoOpenMobileHomepage ? "启动后自动打开" : "启动后不自动打开"}</small>
+                    <strong>自动打开窗口</strong>
+                    <small>{mobileAutoOpenEnabled ? `启动后打开：${autoOpenTargetLabel}` : "已关闭"}</small>
                 </span>
                 <SiyuanIcon name="next" size={16} />
             </button>
@@ -253,23 +281,54 @@
                 <SiyuanIcon name="next" size={16} />
             </button>
         </main>
-    {:else if page === "homepage"}
+    {:else if page === "autoOpen"}
         <main class="shp-mobile-quick-settings__body">
             <section class="shp-mobile-quick-settings__panel">
                 <label class="shp-mobile-quick-settings__switch-row">
                     <span>
-                        <strong>自动打开移动端主页</strong>
-                        <small>移动端启动后自动进入主页</small>
+                        <strong>开启自动打开窗口</strong>
+                        <small>移动端启动后自动打开所选界面</small>
                     </span>
                     <input
                         type="checkbox"
                         class="b3-switch fn__flex-center"
-                        checked={autoOpenMobileHomepage}
+                        checked={mobileAutoOpenEnabled}
                         disabled={isSaving}
-                        onchange={(e) => setAutoOpenMobileHomepage((e.currentTarget as HTMLInputElement).checked)}
+                        onchange={(e) => setMobileAutoOpenEnabled((e.currentTarget as HTMLInputElement).checked)}
                     />
                 </label>
             </section>
+
+            {#if mobileAutoOpenEnabled}
+                <section class="shp-mobile-quick-settings__panel">
+                    <div class="shp-mobile-quick-settings__field-title">
+                        <strong>自动打开</strong>
+                    </div>
+                    <div class="shp-mobile-quick-settings__target-list">
+                        {#each MOBILE_AUTO_OPEN_TARGET_DEFINITIONS as definition (definition.id)}
+                            <button
+                                type="button"
+                                class="shp-mobile-quick-settings__target-card"
+                                class:shp-mobile-quick-settings__target-card--active={normalizedAutoOpenTarget === definition.id}
+                                disabled={isSaving}
+                                onclick={() => setMobileAutoOpenTarget(definition.id)}
+                            >
+                                <span class="shp-mobile-quick-settings__action-icon">
+                                    {#if definition.icon === "wallet"}
+                                        <AccountingIcon name="wallet" size={18} />
+                                    {:else}
+                                        <SiyuanIcon name={definition.icon} size={18} />
+                                    {/if}
+                                </span>
+                                <span class="shp-mobile-quick-settings__action-text">
+                                    <strong>{definition.label}</strong>
+                                    <small>{definition.description}</small>
+                                </span>
+                            </button>
+                        {/each}
+                    </div>
+                </section>
+            {/if}
         </main>
     {:else if page === "quickActions"}
         <main class="shp-mobile-quick-settings__body">
@@ -595,5 +654,32 @@
     .shp-mobile-quick-settings__action-list :global(.shp-mobile-quick-settings__sortable-chosen .shp-mobile-quick-settings__action-drag-handle) {
         color: var(--b3-theme-primary);
         cursor: grabbing;
+    }
+
+    .shp-mobile-quick-settings__target-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .shp-mobile-quick-settings__target-card {
+        width: 100%;
+        min-height: 56px;
+        display: grid;
+        grid-template-columns: 36px minmax(0, 1fr);
+        align-items: center;
+        gap: 10px;
+        padding: 10px;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 8px;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        background: var(--b3-theme-surface);
+    }
+
+    .shp-mobile-quick-settings__target-card--active {
+        border-color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-surface));
     }
 </style>
