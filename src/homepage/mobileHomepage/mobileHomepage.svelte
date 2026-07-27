@@ -14,7 +14,6 @@
     import { saveWidgetContentPreservingSize } from "@/components/utils/widgetBlock/styleUtils";
     import {
         MOBILE_WIDGET_CATEGORIES,
-        getMobileWidgetActiveTab,
         getMobileWidgetLabel,
         matchesMobileCategory,
         type MobileWidgetCategoryId,
@@ -24,7 +23,6 @@
     } from "./mobile-widget-utils";
     import {
         deleteWidgetFromSurface,
-        type DeleteWidgetResult,
     } from "@/components/utils/widgetBlock/utils/layout-shared";
     import "./mobileHomepage.scss";
     import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
@@ -59,6 +57,7 @@
 
     let mobileHomepageWidgetContainer: HTMLElement | null = $state(null);
     let editMode = $state(false);
+    let layoutSaving = $state(false);
     let activeCategory = $state<MobileWidgetCategoryId>("all");
     let selectedBlock: HTMLElement | null = $state(null);
     let selectedWidgetType = $state("");
@@ -164,8 +163,12 @@
                 disabled: true,
                 onEnd: async () => {
                     if (editMode && activeCategory === "all") {
-                        await saveLayout(plugin, mobileHomepageWidgetContainer);
-                        await applyCategoryFilter();
+                        try {
+                            await saveLayout(plugin, mobileHomepageWidgetContainer);
+                            await applyCategoryFilter();
+                        } catch (_error) {
+                            showMessage("移动主页拖动保存失败，请重试或点击完成重试。", 5000, "error");
+                        }
                     }
                 },
             });
@@ -232,18 +235,48 @@
 
     async function toggleEditMode(): Promise<void> {
         if (editMode) {
-            await saveLayout(plugin, mobileHomepageWidgetContainer);
-            actionSheetOpen = false;
-            styleSheetBlock = null;
-            contentSheet = null;
-            deleteSheetBlock = null;
-            setSelectedBlock(null);
-            editMode = false;
-            showMessage("移动端主页布局已保存");
+            // Guard against re-entrance during an ongoing save
+            if (layoutSaving) return;
+            layoutSaving = true;
+            try {
+                await saveLayout(plugin, mobileHomepageWidgetContainer);
+                actionSheetOpen = false;
+                styleSheetBlock = null;
+                contentSheet = null;
+                deleteSheetBlock = null;
+                setSelectedBlock(null);
+                editMode = false;
+                showMessage("移动端主页布局已保存");
+            } catch (_error) {
+                // Keep editMode=true, preserve current DOM and selection state
+                showMessage("移动主页布局保存失败，当前编辑尚未提交，请重试。", 5000, "error");
+            } finally {
+                layoutSaving = false;
+            }
         } else {
             editMode = true;
         }
         updateSortableState();
+    }
+
+    async function handleClose(): Promise<void> {
+        // Guard against re-entrance
+        if (layoutSaving) return;
+        // Not editing: close directly
+        if (!editMode) {
+            close();
+            return;
+        }
+        // In edit mode: save first, then close
+        layoutSaving = true;
+        try {
+            await saveLayout(plugin, mobileHomepageWidgetContainer);
+            close();
+        } catch (_error) {
+            showMessage("移动主页布局保存失败，当前编辑尚未提交，请重试。", 5000, "error");
+        } finally {
+            layoutSaving = false;
+        }
     }
 
     function openSelectedContentSheet(): void {
@@ -325,7 +358,14 @@
             block,
             contentSheet.isNew,
         );
-        await saveLayout(plugin, mobileHomepageWidgetContainer);
+        try {
+            await saveLayout(plugin, mobileHomepageWidgetContainer);
+        } catch (_error) {
+            // Content was written successfully, but layout did not commit.
+            // Keep the current sheet open so the user can retry.
+            showMessage("移动主页布局保存失败，组件内容已保存但布局未更新，请重试。", 5000, "error");
+            return;
+        }
         setSelectedBlock(block);
         await refreshSelectedWidgetType(block);
         await applyCategoryFilter();
@@ -470,11 +510,11 @@
                 <SiyuanIcon name="refresh" size={16} />
                 <span>刷新</span>
             </button>
-            <button type="button" onclick={() => void toggleEditMode()}>
+            <button type="button" onclick={() => void toggleEditMode()} disabled={layoutSaving}>
                 <SiyuanIcon name="edit" size={16} />
-                <span>{editMode ? "完成" : "编辑"}</span>
+                <span>{editMode ? (layoutSaving ? "保存中…" : "完成") : "编辑"}</span>
             </button>
-            <button type="button" onclick={close}>
+            <button type="button" onclick={() => void handleClose()} disabled={layoutSaving}>
                 <SiyuanIcon name="previous" size={16} />
                 <span>返回</span>
             </button>
@@ -509,7 +549,11 @@
                 widgetType={styleSheetBlock.dataset.widgetType || selectedWidgetType}
                 onClose={() => (styleSheetBlock = null)}
                 onDelete={requestDeleteSelectedWidget}
-                onStyleChanged={() => saveLayout(plugin, mobileHomepageWidgetContainer)}
+                onStyleChanged={() => {
+                    saveLayout(plugin, mobileHomepageWidgetContainer).catch(() => {
+                        showMessage("移动主页样式保存失败，请重试。", 5000, "error");
+                    });
+                }}
             />
         {/if}
 
