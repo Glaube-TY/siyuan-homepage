@@ -223,6 +223,12 @@ export default class PluginHomepage extends Plugin {
     private deviceIdentityInitialization: Promise<void> | null = null;
     private homepageLayoutReadyFinalized = false;
     private readonly readyDeviceViewSurfaces = new Set<DeviceViewSurface>();
+    private mobileQuickActionsAppliedSignature = "";
+    private mobileQuickActionsPendingRefresh = false;
+    private mobileQuickActionsRefreshing = false;
+    private mobileQuickActionsRefreshTimer: number | null = null;
+    private mobileQuickActionsVisibilityHandler: (() => void) | null = null;
+    private mobileQuickActionsFocusHandler: (() => void) | null = null;
     private homepageCommandRegistered = false;
     private quickNotesCommandRegistered = false;
     private homepageWindowListenersRegistered = false;
@@ -318,6 +324,7 @@ export default class PluginHomepage extends Plugin {
         this.ensureTabContainers();
         this.registerCustomTabs();
         this.registerBaseIndependentListeners();
+        this.registerMobileQuickActionsForegroundListeners();
         this.registerMinimalHomepageEntry();
         this.data[STORAGE_NAME] = { readonlyText: "Readonly" };
 
@@ -546,6 +553,7 @@ export default class PluginHomepage extends Plugin {
         window.removeEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
         window.removeEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
         window.removeEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
+        this.unregisterMobileQuickActionsForegroundListeners();
         this.baseEventListenersRegistered = false;
         this.contentMenuListenerRegistered = false;
         this.homepageWindowListenersRegistered = false;
@@ -1353,6 +1361,7 @@ export default class PluginHomepage extends Plugin {
     private mountMobileQuickActions(config: PluginConfig): void {
         if (this.isNewWindow() || !this.isMobileFrontend() || !this.ADVANCED || config.mobileQuickActionsEnabled === false) {
             this.destroyMobileQuickActions();
+            this.mobileQuickActionsAppliedSignature = "";
             return;
         }
 
@@ -1360,6 +1369,7 @@ export default class PluginHomepage extends Plugin {
         const actions = this.buildMobileQuickActions(config);
         if (actions.length === 0) {
             this.destroyMobileQuickActions();
+            this.mobileQuickActionsAppliedSignature = "";
             return;
         }
 
@@ -1386,6 +1396,9 @@ export default class PluginHomepage extends Plugin {
                 ) => this.saveMobileQuickActionsPosition(position, options),
             },
         });
+
+        // 记录成功挂载后的签名，避免前台刷新重复挂载
+        this.mobileQuickActionsAppliedSignature = this.buildMobileQuickActionsSignature(config);
     }
 
     private saveMobileQuickActionsPosition(
@@ -1454,6 +1467,114 @@ export default class PluginHomepage extends Plugin {
         this.mobileQuickActionsHost?.remove();
         this.mobileQuickActionsInstance = null;
         this.mobileQuickActionsHost = null;
+    }
+
+    private buildMobileQuickActionsSignature(config: PluginConfig): string {
+        const items = normalizeMobileQuickActionItems(config.mobileQuickActionItems)
+            .map((item) => ({ id: item.id, enabled: item.enabled, order: item.order }));
+
+        const payload = {
+            enabled: config.mobileQuickActionsEnabled ?? true,
+            buttonSize: normalizeMobileQuickActionButtonSize(config.mobileQuickActionsButtonSize),
+            items,
+            position: normalizeMobileQuickActionsPosition(config.mobileQuickActionsPosition),
+        };
+
+        return JSON.stringify(payload);
+    }
+
+    private async refreshMobileQuickActionsFromSharedConfig(
+        reason: "visibility" | "focus" | "local-save",
+    ): Promise<void> {
+        if (!this.isMobileFrontend() || this.isNewWindow()) return;
+
+        try {
+            const strictRead = await loadHomepageConfigDataStrict(this, "mobile-homepage");
+            const data = strictRead.data as PluginConfig;
+
+            const signature = this.buildMobileQuickActionsSignature(data);
+
+            if (signature === this.mobileQuickActionsAppliedSignature) {
+                // 配置未变化，不重新挂载
+                return;
+            }
+
+            this.mountMobileQuickActions(data);
+        } catch {
+            // 读取失败：保留当前悬浮按钮，记录局部 warning，不打扰用户
+            console.warn(
+                `[Homepage] refreshMobileQuickActionsFromSharedConfig(${reason}) 读取 mobile-homepage 失败，保留当前悬浮按钮`,
+            );
+        }
+    }
+
+    private scheduleMobileQuickActionsRefresh(reason: "visibility" | "focus"): void {
+        if (!this.isMobileFrontend() || this.isNewWindow()) return;
+
+        // 如果正在刷新中，记录一次 pending
+        if (this.mobileQuickActionsRefreshing) {
+            this.mobileQuickActionsPendingRefresh = true;
+            return;
+        }
+
+        // 已有定时器则重置，延续防抖窗口
+        if (this.mobileQuickActionsRefreshTimer !== null) {
+            clearTimeout(this.mobileQuickActionsRefreshTimer);
+            this.mobileQuickActionsRefreshTimer = null;
+        }
+
+        this.mobileQuickActionsRefreshTimer = window.setTimeout(() => {
+            this.mobileQuickActionsRefreshTimer = null;
+            void this.performMobileQuickActionsRefresh(reason);
+        }, 500);
+    }
+
+    private async performMobileQuickActionsRefresh(
+        reason: "visibility" | "focus",
+    ): Promise<void> {
+        this.mobileQuickActionsRefreshing = true;
+        try {
+            await this.refreshMobileQuickActionsFromSharedConfig(reason);
+        } finally {
+            this.mobileQuickActionsRefreshing = false;
+        }
+
+        // 刷新期间又收到触发，最多再刷新一次
+        if (this.mobileQuickActionsPendingRefresh) {
+            this.mobileQuickActionsPendingRefresh = false;
+            void this.performMobileQuickActionsRefresh(reason);
+        }
+    }
+
+    private registerMobileQuickActionsForegroundListeners(): void {
+        if (!this.isMobileFrontend()) return;
+
+        this.mobileQuickActionsVisibilityHandler = () => {
+            if (document.visibilityState === "visible") {
+                this.scheduleMobileQuickActionsRefresh("visibility");
+            }
+        };
+        this.mobileQuickActionsFocusHandler = () => {
+            this.scheduleMobileQuickActionsRefresh("focus");
+        };
+
+        document.addEventListener("visibilitychange", this.mobileQuickActionsVisibilityHandler);
+        window.addEventListener("focus", this.mobileQuickActionsFocusHandler);
+    }
+
+    private unregisterMobileQuickActionsForegroundListeners(): void {
+        if (this.mobileQuickActionsVisibilityHandler) {
+            document.removeEventListener("visibilitychange", this.mobileQuickActionsVisibilityHandler);
+            this.mobileQuickActionsVisibilityHandler = null;
+        }
+        if (this.mobileQuickActionsFocusHandler) {
+            window.removeEventListener("focus", this.mobileQuickActionsFocusHandler);
+            this.mobileQuickActionsFocusHandler = null;
+        }
+        if (this.mobileQuickActionsRefreshTimer !== null) {
+            clearTimeout(this.mobileQuickActionsRefreshTimer);
+            this.mobileQuickActionsRefreshTimer = null;
+        }
     }
 
     private async openHomepage() {

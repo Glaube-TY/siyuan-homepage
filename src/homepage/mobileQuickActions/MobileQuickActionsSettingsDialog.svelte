@@ -44,6 +44,13 @@
     let actionListEl: HTMLDivElement | null = $state(null);
     let actionSortable: Sortable | null = null;
 
+    let destroyed = false;
+    let loadRequestVersion = 0;
+    let configLoadedOnce = $state(false);
+    let loadError = $state("");
+    let pendingSaveCount = $state(0);
+    let saveQueueBusy = $derived(pendingSaveCount > 0);
+
     const sortedActionItems = $derived(normalizeMobileQuickActionItems(mobileQuickActionItems));
     const enabledActionCount = $derived(sortedActionItems.filter((item) => item.enabled).length);
     const normalizedButtonSize = $derived(normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize));
@@ -67,7 +74,16 @@
     let saveQueue: Promise<void> = Promise.resolve();
 
     function enqueueSave(fn: () => Promise<void>): void {
-        saveQueue = saveQueue.then(fn, fn);
+        pendingSaveCount++;
+        loadRequestVersion++;
+        const track = async () => {
+            try {
+                await fn();
+            } finally {
+                pendingSaveCount--;
+            }
+        };
+        saveQueue = saveQueue.then(track, track);
     }
 
     function getActionDefinition(id: MobileQuickActionId) {
@@ -86,24 +102,33 @@
     }
 
     async function loadConfig(): Promise<void> {
+        if (isSaving || saveQueueBusy) return;
         isLoading = true;
+        const version = ++loadRequestVersion;
         try {
             const config = await loadHomepageSettingConfig(plugin, "mobile-homepage");
+            if (version !== loadRequestVersion || destroyed) return;
             const resolved = resolveMobileAutoOpenConfig(config ?? {});
             mobileAutoOpenEnabled = resolved.enabled;
             mobileAutoOpenTarget = resolved.target;
             mobileQuickActionsEnabled = config?.mobileQuickActionsEnabled ?? true;
             mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(config?.mobileQuickActionsButtonSize);
             mobileQuickActionItems = normalizeMobileQuickActionItems(config?.mobileQuickActionItems);
+            configLoadedOnce = true;
+            loadError = "";
         } catch {
-            mobileAutoOpenEnabled = false;
-            mobileAutoOpenTarget = "mobile-homepage";
-            mobileQuickActionsEnabled = true;
-            mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(undefined);
-            mobileQuickActionItems = normalizeMobileQuickActionItems(undefined);
-            showMessage("读取移动端设置失败", 3000, "error");
+            if (version !== loadRequestVersion || destroyed) return;
+            if (configLoadedOnce) {
+                // 已成功加载过：读取失败时保留当前值
+                loadError = "移动端设置暂时无法刷新，将保留当前配置";
+            } else {
+                // 首次读取失败：不覆盖默认占位值，显示错误状态
+                loadError = "移动端设置暂时无法读取";
+            }
         } finally {
-            isLoading = false;
+            if (version === loadRequestVersion && !destroyed) {
+                isLoading = false;
+            }
         }
     }
 
@@ -170,12 +195,12 @@
     }
 
     async function initActionSortable(): Promise<void> {
-        if (page !== "actionList" || isSaving) {
+        if (page !== "actionList" || isSaving || !configLoadedOnce || isLoading) {
             destroyActionSortable();
             return;
         }
         await tick();
-        if (page !== "actionList" || isSaving) {
+        if (page !== "actionList" || isSaving || !configLoadedOnce || isLoading) {
             destroyActionSortable();
             return;
         }
@@ -201,7 +226,7 @@
     }
 
     function handleActionSortableEnd(): void {
-        if (isSaving) return;
+        if (isSaving || !configLoadedOnce || isLoading) return;
         const actionIds = readActionIds();
         if (actionIds.length === 0) return;
 
@@ -224,11 +249,24 @@
         void initActionSortable();
     });
 
+    function handleVisibilityChange(): void {
+        if (destroyed) return;
+        if (document.visibilityState !== "visible") return;
+        if (isSaving || saveQueueBusy) return;
+        if (isLoading) return;
+        void loadConfig();
+    }
+
     onMount(() => {
         void loadConfig();
+        document.addEventListener("visibilitychange", handleVisibilityChange);
     });
 
-    onDestroy(() => destroyActionSortable());
+    onDestroy(() => {
+        destroyed = true;
+        destroyActionSortable();
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+    });
 </script>
 
 <div class="shp-mobile-quick-settings">
@@ -243,11 +281,20 @@
             </button>
         {/if}
         <strong>{pageTitle}</strong>
-        <span class="shp-mobile-quick-settings__status">{isSaving ? "保存中" : ""}</span>
+        <span class="shp-mobile-quick-settings__status">
+            {isSaving ? "保存中" : isLoading && configLoadedOnce ? "同步中" : ""}
+        </span>
     </header>
 
-    {#if isLoading}
+    {#if isLoading && !configLoadedOnce}
         <div class="shp-mobile-quick-settings__state">加载中...</div>
+    {:else if !configLoadedOnce && loadError}
+        <div class="shp-mobile-quick-settings__state shp-mobile-quick-settings__error-state">
+            <p>{loadError}</p>
+            <button type="button" class="shp-mobile-quick-settings__retry-btn" onclick={() => void loadConfig()} disabled={isLoading}>
+                重新加载
+            </button>
+        </div>
     {:else if page === "main"}
         <main class="shp-mobile-quick-settings__body">
             <button type="button" class="shp-mobile-quick-settings__nav-card" onclick={() => (page = "autoOpen")}>
@@ -293,7 +340,7 @@
                         type="checkbox"
                         class="b3-switch fn__flex-center"
                         checked={mobileAutoOpenEnabled}
-                        disabled={isSaving}
+                        disabled={isSaving || !configLoadedOnce || isLoading}
                         onchange={(e) => setMobileAutoOpenEnabled((e.currentTarget as HTMLInputElement).checked)}
                     />
                 </label>
@@ -310,7 +357,7 @@
                                 type="button"
                                 class="shp-mobile-quick-settings__target-card"
                                 class:shp-mobile-quick-settings__target-card--active={normalizedAutoOpenTarget === definition.id}
-                                disabled={isSaving}
+                                disabled={isSaving || !configLoadedOnce || isLoading}
                                 onclick={() => setMobileAutoOpenTarget(definition.id)}
                             >
                                 <span class="shp-mobile-quick-settings__action-icon">
@@ -342,7 +389,7 @@
                         type="checkbox"
                         class="b3-switch fn__flex-center"
                         checked={mobileQuickActionsEnabled}
-                        disabled={isSaving}
+                        disabled={isSaving || !configLoadedOnce || isLoading}
                         onchange={(e) => setMobileQuickActionsEnabled((e.currentTarget as HTMLInputElement).checked)}
                     />
                 </label>
@@ -359,7 +406,7 @@
                     max={MAX_MOBILE_QUICK_ACTION_BUTTON_SIZE}
                     step="1"
                     value={normalizedButtonSize}
-                    disabled={!mobileQuickActionsEnabled || isSaving}
+                    disabled={!mobileQuickActionsEnabled || isSaving || !configLoadedOnce || isLoading}
                     oninput={(e) => updateButtonSize((e.currentTarget as HTMLInputElement).value)}
                     onchange={(e) => updateButtonSize((e.currentTarget as HTMLInputElement).value, true)}
                 />
@@ -403,7 +450,7 @@
                                 type="checkbox"
                                 class="b3-switch fn__flex-center"
                                 checked={item.enabled}
-                                disabled={isSaving}
+                                disabled={isSaving || !configLoadedOnce || isLoading}
                                 onchange={(e) => setActionEnabled(item.id, (e.currentTarget as HTMLInputElement).checked)}
                             />
                         </div>
@@ -411,6 +458,10 @@
                 {/each}
             </div>
         </main>
+    {/if}
+
+    {#if configLoadedOnce && loadError}
+        <div class="shp-mobile-quick-settings__toast">{loadError}</div>
     {/if}
 </div>
 
@@ -493,6 +544,42 @@
         justify-content: center;
         color: var(--b3-theme-on-surface-light);
         font-size: 14px;
+    }
+
+    .shp-mobile-quick-settings__error-state {
+        flex-direction: column;
+        gap: 16px;
+        padding: 24px;
+        text-align: center;
+    }
+
+    .shp-mobile-quick-settings__error-state p {
+        margin: 0;
+        color: var(--b3-theme-on-surface);
+        font-size: 15px;
+    }
+
+    .shp-mobile-quick-settings__retry-btn {
+        padding: 8px 20px;
+        border: 1px solid var(--b3-theme-primary);
+        border-radius: 8px;
+        color: var(--b3-theme-primary);
+        background: transparent;
+        font-size: 14px;
+    }
+
+    .shp-mobile-quick-settings__retry-btn:disabled {
+        opacity: 0.42;
+    }
+
+    .shp-mobile-quick-settings__toast {
+        flex: 0 0 auto;
+        padding: 8px max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
+        border-top: 1px solid var(--b3-theme-primary);
+        color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-surface));
+        font-size: 13px;
+        text-align: center;
     }
 
     .shp-mobile-quick-settings__panel,
