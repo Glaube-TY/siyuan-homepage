@@ -125,6 +125,7 @@ const TAB_TYPE = "homepage_tab";
 const TAB_ID = "siyuan-homepagehomepage_tab";
 const ENHANCED_DIARY_WORKSPACE_TAB_TYPE = "enhanced_diary_workspace_tab";
 const ENHANCED_DIARY_WORKSPACE_TAB_ID = "siyuan-homepageenhanced_diary_workspace_tab";
+type EnhancedDiaryWorkspaceAction = "create-task" | "create-record";
 const DOCK_TYPE = "homepage_dock";
 const KB_CHAT_TAB_TYPE = "kb_chat_tab";
 const KB_CHAT_TAB_ID = "siyuan-homepagekb_chat_tab";
@@ -185,6 +186,7 @@ export default class PluginHomepage extends Plugin {
     private enhancedDiaryWorkspaceInstance: Record<string, any> | null = null;
     private enhancedDiaryWorkspaceTabDiv: HTMLDivElement | null = null;
     private enhancedDiaryWorkspaceInitialTab = "overview";
+    private enhancedDiaryWorkspaceInitialAction: EnhancedDiaryWorkspaceAction | null = null;
     private kbChatInstance: Record<string, any> | null = null;
     private kbChatTabDiv: HTMLDivElement | null = null;
     private kbDockInstance: Record<string, any> | null = null;
@@ -229,8 +231,7 @@ export default class PluginHomepage extends Plugin {
     private mobileQuickActionsRefreshTimer: number | null = null;
     private mobileQuickActionsVisibilityHandler: (() => void) | null = null;
     private mobileQuickActionsFocusHandler: (() => void) | null = null;
-    private homepageCommandRegistered = false;
-    private quickNotesCommandRegistered = false;
+    private desktopCommandsRegistered = false;
     private homepageWindowListenersRegistered = false;
     private baseEventListenersRegistered = false;
     private contentMenuListenerRegistered = false;
@@ -408,13 +409,12 @@ export default class PluginHomepage extends Plugin {
             window.removeEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
             this.homepageWindowListenersRegistered = false;
         }
-        this.syncConfigCommands(config);
         this.syncKbTopBar(config);
     }
 
     private registerMinimalHomepageEntry(): void {
         this.registerHomepageTopBar();
-        if (!this.isMobile) this.registerHomepageCommand();
+        this.registerDesktopCommands();
     }
 
     private async initializeHomepageSurface(config: PluginConfig): Promise<void> {
@@ -621,6 +621,10 @@ export default class PluginHomepage extends Plugin {
     }
 
     updateProtyleToolbar(toolbar: Array<string | IMenuItem>): Array<string | IMenuItem> {
+        // SiYuan passes an empty array when it only wants to enumerate shortcut items.
+        // The selection AI menu is an editor toolbar action, not a shortcut command.
+        if (toolbar.length === 0) return toolbar;
+
         const settings = getSelectionAiToolbarSettingsSnapshot();
         // 先清理旧的 selection-ai item，确保 click 回调来自当前代码版本
         removeSelectionAiToolbarItems(toolbar);
@@ -1051,11 +1055,14 @@ export default class PluginHomepage extends Plugin {
             return;
         }
 
+        const initialAction = this.enhancedDiaryWorkspaceInitialAction;
+        this.enhancedDiaryWorkspaceInitialAction = null;
         this.enhancedDiaryWorkspaceInstance = mount(EnhancedDiaryWorkspacePage as any, {
             target: this.enhancedDiaryWorkspaceTabDiv,
             props: {
                 plugin: this,
                 initialTab: this.enhancedDiaryWorkspaceInitialTab,
+                initialAction,
             },
         } as any);
     }
@@ -1183,8 +1190,8 @@ export default class PluginHomepage extends Plugin {
         this.addIcons(svg);
     }
 
-    private registerHomepageCommand(): void {
-        if (this.homepageCommandRegistered) return;
+    private registerDesktopCommands(): void {
+        if (this.isMobile || this.desktopCommandsRegistered) return;
         this.addCommand({
             langKey: "打开主页",
             hotkey: "⇧⌘H",
@@ -1198,26 +1205,49 @@ export default class PluginHomepage extends Plugin {
                 }
             },
         });
-        this.homepageCommandRegistered = true;
-    }
-
-    private syncConfigCommands(config: PluginConfig | null): void {
-        const shouldRegisterQuickNotes = config?.quickNotesEnabled === true;
-        if (shouldRegisterQuickNotes && !this.quickNotesCommandRegistered) {
-            this.addCommand({
-                langKey: "快速笔记",
-                hotkey: "⇧⌘Q",
-                callback: () => {
-                    void this.openQuickNotesDialog();
-                },
-            });
-            this.quickNotesCommandRegistered = true;
-        } else if (!shouldRegisterQuickNotes && this.quickNotesCommandRegistered) {
-            for (let index = this.commands.length - 1; index >= 0; index -= 1) {
-                if (this.commands[index]?.langKey === "快速笔记") this.commands.splice(index, 1);
-            }
-            this.quickNotesCommandRegistered = false;
-        }
+        this.addCommand({
+            langKey: "快速笔记",
+            hotkey: "⇧⌘Q",
+            callback: () => {
+                void this.openQuickNotesDialog();
+            },
+        });
+        this.addCommand({
+            langKey: "打开记账",
+            hotkey: "",
+            callback: () => {
+                void openAccountingDetailDialogFromPlugin(this, "overview");
+            },
+        });
+        this.addCommand({
+            langKey: "打开强化日记工作台",
+            hotkey: "",
+            callback: () => {
+                this.openEnhancedDiaryWorkspace("overview");
+            },
+        });
+        this.addCommand({
+            langKey: "强化日记工作台：新建任务",
+            hotkey: "",
+            callback: () => {
+                this.openEnhancedDiaryWorkspace("tasks", "create-task");
+            },
+        });
+        this.addCommand({
+            langKey: "强化日记工作台：快速记录",
+            hotkey: "",
+            callback: () => {
+                this.openEnhancedDiaryWorkspace("records", "create-record");
+            },
+        });
+        this.addCommand({
+            langKey: "新标签页AI对话",
+            hotkey: "",
+            callback: () => {
+                void this.openKbChatTab();
+            },
+        });
+        this.desktopCommandsRegistered = true;
     }
 
     private async openQuickNotesDialog(): Promise<void> {
@@ -1591,20 +1621,25 @@ export default class PluginHomepage extends Plugin {
         });
     }
 
-    public openEnhancedDiaryWorkspace(initialTab = "overview"): void {
+    public openEnhancedDiaryWorkspace(
+        initialTab = "overview",
+        initialAction?: EnhancedDiaryWorkspaceAction,
+    ): void {
         if (!this.ADVANCED) {
             showMessage("强化日记工作台为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
             return;
         }
 
         if (this.isMobileFrontend()) {
-            this.openMobileEnhancedDiaryWorkspace(initialTab);
+            this.openMobileEnhancedDiaryWorkspace(initialTab, initialAction);
             return;
         }
 
         this.ensureTabContainers();
         this.registerCustomTabs();
+        const workspaceAlreadyMounted = this.enhancedDiaryWorkspaceInstance !== null;
         this.enhancedDiaryWorkspaceInitialTab = initialTab;
+        this.enhancedDiaryWorkspaceInitialAction = workspaceAlreadyMounted ? null : initialAction ?? null;
         openTab({
             app: this.app,
             custom: {
@@ -1615,11 +1650,11 @@ export default class PluginHomepage extends Plugin {
             },
         });
 
-        window.setTimeout(() => {
+        if (workspaceAlreadyMounted) {
             window.dispatchEvent(new CustomEvent("siyuan-homepage:enhanced-diary-workspace-tab", {
-                detail: { tab: initialTab },
+                detail: { tab: initialTab, action: initialAction },
             }));
-        }, 0);
+        }
     }
 
     public closeMobileEnhancedDiaryWorkspace(): void {
@@ -1634,10 +1669,13 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
-    private openMobileEnhancedDiaryWorkspace(initialTab: string): void {
+    private openMobileEnhancedDiaryWorkspace(
+        initialTab: string,
+        initialAction?: EnhancedDiaryWorkspaceAction,
+    ): void {
         if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
             window.dispatchEvent(new CustomEvent("siyuan-homepage:enhanced-diary-workspace-tab", {
-                detail: { tab: initialTab },
+                detail: { tab: initialTab, action: initialAction },
             }));
             return;
         }
@@ -1661,6 +1699,7 @@ export default class PluginHomepage extends Plugin {
                     props: {
                         plugin: this,
                         initialTab,
+                        initialAction,
                         mobile: true,
                         onClose: closeWorkspace,
                     },
@@ -1712,8 +1751,8 @@ export default class PluginHomepage extends Plugin {
             app: this.app,
             custom: {
                 icon: "iconNotebrain",
-                title: "AI 知识库",
-                data: { text: "AI 知识库对话" },
+                title: "新标签页AI对话",
+                data: { text: "新标签页AI对话" },
                 id: KB_CHAT_TAB_ID,
             },
         });
@@ -1724,8 +1763,8 @@ export default class PluginHomepage extends Plugin {
         const fuzzySelectors = [
             `.dock__item[data-type$="${KB_DOCK_TYPE}"]`,
             `.dock__item[data-type*="${KB_DOCK_TYPE}"]`,
-            `.dock__item[data-title="AI 知识库对话"]`,
-            `.dock__item[aria-label*="AI 知识库对话"]`,
+            `.dock__item[data-title="侧边栏AI对话"]`,
+            `.dock__item[aria-label*="侧边栏AI对话"]`,
         ];
 
         // Collect all candidates: [element, dockContainerId or null]
@@ -2049,7 +2088,7 @@ export default class PluginHomepage extends Plugin {
                 position: "RightTop",
                 size: { width: 200, height: 0 },
                 icon: "iconhomepage",
-                title: "主页侧边栏",
+                title: "打开侧边栏主页",
             },
             data: {
                 text: "这是一个主页侧边栏。"
@@ -2094,7 +2133,7 @@ export default class PluginHomepage extends Plugin {
                 position: "RightTop",
                 size: { width: 360, height: 0 },
                 icon: "iconNotebrain",
-                title: "AI 知识库对话",
+                title: "侧边栏AI对话",
             },
             data: {},
             type: KB_DOCK_TYPE,

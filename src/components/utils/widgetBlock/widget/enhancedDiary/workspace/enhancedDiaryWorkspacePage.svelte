@@ -100,14 +100,17 @@
     } from "./enhancedDiaryWorkspaceProjectLifecycle";
     import type { EnhancedDiaryWorkspaceNotification } from "./enhancedDiaryWorkspaceNotifications";
 
+    type WorkspaceStartupAction = "create-task" | "create-record";
+
     interface Props {
         plugin: any;
         initialTab?: WorkspaceTab | string;
+        initialAction?: WorkspaceStartupAction;
         mobile?: boolean;
         onClose?: () => void;
     }
 
-    let { plugin, initialTab = "overview", mobile = false, onClose }: Props = $props();
+    let { plugin, initialTab = "overview", initialAction, mobile = false, onClose }: Props = $props();
 
     let state = $state<EnhancedDiaryWorkspaceState | null>(null);
     let activeTab = $state<WorkspaceTab>("overview");
@@ -165,6 +168,31 @@
     let calendarMonthCache = new Map<string, EnhancedDiaryCalendarDay[]>();
     let dayDetailCache = new Map<string, EnhancedDiaryWorkspaceDayDetail | null>();
     let advancedEnabled = $state(false);
+    let pendingStartupAction = $state<WorkspaceStartupAction | null>(null);
+    let componentAlive = false;
+
+    function isWorkspaceStartupAction(value: unknown): value is WorkspaceStartupAction {
+        return value === "create-task" || value === "create-record";
+    }
+
+    function runPendingStartupAction(): void {
+        if (!pendingStartupAction || !componentAlive) return;
+        if (!advancedEnabled || loading) return;
+        if (!state) {
+            pendingStartupAction = null;
+            return;
+        }
+
+        const action = pendingStartupAction;
+        pendingStartupAction = null;
+        if (action === "create-task") {
+            selectTab("tasks");
+            openCreateTaskDialog();
+        } else {
+            selectTab("records");
+            openQuickRecordDialogForWorkspace();
+        }
+    }
 
     function goTasks(
         statusOrOptions: WorkspaceTaskStatusFilter | GoTasksOptions = "active",
@@ -465,6 +493,7 @@
         if (refreshFlight) return refreshFlight;
         const run = (async () => {
             loading = true;
+            let loadSucceeded = false;
             try {
                 calendarMonthCache = new Map();
                 dayDetailCache = new Map();
@@ -479,12 +508,15 @@
                 if (activeTab === "review") {
                     void ensureReviewHistoryLoaded();
                 }
+                loadSucceeded = true;
             } catch (err) {
+                pendingStartupAction = null;
                 console.warn("[enhancedDiaryWorkspacePage] load failed", err);
                 showMessage("强化日记工作台加载失败，请查看控制台日志", 4000);
             } finally {
                 loading = false;
                 refreshFlight = null;
+                if (loadSucceeded) runPendingStartupAction();
             }
         })();
         refreshFlight = run;
@@ -620,9 +652,14 @@
     }
 
     function handleWorkspaceTabRequest(event: Event): void {
-        const tab = (event as CustomEvent<{ tab?: unknown }>).detail?.tab;
+        const detail = (event as CustomEvent<{ tab?: unknown; action?: unknown }>).detail;
+        const tab = detail?.tab;
         if (isWorkspaceTab(tab)) {
             selectTab(tab);
+        }
+        if (isWorkspaceStartupAction(detail?.action)) {
+            pendingStartupAction = detail.action;
+            runPendingStartupAction();
         }
     }
 
@@ -1686,7 +1723,9 @@
     }
 
     onMount(() => {
+        componentAlive = true;
         activeTab = isWorkspaceTab(initialTab) ? initialTab : "overview";
+        pendingStartupAction = isWorkspaceStartupAction(initialAction) ? initialAction : null;
         advancedEnabled = Boolean(plugin?.ADVANCED);
         window.addEventListener("keydown", handleWorkspaceKeydown);
         window.addEventListener("siyuan-homepage:enhanced-diary-workspace-tab", handleWorkspaceTabRequest);
@@ -1698,6 +1737,7 @@
         };
         const onUnavailable = () => {
             advancedEnabled = false;
+            pendingStartupAction = null;
             state = null;
             loading = false;
             editingTask = null;
@@ -1713,10 +1753,13 @@
         if (advancedEnabled) {
             refresh();
         } else {
+            pendingStartupAction = null;
             loading = false;
         }
 
         return () => {
+            componentAlive = false;
+            pendingStartupAction = null;
             window.removeEventListener("keydown", handleWorkspaceKeydown);
             window.removeEventListener("siyuan-homepage:enhanced-diary-workspace-tab", handleWorkspaceTabRequest);
             window.removeEventListener(ENHANCED_DIARY_INDEXES_UPDATED_EVENT, handleEnhancedDiaryIndexesUpdated);

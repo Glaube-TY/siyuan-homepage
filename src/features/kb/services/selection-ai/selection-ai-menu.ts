@@ -144,8 +144,8 @@ export function createSelectionAiToolbarItems(options: {
     {
       name: TOOLBAR_MENU_NAME,
       icon: "iconNotebrain",
-      // Toolbar-only entry; do not add a hotkey here.
-      tip: "AI 知识库",
+      // SiYuan automatically exposes toolbar items in the shortcut list.
+      tip: "划词AI菜单",
       tipPosition: "n",
       click: (protyle: Protyle) => {
         openSelectionAiMenu({ ...options, protyle });
