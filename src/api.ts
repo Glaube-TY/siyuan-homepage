@@ -867,7 +867,9 @@ export async function putFile(path: string, isDir: boolean, file: any) {
     form.append('isDir', isDir.toString());
     // Copyright (c) 2023, terwer.
     // https://github.com/terwer/siyuan-plugin-importer/blob/v1.4.1/src/api/kernel-api.ts
-    form.append('modTime', Math.floor(Date.now() / 1000).toString());
+    // 思源内核通过 millisecond2Time 解析 modTime，必须传 Unix 毫秒时间戳。
+    // 传秒会把 2026 年的文件错误写成 1970 年，导致多设备同步无法可靠判断新旧。
+    form.append('modTime', Date.now().toString());
     form.append('file', file);
     let url = '/api/file/putFile';
     return request(url, form);
@@ -1755,7 +1757,8 @@ export async function putFileChecked(path: string, isDir: boolean, file: any): P
     const form = new FormData();
     form.append('path', path);
     form.append('isDir', isDir.toString());
-    form.append('modTime', Math.floor(Date.now() / 1000).toString());
+    // 与 /api/file/putFile 的内核实现保持一致：modTime 使用 Unix 毫秒时间戳。
+    form.append('modTime', Date.now().toString());
     form.append('file', file);
     await requestChecked('/api/file/putFile', form, 'putFile');
 }

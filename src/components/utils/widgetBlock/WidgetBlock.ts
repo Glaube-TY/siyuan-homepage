@@ -254,7 +254,6 @@ export class WidgetBlock {
                                                         onSetSize: async (size: number) => {
                                                             const layoutNumber = this.widgetLayoutNumber;
                                                             await setBlockSize(this.currentBlockForSettingsRef.value, size, layoutNumber);
-                                                            dialogRef.close();
                                                         },
                                                         layoutRuntimeOptions: this.runtimeOptions,
                                                     },

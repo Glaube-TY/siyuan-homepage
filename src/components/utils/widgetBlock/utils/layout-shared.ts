@@ -34,6 +34,7 @@ import {
     cloneJsonSafeOmittingUndefinedObjectProperties,
     hasSameJsonSemantic,
 } from "@/homepage/deviceView/jsonSafe";
+import { saveHomepageSharedSettings } from "@/homepage/sharedSettings/homepageSharedSettings";
 import {
     assertSectionLayoutInvariants,
     hasNoSectionMembers,
@@ -3873,12 +3874,14 @@ export async function saveHomepageSettingsInTransaction(
                 }
 
                 // layout + view 一次提交，不单独写 layout
-                return syncLayoutAndViewInTransaction(
+                const result = await syncLayoutAndViewInTransaction(
                     context,
                     () => nextLayout,
                     () => nextConfig,
                     start,
                 );
+                await saveHomepageSharedSettings(plugin, nextConfig);
+                return result;
             }
             if (recovery.status === "remove-confirmed-empty-extras") {
                 // 用户确认不包含空分栏：在 nextLayout 中只删除确认的空壳，
@@ -3926,12 +3929,14 @@ export async function saveHomepageSettingsInTransaction(
                     );
                 }
 
-                return syncLayoutAndViewInTransaction(
+                const result = await syncLayoutAndViewInTransaction(
                     context,
                     () => nextLayout,
                     () => nextConfig,
                     start,
                 );
+                await saveHomepageSharedSettings(plugin, nextConfig);
+                return result;
             }
             throw new UnrecoverableSectionHalfCommitError(recovery.reason);
         }
@@ -3974,12 +3979,14 @@ export async function saveHomepageSettingsInTransaction(
             );
         }
 
-        return syncLayoutAndViewInTransaction(
+        const result = await syncLayoutAndViewInTransaction(
             context,
             () => nextLayout,
             () => nextConfig,
             start,
         );
+        await saveHomepageSharedSettings(plugin, nextConfig);
+        return result;
     });
 }
 

@@ -54,6 +54,7 @@ import {
     type HomepageStatusStatKey,
     type HomepageStatusTextMode,
 } from "./status-text-config";
+import { mergeHomepageSharedSettings } from "./sharedSettings/homepageSharedSettings";
 export type { HomepageButtonItem } from "./buttonRegistry";
 export type { HomepageStatusTextMode } from "./status-text-config";
 
@@ -165,7 +166,21 @@ export async function loadHomepageConfigDataStrict(
             missingType: "view",
         });
     }
-    return { data: settings.config, fileExists: true };
+    try {
+        return {
+            data: await mergeHomepageSharedSettings(
+                plugin,
+                settings.config,
+                surface === "mobile-homepage" ? "mobile" : "desktop",
+            ),
+            fileExists: true,
+        };
+    } catch (error) {
+        // 共享能力配置异常不能阻断整个设备主页；保留当前 surface 的只读回退，
+        // 但不得据此覆盖或重建损坏的共享文件。
+        console.warn("[Homepage] 共享主页设置暂时不可读，本轮回退到当前设备视图配置:", error);
+        return { data: settings.config, fileExists: true };
+    }
 }
 
 export interface BannerImageResult {

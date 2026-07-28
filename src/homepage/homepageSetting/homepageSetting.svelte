@@ -85,8 +85,9 @@
         resolveMobileAutoOpenConfig,
         type MobileQuickActionSetting,
     } from "../mobileQuickActions/mobileQuickActionsConfig";
+    import { readHomepageSharedSettingsSnapshot } from "../sharedSettings/homepageSharedSettings";
 
-    let { plugin, close }: HomepageSettingProps = $props();
+    let { plugin }: HomepageSettingProps = $props();
 
     let activeTab = $state<HomepageSettingMainTab>("homepage");
 
@@ -178,64 +179,21 @@
     let aiKbTabEnabled = $state(true);
 
     let settingsLoaded = $state(false);
-    let aiKbSettingsSaveTask: Promise<void> = Promise.resolve();
-
-    function queueSaveAiKnowledgeBaseSettings(): Promise<void> {
-        if (!settingsLoaded) return Promise.resolve();
-        aiKbSettingsSaveTask = aiKbSettingsSaveTask
-            .catch(() => undefined)
-            .then(() => saveAiKnowledgeBaseSettings());
-        return aiKbSettingsSaveTask;
-    }
-
-    async function saveAiKnowledgeBaseSettings(): Promise<void> {
-        const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
-        await saveHomepageSettingConfig(plugin, {
-            ...existingConfig,
-            aiKbDockEnabled,
-            aiKbTabEnabled,
-            statusAiProviderId: normalizeStatusAiModelId(tempStatusAiProviderId),
-            statusAiModelId: normalizeStatusAiModelId(tempStatusAiModelId),
-            statusAiThinkingEnabled: normalizeStatusAiThinkingEnabled(tempStatusAiThinkingEnabled),
-            statusAiStatKeys: normalizeStatusAiStatKeys(tempStatusAiStatKeys),
-            selectionAiToolbar: normalizeSelectionAiToolbarSettings(selectionAiToolbar),
-        } as HomepageSettingConfig);
-        setSelectionAiToolbarSettingsSnapshot(normalizeSelectionAiToolbarSettings(selectionAiToolbar));
-        window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
-    }
 
     function handleAiKbDockEnabledChange(value: boolean): void {
         aiKbDockEnabled = value;
-        void queueSaveAiKnowledgeBaseSettings().then(() => {
-            if (!value) showMessage("设置已保存，侧边栏入口将在重启插件或刷新界面后隐藏", 4000);
-        }).catch(() => {
-            showMessage("设置保存失败，请稍后重试", 3000);
-        });
     }
 
     function handleAiKbTabEnabledChange(value: boolean): void {
         aiKbTabEnabled = value;
-        void queueSaveAiKnowledgeBaseSettings().then(() => {
-            if (!value) showMessage("设置已保存，标签页入口将在重启插件或刷新界面后隐藏", 4000);
-        }).catch(() => {
-            showMessage("设置保存失败，请稍后重试", 3000);
-        });
     }
 
     function handleStatusAiThinkingEnabledChange(value: boolean): void {
         tempStatusAiThinkingEnabled = value;
-        saveAiKnowledgeBaseSettingsSafely();
     }
 
     function handleSelectionAiToolbarChange(value: SelectionAiToolbarSettings): void {
         selectionAiToolbar = normalizeSelectionAiToolbarSettings(value);
-        saveAiKnowledgeBaseSettingsSafely();
-    }
-
-    function saveAiKnowledgeBaseSettingsSafely(): void {
-        void queueSaveAiKnowledgeBaseSettings().catch(() => {
-            showMessage("设置保存失败，请稍后重试", 3000);
-        });
     }
 
     let selectionAiToolbar = $state<SelectionAiToolbarSettings>(
@@ -444,6 +402,236 @@
         onFallingSpeedChange: (value) => FallingSpeed = value,
     };
 
+    type AutoSaveStatus = "idle" | "pending" | "saving" | "saved" | "synced" | "error";
+
+    const AUTO_SAVE_DELAY_MS = 600;
+    const SHARED_SETTINGS_POLL_MS = 1500;
+
+    let autoSaveStatus = $state<AutoSaveStatus>("idle");
+    let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+    let sharedSettingsPollTimer: ReturnType<typeof setInterval> | null = null;
+    let autoSaveTask: Promise<void> = Promise.resolve();
+    let autoSavePending = false;
+    let autoSaveInitialized = false;
+    let applyingExternalSharedSettings = false;
+    let sharedSettingsRefreshInFlight = false;
+    let lastPersistedDraftSignature = "";
+    let lastLoadedMobileSignature = "";
+    let observedSharedSettingsToken = "";
+
+    function captureMobileSettingsSignature(): string {
+        return JSON.stringify({
+            mobileAutoOpenEnabled,
+            mobileAutoOpenTarget: normalizeMobileAutoOpenTarget(mobileAutoOpenTarget),
+            mobileQuickActionsEnabled,
+            mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
+            mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),
+        });
+    }
+
+    function captureHomepageSettingsSignature(): string {
+        return JSON.stringify({
+            tempAutoOpenHomepage,
+            sidebarEnabled,
+            mobileAutoOpenEnabled,
+            mobileAutoOpenTarget,
+            mobileQuickActionsEnabled,
+            mobileQuickActionsButtonSize,
+            mobileQuickActionItems,
+            tempBannerEnabled,
+            bannerGlobalType,
+            bingApiType,
+            tempBannerType,
+            bannerLocalData,
+            bannerRemoteUrl,
+            tempBannerHeight,
+            showIcon,
+            titleIconType,
+            tempTitleIconEmoji,
+            tempTitleIconImage,
+            tempCustomTitle,
+            tempBannerTitleIntegrated,
+            tempHomepageTitleAlign,
+            tempQuickButtonStyle,
+            tempBannerTitleColor,
+            tempBannerStatusColor,
+            tempBannerButtonColor,
+            tempBannerGlassEnabled,
+            tempBannerGlassColorMode,
+            tempBannerGlassColor,
+            tempBannerGlassOpacity,
+            tempBannerGlassBlur,
+            tempTitleIconStyle,
+            tempStatsInfoText,
+            tempStatusTextMode,
+            tempStatusAiPrompt,
+            tempStatusAiMaxChars,
+            tempStatusAiProviderId,
+            tempStatusAiModelId,
+            tempStatusAiThinkingEnabled,
+            tempStatusAiStatKeys,
+            buttonsList,
+            selectedButton,
+            widgetLayoutNumber,
+            widgetGap,
+            componentSectionsEnabled,
+            componentSections,
+            componentSectionsNavAlign,
+            quickNotesEnabled,
+            quickNotesPosition,
+            quickNotesTimestampEnabled,
+            quickNotesAddPosition,
+            taskEditorEnabled,
+            defaultDocPreviewMode,
+            aiKbDockEnabled,
+            aiKbTabEnabled,
+            selectionAiToolbar,
+            tasksPlusSelectedNotebookIds,
+            reviewDocsSelectedNotebookIds,
+            favoritesMigrationStatus,
+            reviewDocsMigrationStatus,
+            taskIndexMigrationStatus,
+            heatmapIndexStatus,
+            statIndexStatus,
+            enhancedDiaryIndexStatus,
+            footerEnabled,
+            footerContent,
+            mouseIcon,
+            MouseTrailEnabled,
+            mouseGlobalEnabled,
+            ClickEffectEnabled,
+            ClickEffectContent,
+            backgroundImageEnabled,
+            backgroundImageGlobalEnabled,
+            backgroundImageType,
+            backgroundImageLocalData,
+            backgroundImageRemoteUrl,
+            backgroundImageOpacity,
+            backgroundImageBlur,
+            FallEffectsEnabled,
+            GlobalFallingEffectsEnabled,
+            FallingIcon,
+            FallingDensity,
+            FallingSpeed,
+            advancedEnabled,
+        });
+    }
+
+    function applyMobileSettingsConfig(config: Record<string, unknown>): void {
+        if (
+            typeof config.mobileAutoOpenEnabled === "boolean"
+            || typeof config.mobileAutoOpenTarget === "string"
+            || typeof config.autoOpenMobileHomepage === "boolean"
+        ) {
+            const resolved = resolveMobileAutoOpenConfig(config);
+            mobileAutoOpenEnabled = resolved.enabled;
+            mobileAutoOpenTarget = resolved.target;
+        }
+        if (typeof config.mobileQuickActionsEnabled === "boolean") {
+            mobileQuickActionsEnabled = config.mobileQuickActionsEnabled;
+        }
+        if (config.mobileQuickActionsButtonSize !== undefined) {
+            mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(
+                config.mobileQuickActionsButtonSize,
+            );
+        }
+        if (Array.isArray(config.mobileQuickActionItems)) {
+            mobileQuickActionItems = normalizeMobileQuickActionItems(config.mobileQuickActionItems);
+        }
+        lastLoadedMobileSignature = captureMobileSettingsSignature();
+    }
+
+    async function refreshSharedMobileSettings(): Promise<void> {
+        if (
+            !settingsLoaded
+            || autoSavePending
+            || autoSaveStatus === "saving"
+            || sharedSettingsRefreshInFlight
+        ) return;
+
+        sharedSettingsRefreshInFlight = true;
+        try {
+            const snapshot = await readHomepageSharedSettingsSnapshot(plugin);
+            if (!snapshot) return;
+            const token = `${snapshot.revision}:${snapshot.updatedAt}`;
+            if (token === observedSharedSettingsToken) return;
+            observedSharedSettingsToken = token;
+
+            const before = captureMobileSettingsSignature();
+            applyingExternalSharedSettings = true;
+            applyMobileSettingsConfig(snapshot.config);
+            lastPersistedDraftSignature = captureHomepageSettingsSignature();
+            applyingExternalSharedSettings = false;
+
+            if (before !== captureMobileSettingsSignature()) {
+                autoSaveStatus = "synced";
+            }
+        } catch {
+            // 同步中的短暂不可读不覆盖当前界面，下一轮轮询继续尝试。
+        } finally {
+            applyingExternalSharedSettings = false;
+            sharedSettingsRefreshInFlight = false;
+        }
+    }
+
+    function handleHomepageSettingsSavedEvent(): void {
+        void refreshSharedMobileSettings();
+    }
+
+    function scheduleAutoSave(): void {
+        if (!settingsLoaded || applyingExternalSharedSettings) return;
+        if (autoSaveTimer) clearTimeout(autoSaveTimer);
+        autoSavePending = true;
+        autoSaveStatus = "pending";
+        autoSaveTimer = setTimeout(() => {
+            autoSaveTimer = null;
+            void queueAutoSaveNow();
+        }, AUTO_SAVE_DELAY_MS);
+    }
+
+    function queueAutoSaveNow(): Promise<void> {
+        autoSaveTask = autoSaveTask
+            .catch(() => undefined)
+            .then(async () => {
+                if (!settingsLoaded || applyingExternalSharedSettings) return;
+                const currentSignature = captureHomepageSettingsSignature();
+                if (currentSignature === lastPersistedDraftSignature) {
+                    autoSavePending = false;
+                    if (autoSaveStatus === "pending") autoSaveStatus = "saved";
+                    return;
+                }
+
+                autoSaveStatus = "saving";
+                const saved = await confirmSave();
+                if (saved) {
+                    lastPersistedDraftSignature = captureHomepageSettingsSignature();
+                    lastLoadedMobileSignature = captureMobileSettingsSignature();
+                    autoSaveStatus = "saved";
+                } else {
+                    autoSaveStatus = "error";
+                }
+                autoSavePending = false;
+
+                if (captureHomepageSettingsSignature() !== lastPersistedDraftSignature) {
+                    scheduleAutoSave();
+                }
+            });
+        return autoSaveTask;
+    }
+
+    $effect(() => {
+        const signature = captureHomepageSettingsSignature();
+        if (!settingsLoaded || applyingExternalSharedSettings) return;
+        if (!autoSaveInitialized) {
+            autoSaveInitialized = true;
+            lastPersistedDraftSignature = signature;
+            return;
+        }
+        if (signature !== lastPersistedDraftSignature) {
+            scheduleAutoSave();
+        }
+    });
+
     function syncStatusAiModelSummary(options: ChatModelOption[] = statusAiModelOptions): void {
         statusAiAvailableModelCount = options.length;
         const selectedKey = buildChatModelKey(tempStatusAiProviderId, tempStatusAiModelId);
@@ -471,7 +659,6 @@
         tempStatusAiProviderId = normalizeStatusAiModelId(value.providerId);
         tempStatusAiModelId = normalizeStatusAiModelId(value.modelId);
         syncStatusAiModelSummary();
-        saveAiKnowledgeBaseSettingsSafely();
     }
 
     function handleKbSettingsChanged(): void {
@@ -670,11 +857,30 @@
 
         await refreshStatusAiModelSummary();
         window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
+        window.addEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
+        lastLoadedMobileSignature = captureMobileSettingsSignature();
+        lastPersistedDraftSignature = captureHomepageSettingsSignature();
+        autoSaveInitialized = true;
         settingsLoaded = true;
+        void refreshSharedMobileSettings();
+        sharedSettingsPollTimer = setInterval(
+            () => void refreshSharedMobileSettings(),
+            SHARED_SETTINGS_POLL_MS,
+        );
     });
 
     onDestroy(() => {
+        if (autoSaveTimer) {
+            clearTimeout(autoSaveTimer);
+            autoSaveTimer = null;
+            void queueAutoSaveNow();
+        }
+        if (sharedSettingsPollTimer) {
+            clearInterval(sharedSettingsPollTimer);
+            sharedSettingsPollTimer = null;
+        }
         window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
+        window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
     });
 
     function handleImageSelect(event: Event) {
@@ -923,9 +1129,19 @@
         enhancedDiaryIndexStatus = status;
     }
 
-    // 保存配置并关闭对话框
-    async function confirmSave() {
+    // 自动保存当前设置；保存前重新读取共享配置，避免无关的桌面修改覆盖移动端新值。
+    async function confirmSave(): Promise<boolean> {
         const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
+        const mobileSettingsChangedLocally =
+            captureMobileSettingsSignature() !== lastLoadedMobileSignature;
+        if (!mobileSettingsChangedLocally) {
+            applyingExternalSharedSettings = true;
+            try {
+                applyMobileSettingsConfig(existingConfig as unknown as Record<string, unknown>);
+            } finally {
+                applyingExternalSharedSettings = false;
+            }
+        }
 
         const normalizedComponentSections = normalizeComponentSections(componentSections);
         const effectiveComponentSectionsEnabled = isComponentSectionsEffective(
@@ -937,7 +1153,10 @@
             // 全局配置
             autoOpenHomepage: tempAutoOpenHomepage,
             sidebarEnabled: sidebarEnabled,
-            autoOpenMobileHomepage: mobileAutoOpenEnabled && normalizeMobileAutoOpenTarget(mobileAutoOpenTarget) === "mobile-homepage",
+            mobileAutoOpenEnabled,
+            mobileAutoOpenTarget: normalizeMobileAutoOpenTarget(mobileAutoOpenTarget),
+            autoOpenMobileHomepage:
+                mobileAutoOpenEnabled && normalizeMobileAutoOpenTarget(mobileAutoOpenTarget) === "mobile-homepage",
             mobileQuickActionsEnabled: mobileQuickActionsEnabled,
             mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
             ...(existingConfig.mobileQuickActionsPosition !== undefined
@@ -1064,7 +1283,7 @@
                 const message = error instanceof Error ? error.message : String(error);
                 showMessage(`设置保存失败：${message}`, 5000, "error");
             }
-            return;
+            return false;
         }
 
         deletedComponentSectionIds = [];
@@ -1090,20 +1309,14 @@
             }
 
             window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
-            if (close) close();
         } catch {
             showMessage("设置已保存，但界面刷新失败", 5000, "error");
-            return;
+            return true;
         }
         if (result.warning) {
             showMessage("设置已保存，但界面刷新失败", 5000, "error");
         }
-    }
-
-    function cancelSave() {
-        if (close) {
-            close();
-        }
+        return true;
     }
 
     async function backupCurrentInterface() {
@@ -1355,17 +1568,6 @@
                         </div>
                     {/if}
                 </div>
-            </div>
-            <!-- 操作按钮 -->
-            <div class="action-buttons">
-                <button class="btn primary no-link-style" onclick={confirmSave}>
-                    <SiyuanIcon name="confirm" size={14} />
-                    <span>确认</span>
-                </button>
-                <button class="btn" onclick={cancelSave}>
-                    <SiyuanIcon name="cancel" size={14} />
-                    <span>取消</span>
-                </button>
             </div>
         {:else if activeTab === "vip"}
             <div class="content-scroll-area full-content">

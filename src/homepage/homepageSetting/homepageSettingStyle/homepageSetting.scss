@@ -62,16 +62,6 @@
         min-width: 0;
     }
 
-    .action-buttons {
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.75rem;
-        padding: 1rem 1.5rem;
-        border-top: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-background);
-        flex-shrink: 0;
-    }
-
     h3 {
         color: var(--b3-theme-on-surface);
         margin: 0.5rem;

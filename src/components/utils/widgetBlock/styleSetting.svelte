@@ -56,6 +56,8 @@
     let componentSectionsEnabled = $state(false);
     let componentSections = $state<ComponentSection[]>([]);
     let targetSectionId = $state("");
+    let pendingSize: { rowSize: number; colSize: number } | null = null;
+    let sizeSaveTask: Promise<void> | null = null;
 
     let sizeOptions = $derived(Array.from({ length: widgetLayoutNumber }, (_, i) => i + 1));
     let availableTargetSections = $derived(
@@ -82,10 +84,45 @@
         saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
     }
 
-    async function handleApplySize() {
-        await onSetSize(parseInt(`${rowSize}${colSize}`));
-        await saveWidgetSize(plugin, currentBlockId, rowSize, colSize, deviceViewContext);
-        await saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
+    function startSizeSaveQueue(): void {
+        if (sizeSaveTask) return;
+        sizeSaveTask = (async () => {
+            while (pendingSize) {
+                const nextSize = pendingSize;
+                pendingSize = null;
+                await saveWidgetSize(
+                    plugin,
+                    currentBlockId,
+                    nextSize.rowSize,
+                    nextSize.colSize,
+                    deviceViewContext,
+                );
+                await saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
+            }
+        })().catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            showMessage(`组件尺寸保存失败：${message}`, 4000, "error");
+        }).finally(() => {
+            sizeSaveTask = null;
+            if (pendingSize) startSizeSaveQueue();
+        });
+    }
+
+    function handleSizeChange(): void {
+        const nextRowSize = Number(rowSize);
+        const nextColSize = Number(colSize);
+
+        // 先更新当前组件，选择后无需等待持久化即可看到网格尺寸变化。
+        void Promise.resolve()
+            .then(() => onSetSize(Number(`${nextRowSize}${nextColSize}`)))
+            .catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                showMessage(`组件尺寸预览失败：${message}`, 4000, "error");
+            });
+
+        // 连续调整时只保留尚未写入的最新组合，实际写盘保持串行。
+        pendingSize = { rowSize: nextRowSize, colSize: nextColSize };
+        startSizeSaveQueue();
     }
 
     async function handleMoveToSection() {
@@ -175,22 +212,19 @@
     <SettingSection title="尺寸设置">
         <SettingRow title="组件尺寸" description="设置组件在主页网格中占用的行数和列数">
             <div class="size-control-group">
-                <select class="control-sm" bind:value={rowSize}>
+                <select class="control-sm" bind:value={rowSize} onchange={handleSizeChange}>
                     {#each sizeOptions as size}
                         <option value={size}>{size}</option>
                     {/each}
                 </select>
                 <span class="size-label">行</span>
                 <span class="size-separator">×</span>
-                <select class="control-sm" bind:value={colSize}>
+                <select class="control-sm" bind:value={colSize} onchange={handleSizeChange}>
                     {#each sizeOptions as size}
                         <option value={size}>{size}</option>
                     {/each}
                 </select>
                 <span class="size-label">列</span>
-                <button type="button" class="apply-size-button" onclick={handleApplySize}>
-                    应用尺寸
-                </button>
             </div>
         </SettingRow>
     </SettingSection>
@@ -397,18 +431,4 @@
         }
     }
 
-    .apply-size-button {
-        background: var(--b3-theme-primary, #3575f0);
-        color: white;
-        border: none;
-        padding: 0.4rem 0.8rem;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 13px;
-        transition: background 0.2s ease;
-
-        &:hover {
-            opacity: 0.9;
-        }
-    }
 </style>

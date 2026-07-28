@@ -11,6 +11,10 @@ import { ensureCurrentDeviceViewMigrated } from '@/homepage/deviceView/deviceVie
 import { readDeviceViewSettings, updateDeviceViewSettings } from '@/homepage/deviceView/deviceViewStorage';
 import type { DeviceViewSurface } from '@/homepage/deviceView/deviceViewTypes';
 import { cloneJsonSafeOmittingUndefinedObjectProperties } from '@/homepage/deviceView/jsonSafe';
+import {
+    mergeHomepageSharedSettings,
+    saveHomepageSharedSettings,
+} from '@/homepage/sharedSettings/homepageSharedSettings';
 export type { ComponentMigrationStatus, NotebookOption };
 
 export type DocPreviewMode = "preview" | "wysiwyg";
@@ -289,7 +293,12 @@ export async function loadHomepageSettingConfig(
     const context = getCurrentDeviceViewContext(plugin, surface);
     await ensureCurrentDeviceViewMigrated(context);
     const settings = await readDeviceViewSettings(context);
-    return settings?.config as unknown as HomepageSettingConfig | null;
+    if (!settings) return null;
+    return await mergeHomepageSharedSettings(
+        plugin,
+        settings.config,
+        surface === "mobile-homepage" ? "mobile" : "desktop",
+    ) as unknown as HomepageSettingConfig;
 }
 
 export async function saveHomepageSettingConfig(
@@ -305,6 +314,9 @@ export async function saveHomepageSettingConfig(
         config as unknown as Record<string, unknown>,
         "主页设置配置",
     );
+    // 公共能力先写入跨设备共享文件；旧 view.json 中的同名字段继续保留，
+    // 作为向后兼容和可回退副本，但读取时始终以共享文件为准。
+    await saveHomepageSharedSettings(plugin, safeConfig);
     await updateDeviceViewSettings(
         context,
         () => safeConfig,
