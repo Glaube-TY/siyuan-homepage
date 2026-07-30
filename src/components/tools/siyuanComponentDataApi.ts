@@ -924,7 +924,7 @@ function isWithinTaskIndexProtection(item: ComponentTaskInfo, now = Date.now()):
 
 async function verifyIndexedTaskBlock(
     task: ComponentTaskInfo,
-): Promise<"exists" | "missing" | "unknown"> {
+): Promise<"exists" | "inactive" | "missing" | "unknown"> {
     const expectedRootId = task.root_id || task.rootID || "";
     let confirmedMissing = 0;
     let sawReadableBlock = false;
@@ -932,19 +932,31 @@ async function verifyIndexedTaskBlock(
     for (const waitMs of [0, 100, 300] as const) {
         if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
         try {
-            if (!await checkBlockExist(task.id)) confirmedMissing += 1;
+            if (!await checkBlockExist(task.id)) {
+                confirmedMissing += 1;
+                // 已确认块不存在时不要继续读取块详情，否则思源会弹出“内容块不存在”提示。
+                continue;
+            }
         } catch {
-            // API 暂时失败不能作为删除证据。
+            // API 暂时失败不能作为删除证据，继续用详情接口兜底确认。
         }
 
         try {
             const info = await getBlockInfo(task.id);
             sawReadableBlock = true;
             if (expectedRootId && expectedRootId !== task.id && info?.rootID !== expectedRootId) return "missing";
-            const treeInfos = await getBlockTreeInfos([task.id]);
-            const kramdowns = await getBlockKramdowns([task.id]);
-            if (isEnhancedDiaryTaskListItemType(treeInfos?.[task.id]?.type) &&
-                isTaskMarkdown(String(kramdowns?.[task.id] || ""))) return "exists";
+            const [treeInfos, kramdowns] = await Promise.all([
+                getBlockTreeInfos([task.id]),
+                getBlockKramdowns([task.id]),
+            ]);
+            const treeInfo = treeInfos?.[task.id];
+            const hasKramdown = Object.prototype.hasOwnProperty.call(kramdowns || {}, task.id);
+            if (treeInfo && hasKramdown) {
+                return isEnhancedDiaryTaskListItemType(treeInfo.type) &&
+                    isTaskMarkdown(String(kramdowns[task.id] || ""))
+                    ? "exists"
+                    : "inactive";
+            }
         } catch {
             // 继续有限重试；已能读取的块不会因后续类型或 Markdown API 暂时失败而删除。
         }
@@ -1031,7 +1043,7 @@ export async function pruneMissingTaskIndexItems(options: {
             status: await verifyIndexedTaskBlock(task),
         })));
         for (const result of results) {
-            if (result.status === "missing") missing.add(result.id);
+            if (result.status === "missing" || result.status === "inactive") missing.add(result.id);
         }
     }
     if (missing.size === 0) {
@@ -1083,7 +1095,7 @@ export async function ensureTaskBlockExists(id: string): Promise<boolean> {
     const status = indexed
         ? await verifyIndexedTaskBlock(indexed)
         : (await isExistingBlock(id) ? "exists" : "unknown");
-    if (status === "missing") {
+    if (status === "missing" || status === "inactive") {
         await removeTaskIndexItem(id);
         return false;
     }
@@ -1219,7 +1231,9 @@ async function preserveTasksMissingFromSql(
         status: isWithinTaskIndexProtection(task) ? "exists" : await verifyIndexedTaskBlock(task),
     })));
     return [
-        ...statuses.filter(({ status }) => status !== "missing").map(({ task }) => task),
+        ...statuses
+            .filter(({ status }) => status !== "missing" && status !== "inactive")
+            .map(({ task }) => task),
         ...unchecked,
     ];
 }
