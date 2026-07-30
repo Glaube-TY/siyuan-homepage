@@ -14,10 +14,9 @@ import {
     error,
     getSiYuanDir,
     chooseTarget,
-    getThisPluginName,
-    loadLocalEnvFile,
-    makeSymbolicLink
+    loadLocalEnvFile
 } from './utils.js';
+import { saveDevPluginDir, syncDevDeployment } from './dev_deploy.js';
 
 let targetDir = '';
 loadLocalEnvFile();
@@ -60,25 +59,23 @@ if (!fs.existsSync(targetDir)) {
     process.exit(1);
 }
 
-/**
- * 2. The dev directory, which contains the compiled plugin code
- */
+/** 2. The dev directory, which contains the compiled plugin code. */
 const devDir = path.resolve(process.cwd(), 'dev');
 if (!fs.existsSync(devDir)) {
-    fs.mkdirSync(devDir);
-}
-
-
-/**
- * 3. The target directory to make symbolic link to dev directory
- */
-const name = getThisPluginName();
-if (name === null) {
+    error(`Failed! Development output does not exist: "${devDir}"`);
     process.exit(1);
 }
-const targetPath = path.join(targetDir, name);
 
-/**
- * 4. Make symbolic link
- */
-makeSymbolicLink(devDir, targetPath);
+/** 3. Persist the selected workspace and deploy a real, syncable directory. */
+const result = syncDevDeployment({ sourceDir: devDir, pluginDir: targetDir });
+if (!result) {
+    error('Failed! Development deployment target is not configured.');
+    process.exit(1);
+}
+const configPath = saveDevPluginDir(targetDir);
+log(`Done! Deployed a real plugin directory: ${result.targetDir}`);
+log(`\tCopied ${result.copied}, unchanged ${result.unchanged}, deleted ${result.deleted}`);
+if (result.convertedLink) {
+    log('\tConverted the previous symbolic link into a real directory.');
+}
+log(`\tSaved development target config: ${configPath}`);

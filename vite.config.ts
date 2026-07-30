@@ -8,7 +8,10 @@ import zipPack from "vite-plugin-zip-pack";
 import fg from 'fast-glob';
 
 import vitePluginYamlI18n from './yaml-plugin';
+import { loadLocalEnvFile } from './scripts/utils.js';
+import { syncDevDeployment } from './scripts/dev_deploy.js';
 
+loadLocalEnvFile();
 const env = process.env;
 const isSrcmap = env.VITE_SOURCEMAP === 'inline';
 const isDev = env.NODE_ENV === 'development';
@@ -58,6 +61,7 @@ export default defineConfig({
             ],
         }),
 
+        ...(isDev && env.SIYUAN_SKIP_DEV_DEPLOY !== '1' ? [devDeploymentMirror()] : []),
     ],
 
     define: {
@@ -68,7 +72,7 @@ export default defineConfig({
     build: {
         outDir: outputDir,
         // `dev`/`dist` are generated directories. Clear stale hashed chunks on the
-        // first build so old dependency bundles are never exposed through the link.
+        // first build so old dependency bundles are never deployed to the workspace.
         emptyOutDir: true,
         minify: true,
         sourcemap: isSrcmap ? 'inline' : false,
@@ -133,6 +137,34 @@ export default defineConfig({
         },
     }
 });
+
+function devDeploymentMirror() {
+    let missingTargetLogged = false;
+    return {
+        name: 'dev-real-directory-deployment',
+        enforce: 'post' as const,
+        apply: 'build' as const,
+        writeBundle: {
+            sequential: true,
+            order: 'post' as const,
+            handler() {
+                const result = syncDevDeployment();
+                if (!result) {
+                    if (!missingTargetLogged) {
+                        console.log('[dev-deploy] No target configured; run pnpm dev:setup once.');
+                        missingTargetLogged = true;
+                    }
+                    return;
+                }
+                missingTargetLogged = false;
+                console.log(
+                    `[dev-deploy] Synced real directory ${result.targetDir} `
+                    + `(copied ${result.copied}, unchanged ${result.unchanged}, deleted ${result.deleted})`
+                );
+            }
+        }
+    };
+}
 
 /**
  * @rollup/plugin-commonjs can restore a cached parent module before its virtual

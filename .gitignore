@@ -17,5 +17,6 @@ tmp
 .env
 .siyuan-api-token.local
 .siyuan-api-token.*
+.siyuan-dev-target.json
 .agents
 .release_answers.txt

@@ -10,6 +10,7 @@
 import fs from 'fs';
 import path from 'node:path';
 import http from 'node:http';
+import os from 'node:os';
 import readline from 'node:readline';
 
 // Logging functions
@@ -22,6 +23,7 @@ export const POST_HEADER = {
 };
 
 const SIYUAN_WORKSPACES_API = 'http://127.0.0.1:6806/api/system/getWorkspaces';
+const SIYUAN_WORKSPACE_CONFIG = path.join(os.homedir(), '.config', 'siyuan', 'workspace.json');
 const TOKEN_ENV_NAMES = ['SIYUAN_API_TOKEN', 'SIYUAN_TOKEN', 'SIYUAN_AUTH_TOKEN'];
 const TOKEN_FILE_ENV_NAME = 'SIYUAN_API_TOKEN_FILE';
 const DEFAULT_TOKEN_FILE = '.siyuan-api-token.local';
@@ -347,6 +349,48 @@ function formatValue(value) {
     return redactSensitive(value);
 }
 
+function readLocalWorkspaces() {
+    const configPath = process.env.SIYUAN_WORKSPACE_CONFIG?.trim() || SIYUAN_WORKSPACE_CONFIG;
+    if (!fs.existsSync(configPath)) {
+        return null;
+    }
+
+    try {
+        const configuredPaths = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (!Array.isArray(configuredPaths)) {
+            throw new Error('workspace.json must contain an array');
+        }
+
+        const seen = new Set();
+        const workspaces = configuredPaths
+            .filter((workspacePath) => typeof workspacePath === 'string' && workspacePath.trim() !== '')
+            .map((workspacePath) => path.resolve(workspacePath.trim()))
+            .filter((workspacePath) => {
+                const key = process.platform === 'win32' ? workspacePath.toLowerCase() : workspacePath;
+                if (seen.has(key)) {
+                    return false;
+                }
+                seen.add(key);
+
+                try {
+                    return fs.statSync(workspacePath).isDirectory();
+                } catch {
+                    return false;
+                }
+            })
+            .map((workspacePath) => ({ path: workspacePath }));
+
+        if (workspaces.length > 0) {
+            log(`\tLoaded ${workspaces.length} workspaces from ${configPath}`);
+            return workspaces;
+        }
+    } catch (e) {
+        error(`\tFailed to read SiYuan workspace config ${configPath}: ${redactSensitive(e?.message ?? e)}`);
+    }
+
+    return null;
+}
+
 async function requestWorkspaces(authorization, label) {
     const attempt = {
         label,
@@ -387,10 +431,16 @@ function printWorkspacesFailure(attempts) {
 }
 
 /**
- * Fetch SiYuan workspaces from port 6806
+ * Get all SiYuan desktop workspaces, including workspaces that are not running.
+ * Falls back to the Kernel API when the desktop workspace config is unavailable.
  * @returns {Promise<{path: string}[] | null>}
  */
 export async function getSiYuanDir() {
+    const localWorkspaces = readLocalWorkspaces();
+    if (localWorkspaces) {
+        return localWorkspaces;
+    }
+
     const attempts = [];
     const firstAttempt = await requestWorkspaces(null, 'without Authorization');
     attempts.push(firstAttempt);
@@ -419,27 +469,38 @@ export async function getSiYuanDir() {
  * @returns {string} The path of the selected workspace
  */
 export async function chooseTarget(workspaces) {
-    let count = workspaces.length;
+    const count = workspaces.length;
     log(`>>> Got ${count} SiYuan ${count > 1 ? 'workspaces' : 'workspace'}`);
     workspaces.forEach((workspace, i) => {
         log(`\t[${i}] ${workspace.path}`);
     });
 
-    if (count === 1) {
-        return `${workspaces[0].path}/data/plugins`;
-    } else {
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-        let index = await new Promise((resolve) => {
-            rl.question(`\tPlease select a workspace[0-${count - 1}]: `, (answer) => {
-                resolve(answer);
-            });
-        });
-        rl.close();
-        return `${workspaces[index].path}/data/plugins`;
+    if (count === 0) {
+        throw new Error('No available SiYuan workspaces');
     }
+
+    if (count === 1) {
+        return path.join(workspaces[0].path, 'data', 'plugins');
+    }
+
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+    let index;
+    while (index === undefined) {
+        const answer = await new Promise((resolve) => {
+            rl.question(`\tPlease select a workspace[0-${count - 1}]: `, resolve);
+        });
+        const selected = Number(answer.trim());
+        if (Number.isInteger(selected) && selected >= 0 && selected < count) {
+            index = selected;
+        } else {
+            error(`\tInvalid selection "${answer}". Please enter 0-${count - 1}.`);
+        }
+    }
+    rl.close();
+    return path.join(workspaces[index].path, 'data', 'plugins');
 }
 
 /**
