@@ -27,6 +27,43 @@ const TOKEN_FILE_ENV_NAME = 'SIYUAN_API_TOKEN_FILE';
 const DEFAULT_TOKEN_FILE = '.siyuan-api-token.local';
 const AUTH_RETRY_STATUS = new Set([401, 403]);
 
+function parseEnvValue(rawValue) {
+    let value = rawValue.trim();
+    if (value.length >= 2) {
+        const quote = value[0];
+        if ((quote === '"' || quote === "'") && value[value.length - 1] === quote) {
+            value = value.slice(1, -1);
+        }
+    }
+    return value;
+}
+
+/**
+ * Load project-local environment variables without overwriting values already
+ * supplied by the shell. Node 20.12+ uses its native dotenv parser; the small
+ * fallback keeps the deployment scripts usable on older supported runtimes.
+ */
+export function loadLocalEnvFile(fileName = '.env') {
+    const envPath = path.resolve(process.cwd(), fileName);
+    if (!fs.existsSync(envPath)) {
+        return;
+    }
+
+    if (typeof process.loadEnvFile === 'function') {
+        process.loadEnvFile(envPath);
+        return;
+    }
+
+    const content = fs.readFileSync(envPath, 'utf8').replace(/^\uFEFF/, '');
+    for (const line of content.split(/\r?\n/)) {
+        const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+        if (!match || process.env[match[1]] !== undefined) {
+            continue;
+        }
+        process.env[match[1]] = parseEnvValue(match[2]);
+    }
+}
+
 function hasHeader(headers, headerName) {
     return Object.keys(headers).some((key) => key.toLowerCase() === headerName.toLowerCase());
 }
@@ -216,7 +253,7 @@ function getAuthorizationValue(token) {
     if (/^(token|Bearer)\s/i.test(token)) {
         return token;
     }
-    return `token ${token}`;
+    return `Token ${token}`;
 }
 
 function getWorkspaceHeaders(authorization) {

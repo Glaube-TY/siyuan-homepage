@@ -9,7 +9,8 @@
   "author": "Glaube-TY",
   "license": "MIT",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development VITE_SOURCEMAP=inline vite build --watch",
+    "dev": "cross-env NODE_ENV=development vite build --watch",
+    "dev:debug": "cross-env NODE_ENV=development VITE_SOURCEMAP=inline vite build --watch",
     "build": "pnpm build:feishu-gateway && cross-env NODE_ENV=production vite build && pnpm sync-dev",
     "build:dev": "pnpm build:feishu-gateway && cross-env NODE_ENV=development vite build",
     "build:feishu-gateway": "node --no-warnings ./scripts/chat-action-feishu-gateway/build-feishu-gateway.js",

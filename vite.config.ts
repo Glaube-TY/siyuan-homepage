@@ -32,6 +32,8 @@ export default defineConfig({
     },
 
     plugins: [
+        ...(isDev ? [commonjsWatchCacheGuard()] : []),
+
         svelte({
             preprocess: vitePreprocess()
         }),
@@ -65,9 +67,12 @@ export default defineConfig({
 
     build: {
         outDir: outputDir,
-        emptyOutDir: false,
+        // `dev`/`dist` are generated directories. Clear stale hashed chunks on the
+        // first build so old dependency bundles are never exposed through the link.
+        emptyOutDir: true,
         minify: true,
         sourcemap: isSrcmap ? 'inline' : false,
+        reportCompressedSize: !isDev,
         commonjsOptions: {
             transformMixedEsModules: true,
         },
@@ -78,8 +83,6 @@ export default defineConfig({
             formats: ["cjs"],
         },
         rollupOptions: {
-            // Vite/Rollup watch cache can corrupt CommonJS transform state for the Feishu SDK's nested axios files.
-            cache: isDev ? false : undefined,
             plugins: [
                 ...(isDev ? [
                     ...(livereloadClientUrl ? [livereload({
@@ -130,6 +133,37 @@ export default defineConfig({
         },
     }
 });
+
+/**
+ * @rollup/plugin-commonjs can restore a cached parent module before its virtual
+ * `?commonjs-es-import` dependency's plugin metadata is restored.
+ * Preload those virtual dependencies first, and only invalidate a parent when
+ * the metadata is still absent. The rest of the watch cache remains reusable.
+ */
+function commonjsWatchCacheGuard() {
+    return {
+        name: 'commonjs-watch-cache-guard',
+        enforce: 'pre' as const,
+        apply: 'build' as const,
+        async shouldTransformCachedModule(moduleInfo: {
+            resolvedSources?: Record<string, { id?: string }>;
+        }) {
+            for (const resolved of Object.values(moduleInfo.resolvedSources ?? {})) {
+                if (!resolved.id?.endsWith('?commonjs-es-import')) {
+                    continue;
+                }
+                const wrappedModule = await this.load({ id: resolved.id });
+                const commonjsMeta = (wrappedModule.meta as {
+                    commonjs?: { resolved?: unknown };
+                })?.commonjs;
+                if (!commonjsMeta?.resolved) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    };
+}
 
 
 /**
