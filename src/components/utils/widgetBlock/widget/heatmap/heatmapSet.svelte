@@ -61,6 +61,8 @@
         <select bind:value={heatmapCountType} class="control-sm">
             <option value="block">内容块</option>
             <option value="words">字数👑</option>
+            <option value="documentCreated">创建文档数👑</option>
+            <option value="documentUpdated">更新文档数👑</option>
         </select>
     </SettingRow>
     {#if heatmapCountType === "words"}
@@ -80,6 +82,42 @@
             ]}
             highlights={["字数统计", "创作追踪", "可视化"]}
         />
+        {/if}
+    {:else if heatmapCountType === "documentCreated"}
+        {#if advancedEnabled}
+            <div class="help-block">
+                <p>按文档创建日期统计每天新建的文档数量。</p>
+            </div>
+        {:else}
+            <AdvancedFeatureLock
+                title="创建文档数热力图"
+                subtitle="按每天新建的文档数量展示创作活跃度。"
+                icon="filePlus"
+                features={[
+                    "统计每天创建的文档数量",
+                    "使用本地索引覆盖长期记录",
+                    "支持最长十二个月热力图"
+                ]}
+                highlights={["文档创建", "长期统计", "活跃追踪"]}
+            />
+        {/if}
+    {:else if heatmapCountType === "documentUpdated"}
+        {#if advancedEnabled}
+            <div class="help-block">
+                <p>文档内任意内容块在当天有更新，该文档当天计数一次。</p>
+            </div>
+        {:else}
+            <AdvancedFeatureLock
+                title="更新文档数热力图"
+                subtitle="按每天更新过的文档数量展示创作活跃度。"
+                icon="refresh"
+                features={[
+                    "同一文档同一天只计数一次",
+                    "增量索引保留已观察更新日期",
+                    "支持最长十二个月热力图"
+                ]}
+                highlights={["文档更新", "增量索引", "活跃追踪"]}
+            />
         {/if}
     {/if}
 </SettingSection>

@@ -8,6 +8,7 @@
         getRecentHeatmapCountsResult,
         refreshHeatmapIndexFromRecentDocuments,
         type ComponentCountsResult,
+        type HeatmapCountType,
     } from "@/components/tools/siyuanComponentDataApi";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
     import {
@@ -91,6 +92,38 @@
         return Math.floor(parsed);
     }
 
+    function getIndexCountType(value: unknown): HeatmapCountType {
+        switch (value) {
+            case "words":
+                return "word";
+            case "documentCreated":
+                return "documentCreated";
+            case "documentUpdated":
+                return "documentUpdated";
+            case "block":
+            default:
+                return "block";
+        }
+    }
+
+    function isPremiumHeatmapCountType(value: unknown): boolean {
+        return value === "words" || value === "documentCreated" || value === "documentUpdated";
+    }
+
+    function formatHeatmapTooltip(date: string, value: number): string {
+        switch (heatmapCountType) {
+            case "words":
+                return `${date}: ${value} 个字`;
+            case "documentCreated":
+                return `${date}: 创建 ${value} 篇文档`;
+            case "documentUpdated":
+                return `${date}: 更新 ${value} 篇文档`;
+            case "block":
+            default:
+                return `${date}: ${value} 个块`;
+        }
+    }
+
     async function loadHeatmapData() {
         const monthCount = clampHeatmapMonthCount(pastMonthCount);
         const [startDate, endDate] = getHeatmapRangeByMonthCount(monthCount);
@@ -102,9 +135,12 @@
 
         let result = forceIndexRefresh ? null : getCachedResult(cacheKey);
         if (!result) {
-            result = heatmapCountType === "words"
-                ? await getWordCounts(startDate, endDate, plugin)
-                : await getBlockCounts(startDate, endDate, plugin);
+            result = await getRecentHeatmapCountsResult(
+                startDate,
+                endDate,
+                getIndexCountType(heatmapCountType),
+                plugin,
+            );
             setCachedResult(cacheKey, result);
         }
 
@@ -130,7 +166,7 @@
 
     onMount(async () => {
         const advancedEnabled = plugin.ADVANCED;
-        if (!advancedEnabled && heatmapCountType === "words") {
+        if (!advancedEnabled && isPremiumHeatmapCountType(heatmapCountType)) {
             isLocked = true;
             return;
         }
@@ -223,9 +259,7 @@
                 tooltip: {
                     formatter: ({ data }) => {
                         const [date, value] = data;
-                        const unit =
-                            heatmapCountType === "words" ? "个字" : "个块";
-                        return `${date}: ${value} ${unit}`;
+                        return formatHeatmapTooltip(date, value);
                     },
                 },
                 visualMap: {
@@ -520,14 +554,6 @@
         chartContainer = null;
     });
 
-    async function getBlockCounts(startDate: string, endDate: string, plugin: any) {
-        return getRecentHeatmapCountsResult(startDate, endDate, "block", plugin);
-    }
-
-    async function getWordCounts(startDate: string, endDate: string, plugin: any) {
-        return getRecentHeatmapCountsResult(startDate, endDate, "word", plugin);
-    }
-
     function getColorGradient(preset, color) {
         const opacitySteps = [0.1, 0.3, 0.5, 0.7, 0.9];
         let baseColor;
@@ -556,15 +582,25 @@
     {#if isLocked}
         <div class="content-not-advanced">
             <AdvancedFeatureLock
-                title="字数热力图"
-                subtitle="按字数统计创作热力图，直观展示写作强度。"
+                title={heatmapCountType === "words" ? "字数热力图" : "文档数热力图"}
+                subtitle={heatmapCountType === "words"
+                    ? "按字数统计创作热力图，直观展示写作强度。"
+                    : "按文档创建或更新数量统计热力图，直观展示创作活跃度。"}
                 icon="edit"
-                features={[
-                    "按字数统计创作热力图",
-                    "支持多种颜色预设",
-                    "适合写作爱好者追踪创作量"
-                ]}
-                highlights={["字数统计", "创作追踪", "可视化"]}
+                features={heatmapCountType === "words"
+                    ? [
+                        "按字数统计创作热力图",
+                        "支持多种颜色预设",
+                        "适合写作爱好者追踪创作量"
+                    ]
+                    : [
+                        "统计每天创建的文档数量",
+                        "统计每天更新过的文档数量",
+                        "增量索引保留文档活跃记录"
+                    ]}
+                highlights={heatmapCountType === "words"
+                    ? ["字数统计", "创作追踪", "可视化"]
+                    : ["文档统计", "活跃追踪", "增量索引"]}
                 compact
             />
         </div>

@@ -40,6 +40,10 @@ import { requestMobilePlanRefresh } from "@/features/notification-center/notific
 import { withNotificationLock } from "@/features/notification-center/notification-center-locks";
 import { isValidDateText, toLocalDateString } from "@/components/utils/widgetBlock/widget/reviewDocs/reviewDocsSchedule";
 import type { ReviewItem, ReviewPriority } from "@/components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
+import {
+    aggregateHeatmapDocumentCounts,
+    mergeHeatmapDocumentCountDays,
+} from "@/components/utils/widgetBlock/widget/heatmap/heatmapDocumentCounts";
 
 export type ComponentDataStatus = "ok" | "empty" | "limited" | "disabled" | "unsupported" | "error";
 export type ComponentDataMode =
@@ -63,6 +67,8 @@ export interface ComponentCountsResult {
     message?: string;
     mode?: ComponentDataMode;
 }
+
+export type HeatmapCountType = "block" | "word" | "documentCreated" | "documentUpdated";
 
 export interface ComponentDocInfo {
     id: string;
@@ -130,6 +136,7 @@ const REVIEW_INDEX_PATH = `${COMPONENT_INDEX_DIR}/review-index.json`;
 const RECENT_DOC_SNAPSHOT_PATH = `${COMPONENT_INDEX_DIR}/recent-doc-snapshot.json`;
 const HEATMAP_DAILY_INDEX_PATH = `${COMPONENT_INDEX_DIR}/heatmap-daily-index.json`;
 const INDEX_VERSION = 1;
+const HEATMAP_INDEX_VERSION = 2;
 const GLOBAL_COMPAT_MAX_LIMIT = 2000;
 const GLOBAL_COMPAT_TABLES = ["blocks"];
 const TASK_REBUILD_PAGE_SIZE = 1000;
@@ -146,6 +153,7 @@ export interface ComponentRecentDocSnapshotDoc {
     box?: string;
     path?: string;
     hpath?: string;
+    created?: string;
     updated?: string;
     content?: string;
     ial?: string;
@@ -163,10 +171,13 @@ interface HeatmapDocContribution {
     box?: string;
     path?: string;
     hpath?: string;
+    created?: string;
     updated?: string;
     counts: {
         block: Record<string, number>;
         word: Record<string, number>;
+        documentCreated: Record<string, number>;
+        documentUpdated: Record<string, number>;
     };
 }
 
@@ -176,6 +187,8 @@ interface HeatmapDailyIndexPayload {
     totals: {
         block: Record<string, number>;
         word: Record<string, number>;
+        documentCreated: Record<string, number>;
+        documentUpdated: Record<string, number>;
     };
     docs: Record<string, HeatmapDocContribution>;
 }
@@ -396,14 +409,33 @@ function emptyRecentDocSnapshot(): RecentDocSnapshotPayload {
 
 function emptyHeatmapDailyIndex(): HeatmapDailyIndexPayload {
     return {
-        version: INDEX_VERSION,
+        version: HEATMAP_INDEX_VERSION,
         updatedAt: "",
         totals: {
             block: {},
             word: {},
+            documentCreated: {},
+            documentUpdated: {},
         },
         docs: {},
     };
+}
+
+function ensureHeatmapDailyIndexShape(payload: HeatmapDailyIndexPayload): HeatmapDailyIndexPayload {
+    payload.totals ||= {} as HeatmapDailyIndexPayload["totals"];
+    payload.totals.block ||= {};
+    payload.totals.word ||= {};
+    payload.totals.documentCreated ||= {};
+    payload.totals.documentUpdated ||= {};
+    payload.docs ||= {};
+    for (const contribution of Object.values(payload.docs)) {
+        contribution.counts ||= {} as HeatmapDocContribution["counts"];
+        contribution.counts.block ||= {};
+        contribution.counts.word ||= {};
+        contribution.counts.documentCreated ||= {};
+        contribution.counts.documentUpdated ||= {};
+    }
+    return payload;
 }
 
 function dayFromSiyuanTime(value: unknown): string {
@@ -433,6 +465,12 @@ function applyHeatmapContribution(
     }
     for (const [day, count] of Object.entries(contribution.counts.word || {})) {
         addCount(totals.word, day, sign * Number(count));
+    }
+    for (const [day, count] of Object.entries(contribution.counts.documentCreated || {})) {
+        addCount(totals.documentCreated, day, sign * Number(count));
+    }
+    for (const [day, count] of Object.entries(contribution.counts.documentUpdated || {})) {
+        addCount(totals.documentUpdated, day, sign * Number(count));
     }
 }
 
@@ -1061,6 +1099,7 @@ function normalizeRecentDoc(block: any): ComponentRecentDocSnapshotDoc | null {
         box: block?.box || "",
         path: block?.path || "",
         hpath: block?.hPath || block?.hpath || "",
+        created: getBlockCreatedTime(block),
         updated: getBlockUpdatedTime(block),
         content: block?.content || "",
         ial: block?.ial || "",
@@ -1524,7 +1563,7 @@ export async function getRootDocumentCandidates(maxRows = 200): Promise<Componen
 export async function getRecentHeatmapCounts(
     startDate: string,
     endDate: string,
-    countType: "block" | "word",
+    countType: HeatmapCountType,
 ): Promise<Record<string, number>> {
     try {
         const records = await loadRecentDocRecords("updated");
@@ -1533,8 +1572,32 @@ export async function getRecentHeatmapCounts(
                 .map((record) => recentDocRecordToDocInfo(record, "updated"))
                 .filter((doc): doc is ComponentDocInfo => doc !== null),
         );
+        if (countType === "documentCreated") {
+            const counts: Record<string, number> = {};
+            for (const doc of recentDocs) {
+                const day = dayFromSiyuanTime(doc.created);
+                if (!day || day < startDate || day > endDate) continue;
+                counts[day] = (counts[day] || 0) + 1;
+            }
+            return counts;
+        }
+
         const { blocksByRoot } = await queryHeatmapBlocksByRootIds(recentDocs.map((doc) => doc.id));
         const counts: Record<string, number> = {};
+        if (countType === "documentUpdated") {
+            for (const blocks of blocksByRoot.values()) {
+                const updatedDays = new Set(
+                    blocks
+                        .map((block) => dayFromSiyuanTime(getBlockUpdatedTime(block)))
+                        .filter((day) => day && day >= startDate && day <= endDate),
+                );
+                for (const day of updatedDays) {
+                    counts[day] = (counts[day] || 0) + 1;
+                }
+            }
+            return counts;
+        }
+
         for (const blocks of blocksByRoot.values()) {
             for (const block of blocks) {
                 const updated = getBlockUpdatedTime(block);
@@ -1568,16 +1631,27 @@ function pickCountsByRange(source: Record<string, number>, startDate: string, en
 function buildHeatmapContributionFromRows(
     doc: ComponentRecentDocSnapshotDoc,
     rows: any[],
+    previous?: HeatmapDocContribution,
 ): HeatmapDocContribution {
+    const rootRow = rows.find((row) => String(row?.id || "") === doc.id || row?.type === "d");
+    const created = doc.created || getBlockCreatedTime(rootRow);
+    const updated = doc.updated || getBlockUpdatedTime(rootRow);
+    const documentCounts = mergeHeatmapDocumentCountDays(
+        previous?.counts,
+        dayFromSiyuanTime(created),
+        dayFromSiyuanTime(updated),
+    );
     const contribution: HeatmapDocContribution = {
         id: doc.id,
         box: doc.box,
         path: doc.path,
         hpath: doc.hpath,
-        updated: doc.updated,
+        created,
+        updated,
         counts: {
             block: {},
             word: {},
+            ...documentCounts,
         },
     };
     for (const row of rows) {
@@ -1586,7 +1660,67 @@ function buildHeatmapContributionFromRows(
         addCount(contribution.counts.block, day, 1);
         addCount(contribution.counts.word, day, String(row?.content || "").length);
     }
+    const completeDocumentCounts = mergeHeatmapDocumentCountDays(
+        contribution.counts,
+        "",
+        Object.keys(contribution.counts.block),
+    );
+    contribution.counts.documentCreated = completeDocumentCounts.documentCreated;
+    contribution.counts.documentUpdated = completeDocumentCounts.documentUpdated;
     return contribution;
+}
+
+async function queryHeatmapDocumentMetadataByIds(rootIds: string[]): Promise<Map<string, any>> {
+    const CHUNK_SIZE = 128;
+    const result = new Map<string, any>();
+    const uniqueIds = Array.from(new Set(rootIds.filter(Boolean)));
+    for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+        const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
+        const escaped = chunk.map((id) => `'${escapeSqlString(id)}'`).join(",");
+        const rows = await sql(`
+            SELECT id, box, path, hpath, created, updated, type
+            FROM blocks
+            WHERE type = 'd' AND id IN (${escaped})
+            LIMIT ${chunk.length}
+        `);
+        for (const row of Array.isArray(rows) ? rows : []) {
+            if (row?.id) result.set(String(row.id), row);
+        }
+    }
+    return result;
+}
+
+function rebuildHeatmapDocumentTotals(payload: HeatmapDailyIndexPayload): void {
+    const totals = aggregateHeatmapDocumentCounts(Object.values(payload.docs));
+    payload.totals.documentCreated = totals.documentCreated;
+    payload.totals.documentUpdated = totals.documentUpdated;
+}
+
+async function upgradeHeatmapDocumentCounts(payload: HeatmapDailyIndexPayload): Promise<void> {
+    ensureHeatmapDailyIndexShape(payload);
+    const contributions = Object.values(payload.docs);
+    const missingMetadataIds = contributions
+        .filter((contribution) => !contribution.created)
+        .map((contribution) => contribution.id);
+    const metadataById = await queryHeatmapDocumentMetadataByIds(missingMetadataIds);
+
+    for (const contribution of contributions) {
+        const metadata = metadataById.get(contribution.id);
+        contribution.created ||= getBlockCreatedTime(metadata);
+        contribution.updated ||= getBlockUpdatedTime(metadata);
+        const documentCounts = mergeHeatmapDocumentCountDays(
+            contribution.counts,
+            dayFromSiyuanTime(contribution.created),
+            [
+                ...Object.keys(contribution.counts.block || {}),
+                dayFromSiyuanTime(contribution.updated),
+            ],
+        );
+        contribution.counts.documentCreated = documentCounts.documentCreated;
+        contribution.counts.documentUpdated = documentCounts.documentUpdated;
+    }
+    rebuildHeatmapDocumentTotals(payload);
+    payload.version = HEATMAP_INDEX_VERSION;
 }
 
 async function queryHeatmapBlocksByRootIds(rootIds: string[]): Promise<{ blocksByRoot: Map<string, any[]>; truncated: boolean }> {
@@ -1649,7 +1783,17 @@ export async function refreshHeatmapIndexFromRecentDocuments(
 
     try {
         const { changedDocs, commit } = await prepareChangedRecentDocsForIndex("heatmap");
-        if (changedDocs.length === 0) {
+        const payload = await readJsonIndexPayload<HeatmapDailyIndexPayload>(
+            HEATMAP_DAILY_INDEX_PATH,
+            emptyHeatmapDailyIndex(),
+        );
+        const needsDocumentCountUpgrade = Number(payload.version || 0) < HEATMAP_INDEX_VERSION;
+        ensureHeatmapDailyIndexShape(payload);
+        if (needsDocumentCountUpgrade) {
+            await upgradeHeatmapDocumentCounts(payload);
+        }
+
+        if (changedDocs.length === 0 && !needsDocumentCountUpgrade) {
             await commit();
             recentRefreshMemory.set("heatmap", Date.now());
             return {
@@ -1660,18 +1804,18 @@ export async function refreshHeatmapIndexFromRecentDocuments(
                 skippedCount: 0,
             };
         }
-        const payload = await readJsonIndexPayload<HeatmapDailyIndexPayload>(
-            HEATMAP_DAILY_INDEX_PATH,
-            emptyHeatmapDailyIndex(),
-        );
-        const { blocksByRoot, truncated } = await queryHeatmapBlocksByRootIds(changedDocs.map((doc) => doc.id));
+
+        const { blocksByRoot, truncated } = changedDocs.length > 0
+            ? await queryHeatmapBlocksByRootIds(changedDocs.map((doc) => doc.id))
+            : { blocksByRoot: new Map<string, any[]>(), truncated: false };
         for (const doc of changedDocs) {
-            applyHeatmapContribution(payload.totals, payload.docs?.[doc.id], -1);
-            const next = buildHeatmapContributionFromRows(doc, blocksByRoot.get(doc.id) || []);
+            const previous = payload.docs?.[doc.id];
+            applyHeatmapContribution(payload.totals, previous, -1);
+            const next = buildHeatmapContributionFromRows(doc, blocksByRoot.get(doc.id) || [], previous);
             payload.docs[doc.id] = next;
             applyHeatmapContribution(payload.totals, next, 1);
         }
-        payload.version = INDEX_VERSION;
+        payload.version = HEATMAP_INDEX_VERSION;
         payload.updatedAt = now;
         await writeJsonIndexPayload(HEATMAP_DAILY_INDEX_PATH, payload);
         await commit();
@@ -1679,7 +1823,9 @@ export async function refreshHeatmapIndexFromRecentDocuments(
         return {
             lastRunAt: now,
             lastStatus: "success",
-            lastMessage: truncated
+            lastMessage: needsDocumentCountUpgrade
+                ? `热力图索引已升级并完成增量刷新：更新 ${changedDocs.length} 个文档。`
+                : truncated
                 ? `热力图增量刷新完成：更新 ${changedDocs.length} 个文档（部分文档块数超过安全上限，已截断）。`
                 : `热力图增量刷新完成：更新 ${changedDocs.length} 个文档。`,
             migratedCount: changedDocs.length,
@@ -1717,6 +1863,12 @@ export async function rebuildHeatmapDailyIndexFromGlobalSql(
     }
 
     try {
+        const previousPayload = ensureHeatmapDailyIndexShape(
+            await readJsonIndexPayload<HeatmapDailyIndexPayload>(
+                HEATMAP_DAILY_INDEX_PATH,
+                emptyHeatmapDailyIndex(),
+            ),
+        );
         const payload = emptyHeatmapDailyIndex();
         let migratedCount = 0;
         let skippedCount = 0;
@@ -1747,27 +1899,46 @@ export async function rebuildHeatmapDailyIndexFromGlobalSql(
                     continue;
                 }
                 if (!payload.docs[rootId]) {
+                    const previous = previousPayload.docs[rootId];
+                    const documentCounts = mergeHeatmapDocumentCountDays(previous?.counts, "", "");
                     payload.docs[rootId] = {
                         id: rootId,
                         box: String(row?.box || ""),
                         path: String(row?.path || ""),
                         hpath: String(row?.hpath || ""),
+                        created: previous?.created,
                         updated: rowUpdated,
                         counts: {
                             block: {},
                             word: {},
+                            ...documentCounts,
                         },
                     };
                 }
-                addCount(payload.docs[rootId].counts.block, day, 1);
-                addCount(payload.docs[rootId].counts.word, day, String(row?.content || "").length);
+                const contribution = payload.docs[rootId];
+                addCount(contribution.counts.block, day, 1);
+                addCount(contribution.counts.word, day, String(row?.content || "").length);
+                contribution.counts.documentUpdated[day] = 1;
+                if (String(row?.id || "") === rootId || row?.type === "d") {
+                    contribution.created = getBlockCreatedTime(row) || contribution.created;
+                    contribution.updated = rowUpdated || contribution.updated;
+                    const createdDay = dayFromSiyuanTime(contribution.created);
+                    const documentCounts = mergeHeatmapDocumentCountDays(
+                        contribution.counts,
+                        createdDay >= startDate && createdDay <= endDate ? createdDay : "",
+                        day >= startDate && day <= endDate ? day : "",
+                    );
+                    contribution.counts.documentCreated = documentCounts.documentCreated;
+                    contribution.counts.documentUpdated = documentCounts.documentUpdated;
+                }
                 addCount(payload.totals.block, day, 1);
                 addCount(payload.totals.word, day, String(row?.content || "").length);
                 migratedCount += 1;
             }
             if (result.rows.length < HEATMAP_REBUILD_PAGE_SIZE) break;
         }
-        payload.version = INDEX_VERSION;
+        rebuildHeatmapDocumentTotals(payload);
+        payload.version = HEATMAP_INDEX_VERSION;
         payload.updatedAt = now;
         await writeJsonIndexPayload(HEATMAP_DAILY_INDEX_PATH, payload);
         return {
@@ -1807,13 +1978,15 @@ export async function ensureHeatmapIndexInitialized(
 export async function getRecentHeatmapCountsResult(
     startDate: string,
     endDate: string,
-    countType: "block" | "word",
+    countType: HeatmapCountType,
     plugin?: any,
 ): Promise<ComponentCountsResult> {
     void plugin;
-    const index = await readJsonIndexPayload<HeatmapDailyIndexPayload>(
-        HEATMAP_DAILY_INDEX_PATH,
-        emptyHeatmapDailyIndex(),
+    const index = ensureHeatmapDailyIndexShape(
+        await readJsonIndexPayload<HeatmapDailyIndexPayload>(
+            HEATMAP_DAILY_INDEX_PATH,
+            emptyHeatmapDailyIndex(),
+        ),
     );
     const counts = pickCountsByRange(index.totals?.[countType] || {}, startDate, endDate);
     const hasIndexData = Object.values(counts).some((value) => Number(value) > 0);

@@ -1630,7 +1630,12 @@
             key: "heatmapCountType",
             type: "select",
             label: "计数类型",
-            options: [option("block", "内容块"), option("words", "字数")],
+            options: [
+                option("block", "内容块"),
+                option("words", "字数👑"),
+                option("documentCreated", "创建文档数👑"),
+                option("documentUpdated", "更新文档数👑"),
+            ],
           },
         ];
       case "visualChart":
