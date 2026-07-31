@@ -11,7 +11,8 @@
             <div class="card-content">
                 <span class="label">插件主页</span>
                 <div class="link-list">
-                    <a href="https://github.com/Glaube-TY/siyuan-homepage" class="link">项目主页</a>
+                    <a href="https://glaube-ty.top/sites/siyuan-homepage/index.html" class="link">插件官网</a>
+                    <a href="https://github.com/Glaube-TY/siyuan-homepage" class="link">GitHub 项目</a>
                 </div>
             </div>
         </div>
@@ -22,7 +23,7 @@
             <div class="card-content">
                 <span class="label">插件教程</span>
                 <div class="link-list">
-                    <a href="https://blog.glaube-ty.top/zhu-ye-cha-jian" class="link">查看教程</a>
+                    <a href="https://glaube-ty.top/tutorials/siyuan-homepage/" class="link">查看教程</a>
                 </div>
             </div>
         </div>
@@ -57,7 +58,7 @@
             <div class="card-content">
                 <span class="label">您的支持是持续开发的动力！</span>
                 <div class="link-list">
-                    <a href="https://blog.glaube-ty.top/da-shang" class="link support-link">
+                    <a href="https://glaube-ty.top/da-shang/" class="link support-link">
                         <i class="fas fa-hand-holding-heart"></i>
                         立即赞助
                         <span class="sparkle">✨</span>

@@ -55,7 +55,7 @@
     </SettingSection>
 {:else}
     <SettingSection>
-        <SettingRow title="筛选语法" description="使用前请先了解<a href='https://blog.glaube-ty.top/archives/019d2a4b-733a-707a-b226-b305e4aafe35' target='_blank'>筛选语法</a>，并根据需求进行调整">
+        <SettingRow title="筛选语法" description="使用前请先了解<a href='https://glaube-ty.top/tutorials/siyuan-homepage/task-management-plus/' target='_blank'>筛选语法</a>，并根据需求进行调整">
             <textarea
                 placeholder="输入筛选语法"
                 bind:value={customFilter}

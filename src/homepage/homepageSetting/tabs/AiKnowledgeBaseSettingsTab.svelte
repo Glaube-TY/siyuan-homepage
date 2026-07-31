@@ -319,7 +319,7 @@
 
 <a
     class="tutorial-link-card"
-    href="https://blog.glaube-ty.top/archives/019ebc77-d03e-73df-b6ec-10b18545d4a7"
+    href="https://glaube-ty.top/tutorials/siyuan-homepage/ai-knowledge-base/"
     target="_blank"
     rel="noopener noreferrer"
 >

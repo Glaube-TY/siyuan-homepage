@@ -3409,7 +3409,7 @@
                         <div class="plugin-author">作者: Glaube-TY</div>
                         <div class="plugin-support">
                             <a
-                                href="https://blog.glaube-ty.top/da-shang"
+                                href="https://glaube-ty.top/da-shang/"
                                 class="support-link">赞助支持 💸</a
                             >
                         </div>
@@ -3426,7 +3426,7 @@
                 <div class="plugin-author">作者: Glaube-TY</div>
                 <div class="plugin-support">
                     <a
-                        href="https://blog.glaube-ty.top/da-shang"
+                        href="https://glaube-ty.top/da-shang/"
                         class="support-link">赞助支持 💸</a
                     >
                 </div>

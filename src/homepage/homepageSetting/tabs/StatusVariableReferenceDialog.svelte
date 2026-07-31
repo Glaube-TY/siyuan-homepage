@@ -152,7 +152,7 @@
         </div>
 
         <footer class="shp-status-vars-footer">
-            <a href="https://blog.glaube-ty.top/archives/019d2484-7d4f-7573-89dd-772a2c600e2b" target="_blank" rel="noreferrer">查看完整教程</a>
+            <a href="https://glaube-ty.top/tutorials/siyuan-homepage/title-area-settings/" target="_blank" rel="noreferrer">查看完整教程</a>
             <button type="button" onclick={onClose}>关闭</button>
         </footer>
     </div>

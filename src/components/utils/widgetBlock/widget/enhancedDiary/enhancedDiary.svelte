@@ -966,7 +966,7 @@
                 "快速记录和自定义分类"
             ]}
         highlights={["Dashboard", "复盘工作流", "计划承接"]}
-        tutorialUrl="https://blog.glaube-ty.top/archives/019e5f59-4a9c-727b-bd6a-a32c4d604a48"
+        tutorialUrl="https://glaube-ty.top/tutorials/siyuan-homepage/enhanced-diary-workbench/"
         compact
     />
 </div>

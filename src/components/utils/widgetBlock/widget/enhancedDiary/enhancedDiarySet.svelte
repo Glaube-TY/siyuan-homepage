@@ -82,7 +82,7 @@
                 "工作台设置集中管理"
             ]}
             highlights={["模板自定义", "复盘规则", "设置同步"]}
-            tutorialUrl="https://blog.glaube-ty.top/archives/019e5f59-4a9c-727b-bd6a-a32c4d604a48"
+            tutorialUrl="https://glaube-ty.top/tutorials/siyuan-homepage/enhanced-diary-workbench/"
             compact
         />
     </div>

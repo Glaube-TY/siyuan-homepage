@@ -8,6 +8,8 @@
 
 如果你只是想搭建一个漂亮的思源首页，它可以做到；如果你希望把思源变成一个更主动、更智能的个人知识工作台，它也正在朝这个方向发展。
 
+[🌐 插件官网](https://glaube-ty.top/sites/siyuan-homepage/index.html) · [📖 使用教程](https://glaube-ty.top/tutorials/siyuan-homepage/) · [💻 GitHub](https://github.com/Glaube-TY/siyuan-homepage)
+
 ***
 
 ## 效果预览
@@ -19,7 +21,7 @@ PC 端：
 </div>
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/0d031562-6a57-426e-a4e1-93e04acfc282.webp" alt="PC 端主页" style="max-width: 800px; width: 100%;" />
+<img src="https://glaube-ty.top/images/content/pasted-image-20260726-154556-665.webp" alt="PC 端主页" style="max-width: 800px; width: 100%;" />
 </div>
 
 主页支持拖拽布局、组件缩放、主题搭配和多种效率模块组合。你可以把常用文档、任务、日记、天气、热搜、图表、倒计时、WebView 等内容放在一个统一入口里，让每次打开思源都能快速进入自己的工作状态。
@@ -27,7 +29,7 @@ PC 端：
 移动端：
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/e7136c93-ce92-4b0f-8782-175369b3cac9.png" alt="移动端主页" style="max-width: 400px; width: 100%;" />
+<img src="https://glaube-ty.top/images/content/pasted-image-20260726-155511-010.png" alt="移动端主页" style="max-width: 400px; width: 100%;" />
 </div>
 
 <br />
@@ -148,7 +150,7 @@ AI 知识库问答示例：在思源中直接围绕本地文档、任务日记�
 - **模板与结构设置**：可以配置日记笔记本、日/周/月/年模板、快速记录分类、复盘字段、提醒窗口和标题别名。
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/d919fd56-c393-4b6d-966a-864f21197571.webp" alt="强化日记组件" style="max-width: 600px; width: 100%;" />
+<img src="https://glaube-ty.top/uploads/attachments/halo/5443ff04-871f-4dcd-ac40-69a53eeafeb9.webp" alt="强化日记组件" style="max-width: 600px; width: 100%;" />
 </div>
 
 ***
@@ -166,15 +168,15 @@ AI 知识库问答示例：在思源中直接围绕本地文档、任务日记�
 - **本地 JSON 存储**：记账数据保存在插件作用域下的 `accounting/` 目录，按年度分片保存流水，便于备份和迁移。
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/06ebd8e6-57c2-4059-a8d9-11f473255c1c.png" alt="记账组件首页卡片" style="max-width: 400px; width: 100%;" />
+<img src="https://glaube-ty.top/uploads/attachments/halo/60add4ba-45b7-42c6-b164-b3d5e276aa26.png" alt="记账组件首页卡片" style="max-width: 400px; width: 100%;" />
 </div>
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/e5376795-725f-4225-b1c6-d1941eba5af9.webp" alt="记一笔弹窗" style="max-width: 500px; width: 100%;" />
+<img src="https://glaube-ty.top/uploads/attachments/halo/04ccc0a4-9610-47e9-b96c-cca04a73de5e.webp" alt="记一笔弹窗" style="max-width: 500px; width: 100%;" />
 </div>
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/88e52980-e7e0-4721-b180-17ef40842863.webp" alt="记账分析页" style="max-width: 600px; width: 100%;" />
+<img src="https://glaube-ty.top/uploads/attachments/halo/b20b5afd-cdc8-4707-83e5-0fc1856bdf18.webp" alt="记账分析页" style="max-width: 600px; width: 100%;" />
 </div>
 
 ***
@@ -186,7 +188,7 @@ AI 知识库问答示例：在思源中直接围绕本地文档、任务日记�
 支持通用 Webhook 和飞书机器人。
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/fc895119-cefe-4170-a1e1-3d6cd18157da.webp" alt="Webhook 外联通知桥" style="max-width: 600px; width: 100%;" />
+<img src="https://glaube-ty.top/uploads/attachments/halo/7ca161a2-bd62-4bb9-9859-4416e167876f.webp" alt="Webhook 外联通知桥" style="max-width: 600px; width: 100%;" />
 </div>
 
 ***
@@ -194,7 +196,7 @@ AI 知识库问答示例：在思源中直接围绕本地文档、任务日记�
 ## 机器人助手：与飞书机器人对话实现远程操控思源笔记
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/8b3dbadf-8288-4f5e-bd2c-9cd1c6ac678d.webp" alt="机器人助手" style="max-width: 600px; width: 100%;" />
+<img src="https://glaube-ty.top/uploads/attachments/halo/60b853d2-612b-4ed1-b6f3-ab57cedf3fb7.webp" alt="机器人助手" style="max-width: 600px; width: 100%;" />
 </div>
 
 ***
@@ -202,7 +204,7 @@ AI 知识库问答示例：在思源中直接围绕本地文档、任务日记�
 ## 音乐播放器：在主页中播放音乐
 
 <div align="center">
-<img src="https://blog.glaube-ty.top/upload/6f658b71-c3a9-4666-a899-b81bc80f33ea.webp" alt="音乐播放器组件" style="max-width: 600px; width: 100%;" />
+<img src="https://glaube-ty.top/uploads/attachments/halo/114b8e8a-0eb9-4972-b470-9d29eaa1adeb.webp" alt="音乐播放器组件" style="max-width: 600px; width: 100%;" />
 </div>
 
 ***
@@ -347,24 +349,24 @@ MCP 现在通过 `mcp_manage` 聚合工具管理：可以列出 Server、保存/
 
 ## 使用教程与更新日志
 
-主页插件功能比较多，如果你是第一次使用，建议先查看详细教程：[📖 详细使用教程](https://blog.glaube-ty.top/zhu-ye-cha-jian)
+主页插件功能比较多，如果你是第一次使用，建议先查看详细教程：[📖 详细使用教程](https://glaube-ty.top/tutorials/siyuan-homepage/)
 
-如果你想了解每个版本具体更新了什么，可以查看完整更新日志：[📄 完整更新日志](https://blog.glaube-ty.top/archives/019d23a8-9381-70b7-8561-68c22fb1aedf)
+如果你想了解每个版本具体更新了什么，可以查看完整更新日志：[📄 完整更新日志](https://glaube-ty.top/tutorials/siyuan-homepage/changelog/)
 
 ***
 
 ## 相关文章
 
-- [思源主页插件：记账组件](https://blog.glaube-ty.top/archives/019f4131-8e53-7108-bdea-f7e2fbfd6269)
+- [思源主页插件：记账组件](https://glaube-ty.top/tutorials/siyuan-homepage/bookkeeping/)
 
-* [思源主页插件：音乐播放器](https://blog.glaube-ty.top/archives/019f0e6c-3524-7035-9fe9-bb6798c067ae)
-* [思源主页插件：机器人助手](https://blog.glaube-ty.top/archives/019f0458-4361-7054-ad8c-d80b229b46d9)
-* [思源主页插件：Webhook 外联通知](https://blog.glaube-ty.top/archives/019f0434-0699-7345-b007-d5718f574299)
+- [思源主页插件：音乐播放器](https://glaube-ty.top/tutorials/siyuan-homepage/music-player/)
+- [思源主页插件：机器人助手](https://glaube-ty.top/tutorials/siyuan-homepage/robot-assistant/)
+- [思源主页插件：Webhook 外联通知](https://glaube-ty.top/tutorials/siyuan-homepage/webhook-notifications/)
 
-- [思源主页插件：复习文档组件](https://blog.glaube-ty.top/archives/019eefa2-66fe-74bc-8184-9045dd405d82)
-- [思源主页插件：Ai 知识库](https://blog.glaube-ty.top/archives/019ebc77-d03e-73df-b6ec-10b18545d4a7)
-- [思源主页插件：强化日记工作台](https://blog.glaube-ty.top/archives/019e5f59-4a9c-727b-bd6a-a32c4d604a48)
-- [主页插件任务管理Plus组件设置教程](https://blog.glaube-ty.top/archives/019d2a4b-733a-707a-b226-b305e4aafe35)
+- [思源主页插件：复习文档组件](https://glaube-ty.top/tutorials/siyuan-homepage/review-documents/)
+- [思源主页插件：AI 知识库](https://glaube-ty.top/tutorials/siyuan-homepage/ai-knowledge-base/)
+- [思源主页插件：强化日记工作台](https://glaube-ty.top/tutorials/siyuan-homepage/enhanced-diary-workbench/)
+- [主页插件任务管理 Plus 组件设置教程](https://glaube-ty.top/tutorials/siyuan-homepage/task-management-plus/)
 - [主页插件 —— 任务管理 Plus](https://ld246.com/article/1751797033411)
 - [主页插件 —— 实用又美观的信息汇总页面](https://ld246.com/article/1751795938779)
 
@@ -378,7 +380,7 @@ MCP 现在通过 `mcp_manage` 聚合工具管理：可以列出 Server、保存/
 <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/ReQR.png" alt="赞赏二维码" style="max-width: 600px; width: 100%;" />
 </div>
 
-[💖 特别鸣谢](https://blog.glaube-ty.top/da-shang)
+[💖 特别鸣谢](https://glaube-ty.top/da-shang/)
 
 ***
 
@@ -398,7 +400,7 @@ MCP 现在通过 `mcp_manage` 聚合工具管理：可以列出 Server、保存/
 
 ## VIP 权益
 
-[👑 VIP 权益](https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab)
+[👑 VIP 权益](https://glaube-ty.top/tutorials/siyuan-homepage/vip-benefits/)
 
 ***
 

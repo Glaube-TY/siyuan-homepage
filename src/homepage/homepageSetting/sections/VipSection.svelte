@@ -45,13 +45,13 @@
         onMembershipRevoked,
     }: Props = $props();
 
-    const TUTORIAL_URL = "https://blog.glaube-ty.top/zhu-ye-cha-jian";
+    const TUTORIAL_URL = "https://glaube-ty.top/tutorials/siyuan-homepage/";
     const MEMBER_GROUP_URL = "https://qm.qq.com/q/4ebO3QB6R2";
     const MEMBER_GROUP_NUMBER = "391403097";
     const AFDIAN_PRODUCT_URL =
         "https://www.ifdian.net/a/glaube-ty?utm_source=copylink&utm_medium=link";
     const AFDIAN_STORE_QR_URL =
-        "https://blog.glaube-ty.top/upload/b407e281-c44c-4086-aabc-2d0209ab1909.webp";
+        "https://glaube-ty.top/uploads/attachments/halo/7f2f48dd-2525-4ec9-b070-8b5fed2494e6.webp";
     const membershipBenefits = [
         { name: "基础功能", free: true, vip: true },
         { name: "移动端主页", free: false, vip: true },
@@ -1135,7 +1135,7 @@
                 : "在爱发电购买会员商品，系统会自动发送兑换码。复制兑换码并返回此页面，即可完成会员激活。"}
         </p>
         <a
-            href="https://blog.glaube-ty.top/archives/019d3f20-03d4-70fd-8afe-dff8bb2107ab"
+            href="https://glaube-ty.top/tutorials/siyuan-homepage/vip-benefits/"
             target="_blank"
             rel="noopener noreferrer"
             class="vip-benefits-link"
