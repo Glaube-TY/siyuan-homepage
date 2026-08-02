@@ -234,6 +234,7 @@ export async function executeMoveBlock(
       confirmationId,
       action: "move_block",
       abortSignal: deps.abortSignal,
+      route: deps.confirmationRoute,
     });
 
     // 4. 用户拒绝

@@ -15,6 +15,8 @@ import { OLD_TOOL_TO_AGGREGATE_ACTION } from "./aggregate-tool-migration";
 export interface AggregateActionBinding {
   action: string;
   tool: ToolContract;
+  /** action 内部已经执行独立、严格确认，外层不得重复弹窗。 */
+  internallyConfirmed?: boolean;
 }
 
 export interface AggregateToolFactoryOptions {
@@ -172,6 +174,26 @@ export function createAggregateTool(options: AggregateToolFactoryOptions): ToolC
     providerVisible: true,
     inputJsonSchemaOverride: createInputJsonSchema(actionNames, options.name),
     aggregateActionHelp: buildAggregateActionHelp(options.actions),
+
+    resolveCallSafety(rawArgs: Record<string, unknown>): ToolSafetyInfo {
+      const action = typeof rawArgs.action === "string" ? rawArgs.action : "";
+      const binding = actionMap.get(action);
+      if (!binding) {
+        return { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel: "high" };
+      }
+      const actionArgs = rawArgs.args && typeof rawArgs.args === "object" && !Array.isArray(rawArgs.args)
+        ? rawArgs.args as Record<string, unknown>
+        : {};
+      const resolved = binding.tool.resolveCallSafety?.(actionArgs) ?? binding.tool.safety;
+      return {
+        ...resolved,
+        internallyConfirmed: binding.internallyConfirmed === true || resolved.internallyConfirmed === true,
+        requiresConfirmation: binding.internallyConfirmed === true
+          ? false
+          : (resolved.requiresConfirmation ?? !resolved.readOnly),
+        riskLevel: resolved.riskLevel ?? (resolved.readOnly ? "low" : "medium"),
+      };
+    },
 
     validateInputForPreview(rawArgs: unknown) {
       const parsed = createInputSchema(actionNames).safeParse(rawArgs);

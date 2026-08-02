@@ -28,7 +28,7 @@ import {
   type AgentTurnDisplayError,
 } from "./user-facing-agent-error";
 import { hydrateAttachedDocsForTurn } from "../adapters/siyuan/attached-doc-hydration";
-import { readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
+import { digestGlobalMemoryText, readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
 import { setMcpRuntimeSettings } from "../mcp/mcp-client-manager";
 import { buildAgentSystemPrompt } from "../../agent-core/prompts/system-prefix";
 import { createProviderAdapterForKbModel } from "../../agent-core/providers/agent-provider-factory";
@@ -59,7 +59,10 @@ export interface RunAgentTurnParams {
   onAnswerFinish?: (fullContent: string) => void;
   onReasoningDelta?: (event: { type: "reasoning-start" | "reasoning-delta" | "reasoning-end" | "reasoning-reset"; delta?: string }) => void;
   globalMemory?: string;
+  globalMemoryBaseDigest?: string;
   conversationId?: string;
+  panelInstanceId?: string;
+  turnId?: string;
   agentSessionMessages?: readonly AgentMessage[];
   kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
 }
@@ -198,6 +201,7 @@ export async function runAgentTurn(
     }
 
     let globalMemoryText: string | undefined = params.globalMemory;
+    let globalMemoryBaseDigest = params.globalMemoryBaseDigest;
     if (globalMemoryText === undefined && settings.globalMemory?.enabled && memoryDocIdValid) {
       const mem = await readGlobalMemory(memoryDocId, settings.globalMemory.maxChars);
       if (!mem.readOk) {
@@ -206,12 +210,20 @@ export async function runAgentTurn(
         globalMemoryText = `${mem.content}\n（记忆内容已截断）`;
       } else {
         globalMemoryText = mem.content;
+        globalMemoryBaseDigest = digestGlobalMemoryText(mem.content);
       }
     }
 
     const globalMemoryToolDeps: AgentWorkbenchRuntimeOptions["globalMemoryToolDeps"] | undefined =
-      settings.globalMemory?.enabled === true && memoryDocIdValid && globalToolAccess.editGlobalMemory
-        ? { docId: memoryDocId, maxMemoryChars: settings.globalMemory?.maxChars ?? 8000 }
+      settings.globalMemory?.enabled === true
+        && memoryDocIdValid
+        && globalToolAccess.editGlobalMemory
+        && !!globalMemoryBaseDigest
+        ? {
+            docId: memoryDocId,
+            maxMemoryChars: settings.globalMemory?.maxChars ?? 8000,
+            baseDigest: globalMemoryBaseDigest,
+          }
         : undefined;
 
     const builtinCapabilityAccess = {
@@ -232,6 +244,9 @@ export async function runAgentTurn(
       globalToolAccess,
       globalMemoryToolDeps,
       conversationId,
+      confirmationRoute: params.panelInstanceId && params.turnId
+        ? { panelInstanceId: params.panelInstanceId, conversationId, turnId: params.turnId }
+        : undefined,
       externalSkillSettings: settings.externalSkills,
       mcpSettings: settings.mcp,
       notebrainWorkspaceSettings: settings.notebrainWorkspace,
@@ -456,6 +471,9 @@ export async function runAgentTurn(
       systemPrompt: buildAgentSystemPrompt(),
       contextInstructions: context.contextInstructions,
       conversationId,
+      confirmationRoute: params.panelInstanceId && params.turnId
+        ? { panelInstanceId: params.panelInstanceId, conversationId, turnId: params.turnId }
+        : undefined,
       autoAllowedToolNames,
       abortSignal: params.abortSignal,
       question: params.question,

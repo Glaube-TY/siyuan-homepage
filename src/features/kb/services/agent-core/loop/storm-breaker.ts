@@ -8,13 +8,30 @@ function stableStringify(value: unknown): string {
   return `{${Object.keys(obj).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(",")}}`;
 }
 
-/** Strip runtime-injected temporary fields (keys starting with _) before generating the guard key. */
-function stripRuntimeFields(args: Record<string, unknown>): Record<string, unknown> {
+const SENSITIVE_ARG_KEY = /(?:api[_-]?key|authorization|cookie|token|secret|password|private[_-]?key)/i;
+const STABLE_ID_ARRAY_KEY = /(?:ids|blockids|docids|rowids|keyids)$/i;
+
+/** 递归清理运行时字段、敏感值，并对无序 ID 数组进行确定性规范化。 */
+function normalizeBusinessArgs(value: unknown, parentKey = ""): unknown {
+  if (Array.isArray(value)) {
+    const normalized = value.map((item) => normalizeBusinessArgs(item, parentKey));
+    if (STABLE_ID_ARRAY_KEY.test(parentKey) && normalized.every((item) => typeof item === "string")) {
+      return [...new Set(normalized as string[])].sort();
+    }
+    return normalized;
+  }
+  if (!value || typeof value !== "object") return value;
   const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(args)) {
-    if (!key.startsWith("_")) out[key] = value;
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    if (key.startsWith("_")) continue;
+    const child = (value as Record<string, unknown>)[key];
+    out[key] = SENSITIVE_ARG_KEY.test(key) ? "[redacted]" : normalizeBusinessArgs(child, key);
   }
   return out;
+}
+
+function stripRuntimeFields(args: Record<string, unknown>): Record<string, unknown> {
+  return normalizeBusinessArgs(args) as Record<string, unknown>;
 }
 
 export function buildGuardKey(toolName: string, args: Record<string, unknown>): string {
@@ -42,19 +59,6 @@ export interface FailedCallInfo {
   count: number;
 }
 
-const TARGET_KEYS = [
-  "docId",
-  "docIds",
-  "blockId",
-  "blockIds",
-  "targetId",
-  "databaseId",
-  "keyId",
-  "path",
-  "url",
-  "serverId",
-];
-
 const EXPLORATION_READ_TOOL_NAMES = new Set([
   "search_scope",
   "read_docs",
@@ -77,13 +81,12 @@ const BUSINESS_READ_TOOL_NAMES = new Set([
 
 function buildActionFingerprint(toolName: string, args: Record<string, unknown>): string {
   const cleanArgs = stripRuntimeFields(args);
+  const nested = cleanArgs.args && typeof cleanArgs.args === "object" && !Array.isArray(cleanArgs.args)
+    ? cleanArgs.args as Record<string, unknown>
+    : {};
   const action = cleanArgs.action ?? cleanArgs.operation ?? "";
-  const keySet = Object.keys(cleanArgs).sort().join(",");
-  const targets: Record<string, unknown> = {};
-  for (const key of TARGET_KEYS) {
-    if (cleanArgs[key] !== undefined) targets[key] = cleanArgs[key];
-  }
-  return `${toolName}:action=${stableStringify(action)}:keys=${keySet}:targets=${stableStringify(targets)}`;
+  const innerAction = nested.action ?? "";
+  return `${toolName}:action=${stableStringify(action)}:innerAction=${stableStringify(innerAction)}:business=${stableStringify(cleanArgs)}`;
 }
 
 function buildActionKey(toolName: string, args: Record<string, unknown>): string {
@@ -97,7 +100,7 @@ function buildActionKey(toolName: string, args: Record<string, unknown>): string
 }
 
 function buildRawGuardKey(toolName: string, rawArguments: string): string {
-  return `${toolName}:${stableStringify({ rawArguments })}`;
+  return `${toolName}:rawDigest=${digestText(rawArguments)}`;
 }
 
 function buildReadGuardKey(toolName: string, args: Record<string, unknown>, readStateEpoch: number): string {
@@ -108,6 +111,8 @@ function shouldTrackSimilarReadOnlyTool(tool: NativeTool, effectiveReadOnly: boo
   if (effectiveReadOnly !== true) return false;
   if (BUSINESS_READ_TOOL_NAMES.has(tool.name)) return false;
   if (EXPLORATION_READ_TOOL_NAMES.has(tool.name)) return true;
+  if (tool.name === "siyuan_kb") return true;
+  if (["diary_task", "siyuan_database"].includes(tool.name)) return false;
   return tool.source === "mcp";
 }
 

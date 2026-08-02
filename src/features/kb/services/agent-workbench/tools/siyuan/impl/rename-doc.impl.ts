@@ -156,6 +156,7 @@ export async function executeRenameDoc(
       confirmationId,
       action: "rename_doc",
       abortSignal: deps.abortSignal,
+      route: deps.confirmationRoute,
     });
 
     // 4. 用户拒绝

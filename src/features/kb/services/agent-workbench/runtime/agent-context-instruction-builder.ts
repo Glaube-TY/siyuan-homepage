@@ -111,6 +111,11 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
   setLastToolManifestCount(skillToolManifest.length);
 
   const contextInstructions = [
+    [
+      "知识库证据规则：搜索结果只是候选，不能直接作为事实或引用。",
+      "候选带有 blockId 时优先调用 siyuan_kb.read_evidence；只有全文总结、跨章节比较或证据不足时才调用 siyuan_kb.read_docs。",
+      "只有成功读取正文的结果才可作为 grounded 引用，未读取的候选不得引用。",
+    ].join("\n"),
     renderContextInstructions({
       conversationContext: params.conversationContext,
       globalMemory: params.globalMemory,

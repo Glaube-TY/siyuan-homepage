@@ -25,6 +25,201 @@ const READ_DOCS = "read_docs";
 const READ_DOC_BLOCKS = "read_doc_blocks";
 const SEARCH_SCOPE = "search_scope";
 
+interface ResolvedToolOperation {
+  action: string;
+  innerAction?: string;
+  args: Record<string, unknown>;
+}
+
+const LEGACY_ACTION_BY_TOOL: Record<string, string> = {
+  search_scope: "search",
+  read_docs: "read_docs",
+  read_doc_blocks: "read_blocks",
+  update_block: "update_block",
+  replace_doc_content: "replace_doc_content",
+  insert_block: "insert_block",
+  delete_blocks: "delete_blocks",
+  move_block: "move_block",
+  create_doc: "create_doc",
+  rename_doc: "rename_doc",
+  delete_doc: "delete_doc",
+};
+
+function collectToolCallArgs(messages: readonly AgentMessage[]): Map<string, Record<string, unknown>> {
+  const result = new Map<string, Record<string, unknown>>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const call of message.toolCalls ?? []) {
+      try {
+        const parsed = JSON.parse(call.arguments);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          result.set(call.id, parsed as Record<string, unknown>);
+        }
+      } catch { /* 参数损坏时按未知、高敏结果压缩。 */ }
+    }
+  }
+  return result;
+}
+
+function resolveToolOperation(message: AgentToolMessage, rawArgs?: Record<string, unknown>): ResolvedToolOperation {
+  const outer = rawArgs ?? {};
+  const nested = outer.args && typeof outer.args === "object" && !Array.isArray(outer.args)
+    ? outer.args as Record<string, unknown>
+    : outer;
+  const action = typeof outer.action === "string" ? outer.action : (LEGACY_ACTION_BY_TOOL[message.name] ?? "unknown");
+  const innerAction = nested !== outer && typeof nested.action === "string" ? nested.action : undefined;
+  return { action, innerAction, args: nested };
+}
+
+function digestSafeText(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  let hash = 0x811c9dc5;
+  for (const char of value.trim()) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+function asRecord(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, any>
+    : {};
+}
+
+function unwrapToolPayload(parsed: Record<string, any>): Record<string, any> {
+  const data = asRecord(parsed.data);
+  return asRecord(data.result ?? data.content ?? parsed.result ?? data ?? parsed);
+}
+
+function safeStrings(value: unknown, max = 5): string[] {
+  const items = Array.isArray(value) ? value : (typeof value === "string" ? [value] : []);
+  return [...new Set(items.filter((item): item is string => typeof item === "string" && item.trim().length > 0))]
+    .slice(0, max)
+    .map((item) => sanitizeToolResultString(item, 120));
+}
+
+function actionAwareStorageContent(
+  message: AgentToolMessage,
+  rawArgs?: Record<string, unknown>,
+): string {
+  const operation = resolveToolOperation(message, rawArgs);
+  let parsed: Record<string, any> = {};
+  try { parsed = asRecord(JSON.parse(message.content)); } catch { /* safe fallback below */ }
+  const payload = unwrapToolPayload(parsed);
+  const ok = parsed.ok === true || payload.ok === true || payload.status === "success";
+  const base = {
+    ok,
+    action: operation.action,
+    ...(operation.innerAction ? { innerAction: operation.innerAction } : {}),
+  };
+
+  if ((message.name === "siyuan_kb" && operation.action === "search") || message.name === SEARCH_SCOPE) {
+    const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+    return JSON.stringify({
+      ...base,
+      queryDigest: digestSafeText(operation.args.query),
+      candidateCount: payload.returnedCandidateCount ?? payload.totalCount ?? candidates.length,
+      docIds: safeStrings(candidates.map((item: any) => item?.docId)),
+      blockIds: safeStrings(candidates.map((item: any) => item?.blockId)),
+      titles: safeStrings(candidates.map((item: any) => item?.title)),
+      needsContentRead: true,
+      note: "Search candidates compacted; candidates are not grounded content.",
+    });
+  }
+
+  if ((message.name === "siyuan_kb" && operation.action === "read_docs") || message.name === READ_DOCS) {
+    const items = Array.isArray(payload.items) ? payload.items : [payload];
+    return JSON.stringify({
+      ...base,
+      items: items.slice(0, 5).map((item: any) => ({
+        docId: item?.docId,
+        blockId: item?.blockId,
+        title: sanitizeToolResultString(String(item?.title ?? ""), 120) || undefined,
+        chunkIndex: item?.chunkIndex ?? operation.args.chunkIndex,
+        chunkCount: item?.chunkCount,
+        contentChars: item?.contentChars,
+        hasNextChunk: item?.hasNextChunk ?? Boolean(item?.nextCursor),
+        truncated: item?.truncated === true,
+      })),
+      note: "Document content removed from persisted session.",
+    });
+  }
+
+  if (message.name === "siyuan_kb" && operation.action === "read_evidence") {
+    const items = Array.isArray(payload.items) ? payload.items : (Array.isArray(payload.evidence) ? payload.evidence : []);
+    return JSON.stringify({
+      ...base,
+      items: items.slice(0, 5).map((item: any) => ({
+        blockId: item?.blockId,
+        docId: item?.docId,
+        title: sanitizeToolResultString(String(item?.docTitle ?? item?.title ?? ""), 120) || undefined,
+        evidenceChars: item?.evidenceChars ?? item?.contentChars,
+        truncated: item?.truncated === true,
+        headingPathSummary: sanitizeToolResultString(
+          Array.isArray(item?.headingPath) ? item.headingPath.join(" > ") : String(item?.headingPath ?? ""),
+          160,
+        ) || undefined,
+      })),
+      note: "Evidence text removed from persisted session.",
+    });
+  }
+
+  if (message.name === READ_DOC_BLOCKS
+    || (message.name === "siyuan_doc_edit" && ["read_blocks", "block_read"].includes(operation.action))) {
+    const blocks = Array.isArray(payload.blocks) ? payload.blocks : (Array.isArray(payload.items) ? payload.items : []);
+    return JSON.stringify({
+      ...base,
+      blockCount: blocks.length,
+      blocks: blocks.slice(0, 20).map((item: any) => ({ id: item?.id ?? item?.blockId, type: item?.type, docId: item?.docId })),
+      note: "Block content removed from persisted session.",
+    });
+  }
+
+  const readOnlyAggregateActions = new Set([
+    "overview", "query_tasks", "query_records", "find_docs", "list", "read", "find_rows",
+    "extra_read", "read_blocks", "block_read", "doc_path", "read_page", "http_get",
+  ]);
+  const isWrite = WRITE_TOOL_NAMES.has(message.name)
+    || (["siyuan_doc_edit", "diary_task", "siyuan_database", "siyuan_tree", "siyuan_meta", "siyuan_asset", "siyuan_riff"].includes(message.name)
+      && !readOnlyAggregateActions.has(operation.action));
+  if (isWrite) {
+    const target = asRecord(payload.target);
+    return JSON.stringify({
+      ...base,
+      status: payload.status ?? (ok ? "success" : "failed"),
+      requestedCount: payload.requestedCount,
+      affectedCount: payload.affectedCount ?? payload.deletedCount,
+      targetDocIds: safeStrings(payload.targetDocIds ?? target.docId ?? operation.args.docIds ?? operation.args.docId),
+      targetBlockIds: safeStrings(payload.targetBlockIds ?? target.blockId ?? operation.args.blockIds ?? operation.args.blockId),
+      targetTitles: safeStrings(payload.targetTitles ?? target.title ?? operation.args.title),
+      reasonCode: sanitizeToolResultString(String(payload.reasonCode ?? parsed.errorCode ?? parsed.code ?? ""), 80) || undefined,
+      verificationStatus: payload.verificationStatus ?? asRecord(payload.verification).status,
+      note: "Write result compacted for storage.",
+    });
+  }
+
+  if (readOnlyAggregateActions.has(operation.action)) {
+    const items = Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(payload.tasks)
+        ? payload.tasks
+        : Array.isArray(payload.records)
+          ? payload.records
+          : [];
+    return JSON.stringify({
+      ...base,
+      itemCount: items.length,
+      docIds: safeStrings(items.map((item: any) => item?.docId ?? item?.sourceDocId ?? item?.rootId)),
+      blockIds: safeStrings(items.map((item: any) => item?.blockId ?? item?.headingBlockId)),
+      titles: safeStrings(items.map((item: any) => item?.title ?? item?.taskname ?? item?.docTitle)),
+      note: "Read result compacted for storage.",
+    });
+  }
+
+  return storageCompactUnknownToolContent(message.content);
+}
+
 function truncateText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   const head = Math.floor(maxChars * 0.65);
@@ -131,105 +326,6 @@ function compactWriteToolContent(content: string): string {
 
 const STORAGE_COMPACT_SUMMARY_MARKER = "Agent session storage compacted by runtime.";
 
-/**
- * Storage-safe compact a read_docs result.
- * Keeps only lightweight metadata; never keeps content, markdown, kramdown, blocks, or path.
- */
-function storageCompactReadDocsContent(content: string): string {
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed === "object" && parsed !== null) {
-      const compacted: Record<string, unknown> = { ok: parsed.ok };
-      if (parsed.data) {
-        const items = Array.isArray(parsed.data.items) ? parsed.data.items : [parsed.data];
-        compacted.data = {
-          items: items.map((item: any) => ({
-            docId: item.docId,
-            title: item.title,
-            contentChars: item.contentChars,
-            truncated: item.truncated,
-            ...(item.nextCursor ? { hasMore: true } : {}),
-          })),
-          note: "Content compacted for storage. Call read_docs again for full content.",
-        };
-      }
-      return JSON.stringify(compacted);
-    }
-  } catch { /* fall through */ }
-  return JSON.stringify({ ok: false, note: "Tool result compacted for storage." });
-}
-
-/**
- * Storage-safe compact a read_doc_blocks result.
- * Keeps only block id/type/count; never keeps block content, markdown, or kramdown.
- */
-function storageCompactReadDocBlocksContent(content: string): string {
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed === "object" && parsed !== null) {
-      const compacted: Record<string, unknown> = { ok: parsed.ok };
-      if (parsed.data) {
-        const blocks = Array.isArray(parsed.data.blocks) ? parsed.data.blocks : [];
-        compacted.data = {
-          blockCount: blocks.length,
-          blockRefs: blocks.slice(0, 20).map((b: any) => ({ id: b.id, type: b.type })),
-          note: "Content compacted for storage. Call read_doc_blocks again for full structure.",
-        };
-      }
-      return JSON.stringify(compacted);
-    }
-  } catch { /* fall through */ }
-  return JSON.stringify({ ok: false, note: "Tool result compacted for storage." });
-}
-
-/**
- * Storage-safe compact a search_scope result.
- * Keeps only candidate docId/title/score and totalCount; never keeps path, snippet, or content.
- */
-function storageCompactSearchScopeContent(content: string): string {
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed === "object" && parsed !== null) {
-      const compacted: Record<string, unknown> = { ok: parsed.ok };
-      if (parsed.data) {
-        const candidates = Array.isArray(parsed.data.candidates) ? parsed.data.candidates : [];
-        compacted.data = {
-          candidates: candidates.map((c: any) => ({ docId: c.docId, title: c.title, score: c.score })),
-          totalCount: candidates.length,
-          note: "Content compacted for storage. Call search_scope again for full results.",
-        };
-      }
-      return JSON.stringify(compacted);
-    }
-  } catch { /* fall through */ }
-  return JSON.stringify({ ok: false, note: "Tool result compacted for storage." });
-}
-
-/**
- * Storage-safe compact a write tool result.
- * Keeps only status, counts, and reason; never keeps confirmationId, snapshots, toolInput, or markdown.
- */
-function storageCompactWriteToolContent(content: string): string {
-  try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed === "object" && parsed !== null) {
-      return JSON.stringify({
-        ok: parsed.ok,
-        code: parsed.code,
-        errorCode: parsed.errorCode,
-        message: parsed.message,
-        status: parsed.status,
-        requestedCount: parsed.requestedCount,
-        affectedCount: parsed.affectedCount,
-        deletedCount: parsed.deletedCount,
-        reasonCode: parsed.reasonCode,
-        note: "Write result compacted for storage.",
-      });
-    }
-  } catch { /* fall through */ }
-  return JSON.stringify({ ok: false, note: "Write result compacted for storage." });
-}
-
 const SENSITIVE_STRING_KEYS = ["api_key", "apikey", "secret", "token", "password", "authorization"];
 
 function sanitizeToolResultString(value: string, maxChars: number): string {
@@ -278,24 +374,27 @@ function storageCompactUnknownToolContent(content: string): string {
  * Storage-safe compaction applied to every tool message before persistence.
  * Always runs regardless of content length.
  */
-function storageCompactToolMessage(message: AgentToolMessage): AgentToolMessage {
-  if (message.name === READ_DOCS) {
-    return { ...message, content: storageCompactReadDocsContent(message.content) };
-  }
-  if (message.name === READ_DOC_BLOCKS) {
-    return { ...message, content: storageCompactReadDocBlocksContent(message.content) };
-  }
-  if (message.name === SEARCH_SCOPE) {
-    return { ...message, content: storageCompactSearchScopeContent(message.content) };
-  }
-  if (WRITE_TOOL_NAMES.has(message.name)) {
-    return { ...message, content: storageCompactWriteToolContent(message.content) };
-  }
-  return { ...message, content: storageCompactUnknownToolContent(message.content) };
+function storageCompactToolMessage(
+  message: AgentToolMessage,
+  rawArgs?: Record<string, unknown>,
+): AgentToolMessage {
+  return { ...message, content: actionAwareStorageContent(message, rawArgs) };
 }
 
-function compactToolMessage(message: AgentToolMessage, maxChars: number): AgentToolMessage {
+function compactToolMessage(
+  message: AgentToolMessage,
+  maxChars: number,
+  rawArgs?: Record<string, unknown>,
+): AgentToolMessage {
   if (message.content.length <= maxChars) return message;
+
+  const operation = resolveToolOperation(message, rawArgs);
+  if (message.name === "siyuan_kb") {
+    if (operation.action === "search") return { ...message, content: compactSearchScopeContent(message.content) };
+    if (operation.action === "read_docs" || operation.action === "read_evidence") {
+      return { ...message, content: actionAwareStorageContent(message, rawArgs) };
+    }
+  }
 
   // Per-tool-type compaction
   if (message.name === READ_DOCS) {
@@ -390,8 +489,11 @@ export function compactAgentMessages(
   const maxToolContentChars = options.maxToolContentChars ?? DEFAULT_MAX_TOOL_CONTENT_CHARS;
   const summaryChars = options.summaryChars ?? DEFAULT_SUMMARY_CHARS;
 
+  const argsByToolCallId = collectToolCallArgs(messages);
   const withCompactTools = messages.map((message) =>
-    message.role === "tool" ? compactToolMessage(message, maxToolContentChars) : message,
+    message.role === "tool"
+      ? compactToolMessage(message, maxToolContentChars, argsByToolCallId.get(message.toolCallId))
+      : message,
   );
 
   if (withCompactTools.length <= maxMessages) {
@@ -428,8 +530,11 @@ export function compactAgentSessionMessagesForStorage(
   const maxMessages = 48;
   const summaryChars = 3000;
 
+  const argsByToolCallId = collectToolCallArgs(messages);
   const withStorageSafeTools = messages.map((message) =>
-    message.role === "tool" ? storageCompactToolMessage(message) : message,
+    message.role === "tool"
+      ? storageCompactToolMessage(message, argsByToolCallId.get(message.toolCallId))
+      : message,
   );
 
   if (withStorageSafeTools.length <= maxMessages) {

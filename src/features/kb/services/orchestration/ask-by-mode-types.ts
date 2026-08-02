@@ -20,6 +20,8 @@ export interface AskByModeParams {
   mode: ChatMode;
   question: string;
   conversationId?: string;
+  panelInstanceId?: string;
+  turnId?: string;
   getState: () => KbSessionState;
   updateState: (updater: (state: KbSessionState) => Partial<KbSessionState>) => void;
   addMessage: (message: ChatMessage) => void;

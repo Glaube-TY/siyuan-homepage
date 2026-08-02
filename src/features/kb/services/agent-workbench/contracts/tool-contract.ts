@@ -13,6 +13,8 @@ export interface ToolSafetyInfo {
   canWrite?: boolean;
   requiresConfirmation?: boolean;
   permissionScope?: string;
+  internallyConfirmed?: boolean;
+  riskLevel?: "low" | "medium" | "high";
 }
 
 export type ToolSource = "builtin" | "system" | "mcp" | "api" | "local";
@@ -91,6 +93,8 @@ export interface ToolContract<TArgs = unknown, TResult = unknown> {
   outputSchema?: ZodSchema<TResult>;
   readOnly: boolean;
   safety: ToolSafetyInfo;
+  /** 根据本次真实参数解析 action / innerAction 的最终安全属性。解析失败必须返回严格写入策略。 */
+  resolveCallSafety?(args: Record<string, unknown>): ToolSafetyInfo;
   source: ToolSource;
   inputHint?: string;
   boundary?: string;

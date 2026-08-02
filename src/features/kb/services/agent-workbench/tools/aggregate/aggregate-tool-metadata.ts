@@ -105,6 +105,26 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
         notes: ["docIds 和 blockIds 至少提供一个；ID 必须来自 search/get_doc_info/list_map 等结果，不能编造。"],
       },
       {
+        name: "read_evidence",
+        title: "读取块级证据",
+        description: "按搜索结果中的真实 blockId 读取有限正文证据，并校验当前 Agent 范围。",
+        readOnly: true,
+        required: ["blockIds"],
+        argsSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            blockIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 5 },
+            contextBeforeChars: { type: "integer", minimum: 0, maximum: 1000 },
+            contextAfterChars: { type: "integer", minimum: 0, maximum: 1000 },
+            maxCharsPerBlock: { type: "integer", minimum: 200, maximum: 4000 },
+          },
+          required: ["blockIds"],
+        },
+        examples: [{ action: "read_evidence", args: { blockIds: ["真实blockId"] } }],
+        notes: ["有 blockId 时优先读取块级证据；只有需要全文总结、跨章节比较或证据不足时再用 read_docs。"],
+      },
+      {
         name: "get_doc_info",
         title: "查看文档信息",
         description: "查看文档标题、路径、笔记本、时间和标签等元信息。",

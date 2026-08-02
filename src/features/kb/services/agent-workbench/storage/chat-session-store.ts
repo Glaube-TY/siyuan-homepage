@@ -9,7 +9,19 @@ import {
   toSessionKey,
   isValidStorageId,
 } from "./notebrain-storage-keys";
-import { saveData, loadData, removeData } from "./notebrain-plugin-storage";
+import { saveData, loadData, loadDataStrict, removeData, type StorageReadResult } from "./notebrain-plugin-storage";
+
+export type ValidatedStorageRead<T> = StorageReadResult<T> | { status: "invalid"; error: string };
+
+export async function loadChatSessionIndexStrict(): Promise<ValidatedStorageRead<ChatSessionIndex>> {
+  const result = await loadDataStrict<ChatSessionIndex>(NOTEBRAIN_CHAT_INDEX_KEY);
+  if (result.status !== "ok") return result;
+  const data = result.data;
+  if (!data || data.version !== 1 || !Array.isArray(data.sessions)) {
+    return { status: "invalid", error: "会话索引 JSON 结构无效。" };
+  }
+  return result;
+}
 
 export async function loadChatSessionIndex(): Promise<ChatSessionIndex | null> {
   const data = await loadData<ChatSessionIndex>(NOTEBRAIN_CHAT_INDEX_KEY);
@@ -23,6 +35,14 @@ export async function saveChatSessionIndex(index: ChatSessionIndex): Promise<voi
   await saveData(NOTEBRAIN_CHAT_INDEX_KEY, index);
 }
 
+export async function saveAndVerifyChatSessionIndex(index: ChatSessionIndex): Promise<void> {
+  await saveChatSessionIndex(index);
+  const verified = await loadChatSessionIndexStrict();
+  if (verified.status !== "ok" || JSON.stringify(verified.data) !== JSON.stringify(index)) {
+    throw new Error("会话索引写后验证失败。");
+  }
+}
+
 export async function loadChatSession(sessionId: string): Promise<ChatSessionData | null> {
   if (!isValidStorageId(sessionId)) return null;
   const key = toSessionKey(sessionId);
@@ -33,12 +53,31 @@ export async function loadChatSession(sessionId: string): Promise<ChatSessionDat
   return null;
 }
 
+export async function loadChatSessionStrict(sessionId: string): Promise<ValidatedStorageRead<ChatSessionData>> {
+  if (!isValidStorageId(sessionId)) return { status: "invalid", error: "会话 ID 无效。" };
+  const result = await loadDataStrict<ChatSessionData>(toSessionKey(sessionId));
+  if (result.status !== "ok") return result;
+  const data = result.data;
+  if (!data || data.version !== 1 || data.id !== sessionId || !Array.isArray(data.messages)) {
+    return { status: "invalid", error: `会话 ${sessionId} JSON 结构无效。` };
+  }
+  return result;
+}
+
 export async function saveChatSession(session: ChatSessionData): Promise<void> {
   if (!isValidStorageId(session.id)) {
     throw new Error(`[ChatSessionStore] Invalid session id: ${session.id}`);
   }
   const key = toSessionKey(session.id);
   await saveData(key, session);
+}
+
+export async function saveAndVerifyChatSession(session: ChatSessionData): Promise<void> {
+  await saveChatSession(session);
+  const verified = await loadChatSessionStrict(session.id);
+  if (verified.status !== "ok" || JSON.stringify(verified.data) !== JSON.stringify(session)) {
+    throw new Error(`会话 ${session.id} 写后验证失败。`);
+  }
 }
 
 export async function deleteChatSession(sessionId: string): Promise<void> {
@@ -58,5 +97,6 @@ export function createSessionIndexEntry(
     updatedAt: session.updatedAt,
     messageCount: session.messages.length,
     lastMessagePreview: lastMessagePreview.slice(0, 100),
+    revision: session.revision ?? 0,
   };
 }

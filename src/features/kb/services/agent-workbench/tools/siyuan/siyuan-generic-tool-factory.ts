@@ -17,6 +17,8 @@ export interface GenericSiyuanToolOptions<TArgs> {
   boundary: string;
   deps: GenericSiyuanToolDeps<TArgs>;
   inputJsonSchemaOverride: unknown;
+  /** mixed action 工具的只读 action；未知 action 按写入处理。 */
+  readOnlyActions?: readonly string[];
 }
 
 export function createGenericSiyuanTool<TArgs>(
@@ -37,6 +39,12 @@ export function createGenericSiyuanTool<TArgs>(
     boundary: options.boundary,
     providerVisible: false,
     inputJsonSchemaOverride: options.inputJsonSchemaOverride,
+    resolveCallSafety(args: Record<string, unknown>) {
+      if (options.readOnly) return { readOnly: true, riskLevel: "low" };
+      const action = typeof args.action === "string" ? args.action : "";
+      if (options.readOnlyActions?.includes(action)) return { readOnly: true, riskLevel: "low" };
+      return { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel: "medium" };
+    },
 
     availability() {
       return { available: true };

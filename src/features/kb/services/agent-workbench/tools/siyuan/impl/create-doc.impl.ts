@@ -136,6 +136,7 @@ export async function executeCreateDoc(
       confirmationId,
       action: "create_doc",
       abortSignal: deps.abortSignal,
+      route: deps.confirmationRoute,
     });
 
     // 3. 用户拒绝

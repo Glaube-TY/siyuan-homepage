@@ -24,6 +24,15 @@ export interface ChatSessionIndexEntry {
   modelProfileId?: string;
   pinned?: boolean;
   archived?: boolean;
+  revision?: number;
+  [key: string]: unknown;
+}
+
+export interface ChatSessionTombstone {
+  id: string;
+  deletedAt: number;
+  operationId: string;
+  [key: string]: unknown;
 }
 
 export interface ChatSessionIndex {
@@ -31,6 +40,9 @@ export interface ChatSessionIndex {
   activeSessionId: string;
   sessions: ChatSessionIndexEntry[];
   selectedMode?: string;
+  revision?: number;
+  deletedSessions?: ChatSessionTombstone[];
+  [key: string]: unknown;
 }
 
 export interface ChatSessionMessage {
@@ -47,6 +59,9 @@ export interface ChatSessionData {
   title: string;
   createdAt: number;
   updatedAt: number;
+  revision?: number;
+  conflictOfSessionId?: string;
+  conflictCreatedAt?: number;
   messages: ChatSessionMessage[];
   summary?: string;
   references?: unknown[];
@@ -68,4 +83,5 @@ export interface ChatSessionData {
     messages: AgentMessage[];
     updatedAt: number;
   };
+  [key: string]: unknown;
 }

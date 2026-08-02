@@ -13,6 +13,7 @@ export function createSiyuanBlockRefTool(deps: SiyuanBlockRefDeps) {
     description: "读取块引用信息，或执行高风险 swap/transfer 引用迁移。",
     inputSchema: siyuanBlockRefInputSchema,
     readOnly: false,
+    readOnlyActions: ["get_ref_ids", "get_ref_text", "get_def_ids_by_ref_text", "check_ref"],
     inputHint: "读取 action 使用 id/refText；transfer_ref 使用 fromID/toID/refIDs。",
     boundary: "swap_ref/transfer_ref 会改变引用关系，必须使用真实 ID 并确认。",
     deps: { execute: deps.executeSiyuanBlockRef },

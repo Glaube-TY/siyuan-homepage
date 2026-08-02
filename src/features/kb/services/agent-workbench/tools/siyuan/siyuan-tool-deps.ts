@@ -5,6 +5,7 @@
 
 import type { AgentScope } from "../../scope/types";
 import type { KbSettings } from "../../../../types/settings";
+import type { ConfirmationRoute } from "../../../agent-core/permissions/confirmation-bridge";
 
 export interface SiyuanToolDeps {
   getScope(): AgentScope | undefined;
@@ -13,4 +14,5 @@ export interface SiyuanToolDeps {
   loadPluginData?<T = unknown>(key: string): Promise<T | null>;
   savePluginData?<T = unknown>(key: string, data: T): Promise<void>;
   abortSignal?: AbortSignal;
+  confirmationRoute?: ConfirmationRoute;
 }

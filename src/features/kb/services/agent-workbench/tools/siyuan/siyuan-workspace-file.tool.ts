@@ -13,6 +13,7 @@ export function createSiyuanWorkspaceFileTool(deps: SiyuanWorkspaceFileDeps) {
     description: "在白名单目录内读取、写入、复制、重命名、删除文件或获取唯一文件名。copy_file 通过 getFile+putFile 安全复制，不直接调用底层 /api/file/copyFile。",
     inputSchema: siyuanWorkspaceFileInputSchema,
     readOnly: false,
+    readOnlyActions: ["read_dir", "get_file", "unique_filename"],
     inputHint: "action=read_dir/get_file/put_file/copy_file/rename_file/remove_file/unique_filename；copy_file/rename_file 需要 path+targetPath。",
     boundary: "只能访问 assets/templates/widgets/public/siyuan-homepage storage，拒绝系统路径和敏感目录；copy_file 使用安全 getFile+putFile 实现。",
     deps: { execute: deps.executeSiyuanWorkspaceFile },

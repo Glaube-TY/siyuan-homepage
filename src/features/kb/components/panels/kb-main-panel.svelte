@@ -36,7 +36,7 @@
   import AgentToolPermissionModal from "../common/agent-tool-permission-modal.svelte";
   import { openEditDiffPreviewDialog } from "../common/edit-diff-dialog";
   import type { DocContentEditArrowFlow, EditDiffPreview } from "../../services/doc-content-edit/doc-content-edit-types";
-  import { setDocContentEditConfirmationHandler } from "../../services/doc-content-edit/doc-content-edit-confirmation-bridge";
+  import { registerDocContentEditConfirmationHandler } from "../../services/doc-content-edit/doc-content-edit-confirmation-bridge";
   import { removeDocContentEditConfirmation } from "../../services/doc-content-edit/doc-content-edit-confirmation-store";
   import { RegisteredConfirmationBridge } from "../../services/agent-core/permissions/confirmation-bridge";
   import {
@@ -48,6 +48,13 @@
 
   export let placement: "dock" | "tab" | "mobile" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
+
+  /** 当前面板实例的稳定路由 ID；不会在会话切换时变化。 */
+  const panelInstanceId = `kb-panel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+  function createPanelTurnId(): string {
+    return `kb-turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
 
   // Web search state
   let webSearchEnabled = false;
@@ -1041,6 +1048,8 @@
       mode,
       question,
       conversationId: activeConversationId,
+      panelInstanceId,
+      turnId: createPanelTurnId(),
       getState: () => $kbSessionStore,
       updateState: (updater) => {
         // 防御性保护 - 如果会话已切换，不写入当前会话
@@ -1150,6 +1159,8 @@
       mode,
       question,
       conversationId: activeConversationId,
+      panelInstanceId,
+      turnId: createPanelTurnId(),
       existingUserMessageId,
       thinkingMode: effectiveThinkingMode,
       customDocIds,
@@ -1275,7 +1286,7 @@
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     // 注册文档内容编辑确认桥 handler
-    const unregisterConfirmationHandler = setDocContentEditConfirmationHandler(async (request) => {
+    const unregisterConfirmationHandler = registerDocContentEditConfirmationHandler(panelInstanceId, async (request) => {
       return new Promise((resolve) => {
         activeDocContentEditConfirmationId = request.confirmationId;
         docContentEditModalOpen = true;
@@ -1284,7 +1295,7 @@
     });
 
     // 注册 Native Agent 权限确认桥 handler（根据 displayMode 路由弹窗）
-    const unregisterNativeBridge = RegisteredConfirmationBridge.setHandler(async (preview) => {
+    const unregisterNativeBridge = RegisteredConfirmationBridge.register(panelInstanceId, async (preview) => {
       return new Promise((resolve) => {
         const displayMode = preview.displayMode ?? "summary";
 
@@ -1372,7 +1383,7 @@
   onDestroy(() => {
     if (messagesDebounceTimer) clearTimeout(messagesDebounceTimer);
     cancelPendingNativePermission("组件已销毁。");
-    void kbSessionStore.persistConversationsNow();
+    void kbSessionStore.flushPersistence();
     window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged as EventListener);
   });
 </script>

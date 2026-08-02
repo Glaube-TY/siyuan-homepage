@@ -21,6 +21,7 @@ import {
   DEFAULT_MCP_SETTINGS,
 } from "../../../constants/default-settings";
 import type { ExternalSkillSettings, McpSettings, NotebrainAgentWorkspaceSettings, RuntimeToolsSettings } from "../../../types/settings";
+import type { ConfirmationRoute } from "../../agent-core/permissions/confirmation-bridge";
 import type { AvailableToolSnapshot } from "../tools/aggregate/agent-tool-help.tool";
 
 // User skill loader (uses new agent-workbench contracts directly)
@@ -73,9 +74,11 @@ export interface AgentWorkbenchRuntimeOptions {
   globalMemoryToolDeps?: {
     docId: string;
     maxMemoryChars: number;
+    baseDigest?: string;
   };
   /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
   conversationId?: string;
+  confirmationRoute?: ConfirmationRoute;
   externalSkillSettings?: ExternalSkillSettings;
   mcpSettings?: McpSettings;
   notebrainWorkspaceSettings?: NotebrainAgentWorkspaceSettings;
@@ -101,6 +104,7 @@ export function createAgentWorkbenchRuntime(
     registerSiyuanTools(toolRegistry, {
       kbRetrievalToolDeps: options.kbRetrievalToolDeps,
       conversationId: options.conversationId,
+      confirmationRoute: options.confirmationRoute,
       builtinCapabilityAccess: options.builtinCapabilityAccess,
       globalToolAccess: options.globalToolAccess,
     });

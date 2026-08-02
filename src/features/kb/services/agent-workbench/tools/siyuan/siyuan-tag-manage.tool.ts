@@ -13,6 +13,7 @@ export function createSiyuanTagManageTool(deps: SiyuanTagManageDeps) {
     description: "列出、搜索、重命名或删除标签。",
     inputSchema: siyuanTagManageInputSchema,
     readOnly: false,
+    readOnlyActions: ["list", "search"],
     inputHint: "action=list/search/rename/remove；rename 需要 oldLabel/newLabel，remove 需要 label。",
     boundary: "list/search 只读；rename/remove 写入确认。",
     deps: { execute: deps.executeSiyuanTagManage },

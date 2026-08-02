@@ -13,6 +13,7 @@ export function createSiyuanBlockAttrTool(deps: SiyuanBlockAttrDeps) {
     description: "读取、批量读取、设置或批量设置块属性。set/batch_set 会写入。",
     inputSchema: siyuanBlockAttrInputSchema,
     readOnly: false,
+    readOnlyActions: ["get", "batch_get"],
     inputHint: "action=get/batch_get/set/batch_set；写入时提供 attrs 或 items。",
     boundary: "写入属性必须确认；批量最多 20 个块，优先使用 custom-* 属性。",
     deps: { execute: deps.executeSiyuanBlockAttr },

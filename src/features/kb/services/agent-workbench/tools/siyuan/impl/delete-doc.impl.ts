@@ -194,6 +194,7 @@ export async function executeDeleteDoc(
       confirmationId,
       action: "delete_doc",
       abortSignal: deps.abortSignal,
+      route: deps.confirmationRoute,
     });
 
     // 4. 用户拒绝

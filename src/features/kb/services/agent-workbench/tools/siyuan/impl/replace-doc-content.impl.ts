@@ -181,6 +181,7 @@ export async function executeReplaceDocContent(
       confirmationId,
       action: "replace_doc_content",
       abortSignal: deps.abortSignal,
+      route: deps.confirmationRoute,
     });
 
     // 4. 用户拒绝

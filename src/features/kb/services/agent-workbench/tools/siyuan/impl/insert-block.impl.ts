@@ -172,6 +172,7 @@ export async function executeInsertBlock(
       confirmationId,
       action: "insert_block",
       abortSignal: deps.abortSignal,
+      route: deps.confirmationRoute,
     });
 
     if (confirmationRes.status === "rejected") {

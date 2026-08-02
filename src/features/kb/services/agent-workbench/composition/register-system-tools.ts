@@ -12,6 +12,7 @@ export interface SystemToolOptions {
   globalMemoryToolDeps?: {
     docId: string;
     maxMemoryChars: number;
+    baseDigest?: string;
   };
   globalToolAccess?: {
     editGlobalMemory: boolean;
@@ -30,6 +31,7 @@ export function registerSystemTools(
     toolRegistry.ensureTool(createEditGlobalMemoryTool({
       docId: options.globalMemoryToolDeps.docId,
       maxMemoryChars: options.globalMemoryToolDeps.maxMemoryChars,
+      baseDigest: options.globalMemoryToolDeps.baseDigest,
     }));
   }
 

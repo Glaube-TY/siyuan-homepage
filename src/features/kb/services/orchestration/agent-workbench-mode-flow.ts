@@ -38,7 +38,7 @@ import { maybeAutoCompressContext, emergencyCompressContext } from "../context-c
 import type { MaybeAutoCompressResult } from "../context-compression";
 import { getKbSettings } from "../settings/kb-settings-service";
 import { estimateContextUsage } from "../../types/context-usage";
-import { readGlobalMemory, validateGlobalMemoryDocId } from "../agent-workbench/memory/global-memory-doc";
+import { digestGlobalMemoryText, readGlobalMemory, validateGlobalMemoryDocId } from "../agent-workbench/memory/global-memory-doc";
 import { buildConversationContext } from "../agent-workbench/runtime/conversation-context-builder";
 import type { BuildConversationContextParams } from "../agent-workbench/runtime/conversation-context-builder";
 import { findCompleteConversationTurn, getCompleteConversationTurns } from "../agent-workbench/runtime/conversation-turns";
@@ -487,7 +487,7 @@ export async function runAgentWorkbenchModeFlow(
     contextWindowTokens,
   } = params;
 
-  const assistantMessageId = createMessageId();
+  const assistantMessageId = params.turnId ?? createMessageId();
   let flushPendingAgentStreams: (() => void) | undefined;
   let cancelPendingAgentStreams: (() => void) | undefined;
 
@@ -601,6 +601,7 @@ export async function runAgentWorkbenchModeFlow(
     // Fetch web search settings and global memory for conversation context
     let webSearchSettings: BuildConversationContextParams["webSearchSettings"];
     let globalMemoryText: string | undefined;
+    let globalMemoryBaseDigest: string | undefined;
     let kbSettings: Awaited<ReturnType<typeof getKbSettings>> | undefined;
     try {
       kbSettings = await getKbSettings();
@@ -622,6 +623,8 @@ export async function runAgentWorkbenchModeFlow(
             globalMemoryText = mem.content;
             if (mem.truncated) {
               globalMemoryText += "\n（记忆内容已截断）";
+            } else {
+              globalMemoryBaseDigest = digestGlobalMemoryText(mem.content);
             }
           }
         }
@@ -831,7 +834,10 @@ export async function runAgentWorkbenchModeFlow(
       chatModelSelection,
       thinkingMode: userThinkingMode,
       globalMemory: globalMemoryText,
+      globalMemoryBaseDigest,
       conversationId: params.conversationId ?? actualUserMessageId,
+      panelInstanceId: params.panelInstanceId,
+      turnId: assistantMessageId,
       agentSessionMessages,
       kbSettings,
       onReasoningDelta: (event) => {

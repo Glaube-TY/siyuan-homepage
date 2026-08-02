@@ -17,6 +17,7 @@ import {
   createReadDocsTool,
   type ReadDocsDeps,
 } from "../tools/siyuan/read-docs.tool";
+import { createReadEvidenceTool, type ReadEvidenceDeps } from "../tools/siyuan/read-evidence.tool";
 import {
   createReadDocBlocksTool,
   type ReadDocBlocksDeps,
@@ -146,6 +147,7 @@ import { createSiyuanRiffCardTool, type SiyuanRiffCardDeps } from "../tools/siyu
 import { executeListKnowledgeMap } from "../tools/siyuan/impl/list-knowledge-map.impl";
 import { executeSearchScope } from "../tools/siyuan/impl/search-scope.impl";
 import { executeReadDocs } from "../tools/siyuan/impl/read-docs.impl";
+import { executeReadEvidence } from "../tools/siyuan/impl/read-evidence.impl";
 import { executeGetDailyWorkspaceOverview } from "../tools/siyuan/impl/get-daily-workspace-overview.impl";
 import { executeQueryTasks } from "../tools/siyuan/impl/query-tasks.impl";
 import { executeQueryDiaryRecords } from "../tools/siyuan/impl/query-diary-records.impl";
@@ -196,10 +198,12 @@ import { executeSiyuanRiffDeck } from "../tools/siyuan/impl/siyuan-riff-deck.imp
 import { executeSiyuanRiffCard } from "../tools/siyuan/impl/siyuan-riff-card.impl";
 import { createAggregateTool, type AggregateActionBinding } from "../tools/aggregate/aggregate-tool-factory";
 import { findAggregateToolMeta } from "../tools/aggregate/aggregate-tool-metadata";
+import type { ConfirmationRoute } from "../../agent-core/permissions/confirmation-bridge";
 
 export interface SiyuanToolRegistrationOptions {
   kbRetrievalToolDeps: SiyuanToolDeps;
   conversationId?: string;
+  confirmationRoute?: ConfirmationRoute;
   builtinCapabilityAccess?: {
     knowledgeBase: boolean;
     scheduleTaskDiary: boolean;
@@ -219,6 +223,9 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   };
   const searchDeps: SearchScopeDeps = {
     executeSearchScope: (args) => executeSearchScope(deps, args),
+  };
+  const readEvidenceDeps: ReadEvidenceDeps = {
+    executeReadEvidence: (args) => executeReadEvidence(deps, args),
   };
   const readDeps: ReadDocsDeps = {
     executeReadDocs: (args) => executeReadDocs(deps, args),
@@ -304,7 +311,7 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   const siyuanRiffDeckDeps: SiyuanRiffDeckDeps = { executeSiyuanRiffDeck };
   const siyuanRiffCardDeps: SiyuanRiffCardDeps = { executeSiyuanRiffCard };
   return {
-    lkmDeps, searchDeps, readDeps, overviewDeps,
+    lkmDeps, searchDeps, readDeps, readEvidenceDeps, overviewDeps,
     taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps,
     listItemsByTimeDeps, getDocInfoDeps,
     listAttributeViewsDeps, readAttributeViewDeps, findAttributeViewRowsDeps,
@@ -327,7 +334,7 @@ export function registerSiyuanTools(
 ): void {
   const deps = options.kbRetrievalToolDeps;
   const {
-    lkmDeps, searchDeps, readDeps, overviewDeps,
+    lkmDeps, searchDeps, readDeps, readEvidenceDeps, overviewDeps,
     taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps,
     listItemsByTimeDeps, getDocInfoDeps,
     listAttributeViewsDeps, readAttributeViewDeps, findAttributeViewRowsDeps,
@@ -355,6 +362,7 @@ export function registerSiyuanTools(
       actions: [
         { action: "search", tool: createSearchScopeTool(searchDeps) },
         { action: "read_docs", tool: createReadDocsTool(readDeps) },
+        { action: "read_evidence", tool: createReadEvidenceTool(readEvidenceDeps) },
         { action: "get_doc_info", tool: createGetDocInfoTool(getDocInfoDeps) },
         { action: "list_map", tool: createListKnowledgeMapTool(lkmDeps) },
         { action: "list_by_time", tool: createListItemsByTimeTool(listItemsByTimeDeps) },
@@ -419,16 +427,20 @@ export function registerSiyuanTools(
       { action: "doc_transform", tool: createSiyuanDocTransformTool(siyuanDocTransformDeps) },
     ];
     if (options.conversationId) {
-      const writeDeps = { ...deps, conversationId: options.conversationId };
+      const writeDeps = {
+        ...deps,
+        conversationId: options.conversationId,
+        confirmationRoute: options.confirmationRoute,
+      };
       actions.push(
-        { action: "update_block", tool: createUpdateBlockTool({ executeUpdateBlock: (args, abortSignal) => executeUpdateBlock({ ...writeDeps, abortSignal }, args) }) },
-        { action: "insert_block", tool: createInsertBlockTool({ executeInsertBlock: (args, abortSignal) => executeInsertBlock({ ...writeDeps, abortSignal }, args) }) },
-        { action: "delete_blocks", tool: createDeleteBlocksTool({ executeDeleteBlocks: (args, abortSignal) => executeDeleteBlocks({ ...writeDeps, abortSignal }, args) }) },
-        { action: "move_block", tool: createMoveBlockTool({ executeMoveBlock: (args, abortSignal) => executeMoveBlock({ ...writeDeps, abortSignal }, args) }) },
-        { action: "create_doc", tool: createCreateDocTool({ executeCreateDoc: (args, abortSignal) => executeCreateDoc({ ...writeDeps, abortSignal }, args) }) },
-        { action: "rename_doc", tool: createRenameDocTool({ executeRenameDoc: (args, abortSignal) => executeRenameDoc({ ...writeDeps, abortSignal }, args) }) },
-        { action: "delete_doc", tool: createDeleteDocTool({ executeDeleteDoc: (args, abortSignal) => executeDeleteDoc({ ...writeDeps, abortSignal }, args) }) },
-        { action: "replace_doc_content", tool: createReplaceDocContentTool({ executeReplaceDocContent: (args, abortSignal) => executeReplaceDocContent({ ...writeDeps, abortSignal }, args) }) },
+        { action: "update_block", internallyConfirmed: true, tool: createUpdateBlockTool({ executeUpdateBlock: (args, abortSignal) => executeUpdateBlock({ ...writeDeps, abortSignal }, args) }) },
+        { action: "insert_block", internallyConfirmed: true, tool: createInsertBlockTool({ executeInsertBlock: (args, abortSignal) => executeInsertBlock({ ...writeDeps, abortSignal }, args) }) },
+        { action: "delete_blocks", internallyConfirmed: true, tool: createDeleteBlocksTool({ executeDeleteBlocks: (args, abortSignal) => executeDeleteBlocks({ ...writeDeps, abortSignal }, args) }) },
+        { action: "move_block", internallyConfirmed: true, tool: createMoveBlockTool({ executeMoveBlock: (args, abortSignal) => executeMoveBlock({ ...writeDeps, abortSignal }, args) }) },
+        { action: "create_doc", internallyConfirmed: true, tool: createCreateDocTool({ executeCreateDoc: (args, abortSignal) => executeCreateDoc({ ...writeDeps, abortSignal }, args) }) },
+        { action: "rename_doc", internallyConfirmed: true, tool: createRenameDocTool({ executeRenameDoc: (args, abortSignal) => executeRenameDoc({ ...writeDeps, abortSignal }, args) }) },
+        { action: "delete_doc", internallyConfirmed: true, tool: createDeleteDocTool({ executeDeleteDoc: (args, abortSignal) => executeDeleteDoc({ ...writeDeps, abortSignal }, args) }) },
+        { action: "replace_doc_content", internallyConfirmed: true, tool: createReplaceDocContentTool({ executeReplaceDocContent: (args, abortSignal) => executeReplaceDocContent({ ...writeDeps, abortSignal }, args) }) },
       );
     }
     toolRegistry.ensureTool(createAggregateTool({

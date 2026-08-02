@@ -32,6 +32,29 @@ export async function loadData<T>(key: string): Promise<T | null> {
   }
 }
 
+export type StorageReadResult<T> =
+  | { status: "ok"; data: T }
+  | { status: "missing" }
+  | { status: "error"; error: string };
+
+/**
+ * 严格读取：调用方可以区分“文件不存在”和“读取失败”。
+ * 会话事务不得把读取失败当成空数据继续覆盖。
+ */
+export async function loadDataStrict<T>(key: string): Promise<StorageReadResult<T>> {
+  const plugin = getPlugin();
+  try {
+    const data = await plugin.loadData(key);
+    if (data === null || data === undefined) return { status: "missing" };
+    return { status: "ok", data: data as T };
+  } catch (error) {
+    return {
+      status: "error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function removeData(key: string): Promise<void> {
   const plugin = getPlugin();
   await plugin.removeData(key);

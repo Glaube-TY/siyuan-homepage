@@ -18,6 +18,7 @@ import { sanitizePersistedSummaryText } from "./persisted-summary-sanitizer";
 export interface PersistedReferenceItem {
   index: number;
   docId?: string;
+  sourceBlockIds?: string[];
   readLevel?: "content" | "structure" | "candidate" | "snippet" | "section" | "document";
   referenceReason?: "agent_explicit" | "read_content" | "structure_result" | "search_candidate";
   grounded?: boolean;
@@ -382,6 +383,7 @@ function toPersistedReferenceItem(item: ReferenceItem): PersistedReferenceItem {
   return {
     index: item.index,
     docId: item.docId,
+    sourceBlockIds: item.sourceBlockIds?.slice(0, 8),
     readLevel: item.readLevel,
     referenceReason: item.referenceReason,
     grounded: item.grounded,
@@ -403,7 +405,7 @@ function fromPersistedReferenceItem(item: PersistedReferenceItem): ReferenceItem
     docTitle: item.docTitle || (item.docId ? `文档 ${item.docId}` : "参考文档"),
     displayTitle: item.displayTitle,
     headingPathText: item.docTitle || "",
-    sourceBlockIds: [],
+    sourceBlockIds: item.sourceBlockIds ?? [],
     readLevel: item.readLevel,
     referenceReason: item.referenceReason,
     grounded: item.grounded,

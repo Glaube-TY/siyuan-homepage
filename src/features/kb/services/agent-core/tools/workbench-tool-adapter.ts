@@ -9,77 +9,6 @@ import { ensureObjectJsonSchema } from "./native-tool-schema";
 import { NativeToolRegistry } from "./native-tool-registry";
 import { executionOutcomeToNativeResult } from "./tool-result-renderer";
 
-const READ_ONLY_AGGREGATE_ACTIONS_BY_TOOL = new Map<string, Set<string>>([
-  ["siyuan_kb", new Set(["search", "read_docs", "get_doc_info", "list_map", "list_by_time", "outline", "refs", "extra_search"])],
-  ["diary_task", new Set(["overview", "query_tasks", "query_records", "find_docs"])],
-  ["siyuan_database", new Set(["list", "read", "find_rows", "extra_read"])],
-  ["siyuan_doc_edit", new Set(["read_blocks", "block_read"])],
-  ["siyuan_tree", new Set(["doc_path"])],
-  ["siyuan_asset", new Set(["read"])],
-  ["skill_manage", new Set(["list", "read", "read_file"])],
-  ["mcp_manage", new Set(["list_servers", "list_tools", "read_tool", "list_presets"])],
-  ["notebrain_file", new Set(["list_dir", "read_file"])],
-  ["web_fetch", new Set(["read_page", "http_get"])],
-]);
-
-const INTERNALLY_CONFIRMED_AGGREGATE_ACTIONS_BY_TOOL = new Map<string, Set<string>>([
-  ["siyuan_doc_edit", new Set([
-    "create_doc",
-    "update_block",
-    "insert_block",
-    "delete_blocks",
-    "move_block",
-    "rename_doc",
-    "delete_doc",
-    "replace_doc_content",
-  ])],
-]);
-
-const READ_ONLY_NESTED_ACTIONS_BY_AGGREGATE = new Map<string, Map<string, Set<string>>>([
-  ["siyuan_doc_edit", new Map([
-    ["block_attr", new Set(["get", "batch_get"])],
-    ["block_ref", new Set(["get_ref_ids", "get_ref_text", "get_def_ids_by_ref_text", "check_ref"])],
-  ])],
-  ["siyuan_tree", new Map([
-    ["notebook", new Set(["list", "get_conf"])],
-    ["doc_tree", new Set(["list_children", "list_tree"])],
-  ])],
-  ["siyuan_meta", new Map([
-    ["tag", new Set(["list", "search"])],
-    ["bookmark", new Set(["list", "list_blocks"])],
-  ])],
-  ["siyuan_asset", new Map([
-    ["workspace_file", new Set(["read_dir", "get_file", "unique_filename"])],
-  ])],
-  ["siyuan_riff", new Map([
-    ["deck", new Set(["list"])],
-    ["card", new Set([
-      "due_cards",
-      "tree_due_cards",
-      "notebook_due_cards",
-      "list_cards",
-      "tree_cards",
-      "notebook_cards",
-      "cards_by_block_ids",
-      "get_card_info",
-    ])],
-  ])],
-]);
-
-function isReadOnlyAction(toolName: string, args: Record<string, unknown>): boolean {
-  const action = typeof args.action === "string" ? args.action : "";
-  if (READ_ONLY_AGGREGATE_ACTIONS_BY_TOOL.get(toolName)?.has(action) === true) return true;
-  const aggregateNested = READ_ONLY_NESTED_ACTIONS_BY_AGGREGATE.get(toolName)?.get(action);
-  const nestedArgs = args.args && typeof args.args === "object" ? args.args as Record<string, unknown> : undefined;
-  const nestedAction = typeof nestedArgs?.action === "string" ? nestedArgs.action : "";
-  return aggregateNested?.has(nestedAction) === true;
-}
-
-function isInternallyConfirmedAction(toolName: string, args: Record<string, unknown>): boolean {
-  const action = typeof args.action === "string" ? args.action : "";
-  return INTERNALLY_CONFIRMED_AGGREGATE_ACTIONS_BY_TOOL.get(toolName)?.has(action) === true;
-}
-
 async function previewMcpManageCallTool(
   args: Record<string, unknown>,
   settings?: McpSettings,
@@ -162,7 +91,7 @@ export function createNativeToolRegistryFromWorkbench(params: {
       providerVisible: contract.providerVisible,
       source: contract.source,
       safety: contract.safety,
-      isReadOnlyCall: (args) => isReadOnlyAction(contract.name, args) || contract.readOnly,
+      isReadOnlyCall: (args) => contract.resolveCallSafety?.(args).readOnly ?? contract.readOnly,
       execute: async (args, ctx) => {
         const outcome = await executor.execute(
           { toolName: contract.name, args },
@@ -195,9 +124,10 @@ export function createNativeToolRegistryFromWorkbench(params: {
         : undefined,
       preview: isWriteTool
         ? async (args) => {
-            return isReadOnlyAction(contract.name, args)
+            const callSafety = contract.resolveCallSafety?.(args) ?? contract.safety;
+            return callSafety.readOnly
               ? { permissionAction: "allow" }
-              : isInternallyConfirmedAction(contract.name, args)
+              : callSafety.internallyConfirmed === true
                 ? { permissionAction: "allow" }
                 : contract.name === "notebrain_file" && args.action === "run_command"
                   ? previewNotebrainFileRunCommand(args, params.notebrainWorkspaceSettings)

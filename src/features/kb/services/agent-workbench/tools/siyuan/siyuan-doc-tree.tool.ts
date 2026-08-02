@@ -13,6 +13,7 @@ export function createSiyuanDocTreeTool(deps: SiyuanDocTreeDeps) {
     description: "列出文档树子节点/树结构，移动、按 ID 移动、复制或排序文档树节点。",
     inputSchema: siyuanDocTreeInputSchema,
     readOnly: false,
+    readOnlyActions: ["list_children", "list_tree"],
     inputHint: "action=list_children/list_tree/move/move_by_id/duplicate/sort。",
     boundary: "不负责创建、重命名、删除文档；写入 action 必须确认。",
     deps: { execute: deps.executeSiyuanDocTree },

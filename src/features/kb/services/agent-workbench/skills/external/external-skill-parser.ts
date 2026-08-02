@@ -1,4 +1,5 @@
 import { slugifyNotebrainId } from "../../workspace/notebrain-workspace-paths";
+import { sanitizeExternalSkillMetadataList, sanitizeExternalSkillMetadataText } from "./external-skill-security";
 
 function readFrontmatter(markdown: string): Record<string, string> {
   const match = markdown.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
@@ -58,8 +59,12 @@ export function parseExternalSkillMarkdown(params: {
   now?: number;
 }) {
   const fm = readFrontmatter(params.markdown);
-  const title = fm.title || fm.name || firstHeading(params.markdown) || params.fallbackId;
-  const description = fm.description || firstParagraph(params.markdown) || `外部 Skill：${title}`;
+  const rawTitle = fm.title || fm.name || firstHeading(params.markdown) || params.fallbackId;
+  const title = sanitizeExternalSkillMetadataText(rawTitle, 100) || params.fallbackId;
+  const description = sanitizeExternalSkillMetadataText(
+    fm.description || firstParagraph(params.markdown) || `外部 Skill：${title}`,
+    240,
+  );
   const id = slugifyNotebrainId(fm.id || fm.name || params.fallbackId, params.fallbackId);
   const now = params.now ?? Date.now();
   return {
@@ -67,17 +72,16 @@ export function parseExternalSkillMarkdown(params: {
     title,
     description,
     sourceType: "unknown" as const,
-    source: params.source,
+    source: sanitizeExternalSkillMetadataText(params.source, 240),
     rootDir: params.rootDir,
     entry: params.entry,
     enabled: true,
     trusted: false,
     riskLevel: "medium" as const,
-    tags: parseList(fm.tags),
-    triggers: parseList(fm.triggers || fm.keywords),
+    tags: sanitizeExternalSkillMetadataList(parseList(fm.tags)),
+    triggers: sanitizeExternalSkillMetadataList(parseList(fm.triggers || fm.keywords)),
     installedAt: now,
     updatedAt: now,
     requiredEnvVars: detectRequiredEnvVars(params.markdown),
   };
 }
-

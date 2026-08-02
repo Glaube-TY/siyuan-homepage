@@ -6,6 +6,13 @@
 import { getChildBlocks, appendBlock, updateBlock, deleteBlock, moveBlock, sql, getBlockKramdown } from "@/api";
 import { toDisplayMarkdownFromKramdown } from "../../doc-content-edit/doc-content-edit-diff";
 import type { GlobalMemoryContent, GlobalMemoryItem } from "./global-memory-types";
+import { enqueueStorageWrite } from "../storage/storage-write-queue";
+import {
+  matchesExpectedGlobalMemoryWrite,
+  matchesGlobalMemoryBaseDigest,
+  normalizeGlobalMemoryText,
+} from "./global-memory-integrity";
+export { digestGlobalMemoryText, normalizeGlobalMemoryText } from "./global-memory-integrity";
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -270,15 +277,11 @@ export async function moveGlobalMemoryItem(
  * 标准化全局记忆文本：统一换行、去首尾空白、清理多余空行。
  * 每一行/段代表一条记忆，不压成单段落。
  */
-export function normalizeGlobalMemoryText(text: string): string {
-  return text
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .join("\n")
-    .trim()
-    .replace(/\n{3,}/g, "\n\n");
+export interface ReplaceGlobalMemoryResult {
+  ok: boolean;
+  itemCount: number;
+  message: string;
+  errorCode?: "memory_read_failed" | "memory_changed_since_turn_start" | "memory_write_failed" | "memory_verify_read_failed" | "memory_verify_mismatch";
 }
 
 /**
@@ -291,7 +294,8 @@ export function normalizeGlobalMemoryText(text: string): string {
 export async function replaceGlobalMemoryContent(
   docId: string,
   memory: string,
-): Promise<{ ok: boolean; itemCount: number; message: string }> {
+  options: { baseDigest?: string } = {},
+): Promise<ReplaceGlobalMemoryResult> {
   const id = docId.trim();
   if (!id) {
     return { ok: false, itemCount: 0, message: "未配置全局记忆文档 ID。" };
@@ -302,26 +306,39 @@ export async function replaceGlobalMemoryContent(
     return { ok: false, itemCount: 0, message: "全局记忆文档 ID 无效或不可用。" };
   }
 
-  const normalized = normalizeGlobalMemoryText(memory);
-
-  try {
-    await updateBlock("markdown", normalized, id);
-  } catch (err) {
-    return {
-      ok: false,
-      itemCount: 0,
-      message: `替换全局记忆文档失败：${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  if (!normalized) {
-    return { ok: true, itemCount: 0, message: "全局记忆已清空。" };
-  }
-
-  const lineCount = normalized.split("\n").filter((l) => l.trim()).length;
-  return {
-    ok: true,
-    itemCount: lineCount,
-    message: `全局记忆已替换，共 ${lineCount} 条。`,
-  };
+  return enqueueStorageWrite(`global-memory:${id}`, async () => {
+    const normalized = normalizeGlobalMemoryText(memory);
+    const latest = await readGlobalMemory(id, Number.MAX_SAFE_INTEGER);
+    if (!latest.readOk || latest.truncated) {
+      return { ok: false, itemCount: 0, errorCode: "memory_read_failed", message: "写入前无法完整读取最新全局记忆。" };
+    }
+    if (options.baseDigest && !matchesGlobalMemoryBaseDigest(options.baseDigest, latest.content)) {
+      return {
+        ok: false,
+        itemCount: 0,
+        errorCode: "memory_changed_since_turn_start",
+        message: "全局记忆在本轮开始后已变化，请重新发起并确认。",
+      };
+    }
+    try {
+      await updateBlock("markdown", normalized, id);
+    } catch (err) {
+      return {
+        ok: false,
+        itemCount: 0,
+        errorCode: "memory_write_failed",
+        message: `替换全局记忆文档失败：${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    const verified = await readGlobalMemory(id, Number.MAX_SAFE_INTEGER);
+    if (!verified.readOk || verified.truncated) {
+      return { ok: false, itemCount: 0, errorCode: "memory_verify_read_failed", message: "写入后无法完整回读全局记忆，不能确认保存成功。" };
+    }
+    if (!matchesExpectedGlobalMemoryWrite(normalized, verified.content)) {
+      return { ok: false, itemCount: 0, errorCode: "memory_verify_mismatch", message: "写入后内容校验不一致，不能确认保存成功。" };
+    }
+    if (!normalized) return { ok: true, itemCount: 0, message: "全局记忆已清空。" };
+    const lineCount = normalized.split("\n").filter((line) => line.trim()).length;
+    return { ok: true, itemCount: lineCount, message: `全局记忆已替换，共 ${lineCount} 条。` };
+  });
 }

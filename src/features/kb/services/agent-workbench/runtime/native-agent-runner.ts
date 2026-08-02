@@ -3,6 +3,7 @@ import type { AgentSession } from "../../agent-core/session/agent-session";
 import type { ProviderAdapter } from "../../agent-core/providers/provider-adapter";
 import type { NativeToolRegistry } from "../../agent-core/tools/native-tool-registry";
 import type { AgentStreamEvent } from "../../agent-core/loop/stream-event";
+import { RegisteredConfirmationBridge, type ConfirmationRoute } from "../../agent-core/permissions/confirmation-bridge";
 
 export interface RunNativeAgentLoopParams {
   provider: ProviderAdapter;
@@ -11,6 +12,7 @@ export interface RunNativeAgentLoopParams {
   contextInstructions: string;
   session?: AgentSession;
   conversationId?: string;
+  confirmationRoute?: ConfirmationRoute;
   /** Tool names that skip confirmation dialog (still go through preview & safety guards). */
   autoAllowedToolNames?: string[];
   abortSignal?: AbortSignal;
@@ -40,6 +42,7 @@ export async function runNativeAgentLoop(
     systemPrompt: params.systemPrompt,
     contextInstructions: params.contextInstructions,
     conversationId: params.conversationId,
+    bridge: new RegisteredConfirmationBridge(params.confirmationRoute),
     autoAllowedToolNames: params.autoAllowedToolNames,
     abortSignal: params.abortSignal,
     onEvent: params.onEvent,

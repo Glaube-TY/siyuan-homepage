@@ -13,6 +13,8 @@ import type { AgentMessage } from "../services/agent-core/messages/agent-message
 import {
   restoreKbChatSessions,
   saveKbChatSessionStorage,
+  flushStorageWrites,
+  type ChatStorageSaveResult,
   isTransientAssistantPlaceholder,
 } from "../services/agent-workbench/storage/chat-session-facade";
 import {
@@ -318,30 +320,58 @@ function createKbSessionStore() {
   let hydrationCompleted = false;
 
   /** 调度持久化（内部使用） */
+  function applyStorageResult(result: ChatStorageSaveResult): void {
+    if (!result.success) {
+      update((state) => ({ ...state, error: result.errors.join("；") || "会话保存失败。" }));
+      return;
+    }
+    update((state) => {
+      if (result.conversations.length === 0) return state;
+      const active = result.conversations.find((item) => item.id === result.activeConversationId)
+        ?? result.conversations[0];
+      return {
+        ...state,
+        conversations: result.conversations,
+        activeConversationId: active.id,
+        messages: active.messages,
+        stageSummaries: active.stageSummaries ?? [],
+        thinkingMode: active.thinkingMode ?? "off",
+        webAccessMode: active.webAccessMode ?? "off",
+        compressedContextSummary: active.compressedContextSummary,
+        compressionState: active.compressionState,
+        error: result.conflicts.length > 0
+          ? "检测到其他设备已修改会话，本地内容已另存为冲突副本。"
+          : state.error,
+      };
+    });
+  }
+
+  async function persistCurrentSnapshot(explicitDeletedSessionIds?: string[]): Promise<ChatStorageSaveResult | null> {
+    const state = get({ subscribe });
+    const activeConv = state.conversations.find((c) => c.id === state.activeConversationId);
+    if (!activeConv) return null;
+    const updatedConv = buildConversationSnapshot(state, activeConv);
+    const conversations = state.conversations.map((c) =>
+      c.id === state.activeConversationId ? updatedConv : c
+    );
+    const result = await saveKbChatSessionStorage({
+      activeConversationId: state.activeConversationId,
+      conversations,
+      selectedMode: state.selectedMode,
+      explicitDeletedSessionIds,
+    });
+    applyStorageResult(result);
+    return result;
+  }
+
   function schedulePersist(): void {
     if (!hydrationCompleted) return;
     if (persistDebounceTimer) {
       clearTimeout(persistDebounceTimer);
     }
     persistDebounceTimer = setTimeout(() => {
-      void (async () => {
-        const state = get({ subscribe });
-
-        // 先同步当前活跃会话的快照
-        const activeConv = state.conversations.find((c) => c.id === state.activeConversationId);
-        if (!activeConv) return;
-
-        const updatedConv = buildConversationSnapshot(state, activeConv);
-        const conversations = state.conversations.map((c) =>
-          c.id === state.activeConversationId ? updatedConv : c
-        );
-
-        await saveKbChatSessionStorage({
-          activeConversationId: state.activeConversationId,
-          conversations,
-          selectedMode: state.selectedMode,
-        });
-      })();
+      persistDebounceTimer = null;
+      void persistCurrentSnapshot();
     }, PERSIST_DEBOUNCE_DELAY);
   }
 
@@ -676,7 +706,9 @@ function createKbSessionStore() {
     },
 
     // 删除会话
-    deleteConversation: (id: string) => {
+    deleteConversation: async (id: string) => {
+      const beforeDelete = get({ subscribe });
+      if (beforeDelete.conversations.length <= 1) return;
       update((state) => {
         // 至少保留一个会话
         if (state.conversations.length <= 1) return state;
@@ -716,8 +748,16 @@ function createKbSessionStore() {
           conversations: remainingConversations,
         };
       });
-      // 触发持久化
-      schedulePersist();
+      if (persistDebounceTimer) {
+        clearTimeout(persistDebounceTimer);
+        persistDebounceTimer = null;
+      }
+      const result = await persistCurrentSnapshot([id]);
+      if (!result?.success) {
+        // tombstone 未提交时恢复删除前状态，保留可重试能力。
+        set(beforeDelete);
+        update((state) => ({ ...state, error: result?.errors.join("；") || "删除会话保存失败，请重试。" }));
+      }
     },
 
     // 尝试自动生成标题（用户发送第一条问题时调用）
@@ -743,7 +783,8 @@ function createKbSessionStore() {
     },
 
     // 重置
-    reset: () => {
+    reset: async () => {
+      const beforeReset = get({ subscribe });
       // 重置前先停止任何进行中的流
       if (currentAbortController) {
         currentAbortController.abort();
@@ -757,8 +798,15 @@ function createKbSessionStore() {
         conversations: [defaultConv],
         activeConversationId: defaultConv.id,
       });
-      // 触发持久化
-      schedulePersist();
+      if (persistDebounceTimer) {
+        clearTimeout(persistDebounceTimer);
+        persistDebounceTimer = null;
+      }
+      const result = await persistCurrentSnapshot(beforeReset.conversations.map((item) => item.id));
+      if (!result?.success) {
+        set(beforeReset);
+        update((state) => ({ ...state, error: result?.errors.join("；") || "重置会话保存失败，请重试。" }));
+      }
     },
 
     // ==================== 持久化方法 ====================
@@ -771,14 +819,12 @@ function createKbSessionStore() {
      * - 异步补全 reference 标题（懒加载）
      */
     hydrateConversations: async () => {
-      const restored = await restoreKbChatSessions();
-      if (!restored) {
-        // 没有存储数据，保持默认会话，标记 hydration 完成
-        hydrationCompleted = true;
-        return;
-      }
-
       try {
+        const restored = await restoreKbChatSessions();
+        if (!restored) {
+          hydrationCompleted = true;
+          return;
+        }
         // 先更新状态，让界面立刻可用
         update((state) => {
           // 验证恢复的会话数据
@@ -1237,11 +1283,12 @@ function createKbSessionStore() {
         c.id === state.activeConversationId ? updatedConv : c
       );
 
-      await saveKbChatSessionStorage({
+      const result = await saveKbChatSessionStorage({
         activeConversationId: state.activeConversationId,
         conversations,
         selectedMode: state.selectedMode,
       });
+      applyStorageResult(result);
     },
 
     /**
@@ -1251,6 +1298,16 @@ function createKbSessionStore() {
      */
     schedulePersistConversations: () => {
       schedulePersist();
+    },
+
+    /** 页面销毁前提交 debounce 快照并等待统一写队列排空。 */
+    flushPersistence: async () => {
+      if (persistDebounceTimer) {
+        clearTimeout(persistDebounceTimer);
+        persistDebounceTimer = null;
+        await persistCurrentSnapshot();
+      }
+      await flushStorageWrites();
     },
   };
 }

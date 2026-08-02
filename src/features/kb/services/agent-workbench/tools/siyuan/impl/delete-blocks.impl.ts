@@ -246,6 +246,7 @@ export async function executeDeleteBlocks(
       confirmationId,
       action: "delete_blocks",
       abortSignal: deps.abortSignal,
+      route: deps.confirmationRoute,
     });
 
     // 4. 用户拒绝

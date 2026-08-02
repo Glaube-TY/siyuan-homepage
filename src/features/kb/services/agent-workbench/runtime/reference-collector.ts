@@ -59,6 +59,7 @@ const REASON_TO_READ_LEVEL: Record<ReferenceReason, ReadLevel> = {
 
 const AGGREGATE_REFERENCE_ACTION_TOOL_NAMES = new Map<string, string>([
   ["siyuan_kb:read_docs", "read_docs"],
+  ["siyuan_kb:read_evidence", "read_evidence"],
   ["siyuan_kb:list_map", "list_knowledge_map"],
   ["siyuan_kb:search", "search_scope"],
   ["diary_task:overview", "get_daily_workspace_overview"],
@@ -457,6 +458,8 @@ export function collectObservationReferences(
     const observed = unwrapAggregateObservation(entry);
     if (observed.toolName === "read_docs") {
       collectReadDocsReferences(observed.content, refs);
+    } else if (observed.toolName === "read_evidence") {
+      collectReadEvidenceReferences(observed.content, refs);
     } else if (observed.toolName === "list_knowledge_map") {
       collectKnowledgeMapReferences(observed.content, refs);
     } else if (observed.toolName === "search_scope") {
@@ -589,6 +592,25 @@ function collectReadDocsReferences(
     }))) break;
   }
   // Note: errors are NOT extracted as references
+}
+
+function collectReadEvidenceReferences(
+  content: unknown,
+  refs: CollectedReference[],
+): void {
+  const root = asRecord(content);
+  const items = Array.isArray(root?.items) ? root.items : [];
+  for (const item of items) {
+    const record = asRecord(item);
+    if (!record || !readString(record.content)) continue;
+    if (!pushReference(refs, makeSiyuanReference({
+      docId: record.docId,
+      blockId: record.blockId,
+      title: record.docTitle,
+      priority: REASON_PRIORITY.read_content,
+      reason: "read_content",
+    }))) break;
+  }
 }
 
 function collectAttachedDocHydrationReferences(

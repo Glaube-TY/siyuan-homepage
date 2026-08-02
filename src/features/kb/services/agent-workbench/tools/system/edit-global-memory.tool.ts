@@ -31,6 +31,7 @@ type EditGlobalMemoryOutput = z.infer<typeof editGlobalMemoryOutputSchema>;
 export interface EditGlobalMemoryDeps {
   docId: string;
   maxMemoryChars: number;
+  baseDigest?: string;
 }
 
 export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolContract<EditGlobalMemoryInput, EditGlobalMemoryOutput> {
@@ -211,13 +212,13 @@ export function createEditGlobalMemoryTool(deps: EditGlobalMemoryDeps): ToolCont
         };
       }
 
-      const result = await replaceGlobalMemoryContent(docId, args.memory);
+      const result = await replaceGlobalMemoryContent(docId, args.memory, { baseDigest: deps.baseDigest });
       if (!result.ok) {
         return {
           ok: false,
           data: null,
           error: {
-            code: "replace_failed",
+            code: result.errorCode ?? "replace_failed",
             message: result.message,
             recoverable: true,
           },
