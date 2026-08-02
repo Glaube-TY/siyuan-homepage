@@ -35,7 +35,13 @@ import {
   requestDocContentEditConfirmation,
 } from "../doc-content-edit/doc-content-edit-confirmation-bridge.js";
 import { createKbSessionStore } from "../../stores/kb-session-store.js";
-import { setPluginStorage as setTurnJournalPluginStorage } from "../agent-workbench/runtime/in-flight-turn-journal.js";
+import {
+  asyncFlushJournal,
+  createTurnJournal,
+  markTurnCompletedPendingPersistence,
+  readTurnJournal,
+  setPluginStorage as setTurnJournalPluginStorage,
+} from "../agent-workbench/runtime/in-flight-turn-journal.js";
 
 const route = (panelInstanceId: string, conversationId = "conv-a", turnId = "turn-a"): ConfirmationRoute => ({
   panelInstanceId,
@@ -191,7 +197,10 @@ interface FakePluginState {
   maxActiveWrites: number;
   failLoadKeys: Set<string>;
   failSaveKeys: Set<string>;
+  failLoadAttempts: Map<string, number>;
+  loadCounts: Map<string, number>;
   loadMutator?: (key: string, value: unknown) => unknown;
+  beforeLoad?: (key: string) => Promise<void>;
   beforeSave?: (key: string, value: unknown) => Promise<void>;
 }
 
@@ -199,9 +208,17 @@ function installFakePlugin(): FakePluginState {
   const state: FakePluginState = {
     files: new Map(), activeWrites: 0, maxActiveWrites: 0,
     failLoadKeys: new Set(), failSaveKeys: new Set(),
+    failLoadAttempts: new Map(), loadCounts: new Map(),
   };
   setNotebrainPlugin({
     loadData: async (key: string) => {
+      state.loadCounts.set(key, (state.loadCounts.get(key) ?? 0) + 1);
+      await state.beforeLoad?.(key);
+      const remainingFailures = state.failLoadAttempts.get(key) ?? 0;
+      if (remainingFailures > 0) {
+        state.failLoadAttempts.set(key, remainingFailures - 1);
+        throw new Error("transient read failed");
+      }
       if (state.failLoadKeys.has(key)) throw new Error("read failed");
       const value = structuredClone(state.files.get(key) ?? null);
       return state.loadMutator ? state.loadMutator(key, value) : value;
@@ -218,6 +235,26 @@ function installFakePlugin(): FakePluginState {
     removeData: async (key: string) => { state.files.delete(key); },
   } as never);
   return state;
+}
+
+class MemoryLocalStorage implements Storage {
+  private readonly values = new Map<string, string>();
+  get length(): number { return this.values.size; }
+  clear(): void { this.values.clear(); }
+  getItem(key: string): string | null { return this.values.get(key) ?? null; }
+  key(index: number): string | null { return [...this.values.keys()][index] ?? null; }
+  removeItem(key: string): void { this.values.delete(key); }
+  setItem(key: string, value: string): void { this.values.set(key, value); }
+}
+
+function installMemoryLocalStorage(): MemoryLocalStorage {
+  const storage = new MemoryLocalStorage();
+  Object.defineProperty(globalThis, "localStorage", {
+    value: storage,
+    configurable: true,
+    writable: true,
+  });
+  return storage;
 }
 
 function persistedSession(id: string, content: string, revision?: number): Record<string, unknown> {
@@ -274,6 +311,25 @@ function blockNextSessionSave(state: FakePluginState): {
   return { entered, release };
 }
 
+function blockNextLoad(state: FakePluginState, targetKey: string): {
+  entered: Promise<void>;
+  release: () => void;
+} {
+  let enter!: () => void;
+  let release!: () => void;
+  let blocked = false;
+  const entered = new Promise<void>((resolve) => { enter = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  state.beforeLoad = async (key) => {
+    if (blocked || key !== targetKey) return;
+    blocked = true;
+    enter();
+    await gate;
+    state.beforeLoad = undefined;
+  };
+  return { entered, release };
+}
+
 function conflictIds(state: FakePluginState): string[] {
   const index = state.files.get("notebrain/chat/index.json") as { sessions?: Array<{ id: string }> } | undefined;
   return (index?.sessions ?? []).map((item) => item.id).filter((id) => id.startsWith("conflict-"));
@@ -315,7 +371,7 @@ test("旧版无 revision/未知字段兼容，旧快照不删除新设备会话"
   assert.deepEqual(savedEntry.futureField, { enabled: true });
 });
 
-test("revision 冲突创建副本且显式删除写 tombstone，写入严格串行", async () => {
+test("revision 差异采用本地最后写入且显式删除写 tombstone，写入严格串行", async () => {
   const state = installFakePlugin();
   state.files.set("notebrain/chat/sessions/a.json", persistedSession("a", "remote-new", 2));
   state.files.set("notebrain/chat/index.json", {
@@ -335,9 +391,9 @@ test("revision 冲突创建副本且显式删除写 tombstone，写入严格串�
     saveKbChatSessionStorage({ activeConversationId: "a", conversations: [local] }),
   ]);
   assert.equal(first.success, true);
-  assert.ok(first.conflicts.length >= 1);
-  assert.ok(first.conversations.some((item) => item.messages.some((message) => message.content === "remote-new")));
+  assert.equal(first.conflicts.length, 0);
   assert.ok(first.conversations.some((item) => item.messages.some((message) => message.content === "local-branch")));
+  assert.equal(first.conversations.some((item) => item.messages.some((message) => message.content === "remote-new")), false);
   assert.equal(second.success, true);
   const conflictIndex = state.files.get("notebrain/chat/index.json") as { sessions: Array<Record<string, unknown>> };
   const sourceEntry = conflictIndex.sessions.find((item) => item.id === "a")!;
@@ -345,15 +401,14 @@ test("revision 冲突创建副本且显式删除写 tombstone，写入严格串�
   assert.equal(sourceEntry.archived, true);
   assert.equal(sourceEntry.modelProfileId, "profile-a");
   assert.deepEqual(sourceEntry.futureField, { enabled: true });
-  const kept = second.conversations.find((item) => item.id !== "a")!;
   const deleted = await saveKbChatSessionStorage({
-    activeConversationId: "a",
-    conversations: second.conversations.filter((item) => item.id !== kept.id),
-    explicitDeletedSessionIds: [kept.id],
+    activeConversationId: "",
+    conversations: [],
+    explicitDeletedSessionIds: ["a"],
   });
   assert.equal(deleted.success, true);
   const index = state.files.get("notebrain/chat/index.json") as { deletedSessions?: Array<{ id: string }> };
-  assert.ok(index.deletedSessions?.some((item) => item.id === kept.id));
+  assert.ok(index.deletedSessions?.some((item) => item.id === "a"));
   assert.equal(state.maxActiveWrites, 1);
 });
 
@@ -544,7 +599,7 @@ test("同设备连续保存会先合并 revision，不制造虚假冲突副本",
   assert.ok(saved.messages.some((message) => message.id === "v2"));
 });
 
-test("冲突副本创建期间继续产生的新内容会重绑定到同一冲突分支", async () => {
+test("远端 revision 变化时保存期间的新内容仍覆盖同一会话", async () => {
   const storage = installFakePlugin();
   seedChatSessions(storage, [{ id: "a", content: "远端第二版", revision: 2 }]);
   const store = createKbSessionStore({ persistDebounceDelay: 0 });
@@ -556,27 +611,26 @@ test("冲突副本创建期间继续产生的新内容会重绑定到同一冲�
     messages: [...state.messages, { id: "local-1", role: "user", content: "本地第一段", createdAt: 2 }],
   }));
   const gate = blockNextSessionSave(storage);
-  const conflictSave = store.persistConversationsNow();
+  const overwriteSave = store.persistConversationsNow();
   await gate.entered;
   store.update((state) => ({
     ...state,
     messages: [...state.messages, { id: "local-2", role: "user", content: "冲突保存期间的新内容", createdAt: 3 }],
   }));
   gate.release();
-  await conflictSave;
+  await overwriteSave;
   await store.flushPersistence();
 
   const ids = conflictIds(storage);
-  assert.equal(ids.length, 1);
+  assert.equal(ids.length, 0);
   const current = get(store);
-  assert.equal(current.activeConversationId, ids[0]);
+  assert.equal(current.activeConversationId, "a");
   assert.ok(current.messages.some((message) => message.id === "local-2"));
-  const savedConflict = storage.files.get(`notebrain/chat/sessions/${ids[0]}.json`) as {
+  const savedConversation = storage.files.get("notebrain/chat/sessions/a.json") as {
     messages: Array<{ id: string }>;
   };
-  assert.ok(savedConflict.messages.some((message) => message.id === "local-2"));
-  const savedRemote = storage.files.get("notebrain/chat/sessions/a.json") as { messages: Array<{ content: string }> };
-  assert.equal(savedRemote.messages[0]?.content, "远端第三版");
+  assert.ok(savedConversation.messages.some((message) => message.id === "local-2"));
+  assert.equal(savedConversation.messages.some((message) => message.id === "a-m"), true);
 });
 
 test("中断恢复通过统一入口更新 revision，后续普通保存不冲突", async () => {
@@ -635,4 +689,370 @@ test("中断恢复保存失败时保留恢复消息并显示真实错误", async
   const current = get(store);
   assert.equal(current.messages.filter((message) => message.id.startsWith("recovery-")).length, 1);
   assert.match(current.error ?? "", /恢复记录尚未保存.*write failed/);
+});
+
+test("新会话完成问答后无需 unload 或 debounce 即可由全新 Store 恢复", async () => {
+  installMemoryLocalStorage();
+  installFakePlugin();
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const storeA = createKbSessionStore({ persistDebounceDelay: 800 });
+  await storeA.hydrateConversations();
+  storeA.createConversation();
+  const activeId = get(storeA).activeConversationId;
+  storeA.renameConversation(activeId, "重启恢复会话");
+  storeA.update((state) => ({
+    ...state,
+    messages: [
+      { id: "restart-user", role: "user", content: "重启后还能看到吗", createdAt: 1 },
+      {
+        id: "restart-assistant",
+        role: "assistant",
+        content: "这是完整回答",
+        createdAt: 2,
+        isComplete: true,
+        citedReferences: [{
+          index: 1,
+          docTitle: "测试文档",
+          headingPathText: "测试文档",
+          sourceType: "web_page",
+          url: "https://example.com/reference",
+          sourceBlockIds: [],
+        }],
+      },
+    ],
+    conversations: state.conversations.map((conversation) => conversation.id === activeId
+      ? {
+          ...conversation,
+          title: "重启恢复会话",
+          agentSession: {
+            id: "agent-restart",
+            messages: [
+              { role: "user", content: "重启后还能看到吗" },
+              { role: "assistant", content: "这是完整回答" },
+            ],
+            updatedAt: 2,
+          },
+        }
+      : conversation),
+  }));
+
+  const checkpoint = await storeA.persistConversationsNow();
+  assert.equal(checkpoint?.success, true);
+
+  const storeB = createKbSessionStore({ persistDebounceDelay: 800 });
+  await storeB.hydrateConversations();
+  const restored = get(storeB);
+  assert.equal(restored.activeConversationId, activeId);
+  assert.equal(restored.conversations.find((item) => item.id === activeId)?.title, "重启恢复会话");
+  assert.equal(restored.messages.find((item) => item.id === "restart-user")?.content, "重启后还能看到吗");
+  const answer = restored.messages.find((item) => item.id === "restart-assistant");
+  assert.ok(answer?.role === "assistant");
+  assert.equal(answer.content, "这是完整回答");
+  assert.equal(answer.citedReferences?.[0]?.url, "https://example.com/reference");
+  assert.equal(restored.conversations.find((item) => item.id === activeId)?.agentSession?.id, "agent-restart");
+});
+
+test("多面板并发 hydrate 共用一次读取，ready 后不再覆盖本地状态", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  seedChatSessions(storage, [{ id: "a", content: "磁盘消息", revision: 1 }]);
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  const first = store.hydrateConversations();
+  const second = store.hydrateConversations();
+  const third = store.hydrateConversations();
+  assert.equal(first, second);
+  assert.equal(second, third);
+  await Promise.all([first, second, third]);
+  assert.equal(storage.loadCounts.get("notebrain/chat/index.json"), 1);
+
+  store.update((state) => ({
+    ...state,
+    messages: [...state.messages, { id: "after-ready", role: "user", content: "本地新消息", createdAt: 2 }],
+  }));
+  const activeBefore = get(store).activeConversationId;
+  await store.hydrateConversations();
+  assert.equal(storage.loadCounts.get("notebrain/chat/index.json"), 1);
+  assert.equal(get(store).activeConversationId, activeBefore);
+  assert.ok(get(store).messages.some((message) => message.id === "after-ready"));
+});
+
+test("hydrate 进行中的本地新会话不会被较旧磁盘快照覆盖", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  seedChatSessions(storage, [{ id: "remote", content: "磁盘旧会话", revision: 1 }]);
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const gate = blockNextLoad(storage, "notebrain/chat/index.json");
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  const hydration = store.hydrateConversations();
+  await gate.entered;
+
+  store.createConversation();
+  const localId = get(store).activeConversationId;
+  store.update((state) => ({
+    ...state,
+    messages: [{ id: "during-hydrate", role: "user", content: "水合期间的新消息", createdAt: 2 }],
+  }));
+  gate.release();
+  await hydration;
+
+  const state = get(store);
+  assert.equal(state.activeConversationId, localId);
+  assert.ok(state.messages.some((message) => message.id === "during-hydrate"));
+  assert.ok(state.conversations.some((conversation) => conversation.id === "remote"));
+  assert.ok(state.conversations.some((conversation) => conversation.id === localId));
+});
+
+test("session 暂时读取失败会有限重试，永久失败阻止默认会话覆盖并可明确重试", async () => {
+  installMemoryLocalStorage();
+  const transientStorage = installFakePlugin();
+  seedChatSessions(transientStorage, [{ id: "a", content: "可恢复", revision: 1 }]);
+  transientStorage.failLoadAttempts.set("notebrain/chat/sessions/a.json", 2);
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const transientStore = createKbSessionStore({ persistDebounceDelay: 0 });
+  await transientStore.hydrateConversations();
+  assert.equal(transientStorage.loadCounts.get("notebrain/chat/sessions/a.json"), 3);
+  assert.equal(get(transientStore).messages[0]?.content, "可恢复");
+
+  installMemoryLocalStorage();
+  const failedStorage = installFakePlugin();
+  seedChatSessions(failedStorage, [{ id: "a", content: "不能丢失", revision: 1 }]);
+  failedStorage.failLoadKeys.add("notebrain/chat/sessions/a.json");
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const failedStore = createKbSessionStore({ persistDebounceDelay: 0 });
+  await assert.rejects(() => failedStore.hydrateConversations(), /已重试 3 次/);
+  assert.equal(failedStore.getHydrationState(), "failed");
+  assert.match(get(failedStore).error ?? "", /已停止自动保存/);
+  assert.equal((failedStorage.files.get("notebrain/chat/index.json") as { sessions: unknown[] }).sessions.length, 1);
+  assert.equal([...failedStorage.files.keys()].some((key) => key.includes("conv-")), false);
+
+  failedStorage.failLoadKeys.clear();
+  await failedStore.retryHydration();
+  assert.equal(failedStore.getHydrationState(), "ready");
+  assert.equal(get(failedStore).messages[0]?.content, "不能丢失");
+});
+
+test("损坏和缺失 session 只产生部分恢复警告，不删除索引条目", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  seedChatSessions(storage, [
+    { id: "valid", content: "正常会话", revision: 1 },
+    { id: "invalid", content: "将损坏", revision: 1 },
+    { id: "missing", content: "将缺失", revision: 1 },
+  ], "valid");
+  storage.files.set("notebrain/chat/sessions/invalid.json", {
+    version: 1,
+    id: "invalid",
+    messages: "broken",
+  });
+  storage.files.delete("notebrain/chat/sessions/missing.json");
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  await store.hydrateConversations();
+  assert.equal(get(store).conversations.some((item) => item.id === "valid"), true);
+  assert.equal(get(store).conversations.some((item) => item.id === "invalid"), false);
+  assert.match(get(store).error ?? "", /1 个会话文件损坏.*1 个会话文件暂时不可用/);
+
+  await store.persistConversationsNow();
+  const index = storage.files.get("notebrain/chat/index.json") as { sessions: Array<{ id: string }> };
+  assert.deepEqual(index.sessions.map((item) => item.id).sort(), ["invalid", "missing", "valid"]);
+  assert.equal(storage.files.has("notebrain/chat/sessions/invalid.json"), true);
+  assert.equal(storage.files.has("notebrain/chat/sessions/missing.json"), false);
+});
+
+test("安全诊断可识别索引缺失和孤立 session，不输出聊天正文也不自动修复", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  seedChatSessions(storage, [{ id: "indexed", content: "敏感正文", revision: 1 }]);
+  storage.files.set("notebrain/chat/sessions/orphan.json", persistedSession("orphan", "孤立敏感正文", 1));
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  await store.hydrateConversations();
+  const diagnostic = await store.diagnosePersistence("orphan");
+  const orphan = diagnostic.sessions.find((item) => item.sessionId === "orphan");
+  assert.deepEqual(orphan, { sessionId: "orphan", indexed: false, status: "ok" });
+  assert.doesNotMatch(JSON.stringify(diagnostic), /敏感正文/);
+  const index = storage.files.get("notebrain/chat/index.json") as { sessions: Array<{ id: string }> };
+  assert.equal(index.sessions.some((item) => item.id === "orphan"), false);
+});
+
+test("最终 session 保存受阻时 journal 保留，成功写后验证后才清理", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  seedChatSessions(storage, [{ id: "a", content: "问题", revision: 1 }]);
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  await store.hydrateConversations();
+  store.update((state) => ({
+    ...state,
+    messages: [
+      ...state.messages,
+      { id: "journal-answer", role: "assistant", content: "最终回答", createdAt: 2, isComplete: true },
+    ],
+  }));
+  createTurnJournal({
+    conversationId: "a",
+    userMessageId: "a-m",
+    assistantMessageId: "journal-answer",
+    questionPreview: "问题",
+  });
+  await markTurnCompletedPendingPersistence({ answerPreview: "最终回答" });
+  const gate = blockNextSessionSave(storage);
+  const saving = store.persistConversationsNow();
+  await gate.entered;
+  assert.equal(readTurnJournal()?.status, "completed_pending_persist");
+  assert.equal(
+    (storage.files.get("notebrain.agentInFlightTurnJournal.v1") as { status?: string } | undefined)?.status,
+    "completed_pending_persist",
+  );
+  gate.release();
+  assert.equal((await saving)?.success, true);
+  assert.equal(readTurnJournal(), null);
+  assert.equal(storage.files.has("notebrain.agentInFlightTurnJournal.v1"), false);
+});
+
+test("最终保存失败时 journal 与内存回答保留，后续重试成功才清理", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  seedChatSessions(storage, [{ id: "a", content: "问题", revision: 1 }]);
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  await store.hydrateConversations();
+  store.update((state) => ({
+    ...state,
+    messages: [
+      ...state.messages,
+      { id: "failed-answer", role: "assistant", content: "已生成回答", createdAt: 2, isComplete: true },
+    ],
+  }));
+  createTurnJournal({
+    conversationId: "a",
+    userMessageId: "a-m",
+    assistantMessageId: "failed-answer",
+    questionPreview: "问题",
+  });
+  await markTurnCompletedPendingPersistence({ answerPreview: "已生成回答" });
+  storage.failSaveKeys.add("notebrain/chat/sessions/a.json");
+  const failed = await store.persistConversationsNow();
+  assert.equal(failed?.success, false);
+  assert.equal(readTurnJournal()?.status, "completed_pending_persist");
+  assert.ok(get(store).messages.some((message) => message.id === "failed-answer"));
+
+  storage.failSaveKeys.clear();
+  const retried = await store.persistConversationsNow();
+  assert.equal(retried?.success, true);
+  assert.equal(readTurnJournal(), null);
+});
+
+test("重启时已落盘的 completed_pending_persist 只清 journal 不重复插入回答", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  seedChatSessions(storage, [{ id: "a", content: "问题", revision: 1 }]);
+  storage.files.set("notebrain/chat/sessions/a.json", {
+    ...persistedSession("a", "问题", 1),
+    messages: [
+      { id: "a-m", role: "user", content: "问题", createdAt: 1 },
+      { id: "persisted-answer", role: "assistant", content: "已落盘完整回答", createdAt: 2, isComplete: true },
+    ],
+  });
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  createTurnJournal({
+    conversationId: "a",
+    userMessageId: "a-m",
+    assistantMessageId: "persisted-answer",
+    questionPreview: "问题",
+  });
+  await markTurnCompletedPendingPersistence({ answerPreview: "已落盘完整回答" });
+
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  await store.hydrateConversations();
+  const answers = get(store).messages.filter((message) => message.id === "persisted-answer");
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0]?.content, "已落盘完整回答");
+  assert.equal(readTurnJournal(), null);
+  assert.equal(storage.files.has("notebrain.agentInFlightTurnJournal.v1"), false);
+});
+
+test("重启时未落盘的 completed_pending_persist 保留安全预览并在恢复保存后清理", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  seedChatSessions(storage, [{ id: "a", content: "问题", revision: 1 }]);
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  createTurnJournal({
+    conversationId: "a",
+    userMessageId: "a-m",
+    assistantMessageId: "missing-answer",
+    questionPreview: "问题",
+  });
+  await markTurnCompletedPendingPersistence({ answerPreview: "仅保留的安全回答预览" });
+
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  await store.hydrateConversations();
+  const recovered = get(store).messages.find((message) => message.id.startsWith("recovery-missing-answer-"));
+  assert.ok(recovered?.role === "assistant");
+  assert.match(recovered.content, /仅保留的安全回答预览/);
+  assert.equal(recovered.isComplete, false);
+  assert.equal(readTurnJournal(), null);
+  assert.equal(storage.files.has("notebrain.agentInFlightTurnJournal.v1"), false);
+});
+
+test("长回答中途检查点可在重启后恢复部分内容且保持未完成状态", async () => {
+  installMemoryLocalStorage();
+  installFakePlugin();
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const storeA = createKbSessionStore({ persistDebounceDelay: 0 });
+  await storeA.hydrateConversations();
+  const conversationId = get(storeA).activeConversationId;
+  storeA.update((state) => ({
+    ...state,
+    messages: [
+      { id: "partial-user", role: "user", content: "长问题", createdAt: 1 },
+      { id: "partial-answer", role: "assistant", content: "已经生成的部分回答", createdAt: 2, isComplete: false },
+    ],
+  }));
+  createTurnJournal({
+    conversationId,
+    userMessageId: "partial-user",
+    assistantMessageId: "partial-answer",
+    questionPreview: "长问题",
+  });
+  await asyncFlushJournal();
+  assert.equal((await storeA.persistConversationsNow())?.success, true);
+
+  const storeB = createKbSessionStore({ persistDebounceDelay: 0 });
+  await storeB.hydrateConversations();
+  const partial = get(storeB).messages.find((message) => message.id === "partial-answer");
+  assert.ok(partial?.role === "assistant");
+  assert.equal(partial.content, "已经生成的部分回答");
+  assert.equal(partial.isComplete, false);
+  assert.match(get(storeB).error ?? "", /上次回答未完成/);
+});
+
+test("思源 loadData 对缺失文件返回空字符串时新会话首次保存成功", async () => {
+  installMemoryLocalStorage();
+  const storage = installFakePlugin();
+  storage.loadMutator = (_key, value) => value === null ? "" : value;
+  setTurnJournalPluginStorage({ saveData, loadData, removeData });
+  const store = createKbSessionStore({ persistDebounceDelay: 0 });
+  await store.hydrateConversations();
+  const conversationId = get(store).activeConversationId;
+  store.update((state) => ({
+    ...state,
+    messages: [
+      { id: "empty-string-user", role: "user", content: "首次消息", createdAt: 1 },
+      { id: "empty-string-assistant", role: "assistant", content: "", createdAt: 2, isComplete: false },
+    ],
+    asking: true,
+  }));
+
+  const result = await store.persistConversationsNow();
+  assert.equal(result?.success, true);
+  const stored = storage.files.get(`notebrain/chat/sessions/${conversationId}.json`) as {
+    id?: string;
+    messages?: Array<{ id?: string; role?: string; isComplete?: boolean }>;
+  } | undefined;
+  assert.equal(stored?.id, conversationId);
+  assert.equal(Array.isArray(stored?.messages), true);
+  assert.equal(stored?.messages?.some((message) => message.id === "empty-string-assistant" && message.isComplete === false), true);
+  assert.equal(get(store).messages.some((message) => message.id === "empty-string-assistant"), true);
 });

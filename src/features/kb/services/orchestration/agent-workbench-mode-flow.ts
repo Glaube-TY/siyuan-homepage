@@ -51,8 +51,9 @@ import type { AgentMessage } from "../agent-core/messages/agent-message";
 import {
   createTurnJournal,
   checkpointTurnJournal,
-  completeTurnJournal,
+  clearTurnJournalAfterPersistence,
   failTurnJournal,
+  markTurnCompletedPendingPersistence,
 } from "../agent-workbench/runtime/in-flight-turn-journal";
 
 /**
@@ -485,11 +486,24 @@ export async function runAgentWorkbenchModeFlow(
     thinkingMode,
     customDocIds,
     contextWindowTokens,
+    persistConversationNow,
   } = params;
 
   const assistantMessageId = params.turnId ?? createMessageId();
   let flushPendingAgentStreams: (() => void) | undefined;
   let cancelPendingAgentStreams: (() => void) | undefined;
+  let persistenceCheckpointTail: Promise<void> = Promise.resolve();
+
+  const runPersistenceCheckpoint = async (reason: string) => {
+    if (!persistConversationNow) {
+      return { success: false, error: `缺少会话持久化回调（${reason}）。` };
+    }
+    try {
+      return await persistConversationNow();
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  };
 
   try {
     const trimmed = question.trim();
@@ -538,6 +552,47 @@ export async function runAgentWorkbenchModeFlow(
 
     const stateForConversationContext = getState();
 
+    addMessage({
+      id: assistantMessageId,
+      role: "assistant",
+      content: "",
+      createdAt: Date.now(),
+      isComplete: false,
+      agentStatus: "正在分析问题...",
+    });
+
+    createTurnJournal({
+      conversationId: params.conversationId ?? actualUserMessageId,
+      userMessageId: actualUserMessageId,
+      assistantMessageId,
+      questionPreview: trimmed,
+    });
+
+    updateState((state) => ({
+      ...state,
+      asking: true,
+      qaError: "",
+      error: "",
+      agentStatus: "正在分析问题...",
+    }));
+
+    const initialPersistence = await runPersistenceCheckpoint("发送前");
+    if (!initialPersistence.success) {
+      setMessages((messages) => messages.filter((message) =>
+        !(message.id === assistantMessageId && message.role === "assistant" && !message.content.trim())
+      ));
+      const message = `会话保存失败，本轮未开始生成：${initialPersistence.error || "请稍后重试。"}`;
+      updateState((state) => ({
+        ...state,
+        asking: false,
+        qaError: message,
+        error: message,
+        agentStatus: undefined,
+      }));
+      failTurnJournal({ reason: "initial_persistence_failed" });
+      return { success: false, error: message };
+    }
+
     // ── Auto compression check before building conversationContext ──
     const usageSnapshot = estimateContextUsage({
       messages: stateForConversationContext.messages,
@@ -582,6 +637,12 @@ export async function runAgentWorkbenchModeFlow(
         error: "",
         agentStatus: undefined,
       }));
+
+      failTurnJournal({ reason: "preflight_compression_failed" });
+      const failedCheckpoint = await runPersistenceCheckpoint("上下文压缩失败");
+      if (failedCheckpoint.success) {
+        await clearTurnJournalAfterPersistence();
+      }
 
       return { success: false, error: preflightResult.reason ?? "上下文压力过大，紧急压缩未能完成" };
     }
@@ -675,35 +736,10 @@ export async function runAgentWorkbenchModeFlow(
       title: d.title,
     }));
 
-    addMessage({
-      id: assistantMessageId,
-      role: "assistant",
-      content: "",
-      createdAt: Date.now(),
-      isComplete: false,
-      agentStatus: "正在分析问题...",
-    });
-
-    // ── Create in-flight turn journal for crash survival ──
-    createTurnJournal({
-      conversationId: params.conversationId ?? actualUserMessageId,
-      userMessageId: actualUserMessageId,
-      assistantMessageId,
-      questionPreview: trimmed,
-    });
-
     pushAgentDebugEvent("ASSISTANT_RUN_MESSAGE_CREATED", {
       contentChars: 0,
       isComplete: false,
     }, "debug");
-
-    updateState((state) => ({
-      ...state,
-      asking: true,
-      qaError: "",
-      error: "",
-      agentStatus: "正在分析问题...",
-    }));
 
     if (isAgentWorkbenchDebugLogEnabled()) {
       pushAgentDebugEvent("WORKBENCH_START", {
@@ -719,6 +755,8 @@ export async function runAgentWorkbenchModeFlow(
     let reasoningContent = "";
     let reasoningPartCount = 0;
     let reasoningFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastCheckpointAt = Date.now();
+    let lastCheckpointChars = 0;
     const userThinkingMode = thinkingMode ?? "off";
     const persistedAgentSessionMessages = getPersistedAgentSessionMessages(stateAfterCompression);
     let agentSessionMessages = persistedAgentSessionMessages;
@@ -820,6 +858,21 @@ export async function runAgentWorkbenchModeFlow(
       cancelReasoningFlush();
     };
 
+    const enqueuePersistenceCheckpoint = (reason: string, contentChars: number): void => {
+      lastCheckpointAt = Date.now();
+      lastCheckpointChars = contentChars;
+      persistenceCheckpointTail = persistenceCheckpointTail.then(async () => {
+        flushPendingAgentStreams?.();
+        const checkpoint = await runPersistenceCheckpoint(reason);
+        if (!checkpoint.success) {
+          updateState((state) => ({
+            ...state,
+            error: `回答生成中，但会话检查点保存失败：${checkpoint.error || "请稍后重试。"}`,
+          }));
+        }
+      });
+    };
+
     // Agent Workbench runtime path.
     // 真实聊天只走 Agent Workbench。
     // Agent Workbench 失败时直接把安全错误呈现到当前 assistant message。
@@ -881,6 +934,11 @@ export async function runAgentWorkbenchModeFlow(
         streamingContent = fullContent;
         latestFullContent = fullContent;
         scheduleAnswerFlush();
+        const now = Date.now();
+        if (now - lastCheckpointAt >= 2500 || fullContent.length - lastCheckpointChars >= 1500) {
+          flushAnswerContent();
+          enqueuePersistenceCheckpoint("流式回答", fullContent.length);
+        }
       },
       onWorkbenchEvent: (event) => {
         // ── Journal checkpoint for crash survival ──
@@ -952,6 +1010,13 @@ export async function runAgentWorkbenchModeFlow(
               return { ...m, workbenchEvents: liveWorkbenchEvents, agentStatus: nextAgentStatus };
             })
           );
+        }
+        if (
+          event.type === "tool_result"
+          || event.type === "permission_resolved"
+          || event.type === "assistant_final"
+        ) {
+          enqueuePersistenceCheckpoint(`工作台事件：${event.type}`, latestFullContent.length);
         }
       },
       onAnswerFinish: (fullContent) => {
@@ -1051,6 +1116,17 @@ export async function runAgentWorkbenchModeFlow(
 
       failTurnJournal({ reason: "user_aborted" });
 
+      await persistenceCheckpointTail;
+      const abortedPersistence = await runPersistenceCheckpoint("手动停止");
+      if (abortedPersistence.success) {
+        await clearTurnJournalAfterPersistence();
+      } else {
+        updateState((state) => ({
+          ...state,
+          error: `已停止回答，但会话尚未保存：${abortedPersistence.error || "请稍后重试。"}`,
+        }));
+      }
+
       return { success: true };
     }
 
@@ -1115,7 +1191,16 @@ export async function runAgentWorkbenchModeFlow(
       agentStatus: undefined,
     }));
 
-    completeTurnJournal();
+    await persistenceCheckpointTail;
+    const finalContent = streamingContent || result.answer;
+    await markTurnCompletedPendingPersistence({ answerPreview: finalContent });
+    const finalPersistence = await runPersistenceCheckpoint("最终回答");
+    if (!finalPersistence.success) {
+      const persistenceError = `回答已生成，但会话尚未保存：${finalPersistence.error || "请稍后重试。"}`;
+      updateState((state) => ({ ...state, error: persistenceError }));
+      return { success: false, error: persistenceError };
+    }
+    await clearTurnJournalAfterPersistence();
 
     return { success: true };
   } catch (err) {
@@ -1150,6 +1235,17 @@ export async function runAgentWorkbenchModeFlow(
         agentStatus: undefined,
       }));
 
+      await persistenceCheckpointTail;
+      const abortedPersistence = await runPersistenceCheckpoint("异常中止");
+      if (abortedPersistence.success) {
+        await clearTurnJournalAfterPersistence();
+      } else {
+        updateState((state) => ({
+          ...state,
+          error: `回答已中止，但会话尚未保存：${abortedPersistence.error || "请稍后重试。"}`,
+        }));
+      }
+
       return { success: true };
     }
 
@@ -1180,6 +1276,17 @@ export async function runAgentWorkbenchModeFlow(
       error: userErrorMsg,
       agentStatus: undefined,
     }));
+
+    await persistenceCheckpointTail;
+    const failurePersistence = await runPersistenceCheckpoint("异常回答");
+    if (failurePersistence.success) {
+      await clearTurnJournalAfterPersistence();
+    } else {
+      updateState((state) => ({
+        ...state,
+        error: `${userErrorMsg}\n会话尚未保存：${failurePersistence.error || "请稍后重试。"}`,
+      }));
+    }
 
     return { success: false, error: rawErrorMsg };
   }

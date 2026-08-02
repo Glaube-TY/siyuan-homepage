@@ -13,15 +13,23 @@ import type { AgentMessage } from "../services/agent-core/messages/agent-message
 import {
   restoreKbChatSessions,
   saveKbChatSessionStorage,
+  inspectKbChatSessionStorage,
   flushStorageWrites,
   type ChatStorageSaveResult,
+  type ChatSessionReadIssue,
   isTransientAssistantPlaceholder,
 } from "../services/agent-workbench/storage/chat-session-facade";
 import type { ResolvedReferenceDocInfo } from "../services/session/reference-doc-resolver";
 import { estimateContextUsage } from "../types/context-usage";
 import { pushAgentDebugEvent } from "../services/agent-workbench/debug/workbench-debug";
 import { executeCompression as doCompress } from "../services/context-compression";
-import { readTurnJournalAsync, recoverTurnJournal, readLastKnownState, clearLastKnownState } from "../services/agent-workbench/runtime/in-flight-turn-journal";
+import {
+  clearTurnJournalAfterPersistence,
+  readTurnJournal,
+  readTurnJournalAsync,
+  readLastKnownState,
+  clearLastKnownState,
+} from "../services/agent-workbench/runtime/in-flight-turn-journal";
 
 /** 生成会话唯一 id */
 function generateConversationId(): string {
@@ -341,6 +349,10 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
 
   /** Hydration 完成标记：防止 hydration 前默认空会话被持久化覆盖存储 */
   let hydrationCompleted = false;
+  type HydrationState = "idle" | "loading" | "ready" | "failed";
+  let hydrationState: HydrationState = "idle";
+  let hydrationPromise: Promise<void> | null = null;
+  let hydrationError: Error | null = null;
 
   type StorageBackedConversation = KbConversationSession & { storageRevision?: number };
 
@@ -398,74 +410,26 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
     return state.conversations.map((item) => item.id === active.id ? snapshot : item);
   }
 
-  function conflictTitle(title: string): string {
-    return title.endsWith("（冲突副本）") ? title : `${title}（冲突副本）`;
-  }
-
-  function mergeStorageResultIntoNewerState(
+  function mergeStorageResultIntoCurrentState(
     state: ExtendedState,
-    captured: CapturedPersistenceSnapshot,
     result: ChatStorageSaveResult,
   ): ExtendedState {
     const currentConversations = materializeActiveConversation(state);
-    const currentById = new Map(currentConversations.map((item) => [item.id, item]));
-    const capturedById = new Map(captured.conversations.map((item) => [item.id, item]));
-    const resultById = new Map(result.conversations.map((item) => [item.id, item]));
+    const savedById = new Map(result.conversations.map((item) => [item.id, item]));
     const mergedById = new Map<string, KbConversationSession>();
-
-    for (const conversation of currentConversations) {
-      if (!pendingExplicitDeletedSessionIds.has(conversation.id)) {
-        mergedById.set(conversation.id, conversation);
-      }
+    // Persistence may intentionally sanitize runtime-only fields. Never replace the live
+    // message list with the round-tripped storage representation; only adopt revisions.
+    for (const current of currentConversations) {
+      if (pendingExplicitDeletedSessionIds.has(current.id)) continue;
+      mergedById.set(current.id, withStorageRevision(current, savedById.get(current.id)));
     }
-
-    const conflictSources = new Set<string>();
-    const conflictIds = new Set<string>();
-    let activeConversationId = state.activeConversationId;
-
-    for (const conflict of result.conflicts) {
-      conflictSources.add(conflict.sourceSessionId);
-      conflictIds.add(conflict.conflictSessionId);
-      const currentSource = currentById.get(conflict.sourceSessionId);
-      const capturedSource = capturedById.get(conflict.sourceSessionId);
-      const remoteSource = resultById.get(conflict.sourceSessionId);
-      const savedConflict = resultById.get(conflict.conflictSessionId);
-      const sourceChanged = !!currentSource && !!capturedSource
-        && !sameConversationContent(currentSource, capturedSource);
-
-      if (remoteSource && !pendingExplicitDeletedSessionIds.has(remoteSource.id)) {
-        mergedById.set(remoteSource.id, remoteSource);
-      } else {
-        mergedById.delete(conflict.sourceSessionId);
-      }
-
-      if (savedConflict && !pendingExplicitDeletedSessionIds.has(savedConflict.id)) {
-        const localBranch = sourceChanged && currentSource
-          ? withStorageRevision({
-              ...currentSource,
-              id: conflict.conflictSessionId,
-              title: conflictTitle(currentSource.title),
-            }, savedConflict)
-          : savedConflict;
-        mergedById.set(conflict.conflictSessionId, localBranch);
-      }
-
-      if (activeConversationId === conflict.sourceSessionId) {
-        activeConversationId = conflict.conflictSessionId;
-      }
-    }
-
     for (const saved of result.conversations) {
-      if (
-        pendingExplicitDeletedSessionIds.has(saved.id)
-        || conflictSources.has(saved.id)
-        || conflictIds.has(saved.id)
-      ) continue;
-      const current = mergedById.get(saved.id);
-      mergedById.set(saved.id, current ? withStorageRevision(current, saved) : saved);
+      if (pendingExplicitDeletedSessionIds.has(saved.id) || mergedById.has(saved.id)) continue;
+      mergedById.set(saved.id, saved);
     }
 
     const conversations = [...mergedById.values()];
+    let activeConversationId = state.activeConversationId;
     if (!conversations.some((item) => item.id === activeConversationId)) {
       activeConversationId = conversations.some((item) => item.id === result.activeConversationId)
         ? result.activeConversationId
@@ -484,9 +448,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
       webAccessMode: active.webAccessMode ?? "off",
       compressedContextSummary: active.compressedContextSummary,
       compressionState: active.compressionState,
-      error: result.conflicts.length > 0
-        ? "检测到其他设备已修改会话，本地内容已另存为冲突副本。"
-        : state.error,
+      error: state.error,
     };
   }
 
@@ -502,33 +464,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
     const hasNewerMutation = localMutationVersion > captured.mutationVersion;
     storeUpdate((state) => {
       if (result.conversations.length === 0) return state;
-      if (hasNewerMutation) {
-        return mergeStorageResultIntoNewerState(state, captured, result);
-      }
-      const activeConflict = result.conflicts.find(
-        (item) => item.sourceSessionId === state.activeConversationId,
-      );
-      let activeConversationId = activeConflict?.conflictSessionId ?? state.activeConversationId;
-      if (!result.conversations.some((item) => item.id === activeConversationId)) {
-        activeConversationId = result.conversations.some((item) => item.id === result.activeConversationId)
-          ? result.activeConversationId
-          : result.conversations[0].id;
-      }
-      const active = result.conversations.find((item) => item.id === activeConversationId)!;
-      return {
-        ...state,
-        conversations: result.conversations,
-        activeConversationId,
-        messages: active.messages,
-        stageSummaries: active.stageSummaries ?? [],
-        thinkingMode: active.thinkingMode ?? "off",
-        webAccessMode: active.webAccessMode ?? "off",
-        compressedContextSummary: active.compressedContextSummary,
-        compressionState: active.compressionState,
-        error: result.conflicts.length > 0
-          ? "检测到其他设备已修改会话，本地内容已另存为冲突副本。"
-          : state.error,
-      };
+      return mergeStorageResultIntoCurrentState(state, result);
     });
     storageApplicationVersion += 1;
     return hasNewerMutation;
@@ -561,6 +497,17 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
       }
     }
     const needsFollowUp = applyStorageResult(result, captured);
+    if (result.success) {
+      const journal = readTurnJournal() ?? await readTurnJournalAsync();
+      if (
+        journal?.status === "completed_pending_persist"
+        && result.conversations.some((conversation) =>
+          conversation.messages.some((message) => message.id === journal.assistantMessageId)
+        )
+      ) {
+        await clearTurnJournalAfterPersistence();
+      }
+    }
     if (needsFollowUp && pendingStorePersistenceCount <= 1) {
       if (persistDebounceTimer) {
         clearTimeout(persistDebounceTimer);
@@ -594,6 +541,16 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
       await tail;
       if (tail === storePersistenceTail) return;
     }
+  }
+
+  function formatSessionReadWarning(issues: readonly ChatSessionReadIssue[]): string {
+    if (issues.length === 0) return "";
+    const invalidCount = issues.filter((item) => item.status === "invalid").length;
+    const missingCount = issues.filter((item) => item.status === "missing").length;
+    const parts: string[] = [];
+    if (invalidCount > 0) parts.push(`${invalidCount} 个会话文件损坏`);
+    if (missingCount > 0) parts.push(`${missingCount} 个会话文件暂时不可用`);
+    return `部分聊天记录未能读取：${parts.join("，")}。原索引和文件均未被修改。`;
   }
 
   function schedulePersist(): void {
@@ -695,8 +652,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
       ),
     };
   }
-
-
+  let hydrateConversations!: () => Promise<void>;
 
   return {
     subscribe,
@@ -893,8 +849,17 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
           webAccessMode: newConversation.webAccessMode ?? "off",
         };
       });
-      // 触发持久化
-      schedulePersist();
+      // 新会话 ID 和索引立即进入统一队列；失败时保留本地会话并显示真实错误。
+      if (hydrationCompleted) {
+        void enqueueStorePersistence().then((result) => {
+          if (!result?.success) {
+            storeUpdate((state) => ({
+              ...state,
+              error: result?.errors.join("；") || "新会话保存失败，请稍后重试。",
+            }));
+          }
+        });
+      }
     },
 
     // 切换会话
@@ -1070,19 +1035,33 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
      * - 不恢复运行态字段
      * - 异步补全 reference 标题（懒加载）
      */
-    hydrateConversations: async () => {
-      try {
+    hydrateConversations: hydrateConversations = () => {
+      if (hydrationState === "ready") return Promise.resolve();
+      if (hydrationState === "loading" && hydrationPromise) return hydrationPromise;
+      if (hydrationState === "failed") {
+        return Promise.reject(hydrationError ?? new Error("聊天记录恢复失败，请明确重试。"));
+      }
+      hydrationState = "loading";
+      hydrationError = null;
+      const hydrationStartMutationVersion = localMutationVersion;
+      hydrationPromise = (async () => {
+        try {
         const restored = await restoreKbChatSessions();
         if (!restored) {
           hydrationCompleted = true;
+          hydrationState = "ready";
           return;
         }
+        const restoreWarning = formatSessionReadWarning(restored.sessionReadIssues);
         // 先更新状态，让界面立刻可用
         storeUpdate((state) => {
           // 验证恢复的会话数据
           if (!restored.conversations || restored.conversations.length === 0) {
             console.warn("[KbSessionStore] Restored conversations is empty");
-            return state;
+            return {
+              ...state,
+              error: restoreWarning || "聊天记录索引存在，但会话文件暂时无法读取。",
+            };
           }
 
           // 清理所有 loading 消息和运行态占位 assistant 消息
@@ -1114,6 +1093,19 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
 
           const targetConv = cleanedConversations.find((c) => c.id === activeId)!;
 
+          if (localMutationVersion > hydrationStartMutationVersion) {
+            const currentConversations = materializeActiveConversation(state);
+            const currentIds = new Set(currentConversations.map((item) => item.id));
+            return {
+              ...state,
+              conversations: [
+                ...currentConversations,
+                ...cleanedConversations.filter((item) => !currentIds.has(item.id)),
+              ],
+              error: restoreWarning || state.error,
+            };
+          }
+
           return {
             ...state,
             conversations: cleanedConversations,
@@ -1123,7 +1115,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
             agentStatus: undefined,
             asking: false,
             qaError: "",
-            error: "",
+            error: restoreWarning,
             selectedMode: restored.selectedMode as ChatMode | undefined,
             compressedContextSummary: targetConv.compressedContextSummary,
             compressionState: targetConv.compressionState,
@@ -1180,16 +1172,22 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
           }
         }, 100);
 
-        // Hydration 成功完成，允许 schedulePersist 运行
+        // 基础 Hydration 成功完成，允许恢复消息复用统一持久化入口。
         hydrationCompleted = true;
 
         // ── In-flight turn journal recovery ──
         try {
           const journal = await readTurnJournalAsync();
-          if (journal && (journal.status === "running" || journal.status === "failed")) {
+          if (journal && (
+            journal.status === "running"
+            || journal.status === "failed"
+            || journal.status === "completed_pending_persist"
+          )) {
             const lastKnown = readLastKnownState();
             const wasPermissionConfirm = lastKnown?.permissionConfirmClicked === true;
 
+            let journalAlreadyPersisted = false;
+            let recoveredPartialAnswer = false;
             update((state) => {
               // 1. Locate target conversation by journal.conversationId first, fallback to active
               const targetConvId = state.conversations.some((c) => c.id === journal.conversationId)
@@ -1237,23 +1235,36 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
                 (m: any) => m.role === "assistant" && m.id === journal.assistantMessageId
               );
 
+              if (journal.status === "completed_pending_persist" && hasAssistantMsg) {
+                journalAlreadyPersisted = true;
+                return state;
+              }
+
               let updatedConvMessages: any[];
               if (hasAssistantMsg) {
                 updatedConvMessages = targetConvMessages.map((m: any) =>
                   m.id === journal.assistantMessageId && m.role === "assistant"
-                    ? { ...m, content: recoveryContent, isComplete: true, workbenchEvents: safeWorkbenchEvents, agentStatus: undefined }
+                    ? m.content.trim()
+                      ? (() => {
+                          recoveredPartialAnswer = true;
+                          return { ...m, isComplete: false, agentStatus: undefined };
+                        })()
+                      : { ...m, content: recoveryContent, isComplete: true, workbenchEvents: safeWorkbenchEvents, agentStatus: undefined }
                     : m
                 );
               } else {
                 const userMsgIndex = targetConvMessages.findIndex(
                   (m: any) => m.role === "user" && m.id === journal.userMessageId
                 );
+                const completedPending = journal.status === "completed_pending_persist";
                 const recoveryMsg = {
                   id: `recovery-${journal.assistantMessageId}-${Date.now()}`,
                   role: "assistant" as const,
-                  content: recoveryContent,
+                  content: completedPending
+                    ? `上次回答完成后未能持久化，以下为可恢复内容：${journal.answerPreview || "未保留完整回答，请重新提问。"}`
+                    : recoveryContent,
                   createdAt: Date.now(),
-                  isComplete: true,
+                  isComplete: completedPending ? false : true,
                   workbenchEvents: safeWorkbenchEvents,
                 };
                 if (userMsgIndex >= 0) {
@@ -1291,6 +1302,19 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
               };
             });
 
+            if (journalAlreadyPersisted) {
+              await clearTurnJournalAfterPersistence();
+              clearLastKnownState();
+              hydrationState = "ready";
+              return;
+            }
+            if (recoveredPartialAnswer) {
+              storeUpdate((state) => ({
+                ...state,
+                error: "上次回答未完成，已恢复持久化检查点中的部分内容。",
+              }));
+            }
+
             // 4. 通过 Store 级协调器立即保存恢复内容，并合并新 revision。
             const recoverySaveResult = await enqueueStorePersistence();
             if (!recoverySaveResult?.success) {
@@ -1298,10 +1322,10 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
                 ...state,
                 error: `恢复记录尚未保存：${recoverySaveResult?.errors.join("；") || "会话保存失败，请稍后重试。"}`,
               }));
+            } else {
+              await clearTurnJournalAfterPersistence();
+              clearLastKnownState();
             }
-
-            recoverTurnJournal();
-            clearLastKnownState();
           } else {
             clearLastKnownState();
           }
@@ -1311,11 +1335,45 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
             error: `恢复记录尚未保存：${error instanceof Error ? error.message : String(error)}`,
           }));
         }
+        hydrationState = "ready";
       } catch (e) {
-        console.warn("[KbSessionStore] Failed to hydrate conversations:", e);
-        // 保持默认会话，标记 hydration 完成（允许持久化默认会话）
-        hydrationCompleted = true;
+        const error = e instanceof Error ? e : new Error(String(e));
+        console.warn("[KbSessionStore] Failed to hydrate conversations:", error);
+        hydrationCompleted = false;
+        hydrationState = "failed";
+        hydrationError = error;
+        storeUpdate((state) => ({
+          ...state,
+          error: `聊天记录恢复失败：${error.message}。为防止覆盖旧数据，已停止自动保存。`,
+        }));
+        throw error;
       }
+      })();
+      return hydrationPromise;
+    },
+
+    retryHydration: () => {
+      if (hydrationState === "loading" && hydrationPromise) return hydrationPromise;
+      if (hydrationState === "ready") return Promise.resolve();
+      hydrationState = "idle";
+      hydrationPromise = null;
+      hydrationError = null;
+      return hydrateConversations();
+    },
+
+    getHydrationState: () => hydrationState,
+
+    diagnosePersistence: async (sessionId?: string) => {
+      const storage = await inspectKbChatSessionStorage(sessionId);
+      const journal = readTurnJournal() ?? await readTurnJournalAsync();
+      return {
+        ...storage,
+        journal: journal ? {
+          status: journal.status,
+          conversationId: journal.conversationId,
+          assistantMessageId: journal.assistantMessageId,
+        } : null,
+      };
     },
 
     /**
@@ -1506,12 +1564,12 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
      * - 不保存运行态 trace
      * - reference 只保存轻量元数据
      */
-    persistConversationsNow: async () => {
+    persistConversationsNow: async (): Promise<ChatStorageSaveResult | null> => {
       if (persistDebounceTimer) {
         clearTimeout(persistDebounceTimer);
         persistDebounceTimer = null;
       }
-      await enqueueStorePersistence();
+      return enqueueStorePersistence();
     },
 
     /**

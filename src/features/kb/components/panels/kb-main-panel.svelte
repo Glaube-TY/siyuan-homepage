@@ -48,6 +48,7 @@
 
   export let placement: "dock" | "tab" | "mobile" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
+  let sessionHydrationReady = false;
 
   /** 当前面板实例的稳定路由 ID；不会在会话切换时变化。 */
   const panelInstanceId = `kb-panel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -215,6 +216,7 @@
   }
 
   async function handleSend(e: CustomEvent<string | { question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" }>) {
+    if (!sessionHydrationReady) return;
     if (asking) return;
     const payload = normalizeSendPayload(e.detail);
     const { question, mode: effectiveMode, thinkingMode: submittedThinkingMode, attachedDocIds, attachedDocs, webAccessMode: submittedWebAccessMode } = payload;
@@ -338,12 +340,25 @@
     }
   }
 
-  function handleStop() {
+  async function persistConversationCheckpoint(): Promise<{ success: boolean; error?: string }> {
+    const result = await kbSessionStore.persistConversationsNow();
+    return result?.success
+      ? { success: true }
+      : { success: false, error: result?.errors.join("；") || "会话保存失败。" };
+  }
+
+  async function handleStop() {
     kbSessionStore.stop();
     void cancelPendingDocContentEditConfirmation("用户已取消操作。");
     void cancelPendingNativePermission("用户已取消操作。");
     kbSessionStore.markLatestAssistantManuallyStopped();
-    kbSessionStore.syncActiveConversationSnapshot();
+    const persisted = await persistConversationCheckpoint();
+    if (!persisted.success) {
+      kbSessionStore.update((state) => ({
+        ...state,
+        error: `已停止回答，但会话尚未保存：${persisted.error || "请稍后重试。"}`,
+      }));
+    }
     refreshContextUsageSafe("stop");
   }
 
@@ -371,6 +386,7 @@
       permissionState: "allowed",
     });
     void asyncFlushJournal();
+    void persistConversationCheckpoint();
     writeLastKnownState({
       asking: $kbSessionStore.asking,
       activeConversationId: ($kbSessionStore as ExtendedKbSessionState).activeConversationId ?? "",
@@ -410,6 +426,8 @@
       confirmationId,
       permissionState: "denied",
     });
+    void asyncFlushJournal();
+    void persistConversationCheckpoint();
     if (nativePermissionResolve) {
       nativePermissionResolve({ type: "deny", reason: "用户取消了操作。" });
       nativePermissionResolve = null;
@@ -735,27 +753,27 @@
   // 创建新会话（增加 asking 保护）
   function handleCreateConversation() {
     // 回答生成中禁止切换会话
-    if (asking) return;
+    if (asking || !sessionHydrationReady) return;
     kbSessionStore.createConversation();
   }
 
   // 切换会话（增加 asking 保护）
   function handleSwitchConversation(e: CustomEvent<string>) {
-    if (asking) return;
+    if (asking || !sessionHydrationReady) return;
     const id = e.detail;
     kbSessionStore.switchConversation(id);
   }
 
   // 重命名会话（增加 asking 保护）
   function handleRenameConversation(e: CustomEvent<{ id: string; title: string }>) {
-    if (asking) return;
+    if (asking || !sessionHydrationReady) return;
     const { id, title } = e.detail;
     kbSessionStore.renameConversation(id, title);
   }
 
   // 删除会话（增加 asking 保护）
   function handleDeleteConversation(e: CustomEvent<string>) {
-    if (asking) return;
+    if (asking || !sessionHydrationReady) return;
     const id = e.detail;
     kbSessionStore.deleteConversation(id);
   }
@@ -1094,12 +1112,11 @@
       attachedDocs,
       contextWindowTokens: getSelectedContextWindowTokens(),
       webAccessMode: submittedWebAccessMode ?? effectiveWebAccessMode,
+      persistConversationNow: persistConversationCheckpoint,
     });
 
     // 只有当前会话仍等于请求归属会话时，才同步状态
     if (activeConversationId === requestConversationId) {
-      // 问答完成后同步活跃会话状态到 conversations（更新消息数和 updatedAt）
-      kbSessionStore.syncActiveConversationSnapshot();
       refreshContextUsageSafe("ask_complete");
     } else {
       console.warn("[KbMainPanel] syncActiveConversationSnapshot skipped: conversation switched during request");
@@ -1203,10 +1220,10 @@
       chatModelSelection,
       contextWindowTokens: getSelectedContextWindowTokens(),
       webAccessMode: effectiveWebAccessModeForTurn,
+      persistConversationNow: persistConversationCheckpoint,
     });
 
     if (activeConversationId === requestConversationId) {
-      kbSessionStore.syncActiveConversationSnapshot();
       refreshContextUsageSafe("regenerate_complete");
     }
 
@@ -1247,8 +1264,7 @@
   }
 
   function handleBeforeUnload() {
-    // 同步 flush：清除 debounce 定时器，立即持久化当前会话
-    // sendBeacon 不可用（需要 JSON body），改为同步触发
+    // 仅作 best-effort 辅助；浏览器/Electron 不保证等待该 Promise。
     void kbSessionStore.persistConversationsNow();
 
     // Write last-known state for crash diagnosis
@@ -1265,9 +1281,26 @@
     });
   }
 
+  function handlePageHidden() {
+    if (document.visibilityState === "hidden") {
+      void kbSessionStore.persistConversationsNow();
+    }
+  }
+
+  function handlePageHide() {
+    void kbSessionStore.persistConversationsNow();
+  }
+
   onMount(() => {
     void (async () => {
-      await kbSessionStore.hydrateConversations();
+      try {
+        await kbSessionStore.hydrateConversations();
+        sessionHydrationReady = true;
+      } catch (error) {
+        sessionHydrationReady = false;
+        console.warn("[KbMainPanel] 聊天记录恢复失败，已禁用发送：", error);
+        return;
+      }
       await refreshChatModelOptions();
       try {
         const settings = await getKbSettings();
@@ -1284,6 +1317,8 @@
 
     // 页面卸载前立即 flush 当前会话持久化
     window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handlePageHide);
+    document.addEventListener("visibilitychange", handlePageHidden);
 
     // 注册文档内容编辑确认桥 handler
     const unregisterConfirmationHandler = registerDocContentEditConfirmationHandler(panelInstanceId, async (request) => {
@@ -1363,6 +1398,8 @@
       unregisterNativeBridge();
       unregisterSelectionAskHandler();
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handlePageHidden);
     };
   });
 
@@ -1383,6 +1420,7 @@
   onDestroy(() => {
     if (messagesDebounceTimer) clearTimeout(messagesDebounceTimer);
     cancelPendingNativePermission("组件已销毁。");
+    // best-effort：组件销毁不会等待异步完成，主要保障来自问答生命周期检查点。
     void kbSessionStore.flushPersistence();
     window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged as EventListener);
   });
@@ -1395,7 +1433,7 @@
       {conversations}
       {activeConversationId}
       open={conversationSidebarOpen}
-      disabled={asking}
+      disabled={asking || !sessionHydrationReady}
       on:create={handleCreateConversation}
       on:switch={handleSwitchConversation}
       on:rename={handleRenameConversation}
@@ -1422,7 +1460,7 @@
           type="button"
           class="toolbar-btn"
           on:click={handleCreateConversation}
-          disabled={asking}
+          disabled={asking || !sessionHydrationReady}
           title="新对话"
         >
           <span class="btn-icon"><SiyuanIcon name="iconAdd" size={13} /></span>
@@ -1482,7 +1520,7 @@
           bind:this={chatInputBarRef}
           selectedMode={selectedMode}
           value={draftQuestion ?? ""}
-          disabled={asking}
+          disabled={asking || !sessionHydrationReady}
           placeholder="输入问题，按 Enter 发送"
           asking={asking}
           modelOptions={chatModelOptions}

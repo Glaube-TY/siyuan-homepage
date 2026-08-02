@@ -442,7 +442,6 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
       return persisted;
     }
     case "assistant": {
-      if (isTransientAssistantPlaceholder(message)) return null;
       const persisted: PersistedChatMessage = {
         id: message.id,
         role: "assistant",

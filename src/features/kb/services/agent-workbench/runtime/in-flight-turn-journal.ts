@@ -28,10 +28,10 @@
  *   checkpointTurnJournal → on tool_start / permission_required / permission_resolved /
  *                            tool_result / assistant_final / done / error / notice
  *   asyncFlushJournal  → explicit async flush to plugin data file (call before critical moments)
- *   completeTurnJournal → on normal answer_ready
- *   failTurnJournal     → on manual stop or abort, then scheduleClearAfter(10 min)
+ *   markTurnCompletedPendingPersistence → answer ready, before session save
+ *   clearTurnJournalAfterPersistence → only after the session save is verified
+ *   failTurnJournal     → on manual stop or abort; journal stays until recovery is persisted
  *   readTurnJournal     → on hydrate for crash recovery
- *   recoverTurnJournal  → after recovery applied
  */
 
 import { saveData, loadData, removeData } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
@@ -77,7 +77,7 @@ export interface InFlightTurnJournal {
   questionPreview: string;
   startedAt: number;
   updatedAt: number;
-  status: "running" | "recovering" | "completed" | "failed";
+  status: "running" | "recovering" | "completed" | "completed_pending_persist" | "failed";
   lastEventType: string;
   lastStepIndex?: number;
   lastToolName?: string;
@@ -155,45 +155,23 @@ async function deletePluginData(): Promise<void> {
  * Write journal to localStorage synchronously, and schedule an async flush
  * to plugin data file. Tool-critical events also trigger immediate async write.
  */
+let journalStorageTail: Promise<void> = Promise.resolve();
+
+function enqueueJournalStorage(task: () => Promise<void>): Promise<void> {
+  const run = journalStorageTail.catch(() => undefined).then(task);
+  journalStorageTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 function writeJournal(journal: InFlightTurnJournal): void {
   writeLocalStorage(journal);
-  // Best-effort async write to plugin data file for durability
-  void (async () => {
-    try { await writePluginData(journal); } catch { /* ignore */ }
-  })();
+  const snapshot = structuredClone(journal);
+  void enqueueJournalStorage(() => writePluginData(snapshot));
 }
 
 function readJournalSync(): InFlightTurnJournal | null {
   // Always read from localStorage as the sync fast path
   return readLocalStorage();
-}
-
-function deleteJournalDual(): void {
-  deleteLocalStorage();
-  void (async () => {
-    try { await deletePluginData(); } catch { /* ignore */ }
-  })();
-}
-
-// ─── Clear timer ─────────────────────────────────────────────────────────────
-
-let clearTimer: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleClearAfter(ms: number): void {
-  if (clearTimer !== null) {
-    clearTimeout(clearTimer);
-  }
-  clearTimer = setTimeout(() => {
-    clearTimer = null;
-    deleteJournalDual();
-  }, ms);
-}
-
-function cancelScheduledClear(): void {
-  if (clearTimer !== null) {
-    clearTimeout(clearTimer);
-    clearTimer = null;
-  }
 }
 
 // ─── Throttle for answer preview updates ─────────────────────────────────────
@@ -241,7 +219,7 @@ function scheduleAsyncFlush(): void {
       // (multiple checkpoints may have happened between schedule and execution)
       const latest = readLocalStorage();
       if (latest) {
-        await writePluginData(latest);
+        await enqueueJournalStorage(() => writePluginData(structuredClone(latest)));
       }
     } catch { /* ignore */ }
     if (seq === flushSeq) {
@@ -271,7 +249,6 @@ export function createTurnJournal(params: {
     answerPreview: "",
     workbenchEvents: [],
   };
-  cancelScheduledClear();
   writeJournal(journal);
 }
 
@@ -333,22 +310,34 @@ export async function asyncFlushJournal(): Promise<void> {
   const journal = readLocalStorage();
   if (!journal) return;
   try {
-    await writePluginData(journal);
+    await enqueueJournalStorage(() => writePluginData(structuredClone(journal)));
   } catch {
     // Silently ignore.
   }
 }
 
-export function completeTurnJournal(): void {
+export async function markTurnCompletedPendingPersistence(params: {
+  answerPreview?: string;
+  reason?: string;
+} = {}): Promise<void> {
   const journal = readLocalStorage();
-  if (journal) {
-    journal.status = "completed";
-    journal.updatedAt = Date.now();
-    journal.lastEventType = "completed";
-    writeLocalStorage(journal);
+  if (!journal) return;
+  journal.status = "completed_pending_persist";
+  journal.updatedAt = Date.now();
+  journal.lastEventType = "completed_pending_persist";
+  if (params.answerPreview !== undefined) {
+    journal.answerPreview = previewText(params.answerPreview, ANSWER_PREVIEW_MAX_CHARS);
   }
-  deleteJournalDual();
-  cancelScheduledClear();
+  if (params.reason !== undefined) {
+    journal.reason = previewText(params.reason, 200);
+  }
+  writeLocalStorage(journal);
+  await enqueueJournalStorage(() => writePluginData(structuredClone(journal)));
+}
+
+export async function clearTurnJournalAfterPersistence(): Promise<void> {
+  deleteLocalStorage();
+  await enqueueJournalStorage(() => deletePluginData());
 }
 
 export function failTurnJournal(params: { reason?: string } = {}): void {
@@ -359,7 +348,6 @@ export function failTurnJournal(params: { reason?: string } = {}): void {
     journal.lastEventType = "failed";
     journal.reason = params.reason ? previewText(params.reason, 200) : "stopped";
     writeJournal(journal);
-    scheduleClearAfter(10 * 60 * 1000);
   }
 }
 
@@ -386,18 +374,6 @@ export async function readTurnJournalAsync(): Promise<InFlightTurnJournal | null
     }
   }
   return readLocalStorage();
-}
-
-export function recoverTurnJournal(): void {
-  const journal = readLocalStorage();
-  if (journal) {
-    journal.status = "recovering";
-    journal.updatedAt = Date.now();
-    journal.lastEventType = "recovered";
-    writeLocalStorage(journal);
-  }
-  deleteJournalDual();
-  cancelScheduledClear();
 }
 
 // ─── Last-known-state (beforeunload / permission confirm) ────────────────────

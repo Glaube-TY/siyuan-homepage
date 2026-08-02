@@ -37,6 +37,25 @@ export interface ChatStorageSnapshot {
   activeConversationId: string;
   conversations: KbConversationSession[];
   selectedMode?: string;
+  sessionReadIssues: ChatSessionReadIssue[];
+}
+
+export interface ChatSessionReadIssue {
+  sessionId: string;
+  status: "missing" | "invalid";
+  error?: string;
+}
+
+export interface ChatStorageDiagnostic {
+  indexStatus: "ok" | "missing" | "invalid" | "error";
+  activeSessionId?: string;
+  indexedSessionIds: string[];
+  sessions: Array<{
+    sessionId: string;
+    indexed: boolean;
+    status: "ok" | "missing" | "invalid" | "error";
+    error?: string;
+  }>;
 }
 
 export interface ChatStorageConflict {
@@ -96,11 +115,6 @@ function sameKnownSessionPayload(remote: ChatSessionData, local: ChatSessionData
   return true;
 }
 
-function createConflictId(sourceId: string): string {
-  const safePrefix = sourceId.slice(0, 40).replace(/[^a-zA-Z0-9_-]/g, "-");
-  return `conflict-${safePrefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
 function createOperationId(): string {
   return `delete-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -132,19 +146,40 @@ async function readIndexForWrite(): Promise<ChatSessionIndex> {
   return result.data;
 }
 
+async function loadSessionForRestore(sessionId: string) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await loadChatSessionStrict(sessionId);
+    if (result.status !== "error") return result;
+    if (attempt === maxAttempts) {
+      throw new Error(`读取会话 ${sessionId} 失败（已重试 ${maxAttempts} 次）：${result.error}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, attempt * 30));
+  }
+  throw new Error(`读取会话 ${sessionId} 失败。`);
+}
+
 async function loadSnapshotFromIndex(index: ChatSessionIndex): Promise<ChatStorageSnapshot> {
   const tombstoned = new Set((index.deletedSessions ?? []).map((item) => item.id));
   const conversations: KbConversationSession[] = [];
+  const sessionReadIssues: ChatSessionReadIssue[] = [];
   for (const entry of index.sessions) {
     if (tombstoned.has(entry.id)) continue;
-    const session = await loadChatSessionStrict(entry.id);
-    if (session.status !== "ok") continue;
+    const session = await loadSessionForRestore(entry.id);
+    if (session.status === "missing") {
+      sessionReadIssues.push({ sessionId: entry.id, status: "missing" });
+      continue;
+    }
+    if (session.status === "invalid") {
+      sessionReadIssues.push({ sessionId: entry.id, status: "invalid", error: session.error });
+      continue;
+    }
     conversations.push(fromSessionData(session.data));
   }
   const activeConversationId = conversations.some((item) => item.id === index.activeSessionId)
     ? index.activeSessionId
     : conversations[0]?.id ?? "";
-  return { activeConversationId, conversations, selectedMode: index.selectedMode };
+  return { activeConversationId, conversations, selectedMode: index.selectedMode, sessionReadIssues };
 }
 
 export async function restoreKbChatSessions(): Promise<ChatStorageSnapshot | null> {
@@ -154,7 +189,34 @@ export async function restoreKbChatSessions(): Promise<ChatStorageSnapshot | nul
     throw new Error(result.status === "invalid" ? result.error : `读取会话索引失败：${result.error}`);
   }
   const snapshot = await loadSnapshotFromIndex(result.data);
-  return snapshot.conversations.length > 0 ? snapshot : null;
+  if (snapshot.conversations.length > 0 || snapshot.sessionReadIssues.length > 0) return snapshot;
+  return result.data.sessions.length === 0 ? null : snapshot;
+}
+
+/** 只返回安全 ID 和状态，不输出聊天正文，也不自动修复任何文件。 */
+export async function inspectKbChatSessionStorage(sessionId?: string): Promise<ChatStorageDiagnostic> {
+  const indexResult = await loadChatSessionIndexStrict();
+  const indexStatus = indexResult.status;
+  const index = indexResult.status === "ok" ? indexResult.data : undefined;
+  const indexedSessionIds = index?.sessions.map((entry) => entry.id) ?? [];
+  const ids = new Set(indexedSessionIds);
+  if (sessionId) ids.add(sessionId);
+  const sessions: ChatStorageDiagnostic["sessions"] = [];
+  for (const id of ids) {
+    const result = await loadChatSessionStrict(id);
+    sessions.push({
+      sessionId: id,
+      indexed: indexedSessionIds.includes(id),
+      status: result.status,
+      ...(result.status === "error" || result.status === "invalid" ? { error: result.error } : {}),
+    });
+  }
+  return {
+    indexStatus,
+    activeSessionId: index?.activeSessionId,
+    indexedSessionIds,
+    sessions,
+  };
 }
 
 export async function saveKbChatSessionStorage(payload: {
@@ -185,10 +247,6 @@ export async function saveKbChatSessionStorage(payload: {
           throw new Error(latest.status === "invalid" ? latest.error : `读取会话 ${conv.id} 失败：${latest.error}`);
         }
 
-        const storedRevision = (conv as StorageBackedConversation).storageRevision;
-        const baseRevision = Number.isSafeInteger(storedRevision) && (storedRevision ?? 0) >= 0
-          ? storedRevision!
-          : 0;
         if (latest.status === "missing") {
           const next = { ...local, revision: 1 };
           pendingWrites.push(next);
@@ -210,38 +268,16 @@ export async function saveKbChatSessionStorage(payload: {
           ));
           continue;
         }
-
-        if (baseRevision === remoteRevision) {
-          const next = { ...remote, ...local, revision: remoteRevision + 1 };
-          pendingWrites.push(next);
-          entries.set(next.id, createSessionIndexEntry(
-            next,
-            createLastMessagePreview(next.messages),
-            entries.get(next.id),
-          ));
-          continue;
-        }
-
-        const conflictSessionId = createConflictId(conv.id);
-        const conflictCreatedAt = Date.now();
-        const conflict = {
-          ...local,
-          id: conflictSessionId,
-          title: `${local.title}（冲突副本）`,
-          updatedAt: conflictCreatedAt,
-          revision: 1,
-          conflictOfSessionId: conv.id,
-          conflictCreatedAt,
-        } satisfies ChatSessionData;
-        pendingWrites.push(conflict);
-        entries.set(remote.id, createSessionIndexEntry(
-          remote,
-          createLastMessagePreview(remote.messages),
-          entries.get(remote.id),
+        // SiYuan sync already owns cross-device conflict snapshots and reloads the workspace
+        // after applying synced data. Keep the hot chat path local-last-write-wins instead of
+        // manufacturing a second conversation from a transient revision mismatch.
+        const next = { ...remote, ...local, revision: remoteRevision + 1 };
+        pendingWrites.push(next);
+        entries.set(next.id, createSessionIndexEntry(
+          next,
+          createLastMessagePreview(next.messages),
+          entries.get(next.id),
         ));
-        entries.set(conflict.id, createSessionIndexEntry(conflict, createLastMessagePreview(conflict.messages)));
-        conflicts.push({ sourceSessionId: conv.id, conflictSessionId });
-        if (activeSessionId === conv.id) activeSessionId = conflictSessionId;
       }
 
       // 会话文件必须全部成功并通过回读验证，才能提交索引。
@@ -282,6 +318,7 @@ export async function saveKbChatSessionStorage(payload: {
         activeConversationId: payload.activeConversationId,
         conversations: payload.conversations,
         selectedMode: payload.selectedMode,
+        sessionReadIssues: [],
         success: false,
         conflicts,
         deletedSessionIds: [],

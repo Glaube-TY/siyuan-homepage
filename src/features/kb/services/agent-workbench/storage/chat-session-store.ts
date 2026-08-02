@@ -12,10 +12,16 @@ import {
 import { saveData, loadData, loadDataStrict, removeData, type StorageReadResult } from "./notebrain-plugin-storage";
 
 export type ValidatedStorageRead<T> = StorageReadResult<T> | { status: "invalid"; error: string };
+/** SiYuan Plugin.loadData() returns an empty string for a file that does not exist yet. */
+function isMissingPluginFileValue(value: unknown): boolean {
+  return value === "";
+}
+
 
 export async function loadChatSessionIndexStrict(): Promise<ValidatedStorageRead<ChatSessionIndex>> {
   const result = await loadDataStrict<ChatSessionIndex>(NOTEBRAIN_CHAT_INDEX_KEY);
   if (result.status !== "ok") return result;
+  if (isMissingPluginFileValue(result.data)) return { status: "missing" };
   const data = result.data;
   if (!data || data.version !== 1 || !Array.isArray(data.sessions)) {
     return { status: "invalid", error: "会话索引 JSON 结构无效。" };
@@ -57,6 +63,7 @@ export async function loadChatSessionStrict(sessionId: string): Promise<Validate
   if (!isValidStorageId(sessionId)) return { status: "invalid", error: "会话 ID 无效。" };
   const result = await loadDataStrict<ChatSessionData>(toSessionKey(sessionId));
   if (result.status !== "ok") return result;
+  if (isMissingPluginFileValue(result.data)) return { status: "missing" };
   const data = result.data;
   if (!data || data.version !== 1 || data.id !== sessionId || !Array.isArray(data.messages)) {
     return { status: "invalid", error: `会话 ${sessionId} JSON 结构无效。` };

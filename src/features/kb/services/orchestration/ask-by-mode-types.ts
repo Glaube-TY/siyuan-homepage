@@ -42,6 +42,13 @@ export interface AskByModeParams {
   contextWindowTokens?: number;
   /** 联网搜索模式: off(关闭), smart(智能), required(必须) */
   webAccessMode?: "off" | "smart" | "required";
+  /** Store 级立即持久化检查点；必须等待文件和索引写后验证。 */
+  persistConversationNow?: () => Promise<ConversationPersistenceCheckpointResult>;
+}
+
+export interface ConversationPersistenceCheckpointResult {
+  success: boolean;
+  error?: string;
 }
 
 /** Ask By Mode 结果 */
