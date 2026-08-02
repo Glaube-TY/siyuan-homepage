@@ -132,7 +132,8 @@ export function isTransientAssistantPlaceholder(message: ChatMessage): boolean {
     !message.content.trim() &&
     message.isComplete === false &&
     !message.agentMemory &&
-    !(message.citedReferences && message.citedReferences.length > 0)
+    !(message.citedReferences && message.citedReferences.length > 0) &&
+    !(message.workbenchEvents && message.workbenchEvents.length > 0)
   );
 }
 
@@ -460,7 +461,9 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
       if (message.agentMemory) {
         persisted.agentMemory = toPersistedAgentTurnMemory(message.agentMemory);
       }
-      if (message.isComplete !== false && message.workbenchEvents && message.workbenchEvents.length > 0) {
+      // 工具事件本身已经过安全裁剪。即使本轮被停止或失败，也要保留执行记录，
+      // 否则刷新后会丢失失败原因与工具统计。
+      if (message.workbenchEvents && message.workbenchEvents.length > 0) {
         const persistedEvents = message.workbenchEvents
           .map(toPersistedWorkbenchEvent)
           .filter((event): event is PersistedWorkbenchEvent => event !== null);
@@ -522,7 +525,21 @@ function fromPersistedMessage(message: PersistedChatMessage): ChatMessage {
         const restoredEvents = message.workbenchEvents
           .map(fromPersistedWorkbenchEvent)
           .filter((event): event is AgentWorkbenchEvent => event !== null);
-        if (restoredEvents.length > 0) assistantMsg.workbenchEvents = restoredEvents;
+        if (restoredEvents.length > 0) {
+          assistantMsg.workbenchEvents = restoredEvents;
+          const finalDoneEvent = [...restoredEvents]
+            .reverse()
+            .find((event) => event.type === "done");
+          // 兼容旧版终态落盘竞态：answer_ready 是运行时已经完成回答的可信终止证据。
+          // 仅纠正这一种明确成功状态；失败、取消和无终止事件仍保留原 isComplete。
+          if (
+            finalDoneEvent?.type === "done"
+            && (finalDoneEvent.status === "answer_ready" || finalDoneEvent.status === "failed")
+            && assistantMsg.content.trim().length > 0
+          ) {
+            assistantMsg.isComplete = true;
+          }
+        }
       }
       if (message.reasoning && message.reasoning.content.trim().length > 0) {
         assistantMsg.reasoning = {

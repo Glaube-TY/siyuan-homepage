@@ -1142,7 +1142,8 @@ const HIGH_RISK_SIYUAN_ACTIONS = new Set([
 function joinTargetLines(args: Record<string, unknown>): string {
   const keys = [
     "id", "ids", "docId", "blockId", "blockIds", "fromID", "toID", "refIDs",
-    "notebook", "path", "targetPath", "fromPaths", "toNotebook", "toPath",
+    "sourceDocId", "targetBlockId", "sourceHeadingId", "sourceListItemId", "targetNotebookId",
+    "notebook", "path", "targetPath", "previousPath", "fromPaths", "toNotebook", "toPath",
     "avID", "blockID", "viewID", "keyID", "previousKeyID",
     "label", "oldLabel", "newLabel", "deckID", "cardID", "cardIDs",
     "blockIDs", "cardDues", "resetType", "due", "rating", "reviewedCardIDs",

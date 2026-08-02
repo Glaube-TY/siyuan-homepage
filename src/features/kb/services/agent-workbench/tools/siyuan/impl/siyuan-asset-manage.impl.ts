@@ -7,7 +7,7 @@ import {
   setImageOCRText,
 } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
-import { isDisposableAssetPath, type SiyuanAssetManageInput } from "../contracts/siyuan-asset-manage.contract";
+import { isDisposableAssetPath, toSiyuanAssetApiPath, type SiyuanAssetManageInput } from "../contracts/siyuan-asset-manage.contract";
 import { outputForAction, requireString, requireStringArray } from "./siyuan-tool-impl-utils.impl";
 
 function requireDisposablePath(value: unknown, field: string): string {
@@ -15,23 +15,23 @@ function requireDisposablePath(value: unknown, field: string): string {
   if (!isDisposableAssetPath(path)) {
     throw new Error(`[invalid_args] ${field} 只能指向本轮 disposable 测试资源（路径需包含 nb_agent / notebrain_agent / notebrain_test / notebrain-agent-test）。`);
   }
-  return path;
+  return toSiyuanAssetApiPath(path);
 }
 
 export async function executeSiyuanAssetManage(args: SiyuanAssetManageInput): Promise<{ output: SiyuanToolOutput }> {
   let data: unknown;
   switch (args.action) {
     case "rename":
-      data = await renameAsset(requireString(args.path, "path"), requireString(args.newName, "newName"));
+      data = await renameAsset(toSiyuanAssetApiPath(requireString(args.path, "path")), requireString(args.newName, "newName"));
       break;
     case "set_annotation":
-      data = await setFileAnnotation(requireString(args.path, "path"), args.annotation ?? "");
+      data = await setFileAnnotation(toSiyuanAssetApiPath(requireString(args.path, "path")), args.annotation ?? "");
       break;
     case "set_image_ocr":
-      data = await setImageOCRText(requireString(args.path, "path"), args.text ?? "");
+      data = await setImageOCRText(toSiyuanAssetApiPath(requireString(args.path, "path")), args.text ?? "");
       break;
     case "ocr":
-      data = await ocrAsset(requireString(args.path, "path"));
+      data = await ocrAsset(toSiyuanAssetApiPath(requireString(args.path, "path")));
       break;
     case "remove_unused_one":
       data = await removeUnusedAsset(requireDisposablePath(args.path, "path"));
@@ -45,7 +45,7 @@ export async function executeSiyuanAssetManage(args: SiyuanAssetManageInput): Pr
       }
       const results = [];
       for (const path of paths) {
-        results.push({ path, result: await removeUnusedAsset(path) });
+        results.push({ path, result: await removeUnusedAsset(toSiyuanAssetApiPath(path)) });
       }
       data = { count: results.length, results };
       break;

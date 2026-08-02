@@ -143,6 +143,16 @@ export async function executeConfirmedInsertBlock(
     insertedBlockId = ops[0]?.id ?? undefined;
   }
 
+  // 内核事务先返回、SQL 索引后可见。Agent 常会立刻把 insertedBlockId 交给
+  // move/update/delete；这里短暂等待索引可见，避免下一步误报“目标块不存在”。
+  if (insertedBlockId) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const rows = await sql(`SELECT id FROM blocks WHERE id = '${escapeSqlId(insertedBlockId)}' LIMIT 1`);
+      if (rows[0]) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
   // 8. 成功后清理 confirmation
   await removeDocContentEditConfirmation(confirmationId);
 

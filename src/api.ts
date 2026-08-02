@@ -1947,8 +1947,8 @@ export async function getRefIDs(id: string): Promise<any> {
     return requestChecked('/api/block/getRefIDs', { id }, 'getRefIDs');
 }
 
-export async function getBlockDefIDsByRefText(refText: string): Promise<any> {
-    return requestChecked('/api/block/getBlockDefIDsByRefText', { refText }, 'getBlockDefIDsByRefText');
+export async function getBlockDefIDsByRefText(anchor: string): Promise<any> {
+    return requestChecked('/api/block/getBlockDefIDsByRefText', { anchor }, 'getBlockDefIDsByRefText');
 }
 
 export async function getRefText(id: string): Promise<any> {
@@ -1999,11 +1999,11 @@ export async function getBlockTreeInfos(ids: string[]): Promise<any> {
     return requestChecked('/api/block/getBlockTreeInfos', { ids }, 'getBlockTreeInfos');
 }
 
-export async function checkBlockRef(id: string): Promise<any> {
-    return requestChecked('/api/block/checkBlockRef', { id }, 'checkBlockRef');
+export async function checkBlockRef(ids: string[]): Promise<any> {
+    return requestChecked('/api/block/checkBlockRef', { ids }, 'checkBlockRef');
 }
 
-export async function swapBlockRef(params: SiyuanApiPayload): Promise<any> {
+export async function swapBlockRef(params: { refID: string; defID: string; includeChildren: boolean }): Promise<any> {
     return requestChecked('/api/block/swapBlockRef', params, 'swapBlockRef');
 }
 
@@ -2052,7 +2052,15 @@ export async function changeSort(params: SiyuanApiPayload): Promise<any> {
 }
 
 export async function doc2Heading(params: SiyuanApiPayload): Promise<any> {
-    return requestChecked('/api/filetree/doc2Heading', params, 'doc2Heading');
+  return requestChecked('/api/filetree/doc2Heading', params, 'doc2Heading');
+}
+
+/**
+ * 结构转换 API 依赖目标块所在文档已经进入内核块树缓存。
+ * 传入任意真实文档/块 ID，getDoc 会加载其所属文档，并返回编辑器数据。
+ */
+export async function loadDocumentTreeByBlockID(id: string): Promise<any> {
+  return requestChecked('/api/filetree/getDoc', { id }, 'getDoc');
 }
 
 export async function heading2Doc(params: SiyuanApiPayload): Promise<any> {
@@ -2092,7 +2100,8 @@ export async function getFileAnnotation(path: string): Promise<any> {
 }
 
 export async function setFileAnnotation(path: string, annotation: string): Promise<any> {
-    return requestChecked('/api/asset/setFileAnnotation', { path, annotation }, 'setFileAnnotation');
+    // SiYuan kernel names the annotation payload field `data`.
+    return requestChecked('/api/asset/setFileAnnotation', { path, data: annotation }, 'setFileAnnotation');
 }
 
 export async function getUnusedAssets(): Promise<any> {

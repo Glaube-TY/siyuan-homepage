@@ -12,9 +12,11 @@ const optionalIdParam = z.preprocess(
   z.string().trim().min(1).max(256).optional(),
 );
 
-export const listKnowledgeMapInputSchema = z.object({
-  view: z.enum(["notebooks", "notebook_roots", "children", "subtree", "neighborhood", "list"]).optional().default("notebook_roots"),
+const listKnowledgeMapRawInputSchema = z.object({
+  view: z.enum(["notebooks", "notebook_roots", "children", "subtree", "neighborhood", "list"]).optional(),
   rootDocId: optionalIdParam,
+  // 兼容模型常用的 docId 写法；执行前统一归一为 rootDocId。
+  docId: optionalIdParam,
   centerDocId: optionalIdParam,
   notebookId: optionalIdParam,
   cursor: optionalIdParam,
@@ -23,6 +25,16 @@ export const listKnowledgeMapInputSchema = z.object({
   includeLinkedDocs: z.boolean().optional().default(false),
   includeTags: z.boolean().optional().default(false),
 }).strict();
+
+export const listKnowledgeMapInputSchema = listKnowledgeMapRawInputSchema.transform((input) => {
+  const { docId, ...rest } = input;
+  const rootDocId = rest.rootDocId ?? docId;
+  return {
+    ...rest,
+    view: rest.view ?? (rootDocId ? "children" : "notebook_roots"),
+    rootDocId,
+  };
+});
 
 export type ListKnowledgeMapInput = z.infer<typeof listKnowledgeMapInputSchema>;
 

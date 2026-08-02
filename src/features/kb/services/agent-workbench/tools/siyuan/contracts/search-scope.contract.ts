@@ -1,9 +1,14 @@
 import { z } from "zod";
 
-export const searchScopeInputSchema = z.object({
+const rawSearchScopeInputSchema = z.object({
   query: z.string().trim().min(1).max(500),
   limit: z.number().int().min(1).max(50).optional().default(20),
+  // 旧提示和部分模型会主动附带 scope。真实范围始终由聊天模式注入，
+  // 因此兼容接收但不允许它覆盖运行时 AgentScope。
+  scope: z.string().trim().max(64).optional(),
 }).strict();
+
+export const searchScopeInputSchema = rawSearchScopeInputSchema.transform(({ scope: _scope, ...input }) => input);
 
 export type SearchScopeInput = z.infer<typeof searchScopeInputSchema>;
 

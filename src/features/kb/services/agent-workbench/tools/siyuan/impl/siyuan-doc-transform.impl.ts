@@ -1,4 +1,4 @@
-import { doc2Heading, heading2Doc, li2Doc } from "../../../../../../../api";
+import { doc2Heading, flushTransaction, heading2Doc, li2Doc, loadDocumentTreeByBlockID } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanDocTransformInput } from "../contracts/siyuan-doc-transform.contract";
 import { compactPayload, outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
@@ -7,24 +7,38 @@ export async function executeSiyuanDocTransform(args: SiyuanDocTransformInput): 
   let data: unknown;
   switch (args.action) {
     case "doc_to_heading":
+      await Promise.all([
+        loadDocumentTreeByBlockID(requireString(args.sourceDocId, "sourceDocId")),
+        loadDocumentTreeByBlockID(requireString(args.targetBlockId, "targetBlockId")),
+      ]);
       data = await doc2Heading(compactPayload({
-        id: args.id,
-        notebook: args.notebook,
-        path: requireString(args.path, "path"),
-        targetPath: args.targetPath,
-      }, ["id", "notebook", "path", "targetPath"]));
+        srcID: requireString(args.sourceDocId, "sourceDocId"),
+        targetID: requireString(args.targetBlockId, "targetBlockId"),
+        after: args.after,
+      }, ["srcID", "targetID", "after"]));
+      await flushTransaction();
       break;
     case "heading_to_doc":
+      await loadDocumentTreeByBlockID(requireString(args.sourceHeadingId, "sourceHeadingId"));
       data = await heading2Doc(compactPayload({
-        id: requireString(args.id, "id"),
+        srcHeadingID: requireString(args.sourceHeadingId, "sourceHeadingId"),
+        targetNoteBook: requireString(args.targetNotebookId, "targetNotebookId"),
         targetPath: args.targetPath,
-      }, ["id", "targetPath"]));
+        previousPath: args.previousPath,
+        toTop: args.toTop,
+      }, ["srcHeadingID", "targetNoteBook", "targetPath", "previousPath", "toTop"]));
+      await flushTransaction();
       break;
     case "list_item_to_doc":
+      await loadDocumentTreeByBlockID(requireString(args.sourceListItemId, "sourceListItemId"));
       data = await li2Doc(compactPayload({
-        id: requireString(args.id, "id"),
+        srcListItemID: requireString(args.sourceListItemId, "sourceListItemId"),
+        targetNoteBook: requireString(args.targetNotebookId, "targetNotebookId"),
         targetPath: args.targetPath,
-      }, ["id", "targetPath"]));
+        previousPath: args.previousPath,
+        toTop: args.toTop,
+      }, ["srcListItemID", "targetNoteBook", "targetPath", "previousPath", "toTop"]));
+      await flushTransaction();
       break;
   }
   return { output: outputForAction(args.action, data) };

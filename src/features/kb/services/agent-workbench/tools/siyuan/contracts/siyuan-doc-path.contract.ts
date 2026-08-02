@@ -17,9 +17,6 @@ export const siyuanDocPathInputSchema = z.object({
     }
   }
   if (value.action === "hpaths_by_paths") {
-    if (!value.notebook) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "hpaths_by_paths 需要 notebook。", path: ["notebook"] });
-    }
     if (!value.paths || value.paths.length === 0) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "hpaths_by_paths 需要 paths。", path: ["paths"] });
     }

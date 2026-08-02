@@ -357,7 +357,7 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createAggregateTool({
       name: "siyuan_kb",
       title: meta?.title ?? "思源知识库",
-      description: meta?.description ?? "搜索、读取和分析思源知识库资料。",
+      description: `${meta?.description ?? "搜索、读取和分析思源知识库资料。"}\n参数摘要：search(query, limit；scope 可省略)；read_docs(docIds 或 blockIds)；read_evidence(仅 blockIds)；get_doc_info(docId)；list_map(view 及对应文档/笔记本 ID)；list_by_time(itemType)；outline(docId)；refs/extra_search 的 args 内还需各自 action。只有 docId/docIds 时必须用 read_docs；list_map 返回的是文档 ID，不是块级证据 ID。`,
       boundary: meta?.boundary ?? "只读知识库工具。",
       actions: [
         { action: "search", tool: createSearchScopeTool(searchDeps) },
@@ -398,7 +398,7 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createAggregateTool({
       name: "siyuan_database",
       title: meta?.title ?? "思源数据库",
-      description: meta?.description ?? "查询和操作思源数据库/属性视图。",
+      description: `${meta?.description ?? "查询和操作思源数据库/属性视图。"}\nID 摘要：databaseId/avID=属性视图 ID；blockID=承载数据库的思源块 ID；rowId/itemID=行 ID；keyID=字段 ID；viewID=视图 ID，不能用名称或其他 ID 代替。`,
       boundary: meta?.boundary ?? "写入数据库前需要确认。",
       actions: [
         { action: "list", tool: createListAttributeViewsTool(listAttributeViewsDeps) },
@@ -446,7 +446,7 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createAggregateTool({
       name: "siyuan_doc_edit",
       title: meta?.title ?? "思源文档编辑",
-      description: meta?.description ?? "读取块信息，并对文档和内容块执行受控编辑。",
+      description: `${meta?.description ?? "读取块信息，并对文档和内容块执行受控编辑。"}\nID 摘要：docId=文档根块 ID；blockId=内容块 ID；notebookId=笔记本 ID；块引用的 refID/refIDs=引用所在块 ID，defID/fromID/toID=定义块 ID。`,
       boundary: meta?.boundary ?? "写入文档前需要确认。",
       actions,
     }));
@@ -457,7 +457,7 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createAggregateTool({
       name: "siyuan_tree",
       title: meta?.title ?? "思源树与笔记本",
-      description: meta?.description ?? "管理笔记本、文档树和路径解析。",
+      description: `${meta?.description ?? "管理笔记本、文档树和路径解析。"}\nID 摘要：notebook=笔记本 ID；doc_tree.move 使用存储路径，move_by_id 使用文档 ID；duplicate 只要源文档 ID；sort 使用笔记本 ID + 排序后的存储路径数组。查看整树可只传 notebookId。`,
       boundary: meta?.boundary ?? "文档树写入前需要确认。",
       actions: [
         { action: "notebook", tool: createSiyuanNotebookManageTool(siyuanNotebookManageDeps) },
@@ -486,7 +486,7 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createAggregateTool({
       name: "siyuan_asset",
       title: meta?.title ?? "思源资源",
-      description: meta?.description ?? "读取和管理 assets 以及受限工作区文件。",
+      description: `${meta?.description ?? "读取和管理 assets 以及受限工作区文件。"}\n路径摘要：资源 API 使用 assets/... 逻辑路径；工作区文件 API 使用 /data/... 路径；两者不可混用。`,
       boundary: meta?.boundary ?? "资源和文件写入前需要确认。",
       actions: [
         { action: "read", tool: createSiyuanAssetReadTool(siyuanAssetReadDeps) },

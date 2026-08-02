@@ -41,7 +41,11 @@ export function createGenericSiyuanTool<TArgs>(
     inputJsonSchemaOverride: options.inputJsonSchemaOverride,
     resolveCallSafety(args: Record<string, unknown>) {
       if (options.readOnly) return { readOnly: true, riskLevel: "low" };
-      const action = typeof args.action === "string" ? args.action : "";
+      const parsed = options.inputSchema.safeParse(args);
+      const normalizedArgs = parsed.success
+        ? parsed.data as Record<string, unknown>
+        : args;
+      const action = typeof normalizedArgs.action === "string" ? normalizedArgs.action : "";
       if (options.readOnlyActions?.includes(action)) return { readOnly: true, riskLevel: "low" };
       return { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel: "medium" };
     },

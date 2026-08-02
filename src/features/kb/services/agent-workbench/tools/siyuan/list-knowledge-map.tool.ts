@@ -31,7 +31,7 @@ export function createListKnowledgeMapTool(deps: ListKnowledgeMapDeps): ToolCont
     readOnly: true,
     safety: { readOnly: true },
     source: "builtin",
-    inputHint: "view（可选，默认 notebook_roots），notebookId/rootDocId/centerDocId（必须来自工具返回的真实 ID），maxDepth（子树深度，默认2），limit（分页），cursor（继续查看），includeTags/includeLinkedDocs。",
+    inputHint: "查看整体结构可不传参数；查看某篇文档的直接子文档可传 rootDocId（兼容 docId）并使用 view=children，省略 view 时会自动推断；查看完整子树使用 view=subtree。ID 必须来自工具真实结果。",
     boundary: "只返回结构/目录信息，不读取正文。0 结果会说明原因：invalid_args / resource_not_found / empty_children / empty_scope。结构范围由聊天框当前知识库范围限定。",
     providerVisible: false,
 
@@ -46,6 +46,12 @@ export function createListKnowledgeMapTool(deps: ListKnowledgeMapDeps): ToolCont
           default: "notebook_roots",
         },
         rootDocId: { type: "string", minLength: 1, maxLength: 256 },
+        docId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          description: "rootDocId 的兼容写法；传入后默认查看该文档的直接子文档。",
+        },
         centerDocId: { type: "string", minLength: 1, maxLength: 256 },
         notebookId: { type: "string", minLength: 1, maxLength: 256 },
         cursor: { type: "string", minLength: 1, maxLength: 256 },

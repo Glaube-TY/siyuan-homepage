@@ -40,6 +40,7 @@ export function createSearchScopeTool(deps: SearchScopeDeps): ToolContract<Searc
       properties: {
         query: { type: "string", minLength: 1, maxLength: 500 },
         limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+        scope: { type: "string", description: "兼容字段，可省略；实际检索范围由当前聊天模式决定。" },
       },
       required: ["query"],
       additionalProperties: false,

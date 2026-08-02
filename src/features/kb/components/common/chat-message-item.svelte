@@ -7,6 +7,14 @@
   import { mdToHtml } from "@/components/tools/mdToHtml";
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import { mapAgentErrorToUserFacing } from "../../services/agent-workbench/runtime/user-facing-agent-error";
+  import {
+    formatToolArgsPreview,
+    formatToolDisplayName,
+    formatToolFailureSummary,
+    formatToolResultSummary,
+    formatWorkbenchProcessStats,
+    resolveWorkbenchFinalStatus,
+  } from "../../services/agent-workbench/presentation/tool-step-presentation";
   import ChatAvatar from "./chat-avatar.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
@@ -124,12 +132,12 @@
     }
   }
 
-  // 判断 assistant 是否正在生成中（运行态：asking 为 true 且未完成）
+  // 最终消息先进入会话、等待持久化成功，最后才会清除 asking。
+  // 持久化收尾期间仍显示“执行中”，避免界面提前宣告完成。
   $: isAssistantGenerating =
     message.role === "assistant" &&
     isLastAssistant &&
-    asking &&
-    message.isComplete === false;
+    asking;
 
   // 判断 assistant 是否有有效内容
   $: hasAssistantContent =
@@ -240,149 +248,15 @@
     userToggledReasoning = true;
   }
 
-  const TOOL_DISPLAY_NAME: Record<string, string> = {
-    list_knowledge_map: "查看知识库结构",
-    search_scope: "搜索知识库",
-    read_docs: "读取文档正文",
-    read_doc_blocks: "读取文档块",
-    web_search: "联网搜索",
-    web_read_page: "读取网页",
-    edit_global_memory: "编辑全局记忆",
-    create_doc: "创建文档",
-    rename_doc: "重命名文档",
-    delete_doc: "删除文档",
-    replace_doc_content: "替换文档正文",
-    update_block: "更新内容块",
-    insert_block: "插入内容块",
-    move_block: "移动内容块",
-  };
-
-  const ARG_LABELS: Record<string, string> = {
-    query: "关键词",
-    limit: "数量",
-    docIds: "文档",
-    docIdsCount: "文档数量",
-    blockIds: "块",
-    blockIdsCount: "块数量",
-    idsCount: "ID 数量",
-    maxChars: "最大字数",
-    action: "操作",
-    innerAction: "内层操作",
-    id: "ID",
-    view: "视图",
-    maxDepth: "层级",
-    rootDocId: "根文档",
-    centerDocId: "中心文档",
-    notebookId: "笔记本",
-    docId: "文档 ID",
-    path: "路径",
-    markdown: "正文",
-    markdownChars: "正文字数",
-    markdownDigest: "正文指纹",
-    contentChars: "内容字数",
-    contentDigest: "内容指纹",
-    valueTextChars: "文本字数",
-    valueTextDigest: "文本指纹",
-    argsDigest: "参数指纹",
-    keyDigest: "调用指纹",
-    firstStepIndex: "首次步骤",
-    previousErrorCode: "上次错误",
-    rawArgumentsChars: "原始参数",
-    summary: "摘要",
-    title: "标题",
-    blockId: "内容块 ID",
-    includeTags: "标签",
-    includeLinkedDocs: "关联文档",
-    url: "网址",
-    chunkIndex: "块序号",
-    operation: "操作",
-    item_id: "记忆条目",
-    target_id: "目标条目",
-    position: "位置",
-    marker: "任务状态",
-    text: "内容",
-    chunkChars: "块大小",
-    chunkCount: "总块数",
-  };
-
-  const VIEW_LABELS: Record<string, string> = {
-    notebooks: "笔记本",
-    notebook_roots: "笔记本根文档",
-    children: "子文档",
-    subtree: "子树",
-    neighborhood: "邻域",
-    list: "列表",
-  };
-
   function toggleWorkbenchEvents(): void {
     toggleWorkbench();
-  }
-
-  function formatToolDisplayName(toolName: string | undefined): string {
-    if (!toolName) return "执行工具";
-    return TOOL_DISPLAY_NAME[toolName] ?? "执行工具";
-  }
-
-  function formatArgValue(key: string, value: unknown): string | undefined {
-    if (value == null) return undefined;
-    if (key === "query" && typeof value === "string") return `“${value}”`;
-    if (key === "docIds" && Array.isArray(value)) return `${value.length} 个文档`;
-    if (key === "docIdsCount" && typeof value === "number") return `${value} 个文档`;
-    if (key === "blockIds" && Array.isArray(value)) return `${value.length} 个块`;
-    if (key === "blockIdsCount" && typeof value === "number") return `${value} 个块`;
-    if (key === "idsCount" && typeof value === "number") return `${value} 个`;
-    if (key === "cursor" && typeof value === "string") return "继续读取位置";
-    if (key === "view" && typeof value === "string") return VIEW_LABELS[value] ?? value;
-    if (key === "maxDepth" && typeof value === "number") return `${value} 层`;
-    if (key === "limit" && typeof value === "number") return `${value}`;
-    if (key === "maxChars" && typeof value === "number") return `${value}`;
-    if (key === "markdownChars" || key === "contentChars" || key === "valueTextChars" || key === "rawArgumentsChars") {
-      return typeof value === "number" ? `${value} 字符` : undefined;
-    }
-    if (key === "firstStepIndex" && typeof value === "number") return `第 ${value} 步`;
-    if (key === "argsDigest" || key === "keyDigest" || key === "markdownDigest" || key === "contentDigest" || key === "valueTextDigest") {
-      return typeof value === "string" ? value : undefined;
-    }
-    if (key === "rootDocId" || key === "centerDocId" || key === "notebookId" || key === "docId" || key === "blockId" || key === "id") return "已指定";
-    if (key === "includeTags" || key === "includeLinkedDocs") return value ? "是" : "否";
-    if (key === "url" && typeof value === "string") return value.length > 40 ? `${value.slice(0, 37)}...` : value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}...` : value;
-    return undefined;
-  }
-
-  function formatArgsPreview(argsPreview: Record<string, unknown> | undefined): string {
-    const entries = Object.entries(argsPreview ?? {});
-    if (entries.length === 0) return "无参数。";
-    const parts = entries
-      .map(([key, value]) => {
-        const label = ARG_LABELS[key];
-        const formatted = label ? formatArgValue(key, value) : undefined;
-        return label && formatted ? `${label}：${formatted}` : "";
-      })
-      .filter(Boolean);
-    return parts.length > 0 ? parts.join("；") : "参数已省略。";
-  }
-
-  function formatFailureSummary(event: Extract<AgentWorkbenchEvent, { type: "tool_result" }>, hasToolStart: boolean): string {
-    const base = event.result.summary || `失败：${event.result.errorCode || event.result.code || "未知错误"}`;
-    if (hasToolStart || !event.argsPreview) return base;
-    const preview = formatArgsPreview(event.argsPreview);
-    return preview && preview !== "无参数。" && preview !== "参数已省略。"
-      ? `${base}；重复参数：${preview}`
-      : base;
-  }
-
-  function formatResultSummary(toolName: string | undefined, outputSummary: string | undefined): string {
-    const fallback = `${formatToolDisplayName(toolName)}已完成。`;
-    if (!outputSummary) return fallback;
-    if (toolName && outputSummary === `工具 ${toolName} 执行成功。`) return fallback;
-    return outputSummary;
   }
 
   interface WorkbenchDisplayStep {
     key: string;
     toolName?: string;
+    displayName?: string;
+    isToolExecution?: boolean;
     title: string;
     summary: string;
     durationMs?: number;
@@ -399,7 +273,7 @@
     return `event-${event.stepIndex ?? index}-${event.at}`;
   }
 
-  function buildDisplaySteps(events: AgentWorkbenchEvent[]): WorkbenchDisplayStep[] {
+  function buildDisplaySteps(events: AgentWorkbenchEvent[], isTurnActive: boolean): WorkbenchDisplayStep[] {
     const steps: WorkbenchDisplayStep[] = [];
     const byKey = new Map<string, WorkbenchDisplayStep>();
 
@@ -443,15 +317,19 @@
       if (event.type === "permission_required") {
         const permKey = event.toolCallId || `perm-${event.stepIndex ?? index}`;
         const existing = byKey.get(permKey);
+        const displayName = existing?.displayName
+          ?? formatToolDisplayName(event.preview?.toolName ?? "");
         if (existing) {
-          existing.title = "等待确认";
-          existing.summary = `确认执行 ${formatToolDisplayName(event.preview?.toolName ?? "")}`;
+          existing.displayName = displayName;
+          existing.title = `等待确认：${displayName}`;
+          existing.summary = "确认后将执行此操作。";
           existing.running = true;
         } else {
           const step: WorkbenchDisplayStep = {
             key: permKey,
-            title: "等待确认",
-            summary: `确认执行 ${formatToolDisplayName(event.preview?.toolName ?? "")}`,
+            displayName,
+            title: `等待确认：${displayName}`,
+            summary: "确认后将执行此操作。",
             running: true,
           };
           byKey.set(permKey, step);
@@ -464,7 +342,8 @@
         const permKey = event.toolCallId || `perm-${event.stepIndex ?? index}`;
         const existing = byKey.get(permKey);
         if (existing) {
-          existing.title = event.approved ? "已确认" : "已取消";
+          const displayName = existing.displayName ?? "此操作";
+          existing.title = event.approved ? `已确认：${displayName}` : `已取消：${displayName}`;
           existing.summary = event.approved ? "" : (event.reason ?? "用户取消了操作");
           existing.running = false;
           existing.ok = event.approved ? undefined : false;
@@ -485,16 +364,21 @@
       const existing = byKey.get(key);
 
       if (event.type === "tool_start") {
+        const displayName = formatToolDisplayName(event.toolName, event.argsPreview);
         const step: WorkbenchDisplayStep = existing ?? {
           key,
           toolName: event.toolName,
-          title: `正在${formatToolDisplayName(event.toolName)}`,
-          summary: formatArgsPreview(event.argsPreview),
+          displayName,
+          isToolExecution: true,
+          title: `正在${displayName}`,
+          summary: formatToolArgsPreview(event.argsPreview),
           running: true,
         };
         step.toolName = event.toolName;
-        step.title = `正在${formatToolDisplayName(event.toolName)}`;
-        step.summary = formatArgsPreview(event.argsPreview);
+        step.displayName = displayName;
+        step.isToolExecution = true;
+        step.title = `正在${displayName}`;
+        step.summary = formatToolArgsPreview(event.argsPreview);
         step.running = true;
         if (!existing) {
           byKey.set(key, step);
@@ -503,22 +387,41 @@
         continue;
       }
 
+      const displayName = existing?.displayName
+        ?? formatToolDisplayName(event.toolName, event.argsPreview);
       const step: WorkbenchDisplayStep = existing ?? {
         key,
         toolName: event.toolName,
-        title: formatToolDisplayName(event.toolName),
+        displayName,
+        isToolExecution: true,
+        title: displayName,
         summary: "",
       };
       step.toolName = event.toolName;
+      step.displayName = displayName;
+      step.isToolExecution = true;
       step.ok = event.result.ok;
       step.running = false;
       step.durationMs = event.durationMs;
       if (event.result.ok) {
-        step.title = formatToolDisplayName(event.toolName);
-        step.summary = formatResultSummary(event.toolName, event.result.summary);
+        step.title = displayName;
+        step.summary = formatToolResultSummary(displayName, event.result.summary, event.toolName);
       } else {
-        step.title = `${formatToolDisplayName(event.toolName)}失败`;
-        step.summary = formatFailureSummary(event, !!existing);
+        step.title = `${displayName}失败`;
+        const failureSummary = formatToolFailureSummary(
+          displayName,
+          event.result.summary,
+          event.toolName,
+          event.result.errorCode ?? event.result.code,
+        );
+        if (!existing && event.argsPreview) {
+          const preview = formatToolArgsPreview(event.argsPreview);
+          step.summary = preview === "已准备必要信息。"
+            ? failureSummary
+            : `${failureSummary}；${preview}`;
+        } else {
+          step.summary = failureSummary;
+        }
       }
       if (!existing) {
         byKey.set(key, step);
@@ -526,61 +429,27 @@
       }
     }
 
+    if (!isTurnActive) {
+      for (const step of steps) {
+        if (!step.running) continue;
+        step.running = false;
+        if (step.isToolExecution) {
+          step.ok = false;
+          step.title = `${step.displayName ?? "工具调用"}未完成`;
+          step.summary = "本轮已经结束，但没有收到工具结果。";
+        }
+      }
+    }
+
     return steps;
   }
 
-  function countDisplaySteps(toolName: string): number {
-    return workbenchDisplaySteps.filter((step) => step.toolName === toolName).length;
-  }
-
-  function readDocsDisplayCount(): number {
-    let total = 0;
-    for (const step of workbenchDisplaySteps) {
-      if (step.toolName !== "read_docs" || step.ok === false) continue;
-      const match = step.summary.match(/已读取\s+(\d+)/);
-      total += match ? Number(match[1]) || 0 : 0;
-    }
-    return total;
-  }
-
-  function buildWorkbenchProcessSummary(): string {
-    const failed = [...workbenchDisplaySteps].reverse().find((step) => step.ok === false);
-    if (failed) return `${formatToolDisplayName(failed.toolName)}失败`;
-
-    const running = [...workbenchDisplaySteps].reverse().find((step) => step.running);
-    if (running) return `正在${formatToolDisplayName(running.toolName)}`;
-
-    const parts: string[] = [];
-    const structureCount = countDisplaySteps("list_knowledge_map");
-    const searchCount = countDisplaySteps("search_scope");
-    const readStepCount = countDisplaySteps("read_docs");
-    const readCount = readDocsDisplayCount();
-    const webSearchCount = countDisplaySteps("web_search");
-    const webReadCount = countDisplaySteps("web_read_page");
-    if (structureCount > 0) parts.push(`查看结构 ${structureCount} 次`);
-    if (searchCount > 0) parts.push(`搜索知识库 ${searchCount} 次`);
-    if (readCount > 0) {
-      parts.push(`读取文档 ${readCount} 篇`);
-    } else if (readStepCount > 0) {
-      parts.push(`读取文档 ${readStepCount} 次`);
-    }
-    if (webSearchCount > 0) parts.push(`联网搜索 ${webSearchCount} 次`);
-    if (webReadCount > 0) parts.push(`读取网页 ${webReadCount} 次`);
-
-    const summary = parts.join("，");
-    const assistantMessage = message.role === "assistant" ? message : undefined;
-    const isRunningAssistant =
-      assistantMessage &&
-      assistantMessage.isComplete === false &&
-      !!assistantMessage.agentStatus;
-    if (isRunningAssistant) {
-      return summary ? `${summary} · ${assistantMessage.agentStatus}` : assistantMessage.agentStatus;
-    }
-    return summary;
-  }
-
-  $: workbenchDisplaySteps = buildDisplaySteps(visibleWorkbenchEvents);
-  $: workbenchProcessSummary = buildWorkbenchProcessSummary();
+  $: workbenchDisplaySteps = buildDisplaySteps(visibleWorkbenchEvents, isAssistantGenerating);
+  $: workbenchProcessSummary = formatWorkbenchProcessStats(workbenchDisplaySteps, {
+    isGenerating: isAssistantGenerating,
+    isComplete: message.role !== "assistant" || message.isComplete !== false,
+    doneStatus: resolveWorkbenchFinalStatus(workbenchEvents),
+  });
 
   // 选中文本追问
   let selectedText = "";

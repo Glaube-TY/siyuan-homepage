@@ -18,15 +18,17 @@ export async function executeSiyuanDatabaseExtraRead(args: SiyuanDatabaseExtraRe
   switch (args.action) {
     case "filter_sort":
       data = await getAttributeViewFilterSort(compactPayload({
-        avID: requireString(args.avID, "avID"),
-        viewID: args.viewID,
-      }, ["avID", "viewID"]));
+        id: requireString(args.avID, "avID"),
+        blockID: requireString(args.blockID, "blockID"),
+      }, ["id", "blockID"]));
       break;
     case "primary_key_values":
       data = await getAttributeViewPrimaryKeyValues(compactPayload({
-        avID: requireString(args.avID, "avID"),
-        viewID: args.viewID,
-      }, ["avID", "viewID"]));
+        id: requireString(args.avID, "avID"),
+        keyword: args.keyword,
+        page: args.page,
+        pageSize: args.pageSize,
+      }, ["id", "keyword", "page", "pageSize"]));
       break;
     case "mirror_blocks":
       data = await getMirrorDatabaseBlocks(compactPayload({ avID: requireString(args.avID, "avID") }, ["avID"]));
@@ -35,7 +37,7 @@ export async function executeSiyuanDatabaseExtraRead(args: SiyuanDatabaseExtraRe
       data = await getAttributeViewKeysByAvIDChecked(requireString(args.avID, "avID"));
       break;
     case "keys_by_block_id":
-      data = await getAttributeViewKeys(compactPayload({ blockID: requireString(args.blockID, "blockID") }, ["blockID"]));
+      data = await getAttributeViewKeys(compactPayload({ id: requireString(args.blockID, "blockID") }, ["id"]));
       break;
     case "bound_ids_by_item_ids":
       data = await getAttributeViewBoundBlockIDsByItemIDsChecked(
@@ -51,9 +53,10 @@ export async function executeSiyuanDatabaseExtraRead(args: SiyuanDatabaseExtraRe
       break;
     case "current_images":
       data = await getCurrentAttrViewImages(compactPayload({
-        avID: requireString(args.avID, "avID"),
+        id: requireString(args.avID, "avID"),
         viewID: args.viewID,
-      }, ["avID", "viewID"]));
+        query: args.query,
+      }, ["id", "viewID", "query"]));
       break;
     case "unused_attribute_views":
       data = await getUnusedAttributeViews();

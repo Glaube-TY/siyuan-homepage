@@ -153,6 +153,14 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
+  if (code === "pseudo_tool_markup_blocked") {
+    return {
+      title: "模型工具调用格式不兼容",
+      message: "模型连续输出了无法执行的伪工具调用，本轮已停止。",
+      suggestion: "可以重试；若仍出现，建议换用通过 Agent 工具调用测试的模型。",
+    };
+  }
+
   // 模型主动停止
   if (code === "agent_stopped") {
     return {

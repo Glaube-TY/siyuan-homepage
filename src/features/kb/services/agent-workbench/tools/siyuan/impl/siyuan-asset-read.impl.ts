@@ -11,13 +11,14 @@ import {
 } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanAssetReadInput } from "../contracts/siyuan-asset-read.contract";
+import { toSiyuanAssetApiPath } from "../contracts/siyuan-asset-manage.contract";
 import { outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
 
 export async function executeSiyuanAssetRead(args: SiyuanAssetReadInput): Promise<{ output: SiyuanToolOutput }> {
   let data: unknown;
   switch (args.action) {
     case "resolve_path":
-      data = await resolveAssetPath(requireString(args.path, "path"));
+      data = await resolveAssetPath(toSiyuanAssetApiPath(requireString(args.path, "path")));
       break;
     case "doc_assets":
       data = await getDocAssets(requireString(args.docId, "docId"));
@@ -32,16 +33,16 @@ export async function executeSiyuanAssetRead(args: SiyuanAssetReadInput): Promis
       data = await getMissingAssets();
       break;
     case "file_annotation":
-      data = await getFileAnnotation(requireString(args.path, "path"));
+      data = await getFileAnnotation(toSiyuanAssetApiPath(requireString(args.path, "path")));
       break;
     case "image_ocr":
-      data = await getImageOCRText(requireString(args.path, "path"));
+      data = await getImageOCRText(toSiyuanAssetApiPath(requireString(args.path, "path")));
       break;
     case "stat":
-      data = await statAsset(requireString(args.path, "path"));
+      data = await statAsset(toSiyuanAssetApiPath(requireString(args.path, "path")));
       break;
     case "asset_content":
-      data = await getAssetContent(requireString(args.path, "path"));
+      data = await getAssetContent(toSiyuanAssetApiPath(requireString(args.path, "path")));
       break;
   }
   return { output: outputForAction(args.action, data, { maxItems: args.maxItems, maxChars: args.maxChars }) };

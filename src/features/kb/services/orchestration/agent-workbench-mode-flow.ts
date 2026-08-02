@@ -22,7 +22,8 @@
  *   5. 创建 assistant pending
  *   6. 调用 runAgentTurn（含流式回调）
  *   7. 处理结果（abort/正常/错误）
- *   8. updateState asking=false
+ *   8. 等待检查点并持久化终态
+ *   9. updateState asking=false
  */
 
 import type { AskByModeParams, AskByModeResult } from "./ask-by-mode-types";
@@ -55,6 +56,7 @@ import {
   failTurnJournal,
   markTurnCompletedPendingPersistence,
 } from "../agent-workbench/runtime/in-flight-turn-journal";
+import { shouldEnqueueWorkbenchCheckpoint } from "./workbench-persistence-checkpoint-policy";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -1012,9 +1014,14 @@ export async function runAgentWorkbenchModeFlow(
           );
         }
         if (
-          event.type === "tool_result"
-          || event.type === "permission_resolved"
-          || event.type === "assistant_final"
+          (event.type === "tool_result"
+            || event.type === "permission_resolved"
+            || event.type === "assistant_final")
+          && shouldEnqueueWorkbenchCheckpoint({
+            eventType: event.type,
+            lastCheckpointAt,
+            now: Date.now(),
+          })
         ) {
           enqueuePersistenceCheckpoint(`工作台事件：${event.type}`, latestFullContent.length);
         }
@@ -1106,25 +1113,21 @@ export async function runAgentWorkbenchModeFlow(
         );
       }
 
-      updateState((state) => ({
-        ...state,
-        asking: false,
-        qaError: "",
-        error: "",
-        agentStatus: undefined,
-      }));
-
       failTurnJournal({ reason: "user_aborted" });
 
       await persistenceCheckpointTail;
       const abortedPersistence = await runPersistenceCheckpoint("手动停止");
+      updateState((state) => ({
+        ...state,
+        asking: false,
+        qaError: "",
+        error: abortedPersistence.success
+          ? ""
+          : `已停止回答，但会话尚未保存：${abortedPersistence.error || "请稍后重试。"}`,
+        agentStatus: undefined,
+      }));
       if (abortedPersistence.success) {
         await clearTurnJournalAfterPersistence();
-      } else {
-        updateState((state) => ({
-          ...state,
-          error: `已停止回答，但会话尚未保存：${abortedPersistence.error || "请稍后重试。"}`,
-        }));
       }
 
       return { success: true };
@@ -1183,21 +1186,21 @@ export async function runAgentWorkbenchModeFlow(
       }
     }
 
-    updateState((state) => ({
-      ...state,
-      asking: false,
-      qaError: "",
-      error: "",
-      agentStatus: undefined,
-    }));
-
     await persistenceCheckpointTail;
     const finalContent = streamingContent || result.answer;
     await markTurnCompletedPendingPersistence({ answerPreview: finalContent });
     const finalPersistence = await runPersistenceCheckpoint("最终回答");
+    updateState((state) => ({
+      ...state,
+      asking: false,
+      qaError: "",
+      error: finalPersistence.success
+        ? ""
+        : `回答已生成，但会话尚未保存：${finalPersistence.error || "请稍后重试。"}`,
+      agentStatus: undefined,
+    }));
     if (!finalPersistence.success) {
       const persistenceError = `回答已生成，但会话尚未保存：${finalPersistence.error || "请稍后重试。"}`;
-      updateState((state) => ({ ...state, error: persistenceError }));
       return { success: false, error: persistenceError };
     }
     await clearTurnJournalAfterPersistence();
@@ -1227,23 +1230,19 @@ export async function runAgentWorkbenchModeFlow(
         );
       }
 
+      await persistenceCheckpointTail;
+      const abortedPersistence = await runPersistenceCheckpoint("异常中止");
       updateState((state) => ({
         ...state,
         asking: false,
         qaError: "",
-        error: "",
+        error: abortedPersistence.success
+          ? ""
+          : `回答已中止，但会话尚未保存：${abortedPersistence.error || "请稍后重试。"}`,
         agentStatus: undefined,
       }));
-
-      await persistenceCheckpointTail;
-      const abortedPersistence = await runPersistenceCheckpoint("异常中止");
       if (abortedPersistence.success) {
         await clearTurnJournalAfterPersistence();
-      } else {
-        updateState((state) => ({
-          ...state,
-          error: `回答已中止，但会话尚未保存：${abortedPersistence.error || "请稍后重试。"}`,
-        }));
       }
 
       return { success: true };
@@ -1269,23 +1268,19 @@ export async function runAgentWorkbenchModeFlow(
       createdAt: Date.now(),
     });
 
+    await persistenceCheckpointTail;
+    const failurePersistence = await runPersistenceCheckpoint("异常回答");
     updateState((state) => ({
       ...state,
       asking: false,
       qaError: userErrorMsg,
-      error: userErrorMsg,
+      error: failurePersistence.success
+        ? userErrorMsg
+        : `${userErrorMsg}\n会话尚未保存：${failurePersistence.error || "请稍后重试。"}`,
       agentStatus: undefined,
     }));
-
-    await persistenceCheckpointTail;
-    const failurePersistence = await runPersistenceCheckpoint("异常回答");
     if (failurePersistence.success) {
       await clearTurnJournalAfterPersistence();
-    } else {
-      updateState((state) => ({
-        ...state,
-        error: `${userErrorMsg}\n会话尚未保存：${failurePersistence.error || "请稍后重试。"}`,
-      }));
     }
 
     return { success: false, error: rawErrorMsg };

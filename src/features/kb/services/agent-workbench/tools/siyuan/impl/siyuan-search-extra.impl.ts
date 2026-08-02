@@ -11,6 +11,7 @@ import {
 } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanSearchExtraInput } from "../contracts/siyuan-search-extra.contract";
+import { toSiyuanAssetApiPath } from "../contracts/siyuan-asset-manage.contract";
 import { compactPayload, outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
 
 export async function executeSiyuanSearchExtra(args: SiyuanSearchExtraInput): Promise<{ output: SiyuanToolOutput }> {
@@ -37,7 +38,7 @@ export async function executeSiyuanSearchExtra(args: SiyuanSearchExtraInput): Pr
       break;
     case "asset_content":
       data = args.path
-        ? await getAssetContent(args.path)
+        ? await getAssetContent(toSiyuanAssetApiPath(args.path))
         : await fullTextSearchAssetContent(compactPayload({ query: keyword, k: keyword, page: args.page }, ["query", "k", "page"]));
       break;
     case "invalid_block_refs":

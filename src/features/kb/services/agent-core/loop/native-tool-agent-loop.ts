@@ -403,9 +403,14 @@ export class NativeToolAgentLoop {
       ...(params.reasoning ? { reasoning: params.reasoning } : {}),
     }));
     this.options.onEvent?.({ type: "assistant_final", answer });
-    this.options.onEvent?.({ type: "done", status: "answer_ready" });
+    this.options.onEvent?.({
+      type: "error",
+      code: "pseudo_tool_markup_blocked",
+      message: PSEUDO_TOOL_MARKUP_BLOCKED_MESSAGE,
+    });
+    this.options.onEvent?.({ type: "done", status: "failed" });
     return {
-      status: "answer_ready",
+      status: "failed",
       answer,
       steps: params.steps,
       messages: this.session.snapshot(),

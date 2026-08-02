@@ -20,15 +20,16 @@ export async function executeSiyuanBlockRef(args: SiyuanBlockRefInput): Promise<
       data = await getRefText(requireString(args.id, "id"));
       break;
     case "get_def_ids_by_ref_text":
-      data = await getBlockDefIDsByRefText(requireString(args.refText, "refText"));
+      data = await getBlockDefIDsByRefText(requireString(args.anchor, "anchor"));
       break;
     case "check_ref":
-      data = await checkBlockRef(requireString(args.id, "id"));
+      data = await checkBlockRef(requireStringArray(args.ids, "ids", 50));
       break;
     case "swap_ref":
       data = await swapBlockRef({
-        id: requireString(args.id, "id"),
-        refText: args.refText,
+        refID: requireString(args.refID, "refID"),
+        defID: requireString(args.defID, "defID"),
+        includeChildren: args.includeChildren === true,
       });
       break;
     case "transfer_ref":

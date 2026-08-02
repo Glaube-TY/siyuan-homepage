@@ -13,7 +13,7 @@ export function createSiyuanDatabaseExtraReadTool(deps: SiyuanDatabaseExtraReadD
     description: "只读读取数据库视图筛选排序、主键、镜像块、键映射、当前图片和 unused AV。",
     inputSchema: siyuanDatabaseExtraReadInputSchema,
     readOnly: true,
-    inputHint: "action 指定读取类型；avID/blockID/viewID/itemIDs/boundIDs 按需提供。",
+    inputHint: "avID 是数据库 ID，blockID 是数据库块 ID；filter_sort 两者都要。itemIDs 是条目 ID，boundIDs 是绑定块 ID。",
     boundary: "只补辅助只读能力，不替代 read_attribute_view，不清理 unused AV。",
     deps: { execute: deps.executeSiyuanDatabaseExtraRead },
     inputJsonSchemaOverride: undefined,

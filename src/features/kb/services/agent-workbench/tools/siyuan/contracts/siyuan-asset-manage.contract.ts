@@ -12,6 +12,14 @@ function normalizeAssetPath(raw: string): string {
   return path.replace(/\/+/g, "/");
 }
 
+/** 内核资源 API 使用 assets/... 逻辑路径；工作区文件 API 才使用 /data/assets/...。 */
+export function toSiyuanAssetApiPath(raw: string): string {
+  const path = raw.trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (path.startsWith("/data/assets/")) return path.slice("/data/".length);
+  if (path.startsWith("/assets/")) return path.slice(1);
+  return path;
+}
+
 export function isDisposableAssetPath(raw: string): boolean {
   const path = normalizeAssetPath(raw);
   if (path.includes("..") || path.includes("/..") || path.includes("../")) {
@@ -38,6 +46,13 @@ export const siyuanAssetManageInputSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   switch (value.action) {
     case "rename":
+      if (typeof value.path !== "string" || value.path.trim().length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "rename 需要资源路径 path。", path: ["path"] });
+      }
+      if (typeof value.newName !== "string" || value.newName.trim().length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "rename 需要不含目录的新文件名 newName。", path: ["newName"] });
+      }
+      break;
     case "set_annotation":
     case "set_image_ocr":
     case "ocr":

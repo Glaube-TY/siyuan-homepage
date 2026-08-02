@@ -17,6 +17,13 @@ export const siyuanAssetReadInputSchema = z.object({
   docId: z.string().trim().min(1).max(256).optional(),
   maxItems: maxItemsSchema,
   maxChars: maxCharsSchema,
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (["resolve_path", "file_annotation", "image_ocr", "stat", "asset_content"].includes(value.action) && !value.path) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${value.action} 需要真实资源路径 path。`, path: ["path"] });
+  }
+  if (["doc_assets", "doc_image_assets"].includes(value.action) && !value.docId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${value.action} 需要文档 ID docId。`, path: ["docId"] });
+  }
+});
 
 export type SiyuanAssetReadInput = z.infer<typeof siyuanAssetReadInputSchema>;
