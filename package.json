@@ -22,7 +22,8 @@
     "release": "node --no-warnings ./scripts/release.js",
     "make-install": "pnpm build && node --no-warnings ./scripts/make_install.js",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test:kb-agent-reliability": "cross-env TS_NODE_TRANSPILE_ONLY=true node --no-warnings --experimental-specifier-resolution=node --loader ts-node/esm --test src/features/kb/services/agent-core/kb-agent-reliability.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

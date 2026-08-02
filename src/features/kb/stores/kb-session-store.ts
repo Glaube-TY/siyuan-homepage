@@ -17,10 +17,7 @@ import {
   type ChatStorageSaveResult,
   isTransientAssistantPlaceholder,
 } from "../services/agent-workbench/storage/chat-session-facade";
-import {
-  resolveReferenceDocInfos,
-  type ResolvedReferenceDocInfo,
-} from "../services/session/reference-doc-resolver";
+import type { ResolvedReferenceDocInfo } from "../services/session/reference-doc-resolver";
 import { estimateContextUsage } from "../types/context-usage";
 import { pushAgentDebugEvent } from "../services/agent-workbench/debug/workbench-debug";
 import { executeCompression as doCompress } from "../services/context-compression";
@@ -232,7 +229,7 @@ function createDefaultConversation(): KbConversationSession {
 }
 
 // 创建 store
-function createKbSessionStore() {
+export function createKbSessionStore(options: { persistDebounceDelay?: number } = {}) {
   // 初始化一个默认会话
   const defaultConversation = createDefaultConversation();
 
@@ -244,7 +241,11 @@ function createKbSessionStore() {
     stageSummaries: defaultConversation.stageSummaries ?? [],
   };
 
-  const { subscribe, set, update } = writable<KbSessionState & { conversations: KbConversationSession[]; activeConversationId: string }>({
+  const {
+    subscribe,
+    set: storeSet,
+    update: storeUpdate,
+  } = writable<KbSessionState & { conversations: KbConversationSession[]; activeConversationId: string }>({
     ...extendedInitialState,
     conversations: [defaultConversation],
     activeConversationId: defaultConversation.id,
@@ -252,6 +253,23 @@ function createKbSessionStore() {
 
   // 扩展状态类型
   type ExtendedState = KbSessionState & { conversations: KbConversationSession[]; activeConversationId: string };
+
+  /** 只记录本地业务状态变化；存储结果回写、hydrate 和运行时补全不递增。 */
+  let localMutationVersion = 0;
+  let storageApplicationVersion = 0;
+
+  function update(updater: (state: ExtendedState) => ExtendedState): void {
+    storeUpdate((state) => {
+      const next = updater(state);
+      if (next !== state) localMutationVersion += 1;
+      return next;
+    });
+  }
+
+  function set(state: ExtendedState): void {
+    localMutationVersion += 1;
+    storeSet(state);
+  }
 
   // ==================== Context Usage Debounce ====================
   const CONTEXT_USAGE_DEBOUNCE_MS = 1500;
@@ -308,7 +326,7 @@ function createKbSessionStore() {
       breakdown: snapshot.breakdown,
     }, "info");
 
-    update((s) => ({ ...s, contextUsage: snapshot }));
+    storeUpdate((s) => ({ ...s, contextUsage: snapshot }));
   }
 
   // ==================== 持久化内部实现 ====================
@@ -316,23 +334,191 @@ function createKbSessionStore() {
   /** 持久化 debounce 定时器 */
   let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Store 级队列：覆盖快照捕获、存储事务和结果回写的完整顺序。 */
+  let storePersistenceTail: Promise<void> = Promise.resolve();
+  let pendingStorePersistenceCount = 0;
+  const pendingExplicitDeletedSessionIds = new Set<string>();
+
   /** Hydration 完成标记：防止 hydration 前默认空会话被持久化覆盖存储 */
   let hydrationCompleted = false;
 
-  /** 调度持久化（内部使用） */
-  function applyStorageResult(result: ChatStorageSaveResult): void {
-    if (!result.success) {
-      update((state) => ({ ...state, error: result.errors.join("；") || "会话保存失败。" }));
-      return;
+  type StorageBackedConversation = KbConversationSession & { storageRevision?: number };
+
+  interface CapturedPersistenceSnapshot {
+    conversations: KbConversationSession[];
+    activeConversationId: string;
+    selectedMode?: ChatMode;
+    mutationVersion: number;
+  }
+
+  function storageRevisionOf(conversation: KbConversationSession | undefined): number | undefined {
+    const value = (conversation as StorageBackedConversation | undefined)?.storageRevision;
+    return Number.isSafeInteger(value) && (value ?? 0) >= 0 ? value : undefined;
+  }
+
+  function sameConversationContent(a: KbConversationSession, b: KbConversationSession): boolean {
+    return JSON.stringify({
+      id: a.id,
+      title: a.title,
+      createdAt: a.createdAt,
+      messages: a.messages,
+      stageSummaries: a.stageSummaries ?? [],
+      thinkingMode: a.thinkingMode ?? "off",
+      webAccessMode: a.webAccessMode ?? "off",
+      compressedContextSummary: a.compressedContextSummary,
+      compressionState: a.compressionState,
+      agentSession: a.agentSession,
+    }) === JSON.stringify({
+      id: b.id,
+      title: b.title,
+      createdAt: b.createdAt,
+      messages: b.messages,
+      stageSummaries: b.stageSummaries ?? [],
+      thinkingMode: b.thinkingMode ?? "off",
+      webAccessMode: b.webAccessMode ?? "off",
+      compressedContextSummary: b.compressedContextSummary,
+      compressionState: b.compressionState,
+      agentSession: b.agentSession,
+    });
+  }
+
+  function withStorageRevision(
+    conversation: KbConversationSession,
+    saved: KbConversationSession | undefined,
+  ): KbConversationSession {
+    const storageRevision = storageRevisionOf(saved);
+    if (storageRevision === undefined) return conversation;
+    return { ...conversation, storageRevision } as StorageBackedConversation;
+  }
+
+  function materializeActiveConversation(state: ExtendedState): KbConversationSession[] {
+    const active = state.conversations.find((item) => item.id === state.activeConversationId);
+    if (!active) return state.conversations;
+    const snapshot = buildConversationSnapshot(state, active);
+    return state.conversations.map((item) => item.id === active.id ? snapshot : item);
+  }
+
+  function conflictTitle(title: string): string {
+    return title.endsWith("（冲突副本）") ? title : `${title}（冲突副本）`;
+  }
+
+  function mergeStorageResultIntoNewerState(
+    state: ExtendedState,
+    captured: CapturedPersistenceSnapshot,
+    result: ChatStorageSaveResult,
+  ): ExtendedState {
+    const currentConversations = materializeActiveConversation(state);
+    const currentById = new Map(currentConversations.map((item) => [item.id, item]));
+    const capturedById = new Map(captured.conversations.map((item) => [item.id, item]));
+    const resultById = new Map(result.conversations.map((item) => [item.id, item]));
+    const mergedById = new Map<string, KbConversationSession>();
+
+    for (const conversation of currentConversations) {
+      if (!pendingExplicitDeletedSessionIds.has(conversation.id)) {
+        mergedById.set(conversation.id, conversation);
+      }
     }
-    update((state) => {
+
+    const conflictSources = new Set<string>();
+    const conflictIds = new Set<string>();
+    let activeConversationId = state.activeConversationId;
+
+    for (const conflict of result.conflicts) {
+      conflictSources.add(conflict.sourceSessionId);
+      conflictIds.add(conflict.conflictSessionId);
+      const currentSource = currentById.get(conflict.sourceSessionId);
+      const capturedSource = capturedById.get(conflict.sourceSessionId);
+      const remoteSource = resultById.get(conflict.sourceSessionId);
+      const savedConflict = resultById.get(conflict.conflictSessionId);
+      const sourceChanged = !!currentSource && !!capturedSource
+        && !sameConversationContent(currentSource, capturedSource);
+
+      if (remoteSource && !pendingExplicitDeletedSessionIds.has(remoteSource.id)) {
+        mergedById.set(remoteSource.id, remoteSource);
+      } else {
+        mergedById.delete(conflict.sourceSessionId);
+      }
+
+      if (savedConflict && !pendingExplicitDeletedSessionIds.has(savedConflict.id)) {
+        const localBranch = sourceChanged && currentSource
+          ? withStorageRevision({
+              ...currentSource,
+              id: conflict.conflictSessionId,
+              title: conflictTitle(currentSource.title),
+            }, savedConflict)
+          : savedConflict;
+        mergedById.set(conflict.conflictSessionId, localBranch);
+      }
+
+      if (activeConversationId === conflict.sourceSessionId) {
+        activeConversationId = conflict.conflictSessionId;
+      }
+    }
+
+    for (const saved of result.conversations) {
+      if (
+        pendingExplicitDeletedSessionIds.has(saved.id)
+        || conflictSources.has(saved.id)
+        || conflictIds.has(saved.id)
+      ) continue;
+      const current = mergedById.get(saved.id);
+      mergedById.set(saved.id, current ? withStorageRevision(current, saved) : saved);
+    }
+
+    const conversations = [...mergedById.values()];
+    if (!conversations.some((item) => item.id === activeConversationId)) {
+      activeConversationId = conversations.some((item) => item.id === result.activeConversationId)
+        ? result.activeConversationId
+        : conversations[0]?.id ?? "";
+    }
+    const active = conversations.find((item) => item.id === activeConversationId);
+    if (!active) return state;
+
+    return {
+      ...state,
+      conversations,
+      activeConversationId,
+      messages: active.messages,
+      stageSummaries: active.stageSummaries ?? [],
+      thinkingMode: active.thinkingMode ?? "off",
+      webAccessMode: active.webAccessMode ?? "off",
+      compressedContextSummary: active.compressedContextSummary,
+      compressionState: active.compressionState,
+      error: result.conflicts.length > 0
+        ? "检测到其他设备已修改会话，本地内容已另存为冲突副本。"
+        : state.error,
+    };
+  }
+
+  /** 合并存储结果；返回 true 表示保存期间又有本地变化，需要补保存。 */
+  function applyStorageResult(
+    result: ChatStorageSaveResult,
+    captured: CapturedPersistenceSnapshot,
+  ): boolean {
+    if (!result.success) {
+      storeUpdate((state) => ({ ...state, error: result.errors.join("；") || "会话保存失败。" }));
+      return false;
+    }
+    const hasNewerMutation = localMutationVersion > captured.mutationVersion;
+    storeUpdate((state) => {
       if (result.conversations.length === 0) return state;
-      const active = result.conversations.find((item) => item.id === result.activeConversationId)
-        ?? result.conversations[0];
+      if (hasNewerMutation) {
+        return mergeStorageResultIntoNewerState(state, captured, result);
+      }
+      const activeConflict = result.conflicts.find(
+        (item) => item.sourceSessionId === state.activeConversationId,
+      );
+      let activeConversationId = activeConflict?.conflictSessionId ?? state.activeConversationId;
+      if (!result.conversations.some((item) => item.id === activeConversationId)) {
+        activeConversationId = result.conversations.some((item) => item.id === result.activeConversationId)
+          ? result.activeConversationId
+          : result.conversations[0].id;
+      }
+      const active = result.conversations.find((item) => item.id === activeConversationId)!;
       return {
         ...state,
         conversations: result.conversations,
-        activeConversationId: active.id,
+        activeConversationId,
         messages: active.messages,
         stageSummaries: active.stageSummaries ?? [],
         thinkingMode: active.thinkingMode ?? "off",
@@ -344,9 +530,11 @@ function createKbSessionStore() {
           : state.error,
       };
     });
+    storageApplicationVersion += 1;
+    return hasNewerMutation;
   }
 
-  async function persistCurrentSnapshot(explicitDeletedSessionIds?: string[]): Promise<ChatStorageSaveResult | null> {
+  async function persistCurrentSnapshot(): Promise<ChatStorageSaveResult | null> {
     const state = get({ subscribe });
     const activeConv = state.conversations.find((c) => c.id === state.activeConversationId);
     if (!activeConv) return null;
@@ -354,14 +542,58 @@ function createKbSessionStore() {
     const conversations = state.conversations.map((c) =>
       c.id === state.activeConversationId ? updatedConv : c
     );
-    const result = await saveKbChatSessionStorage({
-      activeConversationId: state.activeConversationId,
+    const captured: CapturedPersistenceSnapshot = {
       conversations,
+      activeConversationId: state.activeConversationId,
       selectedMode: state.selectedMode,
+      mutationVersion: localMutationVersion,
+    };
+    const explicitDeletedSessionIds = [...pendingExplicitDeletedSessionIds];
+    const result = await saveKbChatSessionStorage({
+      activeConversationId: captured.activeConversationId,
+      conversations,
+      selectedMode: captured.selectedMode,
       explicitDeletedSessionIds,
     });
-    applyStorageResult(result);
+    if (result.success) {
+      for (const id of result.deletedSessionIds) {
+        pendingExplicitDeletedSessionIds.delete(id);
+      }
+    }
+    const needsFollowUp = applyStorageResult(result, captured);
+    if (needsFollowUp && pendingStorePersistenceCount <= 1) {
+      if (persistDebounceTimer) {
+        clearTimeout(persistDebounceTimer);
+        persistDebounceTimer = null;
+      }
+      void enqueueStorePersistence();
+    }
     return result;
+  }
+
+  function enqueueStorePersistence(
+    explicitDeletedSessionIds: readonly string[] = [],
+  ): Promise<ChatStorageSaveResult | null> {
+    for (const id of explicitDeletedSessionIds) {
+      pendingExplicitDeletedSessionIds.add(id);
+    }
+    pendingStorePersistenceCount += 1;
+    const run = storePersistenceTail
+      .catch(() => undefined)
+      .then(() => persistCurrentSnapshot());
+    const settled = run.finally(() => {
+      pendingStorePersistenceCount -= 1;
+    });
+    storePersistenceTail = settled.then(() => undefined, () => undefined);
+    return settled;
+  }
+
+  async function waitForStorePersistence(): Promise<void> {
+    while (true) {
+      const tail = storePersistenceTail;
+      await tail;
+      if (tail === storePersistenceTail) return;
+    }
   }
 
   function schedulePersist(): void {
@@ -371,8 +603,8 @@ function createKbSessionStore() {
     }
     persistDebounceTimer = setTimeout(() => {
       persistDebounceTimer = null;
-      void persistCurrentSnapshot();
-    }, PERSIST_DEBOUNCE_DELAY);
+      void enqueueStorePersistence();
+    }, options.persistDebounceDelay ?? PERSIST_DEBOUNCE_DELAY);
   }
 
   // ==================== 引用标题补全相关 ====================
@@ -433,7 +665,7 @@ function createKbSessionStore() {
   // 统一快照 helper - 将当前 active state 写回会话
   // 注意：运行态字段不进入快照，避免持久化；但压缩状态需要持久化
   function buildConversationSnapshot(state: ExtendedState, conversation: KbConversationSession): KbConversationSession {
-    return {
+    const snapshot: KbConversationSession = {
       ...conversation,
       messages: state.messages,
       stageSummaries: state.stageSummaries ?? [],
@@ -443,8 +675,11 @@ function createKbSessionStore() {
       thinkingMode: state.thinkingMode ?? "off",
       webAccessMode: state.webAccessMode ?? "off",
       agentSession: conversation.agentSession,
-      updatedAt: Date.now(),
+      updatedAt: conversation.updatedAt,
     };
+    return sameConversationContent(snapshot, conversation)
+      ? snapshot
+      : { ...snapshot, updatedAt: Date.now() };
   }
 
   // 同步当前活跃会话到 conversations 列表
@@ -748,15 +983,23 @@ function createKbSessionStore() {
           conversations: remainingConversations,
         };
       });
+      const deleteMutationVersion = localMutationVersion;
+      const deleteStorageApplicationVersion = storageApplicationVersion;
       if (persistDebounceTimer) {
         clearTimeout(persistDebounceTimer);
         persistDebounceTimer = null;
       }
-      const result = await persistCurrentSnapshot([id]);
+      const result = await enqueueStorePersistence([id]);
       if (!result?.success) {
-        // tombstone 未提交时恢复删除前状态，保留可重试能力。
-        set(beforeDelete);
-        update((state) => ({ ...state, error: result?.errors.join("；") || "删除会话保存失败，请重试。" }));
+        // 仅在保存期间没有后续本地操作时回滚，避免失败结果覆盖更新状态。
+        if (
+          localMutationVersion === deleteMutationVersion
+          && storageApplicationVersion === deleteStorageApplicationVersion
+        ) {
+          pendingExplicitDeletedSessionIds.delete(id);
+          set(beforeDelete);
+        }
+        storeUpdate((state) => ({ ...state, error: result?.errors.join("；") || "删除会话保存失败，请重试。" }));
       }
     },
 
@@ -798,14 +1041,23 @@ function createKbSessionStore() {
         conversations: [defaultConv],
         activeConversationId: defaultConv.id,
       });
+      const resetMutationVersion = localMutationVersion;
+      const resetStorageApplicationVersion = storageApplicationVersion;
+      const deletedSessionIds = beforeReset.conversations.map((item) => item.id);
       if (persistDebounceTimer) {
         clearTimeout(persistDebounceTimer);
         persistDebounceTimer = null;
       }
-      const result = await persistCurrentSnapshot(beforeReset.conversations.map((item) => item.id));
+      const result = await enqueueStorePersistence(deletedSessionIds);
       if (!result?.success) {
-        set(beforeReset);
-        update((state) => ({ ...state, error: result?.errors.join("；") || "重置会话保存失败，请重试。" }));
+        if (
+          localMutationVersion === resetMutationVersion
+          && storageApplicationVersion === resetStorageApplicationVersion
+        ) {
+          for (const id of deletedSessionIds) pendingExplicitDeletedSessionIds.delete(id);
+          set(beforeReset);
+        }
+        storeUpdate((state) => ({ ...state, error: result?.errors.join("；") || "重置会话保存失败，请重试。" }));
       }
     },
 
@@ -826,7 +1078,7 @@ function createKbSessionStore() {
           return;
         }
         // 先更新状态，让界面立刻可用
-        update((state) => {
+        storeUpdate((state) => {
           // 验证恢复的会话数据
           if (!restored.conversations || restored.conversations.length === 0) {
             console.warn("[KbSessionStore] Restored conversations is empty");
@@ -893,6 +1145,7 @@ function createKbSessionStore() {
             }
 
             // 批量查询文档标题
+            const { resolveReferenceDocInfos } = await import("../services/session/reference-doc-resolver.js");
             const infoMap = await resolveReferenceDocInfos(docIds);
 
             if (infoMap.size === 0) {
@@ -900,7 +1153,7 @@ function createKbSessionStore() {
             }
 
             // 再次获取最新状态，避免覆盖用户在加载期间的操作
-            update((currentState) => {
+            storeUpdate((currentState) => {
               // 只更新 conversations 中的 reference items
               const updatedConversations = applyResolvedReferenceDocInfos(
                 currentState.conversations,
@@ -1038,34 +1291,13 @@ function createKbSessionStore() {
               };
             });
 
-            // 4. Persist recovery immediately so it survives subsequent refreshes
-            try {
-              if (hydrationCompleted) {
-                const currentState = get({ subscribe });
-                const ac = currentState.conversations.find((c) => c.id === currentState.activeConversationId);
-                if (ac) {
-                  const snap = {
-                    ...ac,
-                    messages: currentState.messages,
-                    stageSummaries: currentState.stageSummaries ?? [],
-                    compressedContextSummary: currentState.compressedContextSummary,
-                    compressionState: currentState.compressionState,
-                    thinkingMode: currentState.thinkingMode ?? "off",
-                    webAccessMode: currentState.webAccessMode ?? "off",
-                    updatedAt: Date.now(),
-                  };
-                  const convs = currentState.conversations.map((c) =>
-                    c.id === currentState.activeConversationId ? snap : c
-                  );
-                  void saveKbChatSessionStorage({
-                    activeConversationId: currentState.activeConversationId,
-                    conversations: convs,
-                    selectedMode: currentState.selectedMode,
-                  });
-                }
-              }
-            } catch {
-              // Persist failure is non-blocking
+            // 4. 通过 Store 级协调器立即保存恢复内容，并合并新 revision。
+            const recoverySaveResult = await enqueueStorePersistence();
+            if (!recoverySaveResult?.success) {
+              storeUpdate((state) => ({
+                ...state,
+                error: `恢复记录尚未保存：${recoverySaveResult?.errors.join("；") || "会话保存失败，请稍后重试。"}`,
+              }));
             }
 
             recoverTurnJournal();
@@ -1073,8 +1305,11 @@ function createKbSessionStore() {
           } else {
             clearLastKnownState();
           }
-        } catch {
-          // Recovery failure must not break hydration.
+        } catch (error) {
+          storeUpdate((state) => ({
+            ...state,
+            error: `恢复记录尚未保存：${error instanceof Error ? error.message : String(error)}`,
+          }));
         }
       } catch (e) {
         console.warn("[KbSessionStore] Failed to hydrate conversations:", e);
@@ -1272,23 +1507,11 @@ function createKbSessionStore() {
      * - reference 只保存轻量元数据
      */
     persistConversationsNow: async () => {
-      const state = get({ subscribe });
-
-      // 先同步当前活跃会话的快照
-      const activeConv = state.conversations.find((c) => c.id === state.activeConversationId);
-      if (!activeConv) return;
-
-      const updatedConv = buildConversationSnapshot(state, activeConv);
-      const conversations = state.conversations.map((c) =>
-        c.id === state.activeConversationId ? updatedConv : c
-      );
-
-      const result = await saveKbChatSessionStorage({
-        activeConversationId: state.activeConversationId,
-        conversations,
-        selectedMode: state.selectedMode,
-      });
-      applyStorageResult(result);
+      if (persistDebounceTimer) {
+        clearTimeout(persistDebounceTimer);
+        persistDebounceTimer = null;
+      }
+      await enqueueStorePersistence();
     },
 
     /**
@@ -1305,8 +1528,9 @@ function createKbSessionStore() {
       if (persistDebounceTimer) {
         clearTimeout(persistDebounceTimer);
         persistDebounceTimer = null;
-        await persistCurrentSnapshot();
+        void enqueueStorePersistence();
       }
+      await waitForStorePersistence();
       await flushStorageWrites();
     },
   };

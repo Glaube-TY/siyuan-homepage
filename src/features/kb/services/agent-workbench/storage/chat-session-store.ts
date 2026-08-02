@@ -89,8 +89,10 @@ export async function deleteChatSession(sessionId: string): Promise<void> {
 export function createSessionIndexEntry(
   session: ChatSessionData,
   lastMessagePreview: string,
+  previousEntry?: ChatSessionIndexEntry,
 ): ChatSessionIndexEntry {
   return {
+    ...previousEntry,
     id: session.id,
     title: session.title,
     createdAt: session.createdAt,

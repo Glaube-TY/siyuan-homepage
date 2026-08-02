@@ -192,21 +192,33 @@ export async function saveKbChatSessionStorage(payload: {
         if (latest.status === "missing") {
           const next = { ...local, revision: 1 };
           pendingWrites.push(next);
-          entries.set(next.id, createSessionIndexEntry(next, createLastMessagePreview(next.messages)));
+          entries.set(next.id, createSessionIndexEntry(
+            next,
+            createLastMessagePreview(next.messages),
+            entries.get(next.id),
+          ));
           continue;
         }
 
         const remote = latest.data;
         const remoteRevision = revisionOf(remote);
         if (sameKnownSessionPayload(remote, local)) {
-          entries.set(remote.id, createSessionIndexEntry(remote, createLastMessagePreview(remote.messages)));
+          entries.set(remote.id, createSessionIndexEntry(
+            remote,
+            createLastMessagePreview(remote.messages),
+            entries.get(remote.id),
+          ));
           continue;
         }
 
         if (baseRevision === remoteRevision) {
           const next = { ...remote, ...local, revision: remoteRevision + 1 };
           pendingWrites.push(next);
-          entries.set(next.id, createSessionIndexEntry(next, createLastMessagePreview(next.messages)));
+          entries.set(next.id, createSessionIndexEntry(
+            next,
+            createLastMessagePreview(next.messages),
+            entries.get(next.id),
+          ));
           continue;
         }
 
@@ -222,7 +234,11 @@ export async function saveKbChatSessionStorage(payload: {
           conflictCreatedAt,
         } satisfies ChatSessionData;
         pendingWrites.push(conflict);
-        entries.set(remote.id, createSessionIndexEntry(remote, createLastMessagePreview(remote.messages)));
+        entries.set(remote.id, createSessionIndexEntry(
+          remote,
+          createLastMessagePreview(remote.messages),
+          entries.get(remote.id),
+        ));
         entries.set(conflict.id, createSessionIndexEntry(conflict, createLastMessagePreview(conflict.messages)));
         conflicts.push({ sourceSessionId: conv.id, conflictSessionId });
         if (activeSessionId === conv.id) activeSessionId = conflictSessionId;
