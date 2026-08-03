@@ -1,13 +1,15 @@
 import { sql, getBlockKramdown, getChildBlocks } from "../../../../../../../api";
 import type { DeleteBlocksInput, DeleteBlocksOutput, PreparedDeleteBlocksConfirmation } from "../contracts/delete-blocks.contract";
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
-import { createRenderedSideBySideCompare, toDisplayMarkdownFromKramdown } from "../../../../doc-content-edit/doc-content-edit-diff";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
 import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedDeleteBlocks } from "../../../../doc-content-edit/doc-content-edit-delete-blocks-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
+import { blockDisplayItem, resolveDisplayPath, resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
+import { buildEditDiffPreview } from "../../../../doc-content-edit/diff/edit-diff-preview-builder";
+import { previewDeletedBlocksInDocument, withDocumentTitle } from "../../../../doc-content-edit/doc-content-edit-document-preview";
 
 function escapeSqlId(id: string): string {
   return id.replace(/'/g, "''");
@@ -126,21 +128,36 @@ export async function prepareDeleteBlocksConfirmation(
     warnings.push("部分块包含子块，删除将同时删除其子块。");
   }
 
-  // 3. 生成视觉对比：左侧按块顺序展示将删除的内容，右侧为空
-  const beforeParts: string[] = [];
-  for (const snap of snapshots) {
-    beforeParts.push(`--- ${snap.blockId} ---`);
-    beforeParts.push(toDisplayMarkdownFromKramdown(snap.kramdown));
+  // 3. 解析用户可读文档路径。块 ID 仍只用于执行，不进入确认框。
+  const displayPath = docId ? await resolveDisplayPath(docId) : undefined;
+  const notebookId = blockMap.get(blockIds[0])?.box;
+  const notebookName = notebookId ? await resolveNotebookName(notebookId) : undefined;
+  if (docId) {
+    const docRows = await sql(`SELECT content FROM blocks WHERE id = '${escapeSqlId(docId)}' AND type = 'd' LIMIT 1`);
+    const docBlock = docRows[0] as Pick<Block, "content"> | undefined;
+    docTitle = docBlock?.content || docTitle;
   }
-  const displayBefore = beforeParts.join("\n");
-
+  if (!docId) {
+    throw new Error("无法确定内容块所属文档，未准备删除确认。");
+  }
+  const documentResult = await getBlockKramdown(docId);
+  const documentKramdown = documentResult?.kramdown ?? "";
+  if (!documentKramdown) {
+    throw new Error("无法读取内容块所在文档的完整上下文，未准备删除确认。");
+  }
+  const proposedDocument = previewDeletedBlocksInDocument(
+    documentKramdown,
+    snapshots.map((snapshot) => snapshot.kramdown),
+  );
   const visualCompare = {
-    type: "rendered_side_by_side" as const,
-    sideBySide: createRenderedSideBySideCompare(
-      displayBefore,
-      "",
-      { maxLines: 200, maxChars: 15000 },
-    ),
+    type: "block_diff" as const,
+    diff: buildEditDiffPreview({
+      title: `确认删除 ${blockIds.length} 个内容块`,
+      oldContent: withDocumentTitle(docTitle || "未命名文档", documentKramdown),
+      newContent: withDocumentTitle(docTitle || "未命名文档", proposedDocument),
+      targetBlockIds: blockIds,
+      toolName: "内容块删除",
+    }),
   };
 
   // 4. 风险评估
@@ -169,6 +186,14 @@ export async function prepareDeleteBlocksConfirmation(
       blockId: blockIds[0],
       docId,
       title: docTitle,
+      displayPath,
+      notebookName,
+    },
+    presentation: {
+      mode: "delete",
+      heading: `确认删除 ${blockIds.length} 个内容块`,
+      description: "以下内容块将从原文档中删除；包含子块的条目会连同其子块一起删除。",
+      items: blockIds.map((blockId) => blockDisplayItem(blockMap.get(blockId)!, displayPath, notebookName)),
     },
     beforeSnapshot: snapshots.map((s) => s.kramdown).join("\n---\n"),
     afterSnapshot: "",

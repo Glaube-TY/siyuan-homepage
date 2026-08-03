@@ -4,7 +4,9 @@
     getDocContentEditConfirmation,
     removeDocContentEditConfirmation,
   } from "../../services/doc-content-edit/doc-content-edit-confirmation-store";
-  import type { DocContentEditConfirmation } from "../../services/doc-content-edit/doc-content-edit-types";
+  import type { DocContentEditConfirmation, DocContentEditDisplayItem } from "../../services/doc-content-edit/doc-content-edit-types";
+  import { formatSiyuanTimestamp } from "../../services/doc-content-edit/doc-content-edit-display";
+  import EditDiffViewer from "./edit-diff-viewer.svelte";
 
   export let confirmationId: string | null = null;
   export let open: boolean = false;
@@ -21,6 +23,22 @@
   let confirming = false;
   let leftScrollEl: HTMLDivElement;
   let rightScrollEl: HTMLDivElement;
+
+  $: deleteAction = confirmation?.action === "delete_doc" || confirmation?.action === "delete_blocks";
+  $: createAction = confirmation?.action === "create_doc" || confirmation?.action === "insert_block";
+  $: resolvedDialogTitle = confirmation?.presentation?.heading
+    || (confirmation?.visualCompare?.type === "block_diff" ? confirmation.visualCompare.diff.title : "")
+    || (deleteAction ? "确认删除" : createAction ? "确认添加" : "确认内容变更");
+  $: resolvedConfirmLabel = confirming
+    ? "确认中..."
+    : deleteAction
+      ? "确认删除"
+      : createAction
+        ? "确认添加"
+        : "确认执行";
+  $: createDestinationLabel = confirmation?.presentation?.destination?.label
+    ?? confirmation?.target.title
+    ?? "目标位置";
 
   $: if (open && confirmationId) {
     loadConfirmation();
@@ -97,6 +115,45 @@
         return "kind-unchanged";
     }
   }
+
+  function isDeleteAction(): boolean {
+    return deleteAction;
+  }
+
+  function isCreateAction(): boolean {
+    return createAction;
+  }
+
+  function hasContentDiff(): boolean {
+    if (confirmation?.visualCompare?.type !== "block_diff") return false;
+    return confirmation.action === "update_block"
+      || confirmation.action === "insert_block"
+      || confirmation.action === "delete_blocks"
+      || confirmation.action === "replace_doc_content";
+  }
+
+  function displayItems(): DocContentEditDisplayItem[] {
+    if (confirmation?.presentation?.items?.length) return confirmation.presentation.items;
+    if (!confirmation || !isDeleteAction()) return [];
+    return [{
+      kind: confirmation.action === "delete_doc" ? "文档" : "内容块",
+      title: confirmation.target.title || "未命名内容",
+      notebookName: confirmation.target.notebookName,
+      path: confirmation.target.displayPath,
+      createdAt: formatSiyuanTimestamp(confirmation.target.createdAt),
+      updatedAt: formatSiyuanTimestamp(confirmation.target.updatedAt),
+    }];
+  }
+
+  function pathSegments(notebookName?: string, path?: string): string[] {
+    const segments = (path ?? "")
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    const notebook = notebookName?.trim();
+    if (notebook && segments[0] !== notebook) segments.unshift(notebook);
+    return segments;
+  }
 </script>
 
 {#if open}
@@ -110,7 +167,7 @@
   >
     <div class="confirm-dialog confirmation-modal">
       <div class="confirm-header">
-        <h2>文档内容编辑确认</h2>
+        <h2>{resolvedDialogTitle}</h2>
       </div>
 
       <div class="confirm-body">
@@ -127,7 +184,126 @@
             </div>
           {/if}
 
-          {#if confirmation.visualCompare}
+          {#if hasContentDiff() && confirmation.visualCompare?.type === "block_diff"}
+            {#if confirmation.target.notebookName || confirmation.target.displayPath || confirmation.target.createdAt || confirmation.target.updatedAt}
+              {@const targetSegments = pathSegments(confirmation.target.notebookName, confirmation.target.displayPath)}
+              <div class="change-target-meta">
+                {#if confirmation.target.title}<strong>{confirmation.target.title}</strong>{/if}
+                {#if targetSegments.length > 0}
+                  <div class="path-breadcrumb" title={targetSegments.join(" / ")}>
+                    {#each targetSegments as segment, index}
+                      {#if index > 0}<span class="path-separator" aria-hidden="true">›</span>{/if}
+                      <span>{segment}</span>
+                    {/each}
+                  </div>
+                {/if}
+                <div>
+                  {#if formatSiyuanTimestamp(confirmation.target.createdAt)}<small>创建于 {formatSiyuanTimestamp(confirmation.target.createdAt)}</small>{/if}
+                  {#if formatSiyuanTimestamp(confirmation.target.updatedAt)}<small>更新于 {formatSiyuanTimestamp(confirmation.target.updatedAt)}</small>{/if}
+                </div>
+              </div>
+            {/if}
+            <div class="block-diff-container">
+              <EditDiffViewer editDiffPreview={confirmation.visualCompare.diff} />
+            </div>
+          {:else if isDeleteAction()}
+            <section class="operation-panel operation-panel-delete">
+              <div class="operation-heading">
+                <span class="operation-marker operation-marker-delete" aria-hidden="true">!</span>
+                <div>
+                  <strong>即将删除</strong>
+                  <p>{confirmation.presentation?.description ?? "请确认以下内容是否为你要删除的目标。"}</p>
+                </div>
+              </div>
+              <div class="section-caption">删除对象</div>
+              <div class="operation-items">
+                {#each displayItems() as item}
+                  {@const segments = pathSegments(item.notebookName, item.path)}
+                  <article class="operation-item">
+                    <span class="item-kind">{item.kind}</span>
+                    <div class="item-main">
+                      <div class="item-title">{item.title}</div>
+                      {#if segments.length > 0}
+                        <div class="path-breadcrumb" title={segments.join(" / ")}>
+                          {#each segments as segment, index}
+                            {#if index > 0}<span class="path-separator" aria-hidden="true">›</span>{/if}
+                            <span>{segment}</span>
+                          {/each}
+                        </div>
+                      {/if}
+                      {#if item.excerpt && item.excerpt !== item.title}
+                        <div class="item-excerpt">{item.excerpt}</div>
+                      {/if}
+                      {#if item.createdAt || item.updatedAt}
+                        <div class="item-time">
+                          {#if item.createdAt}<span>创建于 {item.createdAt}</span>{/if}
+                          {#if item.updatedAt}<span>更新于 {item.updatedAt}</span>{/if}
+                        </div>
+                      {/if}
+                    </div>
+                  </article>
+                {/each}
+              </div>
+              <div class="delete-note">删除后请通过思源的历史或快照机制恢复，请再次核对路径和内容。</div>
+            </section>
+          {:else if isCreateAction()}
+            <section class="operation-panel operation-panel-create">
+              <div class="operation-heading">
+                <span class="operation-marker operation-marker-create" aria-hidden="true">+</span>
+                <div>
+                  <strong>即将添加</strong>
+                  <p>{confirmation.presentation?.description ?? "请确认添加位置与内容。"}</p>
+                </div>
+              </div>
+              <dl class="create-details">
+                <div class="create-detail-row">
+                  <dt>添加到</dt>
+                  <dd>
+                    <strong>{createDestinationLabel}</strong>
+                    {#if pathSegments(confirmation.target.notebookName ?? createDestinationLabel, confirmation.presentation?.destination?.path).length > 0}
+                      <div class="path-breadcrumb" title={pathSegments(confirmation.target.notebookName ?? createDestinationLabel, confirmation.presentation?.destination?.path).join(" / ")}>
+                        {#each pathSegments(confirmation.target.notebookName ?? createDestinationLabel, confirmation.presentation?.destination?.path) as segment, index}
+                          {#if index > 0}<span class="path-separator" aria-hidden="true">›</span>{/if}
+                          <span>{segment}</span>
+                        {/each}
+                      </div>
+                    {/if}
+                  {#if confirmation.presentation?.destination?.detail}
+                    <small>{confirmation.presentation.destination.detail}</small>
+                  {/if}
+                  </dd>
+                </div>
+                <div class="create-detail-row">
+                  <dt>添加方式</dt>
+                  <dd><strong>{confirmation.presentation?.method ?? "写入新内容"}</strong></dd>
+                </div>
+              </dl>
+              {#if confirmation.presentation?.addedContent}
+                <div class="added-content">
+                  <div class="added-content-title">写入内容</div>
+                  <pre>{confirmation.presentation.addedContent}</pre>
+                </div>
+              {/if}
+            </section>
+          {:else if confirmation.visualCompare}
+            {#if confirmation.target.notebookName || confirmation.target.displayPath || confirmation.target.createdAt || confirmation.target.updatedAt}
+              {@const targetSegments = pathSegments(confirmation.target.notebookName, confirmation.target.displayPath)}
+              <div class="change-target-meta">
+                {#if confirmation.target.title}<strong>{confirmation.target.title}</strong>{/if}
+                {#if targetSegments.length > 0}
+                  <div class="path-breadcrumb" title={targetSegments.join(" / ")}>
+                    {#each targetSegments as segment, index}
+                      {#if index > 0}<span class="path-separator" aria-hidden="true">›</span>{/if}
+                      <span>{segment}</span>
+                    {/each}
+                  </div>
+                {/if}
+                <div>
+                  {#if formatSiyuanTimestamp(confirmation.target.createdAt)}<small>创建于 {formatSiyuanTimestamp(confirmation.target.createdAt)}</small>{/if}
+                  {#if formatSiyuanTimestamp(confirmation.target.updatedAt)}<small>更新于 {formatSiyuanTimestamp(confirmation.target.updatedAt)}</small>{/if}
+                </div>
+              </div>
+            {/if}
             {#if confirmation.visualCompare.type === "rendered_side_by_side"}
               {@const compare = confirmation.visualCompare.sideBySide}
               <div class="side-by-side-container">
@@ -168,6 +344,10 @@
                   </div>
                 </div>
               </div>
+            {:else if confirmation.visualCompare.type === "block_diff"}
+              <div class="block-diff-container">
+                <EditDiffViewer editDiffPreview={confirmation.visualCompare.diff} />
+              </div>
             {:else if confirmation.visualCompare.type === "arrow_flow"}
               {@const arrow = confirmation.visualCompare.arrow}
               <div class="arrow-flow">
@@ -205,10 +385,11 @@
           <button
             type="button"
             class="confirm-btn confirm-btn-primary"
+            class:confirm-btn-danger={isDeleteAction()}
             on:click={handleConfirm}
             disabled={confirming}
           >
-            {confirming ? "确认中..." : "确认执行"}
+            {resolvedConfirmLabel}
           </button>
         {:else}
           <button
@@ -301,6 +482,215 @@
     padding: 8px 12px;
     background: color-mix(in srgb, var(--b3-theme-error) 8%, transparent);
     border-radius: 6px;
+  }
+
+  .operation-panel {
+    color: var(--b3-theme-on-surface);
+  }
+
+  .operation-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 2px 0 14px;
+    border-bottom: 1px solid var(--b3-border-color);
+  }
+
+  .operation-heading strong {
+    color: var(--b3-theme-on-background);
+    font-size: 14px;
+  }
+
+  .operation-heading p {
+    margin: 2px 0 0;
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+  }
+
+  .operation-marker {
+    flex: 0 0 16px;
+    width: 16px;
+    margin-top: 1px;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .operation-marker-delete,
+  .operation-panel-delete .item-kind,
+  .delete-note {
+    color: var(--b3-theme-error);
+  }
+
+  .operation-marker-create {
+    color: var(--b3-theme-primary);
+  }
+
+  .section-caption {
+    padding: 12px 0 6px;
+    color: var(--b3-theme-on-surface-light);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .operation-items {
+    max-height: 44vh;
+    overflow: auto;
+    border-top: 1px solid var(--b3-border-color);
+  }
+
+  .operation-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 12px 2px;
+    border-bottom: 1px solid var(--b3-border-color);
+  }
+
+  .item-kind {
+    flex: 0 0 auto;
+    width: 48px;
+    padding-top: 1px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .item-main {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .item-title {
+    color: var(--b3-theme-on-surface);
+    font-weight: 600;
+    word-break: break-word;
+  }
+
+  .path-breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 5px;
+    margin-top: 3px;
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .path-separator {
+    opacity: 0.55;
+  }
+
+  .item-excerpt {
+    margin-top: 8px;
+    padding-left: 10px;
+    border-left: 2px solid color-mix(in srgb, var(--b3-theme-error) 45%, var(--b3-border-color));
+    color: var(--b3-theme-on-surface);
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .item-time {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 6px;
+    color: var(--b3-theme-on-surface-light);
+    font-size: 11px;
+  }
+
+  .delete-note {
+    padding-top: 10px;
+    font-size: 12px;
+  }
+
+  .create-details {
+    margin: 0;
+  }
+
+  .create-detail-row {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 12px;
+    padding: 11px 2px;
+    border-bottom: 1px solid var(--b3-border-color);
+  }
+
+  .create-detail-row dt,
+  .create-detail-row dd {
+    margin: 0;
+  }
+
+  .create-detail-row dt,
+  .added-content-title {
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+  }
+
+  .create-detail-row strong {
+    display: block;
+    color: var(--b3-theme-on-surface);
+    font-size: 13px;
+    word-break: break-word;
+  }
+
+  .create-detail-row small {
+    display: block;
+    margin-top: 3px;
+    color: var(--b3-theme-on-surface-light);
+  }
+
+  .added-content {
+    margin-top: 14px;
+    border: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-background);
+  }
+
+  .added-content-title {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--b3-border-color);
+    font-weight: 600;
+  }
+
+  .added-content pre {
+    max-height: 32vh;
+    margin: 0;
+    padding: 10px 12px;
+    overflow: auto;
+    color: var(--b3-theme-on-surface);
+    font-family: var(--b3-font-family-code), monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .block-diff-container {
+    border: 1px solid var(--b3-border-color);
+    overflow: hidden;
+  }
+
+  .change-target-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px 12px;
+    margin-bottom: 0;
+    padding: 0 2px 10px;
+  }
+
+  .change-target-meta strong {
+    color: var(--b3-theme-on-surface);
+  }
+
+  .change-target-meta small {
+    color: var(--b3-theme-on-surface-light);
+  }
+
+  .change-target-meta > div {
+    display: flex;
+    gap: 10px;
+    margin-left: auto;
   }
 
   .warning-item {
@@ -469,5 +859,20 @@
   .confirm-btn-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .confirm-btn-danger {
+    background: var(--b3-theme-error);
+    color: var(--b3-theme-on-error, #fff);
+  }
+
+  @media (max-width: 640px) {
+    .create-detail-row {
+      grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    .confirmation-modal {
+      width: 95vw;
+    }
   }
 </style>

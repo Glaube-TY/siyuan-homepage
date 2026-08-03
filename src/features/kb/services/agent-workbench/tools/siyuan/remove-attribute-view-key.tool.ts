@@ -21,7 +21,7 @@ export function createRemoveAttributeViewKeyTool(
   return {
     name: "remove_attribute_view_key",
     title: "删除数据库字段",
-    description: "在用户确认后，删除思源数据库/属性视图的一个字段及其所有值。",
+    description: "在用户确认后，删除思源数据库的一个字段及其所有值。",
     inputSchema: removeAttributeViewKeyInputSchema,
     outputSchema: removeAttributeViewKeyOutputSchema,
     readOnly: false,

@@ -1,13 +1,15 @@
 import { sql, getBlockKramdown } from "../../../../../../../api";
 import type { InsertBlockInput, InsertBlockOutput, PreparedInsertBlockConfirmation } from "../contracts/insert-block.contract";
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
-import { createRenderedSideBySideCompare, toDisplayMarkdownFromKramdown } from "../../../../doc-content-edit/doc-content-edit-diff";
+import { buildEditDiffPreview } from "../../../../doc-content-edit/diff/edit-diff-preview-builder";
+import { previewInsertedBlockInDocument, withDocumentTitle } from "../../../../doc-content-edit/doc-content-edit-document-preview";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
 import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedInsertBlock } from "../../../../doc-content-edit/doc-content-edit-insert-block-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
+import { resolveDisplayPath, resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
 
 function escapeSqlId(id: string): string {
   return id.replace(/'/g, "''");
@@ -53,19 +55,31 @@ export async function prepareInsertBlockConfirmation(
     warnings.push("无法读取参考块 kramdown，已回退到 markdown/content。");
   }
 
-  // 3. afterSnapshot 用于展示：参考块上下文 + 新增内容
-  const displayBefore = toDisplayMarkdownFromKramdown(beforeSnapshot);
+  // 3. 保留执行快照，同时用真实文档上下文构造 Git 式新增 Diff。
   const positionLabel = position === "before" ? "上方" : position === "after" ? "下方" : "子块";
-  const afterSnapshot = displayBefore + `\n<!-- 新内容将插入到${positionLabel} -->\n` + markdown;
-
-  // 4. 生成视觉对比
+  const afterSnapshot = markdown;
+  const displayPath = await resolveDisplayPath(block.root_id);
+  const notebookName = await resolveNotebookName(block.box);
+  const documentResult = await getBlockKramdown(block.root_id);
+  const documentKramdown = documentResult?.kramdown ?? "";
+  if (!documentKramdown) {
+    throw new Error("无法读取参考块所在文档的完整上下文，未准备添加确认。");
+  }
+  const documentRows = await sql(`SELECT content FROM blocks WHERE id = '${escapeSqlId(block.root_id)}' AND type = 'd' LIMIT 1`);
+  const documentTitle = (documentRows[0] as Pick<Block, "content"> | undefined)?.content || "未命名文档";
+  const proposedDocument = previewInsertedBlockInDocument(documentKramdown, beforeSnapshot, markdown, position);
+  if (proposedDocument === undefined) {
+    throw new Error("无法在完整文档中定位参考内容块，未准备添加确认。");
+  }
   const visualCompare = {
-    type: "rendered_side_by_side" as const,
-    sideBySide: createRenderedSideBySideCompare(
-      displayBefore,
-      afterSnapshot,
-      { maxLines: 200, maxChars: 15000 },
-    ),
+    type: "block_diff" as const,
+    diff: buildEditDiffPreview({
+      title: "确认添加内容块",
+      oldContent: withDocumentTitle(documentTitle, documentKramdown),
+      newContent: withDocumentTitle(documentTitle, proposedDocument),
+      targetBlockIds: [referenceBlockId],
+      toolName: "内容块添加",
+    }),
   };
 
   // 5. 风险评估
@@ -86,6 +100,20 @@ export async function prepareInsertBlockConfirmation(
       referenceBlockId,
       docId: block.root_id,
       title: block.content?.slice(0, 100),
+      displayPath,
+      notebookName,
+    },
+    presentation: {
+      mode: "create",
+      heading: "确认添加内容块",
+      description: "将把新内容添加到下面的位置。",
+      destination: {
+        label: notebookName || "目标笔记本",
+        path: displayPath,
+        detail: `在「${block.content?.slice(0, 100) || "参考内容块"}」${positionLabel}`,
+      },
+      method: `以 Markdown 内容块形式插入到参考块${positionLabel}`,
+      addedContent: markdown,
     },
     beforeSnapshot,
     afterSnapshot,

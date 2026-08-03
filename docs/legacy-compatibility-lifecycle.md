@@ -443,7 +443,7 @@
 | 字段 | 值 |
 |---|---|
 | 唯一编号 | LC-016 |
-| 功能模块 | Agent 属性视图工具（attribute-view） |
+| 功能模块 | Agent 数据库工具（底层兼容名：attribute-view） |
 | 兼容类型 | 接口别名 |
 | 状态分类 | 长期读取兼容 |
 | 当前代码位置 | `src/features/kb/services/agent-workbench/tools/siyuan/internal/attribute-view/attribute-view-normalizer.ts:273`：`@deprecated readItemId`（使用 `readStrictItemId` 代替，保留向后兼容） |
@@ -457,7 +457,7 @@
 | 最早评估删除日期 | 待确认 |
 | 删除前置条件 | 1) 全仓搜索 `readItemId` 零引用（除自身定义）；2) 跨越两个稳定版本 |
 | 删除时需要同步删除的文件、类型、UI 和测试 | `attribute-view-normalizer.ts` 中 `readItemId` 函数 |
-| 删除后的验证场景 | 属性视图工具正常 |
+| 删除后的验证场景 | 数据库工具正常 |
 | 证据链接或提交 SHA | 待确认 |
 | 信息可信度 | 待确认 |
 

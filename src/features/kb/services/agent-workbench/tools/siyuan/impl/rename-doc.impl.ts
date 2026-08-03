@@ -9,6 +9,7 @@ import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/d
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
 import type { DocContentEditArrowFlow } from "../../../../doc-content-edit/doc-content-edit-types";
 import { sql } from "../../../../../../../api";
+import { resolveDisplayPath, resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
 
 export interface RenameDocImplDeps extends SiyuanToolDeps {
   conversationId: string;
@@ -43,6 +44,8 @@ export async function prepareRenameDocConfirmation(
   }
 
   const previousTitle = block.content || block.name || "";
+  const displayPath = await resolveDisplayPath(docId, block.hpath);
+  const notebookName = await resolveNotebookName(block.box);
 
   // 2. 风险评估
   const riskResult = assessDocContentEditRisk({
@@ -54,7 +57,7 @@ export async function prepareRenameDocConfirmation(
   const arrow: DocContentEditArrowFlow = createArrowFlowCompare(
     previousTitle || "未命名",
     title,
-    { fromDescription: `文档 ID: ${docId}`, toDescription: `重命名为: ${title}` },
+    { fromDescription: displayPath || "当前文档", toDescription: `重命名为：${title}` },
   );
   const visualCompare = {
     type: "arrow_flow" as const,
@@ -70,6 +73,10 @@ export async function prepareRenameDocConfirmation(
     target: {
       docId,
       title,
+      displayPath,
+      notebookName,
+      createdAt: block.created,
+      updatedAt: block.updated,
     },
     beforeSnapshot: previousTitle,
     visualCompare,

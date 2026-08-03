@@ -21,7 +21,7 @@ export function createListAttributeViewsTool(
   return {
     name: "list_attribute_views",
     title: "查找数据库",
-    description: "搜索和列出思源数据库/属性视图候选，帮助获取真实 databaseId。",
+    description: "搜索和列出思源数据库候选，帮助获取真实 databaseId。",
     inputSchema: listAttributeViewsInputSchema,
     outputSchema: listAttributeViewsOutputSchema,
     readOnly: true,
@@ -55,7 +55,7 @@ export function createListAttributeViewsTool(
             code: "attribute_view_search_failed",
             message: error instanceof Error ? error.message : String(error),
             recoverable: true,
-            hint: "请缩小 keyword 或确认思源版本支持属性视图搜索接口。",
+            hint: "请缩小 keyword 或确认思源版本支持数据库搜索接口。",
           },
         };
       }

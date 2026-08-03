@@ -56,6 +56,9 @@ export function createDeleteDocTool(deps: DeleteDocDeps): ToolContract<DeleteDoc
             code: data.errorCode || "write_operation_failed",
             message: data.message || "写入操作失败。",
             recoverable: data.errorCode === "protected_diary_doc_delete_blocked" ? true : false,
+            hint: data.errorCode === "protected_diary_doc_delete_blocked"
+              ? "先按提示处理受保护日记文档；不得换工具绕过保护。"
+              : "重新读取文档信息，确认 docId 当前存在且确实是要删除的文档；修正后再调用。",
             details: data.target ? { target: data.target } : undefined,
           },
         };

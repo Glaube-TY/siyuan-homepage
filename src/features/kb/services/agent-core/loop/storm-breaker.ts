@@ -54,9 +54,16 @@ export interface DuplicateGuardInfo {
 
 export interface FailedCallInfo {
   errorCode: string;
+  message?: string;
+  hint?: string;
   firstStepIndex?: number;
   keyDigest: string;
   count: number;
+}
+
+export interface FailedCallContext {
+  message?: string;
+  hint?: string;
 }
 
 const EXPLORATION_READ_TOOL_NAMES = new Set([
@@ -165,12 +172,15 @@ export class StormBreaker {
     args: Record<string, unknown>,
     errorCode: string,
     stepIndex?: number,
+    context?: FailedCallContext,
   ): FailedCallInfo {
     const guardKey = buildGuardKey(toolCall.name, args);
     const failureKey = `${guardKey}:error=${errorCode}`;
     const previous = this.failedCallHistory.get(failureKey);
     const info: FailedCallInfo = {
       errorCode,
+      message: context?.message ?? previous?.message,
+      hint: context?.hint ?? previous?.hint,
       firstStepIndex: previous?.firstStepIndex ?? stepIndex,
       keyDigest: digestText(guardKey),
       count: (previous?.count ?? 0) + 1,
@@ -202,12 +212,15 @@ export class StormBreaker {
     rawArguments: string,
     errorCode: string,
     stepIndex?: number,
+    context?: FailedCallContext,
   ): FailedCallInfo {
     const guardKey = buildRawGuardKey(toolName, rawArguments);
     const failureKey = `${guardKey}:error=${errorCode}`;
     const previous = this.failedCallHistory.get(failureKey);
     const info: FailedCallInfo = {
       errorCode,
+      message: context?.message ?? previous?.message,
+      hint: context?.hint ?? previous?.hint,
       firstStepIndex: previous?.firstStepIndex ?? stepIndex,
       keyDigest: digestText(guardKey),
       count: (previous?.count ?? 0) + 1,

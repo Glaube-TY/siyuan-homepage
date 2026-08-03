@@ -22,13 +22,23 @@
     if (s.modifiedBlocks > 0) parts.push(`修改 ${s.modifiedBlocks} 块`);
     if (s.addedBlocks > 0) parts.push(`新增 ${s.addedBlocks} 块`);
     if (s.removedBlocks > 0) parts.push(`删除 ${s.removedBlocks} 块`);
-    if (s.addedLines > 0) parts.push(`+${s.addedLines} 行`);
-    if (s.removedLines > 0) parts.push(`−${s.removedLines} 行`);
+    if (s.addedLines > 0 || s.removedLines > 0) {
+      parts.push(`内容行 +${s.addedLines} / −${s.removedLines}`);
+    }
     return parts.join("，");
   }
 
   function splitLines(text: string): string[] {
     return text.split("\n");
+  }
+
+  function lineNumber(startLine: number | undefined, index: number): number {
+    return (startLine ?? 1) + index;
+  }
+
+  function hunkLabel(entry: EditBlockDiffEntry, action: "修改" | "新增" | "删除"): string {
+    const line = entry.oldBlock?.startLine ?? entry.newBlock?.startLine ?? 1;
+    return `第 ${line} 行附近 · ${action}`;
   }
 
   function renderInlineParts(
@@ -88,38 +98,48 @@
                 <span>{entry.oldBlock?.text ?? ""}</span>
               </div>
             {:else if entry.status === "modified"}
-              <div class="diff-block-sep"></div>
+              <div class="diff-hunk">{hunkLabel(entry, "修改")}</div>
               {#each splitLines(entry.oldBlock?.text ?? "") as line, i}
                 <div class="diff-line line-removed">
+                  <span class="line-number">{lineNumber(entry.oldBlock?.startLine, i)}</span>
+                  <span class="line-number"></span>
                   <span class="line-prefix">−</span>
                   <span class="line-content">{@html renderInlineParts(entry.oldParts, line, i)}</span>
                 </div>
               {/each}
               {#each splitLines(entry.newBlock?.text ?? "") as line, i}
                 <div class="diff-line line-added">
+                  <span class="line-number"></span>
+                  <span class="line-number">{lineNumber(entry.newBlock?.startLine, i)}</span>
                   <span class="line-prefix">+</span>
                   <span class="line-content">{@html renderInlineParts(entry.newParts, line, i)}</span>
                 </div>
               {/each}
             {:else if entry.status === "added"}
-              <div class="diff-block-sep"></div>
+              <div class="diff-hunk">{hunkLabel(entry, "新增")}</div>
               {#each splitLines(entry.newBlock?.text ?? "") as line, i}
                 <div class="diff-line line-added">
+                  <span class="line-number"></span>
+                  <span class="line-number">{lineNumber(entry.newBlock?.startLine, i)}</span>
                   <span class="line-prefix">+</span>
                   <span class="line-content">{@html renderInlineParts(entry.newParts, line, i)}</span>
                 </div>
               {/each}
             {:else if entry.status === "removed"}
-              <div class="diff-block-sep"></div>
+              <div class="diff-hunk">{hunkLabel(entry, "删除")}</div>
               {#each splitLines(entry.oldBlock?.text ?? "") as line, i}
                 <div class="diff-line line-removed">
+                  <span class="line-number">{lineNumber(entry.oldBlock?.startLine, i)}</span>
+                  <span class="line-number"></span>
                   <span class="line-prefix">−</span>
                   <span class="line-content">{@html renderInlineParts(entry.oldParts, line, i)}</span>
                 </div>
               {/each}
             {:else}
-              {#each splitLines(entry.oldBlock?.text ?? entry.newBlock?.text ?? "") as line}
+              {#each splitLines(entry.oldBlock?.text ?? entry.newBlock?.text ?? "") as line, i}
                 <div class="diff-line line-unchanged">
+                  <span class="line-number">{lineNumber(entry.oldBlock?.startLine, i)}</span>
+                  <span class="line-number">{lineNumber(entry.newBlock?.startLine, i)}</span>
                   <span class="line-prefix">&nbsp;</span>
                   <span class="line-content">{line}</span>
                 </div>
@@ -139,7 +159,7 @@
   .diff-viewer {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    max-height: 62vh;
     overflow: hidden;
   }
 
@@ -184,9 +204,8 @@
   }
 
   .diff-body {
-    flex: 1;
+    max-height: 52vh;
     overflow: auto;
-    min-height: 0;
   }
 
   .no-changes-hint {
@@ -202,6 +221,18 @@
     line-height: 1.6;
   }
 
+  .diff-hunk {
+    position: sticky;
+    left: 0;
+    padding: 3px 10px;
+    border-top: 1px solid var(--b3-border-color);
+    border-bottom: 1px solid var(--b3-border-color);
+    color: var(--b3-theme-primary);
+    background: var(--b3-theme-surface);
+    font-family: var(--b3-font-family);
+    font-size: 11px;
+  }
+
   .diff-collapsed {
     text-align: center;
     padding: 5px 12px;
@@ -213,22 +244,25 @@
     border-bottom: 1px dashed var(--b3-border-color);
   }
 
-  .diff-block-sep {
-    height: 4px;
-    background: var(--b3-theme-surface);
-    border-top: 1px solid var(--b3-border-color);
-    border-bottom: 1px solid var(--b3-border-color);
-  }
-
   .diff-line {
     display: flex;
-    padding: 1px 10px;
     min-height: 21px;
+  }
+
+  .line-number {
+    flex: 0 0 40px;
+    padding: 1px 7px 1px 2px;
+    border-right: 1px solid color-mix(in srgb, var(--b3-border-color) 70%, transparent);
+    color: var(--b3-theme-on-surface-light);
+    text-align: right;
+    user-select: none;
+    opacity: 0.65;
   }
 
   .line-prefix {
     flex-shrink: 0;
     width: 20px;
+    padding-top: 1px;
     text-align: center;
     font-weight: 700;
     user-select: none;
@@ -238,6 +272,7 @@
 
   .line-content {
     flex: 1;
+    padding: 1px 10px 1px 2px;
     white-space: pre-wrap;
     word-break: break-word;
   }

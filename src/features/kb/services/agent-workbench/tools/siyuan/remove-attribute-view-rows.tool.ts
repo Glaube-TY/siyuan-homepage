@@ -21,7 +21,7 @@ export function createRemoveAttributeViewRowsTool(
   return {
     name: "remove_attribute_view_rows",
     title: "删除数据库条目",
-    description: "在用户确认后，删除思源数据库/属性视图的一个或多个条目。",
+    description: "在用户确认后，删除思源数据库的一个或多个条目。",
     inputSchema: removeAttributeViewRowsInputSchema,
     outputSchema: removeAttributeViewRowsOutputSchema,
     readOnly: false,

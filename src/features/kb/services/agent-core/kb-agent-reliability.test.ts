@@ -7,6 +7,9 @@ import {
   type ConfirmationRoute,
 } from "./permissions/confirmation-bridge.js";
 import { StormBreaker, buildGuardKey } from "./loop/storm-breaker.js";
+import { dispatchToolCalls } from "./loop/dispatch-tool-calls.js";
+import { NativeToolRegistry } from "./tools/native-tool-registry.js";
+import { parseToolResultContentEnvelope, stringifyToolResultContent } from "./tools/tool-execution-result.js";
 import { compactAgentSessionMessagesForStorage } from "./messages/message-compactor.js";
 import { createAggregateTool } from "../agent-workbench/tools/aggregate/aggregate-tool-factory.js";
 import type { ToolContract } from "../agent-workbench/contracts/tool-contract.js";
@@ -34,6 +37,15 @@ import {
   registerDocContentEditConfirmationHandler,
   requestDocContentEditConfirmation,
 } from "../doc-content-edit/doc-content-edit-confirmation-bridge.js";
+import { toDisplayMarkdownFromKramdown } from "../doc-content-edit/doc-content-edit-diff.js";
+import { buildEditDiffPreview } from "../doc-content-edit/diff/edit-diff-preview-builder.js";
+import { parseBlocks } from "../doc-content-edit/diff/block-diff.js";
+import {
+  previewDeletedBlocksInDocument,
+  previewInsertedBlockInDocument,
+  previewUpdatedBlockInDocument,
+  withDocumentTitle,
+} from "../doc-content-edit/doc-content-edit-document-preview.js";
 import { createKbSessionStore } from "../../stores/kb-session-store.js";
 import {
   asyncFlushJournal,
@@ -105,6 +117,115 @@ test("写入成功后允许重新读取相同资源", () => {
   assert.equal(breaker.tryReserveRead(read, args), true);
   breaker.markWriteSuccess(write, { action: "update_block", args: { blockId: "block" } });
   assert.equal(breaker.tryReserveRead(read, args), true);
+});
+
+test("重复失败调用会向模型回传首次原因和明确下一步", async () => {
+  const registry = new NativeToolRegistry();
+  registry.register({
+    name: "read_test",
+    title: "测试读取",
+    description: "测试读取",
+    parameters: {
+      type: "object",
+      properties: { targetId: { type: "string" } },
+      required: ["targetId"],
+      additionalProperties: false,
+    },
+    readOnly: true,
+    providerVisible: true,
+    source: "builtin",
+    safety: { readOnly: true },
+    execute: async () => ({
+      ok: false,
+      summary: "无法在完整文档中定位参考内容块。",
+      errorCode: "write_operation_failed",
+      content: stringifyToolResultContent({
+        ok: false,
+        toolName: "read_test",
+        code: "write_operation_failed",
+        message: "无法在完整文档中定位参考内容块。",
+      }),
+    }),
+  });
+  const breaker = new StormBreaker();
+  const call = {
+    id: "call-1",
+    name: "read_test",
+    arguments: JSON.stringify({ targetId: "block-a" }),
+  };
+  const params = {
+    calls: [call],
+    registry,
+    ctx: { question: "测试", callCounts: {} },
+    bridge: new RegisteredConfirmationBridge(route("unused")),
+    stormBreaker: breaker,
+  };
+  await dispatchToolCalls(params);
+  const repeated = await dispatchToolCalls({
+    ...params,
+    calls: [{ ...call, id: "call-2" }],
+    stepOffset: 1,
+  });
+  const result = parseToolResultContentEnvelope(repeated.toolMessages[0].content);
+  assert.equal(result?.code, "duplicate_failed_call_blocked");
+  assert.match(String(result?.message), /第 1 步失败：无法在完整文档中定位参考内容块/);
+  assert.match(String(result?.hint), /重新读取目标对象/);
+  const details = result?.details as Record<string, unknown> | undefined;
+  assert.equal(details?.previousErrorMessage, "无法在完整文档中定位参考内容块。");
+  assert.match(String(details?.nextStep), /参数发生有效变化后才能重试/);
+});
+
+test("成功写入被重复请求时明确复用首次结果", async () => {
+  const registry = new NativeToolRegistry();
+  registry.register({
+    name: "write_test",
+    title: "测试写入",
+    description: "测试写入",
+    parameters: {
+      type: "object",
+      properties: { targetId: { type: "string" } },
+      required: ["targetId"],
+      additionalProperties: false,
+    },
+    readOnly: false,
+    providerVisible: true,
+    source: "builtin",
+    safety: { readOnly: false, canWrite: true, requiresConfirmation: false },
+    execute: async () => ({
+      ok: true,
+      summary: "写入完成。",
+      content: stringifyToolResultContent({
+        ok: true,
+        toolName: "write_test",
+        data: { status: "success" },
+      }),
+    }),
+  });
+  const breaker = new StormBreaker();
+  const call = {
+    id: "write-1",
+    name: "write_test",
+    arguments: JSON.stringify({ targetId: "block-a" }),
+  };
+  const params = {
+    calls: [call],
+    registry,
+    ctx: { question: "测试", callCounts: {} },
+    bridge: new RegisteredConfirmationBridge(route("unused")),
+    stormBreaker: breaker,
+  };
+  await dispatchToolCalls(params);
+  const repeated = await dispatchToolCalls({
+    ...params,
+    calls: [{ ...call, id: "write-2" }],
+    stepOffset: 1,
+  });
+  const result = parseToolResultContentEnvelope(repeated.toolMessages[0].content);
+  assert.equal(result?.code, "duplicate_write_call_blocked");
+  assert.equal(result?.recoverable, false);
+  assert.match(String(result?.message), /第 1 步成功执行/);
+  assert.match(String(result?.message), /基于首次成功结果总结/);
+  assert.match(String(result?.hint), /使用首次成功结果/);
 });
 
 function directTool(name: string, readOnly: boolean, readOnlyActions?: string[]): ToolContract {
@@ -1055,4 +1176,192 @@ test("思源 loadData 对缺失文件返回空字符串时新会话首次保存�
   assert.equal(Array.isArray(stored?.messages), true);
   assert.equal(stored?.messages?.some((message) => message.id === "empty-string-assistant" && message.isComplete === false), true);
   assert.equal(get(store).messages.some((message) => message.id === "empty-string-assistant"), true);
+});
+
+test("确认 Diff 清理思源内部属性但保留普通花括号内容", () => {
+  const source = [
+    "正文 { ordinary: true }",
+    "{: id=\"20260803010101-abcdefg\" updated=\"20260803010203\"}",
+    "下一段\u200B",
+  ].join("\n");
+  const displayed = toDisplayMarkdownFromKramdown(source);
+  assert.match(displayed, /ordinary: true/);
+  assert.match(displayed, /下一段/);
+  assert.doesNotMatch(displayed, /20260803010101|updated|\u200B/);
+});
+
+test("确认 Diff 使用统一视图保留修改前后的完整上下文", () => {
+  const oldContent = ["第一段", "第二段旧内容", "第三段", "第四段"].join("\n\n");
+  const newContent = ["第一段", "第二段新内容", "第三段", "第四段"].join("\n\n");
+  const preview = buildEditDiffPreview({
+    title: "内容修改",
+    oldContent,
+    newContent,
+    toolName: "内容修改",
+  });
+  assert.equal(preview.displayOptions.defaultView, "unified");
+  assert.equal(preview.displayOptions.collapseUnchanged, true);
+  assert.equal(preview.stats.modifiedBlocks, 1);
+  assert.equal(preview.stats.addedLines, 1);
+  assert.equal(preview.stats.removedLines, 1);
+  assert.match(preview.summary, /内容行 \+1 \/ -1/);
+  assert.equal(preview.entries.filter((entry) => entry.status === "unchanged").length, 3);
+  assert.equal(preview.entries.some((entry) => entry.oldBlock?.id === "__collapsed__"), false);
+  const modified = preview.entries.find((entry) => entry.status === "modified");
+  assert.equal(modified?.oldBlock?.text, "第二段旧内容");
+  assert.equal(modified?.newBlock?.text, "第二段新内容");
+  assert.equal(modified?.oldBlock?.startLine, 2);
+  assert.equal(modified?.newBlock?.startLine, 2);
+  const visibleText = preview.entries
+    .map((entry) => `${entry.oldBlock?.text ?? ""}\n${entry.newBlock?.text ?? ""}`)
+    .join("\n");
+  assert.match(visibleText, /第一段/);
+  assert.match(visibleText, /第二段旧内容/);
+  assert.match(visibleText, /第二段新内容/);
+  assert.match(visibleText, /第四段/);
+});
+
+test("块级修改预览以文档标题和真实块顺序作为行号坐标", () => {
+  const targetId = "20260803095012-0y1owqe";
+  const target = `第一段旧内容\n{: id="${targetId}" updated="20260803095012"}`;
+  const document = [
+    "# 工具验证",
+    "{: id=\"20260803095012-heading\"}",
+    "",
+    "上方上下文",
+    "{: id=\"20260803095012-before\"}",
+    "",
+    target,
+    "",
+    "下方上下文",
+    "{: id=\"20260803095012-after\"}",
+  ].join("\n");
+  const proposed = previewUpdatedBlockInDocument(document, target, "第一段新内容");
+  assert.ok(proposed);
+  const preview = buildEditDiffPreview({
+    title: "确认修改内容块",
+    oldContent: withDocumentTitle("Codex-工具验证-20260803", document),
+    newContent: withDocumentTitle("Codex-工具验证-20260803", proposed),
+    targetBlockIds: [targetId],
+    toolName: "内容块修改",
+  });
+  const modified = preview.entries.find((entry) => entry.status === "modified");
+  assert.equal(modified?.oldBlock?.id, targetId);
+  assert.equal(modified?.oldBlock?.startLine, 4);
+  assert.equal(preview.entries[0]?.oldBlock?.text, "# Codex-工具验证-20260803");
+  assert.ok(preview.entries.some((entry) => entry.oldBlock?.text === "上方上下文"));
+  assert.ok(preview.entries.some((entry) => entry.oldBlock?.text === "下方上下文"));
+});
+
+test("内容块新增与删除预览在完整文档中生成拟议结果", () => {
+  const reference = "参考内容\n{: id=\"20260803095012-reference\"}";
+  const removed = "待删除内容\n{: id=\"20260803095012-remove\"}";
+  const document = ["前文", reference, removed, "后文"].join("\n\n");
+  const inserted = previewInsertedBlockInDocument(document, reference, "新增内容", "after");
+  assert.ok(inserted);
+  assert.match(inserted, /参考内容[\s\S]*新增内容[\s\S]*待删除内容/);
+  const deleted = previewDeletedBlocksInDocument(document, [removed]);
+  assert.doesNotMatch(deleted, /待删除内容|20260803095012-remove/);
+  assert.match(deleted, /参考内容/);
+  assert.match(deleted, /后文/);
+});
+
+test("文档预览按块 ID 定位，不受思源 IAL 属性顺序变化影响", () => {
+  const document = [
+    "前文",
+    "{: id=\"20260803095012-before\"}",
+    "",
+    "第七段用于验证块引用。",
+    "{: updated=\"20260803101718\" id=\"20260803101718-lflqzuw\"}",
+    "",
+    "后文",
+    "{: id=\"20260803095012-after\"}",
+  ].join("\n");
+  const standaloneSnapshot = [
+    "第七段用于验证块引用。",
+    "{: id=\"20260803101718-lflqzuw\" updated=\"20260803101718\"}",
+  ].join("\n");
+
+  const updated = previewUpdatedBlockInDocument(document, standaloneSnapshot, "第七段已修改。");
+  assert.ok(updated);
+  assert.match(updated, /第七段已修改。\n\{: updated="20260803101718" id="20260803101718-lflqzuw"\}/);
+
+  const inserted = previewInsertedBlockInDocument(document, standaloneSnapshot, "新增上下文。", "after");
+  assert.ok(inserted);
+  assert.match(inserted, /第七段用于验证块引用。[\s\S]*新增上下文。[\s\S]*后文/);
+
+  const deleted = previewDeletedBlocksInDocument(document, [standaloneSnapshot]);
+  assert.doesNotMatch(deleted, /第七段用于验证块引用|20260803101718-lflqzuw/);
+  assert.match(deleted, /前文[\s\S]*后文/);
+});
+
+test("长文档 Diff 仅折叠远处内容并保留变化前后上下文", () => {
+  const oldParagraphs = Array.from({ length: 12 }, (_, index) => `第 ${index + 1} 段`);
+  const newParagraphs = [...oldParagraphs];
+  newParagraphs[6] = "第 7 段已修改";
+  const preview = buildEditDiffPreview({
+    title: "长文档修改",
+    oldContent: oldParagraphs.join("\n\n"),
+    newContent: newParagraphs.join("\n\n"),
+    toolName: "内容修改",
+  });
+  const visible = preview.entries.map((entry) => entry.oldBlock?.text ?? entry.newBlock?.text ?? "");
+  assert.equal(visible[0], "第 1 段");
+  assert.ok(visible.some((text) => text.includes("已折叠")));
+  assert.ok(visible.includes("第 4 段"));
+  assert.ok(visible.includes("第 10 段"));
+  assert.ok(preview.entries.some((entry) => entry.status === "modified"));
+});
+
+test("确认 Diff 将思源 IAL 归给前一个块并记录可见行号", () => {
+  const blocks = parseBlocks([
+    "第一段",
+    "{: id=\"20260803010101-abcdefg\" updated=\"20260803010203\"}",
+    "第二段",
+    "{: id=\"20260803020101-hijklmn\"}",
+  ].join("\n"));
+  assert.deepEqual(blocks.map((block) => ({
+    id: block.id,
+    text: block.text,
+    startLine: block.startLine,
+  })), [
+    { id: "20260803010101-abcdefg", text: "第一段", startLine: 1 },
+    { id: "20260803020101-hijklmn", text: "第二段", startLine: 2 },
+  ]);
+});
+
+test("确认 Diff 忽略 Kramdown 分隔空行但保留真实空内容块", () => {
+  const blocks = parseBlocks([
+    "第一段",
+    "{: id=\"20260803010101-abcdefg\"}",
+    "",
+    "{: id=\"20260803015101-empty01\"}",
+    "",
+    "第二段",
+    "{: id=\"20260803020101-hijklmn\"}",
+    "",
+    "{: id=\"20260803000101-document\" type=\"doc\"}",
+  ].join("\n"));
+  assert.deepEqual(blocks.map((block) => ({
+    id: block.id,
+    text: block.text,
+    startLine: block.startLine,
+  })), [
+    { id: "20260803010101-abcdefg", text: "第一段", startLine: 1 },
+    { id: "20260803015101-empty01", text: "", startLine: 2 },
+    { id: "20260803020101-hijklmn", text: "第二段", startLine: 3 },
+  ]);
+});
+
+test("确认 Diff 将普通 Markdown 拆成标题与自然段作为上下文", () => {
+  const blocks = parseBlocks("# 标题\n\n第一段\n\n第二段");
+  assert.deepEqual(blocks.map((block) => ({
+    type: block.type,
+    text: block.text,
+    startLine: block.startLine,
+  })), [
+    { type: "heading", text: "# 标题", startLine: 1 },
+    { type: "paragraph", text: "第一段", startLine: 2 },
+    { type: "paragraph", text: "第二段", startLine: 3 },
+  ]);
 });

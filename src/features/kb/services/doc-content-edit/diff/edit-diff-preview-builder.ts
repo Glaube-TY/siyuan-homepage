@@ -7,11 +7,18 @@ import type {
   EditDiffPreview,
   EditBlockDiffEntry,
 } from "../doc-content-edit-types";
-import { parseBlocks, matchBlocks, collapseUnchangedContext } from "./block-diff";
+import { collapseUnchangedContext, parseBlocks, matchBlocks } from "./block-diff";
 
 const MAX_BLOCKS = 300;
 const MAX_CONTENT_CHARS = 50000;
 const DEFAULT_CONTEXT_BLOCKS = 3;
+
+function normalizePreviewSource(value: string): string {
+  return value
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u200B\u200C\u200D]/g, "")
+    .replace(/\r\n?/g, "\n");
+}
 
 export interface BuildEditDiffPreviewParams {
   title: string;
@@ -24,7 +31,10 @@ export interface BuildEditDiffPreviewParams {
 export function buildEditDiffPreview(
   params: BuildEditDiffPreviewParams,
 ): EditDiffPreview {
-  const { title, oldContent, newContent, targetBlockIds, toolName } = params;
+  const { title, targetBlockIds, toolName } = params;
+  // 保留思源 IAL 供分块器读取真实块 ID；IAL 本身不会进入可见文本。
+  const oldContent = normalizePreviewSource(params.oldContent);
+  const newContent = normalizePreviewSource(params.newContent);
 
   // Check for empty/no-change cases
   if (!oldContent && !newContent) {
@@ -48,7 +58,7 @@ export function buildEditDiffPreview(
 
   const rawEntries = matchBlocks(oldBlocks, newBlocks, targetBlockIds);
 
-  // Collapse unchanged blocks away from changes
+  // 与 GitHub Diff 一致：变化前后保留固定数量的真实上下文块，远处内容折叠。
   const entries = collapseUnchangedContext(rawEntries, DEFAULT_CONTEXT_BLOCKS);
 
   // Compute stats
@@ -107,15 +117,10 @@ function computeStats(entries: EditBlockDiffEntry[]): EditDiffPreview["stats"] {
     switch (entry.status) {
       case "modified":
         modifiedBlocks++;
-        if (entry.oldParts) {
-          for (const p of entry.oldParts) {
-            if (p.kind === "removed") removedLines += p.text.split("\n").length;
-          }
-        }
-        if (entry.newParts) {
-          for (const p of entry.newParts) {
-            if (p.kind === "added") addedLines += p.text.split("\n").length;
-          }
+        {
+          const changed = countChangedLines(entry.oldBlock?.text ?? "", entry.newBlock?.text ?? "");
+          removedLines += changed.removed;
+          addedLines += changed.added;
         }
         break;
       case "added":
@@ -132,6 +137,27 @@ function computeStats(entries: EditBlockDiffEntry[]): EditDiffPreview["stats"] {
   return { addedLines, removedLines, modifiedBlocks, addedBlocks, removedBlocks };
 }
 
+function countChangedLines(oldText: string, newText: string): { removed: number; added: number } {
+  const oldLines = oldText.split("\n");
+  const newLines = newText.split("\n");
+  let prefix = 0;
+  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) {
+    prefix++;
+  }
+  let suffix = 0;
+  while (
+    suffix < oldLines.length - prefix
+    && suffix < newLines.length - prefix
+    && oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+  return {
+    removed: oldLines.length - prefix - suffix,
+    added: newLines.length - prefix - suffix,
+  };
+}
+
 function buildSummary(
   toolName: string,
   stats: EditDiffPreview["stats"],
@@ -140,8 +166,9 @@ function buildSummary(
   if (stats.modifiedBlocks > 0) parts.push(`修改 ${stats.modifiedBlocks} 块`);
   if (stats.addedBlocks > 0) parts.push(`新增 ${stats.addedBlocks} 块`);
   if (stats.removedBlocks > 0) parts.push(`删除 ${stats.removedBlocks} 块`);
-  if (stats.addedLines > 0) parts.push(`+${stats.addedLines} 行`);
-  if (stats.removedLines > 0) parts.push(`-${stats.removedLines} 行`);
+  if (stats.addedLines > 0 || stats.removedLines > 0) {
+    parts.push(`内容行 +${stats.addedLines} / -${stats.removedLines}`);
+  }
   return parts.join(" · ");
 }
 

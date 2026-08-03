@@ -1,13 +1,15 @@
 import { sql, getBlockKramdown } from "../../../../../../../api";
 import type { ReplaceDocContentInput, ReplaceDocContentOutput, PreparedReplaceDocContentConfirmation } from "../contracts/replace-doc-content.contract";
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
-import { createRenderedSideBySideCompare, toDisplayMarkdownFromKramdown } from "../../../../doc-content-edit/doc-content-edit-diff";
+import { buildEditDiffPreview } from "../../../../doc-content-edit/diff/edit-diff-preview-builder";
+import { withDocumentTitle } from "../../../../doc-content-edit/doc-content-edit-document-preview";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
 import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedReplaceDocContent } from "../../../../doc-content-edit/doc-content-edit-replace-doc-content-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
+import { resolveDisplayPath, resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
 
 export interface ReplaceDocContentImplDeps extends SiyuanToolDeps {
   conversationId: string;
@@ -64,16 +66,18 @@ export async function prepareReplaceDocContentConfirmation(
   const afterSnapshot = markdown;
 
   // 4. 生成视觉对比
-  const displayBefore = toDisplayMarkdownFromKramdown(beforeSnapshot);
-  const displayAfter = toDisplayMarkdownFromKramdown(afterSnapshot);
+  const displayPath = await resolveDisplayPath(docId, block.hpath);
+  const notebookName = await resolveNotebookName(block.box);
 
   const visualCompare = {
-    type: "rendered_side_by_side" as const,
-    sideBySide: createRenderedSideBySideCompare(
-      displayBefore,
-      displayAfter,
-      { maxLines: 500, maxChars: 30000 },
-    ),
+    type: "block_diff" as const,
+    diff: buildEditDiffPreview({
+      title: `确认修改文档「${title || "未命名"}」`,
+      oldContent: withDocumentTitle(title, beforeSnapshot),
+      newContent: withDocumentTitle(title, afterSnapshot),
+      targetBlockIds: [docId],
+      toolName: "文档内容修改",
+    }),
   };
 
   // 5. 风险评估
@@ -97,6 +101,10 @@ export async function prepareReplaceDocContentConfirmation(
     target: {
       docId,
       title,
+      displayPath,
+      notebookName,
+      createdAt: block.created,
+      updatedAt: block.updated,
     },
     beforeSnapshot,
     afterSnapshot,

@@ -109,6 +109,7 @@ export function createDeleteBlocksTool(deps: DeleteBlocksDeps): ToolContract<Del
             code: "write_operation_failed",
             message: data.message || "批量删除内容块失败。",
             recoverable: false,
+            hint: "重新读取目标文档，确认每个 blockId 当前存在且属于同一文档；修正列表后再调用。",
             details: data.target ? { target: data.target, requestedCount: data.requestedCount, deletedCount: data.deletedCount ?? 0 } : undefined,
           },
         };

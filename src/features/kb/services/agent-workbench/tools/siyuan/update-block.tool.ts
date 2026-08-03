@@ -56,6 +56,7 @@ export function createUpdateBlockTool(deps: UpdateBlockDeps): ToolContract<Updat
             code: "write_operation_failed",
             message: data.message || "写入操作失败。",
             recoverable: false,
+            hint: "重新读取目标块及其所属文档，确认 blockId 当前有效；只有修正目标或内容后才能重试。",
             details: data.target ? { target: data.target } : undefined,
           },
         };

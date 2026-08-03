@@ -55,7 +55,8 @@ export interface DocContentEditArrowFlow {
  */
 export type DocContentEditVisualCompare =
   | { type: "rendered_side_by_side"; sideBySide: DocContentEditRenderedSideBySide }
-  | { type: "arrow_flow"; arrow: DocContentEditArrowFlow };
+  | { type: "arrow_flow"; arrow: DocContentEditArrowFlow }
+  | { type: "block_diff"; diff: EditDiffPreview };
 
 export interface DocContentEditTarget {
   docId?: string;
@@ -67,6 +68,35 @@ export interface DocContentEditTarget {
   previousID?: string;
   parentID?: string;
   title?: string;
+  /** 面向用户展示的人类可读路径，不得使用内部 .sy 路径代替。 */
+  displayPath?: string;
+  notebookName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface DocContentEditDisplayItem {
+  kind: "文档" | "内容块" | "笔记本" | "数据库" | "其他";
+  title: string;
+  notebookName?: string;
+  path?: string;
+  excerpt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface DocContentEditPresentation {
+  mode: "delete" | "create" | "modify" | "move";
+  heading: string;
+  description?: string;
+  items?: DocContentEditDisplayItem[];
+  destination?: {
+    label: string;
+    path?: string;
+    detail?: string;
+  };
+  method?: string;
+  addedContent?: string;
 }
 
 export interface DocContentEditConfirmation {
@@ -76,6 +106,8 @@ export interface DocContentEditConfirmation {
   toolName: string;
   toolInput: Record<string, unknown>;
   target: DocContentEditTarget;
+  /** 仅用于确认弹窗的用户可读语义，不参与写入执行。 */
+  presentation?: DocContentEditPresentation;
   beforeSnapshot?: string;
   afterSnapshot?: string;
   visualCompare?: DocContentEditVisualCompare;
@@ -107,6 +139,7 @@ export interface EditPreviewBlock {
   text: string;
   markdown: string;
   order: number;
+  startLine?: number;
   depth?: number;
 }
 

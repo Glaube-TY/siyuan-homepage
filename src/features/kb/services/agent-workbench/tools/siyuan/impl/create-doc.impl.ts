@@ -1,13 +1,12 @@
 import type { CreateDocInput, CreateDocOutput, PreparedCreateDocConfirmation } from "../contracts/create-doc.contract";
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
-import { createArrowFlowCompare } from "../../../../doc-content-edit/doc-content-edit-diff";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
 import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedCreateDoc } from "../../../../doc-content-edit/doc-content-edit-create-doc-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
-import type { DocContentEditArrowFlow } from "../../../../doc-content-edit/doc-content-edit-types";
+import { resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
 
 export interface CreateDocImplDeps extends SiyuanToolDeps {
   conversationId: string;
@@ -39,17 +38,9 @@ export async function prepareCreateDocConfirmation(
 
   const allWarnings = warnings.length > 0 ? warnings.concat(riskResult.warnings) : riskResult.warnings;
 
-  // 2. 生成 arrow_flow 视觉对比
+  // 2. 生成“添加到哪、如何添加”的用户可读展示。
   const title = path.split("/").pop() || path;
-  const arrow: DocContentEditArrowFlow = createArrowFlowCompare(
-    "无",
-    title,
-    { fromDescription: "当前无此文档", toDescription: `在笔记本下创建文档 ${path}` },
-  );
-  const visualCompare = {
-    type: "arrow_flow" as const,
-    arrow,
-  };
+  const notebookName = await resolveNotebookName(notebookId);
 
   // 3. 创建 pending confirmation
   const confirmation = await createDocContentEditConfirmation({
@@ -61,9 +52,22 @@ export async function prepareCreateDocConfirmation(
       notebookId,
       docPath: path,
       title,
+      displayPath: path,
+      notebookName,
+    },
+    presentation: {
+      mode: "create",
+      heading: "确认新建文档",
+      description: "将按下面的位置和方式创建文档。",
+      destination: {
+        label: notebookName || "目标笔记本",
+        path,
+        detail: "在该路径新建文档",
+      },
+      method: markdown.trim() ? "新建文档并写入初始内容" : "新建空文档",
+      addedContent: markdown,
     },
     afterSnapshot: markdown,
-    visualCompare,
     riskLevel: riskResult.riskLevel,
     warnings: allWarnings.length > 0 ? allWarnings : undefined,
   });

@@ -8,6 +8,7 @@ import { executeConfirmedMoveBlock } from "../../../../doc-content-edit/doc-cont
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
 import type { DocContentEditArrowFlow } from "../../../../doc-content-edit/doc-content-edit-types";
+import { resolveDisplayPath, resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
 
 function escapeSqlId(id: string): string {
   return id.replace(/'/g, "''");
@@ -45,6 +46,7 @@ export async function prepareMoveBlockConfirmation(
   const blockId = args.blockId.trim();
   const previousID = args.previousID?.trim();
   const parentID = args.parentID?.trim();
+  let destinationLabel = "目标位置";
 
   // 1. 确认目标块存在
   const rows = await sql(`SELECT * FROM blocks WHERE id = '${escapeSqlId(blockId)}'`);
@@ -73,6 +75,7 @@ export async function prepareMoveBlockConfirmation(
       };
       return { prepareResult };
     }
+    destinationLabel = (prevRows[0] as Block).content?.slice(0, 50) || "指定内容块";
     if (await isDescendantOf(previousID, blockId)) {
       const prepareResult: PreparedMoveBlockConfirmation = {
         confirmationId: "",
@@ -98,6 +101,7 @@ export async function prepareMoveBlockConfirmation(
       };
       return { prepareResult };
     }
+    destinationLabel = (parentRows[0] as Block).content?.slice(0, 50) || "指定父块";
     if (await isDescendantOf(parentID, blockId)) {
       const prepareResult: PreparedMoveBlockConfirmation = {
         confirmationId: "",
@@ -123,10 +127,12 @@ export async function prepareMoveBlockConfirmation(
 
   // 5. afterSnapshot 与 beforeSnapshot 相同（移动不改变内容）
   const afterSnapshot = beforeSnapshot;
+  const displayPath = await resolveDisplayPath(block.root_id);
+  const notebookName = await resolveNotebookName(block.box);
 
   // 6. 生成 arrow_flow 视觉对比
-  const blockLabel = (block as Block).content?.slice(0, 50) || blockId;
-  const toLabel = previousID ? `after ${previousID}` : `under ${parentID}`;
+  const blockLabel = (block as Block).content?.slice(0, 50) || "未命名内容块";
+  const toLabel = destinationLabel;
   const arrow: DocContentEditArrowFlow = {
     fromLabel: blockLabel,
     toLabel,
@@ -157,6 +163,10 @@ export async function prepareMoveBlockConfirmation(
       parentID,
       docId: block.root_id,
       title: block.content?.slice(0, 100),
+      displayPath,
+      notebookName,
+      createdAt: block.created,
+      updatedAt: block.updated,
     },
     beforeSnapshot,
     afterSnapshot,

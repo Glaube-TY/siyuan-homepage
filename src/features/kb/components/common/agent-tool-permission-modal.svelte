@@ -42,10 +42,34 @@
   $: riskLabel = { low: "低风险", medium: "中风险", high: "高风险" }[risk] ?? "未知";
   $: riskClass = { low: "risk-low", medium: "risk-medium", high: "risk-high" }[risk] ?? "risk-medium";
   $: argsStr = JSON.stringify(argsPreview, null, 2);
+  $: actionName = String(argsPreview.action ?? argsPreview.innerAction ?? "").toLowerCase();
+  $: deleteOperation = /(^|_)(delete|remove|uninstall)(_|$)/.test(`${toolName}_${actionName}`);
+  $: createOperation = /(^|_)(create|add|insert|append|prepend|put)(_|$)/.test(`${toolName}_${actionName}`);
   $: firstSummaryLine = summary.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
-  $: displayOperation = operationLabel || firstSummaryLine;
+  $: displayOperation = humanOperation(operationLabel || firstSummaryLine || actionName);
   $: shouldShowArgs = Object.keys(argsPreview).length > 0 && sections.length === 0;
-  $: confirmLabel = risk === "high" ? "确认执行高风险操作" : "确认执行";
+  $: confirmLabel = deleteOperation ? "确认删除" : createOperation ? "确认添加" : risk === "high" ? "确认执行高风险操作" : "确认执行";
+
+  function humanOperation(value: string): string {
+    const labels: Record<string, string> = {
+      delete: "删除",
+      remove: "删除",
+      delete_doc: "删除文档",
+      delete_blocks: "删除内容块",
+      remove_file: "删除文件",
+      remove_cards: "移除闪卡",
+      remove_attribute_view_key: "删除数据库字段",
+      remove_attribute_view_rows: "删除数据库条目",
+      create: "新建",
+      create_doc: "新建文档",
+      add: "添加",
+      insert: "插入",
+      update: "修改",
+      rename: "重命名",
+      move: "移动",
+    };
+    return labels[value.trim().toLowerCase()] ?? value;
+  }
 </script>
 
 {#if open}
@@ -54,12 +78,12 @@
   <div class="modal-backdrop" on:click={handleBackdropClick} on:keydown={handleKeydown}>
     <div class="modal-content" role="dialog" aria-modal="true">
       <div class="modal-header">
-        <h3>确认执行操作</h3>
+        <h3>{deleteOperation ? "确认删除" : createOperation ? "确认添加" : "确认执行操作"}</h3>
         <span class="risk-badge {riskClass}">{riskLabel}</span>
       </div>
 
       <div class="modal-body">
-        <div class="info-row">
+        <div class="info-row" class:delete-emphasis={deleteOperation}>
           <span class="label">工具：</span>
           <span class="value">{title || toolName}</span>
         </div>
@@ -90,7 +114,13 @@
         {#if risk === "high"}
           <div class="risk-callout">高风险操作执行后请以工具结果和当前思源内容为准，系统不会自动回滚。</div>
         {/if}
-        {#if arrowFlow}
+        {#if deleteOperation}
+          <div class="delete-target-card">
+            <span class="delete-target-label">即将删除</span>
+            <strong>{targetSummary || title || "已锁定的目标"}</strong>
+            {#if impactSummary}<p>{impactSummary}</p>{/if}
+          </div>
+        {:else if arrowFlow}
           <div class="arrow-flow" aria-label="变更流向">
             <div class="arrow-node">
               <div class="arrow-node-label">{arrowFlow.fromLabel}</div>
@@ -137,7 +167,7 @@
 
       <div class="modal-footer">
         <button class="btn btn-cancel" on:click={handleCancel}>取消</button>
-        <button class="btn btn-confirm" data-confirm-button="true" on:click={handleConfirm}>{confirmLabel}</button>
+        <button class="btn btn-confirm" class:btn-danger={deleteOperation} data-confirm-button="true" on:click={handleConfirm}>{confirmLabel}</button>
       </div>
     </div>
   </div>
@@ -222,6 +252,40 @@
 
   .risk-reason-row .value {
     color: var(--b3-theme-error, #c62828);
+  }
+
+  .delete-emphasis .value {
+    color: var(--b3-theme-error);
+    font-weight: 600;
+  }
+
+  .delete-target-card {
+    margin: $kb-space-md 0;
+    padding: $kb-space-md;
+    border: 1px solid color-mix(in srgb, var(--b3-theme-error) 38%, var(--b3-border-color));
+    border-left: 3px solid var(--b3-theme-error);
+    border-radius: $kb-radius-md;
+    background: color-mix(in srgb, var(--b3-theme-error) 7%, var(--b3-theme-surface));
+  }
+
+  .delete-target-label {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--b3-theme-error);
+    font-size: $kb-fs-sm;
+  }
+
+  .delete-target-card strong {
+    display: block;
+    color: var(--b3-theme-on-surface);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .delete-target-card p {
+    margin: 4px 0 0;
+    color: var(--b3-theme-on-surface-light);
+    font-size: $kb-fs-md;
   }
 
   .risk-callout,
@@ -386,6 +450,12 @@
       opacity: 0.9;
       box-shadow: $kb-shadow-raised;
     }
+  }
+
+  .btn-danger {
+    background: var(--b3-theme-error);
+    border-color: var(--b3-theme-error);
+    color: var(--b3-theme-on-error, #fff);
   }
 
   @media (max-width: 520px) {

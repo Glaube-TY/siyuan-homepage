@@ -316,7 +316,7 @@ export async function executeListAttributeViews(
     try {
       const sqlCandidates = await querySqlCandidates(keyword, limit);
       if (sqlCandidates.length > 0) {
-        warnings.push("SQL 结果仅为数据库块候选，不能直接读取；需要通过 searchAttributeView 验证或在思源界面确认真实属性视图 ID。");
+        warnings.push("SQL 结果仅为数据库块候选，不能直接读取；需要通过 searchAttributeView 验证或在思源界面确认真实数据库 ID。");
       }
       candidates = candidates.concat(sqlCandidates);
     } catch (error) {

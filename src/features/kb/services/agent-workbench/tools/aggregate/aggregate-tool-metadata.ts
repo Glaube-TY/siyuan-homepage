@@ -435,7 +435,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
   {
     name: "siyuan_database",
     title: "思源数据库",
-    description: "查询和操作思源数据库/属性视图。",
+    description: "查询和操作思源数据库。",
     readOnly: false,
     requiresConfirmation: true,
     boundary: "写入数据库前必须确认；databaseId、viewId、keyId、rowId 应来自读取或查找结果，不能编造。批量操作应控制数量。",

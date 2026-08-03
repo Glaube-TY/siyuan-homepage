@@ -18,39 +18,89 @@ export function parseBlocks(kramdown: string): EditPreviewBlock[] {
   const lines = kramdown.split("\n");
   const blocks: EditPreviewBlock[] = [];
   let currentLines: string[] = [];
-  let currentId: string | undefined;
-  let syntheticIdx = 0;
+  let currentStartLine = 1;
+  let currentType: string | undefined;
+  let fenceMarker: "```" | "~~~" | undefined;
+  let visibleLineNumber = 0;
 
-  function flushBlock() {
+  function flushBlock(id?: string) {
     const text = currentLines.join("\n").trim();
-    if (text.length > 0 || (currentId && currentLines.length > 0)) {
+    if (text.length > 0) {
       blocks.push({
-        id: currentId,
+        id,
+        type: currentType,
         text,
         markdown: currentLines.join("\n"),
         order: blocks.length,
+        startLine: currentStartLine,
       });
     }
     currentLines = [];
-    currentId = undefined;
+    currentType = undefined;
   }
 
-  for (const line of lines) {
+  function pushEmptyBlock(id: string) {
+    visibleLineNumber++;
+    blocks.push({
+      id,
+      type: "paragraph",
+      text: "",
+      markdown: "",
+      order: blocks.length,
+      startLine: visibleLineNumber,
+    });
+  }
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
     const trimmed = line.trim();
-    // Detect IAL — block boundary
+    const fence = trimmed.startsWith("```") ? "```" : trimmed.startsWith("~~~") ? "~~~" : undefined;
+    if (fenceMarker) {
+      visibleLineNumber++;
+      currentLines.push(line);
+      if (fence === fenceMarker) fenceMarker = undefined;
+      continue;
+    }
+
+    // 思源 IAL 属于它前面的块，不能归给下一个块。
     if (trimmed.startsWith("{:") && trimmed.endsWith("}")) {
       const idMatch = trimmed.match(/id="([^"]*)"/);
-      const newId = idMatch ? idMatch[1] : undefined;
-
-      if (currentId !== undefined || currentLines.length > 0) {
-        // Flush previous block
-        flushBlock();
+      const blockId = idMatch?.[1];
+      const isDocumentIal = /(?:^|\s)type="doc"(?:\s|})/.test(trimmed);
+      if (currentLines.length > 0) {
+        flushBlock(blockId);
+      } else if (blockId && !isDocumentIal) {
+        // 思源真实空内容块只包含一条 IAL；它应占一个可见位置。
+        pushEmptyBlock(blockId);
       }
-      currentId = newId ?? `synthetic_${syntheticIdx++}`;
-      // IAL line is metadata, not content — skip
-    } else {
-      currentLines.push(line);
+      continue;
     }
+
+    // Kramdown 会在块之间插入分隔空行；这不是思源中的内容块，不占可见行号。
+    if (!trimmed) {
+      flushBlock();
+      continue;
+    }
+
+    const isHeading = /^#{1,6}\s+/.test(trimmed);
+    if (isHeading && currentLines.length > 0) flushBlock();
+    if (currentType === "heading" && !isHeading) flushBlock();
+
+    if (currentLines.length === 0) {
+      currentStartLine = visibleLineNumber + 1;
+      currentType = isHeading
+        ? "heading"
+        : /^([-*+]\s+|\d+[.)]\s+)/.test(trimmed)
+          ? "list"
+          : /^>\s?/.test(trimmed)
+            ? "quote"
+            : fence
+              ? "code"
+              : "paragraph";
+    }
+    visibleLineNumber++;
+    currentLines.push(line);
+    if (fence) fenceMarker = fence;
   }
   flushBlock();
 
@@ -112,7 +162,24 @@ export function matchBlocks(
     }
   }
 
-  // Pass 2: Match by text similarity for unmatched blocks
+  // Pass 2: 精确文本优先，保证未变化段落稳定成为上下文。
+  for (let i = 0; i < oldBlocks.length; i++) {
+    if (usedOld.has(i)) continue;
+    const newIdx = newBlocks.findIndex((block, index) => (
+      !usedNew.has(index) && block.text === oldBlocks[i].text
+    ));
+    if (newIdx < 0) continue;
+    usedOld.add(i);
+    usedNew.add(newIdx);
+    entries.push({
+      key: oldBlocks[i].id ?? newBlocks[newIdx].id ?? `unchanged_${i}_${newIdx}`,
+      status: "unchanged",
+      oldBlock: oldBlocks[i],
+      newBlock: newBlocks[newIdx],
+    });
+  }
+
+  // Pass 3: Match by text similarity for unmatched blocks
   const unmatchedOld: number[] = [];
   for (let i = 0; i < oldBlocks.length; i++) {
     if (!usedOld.has(i)) unmatchedOld.push(i);
@@ -157,7 +224,37 @@ export function matchBlocks(
     }
   }
 
-  // Pass 3: Remaining old blocks are removed, new blocks are added
+  // Pass 4: 用位置兜底识别“整段改写”。普通中文短段可能没有相同词，
+  // 但在前后未变化段落已经锚定后，同一位置附近的剩余块仍应视为修改。
+  for (let i = 0; i < oldBlocks.length; i++) {
+    if (usedOld.has(i)) continue;
+    let bestNewIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (let j = 0; j < newBlocks.length; j++) {
+      if (usedNew.has(j)) continue;
+      const distance = Math.abs(oldBlocks[i].order - newBlocks[j].order);
+      if (distance <= 1 && distance < bestDistance) {
+        bestNewIndex = j;
+        bestDistance = distance;
+      }
+    }
+    if (bestNewIndex < 0) continue;
+    usedOld.add(i);
+    usedNew.add(bestNewIndex);
+    const oldBlock = oldBlocks[i];
+    const newBlock = newBlocks[bestNewIndex];
+    const { oldParts, newParts } = buildInlineDiffParts(oldBlock.text, newBlock.text);
+    entries.push({
+      key: oldBlock.id ?? newBlock.id ?? `position_${i}_${bestNewIndex}`,
+      status: "modified",
+      oldBlock,
+      newBlock,
+      oldParts,
+      newParts,
+    });
+  }
+
+  // Pass 5: Remaining old blocks are removed, new blocks are added
   for (let i = 0; i < oldBlocks.length; i++) {
     if (!usedOld.has(i)) {
       const block = oldBlocks[i];
@@ -261,35 +358,47 @@ export function collapseUnchangedContext(
     }
   }
 
+  // 文档级 Diff 始终保留第 1 行标题，作为用户辨认正文位置的稳定锚点。
+  const firstBlock = entries[0]?.oldBlock ?? entries[0]?.newBlock;
+  if (firstBlock?.startLine === 1) keepFlags[0] = true;
+
   // Build result with collapsed placeholders
   const result: EditBlockDiffEntry[] = [];
-  let skipped = 0;
+  let skipped: EditBlockDiffEntry[] = [];
   for (let i = 0; i < entries.length; i++) {
     if (keepFlags[i]) {
-      if (skipped > 0) {
+      if (skipped.length > 0) {
         result.push(createCollapsedPlaceholder(skipped));
-        skipped = 0;
+        skipped = [];
       }
       result.push(entries[i]);
     } else {
-      skipped++;
+      skipped.push(entries[i]);
     }
   }
-  if (skipped > 0) {
+  if (skipped.length > 0) {
     result.push(createCollapsedPlaceholder(skipped));
   }
   return result;
 }
 
-function createCollapsedPlaceholder(count: number): EditBlockDiffEntry {
+function createCollapsedPlaceholder(entries: EditBlockDiffEntry[]): EditBlockDiffEntry {
+  const first = entries[0]?.oldBlock ?? entries[0]?.newBlock;
+  const lastEntry = entries[entries.length - 1];
+  const last = lastEntry?.oldBlock ?? lastEntry?.newBlock;
+  const startLine = first?.startLine;
+  const lastLineCount = last?.text.split("\n").length ?? 1;
+  const endLine = last?.startLine ? last.startLine + lastLineCount - 1 : undefined;
+  const range = startLine && endLine ? `，原文第 ${startLine}–${endLine} 行` : "";
   return {
-    key: `collapsed_${count}`,
+    key: `collapsed_${startLine ?? "unknown"}_${entries.length}`,
     status: "unchanged",
     oldBlock: {
       id: "__collapsed__",
-      text: `... ${count} 个未变化块 ...`,
+      text: `已折叠 ${entries.length} 个未变化块${range}`,
       markdown: "",
       order: -1,
+      startLine,
     },
   };
 }

@@ -56,6 +56,7 @@ export function createRenameDocTool(deps: RenameDocDeps): ToolContract<RenameDoc
             code: "write_operation_failed",
             message: data.message || "写入操作失败。",
             recoverable: false,
+            hint: "重新读取文档信息，确认 docId 当前存在并修正标题；不要原参数重试。",
             details: data.target ? { target: data.target } : undefined,
           },
         };

@@ -1,13 +1,15 @@
 ﻿import { sql, getBlockKramdown } from "../../../../../../../api";
 import type { UpdateBlockInput, UpdateBlockOutput, PreparedUpdateBlockConfirmation } from "../contracts/update-block.contract";
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
-import { createRenderedSideBySideCompare, toDisplayMarkdownFromKramdown } from "../../../../doc-content-edit/doc-content-edit-diff";
+import { buildEditDiffPreview } from "../../../../doc-content-edit/diff/edit-diff-preview-builder";
+import { previewUpdatedBlockInDocument, withDocumentTitle } from "../../../../doc-content-edit/doc-content-edit-document-preview";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
 import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedUpdateBlock } from "../../../../doc-content-edit/doc-content-edit-update-block-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
+import { resolveDisplayPath, resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
 
 function escapeSqlId(id: string): string {
   return id.replace(/'/g, "''");
@@ -46,20 +48,35 @@ export async function prepareUpdateBlockConfirmation(
     warnings.push("无法读取块 kramdown，已回退到 markdown/content。");
   }
 
-  // 3. afterSnapshot 使用输入 markdown
+  // 3. afterSnapshot 使用输入 markdown；确认 Diff 则以整篇文档为坐标系。
   const afterSnapshot = markdown;
+  let documentKramdown: string;
+  try {
+    const documentResult = await getBlockKramdown(block.root_id);
+    documentKramdown = documentResult?.kramdown ?? "";
+  } catch {
+    throw new Error("无法读取目标块所在文档的完整上下文，未准备修改确认。");
+  }
+  const documentRows = await sql(`SELECT content FROM blocks WHERE id = '${escapeSqlId(block.root_id)}' AND type = 'd' LIMIT 1`);
+  const documentTitle = (documentRows[0] as Pick<Block, "content"> | undefined)?.content || "未命名文档";
+  const proposedDocument = previewUpdatedBlockInDocument(documentKramdown, beforeSnapshot, markdown);
+  if (proposedDocument === undefined) {
+    throw new Error("无法在完整文档中定位目标内容块，未准备修改确认。");
+  }
 
   // 4. 生成视觉对比
-  const displayBefore = toDisplayMarkdownFromKramdown(beforeSnapshot);
-  const displayAfter = toDisplayMarkdownFromKramdown(afterSnapshot);
+  const displayPath = await resolveDisplayPath(block.root_id);
+  const notebookName = await resolveNotebookName(block.box);
 
   const visualCompare = {
-    type: "rendered_side_by_side" as const,
-    sideBySide: createRenderedSideBySideCompare(
-      displayBefore,
-      displayAfter,
-      { maxLines: 200, maxChars: 15000 },
-    ),
+    type: "block_diff" as const,
+    diff: buildEditDiffPreview({
+      title: "确认修改内容块",
+      oldContent: withDocumentTitle(documentTitle, documentKramdown),
+      newContent: withDocumentTitle(documentTitle, proposedDocument),
+      targetBlockIds: [blockId],
+      toolName: "内容块修改",
+    }),
   };
 
   // 5. 风险评估
@@ -84,6 +101,10 @@ export async function prepareUpdateBlockConfirmation(
       blockId,
       docId: block.root_id,
       title: block.content?.slice(0, 100),
+      displayPath,
+      notebookName,
+      createdAt: block.created,
+      updatedAt: block.updated,
     },
     beforeSnapshot,
     afterSnapshot,

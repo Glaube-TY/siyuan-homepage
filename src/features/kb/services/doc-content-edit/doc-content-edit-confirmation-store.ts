@@ -40,6 +40,7 @@ export interface CreateDocContentEditConfirmationInput {
   toolInput?: Record<string, unknown>;
   riskLevel: DocContentEditConfirmation["riskLevel"];
   target: DocContentEditConfirmation["target"];
+  presentation?: DocContentEditConfirmation["presentation"];
   beforeSnapshot?: string;
   afterSnapshot?: string;
   visualCompare?: DocContentEditConfirmation["visualCompare"];
@@ -60,6 +61,7 @@ export async function createDocContentEditConfirmation(
     toolName: input.toolName,
     toolInput: input.toolInput ?? {},
     target: input.target,
+    presentation: input.presentation,
     beforeSnapshot: input.beforeSnapshot,
     afterSnapshot: input.afterSnapshot,
     visualCompare: input.visualCompare,

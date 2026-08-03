@@ -21,7 +21,7 @@ export function createClearAttributeViewCellTool(
   return {
     name: "clear_attribute_view_cell",
     title: "清空数据库单元格",
-    description: "在用户确认后，清空思源数据库/属性视图中指定单元格的值。",
+    description: "在用户确认后，清空思源数据库中指定单元格的值。",
     inputSchema: clearAttributeViewCellInputSchema,
     outputSchema: clearAttributeViewCellOutputSchema,
     readOnly: false,

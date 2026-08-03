@@ -208,6 +208,8 @@ function duplicateFailedDetails(args: Record<string, unknown>, info: FailedCallI
     action: actionLabel(args),
     firstStepIndex: info.firstStepIndex,
     previousErrorCode: info.errorCode,
+    previousErrorMessage: info.message,
+    nextStep: duplicateFailureNextStep(info),
     argsDigest: info.keyDigest,
     keyDigest: info.keyDigest,
     argsPreview: duplicateArgsPreview(args, info),
@@ -219,10 +221,29 @@ function duplicateRawFailedDetails(rawArguments: string, info: FailedCallInfo): 
     duplicateKind: "failed_call",
     firstStepIndex: info.firstStepIndex,
     previousErrorCode: info.errorCode,
+    previousErrorMessage: info.message,
+    nextStep: duplicateFailureNextStep(info),
     argsDigest: info.keyDigest,
     keyDigest: info.keyDigest,
     rawArgumentsChars: rawArguments.length,
   };
+}
+
+function duplicateFailureNextStep(info: FailedCallInfo): string {
+  if (info.hint) return info.hint;
+  if (["invalid_tool_arguments", "invalid_action_args", "invalid_args"].includes(info.errorCode)) {
+    return "先查看 agent_tool_help.describe_action 返回的参数说明，修正错误字段后再调用；不得原参数重试。";
+  }
+  if (["write_operation_failed", "siyuan_api_failed"].includes(info.errorCode)) {
+    return "重新读取目标对象，取得当前有效的文档 ID、块 ID 和上下文；只有参数发生有效变化后才能重试。";
+  }
+  return "根据首次失败原因更换参数或策略；如果无法修正，就基于已有结果如实总结。";
+}
+
+function duplicateFailureMessage(info: FailedCallInfo): string {
+  const step = info.firstStepIndex ? `第 ${info.firstStepIndex} 步` : "前一次";
+  const reason = info.message || info.errorCode;
+  return `同一工具调用已在${step}失败：${reason}。不要原参数重试。${duplicateFailureNextStep(info)}`;
 }
 
 function isRetryTrackedFailureCode(code: string | undefined): code is string {
@@ -299,7 +320,9 @@ async function executeOne(params: {
         call: params.call,
         toolName: params.call.name,
         code: "duplicate_failed_call_blocked",
-        message: "同一失败调用已出现过，请不要同参重试，先使用 agent_tool_help.describe_action 或基于已有结果总结。",
+        message: duplicateFailureMessage(previousFailure),
+        recoverable: false,
+        hint: duplicateFailureNextStep(previousFailure),
         details: duplicateRawFailedDetails(params.call.arguments, previousFailure),
         argsPreview: {
           argsDigest: previousFailure.keyDigest,
@@ -316,6 +339,10 @@ async function executeOne(params: {
       params.call.arguments,
       "invalid_tool_arguments",
       params.stepIndex,
+      {
+        message: parsed.message,
+        hint: "检查工具参数是否为合法 JSON；需要参数说明时调用 agent_tool_help.describe_action。",
+      },
     );
     return finishToolFailure({
       call: params.call,
@@ -363,7 +390,9 @@ async function executeOne(params: {
       call: params.call,
       toolName: tool.name,
       code: "duplicate_failed_call_blocked",
-      message: "同一失败调用已出现过，请不要同参重试，先使用 agent_tool_help.describe_action 或基于已有结果总结。",
+      message: duplicateFailureMessage(previousFailure),
+      recoverable: false,
+      hint: duplicateFailureNextStep(previousFailure),
       details: duplicateFailedDetails(parsed.args, previousFailure),
       argsPreview: duplicateArgsPreview(parsed.args, previousFailure),
       stepIndex: params.stepIndex,
@@ -381,7 +410,9 @@ async function executeOne(params: {
       call: params.call,
       toolName: tool.name,
       code: "duplicate_write_call_blocked",
-      message: "The runtime blocked a duplicate write call in the same agent turn.",
+      message: `同一写入已在${duplicateInfo.firstStepIndex !== undefined ? `第 ${duplicateInfo.firstStepIndex} 步` : "前一次"}成功执行，本次重复请求已跳过。不要再次使用相同参数调用；请继续下一项不同操作，或基于首次成功结果总结。`,
+      recoverable: false,
+      hint: "使用首次成功结果；如需继续处理，必须选择不同目标或不同内容。",
       details: duplicateDetails("write", parsed.args, duplicateInfo),
       argsPreview: preview,
       stepIndex: params.stepIndex,
@@ -401,7 +432,9 @@ async function executeOne(params: {
       call: params.call,
       toolName: tool.name,
       code: "duplicate_read_call_blocked",
-      message: "本轮同一工具同一参数已调用过，请使用前一次结果回答，不要重复调用。",
+      message: `同一只读调用已在${duplicateInfo.firstStepIndex !== undefined ? `第 ${duplicateInfo.firstStepIndex} 步` : "前一次"}执行，本次重复请求已跳过。请直接使用前一次结果回答；只有查询目标或参数发生变化时才需要再次调用。`,
+      recoverable: false,
+      hint: "复用前一次读取结果，或明确改变查询目标/范围。",
       details: duplicateDetails("read", parsed.args, duplicateInfo),
       argsPreview: preview,
       stepIndex: params.stepIndex,
@@ -440,18 +473,25 @@ async function executeOne(params: {
     try {
       validation = await tool.preflightValidate(parsed.args);
     } catch (err) {
+      const validationMessage = err instanceof Error ? err.message : "参数校验失败。";
       const failureInfo = params.stormBreaker.recordFailedCall(
         params.call,
         parsed.args,
         "invalid_args",
         params.stepIndex,
+        {
+          message: validationMessage,
+          hint: "查看 agent_tool_help.describe_action 的参数说明，修正错误字段后再调用。",
+        },
       );
       if (failureInfo.count > 1) {
         return finishToolFailure({
           call: params.call,
           toolName: tool.name,
           code: "duplicate_failed_call_blocked",
-          message: "同一失败调用已出现过，请不要同参重试，先使用 agent_tool_help.describe_action 或基于已有结果总结。",
+          message: duplicateFailureMessage(failureInfo),
+          recoverable: false,
+          hint: duplicateFailureNextStep(failureInfo),
           details: duplicateFailedDetails(parsed.args, failureInfo),
           argsPreview: duplicateArgsPreview(parsed.args, failureInfo),
           stepIndex: params.stepIndex,
@@ -463,7 +503,7 @@ async function executeOne(params: {
         call: params.call,
         toolName: tool.name,
         code: "invalid_args",
-        message: err instanceof Error ? err.message : "参数校验失败。",
+        message: validationMessage,
         recoverable: true,
         argsPreview: argsPreview(parsed.args, failureInfo.keyDigest),
         stepIndex: params.stepIndex,
@@ -474,18 +514,25 @@ async function executeOne(params: {
 
     if (validation.ok === false) {
       const failureCode = validation.error?.code ?? "invalid_args";
+      const validationMessage = validation.error?.message ?? "参数校验失败。";
       const failureInfo = params.stormBreaker.recordFailedCall(
         params.call,
         parsed.args,
         failureCode,
         params.stepIndex,
+        {
+          message: validationMessage,
+          hint: "查看 agent_tool_help.describe_action 的参数说明，修正错误字段后再调用。",
+        },
       );
       if (failureInfo.count > 1) {
         return finishToolFailure({
           call: params.call,
           toolName: tool.name,
           code: "duplicate_failed_call_blocked",
-          message: "同一失败调用已出现过，请不要同参重试，先使用 agent_tool_help.describe_action 或基于已有结果总结。",
+          message: duplicateFailureMessage(failureInfo),
+          recoverable: false,
+          hint: duplicateFailureNextStep(failureInfo),
           details: duplicateFailedDetails(parsed.args, failureInfo),
           argsPreview: duplicateArgsPreview(parsed.args, failureInfo),
           stepIndex: params.stepIndex,
@@ -497,7 +544,7 @@ async function executeOne(params: {
         call: params.call,
         toolName: tool.name,
         code: failureCode,
-        message: validation.error?.message ?? "参数校验失败。",
+        message: validationMessage,
         recoverable: true,
         details: validation.error?.details,
         argsPreview: argsPreview(parsed.args, failureInfo.keyDigest),
@@ -589,7 +636,11 @@ async function executeOne(params: {
   const resultErrorCode = result.ok ? undefined : result.errorCode ?? result.code;
   const resultArgsDigest = params.stormBreaker.getCallDigest(params.call, parsed.args);
   if (isRetryTrackedFailureCode(resultErrorCode)) {
-    params.stormBreaker.recordFailedCall(params.call, parsed.args, resultErrorCode, params.stepIndex);
+    const resultEnvelope = parseToolResultContentEnvelope(result.content);
+    params.stormBreaker.recordFailedCall(params.call, parsed.args, resultErrorCode, params.stepIndex, {
+      message: typeof resultEnvelope?.message === "string" ? resultEnvelope.message : result.summary,
+      hint: typeof resultEnvelope?.hint === "string" ? resultEnvelope.hint : undefined,
+    });
   }
 
   // Emit tool_result for all outcomes

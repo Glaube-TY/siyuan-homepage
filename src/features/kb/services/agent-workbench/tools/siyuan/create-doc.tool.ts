@@ -56,6 +56,7 @@ export function createCreateDocTool(deps: CreateDocDeps): ToolContract<CreateDoc
             code: "write_operation_failed",
             message: data.message || "写入操作失败。",
             recoverable: false,
+            hint: "检查 notebookId、文档路径及同名文档状态；只有修正目标后才能重试。",
             details: data.target ? { target: data.target } : undefined,
           },
         };

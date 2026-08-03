@@ -365,7 +365,9 @@ export class NativeToolAgentLoop {
       if (emittedTextLive || !pseudoToolMarkupDetected) {
         this.options.onEvent?.({ type: "assistant_text_reset" });
       }
-      return this.finishWithPseudoToolMarkupBlocked({
+      return this.finishSoftToolStopFallback({
+        code: params.code,
+        message: params.message,
         steps: params.steps,
         reasoning,
       });
@@ -389,6 +391,40 @@ export class NativeToolAgentLoop {
       answer,
       steps: params.steps,
       messages: this.session.snapshot(),
+    };
+  }
+
+  private finishSoftToolStopFallback(params: {
+    code: string;
+    message?: string;
+    steps: number;
+    reasoning?: string;
+  }): NativeToolAgentLoopResult {
+    const answer = [
+      "工具调用已安全停止，没有继续执行重复请求。",
+      params.message ? `原因：${params.message}` : `停止原因：${params.code}。`,
+      "本轮已经成功完成的操作仍然有效；失败或被拦截的操作没有再次执行。请查看上方首次失败卡片中的原因和下一步提示，再重试未完成部分。",
+    ].join("\n\n");
+
+    this.options.onEvent?.({ type: "assistant_text_delta", delta: answer, fullContent: answer });
+    this.session.append(createAssistantMessage({
+      content: answer,
+      ...(params.reasoning ? { reasoning: params.reasoning } : {}),
+    }));
+    this.options.onEvent?.({ type: "assistant_final", answer });
+    this.options.onEvent?.({
+      type: "error",
+      code: params.code,
+      message: params.message ?? params.code,
+    });
+    this.options.onEvent?.({ type: "done", status: "failed" });
+    return {
+      status: "failed",
+      answer,
+      steps: params.steps,
+      messages: this.session.snapshot(),
+      errorCode: params.code,
+      errorMessage: params.message ?? params.code,
     };
   }
 

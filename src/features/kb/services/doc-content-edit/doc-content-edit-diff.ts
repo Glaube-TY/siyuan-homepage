@@ -20,13 +20,17 @@ export interface RenderedCompareOptions {
  */
 export function toDisplayMarkdownFromKramdown(raw: string): string {
   return raw
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u200B\u200C\u200D]/g, "")
+    .replace(/\r\n?/g, "\n")
     .split("\n")
-    .filter((line) => {
+    .map((line) => {
       const trimmed = line.trim();
-      // 跳过独立行形式的 IAL 属性块 {: ... }
-      if (trimmed.startsWith("{") && trimmed.endsWith("}")) return false;
-      return true;
+      // 仅清理思源块属性（IAL），保留用户写下的普通花括号内容。
+      if (/^\{:\s.*\}$/.test(trimmed)) return "";
+      return line.replace(/\s+\{:\s+[^}]*\}\s*$/, "");
     })
+    .filter((line, index, lines) => line !== "" || (index > 0 && index < lines.length - 1))
     .join("\n");
 }
 

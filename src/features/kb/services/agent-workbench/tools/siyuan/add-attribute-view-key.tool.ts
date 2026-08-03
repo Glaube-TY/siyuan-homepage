@@ -22,7 +22,7 @@ export function createAddAttributeViewKeyTool(
   return {
     name: "add_attribute_view_key",
     title: "新增数据库字段",
-    description: "在用户确认后，给思源数据库/属性视图新增一个字段。",
+    description: "在用户确认后，给思源数据库新增一个字段。",
     inputSchema: addAttributeViewKeyInputSchema,
     outputSchema: addAttributeViewKeyOutputSchema,
     readOnly: false,

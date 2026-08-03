@@ -56,6 +56,7 @@ export function createMoveBlockTool(deps: MoveBlockDeps): ToolContract<MoveBlock
             code: "write_operation_failed",
             message: data.message || "写入操作失败。",
             recoverable: false,
+            hint: "重新读取源块和目标位置，确认 blockId、previousID、parentID 的类型与当前状态；修正后再调用。",
             details: data.target ? { target: data.target } : undefined,
           },
         };

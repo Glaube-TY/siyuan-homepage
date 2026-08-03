@@ -398,7 +398,7 @@ export function registerSiyuanTools(
     toolRegistry.ensureTool(createAggregateTool({
       name: "siyuan_database",
       title: meta?.title ?? "思源数据库",
-      description: `${meta?.description ?? "查询和操作思源数据库/属性视图。"}\nID 摘要：databaseId/avID=属性视图 ID；blockID=承载数据库的思源块 ID；rowId/itemID=行 ID；keyID=字段 ID；viewID=视图 ID，不能用名称或其他 ID 代替。`,
+      description: `${meta?.description ?? "查询和操作思源数据库。"}\nID 摘要：databaseId/avID=数据库 ID；blockID=承载数据库的思源块 ID；rowId/itemID=条目 ID；keyID=字段 ID；viewID=视图 ID，不能用名称或其他 ID 代替。`,
       boundary: meta?.boundary ?? "写入数据库前需要确认。",
       actions: [
         { action: "list", tool: createListAttributeViewsTool(listAttributeViewsDeps) },

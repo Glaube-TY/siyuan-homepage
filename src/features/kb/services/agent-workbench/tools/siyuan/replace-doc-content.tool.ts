@@ -56,6 +56,7 @@ export function createReplaceDocContentTool(deps: ReplaceDocContentDeps): ToolCo
             code: "write_operation_failed",
             message: data.message || "写入操作失败。",
             recoverable: false,
+            hint: "重新读取目标文档，确认 docId 和当前正文状态；只有修正目标或内容后才能重试。",
             details: data.target ? { target: data.target } : undefined,
           },
         };

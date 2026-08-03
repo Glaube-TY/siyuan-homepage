@@ -21,13 +21,13 @@ export function createReadAttributeViewTool(
   return {
     name: "read_attribute_view",
     title: "读取数据库",
-    description: "读取思源数据库/属性视图的字段 schema、视图和有限行数据。",
+    description: "读取思源数据库的字段结构、视图和有限行数据。",
     inputSchema: readAttributeViewInputSchema,
     outputSchema: readAttributeViewOutputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "builtin",
-    inputHint: "databaseId 必须是真实属性视图 ID；viewId 可选且不能当 databaseId；rowLimit 默认 30，最大 100。",
+    inputHint: "databaseId 必须是真实数据库 ID；viewId 可选且不能当 databaseId；rowLimit 默认 30，最大 100。",
     boundary: "只读读取数据库结构和有限行摘要；不会写入、删除或修改数据库。",
     providerVisible: false,
     inputJsonSchemaOverride: {
@@ -58,13 +58,13 @@ export function createReadAttributeViewTool(
 
         if (msg.startsWith("[invalid_database_id]")) {
           code = "invalid_database_id";
-          hint = "databaseId 不能为空。请提供 list_attribute_views 中 usableForRead=true 的真实属性视图 ID。";
+          hint = "databaseId 不能为空。请提供 list_attribute_views 中 usableForRead=true 的真实数据库 ID。";
         } else if (msg.startsWith("[resource_not_found]")) {
           code = "resource_not_found";
-          hint = "请确认 databaseId 是真实属性视图 ID，来自 list_attribute_views 或用户提供的 ID。";
+          hint = "请确认 databaseId 是真实数据库 ID，来自 list_attribute_views 或用户提供的 ID。";
         } else {
           code = "attribute_view_read_failed";
-          hint = "请确认 databaseId 来自 list_attribute_views 或用户提供的真实属性视图 ID。";
+          hint = "请确认 databaseId 来自 list_attribute_views 或用户提供的真实数据库 ID。";
         }
 
         return {

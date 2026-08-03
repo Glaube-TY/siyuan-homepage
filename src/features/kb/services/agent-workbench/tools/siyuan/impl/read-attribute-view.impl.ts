@@ -33,7 +33,7 @@ export async function readAttributeViewSafeOutput(
 
   // 拒绝空 databaseId
   if (!databaseId) {
-    throw new Error("[invalid_database_id] databaseId 不能为空，请提供真实的属性视图 ID。");
+    throw new Error("[invalid_database_id] databaseId 不能为空，请提供真实的数据库 ID。");
   }
 
   const [av, rawKeys] = await Promise.all([
@@ -42,7 +42,7 @@ export async function readAttributeViewSafeOutput(
   ]);
 
   if (!av) {
-    throw new Error("[resource_not_found] 未找到数据库/属性视图，请确认 databaseId 是真实属性视图 ID。");
+    throw new Error("[resource_not_found] 未找到数据库，请确认 databaseId 是真实数据库 ID。");
   }
 
   let renderResult: any = null;

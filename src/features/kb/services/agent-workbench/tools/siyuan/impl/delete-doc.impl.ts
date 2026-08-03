@@ -1,14 +1,13 @@
 import type { DeleteDocInput, DeleteDocOutput, PreparedDeleteDocConfirmation } from "../contracts/delete-doc.contract";
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
-import { createArrowFlowCompare } from "../../../../doc-content-edit/doc-content-edit-diff";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
 import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedDeleteDoc } from "../../../../doc-content-edit/doc-content-edit-delete-doc-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
-import type { DocContentEditArrowFlow } from "../../../../doc-content-edit/doc-content-edit-types";
 import { sql } from "../../../../../../../api";
+import { blockDisplayItem, resolveDisplayPath, resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
 
 export interface DeleteDocImplDeps extends SiyuanToolDeps {
   conversationId: string;
@@ -81,6 +80,8 @@ export async function prepareDeleteDocConfirmation(
   }
 
   const title = block.content || block.name || "";
+  const displayPath = await resolveDisplayPath(docId, block.hpath);
+  const notebookName = await resolveNotebookName(block.box);
 
   // 2. 风险评估
   const riskResult = assessDocContentEditRisk({
@@ -88,18 +89,7 @@ export async function prepareDeleteDocConfirmation(
     target: { docId },
   });
 
-  // 3. 生成 arrow_flow 视觉对比
-  const arrow: DocContentEditArrowFlow = createArrowFlowCompare(
-    title || "未命名",
-    "删除",
-    { fromDescription: `文档 ID: ${docId}`, toDescription: "文档将被永久删除" },
-  );
-  const visualCompare = {
-    type: "arrow_flow" as const,
-    arrow,
-  };
-
-  // 4. 创建 pending confirmation
+  // 3. 创建 pending confirmation。删除使用单列清单，不使用左右对比。
   const confirmation = await createDocContentEditConfirmation({
     conversationId: deps.conversationId,
     action: "delete_doc",
@@ -108,10 +98,19 @@ export async function prepareDeleteDocConfirmation(
     target: {
       docId,
       title,
+      displayPath,
+      notebookName,
+      createdAt: block.created,
+      updatedAt: block.updated,
+    },
+    presentation: {
+      mode: "delete",
+      heading: "确认删除文档",
+      description: "请确认下面的文档是否为你要删除的内容。",
+      items: [blockDisplayItem(block, displayPath, notebookName)],
     },
     beforeSnapshot: title,
     afterSnapshot: "",
-    visualCompare,
     riskLevel: riskResult.riskLevel,
     warnings: riskResult.warnings.length > 0 ? riskResult.warnings : undefined,
   });

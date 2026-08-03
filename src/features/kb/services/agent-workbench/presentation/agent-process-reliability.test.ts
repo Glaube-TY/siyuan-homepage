@@ -334,3 +334,47 @@ test("伪工具调用被拦截后必须以失败终态结束", async () => {
   assert.equal(events.some((event) => event.type === "error" && event.code === "pseudo_tool_markup_blocked"), true);
   assert.equal(events.some((event) => event.type === "done" && event.status === "failed"), true);
 });
+
+test("重复调用保护后的收尾若出现伪工具格式，保留首次停止原因", async () => {
+  const events: AgentStreamEvent[] = [];
+  const provider: ProviderAdapter = {
+    id: "soft-stop-fallback-test",
+    capabilities: {
+      nativeToolCalls: true,
+      streaming: true,
+      reasoningDeltas: false,
+    },
+    async *streamChat() {
+      yield {
+        type: "text_delta" as const,
+        delta: '<tool_calls><invoke name="siyuan_doc_edit"></invoke></tool_calls>',
+      };
+      yield { type: "done" as const };
+    },
+  };
+  const loop = new NativeToolAgentLoop({
+    provider,
+    toolRegistry: new NativeToolRegistry(),
+    systemPrompt: "测试",
+    onEvent: (event) => events.push(event),
+  });
+  const softFinalize = loop as unknown as {
+    softFinalizeAfterToolStop(params: {
+      code: string;
+      message: string;
+      steps: number;
+    }): Promise<{ status: string; answer: string; errorCode?: string }>;
+  };
+
+  const result = await softFinalize.softFinalizeAfterToolStop({
+    code: "duplicate_failed_call_blocked",
+    message: "同一失败调用已停止。",
+    steps: 8,
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.errorCode, "duplicate_failed_call_blocked");
+  assert.match(result.answer, /首次失败卡片中的原因和下一步提示/);
+  assert.doesNotMatch(result.answer, /伪工具调用格式/);
+  assert.equal(events.some((event) => event.type === "error" && event.code === "duplicate_failed_call_blocked"), true);
+  assert.equal(events.some((event) => event.type === "error" && event.code === "pseudo_tool_markup_blocked"), false);
+});
