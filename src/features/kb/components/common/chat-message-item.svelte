@@ -1,10 +1,10 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from "svelte";
-  import type { ChatMessage, ReferenceItem } from "../../types/chat";
+  import type { ChatMessage, CitationSegment, ReferenceItem } from "../../types/chat";
   import type { AgentWorkbenchEvent } from "../../services/agent-workbench";
   import type { KbAssistantActionAlignment, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
   import { navigateToReference, navigateToDocId } from "../../services/siyuan/reference-navigation";
-  import { mdToHtml } from "@/components/tools/mdToHtml";
+  import { escapeHtml, mdToHtml } from "@/components/tools/mdToHtml";
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import { mapAgentErrorToUserFacing } from "../../services/agent-workbench/runtime/user-facing-agent-error";
   import {
@@ -21,6 +21,7 @@
   } from "../../services/agent-workbench/presentation/tool-step-presentation";
   import ChatAvatar from "./chat-avatar.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+  import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
 
   // Props - 由父组件 ChatMessageList 传入
   export let message: ChatMessage;
@@ -60,6 +61,63 @@
     await navigateToReference(item);
   }
 
+  function citationPlaceholder(index: number): string {
+    return `\uE000KB_INLINE_CITATION_${index}\uE001`;
+  }
+
+  function renderInlineCitationButton(ref: ReferenceItem): string {
+    const label = getReferenceLabel(ref);
+    const shortLabel = truncateCitationLabel(label, 8);
+    const typeLabel = getReferenceTypeLabel(ref);
+    const icon = renderSiyuanIcon(getReferenceIconName(ref), 11, "inline-citation-source-icon");
+    return [
+      `<button type="button" class="inline-citation-marker" data-kb-citation-index="${ref.index}"`,
+      ` title="${escapeHtml(`打开${typeLabel}来源：${label}`)}" aria-label="${escapeHtml(`打开${typeLabel}来源：${label}`)}">`,
+      `<span class="inline-citation-icon" aria-hidden="true">${icon}</span>`,
+      `<span class="inline-citation-label">${escapeHtml(shortLabel)}</span>`,
+      "</button>",
+    ].join("");
+  }
+
+  function renderAssistantMarkdown(
+    content: string,
+    segments: CitationSegment[] | undefined,
+    references: ReferenceItem[] | undefined,
+  ): string {
+    if (!segments?.length || !references?.length) return mdToHtml(content);
+    const markdownWithPlaceholders = segments
+      .map((segment) => `${segment.text}${segment.citationIds.map(citationPlaceholder).join("")}`)
+      .join("");
+    let html = mdToHtml(markdownWithPlaceholders);
+    for (const ref of references) {
+      html = html.split(citationPlaceholder(ref.index)).join(renderInlineCitationButton(ref));
+    }
+    return html;
+  }
+
+  function handleAssistantBubbleClick(event: MouseEvent) {
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>("[data-kb-citation-index]")
+      : null;
+    if (!target) return;
+    const index = Number(target.dataset.kbCitationIndex);
+    if (!Number.isInteger(index)) return;
+    const ref = message.role === "assistant"
+      ? message.citedReferences?.find((item) => item.index === index)
+      : undefined;
+    if (ref) void handleReferenceClick(ref);
+  }
+
+  function citationNavigation(node: HTMLElement) {
+    const onClick = (event: MouseEvent) => handleAssistantBubbleClick(event);
+    node.addEventListener("click", onClick);
+    return {
+      destroy() {
+        node.removeEventListener("click", onClick);
+      },
+    };
+  }
+
   async function handleAttachedDocClick(doc: { docId?: string; title?: string; source?: string }) {
     if (!doc.docId) {
       pushAgentDebugEvent("USER_ATTACHED_DOC_NAVIGATE_SAFE", {
@@ -97,7 +155,11 @@
 
   // assistant 消息转换为 HTML
   $: assistantHtml =
-    message.role === "assistant" ? mdToHtml(message.content) : "";
+    message.role === "assistant"
+      ? renderAssistantMarkdown(message.content, message.citationSegments, message.citedReferences)
+      : "";
+  $: hasInlineCitations = message.role === "assistant"
+    && !!message.citationSegments?.some((segment) => segment.citationIds.length > 0);
   $: isCopied = copiedMessageId === message.id;
 
   // 截断引用标签（最多5个字符，超过显示省略号）
@@ -114,10 +176,37 @@
 
   // 获取引用项显示标签
   function getReferenceLabel(ref: ReferenceItem): string {
-    if (ref.sourceType === "web_page") {
-      return ref.displayTitle || ref.docTitle || ref.sourceName || ref.url || "参考网页";
+    const explicitLabel = ref.displayTitle || ref.docTitle || ref.sourceName;
+    if (explicitLabel) return explicitLabel;
+    switch (ref.sourceType) {
+      case "web_page":
+        return ref.url || "参考网页";
+      case "mcp_resource":
+        return "MCP 资源";
+      case "api_result":
+        return "API 数据";
+      case "file":
+        return "参考文件";
+      case "siyuan_doc":
+      default:
+        return "参考文档";
     }
-    return ref.displayTitle || ref.docTitle || "参考文档";
+  }
+
+  function getReferenceTypeLabel(ref: ReferenceItem): string {
+    switch (ref.sourceType) {
+      case "web_page":
+        return "网页";
+      case "mcp_resource":
+        return "MCP 资源";
+      case "api_result":
+        return "API 数据";
+      case "file":
+        return "文件";
+      case "siyuan_doc":
+      default:
+        return "思源文档";
+    }
   }
 
   // 获取引用项类型图标（纯 UI helper，不改动 reference 生成逻辑）
@@ -561,6 +650,7 @@
       <div
         class="bubble markdown-content assistant-bubble"
         bind:this={assistantContentEl}
+        use:citationNavigation
       >
         {#if workbenchDisplaySteps.length}
           <div class="workbench-events">
@@ -649,12 +739,12 @@
             <span class="loading-dots"></span>
           </div>
         {:else}
-          <!-- 统一渲染 Markdown，不再在正文插入引用标签 -->
+          <!-- 统一渲染 Markdown；结构化引用在对应语句后插入可点击来源 -->
           {@html assistantHtml}
         {/if}
 
-        <!-- 引用 footer，显示在回答底部 -->
-        {#if message.citedReferences?.length}
+        <!-- 旧会话没有 citationSegments 时保留 footer 兼容展示 -->
+        {#if message.citedReferences?.length && !hasInlineCitations}
           <div class="inline-reference-footer">
             <span class="inline-reference-label">参考：</span>
             {#each message.citedReferences as ref (ref.index)}
@@ -664,7 +754,7 @@
                 type="button"
                 class="citation-marker"
                 class:is-truncated={truncated}
-                title={ref.sourceType === "web_page" ? `打开网页：${label}` : `打开引用文档：${label}`}
+                title={`打开${getReferenceTypeLabel(ref)}：${label}`}
                 on:click={() => handleReferenceClick(ref)}
               >
                 <span class="citation-type-icon" aria-hidden="true">
@@ -1650,6 +1740,57 @@
       display: block;
       margin: 0.5em 0;
     }
+  }
+
+  .assistant-bubble :global(.inline-citation-marker) {
+    display: inline-flex;
+    align-items: center;
+    max-width: 10em;
+    margin: 0 2px;
+    padding: 1px 6px 1px 4px;
+    vertical-align: 0.08em;
+    border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 24%, var(--b3-border-color));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-background));
+    color: var(--b3-theme-primary);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.45;
+    cursor: pointer;
+    appearance: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .assistant-bubble :global(.inline-citation-marker:hover),
+  .assistant-bubble :global(.inline-citation-marker:focus-visible) {
+    border-color: var(--b3-theme-primary);
+    background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
+    outline: none;
+  }
+
+  .assistant-bubble :global(.inline-citation-icon) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 13px;
+    height: 13px;
+    margin-right: 3px;
+    flex: 0 0 auto;
+    opacity: 0.86;
+  }
+
+  .assistant-bubble :global(.inline-citation-source-icon) {
+    display: block;
+    width: 11px;
+    height: 11px;
+    fill: currentColor;
+    color: currentColor;
+  }
+
+  .assistant-bubble :global(.inline-citation-label) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   // 引用 footer 样式

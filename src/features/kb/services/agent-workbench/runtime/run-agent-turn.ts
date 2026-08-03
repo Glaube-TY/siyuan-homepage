@@ -17,8 +17,8 @@ import type { ConversationContextSnapshot } from "./conversation-context-builder
 import {
   buildReferenceGroundingSet,
   collectObservationReferences,
-  toFooterReferenceItems,
 } from "./reference-collector";
+import { buildMissingCitationRetryInstruction, resolveInlineCitations } from "./inline-citation";
 import type { AgentWorkbenchRuntimeOptions } from "./create-agent-workbench";
 import { resolveSelectedChatConfig } from "../../settings/chat-provider-config";
 import { getLastSecretDiagnostics } from "../../settings/kb-settings-service";
@@ -479,6 +479,10 @@ export async function runAgentTurn(
       abortSignal: params.abortSignal,
       question: params.question,
       maxToolCalls: settings.agentMaxToolCallsPerTurn ?? 20,
+      validateFinalAnswer: (answer) => buildMissingCitationRetryInstruction(
+        answer,
+        collectObservationReferences(wb.observationLog.all()),
+      ),
       onEvent: (event) => {
         if (shouldStoreWorkbenchEvent(event)) {
           emitNativeEvent(event);
@@ -547,14 +551,21 @@ export async function runAgentTurn(
       scope,
       attachedDocs: params.attachedDocs,
     });
-    const footerReferences = toFooterReferenceItems(observationRefs);
+    const citationResolution = resolveInlineCitations(loopResult.answer, observationRefs);
+    const footerReferences = citationResolution.citedReferences;
+    const finalAnswer = citationResolution.answer;
+    pushAgentDebugEvent("INLINE_CITATIONS_RESOLVED_SAFE", {
+      acceptedCount: citationResolution.acceptedCount,
+      rejectedCount: citationResolution.rejectedCount,
+      citedReferenceCount: footerReferences.length,
+    }, citationResolution.rejectedCount > 0 ? "warn" : "info");
 
     let stageSummary: { summary: string } | undefined;
-    if (loopResult.answer.trim().length > 0) {
+    if (finalAnswer.trim().length > 0) {
       try {
         stageSummary = buildSafeTurnStageSummary({
           userQuestion: params.question,
-          answer: loopResult.answer,
+          answer: finalAnswer,
           footerReferences,
           events: localEvents,
           scopeSummary: resolvedScope.summary,
@@ -576,8 +587,9 @@ export async function runAgentTurn(
     const result: AgentTurnResult = {
       scope,
       scopeSummary: resolvedScope.summary,
-      answer: loopResult.answer,
+      answer: finalAnswer,
       footerReferences,
+      citationSegments: citationResolution.citationSegments,
       warnings: [],
       events: localEvents,
       stageSummary,

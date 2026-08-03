@@ -530,11 +530,20 @@ export function mergeAnswerReferences(
 export function toFooterReferenceItems(
   refs: readonly CollectedReference[],
 ): ReferenceItem[] {
-  const siyuanRefs = refs
-    .filter((ref) => ref.sourceType === "siyuan_doc" && hasSiyuanTarget(ref))
+  return refs
     .slice(0, MAX_FOOTER_REFERENCES)
-    .map((ref, index) => ({
-      index: index + 1,
+    .map((ref, index) => toReferenceItem(ref, index + 1))
+    .filter((ref): ref is ReferenceItem => !!ref);
+}
+
+/** 将已校验的运行时来源转换为聊天引用项，并保留调用方给出的顺序。 */
+export function toReferenceItem(
+  ref: CollectedReference,
+  index: number,
+): ReferenceItem | undefined {
+  if (ref.sourceType === "siyuan_doc" && hasSiyuanTarget(ref)) {
+    return {
+      index,
       docTitle: ref.title ?? "",
       headingPathText: ref.title ?? "",
       sourceBlockIds: ref.blockId ? [ref.blockId] : [],
@@ -544,13 +553,12 @@ export function toFooterReferenceItems(
       readLevel: ref.readLevel,
       referenceReason: ref.reason,
       grounded: true,
-    }));
+    };
+  }
 
-  const webRefs = refs
-    .filter((ref) => ref.sourceType === "web_page" && hasWebTarget(ref))
-    .slice(0, MAX_FOOTER_REFERENCES)
-    .map((ref, index) => ({
-      index: siyuanRefs.length + index + 1,
+  if (ref.sourceType === "web_page" && hasWebTarget(ref)) {
+    return {
+      index,
       docTitle: ref.title ?? ref.sourceName ?? ref.url ?? "",
       headingPathText: ref.url ?? "",
       sourceBlockIds: [] as string[],
@@ -563,9 +571,10 @@ export function toFooterReferenceItems(
       readLevel: ref.readLevel ?? "content" as const,
       referenceReason: ref.reason,
       grounded: true,
-    }));
+    };
+  }
 
-  return [...siyuanRefs, ...webRefs].slice(0, MAX_FOOTER_REFERENCES);
+  return undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════

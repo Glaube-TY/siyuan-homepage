@@ -17,6 +17,7 @@ export interface RunNativeAgentLoopParams {
   autoAllowedToolNames?: string[];
   abortSignal?: AbortSignal;
   onEvent?: (event: AgentStreamEvent) => void;
+  validateFinalAnswer?: (answer: string) => string | undefined;
   question: string;
   /** Maximum tool calls per turn (defaults to 20; 0 disables this limit). */
   maxToolCalls?: number;
@@ -46,6 +47,7 @@ export async function runNativeAgentLoop(
     autoAllowedToolNames: params.autoAllowedToolNames,
     abortSignal: params.abortSignal,
     onEvent: params.onEvent,
+    validateFinalAnswer: params.validateFinalAnswer,
     maxToolCalls: params.maxToolCalls,
   });
 

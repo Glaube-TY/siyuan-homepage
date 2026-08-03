@@ -341,6 +341,45 @@ test("模型输出达到上限时保留未完成标记并给出准确终态", as
   assert.equal(assistant.isComplete, false);
 });
 
+test("最终回答引用校验失败时只重写一次且不重新调用工具", async () => {
+  let streamCount = 0;
+  const events: AgentStreamEvent[] = [];
+  const provider: ProviderAdapter = {
+    id: "citation-retry-test",
+    capabilities: {
+      nativeToolCalls: true,
+      streaming: true,
+      reasoningDeltas: false,
+    },
+    async *streamChat() {
+      streamCount += 1;
+      yield {
+        type: "text_delta" as const,
+        delta: streamCount === 1
+          ? "第一版没有引用。"
+          : "第二版已有引用[[cite:20260803125000-efghijk]]。",
+      };
+      yield { type: "done" as const };
+    },
+  };
+  const loop = new NativeToolAgentLoop({
+    provider,
+    toolRegistry: new NativeToolRegistry(),
+    systemPrompt: "测试",
+    validateFinalAnswer: (answer) => answer.includes("[[cite:")
+      ? undefined
+      : "请使用已有工具结果重新输出，并补充引用。",
+    onEvent: (event) => events.push(event),
+  });
+
+  const result = await loop.run("测试引用重写");
+  assert.equal(streamCount, 2);
+  assert.equal(result.status, "answer_ready");
+  assert.match(result.answer, /第二版已有引用/);
+  assert.equal(events.filter((event) => event.type === "assistant_text_reset").length, 1);
+  assert.equal(events.filter((event) => event.type === "assistant_final").length, 1);
+});
+
 test("思源文档编辑帮助准确区分普通格式与特殊块", () => {
   const meta = findAggregateToolMeta("siyuan_doc_edit");
   assert.ok(meta);

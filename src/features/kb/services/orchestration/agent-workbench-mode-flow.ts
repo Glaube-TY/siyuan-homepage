@@ -61,6 +61,7 @@ import {
   hasSettledWorkbenchTerminal,
   PROVIDER_OUTPUT_TRUNCATED_ERROR_CODE,
 } from "../agent-workbench/runtime/workbench-terminal-state";
+import { stripInlineCitationMarkersForDisplay } from "../agent-workbench/runtime/inline-citation";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -754,7 +755,6 @@ export async function runAgentWorkbenchModeFlow(
       }, "debug");
     }
 
-    let streamingContent = "";
     let latestFullContent = "";
     let answerFlushTimer: ReturnType<typeof setTimeout> | undefined;
     let liveWorkbenchEvents: AgentWorkbenchEvent[] = [];
@@ -937,13 +937,13 @@ export async function runAgentWorkbenchModeFlow(
         }
       },
       onAnswerChunk: ({ fullContent }) => {
-        streamingContent = fullContent;
-        latestFullContent = fullContent;
+        const displayContent = stripInlineCitationMarkersForDisplay(fullContent);
+        latestFullContent = displayContent;
         scheduleAnswerFlush();
         const now = Date.now();
-        if (now - lastCheckpointAt >= 2500 || fullContent.length - lastCheckpointChars >= 1500) {
+        if (now - lastCheckpointAt >= 2500 || displayContent.length - lastCheckpointChars >= 1500) {
           flushAnswerContent();
-          enqueuePersistenceCheckpoint("流式回答", fullContent.length);
+          enqueuePersistenceCheckpoint("流式回答", displayContent.length);
         }
       },
       onWorkbenchEvent: (event) => {
@@ -987,7 +987,6 @@ export async function runAgentWorkbenchModeFlow(
 
         if (event.type === "assistant_text_reset") {
           latestFullContent = "";
-          streamingContent = "";
           cancelAnswerFlush();
         } else if (event.type === "assistant_final" || event.type === "done") {
           flushAnswerContent();
@@ -1031,10 +1030,10 @@ export async function runAgentWorkbenchModeFlow(
         }
       },
       onAnswerFinish: (fullContent) => {
-        streamingContent = fullContent;
-        latestFullContent = fullContent;
+        const displayContent = stripInlineCitationMarkersForDisplay(fullContent);
+        latestFullContent = displayContent;
         flushAnswerContent();
-        if (fullContent.trim().length > 0 && setMessages) {
+        if (displayContent.trim().length > 0 && setMessages) {
           setMessages((messages) =>
             messages.map((m) =>
               m.id === assistantMessageId && m.role === "assistant"
@@ -1154,8 +1153,9 @@ export async function runAgentWorkbenchModeFlow(
           m.id === assistantMessageId && m.role === "assistant"
             ? {
                 ...m,
-                content: streamingContent || result.answer,
+                content: result.answer,
                 citedReferences: result.footerReferences,
+                citationSegments: result.citationSegments,
                 agentMemory,
                 workbenchEvents: finalWorkbenchEvents,
                 isComplete: !isPartialProviderAnswer,
@@ -1169,7 +1169,7 @@ export async function runAgentWorkbenchModeFlow(
         )
       );
 
-      const finalContent = streamingContent || result.answer;
+      const finalContent = result.answer;
       pushAgentDebugEvent("ASSISTANT_RUN_FINALIZED", {
         answerChars: finalContent.length,
         hasReferences: (result.footerReferences?.length ?? 0) > 0,
@@ -1193,7 +1193,7 @@ export async function runAgentWorkbenchModeFlow(
     }
 
     await persistenceCheckpointTail;
-    const finalContent = streamingContent || result.answer;
+    const finalContent = result.answer;
     await markTurnCompletedPendingPersistence({ answerPreview: finalContent });
     const finalPersistence = await runPersistenceCheckpoint("最终回答");
     updateState((state) => ({

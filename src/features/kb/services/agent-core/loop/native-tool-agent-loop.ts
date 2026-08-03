@@ -34,6 +34,8 @@ export interface NativeToolAgentLoopOptions {
   autoAllowedToolNames?: string[];
   abortSignal?: AbortSignal;
   onEvent?: (event: AgentStreamEvent) => void;
+  /** 返回重写指令时丢弃当前草稿并重新生成一次最终回答。 */
+  validateFinalAnswer?: (answer: string) => string | undefined;
 }
 
 const SOFT_FINALIZATION_FATAL_CODES = new Set<string>([
@@ -98,6 +100,7 @@ export class NativeToolAgentLoop {
     let steps = 0;
     let totalToolCalls = 0;
     let pseudoToolMarkupRetryCount = 0;
+    let finalAnswerValidationRetryCount = 0;
 
     this.session.append(createUserMessage(question));
 
@@ -247,6 +250,18 @@ export class NativeToolAgentLoop {
             steps,
             reasoning,
           });
+        }
+        const finalAnswerRetryInstruction = this.options.validateFinalAnswer?.(answer);
+        if (finalAnswerRetryInstruction && finalAnswerValidationRetryCount < 1) {
+          finalAnswerValidationRetryCount += 1;
+          if (emittedTextLive) {
+            this.options.onEvent?.({ type: "assistant_text_reset" });
+          }
+          if (emittedReasoningLive) {
+            this.options.onEvent?.({ type: "assistant_reasoning_reset" });
+          }
+          this.session.append(createSystemMessage(finalAnswerRetryInstruction));
+          continue;
         }
         // Final answer: if content was not streamed live, do fallback send.
         if (!emittedReasoningLive && reasoning) {

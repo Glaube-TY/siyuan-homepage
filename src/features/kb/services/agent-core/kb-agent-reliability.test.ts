@@ -54,6 +54,12 @@ import {
   readTurnJournal,
   setPluginStorage as setTurnJournalPluginStorage,
 } from "../agent-workbench/runtime/in-flight-turn-journal.js";
+import {
+  buildMissingCitationRetryInstruction,
+  resolveInlineCitations,
+  stripInlineCitationMarkersForDisplay,
+} from "../agent-workbench/runtime/inline-citation.js";
+import type { CollectedReference } from "../agent-workbench/runtime/reference-collector.js";
 
 const route = (panelInstanceId: string, conversationId = "conv-a", turnId = "turn-a"): ConfirmationRoute => ({
   panelInstanceId,
@@ -1364,4 +1370,175 @@ test("确认 Diff 将普通 Markdown 拆成标题与自然段作为上下文", (
     { type: "paragraph", text: "第一段", startLine: 2 },
     { type: "paragraph", text: "第二段", startLine: 3 },
   ]);
+});
+
+test("行内引用只接受本轮已读正文并保留引用所在位置", () => {
+  const docId = "20260803120000-abcdefg";
+  const blockId = "20260803120100-hijklmn";
+  const refs: CollectedReference[] = [
+    {
+      sourceType: "siyuan_doc",
+      docId,
+      blockId,
+      title: "项目说明",
+      reason: "read_content",
+      readLevel: "content",
+    },
+    {
+      sourceType: "web_page",
+      url: "https://example.com/guide",
+      title: "网页指南",
+      reason: "read_content",
+      readLevel: "content",
+    },
+    {
+      sourceType: "siyuan_doc",
+      docId: "20260803120200-opqrstu",
+      title: "仅搜索候选",
+      reason: "search_candidate",
+      readLevel: "candidate",
+    },
+  ];
+
+  const resolved = resolveInlineCitations(
+    `文档结论[[cite:${blockId}]]。网页结论[[cite:https://example.com/guide]]。候选结论[[cite:20260803120200-opqrstu]]。`,
+    refs,
+  );
+
+  assert.equal(resolved.answer, "文档结论。网页结论。候选结论。");
+  assert.equal(resolved.acceptedCount, 2);
+  assert.equal(resolved.rejectedCount, 1);
+  assert.deepEqual(resolved.citedReferences.map((ref) => ({ index: ref.index, title: ref.docTitle })), [
+    { index: 1, title: "项目说明" },
+    { index: 2, title: "网页指南" },
+  ]);
+  assert.deepEqual(resolved.citationSegments, [
+    { text: "文档结论", citationIds: [1] },
+    { text: "。网页结论", citationIds: [2] },
+    { text: "。候选结论。", citationIds: [] },
+  ]);
+});
+
+test("行内引用对同一来源去重且不会在代码中误解析", () => {
+  const blockId = "20260803121000-vwxyzab";
+  const refs: CollectedReference[] = [{
+    sourceType: "siyuan_doc",
+    blockId,
+    title: "引用测试",
+    reason: "read_content",
+    readLevel: "content",
+  }];
+  const answer = [
+    "```text",
+    `[[cite:${blockId}]]`,
+    "```",
+    `正文[[cite:${blockId}]][[cite:${blockId}]]。`,
+    `行内代码 \`[[cite:${blockId}]]\`。`,
+  ].join("\n");
+
+  const resolved = resolveInlineCitations(answer, refs);
+  assert.equal(resolved.citedReferences.length, 1);
+  assert.equal(resolved.acceptedCount, 2);
+  assert.match(resolved.answer, new RegExp(`\\[\\[cite:${blockId}\\]\\]`));
+  assert.deepEqual(resolved.citationSegments?.find((segment) => segment.citationIds.length)?.citationIds, [1]);
+});
+
+test("流式回答隐藏完整引用标记但保留 Markdown 代码示例", () => {
+  const blockId = "20260803122000-cdefghi";
+  const answer = `正文[[cite:${blockId}]]\n\`[[cite:${blockId}]]\``;
+  assert.equal(
+    stripInlineCitationMarkersForDisplay(answer),
+    `正文\n\`[[cite:${blockId}]]\``,
+  );
+});
+
+test("行内引用允许位于句中并直接作为 Markdown 列表项", () => {
+  const blockId = "20260803123000-jklmnop";
+  const resolved = resolveInlineCitations(
+    `相关实现见[[cite:${blockId}]]，主要文件包括：\n\n- [[cite:${blockId}]]`,
+    [{
+      sourceType: "siyuan_doc",
+      blockId,
+      title: "行内引用实现",
+      reason: "read_content",
+      readLevel: "content",
+    }],
+  );
+
+  assert.equal(resolved.acceptedCount, 2);
+  assert.equal(resolved.citedReferences.length, 1);
+  assert.deepEqual(resolved.citationSegments, [
+    { text: "相关实现见", citationIds: [1] },
+    { text: "，主要文件包括：\n\n- ", citationIds: [1] },
+  ]);
+});
+
+test("知识库结构结果可以引用但搜索候选仍会被拒绝", () => {
+  const structureDocId = "20260803124000-qrstuvw";
+  const candidateDocId = "20260803124100-xyzabcd";
+  const resolved = resolveInlineCitations(
+    `结构结论[[cite:${structureDocId}]]，候选结论[[cite:${candidateDocId}]]。`,
+    [
+      {
+        sourceType: "siyuan_doc",
+        docId: structureDocId,
+        title: "结构来源",
+        reason: "structure_result",
+        readLevel: "structure",
+      },
+      {
+        sourceType: "siyuan_doc",
+        docId: candidateDocId,
+        title: "搜索候选",
+        reason: "search_candidate",
+        readLevel: "candidate",
+      },
+    ],
+  );
+
+  assert.equal(resolved.answer, "结构结论，候选结论。");
+  assert.equal(resolved.acceptedCount, 1);
+  assert.equal(resolved.rejectedCount, 1);
+  assert.equal(resolved.citedReferences[0]?.docTitle, "结构来源");
+});
+
+test("使用已读来源却没有有效标记时生成一次引用重写指令", () => {
+  const docId = "20260803125000-efghijk";
+  const instruction = buildMissingCitationRetryInstruction(
+    "这份总结使用了笔记内容，但没有标注来源。",
+    [{
+      sourceType: "siyuan_doc",
+      docId,
+      title: "读书笔记",
+      reason: "read_content",
+      readLevel: "content",
+    }],
+  );
+
+  assert.match(instruction ?? "", /引用校验未通过/);
+  assert.match(instruction ?? "", new RegExp(`\\[\\[cite:siyuan:${docId}\\]\\]`));
+  assert.match(instruction ?? "", /不要再次调用工具/);
+});
+
+test("已有有效引用或只有搜索候选时不触发引用重写", () => {
+  const docId = "20260803125100-lmnopqr";
+  const contentRef: CollectedReference = {
+    sourceType: "siyuan_doc",
+    docId,
+    title: "正文来源",
+    reason: "read_content",
+    readLevel: "content",
+  };
+  assert.equal(
+    buildMissingCitationRetryInstruction(`结论[[cite:${docId}]]。`, [contentRef]),
+    undefined,
+  );
+  assert.equal(
+    buildMissingCitationRetryInstruction("搜索结果摘要。", [{
+      ...contentRef,
+      reason: "search_candidate",
+      readLevel: "candidate",
+    }]),
+    undefined,
+  );
 });
