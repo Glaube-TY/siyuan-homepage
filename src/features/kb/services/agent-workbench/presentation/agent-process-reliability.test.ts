@@ -4,6 +4,7 @@ import test from "node:test";
 import type { KbConversationSession } from "../../../types/chat";
 import { NativeToolAgentLoop } from "../../agent-core/loop/native-tool-agent-loop";
 import type { AgentStreamEvent } from "../../agent-core/loop/stream-event";
+import type { AgentWorkbenchEvent } from "../contracts/turn-event";
 import type { ProviderAdapter } from "../../agent-core/providers/provider-adapter";
 import { NativeToolRegistry } from "../../agent-core/tools/native-tool-registry";
 import { createAggregateTool } from "../tools/aggregate/aggregate-tool-factory";
@@ -15,6 +16,11 @@ import { siyuanDocTransformInputSchema } from "../tools/siyuan/contracts/siyuan-
 import { siyuanBlockRefInputSchema } from "../tools/siyuan/contracts/siyuan-block-ref.contract";
 import { createSiyuanDocTreeTool } from "../tools/siyuan/siyuan-doc-tree.tool";
 import { shouldEnqueueWorkbenchCheckpoint } from "../../orchestration/workbench-persistence-checkpoint-policy";
+import { findAggregateToolMeta } from "../tools/aggregate/aggregate-tool-metadata";
+import {
+  hasSettledWorkbenchTerminal,
+  isProviderOutputTruncatedWorkbench,
+} from "../runtime/workbench-terminal-state";
 import {
   fromPersistedConversation,
   toPersistedConversation,
@@ -281,6 +287,66 @@ test("旧会话存在成功终止事件时自动修复未完成标记", () => {
   assert.ok(assistant && assistant.role === "assistant");
   assert.equal(assistant.isComplete, true);
   assert.equal(assistant.workbenchEvents?.[0]?.type, "done");
+});
+
+test("模型输出达到上限时保留未完成标记并给出准确终态", async () => {
+  const events: AgentStreamEvent[] = [];
+  const provider: ProviderAdapter = {
+    id: "output-limit-test",
+    capabilities: {
+      nativeToolCalls: true,
+      streaming: true,
+      reasoningDeltas: false,
+    },
+    async *streamChat() {
+      yield { type: "text_delta" as const, delta: "这是一段尚未结束的回答" };
+      yield { type: "done" as const, finishReason: "length" };
+    },
+  };
+  const loop = new NativeToolAgentLoop({
+    provider,
+    toolRegistry: new NativeToolRegistry(),
+    systemPrompt: "测试",
+    onEvent: (event) => events.push(event),
+  });
+
+  const result = await loop.run("测试输出上限");
+  const workbenchEvents = events.map((event) => ({ ...event, at: 10 })) as AgentWorkbenchEvent[];
+  assert.equal(result.status, "failed");
+  assert.equal(result.errorCode, "provider_output_truncated");
+  assert.equal(isProviderOutputTruncatedWorkbench(workbenchEvents), true);
+  assert.equal(hasSettledWorkbenchTerminal(workbenchEvents), true);
+  assert.equal(events.some((event) => event.type === "done" && event.status === "failed"), true);
+
+  const session: KbConversationSession = {
+    id: "conv-output-limit-test",
+    title: "输出上限恢复测试",
+    createdAt: 1,
+    updatedAt: 2,
+    messages: [
+      { id: "user-1", role: "user", content: "测试输出上限", createdAt: 1 },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: result.answer,
+        createdAt: 2,
+        isComplete: false,
+        workbenchEvents,
+      },
+    ],
+  };
+  const restored = fromPersistedConversation(toPersistedConversation(session));
+  const assistant = restored.messages.find((message) => message.role === "assistant");
+  assert.ok(assistant && assistant.role === "assistant");
+  assert.equal(assistant.isComplete, false);
+});
+
+test("思源文档编辑帮助准确区分普通格式与特殊块", () => {
+  const meta = findAggregateToolMeta("siyuan_doc_edit");
+  assert.ok(meta);
+  assert.match(meta.boundary, /公式、表格/);
+  assert.match(meta.boundary, /数据库、挂件、iframe/);
+  assert.equal(meta.notes?.some((note) => note.includes("思源内核创建并更新")), true);
 });
 
 test("密集工具事件不会逐条堆积会话检查点", () => {

@@ -14,6 +14,10 @@ import { compactAgentSessionMessagesForStorage } from "../agent-core/messages/me
 import type { ThinkingMode, WebAccessMode } from "../../types/session";
 import { sanitizeMessageForStorage } from "../agent-core/session/session-store";
 import { sanitizePersistedSummaryText } from "./persisted-summary-sanitizer";
+import {
+  hasSettledWorkbenchTerminal,
+  isProviderOutputTruncatedWorkbench,
+} from "../agent-workbench/runtime/workbench-terminal-state";
 
 export interface PersistedReferenceItem {
   index: number;
@@ -527,14 +531,11 @@ function fromPersistedMessage(message: PersistedChatMessage): ChatMessage {
           .filter((event): event is AgentWorkbenchEvent => event !== null);
         if (restoredEvents.length > 0) {
           assistantMsg.workbenchEvents = restoredEvents;
-          const finalDoneEvent = [...restoredEvents]
-            .reverse()
-            .find((event) => event.type === "done");
-          // 兼容旧版终态落盘竞态：answer_ready 是运行时已经完成回答的可信终止证据。
-          // 仅纠正这一种明确成功状态；失败、取消和无终止事件仍保留原 isComplete。
+          // 兼容旧版终态落盘竞态：已明确结束的运行时终态可以修复错误的未完成标记。
+          // 达到模型输出上限时正文确实可能不完整，必须保留 isComplete=false。
           if (
-            finalDoneEvent?.type === "done"
-            && (finalDoneEvent.status === "answer_ready" || finalDoneEvent.status === "failed")
+            hasSettledWorkbenchTerminal(restoredEvents)
+            && !isProviderOutputTruncatedWorkbench(restoredEvents)
             && assistantMsg.content.trim().length > 0
           ) {
             assistantMsg.isComplete = true;

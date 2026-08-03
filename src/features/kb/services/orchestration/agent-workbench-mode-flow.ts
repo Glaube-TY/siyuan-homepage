@@ -57,6 +57,10 @@ import {
   markTurnCompletedPendingPersistence,
 } from "../agent-workbench/runtime/in-flight-turn-journal";
 import { shouldEnqueueWorkbenchCheckpoint } from "./workbench-persistence-checkpoint-policy";
+import {
+  hasSettledWorkbenchTerminal,
+  PROVIDER_OUTPUT_TRUNCATED_ERROR_CODE,
+} from "../agent-workbench/runtime/workbench-terminal-state";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -1093,7 +1097,7 @@ export async function runAgentWorkbenchModeFlow(
       }, "debug");
     }
 
-    if (abortSignal?.aborted) {
+    if (abortSignal?.aborted && !hasSettledWorkbenchTerminal(liveWorkbenchEvents)) {
       flushPendingAgentStreams?.();
       if (setMessages) {
         setMessages((messages) =>
@@ -1143,6 +1147,8 @@ export async function runAgentWorkbenchModeFlow(
 
       const finalWorkbenchEvents = mergeWorkbenchEvents(liveWorkbenchEvents, result.events);
 
+      const isPartialProviderAnswer =
+        agentTurnOutcome.stopReasonCode === PROVIDER_OUTPUT_TRUNCATED_ERROR_CODE;
       setMessages((messages) =>
         messages.map((m) =>
           m.id === assistantMessageId && m.role === "assistant"
@@ -1152,7 +1158,7 @@ export async function runAgentWorkbenchModeFlow(
                 citedReferences: result.footerReferences,
                 agentMemory,
                 workbenchEvents: finalWorkbenchEvents,
-                isComplete: true,
+                isComplete: !isPartialProviderAnswer,
                 agentStatus: undefined,
                 // Ensure reasoning status is "done" at finalize
                 reasoning: m.reasoning && m.reasoning.status === "streaming"
@@ -1167,7 +1173,7 @@ export async function runAgentWorkbenchModeFlow(
       pushAgentDebugEvent("ASSISTANT_RUN_FINALIZED", {
         answerChars: finalContent.length,
         hasReferences: (result.footerReferences?.length ?? 0) > 0,
-        isComplete: true,
+        isComplete: !isPartialProviderAnswer,
       }, "debug");
 
       if (result.stageSummary?.summary?.trim()) {

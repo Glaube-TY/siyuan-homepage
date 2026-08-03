@@ -129,6 +129,7 @@ function buildFailureOutcome(params: {
   return {
     ok: false,
     agentErrorCode: params.code,
+    stopReasonCode: params.code,
     steps: params.steps,
     displayError: {
       ...userFacing,

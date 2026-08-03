@@ -160,7 +160,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        yield { type: "done" };
+        yield { type: "done", finishReason: "aborted" };
         return;
       }
       if (err instanceof TypeError && (err.message.includes("fetch") || err.message.includes("network"))) {
@@ -352,4 +352,3 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     return out;
   }
 }
-

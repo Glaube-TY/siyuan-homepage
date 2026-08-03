@@ -96,7 +96,7 @@ export class GeminiAdapter implements ProviderAdapter {
     } catch (err) {
       if (err instanceof AgentProviderError) throw err;
       if ((err as any)?.name === "AbortError") {
-        yield { type: "done" };
+        yield { type: "done", finishReason: "aborted" };
         return;
       }
       throw new AgentProviderError(`Gemini request failed: ${err instanceof Error ? err.message : String(err)}`, {
@@ -132,6 +132,7 @@ export class GeminiAdapter implements ProviderAdapter {
     const decoder = new TextDecoder();
     let buffer = "";
     let callIndex = 0;
+    let finishReason: string | undefined;
 
     try {
       while (true) {
@@ -144,7 +145,11 @@ export class GeminiAdapter implements ProviderAdapter {
           buffer = buffer.slice(boundary + 2);
           for (const event of this.parseFrame(frame, callIndex)) {
             if (event.type === "tool_call_done") callIndex++;
-            yield event;
+            if (event.type === "done") {
+              finishReason = event.finishReason ?? finishReason;
+            } else {
+              yield event;
+            }
           }
           boundary = buffer.indexOf("\n\n");
         }
@@ -152,7 +157,7 @@ export class GeminiAdapter implements ProviderAdapter {
     } finally {
       try { reader.cancel(); } catch { /* ignore */ }
     }
-    yield { type: "done" };
+    yield { type: "done", finishReason };
   }
 
   private parseFrame(frame: string, callIndex: number): AgentProviderEvent[] {
@@ -167,6 +172,10 @@ export class GeminiAdapter implements ProviderAdapter {
         const first = candidates[0] && typeof candidates[0] === "object" ? candidates[0] as Record<string, unknown> : {};
         const content = first.content && typeof first.content === "object" ? first.content as Record<string, unknown> : {};
         const parts = Array.isArray(content.parts) ? content.parts : [];
+
+        if (typeof first.finishReason === "string") {
+          out.push({ type: "done", finishReason: first.finishReason });
+        }
 
         for (const part of parts) {
           if (!part || typeof part !== "object") continue;

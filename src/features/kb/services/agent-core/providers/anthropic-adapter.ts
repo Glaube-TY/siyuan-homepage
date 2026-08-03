@@ -107,7 +107,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     } catch (err) {
       if (err instanceof AgentProviderError) throw err;
       if ((err as any)?.name === "AbortError") {
-        yield { type: "done" };
+        yield { type: "done", finishReason: "aborted" };
         return;
       }
       throw new AgentProviderError(`Anthropic request failed: ${err instanceof Error ? err.message : String(err)}`, {
@@ -143,6 +143,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     const decoder = new TextDecoder();
     const toolState = new Map<number, AnthropicToolUseState>();
     let buffer = "";
+    let finishReason: string | undefined;
 
     try {
       while (true) {
@@ -154,7 +155,11 @@ export class AnthropicAdapter implements ProviderAdapter {
           const frame = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
           for (const event of this.parseFrame(frame, toolState)) {
-            yield event;
+            if (event.type === "done") {
+              finishReason = event.finishReason ?? finishReason;
+            } else {
+              yield event;
+            }
           }
           boundary = buffer.indexOf("\n\n");
         }
@@ -175,7 +180,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         },
       };
     }
-    yield { type: "done" };
+    yield { type: "done", finishReason };
   }
 
   private parseFrame(frame: string, toolState: Map<number, AnthropicToolUseState>): AgentProviderEvent[] {
@@ -213,6 +218,13 @@ export class AnthropicAdapter implements ProviderAdapter {
             if (existing) {
               existing.input += delta.partial_json;
             }
+          }
+        } else if (type === "message_delta") {
+          const delta = parsed.delta && typeof parsed.delta === "object"
+            ? parsed.delta as Record<string, unknown>
+            : {};
+          if (typeof delta.stop_reason === "string") {
+            out.push({ type: "done", finishReason: delta.stop_reason });
           }
         } else if (type === "message_stop") {
           // done signal will be emitted after the loop

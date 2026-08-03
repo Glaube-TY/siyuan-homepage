@@ -153,6 +153,14 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
+  if (code === "provider_output_truncated") {
+    return {
+      title: "回答达到输出上限",
+      message: "模型已返回部分正文，但在完整结束前达到单次输出上限。已经成功执行的工具操作仍然有效。",
+      suggestion: "可以让 AI 从中断处继续，或在模型设置中提高最大输出长度。",
+    };
+  }
+
   if (code === "pseudo_tool_markup_blocked") {
     return {
       title: "模型工具调用格式不兼容",

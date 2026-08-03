@@ -582,10 +582,16 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
   {
     name: "siyuan_doc_edit",
     title: "思源文档编辑",
-    description: "读取块信息，并对文档和内容块执行受控编辑。",
+    description: "读取块信息，并通过思源内核解析 Markdown/Kramdown，对文档和内容块执行受控编辑。",
     readOnly: false,
     requiresConfirmation: true,
-    boundary: "写操作必须确认；编辑前应先读取定位真实 docId/blockId。用户拒绝或工具失败时不得声称已写入。",
+    boundary: "写操作必须确认；编辑前应先读取定位真实 docId/blockId。公式、表格等普通内容块可用完整 Markdown/Kramdown 编辑；数据库、挂件、iframe 和资源型块不能按普通 Markdown 笼统改写。用户拒绝或工具失败时不得声称已写入。",
+    notes: [
+      "已实测可由思源内核创建并更新：行内/块级公式、表格、代码块、标题、段落、列表/任务列表、引用、粗体和链接。",
+      "块引用必须使用真实定义块 ID；数据库结构使用思源数据库工具，块属性/引用使用对应 action，资源文件使用资源工具。",
+      "挂件、iframe、音视频和数据库等依赖内部数据或外部资源的块，没有专用安全 action 时只能说明当前不支持，不能声称可完全编辑。",
+      "update_block 会替换整个目标块；修改复杂块前必须先读取该块的 Kramdown 和邻近上下文，提交完整的新块内容。",
+    ],
     actions: [
       {
         name: "read_blocks",
@@ -752,6 +758,8 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
         ],
         notes: [
           "blockId 必须来自 read_blocks、block_read 或 read_docs 的真实返回。",
+          "公式块和表格块可使用完整 Markdown/Kramdown 更新；不要只提交局部片段。",
+          "不要用 update_block 改写数据库、挂件、iframe 或资源型块。",
           "测试时只能更新 disposable 测试文档中的块，不要修改用户真实资料。",
         ],
       },
@@ -771,6 +779,8 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
           "不支持 first/last/prepend/append/next/previous。",
           "child 只有目标块可容纳子块时才可能成功；leaf block 失败时应改用 before/after，而不是判定工具整体失败。",
           "referenceBlockId 必须来自 read_blocks、block_read 或 read_docs 的真实返回。",
+          "markdown 可包含公式、表格、代码块、标题、列表和引用等思源可解析内容；块引用中的 ID 必须真实存在。",
+          "数据库、挂件、iframe 或资源型块不能仅靠普通 markdown 参数可靠创建。",
           "测试时只能在 disposable 测试文档中插入块。",
         ],
       },
@@ -848,6 +858,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
         ],
         notes: [
           "高风险操作；docId 必须来自真实工具结果。",
+          "markdown 可包含公式、表格等思源可解析内容，但不会替代数据库、挂件、iframe 或资源工具。",
           "只允许用于 disposable 测试文档；普通局部编辑应使用 update_block、insert_block、delete_blocks 或 move_block。",
         ],
       },

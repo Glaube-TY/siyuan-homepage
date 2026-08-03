@@ -8,6 +8,10 @@
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import { mapAgentErrorToUserFacing } from "../../services/agent-workbench/runtime/user-facing-agent-error";
   import {
+    hasSettledWorkbenchTerminal,
+    isProviderOutputTruncatedWorkbench,
+  } from "../../services/agent-workbench/runtime/workbench-terminal-state";
+  import {
     formatToolArgsPreview,
     formatToolDisplayName,
     formatToolFailureSummary,
@@ -152,12 +156,23 @@
     }, "info");
   }
 
-  // 判断是否为已停止的半截回答
+  $: providerOutputTruncated =
+    message.role === "assistant" &&
+    isProviderOutputTruncatedWorkbench(message.workbenchEvents);
+
+  // 判断是否为已停止的半截回答；已有明确终态时不再因旧 isComplete 竞态误报。
   $: isStoppedPartialAnswer =
     message.role === "assistant" &&
     message.content.trim() &&
     message.isComplete === false &&
-    !asking;
+    !asking &&
+    !hasSettledWorkbenchTerminal(message.workbenchEvents);
+
+  $: partialAnswerHint = providerOutputTruncated
+    ? "回答达到模型的单次输出上限，正文可能未结束；已完成的工具操作不受影响。"
+    : isStoppedPartialAnswer
+      ? "已停止生成，内容可能不完整。"
+      : "";
 
   // 是否应该显示 assistant 操作按钮
   $: shouldShowAssistantActions =
@@ -669,8 +684,8 @@
         {/if}
 
         <!-- 已停止的半截回答提示 -->
-        {#if isStoppedPartialAnswer}
-          <div class="stopped-partial-hint">已停止生成，内容可能不完整。</div>
+        {#if partialAnswerHint}
+          <div class="stopped-partial-hint">{partialAnswerHint}</div>
         {/if}
 
         <!-- 操作按钮区 -->

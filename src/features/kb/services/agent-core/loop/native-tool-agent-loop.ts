@@ -2,6 +2,7 @@ import { createAssistantMessage, createSystemMessage, createToolMessage, createU
 import { compactAgentMessages } from "../messages/message-compactor";
 import { filterStaleToolCalls } from "../messages/message-normalizer";
 import type { ProviderAdapter } from "../providers/provider-adapter";
+import { classifyProviderFinishReason } from "../providers/provider-finish-reason";
 import type { NativeToolRegistry } from "../tools/native-tool-registry";
 import { AgentSession } from "../session/agent-session";
 import { RegisteredConfirmationBridge, type ToolConfirmationBridge } from "../permissions/confirmation-bridge";
@@ -122,6 +123,7 @@ export class NativeToolAgentLoop {
       let emittedTextLive = false;
       let emittedReasoningLive = false;
       let pseudoToolMarkupDetected = false;
+      let finishReason: string | undefined;
 
       for await (const event of this.options.provider.streamChat({
         messages,
@@ -162,7 +164,22 @@ export class NativeToolAgentLoop {
           toolCalls.push(event.toolCall);
         } else if (event.type === "error") {
           throw event.error;
+        } else if (event.type === "done" && event.finishReason) {
+          finishReason = event.finishReason;
         }
+      }
+
+      const finishKind = classifyProviderFinishReason(finishReason);
+      if (finishKind === "aborted") {
+        this.options.onEvent?.({ type: "done", status: "cancelled" });
+        return {
+          status: "cancelled",
+          answer,
+          steps,
+          messages: this.session.snapshot(),
+          errorCode: "user_aborted",
+          errorMessage: "User aborted the turn.",
+        };
       }
 
       if (toolCalls.length > 0) {
@@ -243,6 +260,24 @@ export class NativeToolAgentLoop {
           toolCalls,
           ...(reasoning ? { reasoning } : {}),
         }));
+        if (finishKind === "truncated") {
+          const message = "模型达到单次输出上限，回答正文可能未结束；本轮已经完成的工具操作不受影响。";
+          this.options.onEvent?.({ type: "assistant_final", answer });
+          this.options.onEvent?.({
+            type: "error",
+            code: "provider_output_truncated",
+            message,
+          });
+          this.options.onEvent?.({ type: "done", status: "failed" });
+          return {
+            status: "failed",
+            answer,
+            steps,
+            messages: this.session.snapshot(),
+            errorCode: "provider_output_truncated",
+            errorMessage: message,
+          };
+        }
         this.options.onEvent?.({ type: "assistant_final", answer });
         this.options.onEvent?.({ type: "done", status: "answer_ready" });
         return {
@@ -334,6 +369,7 @@ export class NativeToolAgentLoop {
     let emittedTextLive = false;
     let emittedReasoningLive = false;
     let pseudoToolMarkupDetected = false;
+    let finishReason: string | undefined;
 
     for await (const event of this.options.provider.streamChat({
       messages,
@@ -358,7 +394,30 @@ export class NativeToolAgentLoop {
         this.options.onEvent?.({ type: "assistant_reasoning_delta", delta: event.delta, fullReasoning: reasoning });
       } else if (event.type === "error") {
         throw event.error;
+      } else if (event.type === "done" && event.finishReason) {
+        finishReason = event.finishReason;
       }
+    }
+
+    const softFinishKind = classifyProviderFinishReason(finishReason);
+    if (softFinishKind === "aborted") {
+      this.options.onEvent?.({ type: "done", status: "cancelled" });
+      return {
+        status: "cancelled",
+        answer,
+        steps: params.steps,
+        messages: this.session.snapshot(),
+        errorCode: "user_aborted",
+        errorMessage: "User aborted the turn.",
+      };
+    }
+    if (softFinishKind === "truncated") {
+      return this.finishSoftToolStopFallback({
+        code: params.code,
+        message: params.message,
+        steps: params.steps,
+        reasoning,
+      });
     }
 
     if (pseudoToolMarkupDetected || isPseudoToolMarkup(answer)) {
