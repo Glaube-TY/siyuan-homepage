@@ -65,14 +65,6 @@ export function getWidgetPath(context: DeviceViewContext, instanceId: string): s
     return `${getSurfaceWidgetsRoot(context)}/${safeId}.json`;
 }
 
-export function getSurfaceBackupsRoot(context: DeviceViewContext): string {
-    return `${getSurfaceRoot(context)}/backups`;
-}
-
-export function getSurfaceBackupPath(context: DeviceViewContext, label: string): string {
-    return `${getSurfaceBackupsRoot(context)}/${assertDeviceViewSegment(label, "备份标签")}.json`;
-}
-
 export function assertDeviceViewSurface(value: string): DeviceViewSurface {
     if (value === "desktop-homepage" || value === "desktop-sidebar" || value === "mobile-homepage") {
         return value;

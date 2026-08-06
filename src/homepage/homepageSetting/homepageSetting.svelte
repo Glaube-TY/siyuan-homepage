@@ -35,7 +35,7 @@
     } from "../../components/utils/widgetBlock/utils/layout-shared"
     import { svelteDialog, confirmDialogBoolean, safeConfirmContent } from "../../libs/dialog"
     import MobileHomepagePreviewDialog from "../mobileHomepage/MobileHomepagePreviewDialog.svelte"
-    import { backupAndResetCurrentInterface, createTemplateBackup } from "../templates/templateBackup"
+    import { resetCurrentDesktopHomepageLayout } from "../deviceView/resetCurrentDesktopHomepageLayout"
     import AboutSection from "./sections/AboutSection.svelte"
     import VipSection from "./sections/VipSection.svelte"
     import HomepageGlobalSection from "./sections/HomepageGlobalSection.svelte"
@@ -1319,22 +1319,14 @@
         return true;
     }
 
-    async function backupCurrentInterface() {
-        await createTemplateBackup(plugin, {
-            deviceId: currentDeviceInfo?.physicalDeviceId || null,
-            reason: "manual-current-interface-backup",
-        });
-        showMessage("当前设备桌面主页已备份");
-    }
-
     async function resetCurrentInterface() {
         const confirmed = await confirmDialogBoolean({
             title: "重置当前界面",
-            content: "将先备份，再清空当前设备桌面主页的布局引用。不会删除任何组件文件或业务数据。确定继续吗？",
+            content: "此操作将清空当前设备桌面主页中的组件布局。不会删除组件配置文件、记账、任务等共享业务数据，之后可以通过模板中心重新应用主页布局。确定继续吗？",
         });
         if (!confirmed) return;
-        await backupAndResetCurrentInterface(plugin);
-        showMessage("当前设备桌面主页已重置，重新打开主页后生效");
+        await resetCurrentDesktopHomepageLayout(plugin);
+        showMessage("当前设备桌面主页布局已重置，重新打开主页后生效");
     }
 
     function openMobileHomepagePreviewDialog() {
@@ -1535,10 +1527,7 @@
                     {#if settingsActiveTab === "devices"}
                         <div class="devices-section">
                             <SettingSection title="当前设备">
-                                <SettingRow title="备份当前界面" description="备份当前设备 desktop-homepage 的布局和组件配置">
-                                    <button class="device-action-btn" onclick={backupCurrentInterface}>备份</button>
-                                </SettingRow>
-                                <SettingRow title="重置当前界面" description="先备份，再仅清空当前设备 desktop-homepage 布局引用">
+                                <SettingRow title="重置当前界面" description="仅清空当前设备桌面主页中的组件布局，不删除组件配置文件和共享业务数据">
                                     <button class="device-action-btn" onclick={resetCurrentInterface}>重置</button>
                                 </SettingRow>
 

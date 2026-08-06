@@ -86,7 +86,7 @@ export function createDeviceViewBlockedError(
     const safeMessage = [
         "设备视图迁移被阻断，插件已停止自动转换，防止覆盖旧数据。",
         `当前设备目录：${deviceRootPath}`,
-        "请先备份并检查该目录；插件不会自动删除、覆盖或借用其他设备目录。",
+        "请手动检查该目录中的文件；插件不会自动删除、覆盖或借用其他设备目录。",
     ].join("\n");
     return new DeviceViewMigrationBlockedError({
         code,

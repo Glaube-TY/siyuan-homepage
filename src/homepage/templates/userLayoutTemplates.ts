@@ -1,6 +1,6 @@
 import { isDesktopDeviceProfileEnabled } from "@/homepage/utils/deviceProfile";
 import { getFileOrNullChecked } from "@/api";
-import { collectLayoutReferencedIdsForCleanup } from "./templateBackupScope";
+import { collectLayoutReferencedIdsForCleanup } from "./templateLayoutReferences";
 import type { SectionLayoutTemplatePayload } from "./templateTypes";
 import type { CoordinatedSnapshot, LayoutSnapshot } from "@/components/utils/widgetBlock/utils/layout-shared";
 import {

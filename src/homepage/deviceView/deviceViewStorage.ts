@@ -1,14 +1,10 @@
 import {
-    copyFileChecked,
     getFileOrNullChecked,
     putFileChecked,
-    readDirChecked,
     removeFileChecked,
 } from "@/api";
 import {
     getDeviceDescriptorPath,
-    getSurfaceBackupPath,
-    getSurfaceBackupsRoot,
     getSurfaceLayoutPath,
     getSurfaceManifestPath,
     getSurfaceViewPath,
@@ -663,75 +659,4 @@ export async function writeDeviceDescriptor(context: DeviceViewContext, descript
             throw new Error("设备描述文件写入后校验失败");
         }
     });
-}
-
-export async function backupCurrentLayout(context: DeviceViewContext, reason: string): Promise<string | null> {
-    assertStorageContext(context);
-    const layout = await readDeviceViewLayout(context);
-    if (!layout) return null;
-    const compactTime = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupPath = getSurfaceBackupPath(context, `${compactTime}-${reason}-layout`);
-    await copyFileChecked({ path: getSurfaceLayoutPath(context), targetPath: backupPath });
-    const copied = await getFileOrNullChecked(backupPath);
-    if (copied === null) throw new Error("设备布局备份校验失败");
-    const verifiedBackup = validateLayout(await decodeJson(copied, backupPath), context, backupPath);
-    if (JSON.stringify(verifiedBackup) !== JSON.stringify(layout)) {
-        throw new Error("设备布局备份内容与源文件不一致");
-    }
-    return backupPath;
-}
-
-export async function writeDeviceViewBackup(
-    context: DeviceViewContext,
-    label: string,
-    payload: Record<string, unknown>,
-): Promise<string> {
-    assertStorageContext(context);
-    if (!isPlainJsonObject(payload) || !isJsonSafe(payload)) throw new Error("设备视图备份内容无效");
-    const path = getSurfaceBackupPath(context, label);
-    await inWriteQueue(path, async () => {
-        const existingRaw = await getFileOrNullChecked(path);
-        let revision = 1;
-        if (existingRaw !== null) {
-            const existing = await decodeJson(existingRaw, path);
-            validateMetadata(existing, context, path);
-            revision = existing.revision + 1;
-        }
-        const document = { ...cloneJsonSafe(payload, "设备视图备份内容"), ...metadata(context, revision) };
-        await writeJson(path, document);
-        const raw = await getFileOrNullChecked(path);
-        if (raw === null) throw new Error("设备视图备份写入校验失败");
-        const verified = await decodeJson(raw, path);
-        validateMetadata(verified, context, path);
-        if (verified.revision !== revision || !hasSameJsonSemantic(verified, document)) throw new Error("设备视图备份写后语义校验失败");
-    });
-    return path;
-}
-
-export async function readDeviceViewBackups(
-    context: DeviceViewContext,
-    namePrefix = "",
-): Promise<Array<{ path: string; data: Record<string, unknown> }>> {
-    assertStorageContext(context);
-    let entries;
-    try {
-        entries = await readDirChecked(getSurfaceBackupsRoot(context));
-    } catch (error) {
-        if (String(error).includes("code=404")) return [];
-        throw error;
-    }
-    const names = entries
-        .filter((entry) => entry?.isDir !== true && String(entry.name).endsWith(".json") && String(entry.name).startsWith(namePrefix))
-        .map((entry) => String(entry.name))
-        .sort();
-    const result: Array<{ path: string; data: Record<string, unknown> }> = [];
-    for (const name of names) {
-        const path = `${getSurfaceBackupsRoot(context)}/${name}`;
-        const raw = await getFileOrNullChecked(path);
-        if (raw === null) throw new Error(`设备视图备份目录列出了文件但读取缺失：${path}`);
-        const data = await decodeJson(raw, path);
-        validateMetadata(data, context, path);
-        result.push({ path, data });
-    }
-    return result;
 }
