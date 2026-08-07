@@ -9,7 +9,7 @@ export function addCustomBlock(
     containerEl?: HTMLElement | null,
     runtimeOptions: HomepageLayoutRuntimeOptions = {},
 ) {
-    addCustomBlockToContainer(plugin, currentBlockForSettingsRef, {
+    const widget = addCustomBlockToContainer(plugin, currentBlockForSettingsRef, {
         containerSelector: ".custom-content",
         WidgetBlockClass: WidgetBlock,
         containerEl,
@@ -18,4 +18,18 @@ export function addCustomBlock(
             deviceViewContext: runtimeOptions.deviceViewContext || getCurrentDeviceViewContext(plugin, "desktop-homepage"),
         },
     });
+
+    // 桌面端新增组件后直接进入内容选择，避免用户误把空草稿当成已创建组件。
+    requestAnimationFrame(() => {
+        const contentButton = widget?.element?.querySelector?.(".block-content-button");
+        if (
+            widget?.element?.isConnected
+            && widget.element.dataset.widgetDraft === "true"
+            && contentButton instanceof HTMLButtonElement
+        ) {
+            contentButton.click();
+        }
+    });
+
+    return widget;
 }

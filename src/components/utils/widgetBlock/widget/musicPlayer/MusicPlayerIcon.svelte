@@ -25,13 +25,14 @@
     import ArrowDown from "@lucide/svelte/icons/arrow-down";
     import Maximize2 from "@lucide/svelte/icons/maximize-2";
     import Music from "@lucide/svelte/icons/music";
+    import Headphones from "@lucide/svelte/icons/headphones";
 
     export type IconName =
         | "play" | "pause" | "previous" | "next" | "shuffle" | "repeat" | "repeatOne"
         | "volume" | "volumeMuted" | "queue" | "queueAdd" | "listMusic"
         | "locate" | "heart" | "heartFilled" | "add" | "edit" | "trash" | "more"
         | "close" | "remove" | "check" | "search" | "lyrics" | "cover"
-        | "sortAsc" | "sortDesc" | "playlist" | "playlistAdd" | "detail" | "musicNote";
+        | "sortAsc" | "sortDesc" | "playlist" | "playlistAdd" | "detail" | "musicNote" | "headphones";
 
     interface Props {
         name: IconName;
@@ -104,4 +105,6 @@
     <Maximize2 {size} strokeWidth={strokeWidth} class={className} aria-hidden={ariaHidden} />
 {:else if name === "musicNote"}
     <Music {size} strokeWidth={strokeWidth} class={className} aria-hidden={ariaHidden} />
+{:else if name === "headphones"}
+    <Headphones {size} strokeWidth={strokeWidth} class={className} aria-hidden={ariaHidden} />
 {/if}

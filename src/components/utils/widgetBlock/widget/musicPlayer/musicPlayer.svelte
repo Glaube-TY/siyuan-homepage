@@ -2,11 +2,13 @@
     import { saveWidgetContentPreservingSize } from "../../styleUtils";
     import { onMount, onDestroy, mount, untrack } from "svelte";
     import { Howl } from "howler";
+    import { getFrontend } from "siyuan";
     import { svelteDialog } from "@/libs/dialog";
-    import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
+    import { canUseElectronLocalFileSystem, isMobileRuntime } from "@/components/tools/runtimeEnv";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import MusicPlayerMini from "./MusicPlayerMini.svelte";
     import MusicPlayerDetailDialog from "./MusicPlayerDetailDialog.svelte";
+    import MusicPlayerMobilePage from "./MusicPlayerMobilePage.svelte";
     import MusicPlayerQueueDialog from "./MusicPlayerQueueDialog.svelte";
     import {
         safeParseMusicPlayerConfig,
@@ -34,6 +36,30 @@
     import { MusicLibraryStore } from "./musicLibraryStore";
     import { registerFloatingMiniHost, unregisterFloatingMiniHost } from "./musicFloatingMiniManager";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import { MusicCloudSettingsStore } from "./musicCloudSettingsStore";
+    import { SubsonicMusicProvider } from "./subsonic/subsonicProvider";
+    import type { SubsonicEndpointState } from "./subsonic/subsonicEndpointManager";
+    import { getMusicSourceRuntimePolicy, isAudioUnlockRequired, resolveMusicSourceKindForRuntime, resolveReliablePlaybackDuration } from "./musicSourceTypes";
+    import type { MusicSourceProvider, ResolvedPlaybackSource } from "./musicSourceTypes";
+    import { LocalMusicProvider } from "./localMusicProvider";
+    import { MusicTrackRegistry } from "./musicTrackRegistry";
+    import { MusicRemoteScrobbleTracker } from "./musicRemoteScrobbleTracker";
+    import { publishMusicCloudEndpointState } from "./musicCloudConnectionStatus";
+    import { MusicStreamFailoverGuard } from "./musicStreamFailoverGuard";
+    import { MusicCloudQueueSaveScheduler } from "./musicCloudQueueSaveScheduler";
+    import { DesktopMusicStreamRelay } from "./musicStreamRelay";
+    import { clearMusicPlaybackPresence, publishMusicPlaybackPresence } from "./musicPlaybackPresence";
+    import {
+        normalizeCloudQueueAfterMutation,
+        resolveCloudQueueSaveCursor,
+        resolveInitialCloudPlaybackState,
+    } from "./subsonic/subsonicQueueState";
+    import {
+        OPEN_MOBILE_MUSIC_PLAYER_EVENT,
+        registerPersistentMobileMusicPlayer,
+        requestOpenMobileMusicPlayer,
+        type OpenMobileMusicPlayerRequest,
+    } from "./musicMobilePlayerBridge";
 
     interface Props {
         plugin: any;
@@ -52,6 +78,17 @@
         }
     });
     const musicFolderPath = initialConfig.musicFolderPath;
+    const frontend = getFrontend();
+    const mobileSurface = untrack(() => runtimeContext.placement === "mobile"
+        || runtimeContext.deviceViewContext?.surface === "mobile-homepage");
+    const persistentMobileRuntime = untrack(() => runtimeContext.persistentMusicRuntime === true);
+    const physicalMobileRuntime = isMobileRuntime()
+        || frontend === "mobile"
+        || frontend === "browser-mobile"
+        || frontend.includes("mobile");
+    const mobileRuntime = mobileSurface || physicalMobileRuntime;
+    const delegatedMobileSurface = mobileSurface && physicalMobileRuntime && !persistentMobileRuntime;
+    const sourceMode = resolveMusicSourceKindForRuntime(initialConfig.sourceMode, mobileRuntime);
     const blockId = typeof (initialParsed.instanceId ?? initialParsed.blockId) === "string"
         ? String(initialParsed.instanceId ?? initialParsed.blockId)
         : "";
@@ -59,9 +96,18 @@
     let destroyed = false;
     let loadToken = 0;
     let playSessionId = 0;
+    let playRequestSessionId = -1;
+    let loadAutoplaySessionId = -1;
     let countedPlaySessionId = -1;
+    const streamFailoverGuard = new MusicStreamFailoverGuard();
+    const desktopStreamRelay = new DesktopMusicStreamRelay();
+    let disposePlaybackSource: (() => void) | null = null;
+    const remoteScrobbleTracker = new MusicRemoteScrobbleTracker();
     let detailDialogRef: { close: () => void } | null = null;
     let queueDialogRef: { close: () => void } | null = null;
+    let unsubscribeCloudEndpointStatus: (() => void) | null = null;
+    let unregisterPersistentMobilePlayer: (() => void) | null = null;
+    let cloudEndpointState = $state<SubsonicEndpointState | null>(null);
     let detailDialogOpen = $state(false);
 
     interface MetadataQueueItem {
@@ -87,10 +133,14 @@
     let sortMode = $state(initialConfig.sortMode);
     let sortDirection = $state(initialConfig.sortDirection);
     let showFloatingMini = $state(initialConfig.showFloatingMini);
+    let cloudStreamQuality = $state(initialConfig.cloudStreamQuality);
 
     let statsStore: MusicPlaybackStatsStore | null = null;
     let libraryStore: MusicLibraryStore | null = null;
     let metadataIndexStore: MusicMetadataIndexStore | null = null;
+    let sourceProvider: MusicSourceProvider | null = null;
+    let cloudProvider: SubsonicMusicProvider | null = null;
+    const cloudQueueSaveScheduler = new MusicCloudQueueSaveScheduler();
     let statsVersion = $state(0);
     let viewMode = $state<MusicPlayerViewMode>("all");
     let selectedPlaylistId = $state<string | null>(null);
@@ -102,6 +152,7 @@
     let metadataIndexProgress = $state<MusicMetadataIndexProgress>(DEFAULT_MUSIC_METADATA_INDEX_PROGRESS);
 
     let musicFiles = $state<MusicTrack[]>([]);
+    const trackRegistry = new MusicTrackRegistry(5000);
     let currentTrackIndex = $state(
         Number.isFinite(initialConfig.currentTrackIndex) ? initialConfig.currentTrackIndex : 0,
     );
@@ -112,6 +163,8 @@
     let duration = $state(0);
     let progressInterval: ReturnType<typeof setInterval> | null = null;
     let displayMetadataTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingInitialSeek = 0;
+    let lastCloudQueuePositionBucket = -1;
 
     let advancedEnabled = $state(false);
     let runtimeUnsupported = $state(false);
@@ -119,6 +172,8 @@
     let runtimeMessage = $state("");
     let errorMessage = $state("");
     let scanTruncated = $state(false);
+    let cloudRetrying = $state(false);
+    let cloudConnected = $state(false);
 
     const hasMusicFiles = $derived(musicFiles.length > 0);
     const currentTrack = $derived(musicFiles[currentTrackIndex]);
@@ -162,12 +217,76 @@
     }
 
     function ensureTrackInActiveQueue(index: number): void {
-        if (!libraryStore) return;
         if (index < 0 || index >= musicFiles.length) return;
         const trackKey = getTrackKey(musicFiles[index]);
         if (activeQueueTrackKeys.includes(trackKey)) return;
+        if (sourceMode === "subsonic") {
+            activeQueueTrackKeys = [...activeQueueTrackKeys, trackKey];
+            activeQueueCount = activeQueueTrackKeys.length;
+            scheduleCloudQueueSave();
+            return;
+        }
+        if (!libraryStore) return;
         libraryStore.appendToActiveQueue([trackKey]);
         syncLibraryState();
+    }
+
+    function ensureTrackKeysInCatalog(trackKeys: string[]): string[] {
+        const uniqueKeys = [...new Set(trackKeys.filter(Boolean))];
+        if (sourceMode === "subsonic") {
+            const missingTracks = uniqueKeys
+                .filter((key) => !musicFiles.some((track) => getTrackKey(track) === key))
+                .map((key) => trackRegistry.resolve(key))
+                .filter((track): track is MusicTrack => !!track);
+            if (missingTracks.length) registerCloudTracks(missingTracks);
+        }
+        const availableKeys = new Set(musicFiles.map(getTrackKey));
+        return uniqueKeys.filter((key) => availableKeys.has(key));
+    }
+
+    function playTrackByKey(trackKey: string): void {
+        const [availableKey] = ensureTrackKeysInCatalog([trackKey]);
+        if (!availableKey) return;
+        const index = musicFiles.findIndex((track) => getTrackKey(track) === availableKey);
+        if (index < 0) return;
+        ensureTrackInActiveQueue(index);
+        submitStatsSession(false);
+        void ensureTrackLoaded(index, true, true);
+        saveConfig();
+    }
+
+    function replaceQueueWithTrackKeys(trackKeys: string[]): void {
+        const keys = ensureTrackKeysInCatalog(trackKeys);
+        if (!keys.length) return;
+        if (sourceMode === "subsonic") {
+            activeQueueTrackKeys = keys;
+            activeQueueCount = keys.length;
+            scheduleCloudQueueSave();
+        } else {
+            if (!libraryStore) return;
+            libraryStore.replaceActiveQueue(keys);
+            syncLibraryState();
+        }
+        playTrackByKey(keys[0]);
+    }
+
+    function appendTrackKeysToQueue(trackKeys: string[]): void {
+        const keys = ensureTrackKeysInCatalog(trackKeys);
+        if (!keys.length) return;
+        if (sourceMode === "subsonic") {
+            activeQueueTrackKeys = [...new Set([...activeQueueTrackKeys, ...keys])];
+            activeQueueCount = activeQueueTrackKeys.length;
+            trackRegistry.setProtectedKeys([...(activeQueueTrackKeys || []), ...(currentTrack ? [getTrackKey(currentTrack)] : [])]);
+            scheduleCloudQueueSave();
+            return;
+        }
+        if (!libraryStore) return;
+        libraryStore.appendToActiveQueue(keys);
+        syncLibraryState();
+    }
+
+    function appendTrackKeyToQueue(trackKey: string): void {
+        appendTrackKeysToQueue([trackKey]);
     }
 
     const vm: MusicPlayerViewModel = $derived({
@@ -239,31 +358,13 @@
     });
 
     const actions: MusicPlayerActions = {
-        play: () => {
-            if (!sound || sound.state() !== "loaded") {
-                cleanup();
-                ensureTrackInActiveQueue(currentTrackIndex);
-                submitStatsSession(false);
-                ensureTrackLoaded(currentTrackIndex, true, true);
-            } else {
-                ensureTrackInActiveQueue(currentTrackIndex);
-                safePlay(sound, playSessionId);
-            }
-        },
-        pause: () => sound?.pause(),
+        play: requestCurrentPlayback,
+        pause: pauseCurrentPlayback,
         togglePlay: () => {
             if (isPlaying) {
-                sound?.pause();
+                pauseCurrentPlayback();
             } else {
-                if (!sound || sound.state() !== "loaded") {
-                    cleanup();
-                    ensureTrackInActiveQueue(currentTrackIndex);
-                    submitStatsSession(false);
-                    ensureTrackLoaded(currentTrackIndex, true, true);
-                } else {
-                    ensureTrackInActiveQueue(currentTrackIndex);
-                    safePlay(sound, playSessionId);
-                }
+                requestCurrentPlayback();
             }
         },
         nextTrack: () => {
@@ -281,11 +382,9 @@
         playTrack: (index: number) => {
             if (!hasMusicFiles) return;
             const safeIndex = normalizeTrackIndex(index, musicFiles.length);
-            ensureTrackInActiveQueue(safeIndex);
-            submitStatsSession(false);
-            ensureTrackLoaded(safeIndex, true, true);
-            saveConfig();
+            playTrackByKey(getTrackKey(musicFiles[safeIndex]));
         },
+        playTrackByKey,
         seekByMouse: (e: MouseEvent) => {
             if (!sound || !duration) return;
             const target = e.currentTarget as HTMLElement;
@@ -293,6 +392,7 @@
             const seekTime = progress * duration;
             sound.seek(seekTime);
             currentTime = seekTime;
+            scheduleCloudQueueSave();
         },
         seekByKeyboard: (e: KeyboardEvent) => {
             if (!sound || !duration) return;
@@ -304,6 +404,7 @@
             const newTime = Math.max(0, Math.min(duration, (sound.seek() as number) + delta));
             sound.seek(newTime);
             currentTime = newTime;
+            scheduleCloudQueueSave();
         },
         setVolume: (e: Event) => {
             const vol = parseFloat((e.target as HTMLInputElement).value);
@@ -359,12 +460,28 @@
             saveConfig();
         },
         toggleFavorite: () => {
-            if (!currentTrack || !libraryStore) return;
+            if (!currentTrack) return;
+            if (sourceMode === "subsonic" && sourceProvider) {
+                void sourceProvider.toggleFavorite(currentTrack).then(() => {
+                    favoriteTrackKeys = musicFiles.filter((track) => !!track.serverStarredAt).map(getTrackKey);
+                    musicFiles = musicFiles;
+                }).catch(() => { errorMessage = "收藏操作失败，请稍后重试"; });
+                return;
+            }
+            if (!libraryStore) return;
             const trackKey = getTrackKey(currentTrack);
             libraryStore.toggleFavorite(trackKey);
             syncLibraryState();
         },
         toggleFavoriteTrack: (trackKey: string) => {
+            if (sourceMode === "subsonic" && sourceProvider) {
+                const track = musicFiles.find((item) => getTrackKey(item) === trackKey);
+                if (track) void sourceProvider.toggleFavorite(track).then(() => {
+                    favoriteTrackKeys = musicFiles.filter((item) => !!item.serverStarredAt).map(getTrackKey);
+                    musicFiles = musicFiles;
+                }).catch(() => { errorMessage = "收藏操作失败，请稍后重试"; });
+                return;
+            }
             if (!libraryStore) return;
             libraryStore.toggleFavorite(trackKey);
             syncLibraryState();
@@ -428,48 +545,30 @@
         },
         syncLibraryState,
         replaceActiveQueueFromIndices: (indices: number[]) => {
-            if (!libraryStore) return;
-            const seen = new Set<string>();
-            const validIndices: number[] = [];
-            for (const i of indices) {
-                if (i < 0 || i >= musicFiles.length) continue;
-                const key = getTrackKey(musicFiles[i]);
-                if (seen.has(key)) continue;
-                seen.add(key);
-                validIndices.push(i);
-            }
-            if (validIndices.length === 0) return;
-            const keys = validIndices.map((i) => getTrackKey(musicFiles[i]));
-            libraryStore.replaceActiveQueue(keys);
-            syncLibraryState();
-            // 播放当前列表第一首
-            const firstIdx = validIndices[0];
-            submitStatsSession(false);
-            ensureTrackLoaded(firstIdx, true, true);
-            saveConfig();
+            replaceQueueWithTrackKeys(indices.filter((i) => i >= 0 && i < musicFiles.length).map((i) => getTrackKey(musicFiles[i])));
         },
         appendActiveQueueFromIndices: (indices: number[]) => {
-            if (!libraryStore) return;
-            const seen = new Set<string>();
-            const keys: string[] = [];
-            for (const i of indices) {
-                if (i < 0 || i >= musicFiles.length) continue;
-                const key = getTrackKey(musicFiles[i]);
-                if (seen.has(key)) continue;
-                seen.add(key);
-                keys.push(key);
-            }
-            if (keys.length === 0) return;
-            libraryStore.appendToActiveQueue(keys);
-            syncLibraryState();
+            appendTrackKeysToQueue(indices.filter((i) => i >= 0 && i < musicFiles.length).map((i) => getTrackKey(musicFiles[i])));
         },
         appendTrackToActiveQueue: (index: number) => {
-            if (!libraryStore) return;
             if (index < 0 || index >= musicFiles.length) return;
-            libraryStore.appendToActiveQueue([getTrackKey(musicFiles[index])]);
-            syncLibraryState();
+            appendTrackKeyToQueue(getTrackKey(musicFiles[index]));
         },
+        replaceQueueWithTrackKeys,
+        appendTrackKeyToQueue,
         removeTrackFromActiveQueue: (trackKey: string) => {
+            if (sourceMode === "subsonic") {
+                const currentKey = currentTrack ? getTrackKey(currentTrack) : undefined;
+                const preserveCurrentPlayback = !!currentTrack && !!(isPlaying || (sound && sound.state() === "loaded"));
+                activeQueueTrackKeys = normalizeCloudQueueAfterMutation(
+                    activeQueueTrackKeys.filter((key) => key !== trackKey),
+                    currentKey,
+                    preserveCurrentPlayback,
+                );
+                activeQueueCount = activeQueueTrackKeys.length;
+                scheduleCloudQueueSave();
+                return;
+            }
             if (!libraryStore) return;
             libraryStore.removeFromActiveQueue(trackKey);
             const keepCurrent = (isPlaying || (sound && sound.state() === "loaded")) && currentTrack;
@@ -479,6 +578,14 @@
             syncLibraryState();
         },
         clearActiveQueue: () => {
+            if (sourceMode === "subsonic") {
+                const currentKey = currentTrack ? getTrackKey(currentTrack) : undefined;
+                const preserveCurrentPlayback = !!currentTrack && !!(isPlaying || (sound && sound.state() === "loaded"));
+                activeQueueTrackKeys = normalizeCloudQueueAfterMutation([], currentKey, preserveCurrentPlayback);
+                activeQueueCount = activeQueueTrackKeys.length;
+                scheduleCloudQueueSave();
+                return;
+            }
             if (!libraryStore) return;
             libraryStore.clearActiveQueue();
             const keepCurrent = (isPlaying || (sound && sound.state() === "loaded")) && currentTrack;
@@ -498,8 +605,16 @@
             const clamped = Math.max(0, Math.min(time, duration));
             sound.seek(clamped);
             currentTime = clamped;
+            scheduleCloudQueueSave();
         },
     };
+
+    $effect(() => {
+        if (!persistentMobileRuntime) return;
+        publishMusicPlaybackPresence({
+            isPlaying: !!currentTrack && isPlaying,
+        });
+    });
 
     function syncLibraryState() {
         if (!libraryStore) return;
@@ -507,6 +622,34 @@
         playlists = libraryStore.getPlaylists();
         activeQueueTrackKeys = libraryStore.getActiveQueueTrackKeys();
         activeQueueCount = libraryStore.getActiveQueueCount();
+    }
+
+    function scheduleCloudQueueSave(): void {
+        if (sourceMode !== "subsonic" || !cloudProvider) return;
+        const provider = cloudProvider;
+        cloudQueueSaveScheduler.schedule(async () => {
+            const songIds = activeQueueTrackKeys
+                .map((key) => trackRegistry.resolve(key)?.sourceTrackId)
+                .filter((id): id is string => !!id);
+            const cursor = resolveCloudQueueSaveCursor(
+                activeQueueTrackKeys,
+                currentTrack ? getTrackKey(currentTrack) : undefined,
+                currentTrack?.sourceTrackId,
+                currentTime,
+            );
+            await provider.library.savePlayQueue(songIds, cursor.currentId, cursor.positionMs);
+        }, () => { if (!destroyed) errorMessage = "NAS 播放队列暂时无法同步"; });
+    }
+
+    function formatCloudEndpointHealth(kind: "local" | "remote"): string {
+        const health = cloudEndpointState?.[kind];
+        if (!health?.configured) return "未配置";
+        if (health.status === "online") return `在线 · ${health.latencyMs ?? "—"} ms`;
+        if (health.status === "testing") return "正在连接";
+        if (health.status === "auth_error") return health.safeError || "认证失败";
+        if (health.status === "server_error") return health.safeError || "服务器异常";
+        if (health.status === "offline") return health.safeError || "离线";
+        return "尚未测试";
     }
 
     function clearProgressInterval() {
@@ -524,6 +667,15 @@
             }
             const pos = targetSound.seek() as number;
             if (Number.isFinite(pos)) {
+                if (sourceMode === "subsonic") {
+                    if (currentTrack) remoteScrobbleTracker.tick(getTrackKey(currentTrack), pos);
+                    maybeSubmitRemoteScrobble(false);
+                    const positionBucket = Math.floor(pos / 15);
+                    if (positionBucket > 0 && positionBucket !== lastCloudQueuePositionBucket) {
+                        lastCloudQueuePositionBucket = positionBucket;
+                        scheduleCloudQueueSave();
+                    }
+                }
                 currentTime = pos;
                 statsStore?.tick(pos);
             }
@@ -538,7 +690,7 @@
     }
 
     function scheduleCurrentDisplayMetadata(reason: string) {
-        if (!parseMetadata || !currentTrack) return;
+        if ((sourceMode === "local" && !parseMetadata) || !currentTrack) return;
         if (!showCover && !showLyrics) return;
         if (!needsFullMetadataForCurrentOptions(currentTrack)) return;
         cancelScheduledDisplayMetadata();
@@ -548,29 +700,60 @@
         }, 500);
     }
 
+    function handleOpenMobileMusicPlayerRequest(request: OpenMobileMusicPlayerRequest): void {
+        if (!mobileRuntime) return;
+        if (!request || request.handled) return;
+        if (!advancedEnabled || (!cloudConnected && !runtimeUnsupported)) return;
+        request.handled = true;
+        if (!cloudProvider || !cloudConnected) {
+            request.unavailableReason = unavailableTitle === "未配置 NAS 音乐服务"
+                ? "手机端只支持 NAS 音乐，请先在音乐播放器设置中配置 NAS 服务。"
+                : runtimeMessage || "NAS 音乐服务暂不可用，请检查配置后重试。";
+            return;
+        }
+        openDetailDialog(true);
+    }
+
+    function handleOpenMobileMusicPlayer(event: Event): void {
+        handleOpenMobileMusicPlayerRequest((event as CustomEvent<OpenMobileMusicPlayerRequest>).detail);
+    }
+
     onMount(async () => {
+        if (persistentMobileRuntime) {
+            unregisterPersistentMobilePlayer = registerPersistentMobileMusicPlayer(handleOpenMobileMusicPlayerRequest);
+        } else if (mobileRuntime) {
+            window.addEventListener(OPEN_MOBILE_MUSIC_PLAYER_EVENT, handleOpenMobileMusicPlayer);
+        }
         advancedEnabled = plugin.ADVANCED;
 
         if (advancedEnabled) {
-            if (!canUseElectronLocalFileSystem()) {
+            if (delegatedMobileSurface) return;
+            const runtimePolicy = getMusicSourceRuntimePolicy(sourceMode, canUseElectronLocalFileSystem());
+            if (!runtimePolicy.canInitialize) {
                 runtimeUnsupported = true;
-                unavailableTitle = "仅桌面端支持";
-                runtimeMessage = "音乐播放器需要访问本地音乐文件夹，该功能仅支持思源桌面端使用。网页端、Docker 和移动端无法直接读取本地文件夹。";
+                unavailableTitle = "当前设备无法读取本地音乐";
+                runtimeMessage = "移动端请将音乐来源切换为 NAS 音乐。";
                 return;
             }
 
             if (blockId) {
                 statsStore = new MusicPlaybackStatsStore(plugin, blockId);
                 await statsStore.load();
-                libraryStore = new MusicLibraryStore(plugin, blockId);
-                await libraryStore.load();
-                metadataIndexStore = new MusicMetadataIndexStore(plugin);
-                await metadataIndexStore.load();
-                syncLibraryState();
+                if (sourceMode === "local") {
+                    libraryStore = new MusicLibraryStore(plugin, blockId);
+                    await libraryStore.load();
+                    metadataIndexStore = new MusicMetadataIndexStore(plugin);
+                    await metadataIndexStore.load();
+                    syncLibraryState();
+                }
             }
 
-            await loadMusicFiles();
-            if (parseMetadata && metadataIndexStore) {
+            if (sourceMode === "subsonic") await loadCloudMusic();
+            else {
+                sourceProvider = new LocalMusicProvider(musicFolderPath, scanSubfolders);
+                await loadMusicFiles();
+            }
+            if (sourceMode === "local" && parseMetadata && metadataIndexStore) {
                 metadataIndexStore.removeMissingTracks(musicFolderPath, scanSubfolders, musicFiles);
                 const summary = metadataIndexStore.getLibrarySummary(musicFolderPath, scanSubfolders, musicFiles);
                 const enqueued = enqueueLightIndexBuildForMissingTracks(false);
@@ -597,20 +780,22 @@
             }
             currentTrackIndex = normalizeTrackIndex(currentTrackIndex, musicFiles.length);
 
-            registerMusicPlayerIndexController(blockId, {
-                buildIndex: buildLightIndex,
-                rebuildIndex: rebuildLightIndex,
-                getProgress: () => metadataIndexProgress,
-            }, runtimeContext.deviceViewContext!);
+            if (sourceMode === "local") {
+                registerMusicPlayerIndexController(blockId, {
+                    buildIndex: buildLightIndex,
+                    rebuildIndex: rebuildLightIndex,
+                    getProgress: () => metadataIndexProgress,
+                }, runtimeContext.deviceViewContext!);
+            }
 
             preloadAdjacentTracks(currentTrackIndex);
             scheduleCurrentDisplayMetadata("initial-current-display");
 
-            if (hasMusicFiles && autoPlay) {
+            if (hasMusicFiles && autoPlay && !(sourceMode === "subsonic" && activeQueueTrackKeys.length > 0)) {
                 ensureTrackLoaded(currentTrackIndex, true);
             }
 
-            if (showFloatingMini && hasMusicFiles) {
+            if (showFloatingMini && hasMusicFiles && canUseElectronLocalFileSystem()) {
                 registerFloatingMiniHost({ hostId: blockId, vmStore, actions });
             }
         }
@@ -618,15 +803,27 @@
 
     onDestroy(() => {
         destroyed = true;
+        unregisterPersistentMobilePlayer?.();
+        unregisterPersistentMobilePlayer = null;
+        window.removeEventListener(OPEN_MOBILE_MUSIC_PLAYER_EVENT, handleOpenMobileMusicPlayer);
         loadToken++;
         metadataQueue = [];
         lightIndexQueue = [];
         cancelScheduledDisplayMetadata();
         void metadataIndexStore?.flush();
         unregisterMusicPlayerIndexController(blockId);
+        cloudQueueSaveScheduler.cancel();
+        sourceProvider?.destroy();
+        sourceProvider = null;
+        cloudProvider = null;
+        unsubscribeCloudEndpointStatus?.();
+        unsubscribeCloudEndpointStatus = null;
+        trackRegistry.clear();
         submitStatsSession(false);
         cleanup();
-        revokeTrackCoverObjectUrls(musicFiles);
+        desktopStreamRelay.destroy();
+        if (persistentMobileRuntime) clearMusicPlaybackPresence();
+        if (sourceMode === "local") revokeTrackCoverObjectUrls(musicFiles);
         detailDialogRef?.close();
         detailDialogRef = null;
         queueDialogRef?.close();
@@ -635,6 +832,7 @@
     });
 
     async function saveConfig() {
+        if (persistentMobileRuntime) return;
         try {
             const currentParsed = JSON.parse(contentTypeJson);
             await saveWidgetContentPreservingSize(plugin, currentParsed.instanceId ?? currentParsed.blockId, {
@@ -653,6 +851,10 @@
                     sortMode,
                     sortDirection,
                     showFloatingMini,
+                    sourceMode,
+                    currentTrackKey: currentTrack ? getTrackKey(currentTrack) : undefined,
+                    cloudStreamQuality,
+                    cloudTranscodeFormat: cloudStreamQuality === "original" ? "auto" : "mp3",
                 },
             }, runtimeContext.deviceViewContext!);
         } catch {
@@ -662,29 +864,61 @@
 
     function cleanup() {
         clearProgressInterval();
+        playRequestSessionId = -1;
+        loadAutoplaySessionId = -1;
         playSessionId++;
         if (sound) {
             sound.stop();
             sound.unload();
             sound = null;
         }
+        disposePlaybackSource?.();
+        disposePlaybackSource = null;
     }
 
     function safePlay(targetSound: Howl, targetSessionId: number) {
         if (!targetSound || sound !== targetSound || targetSessionId !== playSessionId || destroyed) {
             return;
         }
+        if (playRequestSessionId === targetSessionId || targetSound.playing()) {
+            return;
+        }
         try {
+            playRequestSessionId = targetSessionId;
             targetSound.play();
         } catch {
+            playRequestSessionId = -1;
             errorMessage = "播放启动失败，请重新播放";
             isPlaying = false;
         }
     }
 
+    function requestCurrentPlayback(): void {
+        ensureTrackInActiveQueue(currentTrackIndex);
+        if (sound?.state() === "loading") {
+            loadAutoplaySessionId = playSessionId;
+            return;
+        }
+        if (!sound || sound.state() !== "loaded") {
+            cleanup();
+            ensureTrackInActiveQueue(currentTrackIndex);
+            submitStatsSession(false);
+            void ensureTrackLoaded(currentTrackIndex, true, true);
+            return;
+        }
+        safePlay(sound, playSessionId);
+    }
+
+    function pauseCurrentPlayback(): void {
+        loadAutoplaySessionId = -1;
+        playRequestSessionId = -1;
+        sound?.pause();
+        isPlaying = false;
+    }
+
     function isRealTrackEnd(): boolean {
         if (!sound) return false;
-        const trackDuration = duration || sound.duration() || 0;
+        const trackDuration = resolveReliablePlaybackDuration(sound.duration(), duration);
         if (!(trackDuration > 0)) return false;
 
         const seekTime = sound.seek() as number;
@@ -725,7 +959,7 @@
     }
 
     function enqueueCurrentDisplayMetadata(reason: string): void {
-        if (!parseMetadata || !currentTrack) return;
+        if ((sourceMode === "local" && !parseMetadata) || !currentTrack) return;
         if (!showCover && !showLyrics) return;
         if (!needsFullMetadataForCurrentOptions(currentTrack)) return;
         enqueueMetadataForTrack(currentTrackIndex, "full", reason);
@@ -1084,10 +1318,27 @@
             if (item.mode === "light" && (level === "light" || level === "full")) continue;
             if (item.mode === "full" && level === "full" && !needsFullMetadataForCurrentOptions(track)) continue;
 
-            await loadMetadataForTrack(track, parseMetadata, item.mode, {
-                includeCover: showCover,
-                includeLyrics: showLyrics,
-            });
+            if (track.sourceKind === "subsonic" && sourceProvider) {
+                if (item.mode === "full") {
+                    if (showLyrics && track.lyricsStatus === "pending") {
+                        track.lyricsStatus = "loading";
+                        const lyrics = await sourceProvider.loadLyrics(track);
+                        track.lyrics = lyrics.lines;
+                        track.unsyncedLyricsText = lyrics.unsyncedText;
+                        track.lyricsStatus = lyrics.lines.length || lyrics.unsyncedText ? "loaded" : "none";
+                    }
+                    if (showCover && !track.coverObjectUrl) {
+                        track.coverObjectUrl = await sourceProvider.loadCover(track, item.index === currentTrackIndex ? 512 : 256);
+                    }
+                }
+                track.metadataLoadLevel = item.mode === "full" ? "full" : "light";
+                track.metadataStatus = "loaded";
+            } else {
+                await loadMetadataForTrack(track, parseMetadata, item.mode, {
+                    includeCover: showCover,
+                    includeLyrics: showLyrics,
+                });
+            }
 
             if (shouldUpsertTrackToIndexAfterMetadata(track)) {
                 metadataIndexStore?.upsertTrack(musicFolderPath, scanSubfolders, track);
@@ -1102,7 +1353,7 @@
             }
 
             // full 模式解析后按需尝试歌词和外部封面
-            if (item.mode === "full") {
+            if (item.mode === "full" && track.sourceKind === "local") {
                 if (showLyrics && track.lyricsStatus === "pending") {
                     await loadLyricsForTrack(track);
                 }
@@ -1192,53 +1443,107 @@
         return filtered[Math.floor(Math.random() * filtered.length)] ?? pool[0] ?? 0;
     }
 
-    function ensureTrackLoaded(
+    async function ensureTrackLoaded(
         index: number,
         shouldAutoplay: boolean = false,
         skipSubmitStats: boolean = false,
         skipMetadata: boolean = false,
-    ) {
+        resumeSeek: number = 0,
+        suppressNewSession: boolean = false,
+    ): Promise<void> {
         if (!hasMusicFiles || !musicFiles[index]) return;
 
         if (!skipSubmitStats) {
             submitStatsSession(false);
         }
 
-        if (currentTrackIndex === index && sound && sound.state() === "loaded") {
-            if (shouldAutoplay && !isPlaying) {
-                safePlay(sound, playSessionId);
+        if (!suppressNewSession && currentTrackIndex === index && sound) {
+            if (shouldAutoplay) loadAutoplaySessionId = playSessionId;
+            if (sound.state() === "loading") return;
+            if (sound.state() === "loaded") {
+                if (shouldAutoplay && !isPlaying) safePlay(sound, playSessionId);
+                return;
             }
-            return;
         }
 
         cleanup();
         cancelScheduledDisplayMetadata();
         const localSessionId = playSessionId;
         currentTrackIndex = index;
+        scheduleCloudQueueSave();
         currentTime = 0;
         errorMessage = "";
 
         const newTrack = musicFiles[index];
-        duration = newTrack.duration || 0;
+        duration = resolveReliablePlaybackDuration(undefined, newTrack.duration);
+        if (!suppressNewSession) {
+            streamFailoverGuard.reset();
+            remoteScrobbleTracker.begin(getTrackKey(newTrack), resumeSeek || pendingInitialSeek || 0);
+            lastCloudQueuePositionBucket = Math.floor((resumeSeek || pendingInitialSeek || 0) / 15);
+        }
 
+        let playbackSource: ResolvedPlaybackSource;
+        try {
+            playbackSource = sourceProvider
+                ? await sourceProvider.resolvePlaybackSource(newTrack)
+                : { url: newTrack.fileUrl || "", html5: false };
+            if (sourceMode === "subsonic") {
+                playbackSource = await desktopStreamRelay.wrap(playbackSource, canUseElectronLocalFileSystem());
+            }
+        } catch (error) {
+            if (localSessionId !== playSessionId || destroyed) return;
+            errorMessage = error instanceof Error ? error.message : "无法解析当前歌曲播放地址";
+            return;
+        }
+        if (localSessionId !== playSessionId || destroyed || !playbackSource.url) {
+            playbackSource.dispose?.();
+            return;
+        }
+        disposePlaybackSource = playbackSource.dispose || null;
+
+        const targetSeek = resumeSeek || pendingInitialSeek;
+        pendingInitialSeek = 0;
+
+        let hasPlayedOnce = false;
+        let targetSeekApplied = targetSeek <= 0;
         const createdSound = new Howl({
-            src: [newTrack.fileUrl],
+            src: [playbackSource.url],
+            html5: playbackSource.html5,
+            format: playbackSource.format ? [playbackSource.format] : undefined,
             volume: volume,
             mute: isMuted,
-            preload: false,
+            preload: playbackSource.html5,
             onplay() {
                 if (sound !== createdSound || localSessionId !== playSessionId || destroyed) return;
+                if (!targetSeekApplied) {
+                    try {
+                        const loadedDuration = resolveReliablePlaybackDuration(createdSound.duration(), newTrack.duration);
+                        const seekTarget = Math.min(targetSeek, loadedDuration || targetSeek);
+                        createdSound.seek(seekTarget);
+                        currentTime = seekTarget;
+                        targetSeekApplied = true;
+                    } catch { /* HTML5 流可能需要下一次用户播放后才能 seek */ }
+                }
+                const preserveExistingSession = suppressNewSession && !hasPlayedOnce;
+                hasPlayedOnce = true;
                 isPlaying = true;
                 errorMessage = "";
-                if (currentTrack) {
+                if (currentTrack && !preserveExistingSession) {
                     statsStore?.startSession(currentTrack, (createdSound.seek() as number) || 0);
                 }
-                if (countedPlaySessionId !== playSessionId && currentTrack) {
+                if (preserveExistingSession) countedPlaySessionId = playSessionId;
+                if (!preserveExistingSession && countedPlaySessionId !== playSessionId && currentTrack) {
                     countedPlaySessionId = playSessionId;
                     const counted = statsStore?.recordPlaybackStart(currentTrack) ?? false;
                     if (counted) statsVersion += 1;
                 }
-                const loadedDuration = createdSound.duration() || 0;
+                if (sourceMode === "subsonic" && currentTrack) {
+                    const key = getTrackKey(currentTrack);
+                    if (remoteScrobbleTracker.markNowPlaying(key)) {
+                        void sourceProvider?.scrobbleNowPlaying?.(currentTrack).catch(() => {});
+                    }
+                }
+                const loadedDuration = resolveReliablePlaybackDuration(createdSound.duration(), newTrack.duration);
                 if (loadedDuration > 0) {
                     duration = loadedDuration;
                     if (currentTrack && currentTrack.duration <= 0) {
@@ -1255,23 +1560,35 @@
             },
             onpause() {
                 if (sound !== createdSound || localSessionId !== playSessionId || destroyed) return;
+                playRequestSessionId = -1;
                 isPlaying = false;
+                if (sourceMode === "subsonic") {
+                    const pausedAt = createdSound.seek() as number;
+                    if (Number.isFinite(pausedAt)) currentTime = pausedAt;
+                    scheduleCloudQueueSave();
+                }
                 submitStatsSession(false);
             },
             onend() {
                 if (sound !== createdSound || localSessionId !== playSessionId || destroyed) return;
+                playRequestSessionId = -1;
                 if (!isRealTrackEnd()) {
                     errorMessage = "播放被异常中断，请重新播放或检查音频文件";
                     isPlaying = false;
                     return;
                 }
                 submitStatsSession(true);
+                maybeSubmitRemoteScrobble(true);
                 if (playMode === "repeat") {
                     // 单曲循环：直接回到开头重播，避免 ensureTrackLoaded 同曲早退
                     isPlaying = false;
                     currentTime = 0;
                     sound.seek(0);
                     countedPlaySessionId = -1;
+                    if (sourceMode === "subsonic" && currentTrack) {
+                        remoteScrobbleTracker.begin(getTrackKey(currentTrack), 0);
+                        streamFailoverGuard.reset();
+                    }
                     safePlay(sound, playSessionId);
                 } else {
                     advanceToNextTrack(true);
@@ -1279,7 +1596,7 @@
             },
             onload() {
                 if (sound !== createdSound || localSessionId !== playSessionId || destroyed) return;
-                const loadedDuration = createdSound.duration() || 0;
+                const loadedDuration = resolveReliablePlaybackDuration(createdSound.duration(), newTrack.duration);
                 duration = loadedDuration;
                 if (currentTrack && currentTrack.duration <= 0 && loadedDuration > 0) {
                     musicFiles[currentTrackIndex].duration = loadedDuration;
@@ -1290,19 +1607,38 @@
                     musicFiles = musicFiles;
                 }
                 startProgressTimerForSound(createdSound, localSessionId);
-                if (shouldAutoplay) {
+                if (targetSeek > 0) {
+                    try {
+                        const seekTarget = Math.min(targetSeek, loadedDuration || targetSeek);
+                        createdSound.seek(seekTarget);
+                        currentTime = seekTarget;
+                        targetSeekApplied = true;
+                    }
+                    catch { /* 某些流需播放后才能 seek */ }
+                }
+                if (shouldAutoplay || loadAutoplaySessionId === localSessionId) {
                     safePlay(createdSound, localSessionId);
                 }
             },
             onloaderror() {
                 if (sound !== createdSound || localSessionId !== playSessionId || destroyed) return;
-                errorMessage = "当前音频加载失败，请检查文件路径或格式";
-                isPlaying = false;
+                const retryPlayback = shouldAutoplay || loadAutoplaySessionId === localSessionId || playRequestSessionId === localSessionId || isPlaying;
+                playRequestSessionId = -1;
+                loadAutoplaySessionId = -1;
+                if (sourceMode === "subsonic") void handleCloudStreamFailure(createdSound, index, retryPlayback, playbackSource.endpointKind);
+                else { errorMessage = "当前音频加载失败，请检查文件路径或格式"; isPlaying = false; }
             },
-            onplayerror() {
+            onplayerror(_soundId, playError) {
                 if (sound !== createdSound || localSessionId !== playSessionId || destroyed) return;
-                errorMessage = "当前音频播放失败，请检查文件路径或格式";
-                isPlaying = false;
+                const retryPlayback = shouldAutoplay || loadAutoplaySessionId === localSessionId || playRequestSessionId === localSessionId || isPlaying;
+                playRequestSessionId = -1;
+                loadAutoplaySessionId = -1;
+                const unlockRequired = isAudioUnlockRequired(playError);
+                if (sourceMode === "subsonic" && unlockRequired) {
+                    errorMessage = "点击播放以启用音频";
+                    isPlaying = false;
+                } else if (sourceMode === "subsonic") void handleCloudStreamFailure(createdSound, index, retryPlayback, playbackSource.endpointKind);
+                else { errorMessage = "当前音频播放失败，请检查文件路径或格式"; isPlaying = false; }
             },
         });
 
@@ -1315,6 +1651,143 @@
             }
             preloadAdjacentTracks(index);
         }
+    }
+
+    function maybeSubmitRemoteScrobble(force: boolean): void {
+        if (sourceMode !== "subsonic" || !currentTrack || !sourceProvider?.scrobbleCompleted) return;
+        const key = getTrackKey(currentTrack);
+        if (!remoteScrobbleTracker.shouldSubmit(key, duration, force)) return;
+        void sourceProvider.scrobbleCompleted(currentTrack).catch(() => { /* 完成提交不自动重试，避免重复计数 */ });
+    }
+
+    async function handleCloudStreamFailure(
+        failedSound: Howl,
+        index: number,
+        shouldContinue: boolean,
+        failedEndpointKind?: "local" | "remote",
+    ): Promise<void> {
+        const track = musicFiles[index];
+        if (!track || !cloudProvider || sound !== failedSound) return;
+        const key = getTrackKey(track);
+        let failedSeek: unknown = Number.NaN;
+        try { failedSeek = failedSound.seek(); } catch { /* 使用已记录的播放位置 */ }
+        const attempt = streamFailoverGuard.begin(key, failedSeek, currentTime);
+        if (!attempt.allowed) {
+            errorMessage = "当前网络无法继续播放此歌曲";
+            isPlaying = false;
+            return;
+        }
+        try {
+            await cloudProvider.endpointManager.forceAlternate(failedEndpointKind);
+            const [availableKey] = ensureTrackKeysInCatalog([key]);
+            const nextIndex = availableKey ? musicFiles.findIndex((item) => getTrackKey(item) === availableKey) : -1;
+            if (nextIndex < 0) throw new Error("云端歌曲已不在播放目录中。" );
+            await ensureTrackLoaded(nextIndex, shouldContinue, true, true, attempt.resumeAt, true);
+        } catch {
+            errorMessage = "当前网络无法继续播放此歌曲";
+            isPlaying = false;
+        }
+    }
+
+    async function loadCloudMusic(): Promise<void> {
+        if (destroyed) return;
+        const token = ++loadToken;
+        try {
+            const settingsStore = new MusicCloudSettingsStore(plugin);
+            const profile = (await settingsStore.load()).profile;
+            if (!profile) {
+                runtimeUnsupported = true;
+                unavailableTitle = "未配置 NAS 音乐服务";
+                runtimeMessage = "请在组件设置中配置 NAS 音乐（Subsonic / OpenSubsonic）。";
+                return;
+            }
+            const password = await settingsStore.getPassword();
+            const provider = new SubsonicMusicProvider(profile, password, cloudStreamQuality);
+            cloudProvider = provider;
+            sourceProvider = provider;
+            unsubscribeCloudEndpointStatus?.();
+            unsubscribeCloudEndpointStatus = provider.endpointManager.subscribe((state) => {
+                cloudEndpointState = state;
+                publishMusicCloudEndpointState(state);
+            });
+            const initialized = await provider.initialize();
+            if (destroyed || token !== loadToken) { provider.destroy(); return; }
+            cloudConnected = true;
+            const restored = initialized.restoredQueue;
+            let initialPage: MusicTrack[] = [];
+            let initialPageError = "";
+            try { initialPage = await provider.library.getAllSongsPage(0, 50); }
+            catch (error) { initialPageError = error instanceof Error ? error.message : "服务器不支持全库歌曲分页。"; }
+            if (destroyed || token !== loadToken) { provider.destroy(); return; }
+            activeQueueTrackKeys = normalizeCloudQueueAfterMutation(
+                (restored?.tracks || []).map(getTrackKey),
+                undefined,
+                false,
+            );
+            activeQueueCount = activeQueueTrackKeys.length;
+            trackRegistry.setProtectedKeys(activeQueueTrackKeys);
+            const byKey = new Map<string, MusicTrack>();
+            for (const track of [...(restored?.tracks || []), ...initialPage]) byKey.set(getTrackKey(track), track);
+            musicFiles = [...byKey.values()];
+            trackRegistry.registerMany(musicFiles);
+            favoriteTrackKeys = musicFiles.filter((track) => !!track.serverStarredAt).map(getTrackKey);
+            const restoreState = resolveInitialCloudPlaybackState(restored, initialConfig.currentTrackKey);
+            const restoreKey = restoreState.currentTrackKey;
+            if (restoreKey) {
+                let restoredIndex = musicFiles.findIndex((track) => getTrackKey(track) === restoreKey);
+                if (restoredIndex < 0 && restoreKey.startsWith(`subsonic:${profile.id}:`)) {
+                    const songId = restoreKey.slice(`subsonic:${profile.id}:`.length);
+                    const restoredTrack = await provider.library.getSong(songId).catch(() => null);
+                    if (destroyed || token !== loadToken) { provider.destroy(); return; }
+                    if (restoredTrack) {
+                        musicFiles = [...musicFiles, restoredTrack];
+                        trackRegistry.register(restoredTrack);
+                        restoredIndex = musicFiles.length - 1;
+                    }
+                }
+                if (restoredIndex >= 0) currentTrackIndex = restoredIndex;
+            }
+            pendingInitialSeek = restoreState.positionSeconds;
+            if (!musicFiles.length) {
+                runtimeUnsupported = true;
+                unavailableTitle = "NAS 音乐库暂无可播放歌曲";
+                runtimeMessage = initialPageError
+                    ? `${initialPageError} 可打开音乐库并按专辑或艺术家继续浏览。`
+                    : "服务器已连接，但没有返回歌曲。可在音乐库中按专辑或艺术家浏览。";
+            }
+        } catch (error) {
+            if (destroyed || token !== loadToken) return;
+            cloudConnected = false;
+            runtimeUnsupported = true;
+            unavailableTitle = "NAS 音乐服务不可用";
+            runtimeMessage = error instanceof Error ? error.message : "本地地址与远程地址均连接失败。";
+        }
+    }
+
+    async function retryCloudConnection(): Promise<void> {
+        if (cloudRetrying || sourceMode !== "subsonic") return;
+        cloudRetrying = true;
+        cloudQueueSaveScheduler.cancel();
+        sourceProvider?.destroy();
+        sourceProvider = null;
+        cloudProvider = null;
+        cloudConnected = false;
+        unsubscribeCloudEndpointStatus?.();
+        unsubscribeCloudEndpointStatus = null;
+        cloudEndpointState = null;
+        musicFiles = [];
+        activeQueueTrackKeys = [];
+        activeQueueCount = 0;
+        trackRegistry.clear();
+        try {
+            await loadCloudMusic();
+            if (musicFiles.length > 0) {
+                runtimeUnsupported = false;
+                currentTrackIndex = normalizeTrackIndex(currentTrackIndex, musicFiles.length);
+                preloadAdjacentTracks(currentTrackIndex);
+                scheduleCurrentDisplayMetadata("cloud-reconnect");
+            }
+        } finally { cloudRetrying = false; }
     }
 
     async function loadMusicFiles(): Promise<void> {
@@ -1338,8 +1811,11 @@
 
         try {
             revokeTrackCoverObjectUrls(musicFiles);
-            const result = getAudioFilesFromDirectory(musicFolderPath, scanSubfolders);
+            const result = sourceProvider instanceof LocalMusicProvider
+                ? await sourceProvider.scan()
+                : getAudioFilesFromDirectory(musicFolderPath, scanSubfolders);
             musicFiles = result.tracks;
+            trackRegistry.registerMany(musicFiles);
             if (parseMetadata && metadataIndexStore) {
                 metadataIndexStore.applyIndexToTracks(musicFolderPath, scanSubfolders, musicFiles);
             }
@@ -1356,17 +1832,108 @@
         }
     }
 
-    function openDetailDialog() {
-        if (!hasMusicFiles || detailDialogRef) return;
+    function registerCloudTracks(tracks: MusicTrack[]): number[] {
+        const maxCloudCatalogEntries = 5000;
+        const currentKey = currentTrack ? getTrackKey(currentTrack) : undefined;
+        trackRegistry.setProtectedKeys([...(activeQueueTrackKeys || []), ...(currentKey ? [currentKey] : [])]);
+        const next = [...musicFiles];
+        const keyToIndex = new Map(next.map((track, index) => [getTrackKey(track), index]));
+        const registeredKeys: string[] = [];
+        for (const track of tracks) {
+            const key = getTrackKey(track);
+            trackRegistry.register(track);
+            let index = keyToIndex.get(key);
+            if (index === undefined) {
+                index = next.length;
+                next.push(track);
+                keyToIndex.set(key, index);
+            } else {
+                next[index] = { ...next[index], ...track, coverObjectUrl: next[index].coverObjectUrl, lyrics: next[index].lyrics };
+            }
+            registeredKeys.push(key);
+        }
+        if (next.length > maxCloudCatalogEntries) {
+            const protectedKeys = new Set([...activeQueueTrackKeys, ...registeredKeys, ...(currentKey ? [currentKey] : [])]);
+            const keepKeys = new Set(protectedKeys);
+            for (let index = next.length - 1; index >= 0 && keepKeys.size < maxCloudCatalogEntries; index--) {
+                keepKeys.add(getTrackKey(next[index]));
+            }
+            const compacted = next.filter((track) => keepKeys.has(getTrackKey(track)));
+            next.length = 0;
+            next.push(...compacted);
+        }
+        musicFiles = next;
+        if (currentKey) {
+            const nextCurrentIndex = musicFiles.findIndex((track) => getTrackKey(track) === currentKey);
+            if (nextCurrentIndex >= 0) currentTrackIndex = nextCurrentIndex;
+        }
+        trackRegistry.setProtectedKeys([...(activeQueueTrackKeys || []), ...(currentKey ? [currentKey] : [])]);
+        const compactedIndex = new Map(musicFiles.map((track, index) => [getTrackKey(track), index]));
+        return registeredKeys.map((key) => compactedIndex.get(key)).filter((index): index is number => index !== undefined);
+    }
+
+    function playCloudTrack(track: MusicTrack): void {
+        const [index] = registerCloudTracks([track]);
+        if (index === undefined) return;
+        ensureTrackInActiveQueue(index);
+        submitStatsSession(false);
+        void ensureTrackLoaded(index, true, true);
+        saveConfig();
+    }
+
+    function replaceCloudQueue(tracks: MusicTrack[]): void {
+        const indices = registerCloudTracks(tracks);
+        actions.replaceActiveQueueFromIndices(indices);
+    }
+
+    function appendCloudQueue(tracks: MusicTrack[]): void {
+        const indices = registerCloudTracks(tracks);
+        actions.appendActiveQueueFromIndices(indices);
+    }
+
+    async function openPersistentMobileDetail(): Promise<void> {
+        for (let attempt = 0; attempt < 48; attempt++) {
+            const request = requestOpenMobileMusicPlayer();
+            if (request.handled) {
+                if (request.unavailableReason) errorMessage = request.unavailableReason;
+                return;
+            }
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 125));
+        }
+        errorMessage = "NAS 音乐播放器仍在初始化，请稍后重试。";
+    }
+
+    function openDetailDialog(forceOwnRuntime = false) {
+        if (delegatedMobileSurface && !forceOwnRuntime) {
+            void openPersistentMobileDetail();
+            return;
+        }
+        if ((!hasMusicFiles && !cloudConnected) || detailDialogRef) return;
+        if (mobileRuntime && !cloudProvider) return;
         detailDialogOpen = true;
         scheduleCurrentDisplayMetadata("detail-open");
         try {
             const dialog = svelteDialog({
-                width: "min(960px, calc(100vw - 32px))",
-                height: "min(680px, calc(100vh - 64px))",
+                width: mobileRuntime ? "100vw" : "min(960px, calc(100vw - 32px))",
+                height: mobileRuntime ? "100dvh" : "min(680px, calc(100vh - 64px))",
                 title: "",
                 constructor: (containerEl: HTMLElement) => {
                     try {
+                        if (mobileRuntime && cloudProvider) {
+                            return mount(MusicPlayerMobilePage, {
+                                target: containerEl,
+                                props: {
+                                    vmStore,
+                                    actions,
+                                    provider: cloudProvider,
+                                    onClose: () => dialog.close(),
+                                    onRegisterTracks: registerCloudTracks,
+                                    onPlayCloudTrack: playCloudTrack,
+                                    onReplaceCloudQueue: replaceCloudQueue,
+                                    onAppendCloudQueue: appendCloudQueue,
+                                },
+                            });
+                        }
                         return mount(MusicPlayerDetailDialog, {
                             target: containerEl,
                             props: {
@@ -1397,6 +1964,11 @@
                                 onOpenQueueDialog: () => {
                                     openActiveQueueDialog();
                                 },
+                                cloudProvider,
+                                onRegisterCloudTracks: registerCloudTracks,
+                                onPlayCloudTrack: playCloudTrack,
+                                onReplaceCloudQueue: replaceCloudQueue,
+                                onAppendCloudQueue: appendCloudQueue,
                             },
                         });
                     } catch (e) {
@@ -1410,6 +1982,7 @@
                     currentQueueIndices = [];
                 },
             });
+            dialog.dialog.element.classList.add(mobileRuntime ? "music-player-mobile-detail-host" : "music-player-detail-dialog-host");
             detailDialogRef = dialog;
         } catch {
             detailDialogOpen = false;
@@ -1443,13 +2016,32 @@
 </script>
 
 <div class="content-display">
-    {#if advancedEnabled}
+    {#if delegatedMobileSurface && advancedEnabled}
+        <button type="button" class="mobile-runtime-launcher" onclick={() => void openPersistentMobileDetail()}>
+            <span class="mobile-runtime-launcher__icon"><MusicPlayerIcon name="headphones" size={34} /></span>
+            <span class="mobile-runtime-launcher__copy">
+                <strong>打开 NAS 音乐播放器</strong>
+                <small>由常驻播放器运行，关闭主页后仍可继续播放</small>
+            </span>
+        </button>
+        {#if errorMessage}<p class="mobile-runtime-launcher__error">{errorMessage}</p>{/if}
+    {:else if advancedEnabled}
         {#if runtimeUnsupported}
             <div class="runtime-unsupported">
                 <h2>{unavailableTitle}</h2>
                 <h3>{runtimeMessage}</h3>
                 {#if scanTruncated}
                     <p class="truncated-hint">文件夹内音乐文件过多，仅加载前 1000 首。</p>
+                {/if}
+                {#if sourceMode === "subsonic" && cloudEndpointState}
+                    <div class="endpoint-failures" aria-live="polite">
+                        <p>本地地址：{formatCloudEndpointHealth("local")}</p>
+                        <p>远程地址：{formatCloudEndpointHealth("remote")}</p>
+                    </div>
+                {/if}
+                {#if sourceMode === "subsonic" && unavailableTitle !== "未配置 NAS 音乐服务"}
+                    {#if cloudConnected}<button class="b3-button" onclick={openDetailDialog}>打开音乐库</button>{/if}
+                    <button class="b3-button" disabled={cloudRetrying} onclick={retryCloudConnection}>{cloudRetrying ? "正在重新连接…" : "重新连接"}</button>
                 {/if}
             </div>
         {:else}
@@ -1459,14 +2051,14 @@
         <div class="content-not-advanced">
             <AdvancedFeatureLock
                 title="音乐播放器"
-                subtitle="本地音乐播放，支持多种音频格式和播放模式。"
+                subtitle="播放本地音乐或 NAS 音乐，桌面端与移动端均可使用。"
                 icon="music"
                 features={[
-                    "本地音乐文件夹读取",
-                    "支持 MP3/WAV/FLAC 等格式",
-                    "顺序/循环/随机播放模式"
+                    "桌面本地音乐文件夹读取",
+                    "NAS 音乐双地址自动切换",
+                    "封面、歌词、歌单与播放队列"
                 ]}
-                highlights={["本地音乐", "多种格式", "播放模式"]}
+                highlights={["本地音乐", "NAS 音乐", "跨设备队列"]}
                 compact
             />
         </div>
@@ -1497,6 +2089,53 @@
         gap: 1rem;
     }
 
+    .mobile-runtime-launcher {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        width: min(100%, 24rem);
+        min-height: 5rem;
+        padding: 0.8rem 1rem;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 35%, var(--b3-border-color));
+        border-radius: 1rem;
+        background: color-mix(in srgb, var(--b3-theme-background) 88%, var(--b3-theme-primary) 12%);
+        color: var(--b3-theme-on-background);
+        text-align: left;
+    }
+
+    .mobile-runtime-launcher__icon {
+        display: grid;
+        place-items: center;
+        width: 3.25rem;
+        height: 3.25rem;
+        flex: none;
+        border-radius: 50%;
+        background: var(--b3-theme-primary);
+        color: var(--b3-theme-on-primary);
+    }
+
+    .mobile-runtime-launcher__copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+
+        strong {
+            font-size: 1rem;
+        }
+
+        small {
+            color: var(--b3-theme-on-surface-light);
+            line-height: 1.4;
+        }
+    }
+
+    .mobile-runtime-launcher__error {
+        margin: 0.7rem 0 0;
+        color: var(--b3-card-error-color, #dc2626);
+        text-align: center;
+    }
+
     .runtime-unsupported {
         width: 100%;
         height: 100%;
@@ -1511,6 +2150,22 @@
         .truncated-hint {
             font-size: 0.8rem;
             opacity: 0.8;
+        }
+
+        .endpoint-failures {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            max-width: min(34rem, calc(100% - 2rem));
+            padding: 0.65rem 0.8rem;
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--b3-theme-on-surface) 7%, transparent);
+
+            p {
+                margin: 0;
+                overflow-wrap: anywhere;
+                font-size: 0.8rem;
+            }
         }
     }
 </style>

@@ -5,9 +5,15 @@
     import MusicPlayerIcon from "./MusicPlayerIcon.svelte";
     import MusicPlayerLyricsPanel from "./MusicPlayerLyricsPanel.svelte";
     import MusicPlayerLibraryPanel from "./MusicPlayerLibraryPanel.svelte";
+    import MusicCloudLibraryPanel from "./MusicCloudLibraryPanel.svelte";
+    import type { SubsonicMusicProvider } from "./subsonic/subsonicProvider";
+    import type { SubsonicEndpointState } from "./subsonic/subsonicEndpointManager";
     import MusicPlayerVolumeSlider from "./MusicPlayerVolumeSlider.svelte";
     import { getTrackKey } from "./musicPlaybackStatsStore";
     import type { PlaybackStatsTrackEntry } from "./musicPlaybackStatsStore";
+    import Laptop from "@lucide/svelte/icons/laptop";
+    import Globe2 from "@lucide/svelte/icons/globe-2";
+    import Server from "@lucide/svelte/icons/server";
 
     interface Props {
         vmStore: MusicPlayerVmStore;
@@ -21,16 +27,30 @@
         onAppendActiveQueue?: () => void;
         onAppendTrackToActiveQueue?: (originalIndex: number) => void;
         onOpenQueueDialog?: () => void;
+        cloudProvider?: SubsonicMusicProvider | null;
+        onRegisterCloudTracks?: (tracks: MusicTrack[]) => void;
+        onPlayCloudTrack?: (track: MusicTrack) => void;
+        onReplaceCloudQueue?: (tracks: MusicTrack[]) => void;
+        onAppendCloudQueue?: (tracks: MusicTrack[]) => void;
     }
 
-    let { vmStore, actions, onClose, onRequestLightMetadata, getTrackStats, musicFolderPath = "", onQueueChange, onReplaceActiveQueue, onAppendActiveQueue, onAppendTrackToActiveQueue, onOpenQueueDialog }: Props = $props();
+    let { vmStore, actions, onClose, onRequestLightMetadata, getTrackStats, musicFolderPath = "", onQueueChange, onReplaceActiveQueue, onAppendActiveQueue, onAppendTrackToActiveQueue, onOpenQueueDialog, cloudProvider = null, onRegisterCloudTracks, onPlayCloudTrack, onReplaceCloudQueue, onAppendCloudQueue }: Props = $props();
 
     let addMenuOpen = $state(false);
     let libraryReady = $state(false);
+    let mobileSection = $state<"now" | "library">("now");
     let libraryReadyFrame1: number | null = null;
     let libraryReadyFrame2: number | null = null;
+    let cloudEndpointState = $state<SubsonicEndpointState | null>(null);
+    let unsubscribeCloudEndpoint: (() => void) | null = null;
+    const activeCloudHealth = $derived(cloudEndpointState?.activeKind ? cloudEndpointState[cloudEndpointState.activeKind] : null);
 
     onMount(() => {
+        if (cloudProvider) {
+            unsubscribeCloudEndpoint = cloudProvider.endpointManager.subscribe((state) => {
+                cloudEndpointState = state;
+            });
+        }
         libraryReadyFrame1 = requestAnimationFrame(() => {
             libraryReadyFrame1 = null;
             libraryReadyFrame2 = requestAnimationFrame(() => {
@@ -41,6 +61,8 @@
     });
 
     onDestroy(() => {
+        unsubscribeCloudEndpoint?.();
+        unsubscribeCloudEndpoint = null;
         if (libraryReadyFrame1 !== null) {
             cancelAnimationFrame(libraryReadyFrame1);
             libraryReadyFrame1 = null;
@@ -150,6 +172,11 @@
                 return "顺序播放";
         }
     }
+
+    function formatServerName(serverType: string): string {
+        const name = serverType.trim();
+        return name ? `${name.charAt(0).toUpperCase()}${name.slice(1)}` : "Subsonic";
+    }
 </script>
 
  <div
@@ -164,11 +191,49 @@
             <h2 class="detail-title">{currentTrack?.title || "无音乐"}</h2>
             <span class="detail-format">{audioFormatInfo}</span>
         </div>
+        {#if cloudProvider && cloudEndpointState}
+            <div class="detail-connection-status" aria-label="音乐服务器连接状态" aria-live="polite">
+                {#if cloudEndpointState.activeKind === "local"}
+                    <span class="connection-badge active local" title="当前通过本地地址连接">
+                        <Laptop size={13} strokeWidth={2.2} aria-hidden="true" />
+                        <span>本地</span>
+                    </span>
+                {:else if cloudEndpointState.activeKind === "remote"}
+                    <span class="connection-badge active remote" title="当前通过远程地址连接">
+                        <Globe2 size={13} strokeWidth={2.2} aria-hidden="true" />
+                        <span>远程</span>
+                    </span>
+                {:else}
+                    <span class="connection-badge offline" title="音乐服务器当前未连接">未连接</span>
+                {/if}
+                {#if activeCloudHealth?.serverType}
+                    <span class="connection-badge server" title="音乐服务器">
+                        <Server size={13} strokeWidth={2.2} aria-hidden="true" />
+                        <span>{formatServerName(activeCloudHealth.serverType)}</span>
+                    </span>
+                {/if}
+                <span class="connection-badge latency" title={cloudEndpointState.local.safeError || "本地地址延迟"}>
+                    <Laptop size={13} strokeWidth={2.2} aria-hidden="true" />
+                    <span>{cloudEndpointState.local.status === "online" ? `${cloudEndpointState.local.latencyMs ?? "—"} ms` : "离线"}</span>
+                </span>
+                {#if cloudEndpointState.remote.configured}
+                    <span class="connection-badge latency" title={cloudEndpointState.remote.safeError || "远程地址延迟"}>
+                        <Globe2 size={13} strokeWidth={2.2} aria-hidden="true" />
+                        <span>{cloudEndpointState.remote.status === "online" ? `${cloudEndpointState.remote.latencyMs ?? "—"} ms` : "离线"}</span>
+                    </span>
+                {/if}
+            </div>
+        {/if}
         <button class="detail-close" onclick={onClose} title="关闭"><MusicPlayerIcon name="close" size={18} /></button>
     </div>
 
+    <div class="detail-mobile-tabs" aria-label="详细播放器页面">
+        <button class:active={mobileSection === "now"} onclick={() => mobileSection = "now"}>正在播放</button>
+        <button class:active={mobileSection === "library"} onclick={() => mobileSection = "library"}>音乐库</button>
+    </div>
+
     <div class="detail-body">
-        <div class="detail-left">
+        <div class="detail-left" class:mobile-hidden={mobileSection !== "now"}>
             {#if vm.showCover}
                 <div class="detail-cover">
                     {#if currentTrack?.coverObjectUrl}
@@ -197,8 +262,18 @@
             {/if}
         </div>
 
-        <div class="detail-right">
+        <div class="detail-right" class:mobile-hidden={mobileSection !== "library"}>
             {#if libraryReady}
+                {#if cloudProvider && onRegisterCloudTracks && onPlayCloudTrack && onReplaceCloudQueue && onAppendCloudQueue}
+                <MusicCloudLibraryPanel
+                    provider={cloudProvider}
+                    currentTrack={libraryVmSnapshot.currentTrack}
+                    onRegisterTracks={onRegisterCloudTracks}
+                    onPlayTrack={onPlayCloudTrack}
+                    onReplaceQueue={onReplaceCloudQueue}
+                    onAppendQueue={onAppendCloudQueue}
+                />
+                {:else}
                 <MusicPlayerLibraryPanel
                     musicFiles={libraryVmSnapshot.musicFiles}
                     currentTrackIndex={libraryVmSnapshot.currentTrackIndex}
@@ -237,6 +312,7 @@
                     onAppendTrackToActiveQueue={onAppendTrackToActiveQueue}
                     onOpenQueueDialog={onOpenQueueDialog}
                 />
+                {/if}
             {:else}
                 <div class="detail-library-placeholder"><MusicPlayerIcon name="musicNote" size={32} /><span>正在加载歌曲列表…</span></div>
             {/if}
@@ -363,6 +439,9 @@
         --mp-button-hover-bg: var(--b3-theme-primary);
         --mp-button-hover-border: var(--b3-theme-primary);
         --mp-button-hover-text: var(--b3-theme-on-primary);
+        --mp-active-bg: var(--b3-theme-primary);
+        --mp-active-text: var(--b3-theme-on-primary);
+        --mp-error-text: var(--b3-card-error-color, #dc2626);
         --mp-slider-track: var(--b3-border-color);
         --mp-slider-filled: var(--b3-theme-primary);
         --mp-slider-thumb: var(--b3-theme-primary);
@@ -373,15 +452,21 @@
         // 有封面：轻玻璃 + 高对比白字，保留模糊氛围
         &.has-cover {
             --mp-detail-text: rgba(255, 255, 255, 0.95);
-            --mp-detail-muted: rgba(255, 255, 255, 0.68);
-            --mp-panel-bg: rgba(0, 0, 0, 0.22);
-            --mp-panel-bg-strong: rgba(0, 0, 0, 0.32);
-            --mp-panel-border: rgba(255, 255, 255, 0.10);
-            --mp-panel-highlight: rgba(255, 255, 255, 0.12);
-            --mp-current-accent: rgba(255, 255, 255, 0.55);
-            --mp-button-bg: rgba(255, 255, 255, 0.10);
-            --mp-button-border: rgba(255, 255, 255, 0.16);
-            --mp-slider-track: rgba(255, 255, 255, 0.22);
+            --mp-detail-muted: rgba(255, 255, 255, 0.78);
+            --mp-panel-bg: rgba(8, 10, 14, 0.42);
+            --mp-panel-bg-strong: rgba(8, 10, 14, 0.58);
+            --mp-panel-border: rgba(255, 255, 255, 0.18);
+            --mp-panel-highlight: rgba(255, 255, 255, 0.16);
+            --mp-current-accent: rgba(255, 255, 255, 0.72);
+            --mp-button-bg: rgba(8, 10, 14, 0.48);
+            --mp-button-border: rgba(255, 255, 255, 0.24);
+            --mp-button-hover-bg: rgba(255, 255, 255, 0.92);
+            --mp-button-hover-border: rgba(255, 255, 255, 0.92);
+            --mp-button-hover-text: #111827;
+            --mp-active-bg: rgba(255, 255, 255, 0.92);
+            --mp-active-text: #111827;
+            --mp-error-text: #fecaca;
+            --mp-slider-track: rgba(255, 255, 255, 0.30);
             --mp-slider-thumb: #fff;
             --mp-slider-thumb-border: rgba(0, 0, 0, 0.25);
         }
@@ -395,7 +480,7 @@
                 var(--b3-theme-surface);
             background-size: cover;
             background-position: center;
-            filter: blur(38px) brightness(0.78) saturate(1.3);
+            filter: blur(38px) brightness(0.56) saturate(1.2);
             transform: scale(1.12);
             z-index: 0;
         }
@@ -406,15 +491,16 @@
             position: absolute;
             inset: 0;
             background:
-                radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.08) 0%, transparent 42%),
-                radial-gradient(circle at 15% 20%, rgba(0, 0, 0, 0.18) 0%, transparent 38%),
-                radial-gradient(circle at 85% 15%, rgba(0, 0, 0, 0.22) 0%, transparent 40%),
-                radial-gradient(ellipse at 50% 120%, rgba(0, 0, 0, 0.62) 0%, transparent 58%),
-                linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.10) 45%, rgba(0, 0, 0, 0.38) 100%);
+                radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.06) 0%, transparent 42%),
+                radial-gradient(circle at 15% 20%, rgba(0, 0, 0, 0.28) 0%, transparent 38%),
+                radial-gradient(circle at 85% 15%, rgba(0, 0, 0, 0.32) 0%, transparent 40%),
+                radial-gradient(ellipse at 50% 120%, rgba(0, 0, 0, 0.72) 0%, transparent 58%),
+                linear-gradient(180deg, rgba(0, 0, 0, 0.40) 0%, rgba(0, 0, 0, 0.24) 45%, rgba(0, 0, 0, 0.52) 100%);
             z-index: 0;
         }
 
         .detail-header,
+        .detail-mobile-tabs,
         .detail-body,
         .detail-footer {
             position: relative;
@@ -423,9 +509,10 @@
 
         // 顶部：透明渐变区域，不是硬分割栏
         .detail-header {
-            display: flex;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
             align-items: flex-start;
-            justify-content: space-between;
+            gap: 0.75rem;
             padding: 1.25rem 1.5rem 0.75rem;
             background: linear-gradient(180deg, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.08) 65%, transparent 100%);
 
@@ -456,6 +543,50 @@
                 }
             }
 
+            .detail-connection-status {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 0.3rem;
+                min-width: max-content;
+                padding-top: 0.05rem;
+                white-space: nowrap;
+            }
+
+            .connection-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.25rem;
+                min-height: 1.55rem;
+                padding: 0.18rem 0.45rem;
+                border: 1px solid var(--mp-panel-border);
+                border-radius: 999px;
+                background: var(--mp-button-bg);
+                color: var(--mp-detail-text);
+                font-size: 0.7rem;
+                font-weight: 600;
+                line-height: 1;
+                box-sizing: border-box;
+            }
+
+            .connection-badge.active.local {
+                border-color: rgba(74, 222, 128, 0.72);
+                background: rgba(21, 128, 61, 0.72);
+                color: #f0fdf4;
+            }
+
+            .connection-badge.active.remote {
+                border-color: rgba(96, 165, 250, 0.78);
+                background: rgba(29, 78, 216, 0.72);
+                color: #eff6ff;
+            }
+
+            .connection-badge.offline {
+                border-color: rgba(248, 113, 113, 0.72);
+                background: rgba(153, 27, 27, 0.68);
+                color: #fef2f2;
+            }
+
             .detail-close {
                 background: var(--mp-button-bg);
                 border: 1px solid var(--mp-button-border);
@@ -479,6 +610,10 @@
 
         }
 
+        .detail-mobile-tabs {
+            display: none;
+        }
+
         .detail-body {
             flex: 1;
             display: grid;
@@ -492,8 +627,14 @@
 
             @media (max-width: 720px) {
                 grid-template-columns: 1fr;
-                grid-template-rows: auto 1fr;
-                overflow-y: auto;
+                grid-template-rows: minmax(0, 1fr);
+                padding: 0.5rem 0.75rem 0.75rem;
+                overflow: hidden;
+
+                .detail-left.mobile-hidden,
+                .detail-right.mobile-hidden {
+                    display: none;
+                }
             }
 
             // 左右区域：轻玻璃表面，不靠硬边框分区
@@ -698,8 +839,8 @@
                 right: -2px;
                 font-size: 0.55rem;
                 font-weight: 700;
-                background: var(--b3-theme-primary);
-                color: var(--b3-theme-on-primary);
+                background: var(--mp-active-bg);
+                color: var(--mp-active-text);
                 border-radius: 999px;
                 min-width: 1em;
                 padding: 1px 3px;
@@ -756,5 +897,112 @@
             }
         }
 
+        @media (max-width: 720px) {
+            .detail-header {
+                gap: 0.4rem;
+                padding: 0.8rem 0.9rem 0.45rem;
+
+                .detail-connection-status {
+                    gap: 0.18rem;
+                }
+
+                .connection-badge {
+                    gap: 0.18rem;
+                    min-height: 1.4rem;
+                    padding: 0.14rem 0.32rem;
+                    font-size: 0.64rem;
+                }
+            }
+
+            .detail-mobile-tabs {
+                display: flex;
+                justify-content: center;
+                gap: 0.4rem;
+                padding: 0 0.75rem 0.35rem;
+
+                button {
+                    border: 0;
+                    border-radius: 999px;
+                    padding: 0.38rem 0.8rem;
+                    background: var(--mp-button-bg);
+                    color: var(--mp-detail-text);
+                }
+
+                button.active {
+                    background: var(--mp-active-bg);
+                    color: var(--mp-active-text);
+                }
+            }
+
+            .detail-body .detail-left {
+                height: 100%;
+                overflow-y: auto;
+                padding: 0.8rem;
+
+                .detail-cover {
+                    width: min(144px, 42vw);
+                    height: min(144px, 42vw);
+                }
+
+                .detail-lyrics {
+                    min-height: 9rem;
+                }
+            }
+
+            .detail-body .detail-right {
+                height: 100%;
+                min-height: 0;
+                padding: 0.65rem;
+            }
+
+            .detail-footer {
+                flex-wrap: wrap;
+                gap: 0.4rem;
+                margin: 0 0.75rem 0.75rem;
+                padding: 0.5rem 0.65rem;
+
+                .footer-progress {
+                    order: 2;
+                    flex-basis: calc(100% - 7rem);
+                }
+
+                .footer-time {
+                    order: 2;
+                }
+
+                .footer-volume-track {
+                    display: none;
+                }
+            }
         }
+
+        @media (max-width: 480px) {
+            .detail-header {
+                .connection-badge.active :global(svg),
+                .connection-badge.server :global(svg) {
+                    display: none;
+                }
+            }
+        }
+
+        }
+
+    :global(.music-player-detail-dialog-host .b3-dialog__container) {
+        overflow: hidden;
+        padding: 0;
+        background: transparent;
+    }
+
+    :global(.music-player-detail-dialog-host .b3-dialog__header:empty) {
+        display: none;
+    }
+
+    :global(.music-player-detail-dialog-host .b3-dialog__content),
+    :global(.music-player-detail-dialog-host .dialog-content) {
+        min-width: 0;
+        min-height: 0;
+        padding: 0;
+        overflow: hidden;
+        scrollbar-gutter: auto;
+    }
 </style>

@@ -9,8 +9,10 @@ export function safeParseMusicPlayerConfig(contentTypeJson: string): MusicPlayer
         const parsed = JSON.parse(contentTypeJson);
         const data = parsed?.data || {};
         return {
+            sourceMode: data.sourceMode === "subsonic" ? "subsonic" : "local",
             musicFolderPath: data.musicFolderPath || "",
             currentTrackIndex: Number.isFinite(data.currentTrackIndex) ? data.currentTrackIndex : 0,
+            currentTrackKey: typeof data.currentTrackKey === "string" ? data.currentTrackKey : undefined,
             playMode: ["order", "repeat", "shuffle"].includes(data.playMode) ? data.playMode : "order",
             isMuted: !!data.isMuted,
             volume: Number.isFinite(data.volume) ? data.volume : 0.5,
@@ -24,6 +26,10 @@ export function safeParseMusicPlayerConfig(contentTypeJson: string): MusicPlayer
                 : "default",
             sortDirection: data.sortDirection === "desc" ? "desc" : "asc",
             showFloatingMini: !!data.showFloatingMini,
+            cloudStreamQuality: ["original", "320", "192", "128"].includes(data.cloudStreamQuality)
+                ? data.cloudStreamQuality
+                : "original",
+            cloudTranscodeFormat: data.cloudTranscodeFormat === "mp3" ? "mp3" : "auto",
         };
     } catch {
         return { ...DEFAULT_MUSIC_PLAYER_SETTINGS };
@@ -70,6 +76,7 @@ function buildBaseTrack(filePath: string): MusicTrack {
     const stats = fs.statSync(filePath);
 
     return {
+        sourceKind: "local",
         filePath,
         fileUrl: buildLocalAudioFileUrl(filePath),
         fileName,

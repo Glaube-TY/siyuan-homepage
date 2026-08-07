@@ -1,6 +1,7 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
-    import { onDestroy } from "svelte";
+    import { mount, onDestroy, onMount } from "svelte";
+    import { svelteDialog } from "@/libs/dialog";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
@@ -15,6 +16,11 @@
     import type { MusicMetadataIndexProgress } from "./musicPlayerTypes";
     import { DEFAULT_MUSIC_METADATA_INDEX_PROGRESS } from "./musicPlayerTypes";
     import { MusicMetadataIndexStore } from "./musicMetadataIndexStore";
+    import MusicCloudConnectionDialog from "./MusicCloudConnectionDialog.svelte";
+    import { MusicCloudSettingsStore } from "./musicCloudSettingsStore";
+    import { subscribeMusicCloudConnectionStatus } from "./musicCloudConnectionStatus";
+    import type { MusicCloudConnectionStatus } from "./musicCloudConnectionStatus";
+    import type { MusicCloudStreamQuality, MusicSourceKind } from "./musicPlayerTypes";
 
     interface Props {
         advancedEnabled: boolean;
@@ -27,6 +33,9 @@
         scanSubfolders?: boolean;
         parseMetadata?: boolean;
         showFloatingMini?: boolean;
+        sourceMode?: MusicSourceKind;
+        cloudStreamQuality?: MusicCloudStreamQuality;
+        cloudTranscodeFormat?: "auto" | "mp3";
     }
 
     let {
@@ -40,6 +49,9 @@
         scanSubfolders = $bindable(false),
         parseMetadata = $bindable(true),
         showFloatingMini = $bindable(false),
+        sourceMode = $bindable<MusicSourceKind>("local"),
+        cloudStreamQuality = $bindable<MusicCloudStreamQuality>("original"),
+        cloudTranscodeFormat = $bindable<"auto" | "mp3">("auto"),
     }: Props = $props();
 
     let indexing = $state(false);
@@ -47,6 +59,38 @@
     let progressTimer: ReturnType<typeof setInterval> | null = null;
     let store: MusicMetadataIndexStore | null = null;
     let destroyed = false;
+    let cloudConfigured = $state(false);
+    let cloudLocalUrl = $state("");
+    let cloudRemoteUrl = $state("");
+    let cloudConnectionStatus = $state<MusicCloudConnectionStatus | null>(null);
+    let unsubscribeCloudConnectionStatus: (() => void) | null = null;
+
+    async function refreshCloudStatus() {
+        if (!plugin) return;
+        const profile = (await new MusicCloudSettingsStore(plugin).load()).profile;
+        if (destroyed) return;
+        cloudConfigured = !!profile;
+        cloudLocalUrl = profile?.localBaseUrl || "";
+        cloudRemoteUrl = profile?.remoteBaseUrl || "";
+    }
+
+    onMount(() => {
+        unsubscribeCloudConnectionStatus = subscribeMusicCloudConnectionStatus((status) => { cloudConnectionStatus = status; });
+        void refreshCloudStatus();
+    });
+
+    function openCloudSettings() {
+        if (!plugin) return;
+        const dialog = svelteDialog({
+            title: "配置 NAS 音乐服务",
+            width: "min(680px, calc(100vw - 32px))",
+            height: "min(620px, calc(100vh - 48px))",
+            constructor: (containerEl: HTMLElement) => mount(MusicCloudConnectionDialog, {
+                target: containerEl,
+                props: { plugin, onClose: () => dialog.close(), onSaved: () => void refreshCloudStatus() },
+            }),
+        });
+    }
 
     function ensureStore(): MusicMetadataIndexStore | null {
         if (!plugin) return null;
@@ -99,6 +143,7 @@
 
     onDestroy(() => {
         destroyed = true;
+        unsubscribeCloudConnectionStatus?.();
         stopProgressTimer();
     });
 
@@ -198,6 +243,16 @@
 
 <div class="music-player-settings">
     {#if advancedEnabled}
+        <SettingSection title="音乐来源">
+            <SettingRow title="来源">
+                <select class="b3-select" bind:value={sourceMode}>
+                    <option value="local">本地音乐</option>
+                    <option value="subsonic">NAS 音乐（Subsonic / OpenSubsonic）</option>
+                </select>
+            </SettingRow>
+            <p class="index-hint">兼容 Navidrome 等 Subsonic / OpenSubsonic 音乐服务器。</p>
+        </SettingSection>
+        {#if sourceMode === "local"}
         <SettingSection title="音乐库设置">
             <SettingRow title="音乐路径">
                 <div class="file-path-group">
@@ -227,6 +282,26 @@
                 {/if}
             </div>
         </SettingSection>
+        {:else}
+        <SettingSection title="NAS 音乐服务">
+            <div class="cloud-summary">
+                <strong>{cloudConfigured ? "已配置" : "未配置"}</strong>
+                {#if cloudLocalUrl}<span>本地：{cloudLocalUrl}</span>{/if}
+                {#if cloudRemoteUrl}<span>远程：{cloudRemoteUrl}</span>{/if}
+                {#if cloudConnectionStatus}
+                    <span>最近状态：{cloudConnectionStatus.activeLabel}；本地 {cloudConnectionStatus.localStatus}；远程 {cloudConnectionStatus.remoteStatus}</span>
+                    {#if cloudConnectionStatus.serverSummary}<span>服务器：{cloudConnectionStatus.serverSummary}</span>{/if}
+                    <span>检测时间：{new Date(cloudConnectionStatus.checkedAt).toLocaleString()}</span>
+                {/if}
+            </div>
+            <button class="b3-button" onclick={openCloudSettings}>{cloudConfigured ? "修改 NAS 音乐服务" : "配置 NAS 音乐服务"}</button>
+            <SettingRow title="桌面流媒体质量">
+                <select class="b3-select" bind:value={cloudStreamQuality} onchange={() => { cloudTranscodeFormat = cloudStreamQuality === "original" ? "auto" : "mp3"; }}>
+                    <option value="original">原始质量</option><option value="320">320 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps</option>
+                </select>
+            </SettingRow>
+        </SettingSection>
+        {/if}
 
         <SettingSection title="播放设置">
             <SettingRow title="自动播放">
@@ -244,9 +319,11 @@
             <SettingRow title="显示右下角迷你播放器">
                 <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showFloatingMini} />
             </SettingRow>
-            <SettingRow title="解析元数据">
-                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={parseMetadata} />
-            </SettingRow>
+            {#if sourceMode === "local"}
+                <SettingRow title="解析元数据">
+                    <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={parseMetadata} />
+                </SettingRow>
+            {/if}
         </SettingSection>
 
     {:else}
@@ -275,6 +352,7 @@
         flex-direction: column;
         gap: 0.5rem;
     }
+    .cloud-summary{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem;color:var(--b3-theme-on-surface-light);word-break:break-all}.cloud-summary strong{color:var(--b3-theme-on-surface)}
     .index-hint {
         margin: 0;
         font-size: 0.8rem;

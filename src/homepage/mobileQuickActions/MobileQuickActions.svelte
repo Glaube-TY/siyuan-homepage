@@ -2,6 +2,8 @@
     import { onDestroy, onMount } from "svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import AccountingIcon from "@/components/utils/widgetBlock/widget/accounting/AccountingIcon.svelte";
+    import Headphones from "@lucide/svelte/icons/headphones";
+    import { subscribeMusicPlaybackPresence } from "@/components/utils/widgetBlock/widget/musicPlayer/musicPlaybackPresence";
     import {
         DEFAULT_MOBILE_QUICK_ACTION_BOTTOM_GAP,
         DEFAULT_MOBILE_QUICK_ACTION_BUTTON_SIZE,
@@ -47,6 +49,8 @@
     let dragOffsetY = 0;
     let dragActivated = false;
     let longPressTimer: number | null = null;
+    let musicPlaybackActive = $state(false);
+    let unsubscribeMusicPlayback: (() => void) | null = null;
     const normalizedButtonSize = $derived(normalizeMobileQuickActionButtonSize(buttonSize));
     const mainIconSize = $derived(Math.round(normalizedButtonSize * 0.42));
     const opensDownward = $derived(currentPosition.y < Math.max(0, window.innerHeight / 2));
@@ -213,12 +217,17 @@
 
     onMount(() => {
         syncPositionFromProps();
+        unsubscribeMusicPlayback = subscribeMusicPlaybackPresence((presence) => {
+            musicPlaybackActive = presence.isPlaying;
+        });
         document.addEventListener("pointerdown", handleDocumentPointerDown);
         document.addEventListener("keydown", handleDocumentKeydown);
     });
 
     onDestroy(() => {
         clearLongPressTimer();
+        unsubscribeMusicPlayback?.();
+        unsubscribeMusicPlayback = null;
         document.removeEventListener("pointerdown", handleDocumentPointerDown);
         document.removeEventListener("keydown", handleDocumentKeydown);
     });
@@ -254,6 +263,8 @@
                     <span class="siyuan-homepage-mobile-quick-actions__item-icon">
                         {#if action.icon === "wallet"}
                             <AccountingIcon name="wallet" size={18} />
+                        {:else if action.icon === "headphones"}
+                            <Headphones size={19} strokeWidth={2.2} />
                         {:else}
                             <SiyuanIcon name={action.icon || "open"} size={18} />
                         {/if}
@@ -272,7 +283,8 @@
     <button
         type="button"
         class="siyuan-homepage-mobile-quick-actions__main"
-        aria-label={expanded ? "收起移动端快捷操作" : "展开移动端快捷操作"}
+        class:music-is-playing={musicPlaybackActive}
+        aria-label={expanded ? "收起移动端快捷操作" : musicPlaybackActive ? "后台正在播放音乐，展开快捷操作" : "展开移动端快捷操作"}
         aria-expanded={expanded}
         title={expanded ? "收起快捷操作" : "展开快捷操作"}
         onpointerdown={handleMainPointerDown}
@@ -284,6 +296,11 @@
         <span class="siyuan-homepage-mobile-quick-actions__main-icon">
             <SiyuanIcon name={mainIcon || "iconhomepage"} size={mainIconSize} />
         </span>
+        {#if musicPlaybackActive}
+            <span class="siyuan-homepage-mobile-quick-actions__playing-indicator" aria-hidden="true">
+                <i></i><i></i><i></i>
+            </span>
+        {/if}
     </button>
 </div>
 
@@ -329,6 +346,7 @@
     }
 
     .siyuan-homepage-mobile-quick-actions__main {
+        position: relative;
         width: var(--shp-mobile-quick-action-size);
         height: var(--shp-mobile-quick-action-size);
         border-radius: 50%;
@@ -338,6 +356,75 @@
         color: var(--b3-theme-primary);
         touch-action: none;
         user-select: none;
+    }
+
+    .siyuan-homepage-mobile-quick-actions__main.music-is-playing {
+        border-color: color-mix(in srgb, var(--b3-theme-primary) 72%, white);
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--b3-theme-primary) 16%, transparent), 0 10px 28px rgba(15, 23, 42, 0.22);
+    }
+
+    .siyuan-homepage-mobile-quick-actions__main.music-is-playing::before {
+        content: "";
+        position: absolute;
+        inset: -6px;
+        border: 2px solid color-mix(in srgb, var(--b3-theme-primary) 52%, transparent);
+        border-radius: 50%;
+        pointer-events: none;
+        animation: mobile-music-pulse 1.8s ease-out infinite;
+    }
+
+    .siyuan-homepage-mobile-quick-actions__playing-indicator {
+        position: absolute;
+        right: -3px;
+        bottom: -2px;
+        display: inline-flex;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 2px;
+        width: 22px;
+        height: 22px;
+        padding: 5px 4px;
+        border: 2px solid var(--b3-theme-background);
+        border-radius: 50%;
+        background: var(--b3-theme-primary);
+        box-sizing: border-box;
+        box-shadow: 0 3px 9px rgba(15, 23, 42, 0.28);
+    }
+
+    .siyuan-homepage-mobile-quick-actions__playing-indicator i {
+        width: 2px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--b3-theme-on-primary);
+        transform-origin: bottom;
+        animation: mobile-music-equalizer 0.78s ease-in-out infinite alternate;
+    }
+
+    .siyuan-homepage-mobile-quick-actions__playing-indicator i:nth-child(2) {
+        height: 11px;
+        animation-delay: -0.42s;
+    }
+
+    .siyuan-homepage-mobile-quick-actions__playing-indicator i:nth-child(3) {
+        height: 6px;
+        animation-delay: -0.18s;
+    }
+
+    @keyframes mobile-music-pulse {
+        0% { opacity: 0.8; transform: scale(0.92); }
+        75%, 100% { opacity: 0; transform: scale(1.16); }
+    }
+
+    @keyframes mobile-music-equalizer {
+        from { transform: scaleY(0.35); }
+        to { transform: scaleY(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .siyuan-homepage-mobile-quick-actions__main.music-is-playing::before,
+        .siyuan-homepage-mobile-quick-actions__playing-indicator i {
+            animation: none;
+        }
     }
 
     .siyuan-homepage-mobile-quick-actions.is-expanded .siyuan-homepage-mobile-quick-actions__main {

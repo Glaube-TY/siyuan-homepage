@@ -12,7 +12,7 @@ export function addCustomBlockToContainer(
     plugin: Plugin,
     currentBlockForSettingsRef: { value: HTMLElement | null },
     options: AddBlockOptions
-): void {
+): any {
     const container = options.containerEl || document.querySelector(options.containerSelector);
 
     const widget = new options.WidgetBlockClass(
@@ -28,4 +28,6 @@ export function addCustomBlockToContainer(
     if (options.afterAppend) {
         options.afterAppend(plugin);
     }
+
+    return widget;
 }

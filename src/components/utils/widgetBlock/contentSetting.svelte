@@ -63,7 +63,7 @@
     // 弹窗接收的 props
     plugin: any;
     onClose: () => void;
-    onConfirm: (contentTypeJson: string) => void;
+    onConfirm: (contentTypeJson: string) => void | Promise<void>;
     // 当前区块 ID
     currentBlockId?: string;
     // 移动端添加组件时用于预选组件类型，不改变保存结构
@@ -85,6 +85,7 @@
   }: Props = $props();
 
   let loadedWidgetConfig: Record<string, any> | null = $state(null);
+  let isSaving = $state(false);
 
   let activeTab = $state("note");
 
@@ -350,6 +351,9 @@
 
   // 音乐播放器相关
   let musicFolderPath = $state("");
+  let musicSourceMode = $state<"local" | "subsonic">("local");
+  let musicCloudStreamQuality = $state<"original" | "320" | "192" | "128">("original");
+  let musicCloudTranscodeFormat = $state<"auto" | "mp3">("auto");
   let autoPlay = $state(false);
   let musicShowLyrics = $state(true);
   let musicShowCover = $state(true);
@@ -753,6 +757,11 @@
             ? !!parsedData.data.parseMetadata
             : true;
         musicShowFloatingMini = !!parsedData.data?.showFloatingMini;
+        musicSourceMode = parsedData.data?.sourceMode === "subsonic" ? "subsonic" : "local";
+        musicCloudStreamQuality = ["320", "192", "128"].includes(parsedData.data?.cloudStreamQuality)
+          ? parsedData.data.cloudStreamQuality
+          : "original";
+        musicCloudTranscodeFormat = parsedData.data?.cloudTranscodeFormat === "mp3" ? "mp3" : "auto";
       } else if (parsedData.type === "almanac") {
         almanacStyle = parsedData.data?.almanacStyle || "";
       } else if (parsedData.type === "stikynot") {
@@ -1345,6 +1354,9 @@
             bind:scanSubfolders={musicScanSubfolders}
             bind:parseMetadata={musicParseMetadata}
             bind:showFloatingMini={musicShowFloatingMini}
+            bind:sourceMode={musicSourceMode}
+            bind:cloudStreamQuality={musicCloudStreamQuality}
+            bind:cloudTranscodeFormat={musicCloudTranscodeFormat}
           />
         {:else if selectedContentType === "almanac"}
           <AlmanacSet {advancedEnabled} bind:almanacStyle />
@@ -1417,7 +1429,9 @@
   <div class="action-buttons-row">
     <button
       class="confirm-button"
+      disabled={isSaving}
       onclick={async () => {
+        if (isSaving) return;
         if (selectedContentType === "countdown" && !advancedEnabled) {
           showMessage(
             "纪念日组件为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用",
@@ -1739,6 +1753,9 @@
             data: {
               ...existingMusicPlayerData,
               musicFolderPath,
+              sourceMode: musicSourceMode,
+              cloudStreamQuality: musicCloudStreamQuality,
+              cloudTranscodeFormat: musicCloudTranscodeFormat,
               autoPlay,
               showLyrics: musicShowLyrics,
               showCover: musicShowCover,
@@ -1979,11 +1996,19 @@
           }
         }
 
-        onConfirm(JSON.stringify(contentTypeJson));
+        isSaving = true;
+        try {
+          await onConfirm(JSON.stringify(contentTypeJson));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          showMessage(`组件保存失败：${message}`, 5000, "error");
+        } finally {
+          isSaving = false;
+        }
       }}
     >
       <SiyuanIcon name="confirm" size={14} />
-      <span>确定</span>
+      <span>{isSaving ? "保存中…" : "确定"}</span>
     </button>
     <button class="cancel-button" onclick={onClose}>
       <SiyuanIcon name="cancel" size={14} />

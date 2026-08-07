@@ -1,4 +1,7 @@
 import type { MusicTrack } from "./musicPlayerTypes";
+import { getTrackKey } from "./musicTrackIdentity";
+
+export { getTrackKey } from "./musicTrackIdentity";
 
 export interface PlaybackRecentPlay {
     startedAt: number;
@@ -39,17 +42,6 @@ const MAX_TRACK_ENTRIES = 1000;
 const MAX_RECENT_PLAYS_PER_TRACK = 50;
 const MIN_RECORD_SECONDS = 5;
 
-export function getTrackKey(track: MusicTrack): string {
-    return stableHash(`${track.filePath}|${track.size}|${track.mtimeMs}`);
-}
-
-function stableHash(input: string): string {
-    let hash = 5381;
-    for (let i = 0; i < input.length; i++) {
-        hash = (hash << 5) + hash + input.charCodeAt(i);
-    }
-    return (hash >>> 0).toString(16);
-}
 
 export class MusicPlaybackStatsStore {
     private plugin: any;

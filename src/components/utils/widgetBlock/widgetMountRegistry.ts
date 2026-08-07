@@ -114,7 +114,8 @@ const widgetNeedsPlugin: Set<string> = new Set([
 ]);
 
 export interface WidgetRuntimeContext {
-    placement?: "homepage" | "sidebar" | "mobile" | "preview" | "dock";
+    placement?: "homepage" | "sidebar" | "mobile" | "mobile-runtime" | "preview" | "dock";
+    persistentMusicRuntime?: boolean;
     previewMode?: boolean;
     forceIndexRefresh?: boolean;
     refreshReason?: "initial" | "manual" | "settings";

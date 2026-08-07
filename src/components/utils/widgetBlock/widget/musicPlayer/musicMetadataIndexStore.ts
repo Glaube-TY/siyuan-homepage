@@ -52,6 +52,10 @@ function emptyData(): MusicMetadataIndexData {
     return { version: INDEX_VERSION, libraries: {} };
 }
 
+function isLocalIndexTrack(track: MusicTrack): boolean {
+    return track.sourceKind === "local" && typeof track.filePath === "string" && track.filePath.length > 0;
+}
+
 export class MusicMetadataIndexStore {
     private plugin: any;
     private data: MusicMetadataIndexData | null = null;
@@ -93,6 +97,7 @@ export class MusicMetadataIndexStore {
         const lib = this.getLibrary(folderPath, scanSubfolders);
         if (!lib) return;
         for (const track of tracks) {
+            if (!isLocalIndexTrack(track)) continue;
             const key = getTrackKey(track);
             const entry = lib.entries[key];
             if (!entry) continue;
@@ -109,6 +114,7 @@ export class MusicMetadataIndexStore {
     }
 
     hasFreshEntry(folderPath: string, scanSubfolders: boolean, track: MusicTrack): boolean {
+        if (!isLocalIndexTrack(track)) return false;
         const lib = this.getLibrary(folderPath, scanSubfolders);
         if (!lib) return false;
         const key = getTrackKey(track);
@@ -118,6 +124,7 @@ export class MusicMetadataIndexStore {
     }
 
     hasUsableFreshEntry(folderPath: string, scanSubfolders: boolean, track: MusicTrack): boolean {
+        if (!isLocalIndexTrack(track)) return false;
         const lib = this.getLibrary(folderPath, scanSubfolders);
         if (!lib) return false;
         const key = getTrackKey(track);
@@ -129,6 +136,7 @@ export class MusicMetadataIndexStore {
     }
 
     getFreshEntry(folderPath: string, scanSubfolders: boolean, track: MusicTrack): MusicMetadataIndexEntry | null {
+        if (!isLocalIndexTrack(track)) return null;
         const lib = this.getLibrary(folderPath, scanSubfolders);
         if (!lib) return null;
         const key = getTrackKey(track);
@@ -152,7 +160,8 @@ export class MusicMetadataIndexStore {
         let failed = 0;
         let fresh = 0;
 
-        for (const track of tracks) {
+        const localTracks = tracks.filter(isLocalIndexTrack);
+        for (const track of localTracks) {
             const entry = this.getFreshEntry(folderPath, scanSubfolders, track);
             if (!entry) continue;
             fresh++;
@@ -174,7 +183,7 @@ export class MusicMetadataIndexStore {
 
         return {
             running: false,
-            total: tracks.length,
+            total: localTracks.length,
             queued: 0,
             processed: fresh,
             indexed,
@@ -256,6 +265,7 @@ export class MusicMetadataIndexStore {
     }
 
     upsertTrack(folderPath: string, scanSubfolders: boolean, track: MusicTrack): void {
+        if (!isLocalIndexTrack(track)) return;
         const lib = this.getOrCreateLibrary(folderPath, scanSubfolders);
         const key = getTrackKey(track);
 
@@ -279,7 +289,7 @@ export class MusicMetadataIndexStore {
 
         lib.entries[key] = {
             trackKey: key,
-            filePath: track.filePath,
+            filePath: track.filePath!,
             fileName: track.fileName,
             baseName: track.baseName,
             ext: track.ext,
@@ -305,7 +315,7 @@ export class MusicMetadataIndexStore {
     removeMissingTracks(folderPath: string, scanSubfolders: boolean, tracks: MusicTrack[]): void {
         const lib = this.getLibrary(folderPath, scanSubfolders);
         if (!lib) return;
-        const currentPaths = new Set(tracks.map((t) => t.filePath));
+        const currentPaths = new Set(tracks.filter(isLocalIndexTrack).map((track) => track.filePath!));
         let changed = false;
         for (const key of Object.keys(lib.entries)) {
             if (!currentPaths.has(lib.entries[key].filePath)) {

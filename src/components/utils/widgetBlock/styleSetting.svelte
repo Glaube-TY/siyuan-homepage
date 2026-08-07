@@ -33,6 +33,7 @@
         layoutRuntimeOptions?: HomepageLayoutRuntimeOptions;
         deviceViewContext: DeviceViewContext;
         blockElement?: HTMLElement | null;
+        hasPersistedConfig?: boolean;
     }
 
     let {
@@ -44,6 +45,7 @@
         layoutRuntimeOptions = {},
         deviceViewContext,
         blockElement = null,
+        hasPersistedConfig = true,
     }: Props = $props();
 
     let backgroundColor: string = $state("#ffffff");
@@ -70,6 +72,7 @@
         ),
     );
     let canMigrateToSection = $derived(
+        hasPersistedConfig &&
         effectiveComponentSectionsEnabled &&
         availableTargetSections.length > 0
     );
@@ -81,10 +84,16 @@
     function handleStyleChange() {
         updateElementBackground(currentBlockId, backgroundColor, backgroundOpacity, blockElement);
         updateElementBorder(currentBlockId, borderColor, borderWidth, blockElement);
+        // 新草稿尚无配置文件；样式保留在 DOM，首次确认内容时会随布局一起提交。
+        if (!hasPersistedConfig) return;
         saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
     }
 
     function startSizeSaveQueue(): void {
+        if (!hasPersistedConfig) {
+            pendingSize = null;
+            return;
+        }
         if (sizeSaveTask) return;
         sizeSaveTask = (async () => {
             while (pendingSize) {
@@ -119,6 +128,9 @@
                 const message = error instanceof Error ? error.message : String(error);
                 showMessage(`组件尺寸预览失败：${message}`, 4000, "error");
             });
+
+        // 新草稿只更新 DOM；首次确认内容时 saveWidgetContentPreservingSize 会读取当前尺寸并创建配置。
+        if (!hasPersistedConfig) return;
 
         // 连续调整时只保留尚未写入的最新组合，实际写盘保持串行。
         pendingSize = { rowSize: nextRowSize, colSize: nextColSize };

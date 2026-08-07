@@ -101,6 +101,8 @@ import type {
     MobileQuickActionsPosition,
 } from "./homepage/mobileQuickActions/mobileQuickActionsConfig";
 import { openAccountingDetailDialogFromPlugin } from "./components/utils/widgetBlock/widget/accounting/openAccountingDetailDialog";
+import { requestOpenMobileMusicPlayer } from "./components/utils/widgetBlock/widget/musicPlayer/musicMobilePlayerBridge";
+import MusicPlayerRuntime from "./components/utils/widgetBlock/widget/musicPlayer/musicPlayer.svelte";
 
 let notificationPlanUnregisters: Array<() => void> = [];
 
@@ -195,6 +197,8 @@ export default class PluginHomepage extends Plugin {
     private sidebarDockInstance: Record<string, any> | null = null;
     private mobileQuickActionsHost: HTMLDivElement | null = null;
     private mobileQuickActionsInstance: Record<string, any> | null = null;
+    private mobileMusicRuntimeHost: HTMLDivElement | null = null;
+    private mobileMusicRuntimeInstance: Record<string, any> | null = null;
     private mobileQuickActionsPositionSaveTimer: number | null = null;
     private pendingMobileQuickActionsPosition: MobileQuickActionsPosition | null = null;
     private mobileAutoOpenAttempted = false;
@@ -476,9 +480,15 @@ export default class PluginHomepage extends Plugin {
         } catch (error) {
             console.warn("[Homepage] 高级功能就绪后刷新全局背景样式失败:", error);
         }
+        try {
+            this.ensureMobileMusicRuntime();
+        } catch (error) {
+            console.warn("[Homepage] 移动音乐常驻运行实例初始化失败:", error);
+        }
     }
 
     private async handleHomepageAdvancedUnavailable(): Promise<void> {
+        this.destroyMobileMusicRuntime();
         try {
             if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
                 this.currentMobileEnhancedDiaryWorkspaceDialog.close();
@@ -508,6 +518,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onunload() {
+        this.destroyMobileMusicRuntime();
         if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
             this.currentMobileEnhancedDiaryWorkspaceDialog.close();
             this.currentMobileEnhancedDiaryWorkspaceDialog = null;
@@ -684,6 +695,9 @@ export default class PluginHomepage extends Plugin {
             if (this.isMobileFrontend()) {
                 // 先验证许可
                 await this.verifyLicense();
+
+                // 音频运行实例挂在插件层，主页或播放器界面关闭后仍保留播放。
+                this.ensureMobileMusicRuntime();
 
                 // 挂载悬浮快捷按钮
                 this.mountMobileQuickActions(config);
@@ -1355,6 +1369,8 @@ export default class PluginHomepage extends Plugin {
                 return openAccountingDetailDialogFromPlugin(this, "record");
             case "mobile-homepage":
                 return this.openMobileHomepage();
+            case "music-player":
+                return this.openMobileMusicPlayer();
             case "enhanced-diary-workspace":
                 return this.openEnhancedDiaryWorkspace();
             case "ai-knowledge-base":
@@ -1366,6 +1382,90 @@ export default class PluginHomepage extends Plugin {
             default:
                 return;
         }
+    }
+
+    private async openMobileMusicPlayer(): Promise<void> {
+        this.ensureMobileMusicRuntime();
+        if (!this.mobileMusicRuntimeInstance) {
+            showMessage("移动音乐播放器暂不可用，请确认高级功能已启用。", 5000, "error");
+            return;
+        }
+
+        let request = requestOpenMobileMusicPlayer();
+        if (request.handled) {
+            if (request.unavailableReason) showMessage(request.unavailableReason, 5000, "error");
+            return;
+        }
+
+        for (let attempt = 0; attempt < 48; attempt++) {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 125));
+            request = requestOpenMobileMusicPlayer();
+            if (!request.handled) continue;
+            if (request.unavailableReason) showMessage(request.unavailableReason, 5000, "error");
+            return;
+        }
+        showMessage("NAS 音乐播放器仍在初始化，请稍后重试。", 5000, "error");
+    }
+
+    private ensureMobileMusicRuntime(): void {
+        if (
+            this.mobileMusicRuntimeInstance
+            || this.mobileMusicRuntimeHost
+            || this.isNewWindow()
+            || !this.isMobileFrontend()
+            || !this.ADVANCED
+        ) return;
+
+        const host = document.createElement("div");
+        host.dataset.siyuanHomepageMobileMusicRuntime = "true";
+        host.hidden = true;
+        document.body.appendChild(host);
+        this.mobileMusicRuntimeHost = host;
+
+        try {
+            const deviceViewContext = getCurrentDeviceViewContext(this, "mobile-homepage");
+            const contentTypeJson = JSON.stringify({
+                type: "musicPlayer",
+                instanceId: "mobile-persistent-music-runtime",
+                data: {
+                    sourceMode: "subsonic",
+                    autoPlay: false,
+                    showCover: true,
+                    showLyrics: true,
+                    parseMetadata: true,
+                },
+            });
+            this.mobileMusicRuntimeInstance = mount(MusicPlayerRuntime, {
+                target: host,
+                props: {
+                    plugin: this,
+                    contentTypeJson,
+                    runtimeContext: {
+                        placement: "mobile-runtime",
+                        persistentMusicRuntime: true,
+                        deviceViewContext,
+                    },
+                },
+            });
+        } catch (error) {
+            this.mobileMusicRuntimeInstance = null;
+            this.mobileMusicRuntimeHost?.remove();
+            this.mobileMusicRuntimeHost = null;
+            throw error;
+        }
+    }
+
+    private destroyMobileMusicRuntime(): void {
+        if (this.mobileMusicRuntimeInstance) {
+            try {
+                unmount(this.mobileMusicRuntimeInstance);
+            } catch {
+                // 忽略插件卸载或许可失效期间的音频运行实例清理错误。
+            }
+            this.mobileMusicRuntimeInstance = null;
+        }
+        this.mobileMusicRuntimeHost?.remove();
+        this.mobileMusicRuntimeHost = null;
     }
 
     private buildMobileQuickActions(config: PluginConfig): MobileQuickAction[] {

@@ -227,10 +227,18 @@ export class WidgetBlock {
                                                         currentBlockId: this.element.id,
                                                         deviceViewContext: this.runtimeOptions.deviceViewContext,
                                                         blockElement: this.element,
+                                                        hasPersistedConfig: !this.isNewInstance || this.draftConfigPersisted,
                                                         onClose: () => {
                                                             dialogRef.close();
                                                         },
                                                         onDeleteFromCurrentSurface: async () => {
+                                                            if (this.isNewInstance && !this.draftConfigPersisted) {
+                                                                this.cleanupMountedWidget();
+                                                                this.element.remove();
+                                                                this.currentBlockForSettingsRef.value = null;
+                                                                dialogRef.close();
+                                                                return;
+                                                            }
                                                             const result = await deleteWidgetFromSurface(
                                                                 this.runtimeOptions.deviceViewContext!,
                                                                 this.id,
@@ -309,7 +317,7 @@ export class WidgetBlock {
                                                                 && typeof normalized.type === "string"
                                                                 && normalized.type.trim().length > 0;
                                                             if (!hasValidType) {
-                                                                return;
+                                                                throw new Error("组件配置写后校验失败，请重试");
                                                             }
 
                                                             // 仅新组件需要把写后验证通过的组件提交到当前分栏/全局布局。
@@ -321,7 +329,12 @@ export class WidgetBlock {
                                                                 );
                                                                 if (!committed) {
                                                                     // 布局提交失败：保持 widgetDraft、isNewInstance 与 draftConfigPersisted，允许用户重试。
-                                                                    return;
+                                                                    const saveReason = this.element.parentElement?.dataset.layoutSaveError;
+                                                                    throw new Error(
+                                                                        saveReason
+                                                                            ? `组件内容已保存，但主页布局写入失败：${saveReason}`
+                                                                            : "组件内容已保存，但主页布局写入失败，请重试",
+                                                                    );
                                                                 }
                                                             }
 

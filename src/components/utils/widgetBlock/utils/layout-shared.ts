@@ -1,4 +1,5 @@
 import type { Plugin } from 'siyuan';
+import { canSaveLayoutFromRestoreState } from "./layout-save-guard";
 import { isDesktopDeviceProfileEnabled } from "@/homepage/utils/deviceProfile";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
 import {
@@ -1866,8 +1867,7 @@ export async function saveLayoutForContainer(
     if (
         options.layoutFileName === "desktop-homepage" &&
         container instanceof HTMLElement &&
-        container.dataset.layoutRestoreState &&
-        container.dataset.layoutRestoreState !== "ready"
+        !canSaveLayoutFromRestoreState(container.dataset.layoutRestoreState)
     ) {
         return false;
     }
@@ -1875,6 +1875,9 @@ export async function saveLayoutForContainer(
     const committedWidgetIdSet = new Set<string>(
         (options.committedWidgetIds || []).filter((id) => typeof id === "string" && id.trim()),
     );
+    if (container instanceof HTMLElement) {
+        delete container.dataset.layoutSaveError;
+    }
 
     const currentOrder: LayoutItem[] = Array.from(container.children)
         .filter((el): el is HTMLElement => (
@@ -2023,8 +2026,10 @@ export async function saveLayoutForContainer(
     } catch (error) {
         if (error instanceof LayoutMutationCancelError) {
             if (container instanceof HTMLElement) {
-                container.dataset.layoutRestoreState = "incomplete";
+                // 保存请求被拒绝不代表当前已恢复的 DOM 损坏；保留原恢复状态，允许用户修正后重试。
+                container.dataset.layoutSaveError = error.message;
             }
+            console.warn(`[HomepageLayout] 布局保存被拒绝：${error.message}`);
             return false;
         }
         throw error;

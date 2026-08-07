@@ -2,6 +2,12 @@ import type { Writable } from "svelte/store";
 
 export type MusicPlayMode = "order" | "repeat" | "shuffle";
 
+export type MusicSourceKind = "local" | "subsonic";
+
+export type MusicCloudStreamQuality = "original" | "320" | "192" | "128";
+
+export type MusicCloudTranscodeFormat = "auto" | "mp3";
+
 export type MusicPlayerSortMode = "default" | "title" | "artist" | "album" | "duration" | "recent" | "plays";
 
 export type MusicPlayerSortDirection = "asc" | "desc";
@@ -23,8 +29,10 @@ export interface ActiveQueue {
 }
 
 export interface MusicPlayerSettings {
+    sourceMode: MusicSourceKind;
     musicFolderPath: string;
     currentTrackIndex: number;
+    currentTrackKey?: string;
     playMode: MusicPlayMode;
     isMuted: boolean;
     volume: number;
@@ -36,6 +44,8 @@ export interface MusicPlayerSettings {
     sortMode: MusicPlayerSortMode;
     sortDirection: MusicPlayerSortDirection;
     showFloatingMini: boolean;
+    cloudStreamQuality: MusicCloudStreamQuality;
+    cloudTranscodeFormat: MusicCloudTranscodeFormat;
 }
 
 export type MusicMetadataStatus = "pending" | "loading" | "loaded" | "failed";
@@ -51,8 +61,11 @@ export interface MusicLyricLine {
 }
 
 export interface MusicTrack {
-    filePath: string;
-    fileUrl: string;
+    sourceKind: MusicSourceKind;
+    sourceProfileId?: string;
+    sourceTrackId?: string;
+    filePath?: string;
+    fileUrl?: string;
     fileName: string;
     baseName: string;
     ext: string;
@@ -72,6 +85,14 @@ export interface MusicTrack {
     metadataStatus: MusicMetadataStatus;
     metadataLoadLevel?: MusicMetadataLoadLevel;
     metadataError?: string;
+    albumId?: string;
+    artistId?: string;
+    coverArtId?: string;
+    contentType?: string;
+    serverPlayCount?: number;
+    serverPlayedAt?: number;
+    serverStarredAt?: number;
+    serverPath?: string;
 }
 
 export interface MetadataCacheEntry {
@@ -90,6 +111,7 @@ export interface MetadataCacheEntry {
 }
 
 export const DEFAULT_MUSIC_PLAYER_SETTINGS: MusicPlayerSettings = {
+    sourceMode: "local",
     musicFolderPath: "",
     currentTrackIndex: 0,
     playMode: "order",
@@ -103,6 +125,8 @@ export const DEFAULT_MUSIC_PLAYER_SETTINGS: MusicPlayerSettings = {
     sortMode: "default",
     sortDirection: "asc",
     showFloatingMini: false,
+    cloudStreamQuality: "original",
+    cloudTranscodeFormat: "auto",
 };
 
 export interface MusicMetadataIndexProgress {
@@ -168,6 +192,7 @@ export interface MusicPlayerActions {
     nextTrack: () => void;
     prevTrack: () => void;
     playTrack: (index: number) => void;
+    playTrackByKey: (trackKey: string) => void;
     seekByMouse: (e: MouseEvent) => void;
     seekByKeyboard: (e: KeyboardEvent) => void;
     setVolume: (e: Event) => void;
@@ -196,6 +221,8 @@ export interface MusicPlayerActions {
     replaceActiveQueueFromIndices: (indices: number[]) => void;
     appendActiveQueueFromIndices: (indices: number[]) => void;
     appendTrackToActiveQueue: (index: number) => void;
+    replaceQueueWithTrackKeys: (trackKeys: string[]) => void;
+    appendTrackKeyToQueue: (trackKey: string) => void;
     removeTrackFromActiveQueue: (trackKey: string) => void;
     clearActiveQueue: () => void;
     openActiveQueueDialog: () => void;

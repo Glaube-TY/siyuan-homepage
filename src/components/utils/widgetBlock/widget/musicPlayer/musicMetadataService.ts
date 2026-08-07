@@ -43,6 +43,7 @@ export function buildTrackFromPath(filePath: string): MusicTrack {
     const stats = fs.statSync(filePath);
 
     return {
+        sourceKind: "local",
         filePath,
         fileUrl: buildLocalAudioFileUrl(filePath),
         fileName,

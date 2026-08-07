@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { mount, onMount, onDestroy } from "svelte";
   import { showMessage } from "siyuan";
   import { lsNotebooks } from "@/api";
   import {
@@ -33,6 +33,9 @@
   import { openFocusNotifySettingsDialog } from "@/features/focus-notify";
   import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
   import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
+  import { svelteDialog } from "@/libs/dialog";
+  import MusicCloudConnectionDialog from "@/components/utils/widgetBlock/widget/musicPlayer/MusicCloudConnectionDialog.svelte";
+  import { MusicCloudSettingsStore } from "@/components/utils/widgetBlock/widget/musicPlayer/musicCloudSettingsStore";
 
   interface Props {
     plugin: any;
@@ -94,6 +97,7 @@
   let existingConfig = $state<WidgetConfig | null>(null);
   let isReady = $state(false);
   let isSaving = $state(false);
+  let musicCloudConfigured = $state(false);
   let countdownCategories = $state<CountdownCategoryRecord[]>([]);
   let countdownCenterEvents = $state<CountdownEventRecord[]>([]);
   const countdownTags = $derived(collectCountdownTags(countdownCenterEvents));
@@ -373,6 +377,9 @@
       },
       musicPlayer: {
         musicFolderPath: "",
+        sourceMode: "subsonic",
+        cloudStreamQuality: "192",
+        cloudTranscodeFormat: "mp3",
         autoPlay: false,
       },
       almanac: {
@@ -516,7 +523,27 @@
       originalMobileFavGrouping = Boolean(form.favoritesGroupingEnabled);
       originalMobileFavIds = form.favoritesGroupIds || "";
     }
+    if (widgetType === "musicPlayer") {
+      form.sourceMode = "subsonic";
+      form.cloudStreamQuality = ["original", "320", "192", "128"].includes(form.cloudStreamQuality)
+        ? form.cloudStreamQuality
+        : "192";
+      form.cloudTranscodeFormat = form.cloudStreamQuality === "original" ? "auto" : "mp3";
+      musicCloudConfigured = !!(await new MusicCloudSettingsStore(plugin).load()).profile;
+    }
     isReady = true;
+  }
+
+  function openMusicCloudSettings(): void {
+    const dialog = svelteDialog({
+      title: "配置 NAS 音乐服务",
+      width: "min(680px, calc(100vw - 24px))",
+      height: "min(620px, calc(100vh - 24px))",
+      constructor: (containerEl: HTMLElement) => mount(MusicCloudConnectionDialog, {
+        target: containerEl,
+        props: { plugin, onClose: () => dialog.close(), onSaved: () => { musicCloudConfigured = true; } },
+      }),
+    });
   }
 
   function selectedNotebookIds(key: string): string[] {
@@ -912,6 +939,9 @@
           ...base,
           data: withExistingData({
             musicFolderPath: normalizeString(form.musicFolderPath),
+            sourceMode: "subsonic",
+            cloudStreamQuality: normalizeString(form.cloudStreamQuality, "192"),
+            cloudTranscodeFormat: normalizeString(form.cloudStreamQuality, "192") === "original" ? "auto" : "mp3",
             autoPlay: normalizeBoolean(form.autoPlay, false),
           }),
         };
@@ -1967,11 +1997,18 @@
       case "musicPlayer":
         return [
           {
-            key: "musicFolderPath",
-            type: "text",
-            label: "音乐文件夹路径",
+            key: "mobileMusicSourceInfo",
+            type: "info",
+            label: "音乐来源：NAS 音乐",
+            description: "移动端无法读取桌面本地音乐文件夹；请使用 Subsonic / OpenSubsonic 服务。",
           },
-          { key: "autoPlay", type: "switch", label: "自动播放" },
+          {
+            key: "cloudStreamQuality",
+            type: "select",
+            label: "移动流媒体质量",
+            options: [option("original", "原始质量"), option("320", "320 kbps"), option("192", "192 kbps（推荐）"), option("128", "128 kbps")],
+          },
+          { key: "autoPlay", type: "switch", label: "自动播放", description: "移动系统可能要求首次点击后才能开始音频播放。" },
         ];
       case "almanac":
         return [
@@ -2365,6 +2402,16 @@
             </label>
           {/if}
         {/each}
+
+        {#if widgetType === "musicPlayer"}
+          <button type="button" class="mobile-form-notify-entry" onclick={openMusicCloudSettings}>
+            {musicCloudConfigured ? "修改 NAS 音乐服务" : "配置 NAS 音乐服务"}
+          </button>
+          <div class="mobile-form-info">
+            <strong>{musicCloudConfigured ? "NAS 音乐服务已配置" : "NAS 音乐服务尚未配置"}</strong>
+            <span>电脑与手机共用同一份服务器账号和双地址配置。</span>
+          </div>
+        {/if}
 
         {#if widgetType === "favorites"}
           <section class="mobile-form-section">

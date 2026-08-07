@@ -510,7 +510,7 @@ function buildM3uExtinfTitle(track: MusicTrack): string {
     let title = isValidMetadataValue(track.title) ? track.title.trim() : "";
 
     if (!artist || !title) {
-        const parsed = parseArtistTitleFromFileName(track.baseName || basename(track.filePath));
+        const parsed = parseArtistTitleFromFileName(track.baseName || basename(track.filePath || ""));
         if (!artist && isValidMetadataValue(parsed.artist)) {
             artist = parsed.artist;
         }
@@ -525,14 +525,14 @@ function buildM3uExtinfTitle(track: MusicTrack): string {
     }
     if (title) return title;
 
-    const fallback = stripExtension(track.baseName || basename(track.filePath));
+    const fallback = stripExtension(track.baseName || basename(track.filePath || ""));
     return fallback || "未知歌曲";
 }
 
 function buildFullPathMap(musicFiles: MusicTrack[]): Map<string, MusicTrack> {
     const map = new Map<string, MusicTrack>();
     for (const track of musicFiles) {
-        map.set(normalizePlaylistPath(track.filePath), track);
+        if (track.filePath) map.set(normalizePlaylistPath(track.filePath), track);
     }
     return map;
 }
@@ -540,7 +540,7 @@ function buildFullPathMap(musicFiles: MusicTrack[]): Map<string, MusicTrack> {
 function buildFileNameMap(musicFiles: MusicTrack[]): Map<string, MusicTrack> {
     const map = new Map<string, MusicTrack>();
     for (const track of musicFiles) {
-        const key = basename(track.filePath);
+        const key = basename(track.filePath || track.fileName);
         if (!map.has(key)) {
             map.set(key, track);
         }
@@ -551,7 +551,7 @@ function buildFileNameMap(musicFiles: MusicTrack[]): Map<string, MusicTrack> {
 function buildRelativePathMap(musicFiles: MusicTrack[], basePath: string): Map<string, MusicTrack> {
     const map = new Map<string, MusicTrack>();
     for (const track of musicFiles) {
-        const relative = makeRelativePath(track.filePath, basePath);
+        const relative = makeRelativePath(track.filePath || track.fileName, basePath);
         if (!map.has(relative)) {
             map.set(relative, track);
         }
@@ -562,7 +562,7 @@ function buildRelativePathMap(musicFiles: MusicTrack[], basePath: string): Map<s
 function buildBaseNameMap(musicFiles: MusicTrack[]): Map<string, MusicTrack> {
     const map = new Map<string, MusicTrack>();
     for (const track of musicFiles) {
-        const key = track.baseName || basename(track.filePath);
+        const key = track.baseName || basename(track.filePath || track.fileName);
         if (!map.has(key)) {
             map.set(key, track);
         }
@@ -573,7 +573,7 @@ function buildBaseNameMap(musicFiles: MusicTrack[]): Map<string, MusicTrack> {
 function buildBaseNameNoExtMap(musicFiles: MusicTrack[]): Map<string, MusicTrack> {
     const map = new Map<string, MusicTrack>();
     for (const track of musicFiles) {
-        const key = stripExtension(track.baseName || basename(track.filePath));
+        const key = stripExtension(track.baseName || basename(track.filePath || track.fileName));
         if (!map.has(key)) {
             map.set(key, track);
         }
