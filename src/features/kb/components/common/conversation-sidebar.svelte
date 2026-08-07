@@ -4,6 +4,11 @@
   import type { KbConversationSession } from "../../types/chat";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { inputDialogSync, confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
+  import {
+    searchConversations,
+    splitHighlightSegments,
+    type ConversationSearchResult,
+  } from "./conversation-search";
 
   // Props
   export let conversations: KbConversationSession[] = [];
@@ -19,6 +24,45 @@
     delete: string;
     close: void;
   }>();
+
+  // 搜索状态（纯内存、只读，不持久化）
+  let searchQuery = "";
+
+  /** 列表项统一结构：非搜索时直接展示全部会话，搜索时展示结果 */
+  type SidebarListItem = {
+    conversation: KbConversationSession;
+    matchSource: ConversationSearchResult["matchSource"];
+    matchSnippet?: string;
+    matchedUserMessageId?: string;
+  };
+
+  $: isSearching = searchQuery.trim().length > 0;
+  // 只在 conversations 或 searchQuery 变化时重新计算结果
+  $: searchResults = searchConversations(conversations, searchQuery);
+  $: displayItems = buildDisplayItems(isSearching, searchResults, conversations);
+
+  /** 列表项统一结构：非搜索时直接展示全部会话，搜索时展示结果 */
+  function buildDisplayItems(
+    searching: boolean,
+    results: ConversationSearchResult[],
+    all: KbConversationSession[],
+  ): SidebarListItem[] {
+    return searching
+      ? results
+      : all.map((conversation) => ({ conversation, matchSource: "title" as const }));
+  }
+
+  // 处理搜索框键盘事件（Escape 清空）
+  function handleSearchKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      searchQuery = "";
+    }
+  }
+
+  // 清除搜索
+  function clearSearch() {
+    searchQuery = "";
+  }
 
   // 格式化时间显示
   function formatTime(timestamp: number): string {
@@ -113,7 +157,7 @@
       </button>
     </div>
 
-    <!-- 新建会话按钮 -->
+    <!-- 新建会话按钮 + 搜索 -->
     <div class="sidebar-actions">
       <button
         type="button"
@@ -125,43 +169,95 @@
         <span class="btn-icon"><SiyuanIcon name="iconAdd" size={14} /></span>
         <span>新建会话</span>
       </button>
+
+      <!-- 历史会话搜索框（回答生成中也可操作，只读搜索） -->
+      <div class="search-box">
+        <span class="search-icon"><SiyuanIcon name="iconSearch" size={14} /></span>
+        <input
+          type="text"
+          class="search-input"
+          placeholder="搜索会话"
+          bind:value={searchQuery}
+          on:keydown={handleSearchKeydown}
+        />
+        {#if isSearching}
+          <button
+            type="button"
+            class="search-clear-btn"
+            on:click={clearSearch}
+            title="清除搜索"
+            aria-label="清除搜索"
+          >
+            <SiyuanIcon name="iconClose" size={12} />
+          </button>
+        {/if}
+      </div>
+      {#if isSearching}
+        <div class="search-result-count">{searchResults.length} 个结果</div>
+      {/if}
     </div>
 
     <!-- 会话列表 -->
     <div class="conversation-list">
       {#if conversations.length === 0}
         <div class="empty-state">暂无会话</div>
+      {:else if isSearching && searchResults.length === 0}
+        <div class="empty-state">未找到相关会话</div>
+        <div class="empty-hint">请尝试其他关键词</div>
       {:else}
-        {#each conversations.slice().reverse() as conv (conv.id)}
+        {#each displayItems.slice().reverse() as item (item.conversation.id)}
           <div
             class="conversation-item"
-            class:active={conv.id === activeConversationId}
+            class:active={item.conversation.id === activeConversationId}
             class:disabled
-            on:click={() => handleSwitch(conv.id)}
+            on:click={() => handleSwitch(item.conversation.id)}
             role="button"
             tabindex={disabled ? -1 : 0}
             aria-disabled={disabled}
-            title={disabled ? "回答生成中，请稍后切换会话" : conv.title}
+            title={disabled ? "回答生成中，请稍后切换会话" : item.conversation.title}
             on:keydown={(e) => {
               if (disabled) return;
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                handleSwitch(conv.id);
+                handleSwitch(item.conversation.id);
               }
             }}
           >
             <div class="conversation-info">
-              <div class="conversation-title">{conv.title}</div>
+              <div class="conversation-title">
+                {#if isSearching}
+                  {#each splitHighlightSegments(item.conversation.title, searchQuery) as seg}
+                    {#if seg.highlighted}
+                      <mark class="search-highlight">{seg.text}</mark>
+                    {:else}
+                      {seg.text}
+                    {/if}
+                  {/each}
+                {:else}
+                  {item.conversation.title}
+                {/if}
+              </div>
+              {#if isSearching && item.matchSource === "user_message" && item.matchSnippet}
+                <div class="conversation-snippet">
+                  {#each splitHighlightSegments(item.matchSnippet, searchQuery) as seg}
+                    {#if seg.highlighted}
+                      <mark class="search-highlight">{seg.text}</mark>
+                    {:else}
+                      {seg.text}
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
               <div class="conversation-meta">
-                <span class="message-count">{conv.messages.length} 条消息</span>
-                <span class="update-time">{formatTime(conv.updatedAt)}</span>
+                <span class="message-count">{item.conversation.messages.length} 条消息</span>
+                <span class="update-time">{formatTime(item.conversation.updatedAt)}</span>
               </div>
             </div>
             <div class="conversation-actions">
               <button
                 type="button"
                 class="action-btn rename-btn"
-                on:click|stopPropagation={() => handleRename(conv.id, conv.title)}
+                on:click|stopPropagation={() => handleRename(item.conversation.id, item.conversation.title)}
                 title={disabled ? "回答生成中，请稍后切换会话" : "重命名"}
                 disabled={disabled}
               >
@@ -170,7 +266,7 @@
               <button
                 type="button"
                 class="action-btn delete-btn"
-                on:click|stopPropagation={() => handleDelete(conv.id, conv.title)}
+                on:click|stopPropagation={() => handleDelete(item.conversation.id, item.conversation.title)}
                 title={disabled ? "回答生成中，请稍后切换会话" : "删除"}
                 disabled={disabled || conversations.length <= 1}
               >
@@ -286,6 +382,108 @@
   .btn-icon {
     font-size: $kb-fs-lg;
     font-weight: 300;
+  }
+
+  // ---- 历史会话搜索 ----
+
+  .search-box {
+    display: flex;
+    align-items: center;
+    gap: $kb-space-xs;
+    margin-top: $kb-space-md;
+    padding: 0 $kb-space-sm;
+    height: 32px;
+    background: var(--b3-theme-surface);
+    border: 1px solid var(--b3-theme-surface-lighter);
+    border-radius: $kb-radius-md;
+    transition:
+      border-color $kb-dur-fast $kb-ease-out,
+      box-shadow $kb-dur-fast $kb-ease-out;
+
+    &:focus-within {
+      border-color: var(--b3-theme-primary);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 15%, transparent);
+    }
+  }
+
+  .search-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--b3-theme-on-surface-light);
+    font-size: $kb-fs-lg;
+  }
+
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: $kb-fs-md;
+    color: var(--b3-theme-on-background);
+
+    &::placeholder {
+      color: var(--b3-theme-on-surface-light);
+    }
+  }
+
+  .search-clear-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--b3-theme-on-surface-light);
+    cursor: pointer;
+    border-radius: $kb-radius-sm;
+    transition:
+      background $kb-dur-fast $kb-ease-out,
+      color $kb-dur-fast $kb-ease-out;
+
+    &:hover {
+      background: var(--b3-theme-surface-lighter);
+      color: var(--b3-theme-on-surface);
+    }
+  }
+
+  .search-result-count {
+    margin-top: $kb-space-xs;
+    font-size: $kb-fs-xs;
+    color: var(--b3-theme-on-surface-light);
+  }
+
+  .search-highlight {
+    background: color-mix(in srgb, var(--b3-theme-primary) 22%, transparent);
+    color: var(--b3-theme-primary);
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+
+  .conversation-snippet {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: $kb-space-xs;
+    font-size: $kb-fs-xs;
+    line-height: 1.5;
+    color: var(--b3-theme-on-surface-light);
+    word-break: break-all;
+  }
+
+  .empty-hint {
+    padding: 0 $kb-space-lg $kb-space-lg;
+    text-align: center;
+    font-size: $kb-fs-xs;
+    color: var(--b3-theme-on-surface-light);
   }
 
   .conversation-list {
