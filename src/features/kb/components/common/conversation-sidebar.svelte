@@ -16,6 +16,8 @@
   export let open: boolean = true;
   // 禁用状态（回答生成中）
   export let disabled: boolean = false;
+  // 展示模式：sidebar=内嵌侧栏（260px + 自带标题/关闭按钮）；dialog=弹窗内铺满（标题/关闭按钮由 svelteDialog 提供）
+  export let presentation: "sidebar" | "dialog" = "sidebar";
 
   const dispatch = createEventDispatcher<{
     create: void;
@@ -96,11 +98,12 @@
   }
 
   // 处理切换会话
+  // 始终派发事件（含点击当前 active 会话），由调用方决定行为：
+  // - tab/mobile：kbSessionStore.switchConversation 对相同 id 是空操作，行为不变；
+  // - Dock 弹窗：点击当前会话时直接关闭弹窗返回聊天。
   function handleSwitch(id: string) {
     if (disabled) return;
-    if (id !== activeConversationId) {
-      dispatch("switch", id);
-    }
+    dispatch("switch", id);
   }
 
   // 处理重命名
@@ -148,14 +151,16 @@
 </script>
 
 {#if open}
-  <aside class="conversation-sidebar" class:disabled>
-    <!-- 头部 -->
-    <div class="sidebar-header">
-      <h3 class="sidebar-title">会话历史</h3>
-      <button type="button" class="close-btn" on:click={handleClose} title="关闭">
-        <span class="close-icon"><SiyuanIcon name="iconClose" size={14} /></span>
-      </button>
-    </div>
+  <aside class="conversation-sidebar" class:dialog-presentation={presentation === "dialog"} class:disabled>
+    <!-- 头部（dialog 模式下由 svelteDialog 提供标题与关闭按钮，不重复渲染） -->
+    {#if presentation !== "dialog"}
+      <div class="sidebar-header">
+        <h3 class="sidebar-title">会话历史</h3>
+        <button type="button" class="close-btn" on:click={handleClose} title="关闭">
+          <span class="close-icon"><SiyuanIcon name="iconClose" size={14} /></span>
+        </button>
+      </div>
+    {/if}
 
     <!-- 新建会话按钮 + 搜索 -->
     <div class="sidebar-actions">
@@ -292,6 +297,13 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  // dialog 模式：铺满弹窗内容区，去掉固定 260px 与左侧 border
+  .conversation-sidebar.dialog-presentation {
+    width: 100%;
+    min-width: 0;
+    border-right: none;
   }
 
   .conversation-sidebar.disabled {

@@ -4,6 +4,12 @@
   import ChatMessageList from "../common/chat-message-list.svelte";
   import ChatInputBar from "../common/chat-input-bar.svelte";
   import ConversationSidebar from "../common/conversation-sidebar.svelte";
+  import {
+    ConversationManagerController,
+    canMutateConversations,
+    resolveConversationPanelView,
+  } from "../common/conversation-manager";
+  import { openConversationManagerDialog } from "../common/open-conversation-manager-dialog";
   import KbSettingsPanel from "./kb-settings-panel.svelte";
   import type { ExtendedKbSessionState } from "../../types/session";
   import type { ChatMode } from "../../constants/chat-modes";
@@ -158,6 +164,19 @@
   // 会话侧边栏状态
   let conversationSidebarOpen = false;
   let mobileSettingsOpen = false;
+
+  // Dock 会话管理弹窗（单实例，通过统一 svelteDialog 打开）
+  let conversationManagerOpen = false;
+  const conversationManager = new ConversationManagerController((onClosed) =>
+    openConversationManagerDialog({ onClosed }),
+  );
+
+  // 由 placement + 内嵌侧栏 + 弹窗状态推导面板展示决策（Dock 用弹窗，tab/mobile 用内嵌侧栏）
+  $: conversationPanelView = resolveConversationPanelView({
+    placement,
+    sidebarOpen: conversationSidebarOpen,
+    managerOpen: conversationManagerOpen,
+  });
 
   // 从 store 获取会话列表和当前活跃会话 ID（使用 ExtendedKbSessionState 类型）
   $: conversations = ($kbSessionStore as ExtendedKbSessionState).conversations ?? [];
@@ -734,6 +753,15 @@
 
   // 切换会话侧边栏显示
   function toggleConversationSidebar() {
+    if (placement === "dock") {
+      // Dock：不展开内嵌侧栏，改为打开/关闭统一会话管理弹窗。
+      if (!sessionHydrationReady) {
+        showMessage("会话记录正在加载，请稍后", 3000);
+        return;
+      }
+      conversationManager.toggle();
+      return;
+    }
     conversationSidebarOpen = !conversationSidebarOpen;
   }
 
@@ -752,28 +780,27 @@
 
   // 创建新会话（增加 asking 保护）
   function handleCreateConversation() {
-    // 回答生成中禁止切换会话
-    if (asking || !sessionHydrationReady) return;
+    if (!canMutateConversations(asking, sessionHydrationReady)) return;
     kbSessionStore.createConversation();
   }
 
   // 切换会话（增加 asking 保护）
   function handleSwitchConversation(e: CustomEvent<string>) {
-    if (asking || !sessionHydrationReady) return;
+    if (!canMutateConversations(asking, sessionHydrationReady)) return;
     const id = e.detail;
     kbSessionStore.switchConversation(id);
   }
 
   // 重命名会话（增加 asking 保护）
   function handleRenameConversation(e: CustomEvent<{ id: string; title: string }>) {
-    if (asking || !sessionHydrationReady) return;
+    if (!canMutateConversations(asking, sessionHydrationReady)) return;
     const { id, title } = e.detail;
     kbSessionStore.renameConversation(id, title);
   }
 
   // 删除会话（增加 asking 保护）
   function handleDeleteConversation(e: CustomEvent<string>) {
-    if (asking || !sessionHydrationReady) return;
+    if (!canMutateConversations(asking, sessionHydrationReady)) return;
     const id = e.detail;
     kbSessionStore.deleteConversation(id);
   }
@@ -1292,6 +1319,10 @@
   }
 
   onMount(() => {
+    // 弹窗开/关变化同步到工具栏 active 状态。
+    conversationManager.setOnChange((isOpen) => {
+      conversationManagerOpen = isOpen;
+    });
     void (async () => {
       try {
         await kbSessionStore.hydrateConversations();
@@ -1420,15 +1451,17 @@
   onDestroy(() => {
     if (messagesDebounceTimer) clearTimeout(messagesDebounceTimer);
     cancelPendingNativePermission("组件已销毁。");
+    // 关闭仍打开的 Dock 会话管理弹窗并清空引用，避免留下孤立组件。
+    conversationManager.destroy();
     // best-effort：组件销毁不会等待异步完成，主要保障来自问答生命周期检查点。
     void kbSessionStore.flushPersistence();
     window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged as EventListener);
   });
 </script>
 
-<div class={`kb-main-panel style-${chatAppearance.style}`} class:empty-chat={messages.length === 0} class:has-sidebar={conversationSidebarOpen} class:mobile={placement === "mobile"}>
-  <!-- 会话侧边栏 -->
-  {#if conversationSidebarOpen}
+<div class={`kb-main-panel style-${chatAppearance.style}`} class:empty-chat={messages.length === 0} class:has-sidebar={conversationPanelView.hasSidebar} class:mobile={placement === "mobile"}>
+  <!-- 会话侧边栏（Dock 不使用内嵌侧栏，会话管理走统一弹窗） -->
+  {#if conversationPanelView.renderInlineSidebar}
     <ConversationSidebar
       {conversations}
       {activeConversationId}
@@ -1451,8 +1484,8 @@
           type="button"
           class="toolbar-btn"
           on:click={toggleConversationSidebar}
-          class:active={conversationSidebarOpen}
-          title={conversationSidebarOpen ? "关闭会话列表" : "打开会话列表"}
+          class:active={conversationPanelView.toolbarActive}
+          title={conversationPanelView.buttonTitle}
         >
           <span class="btn-icon"><SiyuanIcon name="iconMenu" size={13} /></span>
         </button>
