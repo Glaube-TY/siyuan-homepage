@@ -168,14 +168,14 @@ export async function findAccountingRecordById(plugin: any, recordId: string): P
 export async function saveAccountingRecord(
     plugin: any,
     input: AccountingRecordInput,
+    options: { expectedUpdatedAt?: string } = {},
 ): Promise<AccountingRecord> {
     const record = normalizeRecord(input);
-    await saveRecord(plugin, record);
-    return record;
+    return saveRecord(plugin, record, options);
 }
 
-export async function archiveAccountingRecord(plugin: any, recordId: string, date?: string): Promise<void> {
-    await archiveRecord(plugin, recordId, date);
+export async function archiveAccountingRecord(plugin: any, recordId: string, date?: string, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
+    await archiveRecord(plugin, recordId, date, options);
 }
 
 export async function bulkSaveAccountingRecords(plugin: any, inputs: AccountingRecordInput[]): Promise<AccountingRecord[]> {

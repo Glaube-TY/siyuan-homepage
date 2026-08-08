@@ -28,6 +28,10 @@
         unregisterMusicPlayerIndexController,
     } from "./musicPlayerIndexController";
     import type { MusicPlayerIndexActionResult } from "./musicPlayerIndexController";
+    import {
+        registerMusicPlayerPlaybackController,
+        unregisterMusicPlayerPlaybackController,
+    } from "./musicPlayerPlaybackController";
     import { loadLyricsForTrack } from "./musicLyricsService";
     import { writable } from "svelte/store";
     import type { MusicTrack, MusicPlayerViewModel, MusicPlayerActions, MusicPlayerVmStore, MusicMetadataLoadMode, MusicPlayerSortMode, MusicPlayerSortDirection, MusicPlayerViewMode, MusicPlaylist, MusicMetadataIndexProgress } from "./musicPlayerTypes";
@@ -780,6 +784,50 @@
             }
             currentTrackIndex = normalizeTrackIndex(currentTrackIndex, musicFiles.length);
 
+            registerMusicPlayerPlaybackController(blockId, {
+                getStatus: () => ({
+                    sourceMode,
+                    isPlaying: !!currentTrack && isPlaying,
+                    currentTrack: currentTrack ? {
+                        trackId: currentTrack.sourceTrackId || `local:${currentTrackIndex}`,
+                        title: currentTrack.title || currentTrack.baseName || currentTrack.fileName,
+                        artist: currentTrack.artist || "",
+                        album: currentTrack.album || "",
+                        duration: currentTrack.duration || duration || 0,
+                    } : null,
+                    currentTime,
+                    duration,
+                    volume,
+                    queueCount: activeQueueCount || musicFiles.length,
+                    endpointStatus: cloudEndpointState?.activeKind || "unavailable",
+                }),
+                playTrack: async (trackId: string) => {
+                    let index = musicFiles.findIndex((track, itemIndex) =>
+                        track.sourceTrackId === trackId || `local:${itemIndex}` === trackId,
+                    );
+                    if (index < 0 && sourceMode === "subsonic" && cloudProvider) {
+                        const track = await cloudProvider.library.getSong(trackId);
+                        trackRegistry.register(track);
+                        musicFiles = [...musicFiles, track];
+                        index = musicFiles.length - 1;
+                    }
+                    if (index < 0) throw new Error("当前播放器中找不到该歌曲。");
+                    ensureTrackInActiveQueue(index);
+                    await ensureTrackLoaded(index, true);
+                },
+                pause: pauseCurrentPlayback,
+                resume: requestCurrentPlayback,
+                next: actions.nextTrack,
+                previous: actions.prevTrack,
+                seekTo: actions.seekTo,
+                setVolume: (nextVolume: number) => {
+                    volume = Math.max(0, Math.min(1, nextVolume));
+                    isMuted = false;
+                    sound?.volume(volume);
+                    saveConfig();
+                },
+            });
+
             if (sourceMode === "local") {
                 registerMusicPlayerIndexController(blockId, {
                     buildIndex: buildLightIndex,
@@ -812,6 +860,7 @@
         cancelScheduledDisplayMetadata();
         void metadataIndexStore?.flush();
         unregisterMusicPlayerIndexController(blockId);
+        unregisterMusicPlayerPlaybackController(blockId);
         cloudQueueSaveScheduler.cancel();
         sourceProvider?.destroy();
         sourceProvider = null;

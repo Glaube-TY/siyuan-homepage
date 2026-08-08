@@ -3533,6 +3533,7 @@ export type DeleteWidgetResult =
 async function deleteWidgetFromSurfaceCore(
     context: DeviceViewContext,
     widgetId: string,
+    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number } = {},
 ): Promise<DeleteWidgetResult> {
 
     const isReferenced = (layout: DeviceViewLayout): boolean => (
@@ -3554,6 +3555,12 @@ async function deleteWidgetFromSurfaceCore(
     }
     if (!currentLayout) {
         return { status: "uncertainManualCheck", reason: "当前布局文件明确缺失，无法确认组件删除状态" };
+    }
+    if (options.expectedLayoutRevision !== undefined && currentLayout.revision !== options.expectedLayoutRevision) {
+        return { status: "notCommitted", reason: `布局 revision 冲突：预期 ${options.expectedLayoutRevision}，当前 ${currentLayout.revision}` };
+    }
+    if (options.expectedWidgetRevision !== undefined && initialWidgetDocument?.revision !== options.expectedWidgetRevision) {
+        return { status: "notCommitted", reason: `组件 revision 冲突：预期 ${options.expectedWidgetRevision}，当前 ${initialWidgetDocument?.revision ?? "不存在"}` };
     }
 
     // 2) 确认 widgetId 存在于 order 或 sections 中
@@ -3689,9 +3696,10 @@ async function deleteWidgetFromSurfaceCore(
 export async function deleteWidgetFromSurface(
     context: DeviceViewContext,
     widgetId: string,
+    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number } = {},
 ): Promise<DeleteWidgetResult> {
     const queueKey = `${context.scopeId}:${context.surface}`;
-    return runInSurfaceTransaction(queueKey, () => deleteWidgetFromSurfaceCore(context, widgetId));
+    return runInSurfaceTransaction(queueKey, () => deleteWidgetFromSurfaceCore(context, widgetId, options));
 }
 
 /**

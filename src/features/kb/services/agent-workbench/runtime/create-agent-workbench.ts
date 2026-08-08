@@ -16,6 +16,8 @@ import { registerWebTools } from "../composition/register-web-tools";
 import { registerLocalTools } from "../composition/register-local-tools";
 import { registerExternalSkillTools } from "../composition/register-external-skill-tools";
 import { registerMcpManagementTools } from "../composition/register-mcp-tools";
+import { registerHomepageTools } from "../composition/register-homepage-tools";
+import { registerHomepageComponentTools } from "../composition/register-homepage-component-tools";
 import {
   DEFAULT_EXTERNAL_SKILL_SETTINGS,
   DEFAULT_MCP_SETTINGS,
@@ -52,6 +54,15 @@ export interface BuiltinCapabilityAccess {
   tagBookmarkOutline: boolean;
   assetManagement: boolean;
   riffReview: boolean;
+  homepageManagement: boolean;
+  homepageQuickNote: boolean;
+  homepageFocus: boolean;
+  homepageAccounting: boolean;
+  homepageFixedAssets: boolean;
+  homepageCountdown: boolean;
+  homepageFavorites: boolean;
+  homepageReview: boolean;
+  homepageMusic: boolean;
 }
 
 export interface AgentWorkbenchRuntimeOptions {
@@ -109,6 +120,20 @@ export function createAgentWorkbenchRuntime(
       globalToolAccess: options.globalToolAccess,
     });
   }
+
+  registerHomepageTools(toolRegistry, {
+    enabled: options.builtinCapabilityAccess?.homepageManagement === true,
+  });
+  registerHomepageComponentTools(toolRegistry, {
+    quickNote: options.builtinCapabilityAccess?.homepageQuickNote === true,
+    focus: options.builtinCapabilityAccess?.homepageFocus === true,
+    accounting: options.builtinCapabilityAccess?.homepageAccounting === true,
+    fixedAssets: options.builtinCapabilityAccess?.homepageFixedAssets === true,
+    countdown: options.builtinCapabilityAccess?.homepageCountdown === true,
+    favorites: options.builtinCapabilityAccess?.homepageFavorites === true,
+    review: options.builtinCapabilityAccess?.homepageReview === true,
+    music: options.builtinCapabilityAccess?.homepageMusic === true,
+  });
 
   // Register web_fetch aggregate tool.
   registerWebTools(toolRegistry, {

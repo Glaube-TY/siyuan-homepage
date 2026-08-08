@@ -236,6 +236,15 @@ export async function runAgentTurn(
       tagBookmarkOutline: !disabledGlobalTools.has("siyuan_meta"),
       assetManagement: !disabledGlobalTools.has("siyuan_asset"),
       riffReview: !disabledGlobalTools.has("siyuan_riff"),
+      homepageManagement: !disabledGlobalTools.has("homepage_manage"),
+      homepageQuickNote: !disabledGlobalTools.has("homepage_quick_note"),
+      homepageFocus: !disabledGlobalTools.has("homepage_focus"),
+      homepageAccounting: !disabledGlobalTools.has("homepage_accounting"),
+      homepageFixedAssets: !disabledGlobalTools.has("homepage_fixed_assets"),
+      homepageCountdown: !disabledGlobalTools.has("homepage_countdown"),
+      homepageFavorites: !disabledGlobalTools.has("homepage_favorites"),
+      homepageReview: !disabledGlobalTools.has("homepage_review"),
+      homepageMusic: !disabledGlobalTools.has("homepage_music"),
     };
 
     const wb = createAgentWorkbenchRuntime({

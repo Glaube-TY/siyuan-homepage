@@ -40,6 +40,14 @@ function nowIso(): string {
     return new Date().toISOString();
 }
 
+let accountingMutationTail: Promise<void> = Promise.resolve();
+
+function runAccountingMutation<T>(task: () => Promise<T>): Promise<T> {
+    const result = accountingMutationTail.then(task, task);
+    accountingMutationTail = result.then(() => undefined, () => undefined);
+    return result;
+}
+
 async function loadJsonFile(plugin: any, path: string): Promise<unknown> {
     try {
         return await plugin.loadData(path);
@@ -434,7 +442,12 @@ async function findRecordLocation(plugin: any, recordId: string): Promise<{ year
     return null;
 }
 
-export async function saveAccountingRecord(plugin: any, record: AccountingRecord): Promise<AccountingRecord> {
+export async function saveAccountingRecord(
+    plugin: any,
+    record: AccountingRecord,
+    options: { expectedUpdatedAt?: string } = {},
+): Promise<AccountingRecord> {
+    return runAccountingMutation(async () => {
     const now = nowIso();
     const normalized: AccountingRecord = {
         ...record,
@@ -449,6 +462,11 @@ export async function saveAccountingRecord(plugin: any, record: AccountingRecord
 
     // Remove from old year if the date changed
     const oldLocation = normalized.recordId ? await findRecordLocation(plugin, normalized.recordId) : null;
+    if (oldLocation && options.expectedUpdatedAt !== undefined) {
+        const currentFile = await loadAccountingRecordsFile(plugin, oldLocation.year);
+        const current = currentFile.records[oldLocation.index];
+        if (!current || current.updatedAt !== options.expectedUpdatedAt) throw new Error("记账记录已被其他操作修改，请重新读取");
+    }
     const affectedYears = new Set<number>([newYear]);
     if (oldLocation && oldLocation.year !== newYear) {
         const oldFile = await loadAccountingRecordsFile(plugin, oldLocation.year);
@@ -468,19 +486,23 @@ export async function saveAccountingRecord(plugin: any, record: AccountingRecord
     await ensureRecordsIndexYear(plugin, newYear);
     await updateAccountingSummaryIndexForYears(plugin, Array.from(affectedYears));
     return normalized;
+    });
 }
 
 export async function archiveAccountingRecord(
     plugin: any,
     recordId: string,
     date?: string,
+    options: { expectedUpdatedAt?: string } = {},
 ): Promise<void> {
+    return runAccountingMutation(async () => {
     if (date) {
         const year = parseInt(date.slice(0, 4), 10);
         if (Number.isFinite(year)) {
             const file = await loadAccountingRecordsFile(plugin, year);
             const record = file.records.find((r) => r.recordId === recordId);
             if (record) {
+                if (options.expectedUpdatedAt !== undefined && record.updatedAt !== options.expectedUpdatedAt) throw new Error("记账记录已被其他操作修改，请重新读取");
                 record.archived = true;
                 record.updatedAt = nowIso();
                 await saveAccountingRecordsFile(plugin, file);
@@ -494,14 +516,17 @@ export async function archiveAccountingRecord(
     if (!location) throw new Error("记账记录不存在");
     const file = await loadAccountingRecordsFile(plugin, location.year);
     const record = file.records[location.index];
+    if (options.expectedUpdatedAt !== undefined && record.updatedAt !== options.expectedUpdatedAt) throw new Error("记账记录已被其他操作修改，请重新读取");
     record.archived = true;
     record.updatedAt = nowIso();
     await saveAccountingRecordsFile(plugin, file);
     await updateAccountingSummaryIndexForYears(plugin, [location.year]);
+    });
 }
 
 export async function bulkMergeAccountingRecords(plugin: any, records: AccountingRecord[]): Promise<number> {
     if (records.length === 0) return 0;
+    return runAccountingMutation(async () => {
 
     const byYear = new Map<number, AccountingRecord[]>();
     for (const record of records) {
@@ -539,6 +564,7 @@ export async function bulkMergeAccountingRecords(plugin: any, records: Accountin
         await updateAccountingSummaryIndexForYears(plugin, affectedYears);
     }
     return added;
+    });
 }
 
 // ── Asset (account) operations ──
@@ -548,7 +574,12 @@ export async function readAccountingAssets(plugin: any, includeArchived = false)
     return includeArchived ? file.assets : file.assets.filter((a) => !a.archived);
 }
 
-export async function writeAccountingAsset(plugin: any, asset: AccountingAccount): Promise<AccountingAccount> {
+export async function writeAccountingAsset(
+    plugin: any,
+    asset: AccountingAccount,
+    options: { expectedUpdatedAt?: string } = {},
+): Promise<AccountingAccount> {
+    return runAccountingMutation(async () => {
     const now = nowIso();
     const normalized: AccountingAccount = {
         ...asset,
@@ -565,25 +596,31 @@ export async function writeAccountingAsset(plugin: any, asset: AccountingAccount
     const file = await loadAccountingAssetsFile(plugin);
     const idx = file.assets.findIndex((a) => a.accountId === normalized.accountId);
     if (idx >= 0) {
+        if (options.expectedUpdatedAt !== undefined && file.assets[idx].updatedAt !== options.expectedUpdatedAt) throw new Error("资产账户已被其他操作修改，请重新读取");
         file.assets[idx] = normalized;
     } else {
         file.assets.push(normalized);
     }
     await saveAccountingAssetsFile(plugin, file);
     return normalized;
+    });
 }
 
-export async function archiveAccountingAsset(plugin: any, accountId: string): Promise<void> {
+export async function archiveAccountingAsset(plugin: any, accountId: string, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
+    return runAccountingMutation(async () => {
     const file = await loadAccountingAssetsFile(plugin);
     const asset = file.assets.find((a) => a.accountId === accountId);
     if (!asset) throw new Error("资产不存在");
+    if (options.expectedUpdatedAt !== undefined && asset.updatedAt !== options.expectedUpdatedAt) throw new Error("资产账户已被其他操作修改，请重新读取");
     asset.archived = true;
     asset.updatedAt = nowIso();
     await saveAccountingAssetsFile(plugin, file);
+    });
 }
 
 export async function bulkMergeAccountingAssets(plugin: any, assets: AccountingAccount[]): Promise<number> {
     if (assets.length === 0) return 0;
+    return runAccountingMutation(async () => {
     const file = await loadAccountingAssetsFile(plugin);
     const existingIds = new Set(file.assets.map((a) => a.accountId));
     const existingNames = new Set(file.assets.map((a) => a.name.toLowerCase()));
@@ -612,4 +649,5 @@ export async function bulkMergeAccountingAssets(plugin: any, assets: AccountingA
         await saveAccountingAssetsFile(plugin, file);
     }
     return added;
+    });
 }

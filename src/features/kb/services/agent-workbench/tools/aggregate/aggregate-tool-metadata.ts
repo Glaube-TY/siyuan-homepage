@@ -7,6 +7,15 @@ export type AggregateToolName =
   | "siyuan_meta"
   | "siyuan_asset"
   | "siyuan_riff"
+  | "homepage_manage"
+  | "homepage_quick_note"
+  | "homepage_focus"
+  | "homepage_accounting"
+  | "homepage_fixed_assets"
+  | "homepage_countdown"
+  | "homepage_favorites"
+  | "homepage_review"
+  | "homepage_music"
   | "skill_manage"
   | "mcp_manage"
   | "notebrain_file"
@@ -53,7 +62,307 @@ const DATABASE_ID_NOTES = [
   "写操作前先调用 read 或 find_rows 获取真实 ID，再提交写入。",
 ];
 
+const HOMEPAGE_SURFACE_SCHEMA = {
+  type: "string",
+  enum: ["desktop-homepage", "mobile-homepage"],
+  description: "省略时按当前运行环境选择桌面或移动主页。",
+};
+
+function homepageObjectSchema(
+  properties: Record<string, unknown>,
+  required: string[] = [],
+): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: { surface: HOMEPAGE_SURFACE_SCHEMA, ...properties },
+    required,
+  };
+}
+
+function homepageSurfaceArgsSchema(): Record<string, unknown> {
+  return homepageObjectSchema({});
+}
+
+function homepageWriteActionMetadata(): AggregateActionMeta[] {
+  const revisionNotes = ["写入前先读取当前对象并使用返回的 expected revision；冲突后重新读取，不得自动覆盖。"];
+  return [
+    { name: "add_widget", title: "添加主页组件", description: "通过正式组件仓库和布局事务添加组件。", readOnly: false, required: ["widgetType", "expectedLabel", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ widgetType: { type: "string" }, expectedLabel: { type: "string", description: "从 list_widget_types 读取的组件名称。" }, sectionId: { type: "string" }, position: { type: "integer", minimum: 0 }, initialConfig: { type: "object" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["widgetType", "expectedLabel", "expectedLayoutRevision"]), notes: revisionNotes },
+    { name: "update_widget", title: "修改组件设置", description: "只修改 adapter 白名单内的展示配置。", readOnly: false, required: ["widgetId", "expectedType", "expectedWidgetRevision", "expectedValues", "patch"], argsSchema: homepageObjectSchema({ widgetId: { type: "string" }, expectedType: { type: "string" }, expectedWidgetRevision: { type: "integer", minimum: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedValues: { type: "object", description: "从 get_widget.safeConfig.data 读取的待修改字段旧值；字段集合必须与 patch 完全相同。" }, patch: { type: "object" } }, ["widgetId", "expectedType", "expectedWidgetRevision", "expectedValues", "patch"]), notes: ["先用 get_widget 获取真实 ID、类型、revision、当前字段值和 editableFields。", ...revisionNotes] },
+    { name: "move_widget", title: "移动主页组件", description: "调整组件顺序或桌面分栏归属。", readOnly: false, required: ["widgetId", "expectedType", "expectedIndex", "expectedSectionId", "targetIndex", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ widgetId: { type: "string" }, expectedType: { type: "string" }, expectedIndex: { type: "integer", minimum: 0 }, expectedSectionId: { type: ["string", "null"] }, targetIndex: { type: "integer", minimum: 0 }, targetSectionId: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["widgetId", "expectedType", "expectedIndex", "expectedSectionId", "targetIndex", "expectedLayoutRevision"]), notes: ["expectedIndex 与 expectedSectionId 必须来自 list_widgets。", ...revisionNotes] },
+    { name: "remove_widget", title: "移除主页组件", description: "从布局移除组件并安全删除实例配置，不删除业务数据。", readOnly: false, required: ["widgetId", "expectedType", "expectedLabel", "expectedWidgetRevision", "expectedLayoutRevision", "expectedIndex", "expectedSectionId"], argsSchema: homepageObjectSchema({ widgetId: { type: "string" }, expectedType: { type: "string" }, expectedLabel: { type: "string", description: "从 list_widgets 读取的组件名称。" }, expectedWidgetRevision: { type: "integer", minimum: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedIndex: { type: "integer", minimum: 0 }, expectedSectionId: { type: ["string", "null"] } }, ["widgetId", "expectedType", "expectedLabel", "expectedWidgetRevision", "expectedLayoutRevision", "expectedIndex", "expectedSectionId"]), notes: ["expectedIndex、expectedSectionId 与 expectedLabel 必须来自 list_widgets。", ...revisionNotes] },
+    { name: "update_layout", title: "修改主页布局", description: "修改桌面主页或当前分栏的列数和间距。", readOnly: false, required: ["widgetLayoutNumber", "widgetGap", "expectedWidgetLayoutNumber", "expectedWidgetGap", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ widgetLayoutNumber: { type: "integer", minimum: 1, maximum: 12 }, widgetGap: { type: "number", minimum: 0, maximum: 200 }, expectedWidgetLayoutNumber: { type: "integer", minimum: 1, maximum: 12, description: "从 get_layout 读取的当前列数。" }, expectedWidgetGap: { type: "number", minimum: 0, maximum: 200, description: "从 get_layout 读取的当前间距。" }, sectionId: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["widgetLayoutNumber", "widgetGap", "expectedWidgetLayoutNumber", "expectedWidgetGap", "expectedLayoutRevision"]), notes: ["仅 desktop-homepage 支持。", ...revisionNotes] },
+    { name: "create_section", title: "创建主页分栏", description: "创建桌面主页分栏。", readOnly: false, required: ["name", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ name: { type: "string", minLength: 1, maxLength: 60 }, sectionId: { type: "string", pattern: "^[A-Za-z0-9_-]+$" }, position: { type: "integer", minimum: 0 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["name", "expectedLayoutRevision", "expectedViewRevision"]), boundary: "仅 desktop-homepage 支持；同时提交 layout 与 view。", notes: revisionNotes },
+    { name: "rename_section", title: "重命名主页分栏", description: "重命名现有桌面主页分栏。", readOnly: false, required: ["sectionId", "name", "expectedSectionName", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ sectionId: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 60 }, expectedSectionName: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["sectionId", "name", "expectedSectionName", "expectedLayoutRevision", "expectedViewRevision"]), notes: revisionNotes },
+    { name: "reorder_sections", title: "排序主页分栏", description: "按完整 ID 列表调整桌面主页分栏顺序。", readOnly: false, required: ["orderedSectionIds", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ orderedSectionIds: { type: "array", items: { type: "string" }, minItems: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["orderedSectionIds", "expectedLayoutRevision", "expectedViewRevision"]), notes: ["orderedSectionIds 必须包含全部现有分栏且不得重复。", ...revisionNotes] },
+    { name: "remove_section", title: "删除主页分栏", description: "删除分栏结构并按现有邻接规则合并组件。", readOnly: false, required: ["sectionId", "expectedSectionName", "expectedWidgetCount", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ sectionId: { type: "string" }, expectedSectionName: { type: "string" }, expectedWidgetCount: { type: "integer", minimum: 0 }, expectedReceivingSectionId: { type: ["string", "null"] }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["sectionId", "expectedSectionName", "expectedWidgetCount", "expectedLayoutRevision", "expectedViewRevision"]), boundary: "高风险；不会删除分栏中的组件或业务数据。", notes: ["expectedWidgetCount 来自 list_sections；可同时传 expectedReceivingSectionId 锁定接收分栏。", ...revisionNotes] },
+    { name: "set_section_mode", title: "切换分栏模式", description: "开启或关闭桌面主页分栏模式，不删除分栏配置。", readOnly: false, required: ["enabled", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ enabled: { type: "boolean" }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["enabled", "expectedLayoutRevision", "expectedViewRevision"]), notes: revisionNotes },
+    { name: "set_active_section", title: "设置活动分栏", description: "设置当前桌面主页活动分栏。", readOnly: false, required: ["sectionId", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ sectionId: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["sectionId", "expectedLayoutRevision"]), notes: revisionNotes },
+  ];
+}
+
+function accountingRecordSchema(partial: boolean, includeDirection = true): Record<string, unknown> {
+  const schema: Record<string, unknown> = {
+    type: "object", additionalProperties: false,
+    properties: {
+      title: { type: "string", minLength: 1, maxLength: 200 }, direction: { type: "string", enum: ["expense", "income", "transfer"] }, amount: { type: "number", exclusiveMinimum: 0 }, date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, categoryPrimary: { type: "string" }, categorySecondary: { type: "string" }, account: { type: "string" }, counterAccount: { type: "string" }, tags: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] }, note: { type: "string", maxLength: 2000 }, currency: { type: "string" },
+    },
+  };
+  if (!includeDirection) delete (schema.properties as Record<string, unknown>).direction;
+  if (!partial) schema.required = ["title", "direction", "amount"];
+  return schema;
+}
+
+function accountingAccountSchema(partial: boolean): Record<string, unknown> {
+  const schema: Record<string, unknown> = { type: "object", additionalProperties: false, properties: { name: { type: "string", minLength: 1 }, type: { type: "string", minLength: 1 }, currency: { type: "string" }, openingBalance: { type: "number", minimum: 0 }, currentBalance: { type: "number", minimum: 0 }, sortOrder: { type: "number" }, note: { type: "string" } } };
+  if (!partial) schema.required = ["name", "type"];
+  return schema;
+}
+
+function expectedAccountingEntitySchema(idField: "recordId" | "accountId"): Record<string, unknown> {
+  return { type: "object", additionalProperties: false, properties: { [idField]: { type: "string" }, expectedUpdatedAt: { type: "string" } }, required: [idField, "expectedUpdatedAt"] };
+}
+
+const EMPTY_ARGS_SCHEMA = { type: "object", additionalProperties: false, properties: {} };
+const SIYUAN_BLOCK_ID_SCHEMA = { type: "string", pattern: "^\\d{14}-[a-z0-9]{7}$" };
+const DATE_SCHEMA = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
+const COUNTDOWN_EVENT_FIELDS_SCHEMA = {
+  name: { type: "string", minLength: 1, maxLength: 200 },
+  kind: { type: "string", enum: ["birthday", "anniversary", "deadline", "expiration", "milestone", "subscription", "custom"] },
+  calendar: { type: "string", enum: ["solar", "lunar"] },
+  recurrence: { type: "string", enum: ["none", "yearly"] },
+  date: DATE_SCHEMA,
+  lunarDate: { type: "object", additionalProperties: false, properties: { year: { type: "integer", minimum: 1900, maximum: 2200 }, month: { type: "integer", minimum: 1, maximum: 12 }, day: { type: "integer", minimum: 1, maximum: 30 }, isLeapMonth: { type: "boolean" } }, required: ["year", "month", "day"] },
+  categoryId: { type: ["string", "null"] },
+  tags: { type: "array", items: { type: "string", minLength: 1, maxLength: 40 }, maxItems: 50 },
+  priority: { type: "string", enum: ["high", "normal", "low"] },
+  note: { type: "string", maxLength: 2000 },
+  linkedBlockId: SIYUAN_BLOCK_ID_SCHEMA,
+  pastBehavior: { type: "string", enum: ["keep", "auto-archive"] },
+};
+const REVIEW_PLAN_FIELDS_SCHEMA = {
+  nextDate: DATE_SCHEMA,
+  note: { type: "string", maxLength: 2000 },
+  category: { type: "string", maxLength: 100 },
+  priority: { type: "string", enum: ["high", "medium", "low"] },
+  plan: { type: "string", enum: ["manual", "ebbinghaus", "custom"] },
+  intervals: { type: "array", items: { type: "integer", minimum: 0 }, maxItems: 50 },
+};
+
+function reviewTargetArgsSchema(
+  properties: Record<string, unknown> = {},
+  required: string[] = [],
+): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      targetId: SIYUAN_BLOCK_ID_SCHEMA,
+      targetType: { type: "string", enum: ["doc", "block"] },
+      ...properties,
+    },
+    required: ["targetId", "targetType", ...required],
+  };
+}
+
 export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
+  {
+    name: "homepage_manage",
+    title: "主页管理",
+    description: "读取和管理 siyuan-homepage 当前主页的组件、布局与分栏。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "只能通过插件正式主页 API 操作 desktop-homepage 或 mobile-homepage；不得操作 desktop-sidebar、原始数据文件、组件业务数据或敏感凭据。",
+    actions: [
+      {
+        name: "overview", title: "查看主页概况", description: "读取当前主页的布局、分栏和组件数量摘要。", readOnly: true,
+        argsSchema: homepageSurfaceArgsSchema(), examples: [{ action: "overview", args: { surface: "desktop-homepage" } }],
+      },
+      {
+        name: "list_widgets", title: "列出主页组件", description: "按真实显示顺序列出当前主页组件。", readOnly: true,
+        argsSchema: homepageSurfaceArgsSchema(), examples: [{ action: "list_widgets", args: { surface: "mobile-homepage" } }],
+      },
+      {
+        name: "get_widget", title: "查看主页组件", description: "读取指定组件的脱敏配置摘要和可编辑字段。", readOnly: true, required: ["widgetId"],
+        argsSchema: homepageObjectSchema({ widgetId: { type: "string" }, expectedType: { type: "string" } }, ["widgetId"]),
+        examples: [{ action: "get_widget", args: { widgetId: "真实组件ID", expectedType: "weather" } }],
+        notes: ["widgetId 必须来自 list_widgets；不会返回业务数据、密钥或完整本地路径。"],
+      },
+      {
+        name: "list_widget_types", title: "列出可用组件类型", description: "列出真实组件目录、surface 支持和可编辑字段。", readOnly: true,
+        argsSchema: homepageSurfaceArgsSchema(), examples: [{ action: "list_widget_types", args: { surface: "desktop-homepage" } }],
+      },
+      {
+        name: "get_layout", title: "查看主页布局", description: "读取当前 surface 的布局 revision、顺序、列数和间距。", readOnly: true,
+        argsSchema: homepageSurfaceArgsSchema(), examples: [{ action: "get_layout", args: {} }],
+      },
+      {
+        name: "list_sections", title: "列出主页分栏", description: "读取桌面主页分栏及 layout/view 一致性。", readOnly: true,
+        argsSchema: homepageSurfaceArgsSchema(), examples: [{ action: "list_sections", args: { surface: "desktop-homepage" } }],
+        notes: ["仅 desktop-homepage 支持。"],
+      },
+      ...homepageWriteActionMetadata(),
+    ],
+  },
+  {
+    name: "homepage_quick_note",
+    title: "主页快速笔记",
+    description: "使用用户当前正式快速笔记配置写入一条记录或查看配置状态。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "直接复用 writeQuickNote；不允许修改快速笔记目标、插入位置或时间戳设置，也不返回目标文档历史正文。",
+    actions: [
+      { name: "status", title: "查看快速笔记状态", description: "查看目标是否配置、插入位置和时间戳开关。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: {} }, examples: [{ action: "status", args: {} }] },
+      { name: "write", title: "写入快速笔记", description: "按当前正式设置写入一条快速笔记。", readOnly: false, required: ["content"], argsSchema: { type: "object", additionalProperties: false, properties: { content: { type: "string", minLength: 1, maxLength: 10000 }, sourceContext: { type: "string", maxLength: 200 } }, required: ["content"] }, examples: [{ action: "write", args: { content: "明天下午联系加工厂" } }], notes: ["不得传 quickNotesPosition、quickNotesTimestampEnabled 或 quickNotesAddPosition；source 固定为 agent。"] },
+    ],
+  },
+  {
+    name: "homepage_focus",
+    title: "主页专注记录",
+    description: "查询真实专注统计或补记一条已发生的专注会话。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "复用 focusData 正式年度 session store；record_session 只补记已完成/取消的会话，不启动后台计时器。",
+    actions: [
+      { name: "stats", title: "查看专注统计", description: "查看全部或日期范围内的专注统计。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { startDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, endDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } } }, examples: [{ action: "stats", args: {} }, { action: "stats", args: { startDate: "2026-08-01", endDate: "2026-08-08" } }] },
+      { name: "record_session", title: "补记专注会话", description: "向正式专注历史追加一条会话并验证统计变化。", readOnly: false, required: ["startedAt", "endedAt", "plannedSeconds", "actualFocusSeconds", "status"], argsSchema: { type: "object", additionalProperties: false, properties: { startedAt: { type: "string", format: "date-time" }, endedAt: { type: "string", format: "date-time" }, plannedSeconds: { type: "integer", minimum: 0, maximum: 86400 }, actualFocusSeconds: { type: "integer", minimum: 0, maximum: 86400 }, status: { type: "string", enum: ["completed", "cancelled"] } }, required: ["startedAt", "endedAt", "plannedSeconds", "actualFocusSeconds", "status"] }, examples: [{ action: "record_session", args: { startedAt: "2026-08-08T08:00:00+08:00", endedAt: "2026-08-08T08:50:00+08:00", plannedSeconds: 3000, actualFocusSeconds: 3000, status: "completed" } }], notes: ["单次会话最长 24 小时；localDate 和 id 由 service 生成。"] },
+    ],
+  },
+  {
+    name: "homepage_accounting",
+    title: "主页记账",
+    description: "查询和管理插件正式记账流水、资产账户与统计报表。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "复用 Accounting 年度记录、资产账户和 analytics；查询默认限量，编辑/归档使用 expectedUpdatedAt，不提供永久删除流水。",
+    actions: [
+      { name: "overview", title: "查看记账概览", description: "查看本月收支、今日支出、最近记录和账户数量。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: {} } },
+      { name: "query_records", title: "查询记账流水", description: "按日期、方向、分类、账户和关键词限量查询流水。", readOnly: true, required: ["startDate/endDate 或 year"], argsSchema: { type: "object", additionalProperties: false, properties: { startDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, endDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, year: { type: "integer", minimum: 1970, maximum: 9999 }, direction: { type: "string", enum: ["expense", "income", "transfer"] }, category: { type: "string" }, account: { type: "string" }, keyword: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 200 } } }, notes: ["不要默认查询全部历史；优先使用 summary 回答合计问题。"] },
+      { name: "summary", title: "统计收支", description: "由正式 analytics 统计今天、日期、月份、范围或年度收支。", readOnly: true, required: ["period"], argsSchema: { type: "object", additionalProperties: false, properties: { period: { type: "string", enum: ["today", "date", "month", "range", "year"] }, date: { type: "string" }, month: { type: "string" }, year: { type: "integer" }, startDate: { type: "string" }, endDate: { type: "string" } }, required: ["period"] }, examples: [{ action: "summary", args: { period: "month", month: "2026-08" } }] },
+      { name: "add_record", title: "新增记账流水", description: "新增支出、收入或转账记录。", readOnly: false, required: ["title", "direction", "amount"], argsSchema: accountingRecordSchema(false), examples: [{ action: "add_record", args: { title: "午饭", direction: "expense", amount: 35, categoryPrimary: "餐饮" } }], notes: ["amount 必须大于 0；date 默认今天；转账必须提供不同的 account 和 counterAccount。"] },
+      { name: "update_record", title: "修改记账流水", description: "使用 expectedUpdatedAt 修改白名单字段。", readOnly: false, required: ["recordId", "expectedUpdatedAt", "patch"], argsSchema: { type: "object", additionalProperties: false, properties: { recordId: { type: "string" }, expectedUpdatedAt: { type: "string" }, patch: accountingRecordSchema(true, false) }, required: ["recordId", "expectedUpdatedAt", "patch"] }, notes: ["recordId 与 expectedUpdatedAt 必须来自 query_records；direction 不允许通过更新修改。"] },
+      { name: "archive_record", title: "归档记账流水", description: "归档流水，不永久删除。", readOnly: false, required: ["recordId", "expectedUpdatedAt"], argsSchema: expectedAccountingEntitySchema("recordId"), boundary: "高风险；归档后不再出现在活动流水。" },
+      { name: "list_accounts", title: "列出资产账户", description: "列出当前活动资产账户。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: {} } },
+      { name: "add_account", title: "新增资产账户", description: "新增记账资产账户。", readOnly: false, required: ["name", "type"], argsSchema: accountingAccountSchema(false) },
+      { name: "update_account", title: "修改资产账户", description: "使用 expectedUpdatedAt 修改资产账户。", readOnly: false, required: ["accountId", "expectedUpdatedAt", "patch"], argsSchema: { type: "object", additionalProperties: false, properties: { accountId: { type: "string" }, expectedUpdatedAt: { type: "string" }, patch: accountingAccountSchema(true) }, required: ["accountId", "expectedUpdatedAt", "patch"] } },
+      { name: "archive_account", title: "归档资产账户", description: "归档资产账户。", readOnly: false, required: ["accountId", "expectedUpdatedAt"], argsSchema: expectedAccountingEntitySchema("accountId"), boundary: "高风险；不永久删除账户。" },
+      { name: "category_report", title: "查看分类报表", description: "使用正式分类 analytics 返回分类金额、占比和笔数。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { period: { type: "string", enum: ["month", "recent30", "year"] }, direction: { type: "string", enum: ["expense", "income"] }, referenceDate: { type: "string" } } } },
+    ],
+  },
+  {
+    name: "homepage_fixed_assets",
+    title: "主页固定资产",
+    description: "查询、新增、修改和归档固定资产，并计算分期成本。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "复用固定资产共享存储与成本函数；修改/归档使用 expectedUpdatedAt，不提供永久删除。",
+    actions: [
+      { name: "list", title: "列出固定资产", description: "按分类、关键词、归档状态和成本模式筛选。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { category: { type: "string" }, keyword: { type: "string" }, includeArchived: { type: "boolean" }, costMode: { type: "string", enum: ["elapsed", "expectedLife", "retireDate"] }, limit: { type: "integer", minimum: 1, maximum: 200 } } } },
+      { name: "get", title: "读取固定资产", description: "按 assetId 读取完整安全字段。", readOnly: true, required: ["assetId"], argsSchema: { type: "object", additionalProperties: false, properties: { assetId: { type: "string" } }, required: ["assetId"] } },
+      { name: "add", title: "新增固定资产", description: "新增一项固定资产。", readOnly: false, required: ["name", "purchasePrice", "purchaseDate"], argsSchema: { type: "object", additionalProperties: false, properties: { name: { type: "string" }, category: { type: "string" }, icon: { type: "string" }, purchasePrice: { type: "number", minimum: 0 }, extraCost: { type: "number", minimum: 0 }, purchaseDate: { type: "string" }, retireDate: { type: "string" }, warrantyDate: { type: "string" }, expectedDays: { type: "integer", minimum: 1, maximum: 365250 }, costMode: { type: "string", enum: ["elapsed", "expectedLife", "retireDate"] }, note: { type: "string" } }, required: ["name", "purchasePrice", "purchaseDate"] } },
+      { name: "update", title: "修改固定资产", description: "使用 expectedUpdatedAt 修改白名单字段。", readOnly: false, required: ["assetId", "expectedUpdatedAt", "patch"], argsSchema: { type: "object", additionalProperties: false, properties: { assetId: { type: "string" }, expectedUpdatedAt: { type: "string" }, patch: { type: "object" } }, required: ["assetId", "expectedUpdatedAt", "patch"] } },
+      { name: "archive", title: "归档固定资产", description: "将资产标记为归档，不永久删除。", readOnly: false, required: ["assetId", "expectedUpdatedAt"], argsSchema: { type: "object", additionalProperties: false, properties: { assetId: { type: "string" }, expectedUpdatedAt: { type: "string" } }, required: ["assetId", "expectedUpdatedAt"] }, boundary: "高风险归档操作。" },
+      { name: "cost_summary", title: "统计资产成本", description: "按日、周、月、季或年计算成本。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { period: { type: "string", enum: ["day", "week", "month", "quarter", "year"] }, category: { type: "string" }, includeArchived: { type: "boolean" } } } },
+    ],
+  },
+  {
+    name: "homepage_favorites",
+    title: "主页收藏",
+    description: "管理收藏文档、分组归属和顺序。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "复用收藏严格 store 的读写队列、未知字段保留和写后验证；新增时由 service 读取真实文档信息。",
+    actions: [
+      { name: "list", title: "列出收藏", description: "按分组、笔记本和关键词限量查询。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { groupId: { type: "string" }, notebook: { type: "string" }, keyword: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 200 } } } },
+      { name: "add", title: "收藏文档", description: "读取真实文档信息并收藏。", readOnly: false, required: ["docId"], argsSchema: { type: "object", additionalProperties: false, properties: { docId: SIYUAN_BLOCK_ID_SCHEMA, groupId: { type: ["string", "null"] } }, required: ["docId"] } },
+      { name: "remove", title: "取消收藏", description: "取消文档收藏，不删除文档。", readOnly: false, required: ["docId", "expectedUpdatedAt"], argsSchema: { type: "object", additionalProperties: false, properties: { docId: SIYUAN_BLOCK_ID_SCHEMA, expectedUpdatedAt: { type: "string" } }, required: ["docId", "expectedUpdatedAt"] }, boundary: "高风险索引移除；不删除思源文档。" },
+      { name: "move_to_group", title: "移动收藏分组", description: "移到真实分组或未分组。", readOnly: false, required: ["docId", "groupId", "expectedUpdatedAt"], argsSchema: { type: "object", additionalProperties: false, properties: { docId: SIYUAN_BLOCK_ID_SCHEMA, groupId: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["docId", "groupId", "expectedUpdatedAt"] } },
+      { name: "list_groups", title: "列出收藏分组", description: "列出分组、收藏数和未分组数。", readOnly: true, argsSchema: EMPTY_ARGS_SCHEMA },
+      { name: "create_group", title: "创建收藏分组", description: "创建新分组。", readOnly: false, required: ["name"], argsSchema: { type: "object", additionalProperties: false, properties: { name: { type: "string", minLength: 1, maxLength: 60 } }, required: ["name"] } },
+      { name: "rename_group", title: "重命名收藏分组", description: "重命名现有分组。", readOnly: false, required: ["groupId", "name", "expectedUpdatedAt", "expectedGroupUpdatedAt"], argsSchema: { type: "object", additionalProperties: false, properties: { groupId: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 60 }, expectedUpdatedAt: { type: "string" }, expectedGroupUpdatedAt: { type: "string" } }, required: ["groupId", "name", "expectedUpdatedAt", "expectedGroupUpdatedAt"] } },
+      { name: "delete_group", title: "删除收藏分组", description: "删除分组，其收藏转入未分组。", readOnly: false, required: ["groupId", "expectedUpdatedAt", "expectedGroupUpdatedAt", "expectedItemCount"], argsSchema: { type: "object", additionalProperties: false, properties: { groupId: { type: "string" }, expectedUpdatedAt: { type: "string" }, expectedGroupUpdatedAt: { type: "string" }, expectedItemCount: { type: "integer", minimum: 0 } }, required: ["groupId", "expectedUpdatedAt", "expectedGroupUpdatedAt", "expectedItemCount"] }, boundary: "高风险；不删除收藏文档。" },
+      { name: "reorder", title: "重排收藏", description: "重排指定收藏的相对顺序。", readOnly: false, required: ["docIds", "expectedUpdatedAt"], argsSchema: { type: "object", additionalProperties: false, properties: { docIds: { type: "array", items: SIYUAN_BLOCK_ID_SCHEMA, minItems: 1, maxItems: 200 }, expectedUpdatedAt: { type: "string" } }, required: ["docIds", "expectedUpdatedAt"] } },
+    ],
+  },
+  {
+    name: "homepage_review",
+    title: "主页复习计划",
+    description: "管理插件自有的文档/块复习计划。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "与思源官方闪卡 siyuan_riff 分离；复用 review index、块属性和 review log 正式链路。",
+    actions: [
+      { name: "list", title: "列出复习计划", description: "按到期状态、分类、优先级和关键词查询。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { view: { type: "string", enum: ["due", "today", "overdue", "future", "all"] }, category: { type: "string" }, priority: { type: "string", enum: ["high", "medium", "low"] }, search: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 200 } } } },
+      { name: "summary", title: "复习计划摘要", description: "返回今日、逾期、未来、到期和总数。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { futureDays: { type: "integer", minimum: 1, maximum: 365 } } } },
+      { name: "schedule", title: "安排复习", description: "为尚无计划的真实文档或块新建复习计划。", readOnly: false, required: ["targetId", "targetType", "nextDate"], argsSchema: reviewTargetArgsSchema(REVIEW_PLAN_FIELDS_SCHEMA, ["nextDate"]), notes: ["目标已有计划时会拒绝，请先 list 后使用 update_plan，防止覆盖现有计划。"] },
+      { name: "update_plan", title: "更新复习计划", description: "使用 expectedUpdatedAt 更新计划。", readOnly: false, required: ["targetId", "targetType", "expectedUpdatedAt", "plan"], argsSchema: reviewTargetArgsSchema({ expectedUpdatedAt: { type: "string" }, plan: { type: "object", additionalProperties: false, properties: REVIEW_PLAN_FIELDS_SCHEMA, required: ["nextDate"] } }, ["expectedUpdatedAt", "plan"]) },
+      { name: "complete", title: "完成本次复习", description: "记录一次复习并计算下次日期。", readOnly: false, required: ["targetId", "targetType", "expectedUpdatedAt"], argsSchema: reviewTargetArgsSchema({ expectedUpdatedAt: { type: "string" }, manualNextDate: DATE_SCHEMA, switchToManual: { type: "boolean" } }, ["expectedUpdatedAt"]) },
+      { name: "postpone", title: "推迟复习", description: "将下次复习日期推迟到指定日期。", readOnly: false, required: ["targetId", "targetType", "expectedUpdatedAt", "nextDate"], argsSchema: reviewTargetArgsSchema({ expectedUpdatedAt: { type: "string" }, nextDate: DATE_SCHEMA }, ["expectedUpdatedAt", "nextDate"]) },
+      { name: "finish", title: "结束复习计划", description: "表示完成整个复习计划。", readOnly: false, required: ["targetId", "targetType", "expectedUpdatedAt"], argsSchema: reviewTargetArgsSchema({ expectedUpdatedAt: { type: "string" } }, ["expectedUpdatedAt"]) },
+      { name: "remove", title: "移除复习计划", description: "移除插件复习计划，不删除思源内容。", readOnly: false, required: ["targetId", "targetType", "expectedUpdatedAt"], argsSchema: reviewTargetArgsSchema({ expectedUpdatedAt: { type: "string" } }, ["expectedUpdatedAt"]), boundary: "高风险；不会删除思源文档/块。" },
+    ],
+  },
+  {
+    name: "homepage_music",
+    title: "主页音乐",
+    description: "查询 Subsonic / Navidrome 云端音乐库、管理服务器歌单与收藏，并控制已挂载的播放器。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "严禁返回密码、encryptedPassword、token、salt、完整用户名或本地绝对路径。运行时未挂载时不自动创建播放器。",
+    actions: [
+      { name: "status", title: "查看音乐状态", description: "返回来源、运行时、安全歌曲摘要、云端配置、endpoint 和队列数。", readOnly: true, argsSchema: EMPTY_ARGS_SCHEMA },
+      { name: "search", title: "搜索云端音乐", description: "按歌曲、艺术家或专辑搜索已配置的 Subsonic 服务。", readOnly: true, required: ["query"], argsSchema: { type: "object", additionalProperties: false, properties: { query: { type: "string", minLength: 1, maxLength: 200 }, type: { type: "string", enum: ["song", "artist", "album"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["query"] } },
+      { name: "list_playlists", title: "列出云端歌单", description: "列出服务器歌单，不与本地组件歌单混用 ID。", readOnly: true, argsSchema: EMPTY_ARGS_SCHEMA },
+      { name: "create_playlist", title: "创建云端歌单", description: "创建服务器歌单并可加入歌曲。", readOnly: false, required: ["name"], argsSchema: { type: "object", additionalProperties: false, properties: { name: { type: "string", minLength: 1, maxLength: 200 }, trackIds: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 500 } }, required: ["name"] } },
+      { name: "rename_playlist", title: "重命名云端歌单", description: "先读取最新歌单再重命名。", readOnly: false, required: ["playlistId", "name"], argsSchema: { type: "object", additionalProperties: false, properties: { playlistId: { type: "string", minLength: 1 }, name: { type: "string", minLength: 1, maxLength: 200 } }, required: ["playlistId", "name"] } },
+      { name: "delete_playlist", title: "删除云端歌单", description: "删除服务器歌单并回读验证。", readOnly: false, required: ["playlistId"], argsSchema: { type: "object", additionalProperties: false, properties: { playlistId: { type: "string", minLength: 1 } }, required: ["playlistId"] }, boundary: "高风险服务器删除。" },
+      { name: "add_to_playlist", title: "加入云端歌单", description: "将 server track ID 加入 server playlist ID。", readOnly: false, required: ["playlistId", "trackId"], argsSchema: { type: "object", additionalProperties: false, properties: { playlistId: { type: "string", minLength: 1 }, trackId: { type: "string", minLength: 1 } }, required: ["playlistId", "trackId"] } },
+      { name: "remove_from_playlist", title: "移出云端歌单", description: "从服务器歌单移出指定歌曲。", readOnly: false, required: ["playlistId", "trackId"], argsSchema: { type: "object", additionalProperties: false, properties: { playlistId: { type: "string", minLength: 1 }, trackId: { type: "string", minLength: 1 } }, required: ["playlistId", "trackId"] } },
+      { name: "favorite", title: "收藏云端歌曲", description: "通过服务器 star 收藏歌曲。", readOnly: false, required: ["trackId"], argsSchema: { type: "object", additionalProperties: false, properties: { trackId: { type: "string", minLength: 1 } }, required: ["trackId"] } },
+      { name: "unfavorite", title: "取消收藏云端歌曲", description: "通过服务器 unstar 取消收藏。", readOnly: false, required: ["trackId"], argsSchema: { type: "object", additionalProperties: false, properties: { trackId: { type: "string", minLength: 1 } }, required: ["trackId"] } },
+      { name: "play", title: "播放歌曲", description: "使用已挂载的真实播放器播放 server track ID。", readOnly: false, required: ["trackId"], argsSchema: { type: "object", additionalProperties: false, properties: { trackId: { type: "string", minLength: 1 } }, required: ["trackId"] }, boundary: "低风险运行时副作用。" },
+      { name: "pause", title: "暂停播放", description: "暂停当前播放。", readOnly: false, argsSchema: EMPTY_ARGS_SCHEMA },
+      { name: "resume", title: "恢复播放", description: "恢复当前播放。", readOnly: false, argsSchema: EMPTY_ARGS_SCHEMA },
+      { name: "next", title: "下一首", description: "切换到下一首。", readOnly: false, argsSchema: EMPTY_ARGS_SCHEMA },
+      { name: "previous", title: "上一首", description: "切换到上一首。", readOnly: false, argsSchema: EMPTY_ARGS_SCHEMA },
+      { name: "seek", title: "跳转播放位置", description: "跳转到指定秒数。", readOnly: false, required: ["seconds"], argsSchema: { type: "object", additionalProperties: false, properties: { seconds: { type: "number", minimum: 0 } }, required: ["seconds"] } },
+      { name: "set_volume", title: "设置音量", description: "将音量设为 0 到 1。", readOnly: false, required: ["volume"], argsSchema: { type: "object", additionalProperties: false, properties: { volume: { type: "number", minimum: 0, maximum: 1 } }, required: ["volume"] } },
+    ],
+  },
+  {
+    name: "homepage_countdown",
+    title: "主页纪念日",
+    description: "管理纪念日、生日和分类。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "复用 countdownData 事务、revision 与写后回读；日期由 countdownDateEngine 计算；不管理通知渠道或历史。",
+    actions: [
+      { name: "list", title: "列出纪念日", description: "按状态、分类、标签、优先级、类型和日期筛选。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { scope: { type: "string", enum: ["upcoming", "archived", "all"] }, categoryId: { type: "string" }, tags: { type: "array", items: { type: "string" }, maxItems: 20 }, priority: { type: "string", enum: ["high", "normal", "low"] }, kind: COUNTDOWN_EVENT_FIELDS_SCHEMA.kind, search: { type: "string" }, startDate: DATE_SCHEMA, endDate: DATE_SCHEMA, limit: { type: "integer", minimum: 1, maximum: 200 } } } },
+      { name: "get", title: "读取纪念日", description: "返回事件、当前 revision 与真实下次发生日。", readOnly: true, required: ["eventId"], argsSchema: { type: "object", additionalProperties: false, properties: { eventId: { type: "string" } }, required: ["eventId"] } },
+      { name: "add", title: "新增纪念日", description: "新增公历/农历事件。", readOnly: false, required: ["name"], argsSchema: { type: "object", additionalProperties: false, properties: COUNTDOWN_EVENT_FIELDS_SCHEMA, required: ["name"] } },
+      { name: "update", title: "修改纪念日", description: "使用事件时间戳和数据 revision 进行冲突检测。", readOnly: false, required: ["eventId", "expectedUpdatedAt", "expectedRevision", "patch"], argsSchema: { type: "object", additionalProperties: false, properties: { eventId: { type: "string" }, expectedUpdatedAt: { type: "string" }, expectedRevision: { type: "integer", minimum: 0 }, patch: { type: "object", additionalProperties: false, properties: COUNTDOWN_EVENT_FIELDS_SCHEMA } }, required: ["eventId", "expectedUpdatedAt", "expectedRevision", "patch"] } },
+      { name: "archive", title: "归档纪念日", description: "归档事件。", readOnly: false, required: ["eventId", "expectedUpdatedAt", "expectedRevision"], argsSchema: { type: "object", additionalProperties: false, properties: { eventId: { type: "string" }, expectedUpdatedAt: { type: "string" }, expectedRevision: { type: "integer", minimum: 0 } }, required: ["eventId", "expectedUpdatedAt", "expectedRevision"] } },
+      { name: "restore", title: "恢复纪念日", description: "恢复已归档事件。", readOnly: false, required: ["eventId", "expectedUpdatedAt", "expectedRevision"], argsSchema: { type: "object", additionalProperties: false, properties: { eventId: { type: "string" }, expectedUpdatedAt: { type: "string" }, expectedRevision: { type: "integer", minimum: 0 } }, required: ["eventId", "expectedUpdatedAt", "expectedRevision"] } },
+      { name: "delete_permanently", title: "永久删除纪念日", description: "永久删除事件，不可恢复。", readOnly: false, required: ["eventId", "expectedUpdatedAt", "expectedRevision"], argsSchema: { type: "object", additionalProperties: false, properties: { eventId: { type: "string" }, expectedUpdatedAt: { type: "string" }, expectedRevision: { type: "integer", minimum: 0 } }, required: ["eventId", "expectedUpdatedAt", "expectedRevision"] }, boundary: "高风险；这是永久删除，不是归档。" },
+      { name: "list_categories", title: "列出纪念日分类", description: "列出分类及其事件数。", readOnly: true, argsSchema: { type: "object", additionalProperties: false, properties: { includeArchived: { type: "boolean" } } } },
+      { name: "create_category", title: "创建纪念日分类", description: "创建新分类。", readOnly: false, required: ["name"], argsSchema: { type: "object", additionalProperties: false, properties: { name: { type: "string", minLength: 1, maxLength: 40 }, icon: { type: "string" }, color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" } }, required: ["name"] } },
+      {
+        name: "update_category", title: "修改纪念日分类", description: "使用 expectedUpdatedAt 修改分类。", readOnly: false,
+        required: ["categoryId", "expectedUpdatedAt", "patch"],
+        argsSchema: {
+          type: "object", additionalProperties: false,
+          properties: {
+            categoryId: { type: "string" },
+            expectedUpdatedAt: { type: "string" },
+            patch: { type: "object", additionalProperties: false, properties: { name: { type: "string", minLength: 1, maxLength: 40 }, icon: { type: "string" }, color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" } } },
+          },
+          required: ["categoryId", "expectedUpdatedAt", "patch"],
+        },
+      },
+      { name: "archive_category", title: "归档纪念日分类", description: "归档分类。", readOnly: false, required: ["categoryId", "expectedUpdatedAt"], argsSchema: { type: "object", additionalProperties: false, properties: { categoryId: { type: "string" }, expectedUpdatedAt: { type: "string" } }, required: ["categoryId", "expectedUpdatedAt"] } },
+      { name: "delete_category", title: "删除纪念日分类", description: "删除分类并将其事件移到目标分类或未分组。", readOnly: false, required: ["categoryId", "expectedRevision", "expectedEventCount"], argsSchema: { type: "object", additionalProperties: false, properties: { categoryId: { type: "string" }, moveToCategoryId: { type: ["string", "null"] }, expectedRevision: { type: "integer", minimum: 0 }, expectedEventCount: { type: "integer", minimum: 0 } }, required: ["categoryId", "expectedRevision", "expectedEventCount"] }, boundary: "高风险；预览必须显示受影响事件数和移动目标。" },
+    ],
+  },
   {
     name: "siyuan_kb",
     title: "思源知识库",

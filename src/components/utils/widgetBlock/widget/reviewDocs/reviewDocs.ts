@@ -69,6 +69,19 @@ export interface ReviewOperationResult {
     logWarning?: string;
 }
 
+let reviewMutationTail: Promise<void> = Promise.resolve();
+function runReviewMutation<T>(mutation: () => Promise<T>): Promise<T> {
+    const next = reviewMutationTail.then(mutation, mutation);
+    reviewMutationTail = next.then(() => undefined, () => undefined);
+    return next;
+}
+
+function assertExpectedReviewUpdatedAt(expected: string | undefined, current: ReviewAttrs): void {
+    if (expected !== undefined && current.updatedAt !== expected) {
+        throw new Error("复习计划已在其他窗口修改，请重新读取。");
+    }
+}
+
 function emptyReviewAttrs(): ReviewAttrs {
     return {
         reviewId: "",
@@ -626,7 +639,7 @@ function attrsAfterClear(): ReviewAttrs {
     return emptyReviewAttrs();
 }
 
-export async function markReviewTarget(params: ReviewPlanOperationParams): Promise<ReviewOperationResult> {
+async function markReviewTargetUnlocked(params: ReviewPlanOperationParams): Promise<ReviewOperationResult> {
     if (!isValidDateText(params.input.nextDate)) {
         throw new Error("复习日期格式错误");
     }
@@ -634,6 +647,7 @@ export async function markReviewTarget(params: ReviewPlanOperationParams): Promi
     const target = await getReviewTargetInfo(params.targetId, params.targetType);
     const now = new Date().toISOString();
     const before = await readCurrentReviewAttrs(params.targetId) || emptyReviewAttrs();
+    assertExpectedReviewUpdatedAt(params.expectedUpdatedAt, before);
     const after = ensurePersistentReviewId({
         ...before,
         nextDate: params.input.nextDate,
@@ -663,7 +677,7 @@ export async function markReviewTarget(params: ReviewPlanOperationParams): Promi
     };
 }
 
-export async function updateReviewTarget(params: ReviewPlanOperationParams): Promise<ReviewOperationResult> {
+async function updateReviewTargetUnlocked(params: ReviewPlanOperationParams): Promise<ReviewOperationResult> {
     if (!isValidDateText(params.input.nextDate)) {
         throw new Error("复习日期格式错误");
     }
@@ -671,6 +685,7 @@ export async function updateReviewTarget(params: ReviewPlanOperationParams): Pro
     const target = await getReviewTargetInfo(params.targetId, params.targetType);
     const now = new Date().toISOString();
     const before = ensurePersistentReviewId(await readCurrentReviewAttrs(params.targetId) || emptyReviewAttrs());
+    assertExpectedReviewUpdatedAt(params.expectedUpdatedAt, before);
     const intervals = params.input.plan === "manual" ? [] : normalizeIntervals(params.input.intervals);
     const nextIntervalIndex = intervals.length > 0
         ? Math.min(before.intervalIndex, Math.max(0, intervals.length - 1))
@@ -702,10 +717,11 @@ export async function updateReviewTarget(params: ReviewPlanOperationParams): Pro
     };
 }
 
-export async function completeReviewOnce(params: CompleteReviewParams): Promise<ReviewOperationResult> {
+async function completeReviewOnceUnlocked(params: CompleteReviewParams): Promise<ReviewOperationResult> {
     const target = await getReviewTargetInfo(params.targetId, params.targetType);
     const now = new Date().toISOString();
     const before = ensurePersistentReviewId(await readCurrentReviewAttrs(params.targetId) || emptyReviewAttrs());
+    assertExpectedReviewUpdatedAt(params.expectedUpdatedAt, before);
     if (!before.nextDate) {
         throw new Error("当前内容没有有效复习计划");
     }
@@ -760,13 +776,14 @@ export async function completeReviewOnce(params: CompleteReviewParams): Promise<
     };
 }
 
-export async function postponeReviewTarget(params: PostponeReviewParams): Promise<ReviewOperationResult> {
+async function postponeReviewTargetUnlocked(params: PostponeReviewParams): Promise<ReviewOperationResult> {
     if (!isValidDateText(params.nextDate)) {
         throw new Error("推迟日期格式错误");
     }
 
     const target = await getReviewTargetInfo(params.targetId, params.targetType);
     const before = ensurePersistentReviewId(await readCurrentReviewAttrs(params.targetId) || emptyReviewAttrs());
+    assertExpectedReviewUpdatedAt(params.expectedUpdatedAt, before);
     if (!before.nextDate) {
         throw new Error("当前内容没有有效复习计划");
     }
@@ -790,9 +807,10 @@ export async function postponeReviewTarget(params: PostponeReviewParams): Promis
     };
 }
 
-export async function finishReviewTarget(params: ReviewOperationParams): Promise<ReviewOperationResult> {
+async function finishReviewTargetUnlocked(params: ReviewOperationParams): Promise<ReviewOperationResult> {
     const target = await getReviewTargetInfo(params.targetId, params.targetType);
     const before = ensurePersistentReviewId(await readCurrentReviewAttrs(params.targetId) || emptyReviewAttrs());
+    assertExpectedReviewUpdatedAt(params.expectedUpdatedAt, before);
     if (!before.nextDate) {
         throw new Error("当前内容没有有效复习计划");
     }
@@ -811,9 +829,10 @@ export async function finishReviewTarget(params: ReviewOperationParams): Promise
     };
 }
 
-export async function clearReviewTarget(params: ReviewOperationParams): Promise<ReviewOperationResult> {
+async function clearReviewTargetUnlocked(params: ReviewOperationParams): Promise<ReviewOperationResult> {
     const target = await getReviewTargetInfo(params.targetId, params.targetType);
     const before = ensurePersistentReviewId(await readCurrentReviewAttrs(params.targetId) || emptyReviewAttrs());
+    assertExpectedReviewUpdatedAt(params.expectedUpdatedAt, before);
     const after = attrsAfterClear();
 
     await removeReviewIndexItem(params.targetId);
@@ -827,6 +846,25 @@ export async function clearReviewTarget(params: ReviewOperationParams): Promise<
         message: "复习计划已取消",
         logWarning,
     };
+}
+
+export function markReviewTarget(params: ReviewPlanOperationParams): Promise<ReviewOperationResult> {
+    return runReviewMutation(() => markReviewTargetUnlocked(params));
+}
+export function updateReviewTarget(params: ReviewPlanOperationParams): Promise<ReviewOperationResult> {
+    return runReviewMutation(() => updateReviewTargetUnlocked(params));
+}
+export function completeReviewOnce(params: CompleteReviewParams): Promise<ReviewOperationResult> {
+    return runReviewMutation(() => completeReviewOnceUnlocked(params));
+}
+export function postponeReviewTarget(params: PostponeReviewParams): Promise<ReviewOperationResult> {
+    return runReviewMutation(() => postponeReviewTargetUnlocked(params));
+}
+export function finishReviewTarget(params: ReviewOperationParams): Promise<ReviewOperationResult> {
+    return runReviewMutation(() => finishReviewTargetUnlocked(params));
+}
+export function clearReviewTarget(params: ReviewOperationParams): Promise<ReviewOperationResult> {
+    return runReviewMutation(() => clearReviewTargetUnlocked(params));
 }
 
 export function getDefaultManualNextDate(): string {

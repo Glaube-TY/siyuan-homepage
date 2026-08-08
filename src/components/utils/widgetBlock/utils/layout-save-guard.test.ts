@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { canSaveLayoutFromRestoreState } from "./layout-save-guard.ts";
+import { canSaveLayoutFromRestoreState } from "./layout-save-guard";
 
 test("完整恢复或没有状态标记时允许保存布局", () => {
     assert.equal(canSaveLayoutFromRestoreState(undefined), true);

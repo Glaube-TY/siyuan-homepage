@@ -1,7 +1,7 @@
 import { appendBlock, getChildBlocks, insertBlock } from "@/api";
 import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
 
-export type QuickNoteSource = "local" | "feishu" | "quicker" | "external";
+export type QuickNoteSource = "local" | "feishu" | "quicker" | "external" | "agent";
 
 export interface QuickNoteWriteInput {
   content: string;
@@ -24,6 +24,12 @@ export interface QuickNoteWriteResult {
   blockId?: string;
   message: string;
   errorCode?: string;
+}
+
+export interface QuickNoteStatus {
+  configured: boolean;
+  addPosition: "top" | "bottom";
+  timestampEnabled: boolean;
 }
 
 let pluginInstance: any = null;
@@ -125,4 +131,13 @@ export async function writeQuickNote(input: QuickNoteWriteInput): Promise<QuickN
       errorCode: "quick_note_write_failed",
     };
   }
+}
+
+export async function getQuickNoteStatus(): Promise<QuickNoteStatus> {
+  const options = await loadQuickNoteOptions({ content: "" });
+  return {
+    configured: Boolean(options.quickNotesPosition.trim()),
+    addPosition: options.quickNotesAddPosition === "top" ? "top" : "bottom",
+    timestampEnabled: options.quickNotesTimestampEnabled !== false,
+  };
 }

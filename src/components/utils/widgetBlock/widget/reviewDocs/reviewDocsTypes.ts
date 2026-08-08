@@ -119,6 +119,7 @@ export interface ReviewPlanInput {
 export interface ReviewOperationParams {
     targetId: string;
     targetType: ReviewTargetType;
+    expectedUpdatedAt?: string;
 }
 
 export interface ReviewPlanOperationParams extends ReviewOperationParams {

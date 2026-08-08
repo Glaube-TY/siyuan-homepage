@@ -20,6 +20,7 @@
         AccountingRecord,
         AccountingStoreStatus,
     } from "./accountingTypes";
+    import { subscribeHomepageBusinessDataUpdated } from "../common/homepageBusinessDataEvents";
 
     interface Props {
         plugin: any;
@@ -44,6 +45,7 @@
     let appSettings = $state<AccountingAppSettings | null>(null);
     let accounts = $state<AccountingAccount[]>([]);
     let detailDialogRef: { close: () => void } | null = null;
+    let unsubscribeBusinessUpdated: (() => void) | null = null;
 
     let effectiveBudget = $derived(appSettings?.monthlyBudget ?? 0);
     let effectiveCurrency = $derived(appSettings?.defaultCurrency || "CNY");
@@ -67,9 +69,15 @@
 
         await refreshRecords();
         await refreshAccounts();
+        unsubscribeBusinessUpdated = subscribeHomepageBusinessDataUpdated("homepage_accounting", () => {
+            void refreshRecords();
+            void refreshAccounts();
+        });
     });
 
     onDestroy(() => {
+        unsubscribeBusinessUpdated?.();
+        unsubscribeBusinessUpdated = null;
         if (detailDialogRef) {
             detailDialogRef.close();
             detailDialogRef = null;
@@ -518,4 +526,3 @@
         font-size: 0.78rem;
     }
 </style>
-

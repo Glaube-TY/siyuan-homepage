@@ -111,7 +111,7 @@
     };
   }
 
-  function isHighRiskAction(action: AggregateActionMeta): boolean {
+  function isHighRiskAction(action: AggregateActionMeta, toolName?: string): boolean {
     const HIGH_RISK_ACTIONS = new Set<string>([
       "delete_doc",
       "delete_blocks",
@@ -132,8 +132,17 @@
       "reset",
       "remove_cards",
       "delete",
+      "remove_widget",
+      "remove_section",
+      "archive_record",
+      "archive_account",
+      "delete_permanently",
+      "delete_category",
+      "delete_group",
+      "delete_playlist",
     ]);
-    return HIGH_RISK_ACTIONS.has(action.name);
+    return HIGH_RISK_ACTIONS.has(action.name)
+      || (toolName === "homepage_fixed_assets" && action.name === "archive");
   }
 </script>
 
@@ -219,7 +228,7 @@
                       <span class="action-name">{action.name}</span>
                       {#if action.readOnly}
                         <span class="tag tag-readonly">只读</span>
-                      {:else if isHighRiskAction(action)}
+                      {:else if isHighRiskAction(action, tool.name)}
                         <span class="tag tag-highrisk">高风险</span>
                         <span class="tag tag-safety">安全拦截</span>
                       {:else}

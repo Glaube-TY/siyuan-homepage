@@ -25,10 +25,16 @@ import {
     SHARED_WIDGET_DATA_VERSION,
 } from "../sharedLocalStorage/sharedWidgetStoragePaths";
 import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
+export { summarizeFocusSessions } from "./focusSessionAnalytics";
 
 export interface FocusStatistics {
     totalFocusTime: number;
     totalFocusTimes: number;
+}
+
+export interface FocusDetailedStatistics extends FocusStatistics {
+    completedSessions: number;
+    cancelledSessions: number;
 }
 
 export type FocusLegacyTotals = FocusStatistics;
@@ -465,6 +471,36 @@ export async function getFocusStoreStatus(): Promise<FocusStoreStatus> {
 export async function loadFocusStatistics(): Promise<FocusStatistics> {
     const index = await loadFocusIndexForRead();
     return { totalFocusTime: index.totalFocusTime, totalFocusTimes: index.totalFocusTimes };
+}
+
+export async function loadFocusDetailedStatistics(): Promise<FocusDetailedStatistics> {
+    const index = await loadFocusIndexForRead();
+    return {
+        totalFocusTime: index.totalFocusTime,
+        totalFocusTimes: index.totalFocusTimes,
+        completedSessions: index.completedSessions,
+        cancelledSessions: index.cancelledSessions,
+    };
+}
+
+export async function loadFocusSessionsForYear(year: number): Promise<FocusSessionRecord[]> {
+    if (!Number.isInteger(year) || year < 1970 || year > 9999) throw new Error("专注会话年份无效");
+    const index = await loadFocusIndexForRead();
+    if (!index.years.includes(year)) return [];
+    const file = await loadSharedJson(getFocusSessionsFile(year), (raw) => normalizeFocusSessionsYearFile(raw, year));
+    if (!file) throw new Error(`专注年度明细文件缺失：${year}`);
+    return file.sessions.map((session) => ({ ...session }));
+}
+
+export async function loadFocusSessionsForRange(startDate: string, endDate: string): Promise<FocusSessionRecord[]> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
+        throw new Error("专注统计日期范围无效");
+    }
+    const startYear = Number(startDate.slice(0, 4));
+    const endYear = Number(endDate.slice(0, 4));
+    const sessions: FocusSessionRecord[] = [];
+    for (let year = startYear; year <= endYear; year += 1) sessions.push(...await loadFocusSessionsForYear(year));
+    return sessions.filter((session) => session.localDate >= startDate && session.localDate <= endDate);
 }
 
 export async function appendFocusSession(session: FocusSessionRecord): Promise<FocusStatistics> {

@@ -11,6 +11,7 @@
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
     import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
+    import { subscribeHomepageBusinessDataUpdated } from "../common/homepageBusinessDataEvents";
     import ReviewDocsDialog from "./reviewDocsDialog.svelte";
     import ReviewDatePickerDialog from "./ReviewDatePickerDialog.svelte";
     import ReviewForgettingCurveDialog from "./ReviewForgettingCurveDialog.svelte";
@@ -68,6 +69,7 @@
     // 组件销毁后丢弃异步 SQL 结果，避免更新已卸载状态
     let isDestroyed = false;
     let unsubscribeDataUpdated: (() => void) | null = null;
+    let unsubscribeBusinessUpdated: (() => void) | null = null;
 
     onMount(() => {
         isDestroyed = false;
@@ -82,11 +84,14 @@
 
         void initialize();
         unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("review-docs", () => void refreshAll());
+        unsubscribeBusinessUpdated = subscribeHomepageBusinessDataUpdated("homepage_review", () => void refreshAll());
 
         return () => {
             isDestroyed = true;
             unsubscribeDataUpdated?.();
             unsubscribeDataUpdated = null;
+            unsubscribeBusinessUpdated?.();
+            unsubscribeBusinessUpdated = null;
             clearFloatDocTimeouts();
         };
     });

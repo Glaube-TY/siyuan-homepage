@@ -2328,7 +2328,11 @@ export async function ensureFavoritesIndexInitialized(
     };
 }
 
-export async function updateFavoriteIndex(docId: string, active: boolean): Promise<void> {
+export async function updateFavoriteIndex(
+    docId: string,
+    active: boolean,
+    options: { groupId?: string | null } = {},
+): Promise<void> {
     // 使用严格收藏存储层进行写操作
     if (!active) {
         await removeFavoriteItem(docId);
@@ -2367,7 +2371,7 @@ export async function updateFavoriteIndex(docId: string, active: boolean): Promi
     if (!documentInfo?.created || !documentInfo.updated) {
         throw new Error("无法读取文档创建或更新时间，收藏索引未写入");
     }
-    await addFavoriteItem(documentInfo as any);
+    await addFavoriteItem(documentInfo as any, options);
 }
 export async function reorderFavoriteIndexItems(orderedIds: string[]): Promise<void> {
     await reorderFavoriteItems(orderedIds);

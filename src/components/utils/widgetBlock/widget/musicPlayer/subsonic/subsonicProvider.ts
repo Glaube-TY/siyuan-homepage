@@ -69,14 +69,19 @@ export class SubsonicMusicProvider implements MusicSourceProvider {
     loadLyrics(track: MusicTrack) { return this.lyricsService?.load(track) || Promise.resolve({ lines: [] }); }
     loadCover(track: MusicTrack, size: number) { return this.coverService.load(track.coverArtId || "", size); }
     isFavorite(track: MusicTrack): boolean { return !!track.serverStarredAt || this.favoriteIds.has(String(track.sourceTrackId)); }
+    async setFavorite(track: MusicTrack, favorite: boolean): Promise<boolean> {
+        const id = String(track.sourceTrackId || "");
+        if (!id) throw new Error("云端歌曲缺少 song id。");
+        if (this.isFavorite(track) === favorite) return favorite;
+        await this.endpointManager.executeIdempotentWrite((ctx) => this.client.request(ctx.baseUrl, ctx.kind, favorite ? "star" : "unstar", { id }, { signal: ctx.signal }));
+        if (favorite) { this.favoriteIds.add(id); track.serverStarredAt = Date.now(); }
+        else { this.favoriteIds.delete(id); track.serverStarredAt = undefined; }
+        return favorite;
+    }
     async toggleFavorite(track: MusicTrack): Promise<boolean> {
         const id = String(track.sourceTrackId || "");
         if (!id) return false;
-        const next = !this.isFavorite(track);
-        await this.endpointManager.executeIdempotentWrite((ctx) => this.client.request(ctx.baseUrl, ctx.kind, next ? "star" : "unstar", { id }, { signal: ctx.signal }));
-        if (next) { this.favoriteIds.add(id); track.serverStarredAt = Date.now(); }
-        else { this.favoriteIds.delete(id); track.serverStarredAt = undefined; }
-        return next;
+        return this.setFavorite(track, !this.isFavorite(track));
     }
     async scrobbleNowPlaying(track: MusicTrack): Promise<void> { await this.scrobble(track, false); }
     async scrobbleCompleted(track: MusicTrack): Promise<void> { await this.scrobble(track, true); }

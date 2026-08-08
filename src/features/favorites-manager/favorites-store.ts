@@ -288,13 +288,19 @@ export async function writeFavoritesIndex(
 
 // ---- 高层写操作 ----
 
-export async function addFavoriteItem(doc: FavoriteItemRecord): Promise<void> {
+export async function addFavoriteItem(
+    doc: FavoriteItemRecord,
+    options: { groupId?: string | null } = {},
+): Promise<void> {
     await writeFavoritesIndex((payload) => {
+        if (typeof options.groupId === "string" && !payload.groups.some((group) => group.id === options.groupId)) {
+            throw new FavoritesWriteError("收藏分组不存在", "validate");
+        }
         const existing = payload.items.find((item) => item.id === doc.id);
-        // 新收藏不设置 favoriteGroupId；已有收藏保留原字段
+        const nextGroupId = options.groupId !== undefined ? options.groupId : existing?.favoriteGroupId;
         const nextItem: FavoriteItemRecord = existing
-            ? { ...existing, ...doc, favoriteGroupId: existing.favoriteGroupId }
-            : { ...doc };
+            ? { ...existing, ...doc, favoriteGroupId: nextGroupId ?? undefined }
+            : { ...doc, favoriteGroupId: nextGroupId ?? undefined };
         // 确保 favoriteOrder
         if (nextItem.favoriteOrder === undefined || nextItem.favoriteOrder === null) {
             const maxOrder = payload.items.reduce(
@@ -311,8 +317,11 @@ export async function addFavoriteItem(doc: FavoriteItemRecord): Promise<void> {
     dispatchFavoritesUpdated();
 }
 
-export async function removeFavoriteItem(docId: string): Promise<void> {
+export async function removeFavoriteItem(docId: string, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
     await writeFavoritesIndex((payload) => {
+        if (options.expectedUpdatedAt !== undefined && payload.updatedAt !== options.expectedUpdatedAt) {
+            throw new FavoritesWriteError("收藏数据已变化，请重新读取", "lock");
+        }
         const nextItems = payload.items.filter((item) => item.id !== docId);
         return { ...payload, items: nextItems };
     });
@@ -329,8 +338,11 @@ export async function removeFavoriteItemsByIds(ids: string[]): Promise<void> {
     dispatchFavoritesUpdated();
 }
 
-export async function reorderFavoriteItems(orderedIds: string[]): Promise<void> {
+export async function reorderFavoriteItems(orderedIds: string[], options: { expectedUpdatedAt?: string } = {}): Promise<void> {
     await writeFavoritesIndex((payload) => {
+        if (options.expectedUpdatedAt !== undefined && payload.updatedAt !== options.expectedUpdatedAt) {
+            throw new FavoritesWriteError("收藏数据已变化，请重新读取", "lock");
+        }
         const byId = new Map(payload.items.map((item) => [item.id, item]));
         const existingIds = new Set(payload.items.map((item) => item.id));
         const orderedSet = new Set(orderedIds.filter((id) => existingIds.has(id)));
@@ -371,8 +383,11 @@ export async function reorderFavoriteItems(orderedIds: string[]): Promise<void> 
     dispatchFavoritesUpdated();
 }
 
-export async function setItemGroup(docId: string, groupId: string | null): Promise<void> {
+export async function setItemGroup(docId: string, groupId: string | null, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
     await writeFavoritesIndex((payload) => {
+        if (options.expectedUpdatedAt !== undefined && payload.updatedAt !== options.expectedUpdatedAt) {
+            throw new FavoritesWriteError("收藏数据已变化，请重新读取", "lock");
+        }
         const nextItems = payload.items.map((item) => {
             if (item.id !== docId) return item;
             if (groupId === null || groupId === "" || groupId === VIRTUAL_UNGROUPED_ID) {
@@ -414,14 +429,20 @@ export async function createGroup(name: string): Promise<FavoriteGroupRecord> {
     return created;
 }
 
-export async function renameGroup(groupId: string, name: string): Promise<void> {
+export async function renameGroup(groupId: string, name: string, options: { expectedUpdatedAt?: string; expectedGroupUpdatedAt?: string } = {}): Promise<void> {
     const trimmed = name.trim();
     if (!trimmed) throw new FavoritesWriteError("分组名称不能为空", "validate");
     if (trimmed.length > 60) throw new FavoritesWriteError("分组名称过长（最多60个字符）", "validate");
 
     await writeFavoritesIndex((payload) => {
+        if (options.expectedUpdatedAt !== undefined && payload.updatedAt !== options.expectedUpdatedAt) {
+            throw new FavoritesWriteError("收藏数据已变化，请重新读取", "lock");
+        }
         const existing = payload.groups.find((g) => g.id === groupId);
         if (!existing) throw new FavoritesWriteError(`分组 ${groupId} 不存在`, "validate");
+        if (options.expectedGroupUpdatedAt !== undefined && existing.updatedAt !== options.expectedGroupUpdatedAt) {
+            throw new FavoritesWriteError("收藏分组已变化，请重新读取", "lock");
+        }
         const otherNames = new Set(
             payload.groups.filter((g) => g.id !== groupId).map((g) => g.name),
         );
@@ -438,10 +459,21 @@ export async function renameGroup(groupId: string, name: string): Promise<void> 
     dispatchFavoritesUpdated();
 }
 
-export async function deleteGroup(groupId: string): Promise<void> {
+export async function deleteGroup(groupId: string, options: { expectedUpdatedAt?: string; expectedGroupUpdatedAt?: string; expectedItemCount?: number } = {}): Promise<void> {
     await writeFavoritesIndex((payload) => {
+        if (options.expectedUpdatedAt !== undefined && payload.updatedAt !== options.expectedUpdatedAt) {
+            throw new FavoritesWriteError("收藏数据已变化，请重新读取", "lock");
+        }
+        const currentGroup = payload.groups.find((g) => g.id === groupId);
         if (!payload.groups.some((g) => g.id === groupId)) {
             throw new FavoritesWriteError(`分组 ${groupId} 不存在`, "validate");
+        }
+        if (options.expectedGroupUpdatedAt !== undefined && currentGroup?.updatedAt !== options.expectedGroupUpdatedAt) {
+            throw new FavoritesWriteError("收藏分组已变化，请重新读取", "lock");
+        }
+        const currentItemCount = payload.items.filter((item) => item.favoriteGroupId === groupId).length;
+        if (options.expectedItemCount !== undefined && currentItemCount !== options.expectedItemCount) {
+            throw new FavoritesWriteError("收藏分组下的文档数已变化，请重新读取", "lock");
         }
         // 清除该组所有收藏的 favoriteGroupId
         const nextItems = payload.items.map((item) => {

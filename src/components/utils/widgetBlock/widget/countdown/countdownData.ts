@@ -552,6 +552,8 @@ export async function saveCountdownEvent(
   await assertSharedWidgetMigrationReady("countdown");
   let result!: CountdownEventRecord;
   await mutateFile((file) => {
+    if (snapshot && file.revision !== snapshot.baseRevision && !options.force)
+      throw new Error("纪念日数据版本已变化，请重新读取。");
     const index = draft.id
       ? file.events.findIndex((event) => event.id === draft.id)
       : -1;
@@ -580,26 +582,40 @@ export async function saveCountdownEvent(
 }
 export const upsertCountdownEvent = saveCountdownEvent;
 
-async function setArchive(eventId: string, archived: boolean): Promise<void> {
+async function setArchive(
+  eventId: string,
+  archived: boolean,
+  options: { expectedUpdatedAt?: string; expectedRevision?: number } = {},
+): Promise<void> {
   await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
+    if (options.expectedRevision !== undefined && file.revision !== options.expectedRevision)
+      throw new Error("纪念日数据版本已变化，请重新读取。");
     const event = file.events.find((item) => item.id === eventId);
     if (!event) throw new Error("纪念日不存在或已被删除");
+    if (options.expectedUpdatedAt !== undefined && event.updatedAt !== options.expectedUpdatedAt)
+      throw new CountdownEventConflictError(event);
     event.archived = archived;
     event.updatedAt = nowIso();
   });
 }
-export function archiveCountdownEvent(eventId: string): Promise<void> {
-  return setArchive(eventId, true);
+export function archiveCountdownEvent(eventId: string, options: { expectedUpdatedAt?: string; expectedRevision?: number } = {}): Promise<void> {
+  return setArchive(eventId, true, options);
 }
-export function restoreCountdownEvent(eventId: string): Promise<void> {
-  return setArchive(eventId, false);
+export function restoreCountdownEvent(eventId: string, options: { expectedUpdatedAt?: string; expectedRevision?: number } = {}): Promise<void> {
+  return setArchive(eventId, false, options);
 }
 export async function deleteCountdownEventPermanently(
   eventId: string,
+  options: { expectedUpdatedAt?: string; expectedRevision?: number } = {},
 ): Promise<void> {
   await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
+    if (options.expectedRevision !== undefined && file.revision !== options.expectedRevision)
+      throw new Error("纪念日数据版本已变化，请重新读取。");
+    const target = file.events.find((event) => event.id === eventId);
+    if (target && options.expectedUpdatedAt !== undefined && target.updatedAt !== options.expectedUpdatedAt)
+      throw new CountdownEventConflictError(target);
     const before = file.events.length;
     file.events = file.events.filter((event) => event.id !== eventId);
     if (before === file.events.length)
@@ -680,6 +696,7 @@ export async function createCountdownCategory(
 export async function updateCountdownCategory(
   categoryId: string,
   input: Partial<CountdownCategoryInput>,
+  options: { expectedUpdatedAt?: string } = {},
 ): Promise<CountdownCategoryRecord> {
   await assertSharedWidgetMigrationReady("countdown");
   let result!: CountdownCategoryRecord;
@@ -688,6 +705,8 @@ export async function updateCountdownCategory(
       (category) => category.id === categoryId,
     );
     if (index < 0) throw new Error("分类不存在");
+    if (options.expectedUpdatedAt !== undefined && file.categories[index].updatedAt !== options.expectedUpdatedAt)
+      throw new Error("纪念日分类已变化，请重新读取。");
     result = normalizeCategory(
       {
         ...file.categories[index],
@@ -713,27 +732,36 @@ export async function updateCountdownCategory(
 async function setCategoryArchive(
   categoryId: string,
   archived: boolean,
+  options: { expectedUpdatedAt?: string } = {},
 ): Promise<void> {
   await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
     const category = file.categories.find((item) => item.id === categoryId);
     if (!category) throw new Error("分类不存在");
+    if (options.expectedUpdatedAt !== undefined && category.updatedAt !== options.expectedUpdatedAt)
+      throw new Error("纪念日分类已变化，请重新读取。");
     category.archived = archived;
     category.updatedAt = nowIso();
   });
 }
-export function archiveCountdownCategory(categoryId: string): Promise<void> {
-  return setCategoryArchive(categoryId, true);
+export function archiveCountdownCategory(categoryId: string, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
+  return setCategoryArchive(categoryId, true, options);
 }
-export function restoreCountdownCategory(categoryId: string): Promise<void> {
-  return setCategoryArchive(categoryId, false);
+export function restoreCountdownCategory(categoryId: string, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
+  return setCategoryArchive(categoryId, false, options);
 }
 export async function deleteCountdownCategory(
   categoryId: string,
   moveToCategoryId?: string,
+  options: { expectedRevision?: number; expectedEventCount?: number } = {},
 ): Promise<void> {
   await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
+    if (options.expectedRevision !== undefined && file.revision !== options.expectedRevision)
+      throw new Error("纪念日数据版本已变化，请重新读取。");
+    const currentEventCount = file.events.filter((event) => event.categoryId === categoryId).length;
+    if (options.expectedEventCount !== undefined && currentEventCount !== options.expectedEventCount)
+      throw new Error("分类下的事件数已变化，请重新读取。");
     if (
       moveToCategoryId &&
       !file.categories.some(

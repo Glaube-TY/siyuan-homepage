@@ -185,15 +185,20 @@ export async function getFixedAssetsStoreStatus(): Promise<FixedAssetsStoreStatu
     }
 }
 
-export async function loadFixedAssets(): Promise<FixedAssetsLoadResult> {
+export async function loadFixedAssets(
+    options: { includeArchived?: boolean } = {},
+): Promise<FixedAssetsLoadResult> {
     const file = await loadFixedAssetsFileForRead();
     return {
-        assets: file.assets.filter((asset) => !asset.archived),
+        assets: file.assets.filter((asset) => options.includeArchived === true || !asset.archived),
         status: { ok: true, missingFields: [], message: "本地数据已就绪" },
     };
 }
 
-export async function saveFixedAsset(input: Partial<FixedAssetRecord>): Promise<FixedAssetRecord> {
+export async function saveFixedAsset(
+    input: Partial<FixedAssetRecord>,
+    options: { expectedUpdatedAt?: string } = {},
+): Promise<FixedAssetRecord> {
     await assertSharedWidgetMigrationReady("fixed-assets");
     return runSharedWidgetExclusive(FIXED_ASSETS_STORE_TRANSACTION_LOCK, async () => {
         const now = new Date().toISOString();
@@ -206,6 +211,10 @@ export async function saveFixedAsset(input: Partial<FixedAssetRecord>): Promise<
             mutate: (file) => {
                 const index = file.assets.findIndex((item) => item.id === asset.id);
                 if (index >= 0) {
+                    if (options.expectedUpdatedAt !== undefined
+                        && file.assets[index].updatedAt !== options.expectedUpdatedAt) {
+                        throw new Error("固定资产已在其他窗口修改，请重新读取。");
+                    }
                     asset.createdAt = file.assets[index].createdAt;
                     asset.archived = false;
                     file.assets[index] = asset;
@@ -219,7 +228,10 @@ export async function saveFixedAsset(input: Partial<FixedAssetRecord>): Promise<
     });
 }
 
-export async function archiveFixedAsset(assetId: string): Promise<void> {
+export async function archiveFixedAsset(
+    assetId: string,
+    options: { expectedUpdatedAt?: string } = {},
+): Promise<void> {
     await assertSharedWidgetMigrationReady("fixed-assets");
     await runSharedWidgetExclusive(FIXED_ASSETS_STORE_TRANSACTION_LOCK, () => mutateSharedJson({
         store: "fixed-assets",
@@ -228,7 +240,11 @@ export async function archiveFixedAsset(assetId: string): Promise<void> {
         normalize: normalizeFixedAssetsFile,
         mutate: (file) => {
             const asset = file.assets.find((item) => item.id === assetId);
-            if (!asset) return;
+            if (!asset) throw new Error("固定资产不存在。");
+            if (options.expectedUpdatedAt !== undefined
+                && asset.updatedAt !== options.expectedUpdatedAt) {
+                throw new Error("固定资产已在其他窗口修改，请重新读取。");
+            }
             asset.archived = true;
             asset.updatedAt = new Date().toISOString();
         },

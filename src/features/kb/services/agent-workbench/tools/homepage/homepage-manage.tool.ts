@@ -1,0 +1,145 @@
+import { z } from "zod";
+import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
+import type { HomepageAgentReadResult, HomepageAgentSurface } from "./homepage-manage-types";
+import { HomepageAgentService, HomepageAgentServiceError } from "./homepage-agent-service";
+
+const surfaceSchema = z.enum(["desktop-homepage", "mobile-homepage"]).optional();
+const surfaceInputSchema = z.object({ surface: surfaceSchema }).strict();
+const widgetInputSchema = z.object({
+  surface: surfaceSchema,
+  widgetId: z.string().trim().min(1),
+  expectedType: z.string().trim().min(1).optional(),
+}).strict();
+const addWidgetInputSchema = z.object({ surface: surfaceSchema, widgetType: z.string().trim().min(1), expectedLabel: z.string().trim().min(1), sectionId: z.string().trim().min(1).optional(), position: z.number().int().nonnegative().optional(), initialConfig: z.record(z.string(), z.unknown()).optional(), expectedLayoutRevision: z.number().int().positive() }).strict();
+const updateWidgetInputSchema = z.object({ surface: surfaceSchema, widgetId: z.string().trim().min(1), expectedType: z.string().trim().min(1), expectedWidgetRevision: z.number().int().positive(), expectedLayoutRevision: z.number().int().positive().optional(), expectedValues: z.record(z.string(), z.unknown()), patch: z.record(z.string(), z.unknown()) }).strict();
+const moveWidgetInputSchema = z.object({ surface: surfaceSchema, widgetId: z.string().trim().min(1), expectedType: z.string().trim().min(1), expectedIndex: z.number().int().nonnegative(), expectedSectionId: z.string().trim().min(1).nullable(), targetIndex: z.number().int().nonnegative(), targetSectionId: z.string().trim().min(1).optional(), expectedLayoutRevision: z.number().int().positive() }).strict();
+const removeWidgetInputSchema = z.object({ surface: surfaceSchema, widgetId: z.string().trim().min(1), expectedType: z.string().trim().min(1), expectedWidgetRevision: z.number().int().positive(), expectedLayoutRevision: z.number().int().positive(), expectedIndex: z.number().int().nonnegative(), expectedSectionId: z.string().trim().min(1).nullable(), expectedLabel: z.string().trim().min(1) }).strict();
+const updateLayoutInputSchema = z.object({ surface: surfaceSchema, widgetLayoutNumber: z.number().int().min(1).max(12), widgetGap: z.number().min(0).max(200), expectedWidgetLayoutNumber: z.number().int().min(1).max(12), expectedWidgetGap: z.number().min(0).max(200), sectionId: z.string().trim().min(1).optional(), expectedLayoutRevision: z.number().int().positive() }).strict();
+const sectionBase = { surface: z.literal("desktop-homepage").optional(), expectedLayoutRevision: z.number().int().positive(), expectedViewRevision: z.number().int().positive() };
+const createSectionInputSchema = z.object({ ...sectionBase, name: z.string().trim().min(1).max(60), sectionId: z.string().trim().min(1).optional(), position: z.number().int().nonnegative().optional() }).strict();
+const renameSectionInputSchema = z.object({ ...sectionBase, sectionId: z.string().trim().min(1), name: z.string().trim().min(1).max(60), expectedSectionName: z.string() }).strict();
+const reorderSectionsInputSchema = z.object({ ...sectionBase, orderedSectionIds: z.array(z.string().trim().min(1)).min(1) }).strict();
+const removeSectionInputSchema = z.object({ ...sectionBase, sectionId: z.string().trim().min(1), expectedSectionName: z.string(), expectedWidgetCount: z.number().int().nonnegative(), expectedReceivingSectionId: z.string().trim().min(1).nullable().optional() }).strict();
+const setSectionModeInputSchema = z.object({ ...sectionBase, enabled: z.boolean() }).strict();
+const setActiveSectionInputSchema = z.object({ surface: z.literal("desktop-homepage").optional(), sectionId: z.string().trim().min(1), expectedLayoutRevision: z.number().int().positive() }).strict();
+
+type ReadAction = "overview" | "list_widgets" | "get_widget" | "list_widget_types" | "get_layout" | "list_sections";
+
+function failure(error: unknown): ToolResult<HomepageAgentReadResult> {
+  if (error instanceof HomepageAgentServiceError) {
+    return {
+      ok: false,
+      data: null,
+      error: {
+        code: error.code,
+        message: error.message,
+        recoverable: error.recoverable,
+        details: error.details,
+        hint: error.code.includes("conflict") ? "请重新读取当前主页状态后再操作。" : undefined,
+      },
+    };
+  }
+  return {
+    ok: false,
+    data: null,
+    error: { code: "homepage_read_failed", message: error instanceof Error ? error.message : "读取主页失败。", recoverable: true },
+  };
+}
+
+function createReadActionTool(
+  action: ReadAction,
+  service: HomepageAgentService,
+): ToolContract<Record<string, unknown>, HomepageAgentReadResult> {
+  const needsWidget = action === "get_widget";
+  return {
+    name: `homepage_${action}`,
+    title: action,
+    description: `homepage_manage.${action}`,
+    inputSchema: needsWidget ? widgetInputSchema : surfaceInputSchema,
+    readOnly: true,
+    safety: { readOnly: true },
+    source: "builtin",
+    providerVisible: false,
+    availability() {
+      try {
+        service.resolveSurface();
+        return { available: true };
+      } catch {
+        return { available: false, reasonCode: "prerequisite_missing", hint: "插件尚未完成初始化。" };
+      }
+    },
+    async execute(_ctx: ToolRuntimeContext, rawArgs: Record<string, unknown>): Promise<ToolResult<HomepageAgentReadResult>> {
+      try {
+        const args = rawArgs as { surface?: HomepageAgentSurface; widgetId?: string; expectedType?: string };
+        if (action === "overview") return { ok: true, data: await service.overview(args.surface) };
+        if (action === "list_widgets") return { ok: true, data: await service.listWidgets(args.surface) };
+        if (action === "get_widget") return { ok: true, data: await service.getWidget(args.surface, args.widgetId!, args.expectedType) };
+        if (action === "list_widget_types") return { ok: true, data: await service.listWidgetTypes(args.surface) };
+        if (action === "get_layout") return { ok: true, data: await service.getLayout(args.surface) };
+        return { ok: true, data: await service.listSections(args.surface) };
+      } catch (error) {
+        return failure(error);
+      }
+    },
+    summarizeResult(result) {
+      return result.ok ? "主页信息读取完成。" : result.error?.message ?? "主页信息读取失败。";
+    },
+  };
+}
+
+export function createHomepageManageReadActionTools(service: HomepageAgentService) {
+  return (["overview", "list_widgets", "get_widget", "list_widget_types", "get_layout", "list_sections"] as const)
+    .map((action) => ({ action, tool: createReadActionTool(action, service) }));
+}
+
+type WriteAction = "add_widget" | "update_widget" | "move_widget" | "remove_widget" | "update_layout" | "create_section" | "rename_section" | "reorder_sections" | "remove_section" | "set_section_mode" | "set_active_section";
+
+function createWriteActionTool(action: WriteAction, service: HomepageAgentService): ToolContract<Record<string, unknown>, HomepageAgentReadResult> {
+  const schema = action === "add_widget" ? addWidgetInputSchema
+    : action === "update_widget" ? updateWidgetInputSchema
+      : action === "move_widget" ? moveWidgetInputSchema
+        : action === "remove_widget" ? removeWidgetInputSchema
+          : action === "update_layout" ? updateLayoutInputSchema
+            : action === "create_section" ? createSectionInputSchema
+              : action === "rename_section" ? renameSectionInputSchema
+                : action === "reorder_sections" ? reorderSectionsInputSchema
+                  : action === "remove_section" ? removeSectionInputSchema
+                    : action === "set_section_mode" ? setSectionModeInputSchema : setActiveSectionInputSchema;
+  return {
+    name: `homepage_${action}`,
+    title: action,
+    description: `homepage_manage.${action}`,
+    inputSchema: schema,
+    readOnly: false,
+    safety: { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel: action === "remove_widget" || action === "remove_section" ? "high" : "medium" },
+    source: "builtin",
+    providerVisible: false,
+    availability() {
+      try { service.resolveSurface(); return { available: true }; }
+      catch { return { available: false, reasonCode: "prerequisite_missing", hint: "插件尚未完成初始化。" }; }
+    },
+    async execute(_ctx, rawArgs): Promise<ToolResult<HomepageAgentReadResult>> {
+      try {
+        if (action === "add_widget") return { ok: true, data: await service.addWidget(rawArgs as Parameters<HomepageAgentService["addWidget"]>[0]) };
+        if (action === "update_widget") return { ok: true, data: await service.updateWidget(rawArgs as Parameters<HomepageAgentService["updateWidget"]>[0]) };
+        if (action === "move_widget") return { ok: true, data: await service.moveWidget(rawArgs as Parameters<HomepageAgentService["moveWidget"]>[0]) };
+        if (action === "remove_widget") return { ok: true, data: await service.removeWidget(rawArgs as Parameters<HomepageAgentService["removeWidget"]>[0]) };
+        if (action === "update_layout") return { ok: true, data: await service.updateLayout(rawArgs as Parameters<HomepageAgentService["updateLayout"]>[0]) };
+        if (action === "create_section") return { ok: true, data: await service.createSection(rawArgs as Parameters<HomepageAgentService["createSection"]>[0]) };
+        if (action === "rename_section") return { ok: true, data: await service.renameSection(rawArgs as Parameters<HomepageAgentService["renameSection"]>[0]) };
+        if (action === "reorder_sections") return { ok: true, data: await service.reorderSections(rawArgs as Parameters<HomepageAgentService["reorderSections"]>[0]) };
+        if (action === "remove_section") return { ok: true, data: await service.removeSection(rawArgs as Parameters<HomepageAgentService["removeSection"]>[0]) };
+        if (action === "set_section_mode") return { ok: true, data: await service.setSectionMode(rawArgs as Parameters<HomepageAgentService["setSectionMode"]>[0]) };
+        return { ok: true, data: await service.setActiveSection(rawArgs as Parameters<HomepageAgentService["setActiveSection"]>[0]) };
+      } catch (error) { return failure(error); }
+    },
+    summarizeResult(result) { return result.ok ? "主页写入完成。" : result.error?.message ?? "主页写入失败。"; },
+  };
+}
+
+export function createHomepageManageActionTools(service: HomepageAgentService) {
+  return [
+    ...createHomepageManageReadActionTools(service),
+    ...(["add_widget", "update_widget", "move_widget", "remove_widget", "update_layout", "create_section", "rename_section", "reorder_sections", "remove_section", "set_section_mode", "set_active_section"] as const).map((action) => ({ action, tool: createWriteActionTool(action, service) })),
+  ];
+}

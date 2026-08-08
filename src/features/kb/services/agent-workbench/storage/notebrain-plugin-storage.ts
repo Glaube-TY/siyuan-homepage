@@ -10,7 +10,7 @@ export function setNotebrainPlugin(plugin: Plugin): void {
   pluginInstance = plugin;
 }
 
-function getPlugin(): Plugin {
+export function getNotebrainPlugin(): Plugin {
   if (!pluginInstance) {
     throw new Error("[NotebrainStorage] Plugin instance not set. Call setNotebrainPlugin first.");
   }
@@ -18,12 +18,12 @@ function getPlugin(): Plugin {
 }
 
 export async function saveData<T>(key: string, data: T): Promise<void> {
-  const plugin = getPlugin();
+  const plugin = getNotebrainPlugin();
   await plugin.saveData(key, data);
 }
 
 export async function loadData<T>(key: string): Promise<T | null> {
-  const plugin = getPlugin();
+  const plugin = getNotebrainPlugin();
   try {
     const data = await plugin.loadData(key);
     return (data as T) ?? null;
@@ -42,7 +42,7 @@ export type StorageReadResult<T> =
  * 会话事务不得把读取失败当成空数据继续覆盖。
  */
 export async function loadDataStrict<T>(key: string): Promise<StorageReadResult<T>> {
-  const plugin = getPlugin();
+  const plugin = getNotebrainPlugin();
   try {
     const data = await plugin.loadData(key);
     if (data === null || data === undefined) return { status: "missing" };
@@ -56,6 +56,6 @@ export async function loadDataStrict<T>(key: string): Promise<StorageReadResult<
 }
 
 export async function removeData(key: string): Promise<void> {
-  const plugin = getPlugin();
+  const plugin = getNotebrainPlugin();
   await plugin.removeData(key);
 }

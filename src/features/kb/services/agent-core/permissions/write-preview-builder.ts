@@ -37,6 +37,7 @@ const SAFE_ARG_KEYS = new Set([
 ]);
 
 const SENSITIVE_QUERY_KEYS = /(^|[_-])(token|key|api[_-]?key|secret|password|authorization|bearer|cookie|credential|private[_-]?key)([_-]|$)/i;
+const SENSITIVE_FIELD_KEYS = /(token|api[_-]?key|secret|password|authorization|bearer|cookie|credential|private[_-]?key)/i;
 const ABSOLUTE_PATH_PATTERN = /([A-Za-z]:\\(?:[^\\\s]+\\)*[^\\\s]*|\/(?:home|mnt\/data|data|workspace|Users|var|tmp|opt|root)(?:\/[^\s"'`<>]*)?)/g;
 const URL_PATTERN = /\bhttps?:\/\/[^\s"'`<>]+/gi;
 
@@ -99,7 +100,7 @@ function redactSensitiveObject(
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_QUERY_KEYS.test(key) || SENSITIVE_HEADER_KEYS.has(key.toLowerCase())) {
+      if (SENSITIVE_FIELD_KEYS.test(key) || SENSITIVE_HEADER_KEYS.has(key.toLowerCase())) {
         out[key] = "[REDACTED]";
       } else {
         out[key] = redactSensitiveObject(child, { ...options, depth: depth + 1 });
@@ -1370,11 +1371,162 @@ function buildWebHttpPostPreview(tool: NativeTool, args: Record<string, unknown>
   };
 }
 
+function buildHomepageManagePreview(
+  tool: NativeTool,
+  args: Record<string, unknown>,
+  action: string,
+): ToolPermissionPreview {
+  const surface = args.surface === "mobile-homepage" ? "移动主页" : "桌面主页";
+  const widgetId = typeof args.widgetId === "string" ? sanitizePreviewText(args.widgetId, 80) : "";
+  const widgetType = typeof args.expectedLabel === "string" ? sanitizePreviewText(args.expectedLabel, 80)
+    : typeof args.widgetType === "string" ? sanitizePreviewText(args.widgetType, 80)
+    : typeof args.expectedType === "string" ? sanitizePreviewText(args.expectedType, 80) : "";
+  const labels: Record<string, string> = {
+    add_widget: "添加主页组件", update_widget: "修改组件展示配置", move_widget: "移动主页组件",
+    remove_widget: "移除主页组件", update_layout: "修改主页布局", create_section: "创建主页分栏",
+    rename_section: "重命名主页分栏", reorder_sections: "调整主页分栏顺序", remove_section: "删除主页分栏",
+    set_section_mode: "切换主页分栏模式", set_active_section: "设置活动主页分栏",
+  };
+  const warnings: string[] = [];
+  if (action === "remove_widget") warnings.push("将从主页移除组件实例配置，但不会删除对应业务数据。");
+  if (action === "remove_section") warnings.push("将删除分栏结构；分栏内组件不会删除，并会按现有规则合并到相邻分栏。");
+  const safePatch = action === "update_widget" ? redactSensitiveObject(args.patch) : undefined;
+  const safeExpectedValues = action === "update_widget" ? redactSensitiveObject(args.expectedValues) : undefined;
+  const target = widgetId ? `${widgetType || "组件"}（${widgetId}）` : widgetType || String(args.sectionId ?? surface);
+  const sections = [
+    { label: "操作范围", value: surface },
+    ...(widgetType ? [{ label: "组件类型", value: widgetType }] : []),
+    ...(widgetId ? [{ label: "组件 ID", value: widgetId }] : []),
+    ...(args.sectionId ? [{ label: "分栏", value: sanitizePreviewText(args.sectionId, 80) }] : []),
+    ...(typeof args.expectedIndex === "number" ? [{ label: "当前位置", value: String(args.expectedIndex) }] : []),
+    ...(args.expectedSectionId !== undefined ? [{ label: "当前分栏", value: String(args.expectedSectionId ?? "未分栏") }] : []),
+    ...(typeof args.position === "number" ? [{ label: "插入位置", value: String(args.position) }] : []),
+    ...(typeof args.targetIndex === "number" ? [{ label: "目标位置", value: String(args.targetIndex) }] : []),
+    ...(args.targetSectionId !== undefined ? [{ label: "目标分栏", value: String(args.targetSectionId) }] : []),
+    ...(typeof args.expectedWidgetCount === "number" ? [{ label: "分栏组件数", value: String(args.expectedWidgetCount) }] : []),
+    ...(args.expectedReceivingSectionId !== undefined ? [{ label: "接收分栏", value: String(args.expectedReceivingSectionId ?? "无") }] : []),
+    ...(typeof args.expectedWidgetLayoutNumber === "number" ? [{ label: "当前列数", value: String(args.expectedWidgetLayoutNumber) }] : []),
+    ...(typeof args.widgetLayoutNumber === "number" ? [{ label: "新列数", value: String(args.widgetLayoutNumber) }] : []),
+    ...(typeof args.expectedWidgetGap === "number" ? [{ label: "当前间距", value: String(args.expectedWidgetGap) }] : []),
+    ...(typeof args.widgetGap === "number" ? [{ label: "新间距", value: String(args.widgetGap) }] : []),
+    ...(safeExpectedValues ? [{ label: "当前值（脱敏）", value: JSON.stringify(safeExpectedValues, null, 2) }] : []),
+    ...(safePatch ? [{ label: "新值（脱敏）", value: JSON.stringify(safePatch, null, 2) }] : []),
+  ];
+  return makePreview({
+    tool,
+    risk: action === "remove_widget" || action === "remove_section" ? "high" : "medium",
+    argsPreview: { action, surface: args.surface ?? "自动", widgetType, widgetId, sectionId: compactPreviewValue(args.sectionId), targetIndex: args.targetIndex },
+    operationLabel: labels[action] ?? "修改主页",
+    targetSummary: target || surface,
+    impactSummary: action === "update_widget" ? "仅修改组件 adapter 白名单内的展示配置。" : "将更新当前真实主页数据。",
+    riskReason: action.startsWith("remove_") ? "会改变主页结构，请确认目标和 revision 正确。" : "会改变主页布局或组件配置。",
+    warnings,
+    sections,
+  });
+}
+
+function buildHomepageComponentPreview(tool: NativeTool, args: Record<string, unknown>, action: string): ToolPermissionPreview {
+  if (tool.name === "homepage_music") {
+    const playback = ["play", "pause", "resume", "next", "previous", "seek", "set_volume"].includes(action);
+    const deletePlaylist = action === "delete_playlist";
+    const labels: Record<string, string> = { create_playlist: "创建云端歌单", rename_playlist: "重命名云端歌单", delete_playlist: "删除云端歌单", add_to_playlist: "歌曲加入云端歌单", remove_from_playlist: "歌曲移出云端歌单", favorite: "收藏云端歌曲", unfavorite: "取消收藏云端歌曲", play: "播放歌曲", pause: "暂停播放", resume: "恢复播放", next: "下一首", previous: "上一首", seek: "跳转播放位置", set_volume: "设置音量" };
+    const target = String(args.trackId ?? args.playlistId ?? args.name ?? "当前播放器");
+    return makePreview({ tool, risk: deletePlaylist ? "high" : playback ? "low" : "medium", operationLabel: labels[action] ?? "更新音乐数据", targetSummary: sanitizePreviewText(target, 120), impactSummary: playback ? "将控制已挂载的真实播放器；运行时不存在时不会自动创建。" : "将更新云端服务器的歌单或收藏数据。", argsPreview: redactSensitiveObject(args) as Record<string, unknown>, sections: [
+      ...(args.name ? [{ label: "歌单名称", value: sanitizePreviewText(args.name, 120) }] : []),
+      ...(args.playlistId ? [{ label: "Playlist ID", value: sanitizePreviewText(args.playlistId, 120) }] : []),
+      ...(args.trackId ? [{ label: "Track ID", value: sanitizePreviewText(args.trackId, 120) }] : []),
+      ...(typeof args.volume === "number" ? [{ label: "音量", value: String(args.volume) }] : []),
+      ...(typeof args.seconds === "number" ? [{ label: "跳转到", value: `${args.seconds} 秒` }] : []),
+    ], warnings: deletePlaylist ? ["将永久删除服务器歌单。"] : undefined });
+  }
+  if (tool.name === "homepage_review") {
+    const plan = args.plan && typeof args.plan === "object" ? args.plan as Record<string, unknown> : args;
+    const remove = action === "remove";
+    return makePreview({ tool, risk: remove ? "high" : "medium", operationLabel: remove ? "移除插件复习计划" : action === "schedule" ? "安排复习" : "更新复习计划", targetSummary: sanitizePreviewText(args.targetId ?? "复习目标", 120), impactSummary: remove ? "移除的是插件复习计划，不会删除思源文档 / 块。" : "将更新插件复习索引并记录复习日志。", argsPreview: redactSensitiveObject(args) as Record<string, unknown>, sections: [
+      ...(args.targetType ? [{ label: "目标类型", value: String(args.targetType) }] : []),
+      ...(plan.nextDate ? [{ label: "下次复习", value: String(plan.nextDate) }] : []),
+      ...(plan.plan ? [{ label: "计划", value: String(plan.plan) }] : []),
+    ], warnings: remove ? ["移除的是插件复习计划，不会删除思源文档 / 块。"] : undefined });
+  }
+  if (tool.name === "homepage_favorites") {
+    const deleteGroup = action === "delete_group";
+    const remove = action === "remove";
+    const warnings = deleteGroup ? [`分组下 ${args.expectedItemCount ?? 0} 个收藏将转入未分组，不会删除收藏文档。`] : remove ? ["只会取消收藏，不会删除思源文档。"] : undefined;
+    return makePreview({ tool, risk: deleteGroup ? "high" : "medium", operationLabel: deleteGroup ? "删除收藏分组" : remove ? "取消收藏" : "更新收藏", targetSummary: sanitizePreviewText(args.docId ?? args.groupId ?? args.name ?? "收藏数据", 120), impactSummary: deleteGroup ? "将删除分组，其收藏转入未分组。" : "将更新正式收藏索引。", argsPreview: redactSensitiveObject(args) as Record<string, unknown>, sections: deleteGroup ? [{ label: "转入未分组", value: String(args.expectedItemCount ?? 0) }] : [], warnings });
+  }
+  if (tool.name === "homepage_countdown") {
+    const patch = args.patch && typeof args.patch === "object" ? args.patch as Record<string, unknown> : {};
+    const values = action === "update" || action === "update_category" ? patch : args;
+    const permanent = action === "delete_permanently";
+    const deleteCategory = action === "delete_category";
+    const labels: Record<string, string> = { add: "新增纪念日", update: "修改纪念日", archive: "归档纪念日", restore: "恢复纪念日", delete_permanently: "永久删除纪念日", create_category: "创建纪念日分类", update_category: "修改纪念日分类", archive_category: "归档纪念日分类", delete_category: "删除纪念日分类" };
+    const target = String(args.eventId ?? args.categoryId ?? values.name ?? "纪念日数据");
+    const warnings = permanent ? ["这是永久删除，不是归档。"] : deleteCategory ? [`该分类下有 ${args.expectedEventCount ?? 0} 个事件，将移动到${args.moveToCategoryId ? `分类 ${args.moveToCategoryId}` : "未分组"}。`] : undefined;
+    return makePreview({ tool, risk: permanent || deleteCategory ? "high" : "medium", operationLabel: labels[action] ?? "更新纪念日", targetSummary: sanitizePreviewText(target, 120), impactSummary: permanent ? "将永久删除事件且无法恢复。" : deleteCategory ? "将删除分类并移动其事件。" : "将写入正式纪念日数据。", argsPreview: redactSensitiveObject({ ...args, patch: values }) as Record<string, unknown>, sections: [
+      ...(values.name ? [{ label: "名称", value: sanitizePreviewText(values.name, 120) }] : []),
+      ...(values.date ? [{ label: "日期", value: String(values.date) }] : []),
+      ...(values.kind ? [{ label: "类型", value: String(values.kind) }] : []),
+      ...(deleteCategory ? [{ label: "受影响事件", value: String(args.expectedEventCount ?? 0) }, { label: "移动目标", value: String(args.moveToCategoryId ?? "未分组") }] : []),
+    ], warnings });
+  }
+  if (tool.name === "homepage_fixed_assets") {
+    const values = action === "update" && args.patch && typeof args.patch === "object" ? args.patch as Record<string, unknown> : args;
+    const target = String(args.assetId ?? values.name ?? "固定资产");
+    return makePreview({
+      tool,
+      risk: action === "archive" ? "high" : "medium",
+      operationLabel: action === "add" ? "新增固定资产" : action === "update" ? "修改固定资产" : "归档固定资产",
+      targetSummary: sanitizePreviewText(target, 120),
+      impactSummary: action === "archive" ? "将归档目标，不会永久删除。" : "将写入正式固定资产数据。",
+      argsPreview: redactSensitiveObject({ ...args, patch: values }) as Record<string, unknown>,
+      sections: [
+        ...(values.name ? [{ label: "名称", value: sanitizePreviewText(values.name, 120) }] : []),
+        ...(typeof values.purchasePrice === "number" ? [{ label: "购买价", value: String(values.purchasePrice) }] : []),
+        ...(typeof values.extraCost === "number" ? [{ label: "额外成本", value: String(values.extraCost) }] : []),
+        ...(values.purchaseDate ? [{ label: "购买日期", value: String(values.purchaseDate) }] : []),
+        ...(values.category ? [{ label: "分类", value: String(values.category) }] : []),
+      ],
+      warnings: action === "archive" ? ["这是归档操作，不是永久删除。"] : undefined,
+    });
+  }
+  if (tool.name === "homepage_accounting") {
+    const labels: Record<string, string> = { add_record: "新增记账流水", update_record: "修改记账流水", archive_record: "归档记账流水", add_account: "新增资产账户", update_account: "修改资产账户", archive_account: "归档资产账户" };
+    const patch = args.patch && typeof args.patch === "object" ? args.patch as Record<string, unknown> : {};
+    const values = action === "update_record" || action === "update_account" ? patch : args;
+    const direction = values.direction === "income" ? "收入" : values.direction === "transfer" ? "转账" : "支出";
+    const amount = typeof values.amount === "number" ? `${values.amount} ${values.currency ?? "CNY"}` : "";
+    const target = String(args.recordId ?? args.accountId ?? values.title ?? values.name ?? "记账数据");
+    const sections = [
+      ...(values.direction ? [{ label: "类型", value: direction }] : []),
+      ...(amount ? [{ label: "金额", value: amount }] : []),
+      ...(values.date ? [{ label: "日期", value: String(values.date) }] : []),
+      ...(values.categoryPrimary ? [{ label: "分类", value: String(values.categoryPrimary) }] : []),
+      ...(values.account ? [{ label: "账户", value: String(values.account) }] : []),
+      ...(values.title ? [{ label: "标题", value: sanitizePreviewText(values.title, 120) }] : []),
+    ];
+    return makePreview({ tool, risk: action === "archive_record" || action === "archive_account" ? "high" : "medium", operationLabel: labels[action] ?? "更新记账数据", targetSummary: sanitizePreviewText(target, 120), impactSummary: action.startsWith("archive_") ? "将归档目标，不会永久删除。" : "将写入正式记账数据。", argsPreview: redactSensitiveObject({ ...args, patch: values }) as Record<string, unknown>, sections, warnings: action.startsWith("archive_") ? ["这是归档操作，不是永久删除。"] : undefined });
+  }
+  if (tool.name === "homepage_quick_note" && action === "write") {
+    const content = typeof args.content === "string" ? sanitizePreviewText(args.content, 300) : "";
+    return makePreview({ tool, operationLabel: "写入快速笔记", targetSummary: "当前已配置的快速笔记目标", impactSummary: `将按用户当前设置追加 ${content.length} 个字符。`, argsPreview: { content: content ? `(${content.length} 字符)` : "" }, sections: [{ label: "内容预览", value: content }], warnings: ["写入位置和时间戳沿用当前正式设置。"] });
+  }
+  if (tool.name === "homepage_focus" && action === "record_session") {
+    return makePreview({ tool, operationLabel: "补记专注会话", targetSummary: `${args.startedAt ?? ""} 至 ${args.endedAt ?? ""}`, impactSummary: `实际专注 ${args.actualFocusSeconds ?? 0} 秒，状态 ${args.status ?? ""}。`, argsPreview: { startedAt: args.startedAt, endedAt: args.endedAt, actualFocusSeconds: args.actualFocusSeconds, status: args.status }, sections: [{ label: "计划时长", value: `${args.plannedSeconds ?? 0} 秒` }, { label: "实际时长", value: `${args.actualFocusSeconds ?? 0} 秒` }, { label: "状态", value: String(args.status ?? "") }] });
+  }
+  return makePreview({ tool, operationLabel: "更新主页组件业务数据", targetSummary: tool.title, argsPreview: redactSensitiveObject(args) as Record<string, unknown> });
+}
+
 export function buildToolPermissionPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
   const action = typeof args.action === "string" ? args.action : "";
   const nestedArgs = args.args && typeof args.args === "object"
     ? args.args as Record<string, unknown>
     : {};
+  if (tool.name === "homepage_manage" && action) {
+    return buildHomepageManagePreview(tool, nestedArgs, action);
+  }
+  if (["homepage_quick_note", "homepage_focus", "homepage_accounting", "homepage_fixed_assets", "homepage_countdown", "homepage_favorites", "homepage_review", "homepage_music"].includes(tool.name) && action) {
+    return buildHomepageComponentPreview(tool, nestedArgs, action);
+  }
   if (tool.name === "web_fetch" && action === "http_post") {
     return buildWebHttpPostPreview(tool, nestedArgs);
   }

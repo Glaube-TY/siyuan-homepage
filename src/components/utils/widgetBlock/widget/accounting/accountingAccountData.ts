@@ -56,14 +56,14 @@ export async function loadAccountingAccounts(plugin: any): Promise<AccountingAcc
 export async function saveAccountingAccount(
     plugin: any,
     input: AccountingAccountInput,
+    options: { expectedUpdatedAt?: string } = {},
 ): Promise<AccountingAccount> {
     const account = normalizeAccount(input);
-    await writeAccountingAsset(plugin, account);
-    return account;
+    return writeAccountingAsset(plugin, account, options);
 }
 
-export async function archiveAccountingAccount(plugin: any, accountId: string): Promise<void> {
-    await archiveAsset(plugin, accountId);
+export async function archiveAccountingAccount(plugin: any, accountId: string, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
+    await archiveAsset(plugin, accountId, options);
 }
 
 export async function bulkSaveAccountingAccounts(plugin: any, inputs: AccountingAccountInput[]): Promise<AccountingAccount[]> {
