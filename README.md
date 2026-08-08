@@ -348,7 +348,7 @@ AI 回答不再只在结尾列出来源，而是可以在回答正文的对应�
 
 ### 受控内容修改
 
-Agent 不只是读取，也能在你允许时修改内容。目前支持新建文档、插入内容块、更新内容块、移动内容块、删除内容块、重命名文档、删除文档、替换文档正文，以及数据库和任务日记写入。
+Agent 不只是读取，也能在你允许时修改内容。目前支持新建文档、插入内容块、更新内容块、移动内容块、删除内容块、重命名文档、删除文档、替换文档正文，以及数据库和任务日记写入。主页相关的组件布局与分栏调整，以及记账、纪念日、收藏、固定资产、复习、专注、快速笔记等业务数据，也可以通过 `homepage_manage` 和对应的 `homepage_*` 工具在确认后写入；写入遵循真实存储的 revision 冲突保护，主页在打开时会自动热刷新到最新数据。
 
 安全体验包括：
 
@@ -370,7 +370,7 @@ AI 知识库的主要能力可以概括为：
 | 知识范围 | 当前笔记本、当前文档及子文档、文档邻域、全库和手动附加文档     |
 | 对话能力 | 多会话、深度思考、联网模式、上下文压缩和会话恢复          |
 | 证据能力 | 正文读取、块级证据、行内引用和来源跳转               |
-| 执行能力 | 文档、任务、日记、数据库等受控读写                 |
+| 执行能力 | 文档、任务、日记、数据库、主页布局/组件以及记账/纪念日/收藏等业务数据读写 |
 | 扩展能力 | MCP、外部 Skill、自定义 Skill、全局记忆和快捷提示语 |
 
 #### MCP 服务
@@ -401,6 +401,8 @@ AI 知识库可以作为 MCP Client 连接外部 MCP Server，让 Agent 在需�
 
 现在的 Agent 能力以“聚合工具”的形式注册给模型：每个顶层工具通过统一的 `action` 字段选择具体能力，参数放在 `args` 中。例如模型看到的不是几十个零散工具，而是 `siyuan_kb`、`diary_task`、`siyuan_database` 这样少量稳定的顶层工具。
 
+除了知识库、日记、文档与数据库等能力外，插件主页自身的组件、布局、分栏，以及记账、纪念日、固定资产、收藏、复习、专注、音乐、快速笔记等业务数据也以 `homepage_manage` / `homepage_accounting` / `homepage_anniversary` 等聚合工具开放给 Agent：既可以直接按你当前真实主页读取和调整组件布局，也可以在组件未放在主页时继续操作共享业务数据。所有写入都需要确认，且遵循真实存储的 revision 冲突保护。
+
 这样做的目的有三个：
 
 - **减少工具数量**：模型面对的是少量稳定的聚合工具，而不是几十个细碎工具；
@@ -419,6 +421,15 @@ AI 知识库可以作为 MCP Client 连接外部 MCP Server，让 Agent 在需�
 | `siyuan_meta`        | 标签和书签管理                              | `tag`、`bookmark`                                                             |
 | `siyuan_asset`       | assets、OCR、标注、未使用资源和受限工作区文件          | `read`、`manage`、`workspace_file`                                             |
 | `siyuan_riff`        | Riff 卡包和闪卡复习管理                       | `deck`、`card`                                                                |
+| `homepage_manage`    | 主页组件、布局与分栏的读取和管理（含旧布局残留清理）       | `overview`、`list_widgets`、`get_widget`、`list_widget_types`、`get_layout`、`list_sections`、`add_widget`、`update_widget`、`move_widget`、`remove_widget`、`update_layout`、`create_section`、`remove_section`、`set_active_section`、`cleanup_unresolved_widgets` |
+| `homepage_quick_note`| 主页快速笔记的写入与状态查看                    | `status`、`write`                                                             |
+| `homepage_focus`     | 专注统计查询与已完成会话补记                   | `stats`、`record_session`                                                      |
+| `homepage_accounting`| 记账流水、资产账户与收支统计                   | `overview`、`query_records`、`summary`、`add_record`、`update_record`、`archive_record`、`list_accounts`、`add_account`、`archive_account`、`category_report` |
+| `homepage_fixed_assets`| 固定资产的增改、归档与分期成本统计              | `list`、`get`、`add`、`update`、`archive`、`cost_summary`                        |
+| `homepage_anniversary`| 纪念日、生日、周年和重要日期的管理               | `list`、`get`、`add`、`update`、`archive`、`restore`、`delete_permanently`、`list_categories`、`create_category`、`update_category`、`delete_category` |
+| `homepage_favorites` | 收藏文档、分组归属和顺序                      | `list`、`add`、`remove`、`move_to_group`、`list_groups`、`create_group`、`rename_group`、`delete_group`、`reorder` |
+| `homepage_review`    | 插件自有的文档/块复习计划                     | `list`、`summary`、`schedule`、`update_plan`、`complete`、`postpone`、`finish`、`remove` |
+| `homepage_music`     | Subsonic/Navidrome 云端音乐、歌单与播放器控制     | `status`、`search`、`list_playlists`、`create_playlist`、`rename_playlist`、`delete_playlist`、`add_to_playlist`、`favorite`、`unfavorite`、`play`、`pause`、`resume`、`set_volume` |
 | `skill_manage`       | 外部/用户 Skill 说明包的列出、读取、安装、停用和重建索引     | `list`、`read`、`read_file`、`install`、`uninstall`、`reindex`                     |
 | `mcp_manage`         | MCP Server 配置、工具同步、工具说明和工具调用         | `list_servers`、`save_server`、`sync_tools`、`list_tools`、`read_tool`、`call_tool`  |
 | `notebrain_file`     | Notebrain 工作区文件读写和本地命令执行（仅 PC/Electron） | `list_dir`、`read_file`、`write_file`、`delete_path`、`run_command`                 |
