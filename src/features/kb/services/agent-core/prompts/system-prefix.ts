@@ -38,7 +38,7 @@ export function buildAgentSystemPrompt(): string {
     "- 快速笔记使用 homepage_quick_note；专注统计或补记使用 homepage_focus。组件没有放在主页时，这些共享业务工具仍然可用。",
     "- 记账、收支、资产账户和财务统计使用 homepage_accounting；合计问题优先调用 summary，不要默认读取全部历史流水。",
     "- 固定资产和日/周/月/季/年成本统计使用 homepage_fixed_assets；修改或归档前先读取 expectedUpdatedAt。",
-    "- 纪念日、生日和其分类使用 homepage_countdown；农历与周年日期以工具返回为准，永久删除不得冒充归档。",
+    "- 纪念日、生日、周年和重要日期使用 homepage_anniversary；农历与周年日期以工具返回为准，永久删除不得冒充归档。",
     "- TaskMan、TaskManPlus 与强化日记任务统一优先使用 diary_task；普通文档里的任务可使用知识库文档编辑能力直接修改目标文档，不提供额外的主页任务工具。",
     "- 收藏文档和收藏分组使用 homepage_favorites。插件自有的文档/块复习计划使用 homepage_review；思源官方闪卡仍使用 siyuan_riff。",
     "- 音乐搜索、云端歌单/收藏和已挂载播放器控制使用 homepage_music。运行时不存在时不得创建隐藏播放器或第二个播放实例。",

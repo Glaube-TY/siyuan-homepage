@@ -156,7 +156,7 @@ export type KbGlobalToolName =
   | "homepage_focus"
   | "homepage_accounting"
   | "homepage_fixed_assets"
-  | "homepage_countdown"
+  | "homepage_anniversary"
   | "homepage_favorites"
   | "homepage_review"
   | "homepage_music"

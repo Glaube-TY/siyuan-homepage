@@ -17,7 +17,7 @@ export interface HomepageComponentToolAccess {
   focus: boolean;
   accounting: boolean;
   fixedAssets: boolean;
-  countdown: boolean;
+  anniversary: boolean;
   favorites: boolean;
   review: boolean;
   music: boolean;
@@ -59,7 +59,7 @@ export function registerHomepageComponentTools(toolRegistry: ToolRegistry, acces
   if (access.focus) register(toolRegistry, "homepage_focus", createHomepageFocusActionTools());
   if (access.accounting) register(toolRegistry, "homepage_accounting", createHomepageAccountingActionTools());
   if (access.fixedAssets) register(toolRegistry, "homepage_fixed_assets", createHomepageFixedAssetsActionTools());
-  if (access.countdown) register(toolRegistry, "homepage_countdown", createHomepageCountdownActionTools());
+  if (access.anniversary) register(toolRegistry, "homepage_anniversary", createHomepageCountdownActionTools());
   if (access.favorites) register(toolRegistry, "homepage_favorites", createHomepageFavoritesActionTools());
   if (access.review) register(toolRegistry, "homepage_review", createHomepageReviewActionTools());
   if (access.music) register(toolRegistry, "homepage_music", createHomepageMusicActionTools());

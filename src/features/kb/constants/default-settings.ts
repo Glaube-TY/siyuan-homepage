@@ -20,7 +20,7 @@ export const DEFAULT_TOOL_SETTINGS: KbToolSettings = {
     "homepage_focus",
     "homepage_accounting",
     "homepage_fixed_assets",
-    "homepage_countdown",
+    "homepage_anniversary",
     "homepage_favorites",
     "homepage_review",
     "homepage_music",

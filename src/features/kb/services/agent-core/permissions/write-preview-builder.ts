@@ -1386,10 +1386,47 @@ function buildHomepageManagePreview(
     remove_widget: "移除主页组件", update_layout: "修改主页布局", create_section: "创建主页分栏",
     rename_section: "重命名主页分栏", reorder_sections: "调整主页分栏顺序", remove_section: "删除主页分栏",
     set_section_mode: "切换主页分栏模式", set_active_section: "设置活动主页分栏",
+    cleanup_unresolved_widgets: "清理旧布局残留",
   };
   const warnings: string[] = [];
   if (action === "remove_widget") warnings.push("将从主页移除组件实例配置，但不会删除对应业务数据。");
   if (action === "remove_section") warnings.push("将删除分栏结构；分栏内组件不会删除，并会按现有规则合并到相邻分栏。");
+
+  if (action === "cleanup_unresolved_widgets") {
+    const items = Array.isArray(args.items) ? args.items as Array<Record<string, unknown>> : [];
+    const ids = items.map((item) => typeof item.widgetId === "string" ? item.widgetId : "").filter(Boolean);
+    const sectionById = new Map(items.map((item) => [String(item.widgetId ?? ""), String(item.expectedSectionId ?? "未分栏")]));
+    const impactLines = [
+      `即将清理 ${items.length} 个旧布局残留（ID 摘要：${formatIdList(ids, 8) || "无"}）`,
+      "这些引用已没有可读取的组件配置，无法恢复组件 type 信息。",
+      "本操作只删除当前设备主页的无效布局引用。",
+      "不删除共享业务数据，不跨设备处理。",
+    ];
+    return makePreview({
+      tool,
+      risk: "high",
+      argsPreview: { action, surface: args.surface ?? "自动", cleanupCount: items.length, widgetIds: ids.slice(0, 8) },
+      operationLabel: "清理旧布局残留",
+      targetSummary: surface,
+      impactSummary: `清理 ${items.length} 个没有组件配置的旧布局引用，ID 摘要：${formatIdList(ids, 8) || "无"}`,
+      riskReason: "会移除当前设备的无效布局引用，不可由 Agent 自动恢复；只清理配置缺失且 manifest 声明为 legacy unresolved 的引用。",
+      warnings: [
+        "这是高风险写操作，必须用户确认；不得自动执行。",
+        "只删除当前设备主页的无效布局引用。",
+        "不删除共享业务数据，不跨设备处理。",
+      ],
+      summary: impactLines.join("\n"),
+      sections: [
+        { label: "操作范围", value: surface },
+        { label: "清理数量", value: `${items.length} 个` },
+        { label: "ID 摘要", value: formatIdList(ids, 8) || "无" },
+        { label: "所属分栏", value: [...sectionById.entries()].map(([id, section]) => `${id} → ${section}`).slice(0, 8).join("\n") || "未提供" },
+        { label: "可恢复信息", value: "不存在可恢复的组件 type 信息（配置已缺失）。" },
+        { label: "边界", value: "只删除当前设备主页的无效布局引用；不删除共享业务数据；不跨设备处理。" },
+      ],
+    });
+  }
+
   const safePatch = action === "update_widget" ? redactSensitiveObject(args.patch) : undefined;
   const safeExpectedValues = action === "update_widget" ? redactSensitiveObject(args.expectedValues) : undefined;
   const target = widgetId ? `${widgetType || "组件"}（${widgetId}）` : widgetType || String(args.sectionId ?? surface);
@@ -1414,12 +1451,12 @@ function buildHomepageManagePreview(
   ];
   return makePreview({
     tool,
-    risk: action === "remove_widget" || action === "remove_section" ? "high" : "medium",
+    risk: action === "remove_widget" || action === "remove_section" || action === "cleanup_unresolved_widgets" ? "high" : "medium",
     argsPreview: { action, surface: args.surface ?? "自动", widgetType, widgetId, sectionId: compactPreviewValue(args.sectionId), targetIndex: args.targetIndex },
     operationLabel: labels[action] ?? "修改主页",
     targetSummary: target || surface,
     impactSummary: action === "update_widget" ? "仅修改组件 adapter 白名单内的展示配置。" : "将更新当前真实主页数据。",
-    riskReason: action.startsWith("remove_") ? "会改变主页结构，请确认目标和 revision 正确。" : "会改变主页布局或组件配置。",
+    riskReason: action.startsWith("remove_") || action === "cleanup_unresolved_widgets" ? "会改变主页结构，请确认目标和 revision 正确。" : "会改变主页布局或组件配置。",
     warnings,
     sections,
   });
@@ -1454,7 +1491,7 @@ function buildHomepageComponentPreview(tool: NativeTool, args: Record<string, un
     const warnings = deleteGroup ? [`分组下 ${args.expectedItemCount ?? 0} 个收藏将转入未分组，不会删除收藏文档。`] : remove ? ["只会取消收藏，不会删除思源文档。"] : undefined;
     return makePreview({ tool, risk: deleteGroup ? "high" : "medium", operationLabel: deleteGroup ? "删除收藏分组" : remove ? "取消收藏" : "更新收藏", targetSummary: sanitizePreviewText(args.docId ?? args.groupId ?? args.name ?? "收藏数据", 120), impactSummary: deleteGroup ? "将删除分组，其收藏转入未分组。" : "将更新正式收藏索引。", argsPreview: redactSensitiveObject(args) as Record<string, unknown>, sections: deleteGroup ? [{ label: "转入未分组", value: String(args.expectedItemCount ?? 0) }] : [], warnings });
   }
-  if (tool.name === "homepage_countdown") {
+  if (tool.name === "homepage_anniversary") {
     const patch = args.patch && typeof args.patch === "object" ? args.patch as Record<string, unknown> : {};
     const values = action === "update" || action === "update_category" ? patch : args;
     const permanent = action === "delete_permanently";
@@ -1524,7 +1561,7 @@ export function buildToolPermissionPreview(tool: NativeTool, args: Record<string
   if (tool.name === "homepage_manage" && action) {
     return buildHomepageManagePreview(tool, nestedArgs, action);
   }
-  if (["homepage_quick_note", "homepage_focus", "homepage_accounting", "homepage_fixed_assets", "homepage_countdown", "homepage_favorites", "homepage_review", "homepage_music"].includes(tool.name) && action) {
+  if (["homepage_quick_note", "homepage_focus", "homepage_accounting", "homepage_fixed_assets", "homepage_anniversary", "homepage_favorites", "homepage_review", "homepage_music"].includes(tool.name) && action) {
     return buildHomepageComponentPreview(tool, nestedArgs, action);
   }
   if (tool.name === "web_fetch" && action === "http_post") {

@@ -2,7 +2,7 @@
     import { onMount, tick } from "svelte";
     import Sortable from "sortablejs";
     import { showMessage } from "siyuan";
-    import { saveLayout, restoreLayout } from "./mobileHomepage_layout";
+    import { saveLayout, restoreLayout, MobileLayoutRevisionConflictError } from "./mobileHomepage_layout";
     import { createMobileWidgetBlock } from "./block-creator";
     import MobileWidgetActionSheet from "./MobileWidgetActionSheet.svelte";
     import MobileWidgetContentSheet from "./MobileWidgetContentSheet.svelte";
@@ -27,6 +27,15 @@
     import "./mobileHomepage.scss";
     import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
     import { createWidgetInstanceId } from "@/homepage/deviceView/widgetInstanceRepository";
+    import { readDeviceViewLayout } from "@/homepage/deviceView/deviceViewStorage";
+    import {
+        deleteWidgetInstance,
+        readWidgetInstanceDocument,
+    } from "@/homepage/deviceView/widgetInstanceRepository";
+    import {
+        HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT,
+        type HomepageAgentStorageChangedDetail,
+    } from "@/homepage/deviceView/deviceViewEvents";
 
     export const app = undefined;
 
@@ -68,6 +77,20 @@
     let deleteSheetBlock: HTMLElement | null = $state(null);
     let totalWidgetCount = $state(0);
     let visibleWidgetCount = $state(0);
+
+    // ── 外部主页存储（Homepage Agent）刷新调度器 ──
+    // Agent 修改 mobile-homepage 持久化 storage 后，已打开的移动主页在可见且非编辑态时
+    // 自动恢复最新 storage；编辑/保存/隐藏期间只标记 pending，稍后再恢复。
+    let mobileHomepageRootElement: HTMLElement | undefined = $state(undefined);
+    let pendingExternalStorageRefresh = false;
+    let externalStorageRefreshGeneration = 0;
+    let mobileHomepageVisibilityObserver: ResizeObserver | null = null;
+
+    // ── 移动主页乐观并发控制 ──
+    // renderedLayoutRevision：当前屏幕 DOM 所依据的真实 storage layout revision（restore 成功后记录）。
+    // editBaseLayoutRevision：一次编辑会话开始时固定的 base revision；保存时作为 expectedRevision。
+    let renderedLayoutRevision: number | null = null;
+    let editBaseLayoutRevision: number | null = null;
 
     function getWidgetBlocks(): HTMLElement[] {
         const container = mobileHomepageWidgetContainer;
@@ -121,13 +144,14 @@
         syncWidgetCount();
     }
 
-    async function initMobileHomepageLayout(): Promise<void> {
+    async function initMobileHomepageLayout(options: { confirmedEmptyLayout?: boolean } = {}): Promise<void> {
         // Single-flight: if already initializing, wait for that one
         if (initInFlight) {
             return initInFlight;
         }
 
         const version = ++restoreVersion;
+        const startGeneration = externalStorageRefreshGeneration;
 
         initInFlight = (async () => {
             await tick();
@@ -163,22 +187,50 @@
                 disabled: true,
                 onEnd: async () => {
                     if (editMode && activeCategory === "all") {
+                        // 拖动保存必须绑定本次编辑会话的 base revision。
+                        if (editBaseLayoutRevision == null) return;
                         try {
-                            await saveLayout(plugin, mobileHomepageWidgetContainer);
+                            const result = await saveLayout(plugin, mobileHomepageWidgetContainer, {
+                                expectedRevision: editBaseLayoutRevision,
+                            });
+                            // 连续拖动：base 更新为刚提交的 revision；rendered 同步，避免二次进入编辑假冲突。
+                            applyMobileCommittedLayout(result.committedRevision, true);
                             await applyCategoryFilter();
-                        } catch (_error) {
-                            showMessage("移动主页拖动保存失败，请重试或点击完成重试。", 5000, "error");
+                        } catch (error) {
+                            if (error instanceof MobileLayoutRevisionConflictError) {
+                                await handleMobileEditConflict();
+                            } else {
+                                showMessage("移动主页拖动保存失败，请重试或点击完成重试。", 5000, "error");
+                            }
                         }
                     }
                 },
             });
 
-            await restoreLayout(plugin, currentBlockForSettingsRef, mobileHomepageWidgetContainer, {
+            const restored = await restoreLayout(plugin, currentBlockForSettingsRef, mobileHomepageWidgetContainer, {
                 previewMode,
+                confirmedEmptyLayout: options.confirmedEmptyLayout,
             });
 
             // If a newer restore started or container was destroyed, skip post-processing
             if (version !== restoreVersion || destroyed) return;
+
+            // 记录当前 DOM 所依据的真实 storage revision（编辑 base 的来源）。
+            if (restored.layoutRevision != null) {
+                renderedLayoutRevision = restored.layoutRevision;
+            }
+
+            // 已确认空布局清空后，清理可能指向已销毁元素的过期选择状态。
+            if (container.dataset.mobileConfirmedEmptyCleared === "1") {
+                delete container.dataset.mobileConfirmedEmptyCleared;
+                selectedBlock = null;
+                selectedWidgetType = "";
+                currentBlockForSettingsRef.value = null;
+                actionSheetOpen = false;
+                contentSheet = null;
+                styleSheetBlock = null;
+                deleteSheetBlock = null;
+            }
 
             await applyCategoryFilter();
             syncWidgetCount();
@@ -189,6 +241,91 @@
             await initInFlight;
         } finally {
             initInFlight = null;
+            // 若恢复期间收到了更新的外部 storage 事件，则基于最新 storage 再恢复一次，
+            // 避免“in-flight 期间收到事件 → 完成后被丢弃”导致 pending 永远丢失。
+            if (!destroyed && pendingExternalStorageRefresh && startGeneration !== externalStorageRefreshGeneration) {
+                scheduleExternalStorageRefresh();
+            }
+        }
+    }
+
+    /**
+     * 判断移动主页当前是否真正可做 DOM 恢复。
+     * 思源内部切换页面时整个 document 仍可见，因此用根元素尺寸判断，而非 document.visibilitychange。
+     * 后台隐藏 → 视为“暂时不可恢复”，保留 pending，切回可见后再恢复。
+     */
+    function isMobileHomepageVisibleAndMountable(): boolean {
+        const root = mobileHomepageRootElement;
+        if (!root || !root.isConnected) return false;
+        if (root.clientWidth <= 0 || root.clientHeight <= 0) return false;
+        if (root.getClientRects().length === 0) return false;
+        const style = getComputedStyle(root);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        return true;
+    }
+
+    /** 请求执行一次移动主页外部存储刷新；编辑/保存/隐藏/在途恢复时不立即执行。 */
+    function scheduleExternalStorageRefresh(): void {
+        if (destroyed) return;
+        if (!mobileHomepageRootElement || !mobileHomepageRootElement.isConnected) return;
+        if (editMode || layoutSaving) return;
+        if (!isMobileHomepageVisibleAndMountable()) return;
+        if (initInFlight) return;
+        requestAnimationFrame(() => {
+            if (destroyed) return;
+            if (!pendingExternalStorageRefresh) return;
+            if (editMode || layoutSaving) return;
+            if (initInFlight) return;
+            void runExternalStorageRefresh();
+        });
+    }
+
+    /** 基于最新持久化 storage 恢复一次移动主页。 */
+    async function runExternalStorageRefresh(): Promise<void> {
+        const refreshGeneration = externalStorageRefreshGeneration;
+        // Agent 外部写入已完成事务提交与写后验证；只有该路径允许请求“已确认空布局”清空。
+        await initMobileHomepageLayout({ confirmedEmptyLayout: true });
+        if (destroyed) return;
+        if (refreshGeneration === externalStorageRefreshGeneration) {
+            pendingExternalStorageRefresh = false;
+        }
+    }
+
+    /**
+     * 收到 Homepage Agent 的外部 storage changed 事件。
+     * 移动主页只处理 mobile-homepage；桌面主页的写入被忽略，避免互相刷新。
+     * latest-wins：restoreVersion++ 立即让在途旧恢复失效；generation++ 用于恢复完成后复查 pending。
+     */
+    function handleAgentStorageChanged(event: Event): void {
+        const detail = (event as CustomEvent<HomepageAgentStorageChangedDetail>).detail;
+        if (!detail || detail.surface !== "mobile-homepage") return;
+        restoreVersion += 1;
+        externalStorageRefreshGeneration += 1;
+        pendingExternalStorageRefresh = true;
+        scheduleExternalStorageRefresh();
+    }
+
+    /** 用 ResizeObserver 观察根元素，移动主页从隐藏变为可见时自动恢复最新 storage。 */
+    function setupMobileHomepageVisibilityObserver(): void {
+        teardownMobileHomepageVisibilityObserver();
+        const root = mobileHomepageRootElement;
+        if (!root) return;
+        mobileHomepageVisibilityObserver = new ResizeObserver(() => {
+            if (isMobileHomepageVisibleAndMountable() && pendingExternalStorageRefresh) {
+                scheduleExternalStorageRefresh();
+            }
+        });
+        mobileHomepageVisibilityObserver.observe(root);
+    }
+
+    function teardownMobileHomepageVisibilityObserver(): void {
+        if (mobileHomepageVisibilityObserver) {
+            try {
+                mobileHomepageVisibilityObserver.disconnect();
+            } catch {
+                // 忽略断开错误
+            }
+            mobileHomepageVisibilityObserver = null;
         }
     }
 
@@ -208,24 +345,109 @@
         mobileHomepageInitialized = false;
     }
 
+    /**
+     * 从非编辑状态进入可保存编辑状态。
+     * - 若已记录 renderedLayoutRevision，直接作为 editBaseLayoutRevision；
+     * - 否则读取最新 storage，确认当前 DOM 与 storage 顺序一致后才允许编辑；
+     *   不一致则刷新主页，不允许基于未知版本编辑。
+     */
+    async function enterMobileEditMode(): Promise<boolean> {
+        if (editMode) return true;
+        if (renderedLayoutRevision != null) {
+            editBaseLayoutRevision = renderedLayoutRevision;
+            editMode = true;
+            updateSortableState();
+            return true;
+        }
+        try {
+            const container = mobileHomepageWidgetContainer;
+            if (!container) return false;
+            const current = await readDeviceViewLayout(deviceViewContext);
+            if (!current) return false;
+            const storageOrder = current.order.map((item) => item.id);
+            const domOrder = getWidgetBlocks().map((block) => block.id);
+            if (storageOrder.length === domOrder.length && storageOrder.every((id, i) => id === domOrder[i])) {
+                renderedLayoutRevision = current.revision;
+                editBaseLayoutRevision = current.revision;
+                editMode = true;
+                updateSortableState();
+                return true;
+            }
+        } catch {
+            return false;
+        }
+        // DOM 与 storage 不一致：刷新主页，不允许基于未知版本编辑。
+        pendingExternalStorageRefresh = true;
+        scheduleExternalStorageRefresh();
+        showMessage("主页数据已变化，已重新加载最新布局。", 3000, "info");
+        return false;
+    }
+
+    /**
+     * 移动编辑保存发生 revision 冲突（用户与 Agent / 其他窗口同时编辑）：
+     * 不写入旧 DOM；退出 stale 编辑、关闭 sheet/selection，并调度一次最新 storage refresh。
+     */
+    async function handleMobileEditConflict(): Promise<void> {
+        actionSheetOpen = false;
+        styleSheetBlock = null;
+        contentSheet = null;
+        deleteSheetBlock = null;
+        setSelectedBlock(null);
+        editMode = false;
+        layoutSaving = false;
+        editBaseLayoutRevision = null;
+        pendingExternalStorageRefresh = true;
+        showMessage("主页已被其他操作修改，当前编辑无法直接覆盖最新布局，已重新加载最新主页。", 5000, "info");
+        scheduleExternalStorageRefresh();
+    }
+
+    /** 最小回滚：仅当新建组件文档 revision 仍未变化时删除；已并发变化则保留并提示人工检查。 */
+    async function rollbackMobileNewWidget(widgetId: string): Promise<void> {
+        try {
+            const doc = await readWidgetInstanceDocument(deviceViewContext, widgetId);
+            if (doc) {
+                await deleteWidgetInstance(deviceViewContext, widgetId, doc.revision);
+            }
+        } catch (error) {
+            console.warn("[MobileHomepage] 新建组件配置无法安全回滚，已保留等待人工检查:", error);
+        }
+    }
+
+    /**
+     * 本地布局成功提交后统一更新 revision bookkeeping：
+     * - 当前 DOM 已经对应 committedRevision，因此 renderedLayoutRevision 必须同步；
+     * - 仍处于编辑会话时同时推进 editBaseLayoutRevision（连续拖动不产生自我假冲突）；
+     * - 退出编辑时由调用方把 editBaseLayoutRevision 清空，renderedLayoutRevision 不清空。
+     */
+    function applyMobileCommittedLayout(committedRevision: number, stillEditing: boolean): void {
+        renderedLayoutRevision = committedRevision;
+        if (stillEditing) {
+            editBaseLayoutRevision = committedRevision;
+        }
+    }
+
     function handleWidgetAction(event: CustomEvent): void {
         const block = event.detail?.element as HTMLElement | undefined;
         if (!block) return;
-        editMode = true;
-        setSelectedBlock(block);
-        void refreshSelectedWidgetType(block);
-        actionSheetOpen = true;
-        updateSortableState();
+        void enterMobileEditMode().then((entered) => {
+            if (!entered) return;
+            setSelectedBlock(block);
+            void refreshSelectedWidgetType(block);
+            actionSheetOpen = true;
+            updateSortableState();
+        });
     }
 
     function handleWidgetLongPress(event: CustomEvent): void {
         const block = event.detail?.element as HTMLElement | undefined;
         if (!block) return;
-        editMode = true;
-        setSelectedBlock(block);
-        void refreshSelectedWidgetType(block);
-        actionSheetOpen = true;
-        updateSortableState();
+        void enterMobileEditMode().then((entered) => {
+            if (!entered) return;
+            setSelectedBlock(block);
+            void refreshSelectedWidgetType(block);
+            actionSheetOpen = true;
+            updateSortableState();
+        });
     }
 
     function handleWidgetRefreshed(): void {
@@ -239,7 +461,16 @@
             if (layoutSaving) return;
             layoutSaving = true;
             try {
-                await saveLayout(plugin, mobileHomepageWidgetContainer);
+                if (editBaseLayoutRevision == null) {
+                    // 防御性退出编辑（正常流程进入编辑时已记录 base）。
+                    editMode = false;
+                    setSelectedBlock(null);
+                    updateSortableState();
+                    return;
+                }
+                const result = await saveLayout(plugin, mobileHomepageWidgetContainer, { expectedRevision: editBaseLayoutRevision });
+                applyMobileCommittedLayout(result.committedRevision, false);
+                editBaseLayoutRevision = null;
                 actionSheetOpen = false;
                 styleSheetBlock = null;
                 contentSheet = null;
@@ -247,14 +478,19 @@
                 setSelectedBlock(null);
                 editMode = false;
                 showMessage("移动端主页布局已保存");
-            } catch (_error) {
+            } catch (error) {
+                if (error instanceof MobileLayoutRevisionConflictError) {
+                    await handleMobileEditConflict();
+                    return;
+                }
                 // Keep editMode=true, preserve current DOM and selection state
                 showMessage("移动主页布局保存失败，当前编辑尚未提交，请重试。", 5000, "error");
             } finally {
                 layoutSaving = false;
             }
         } else {
-            editMode = true;
+            const entered = await enterMobileEditMode();
+            if (!entered) return;
         }
         updateSortableState();
     }
@@ -270,9 +506,19 @@
         // In edit mode: save first, then close
         layoutSaving = true;
         try {
-            await saveLayout(plugin, mobileHomepageWidgetContainer);
+            if (editBaseLayoutRevision == null) {
+                close();
+                return;
+            }
+            const result = await saveLayout(plugin, mobileHomepageWidgetContainer, { expectedRevision: editBaseLayoutRevision });
+            applyMobileCommittedLayout(result.committedRevision, false);
+            editBaseLayoutRevision = null;
             close();
-        } catch (_error) {
+        } catch (error) {
+            if (error instanceof MobileLayoutRevisionConflictError) {
+                await handleMobileEditConflict();
+                return;
+            }
             showMessage("移动主页布局保存失败，当前编辑尚未提交，请重试。", 5000, "error");
         } finally {
             layoutSaving = false;
@@ -310,8 +556,9 @@
         showMessage("移动端组件已刷新");
     }
 
-    function openAddSheet(): void {
-        editMode = true;
+    async function openAddSheet(): Promise<void> {
+        const entered = await enterMobileEditMode();
+        if (!entered) return;
         addSheetOpen = true;
         updateSortableState();
     }
@@ -359,8 +606,17 @@
             contentSheet.isNew,
         );
         try {
-            await saveLayout(plugin, mobileHomepageWidgetContainer);
-        } catch (_error) {
+            const result = await saveLayout(plugin, mobileHomepageWidgetContainer, { expectedRevision: editBaseLayoutRevision ?? undefined });
+            applyMobileCommittedLayout(result.committedRevision, editMode);
+        } catch (error) {
+            if (error instanceof MobileLayoutRevisionConflictError) {
+                // 内容已写入（新建组件 config 已创建），但布局未提交：最小回滚新建实例。
+                if (contentSheet.isNew) {
+                    await rollbackMobileNewWidget(contentSheet.blockId);
+                }
+                await handleMobileEditConflict();
+                return;
+            }
             // Content was written successfully, but layout did not commit.
             // Keep the current sheet open so the user can retry.
             showMessage("移动主页布局保存失败，组件内容已保存但布局未更新，请重试。", 5000, "error");
@@ -427,14 +683,19 @@
 
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
+        window.addEventListener(HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, handleAgentStorageChanged as EventListener);
 
         if (advanced) {
             void initMobileHomepageLayout();
         }
 
+        setupMobileHomepageVisibilityObserver();
+
         return () => {
             window.removeEventListener("homepage-advanced-ready", handleAdvancedReady);
             window.removeEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
+            window.removeEventListener(HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, handleAgentStorageChanged as EventListener);
+            teardownMobileHomepageVisibilityObserver();
             cleanupSortableState();
 
             // Only clean up our own container instance
@@ -466,10 +727,21 @@
         editMode;
         updateSortableState();
     });
+
+    // 编辑中或保存中收到外部 storage changed 时只标记 pending；
+    // 用户退出编辑且保存完成（editMode/layoutSaving 均为 false）后自动恢复最新 storage。
+    $effect(() => {
+        editMode;
+        layoutSaving;
+        if (!editMode && !layoutSaving && pendingExternalStorageRefresh && !destroyed) {
+            scheduleExternalStorageRefresh();
+        }
+    });
 </script>
 
 <div
     class="mobile-homepage"
+    bind:this={mobileHomepageRootElement}
     class:mobile-homepage--editing={editMode}
     class:mobile-homepage--preview={previewMode}
 >
@@ -550,9 +822,17 @@
                 onClose={() => (styleSheetBlock = null)}
                 onDelete={requestDeleteSelectedWidget}
                 onStyleChanged={() => {
-                    saveLayout(plugin, mobileHomepageWidgetContainer).catch(() => {
-                        showMessage("移动主页样式保存失败，请重试。", 5000, "error");
-                    });
+                    saveLayout(plugin, mobileHomepageWidgetContainer, { expectedRevision: editBaseLayoutRevision ?? undefined })
+                        .then((result) => {
+                            applyMobileCommittedLayout(result.committedRevision, editMode);
+                        })
+                        .catch((error) => {
+                            if (error instanceof MobileLayoutRevisionConflictError) {
+                                void handleMobileEditConflict();
+                                return;
+                            }
+                            showMessage("移动主页样式保存失败，请重试。", 5000, "error");
+                        });
                 }}
             />
         {/if}

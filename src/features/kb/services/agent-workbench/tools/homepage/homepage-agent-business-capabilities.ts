@@ -7,10 +7,10 @@ export interface HomepageBusinessCapability {
 
 const BUSINESS_TOOL_BY_TYPE: Readonly<Record<string, HomepageBusinessCapability>> = {
   "quick-notes": { businessTool: "homepage_quick_note", supported: true },
-  TaskMan: { businessTool: "diary_task", supported: true, reusedExistingTool: true },
-  TaskManPlus: { businessTool: "diary_task", supported: true, reusedExistingTool: true },
+  TaskMan: { businessTool: null, supported: false, reason: "document_backed_no_dedicated_agent_tool" },
+  TaskManPlus: { businessTool: null, supported: false, reason: "document_backed_no_dedicated_agent_tool" },
   accounting: { businessTool: "homepage_accounting", supported: true },
-  countdown: { businessTool: "homepage_countdown", supported: true },
+  countdown: { businessTool: "homepage_anniversary", supported: true },
   fixedAssets: { businessTool: "homepage_fixed_assets", supported: true },
   favorites: { businessTool: "homepage_favorites", supported: true },
   reviewDocs: { businessTool: "homepage_review", supported: true },

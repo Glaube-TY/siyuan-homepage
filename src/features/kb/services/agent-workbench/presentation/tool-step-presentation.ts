@@ -35,7 +35,7 @@ const AGGREGATE_TOOL_DISPLAY_NAMES: Record<string, string> = {
   homepage_focus: "管理专注记录",
   homepage_accounting: "管理记账",
   homepage_fixed_assets: "管理固定资产",
-  homepage_countdown: "管理纪念日",
+  homepage_anniversary: "管理纪念日",
   homepage_favorites: "管理收藏文档",
   homepage_review: "管理复习计划",
   homepage_music: "控制音乐与云端歌单",

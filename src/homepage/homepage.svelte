@@ -10,6 +10,7 @@
 
     import {
         saveLayout,
+        saveLayoutWithResult,
         restoreLayout,
         type HomepageLayoutRuntimeOptions,
     } from "../components/utils/widgetBlock/utils/layout-handler";
@@ -76,6 +77,11 @@
     import { readWidgetInstanceDocument } from "./deviceView/widgetInstanceRepository";
     import { readDeviceViewManifest } from "./deviceView/deviceViewStorage";
     import { hasSameJsonSemantic } from "./deviceView/jsonSafe";
+    import {
+        HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT,
+        type HomepageAgentStorageChangedDetail,
+    } from "./deviceView/deviceViewEvents";
+    import { shouldConfirmEmptyLayout } from "./deviceView/confirmedEmptyLayout";
     import {
         DEFAULT_BACKGROUND_IMAGE_BLUR,
         DEFAULT_BACKGROUND_IMAGE_OPACITY,
@@ -263,6 +269,9 @@
     const componentSectionRestoreInFlight = new Map<string, Promise<RestoreLayoutResult>>();
     const preservedWidgetElements = new Map<string, HTMLElement>();
     let preserveMountedWidgetsOnNextContainerDestroy = false;
+    // 是否正在拖动主页组件（任意分栏/root）。Agent storage event 在拖动中只 pending，
+    // 避免在用户 drag DOM 过程中执行 restore。
+    let homepageLayoutDragging = false;
 
     // 每个可见容器独立运行状态
     const sectionSortables = new Map<string, Sortable>();
@@ -562,14 +571,52 @@
             animation: 150,
             ghostClass: "sortable-ghost",
             handle: ".drag-handle",
+            onStart: () => {
+                homepageLayoutDragging = true;
+            },
             onEnd: () => {
-                const runtimeStatus = sectionRuntimeStates.get(sectionId)?.status;
+                homepageLayoutDragging = false;
+                const runtimeState = sectionRuntimeStates.get(sectionId);
+                const runtimeStatus = runtimeState?.status;
                 if (!["ready", "degraded"].includes(runtimeStatus || "")) {
                     return;
                 }
-                saveLayout(plugin, container, {
+                // 拖动保存必须绑定该 section/root 当前已渲染的 layout revision。
+                const uiBaseRevision = runtimeState?.layoutRevision ?? 0;
+                if (uiBaseRevision <= 0) {
+                    return;
+                }
+                void saveLayoutWithResult(plugin, container, {
                     sectionsEnabled: sectionId !== ROOT_COMPONENT_SECTION_ID,
                     sectionId: sectionId === ROOT_COMPONENT_SECTION_ID ? null : sectionId,
+                    expectedLayoutRevision: uiBaseRevision,
+                }).then((result) => {
+                    if (result.success) {
+                        // 连续拖动：更新该 section 的 runtime layoutRevision 为刚提交的 revision。
+                        const current = sectionRuntimeStates.get(sectionId);
+                        if (current && current.layoutRevision === uiBaseRevision) {
+                            setSectionRuntimeState(sectionId, { ...current, layoutRevision: result.layoutRevision });
+                        }
+                        // 若拖动期间有 pending 外部 storage change，按最新 storage 再刷新一次。
+                        if (pendingExternalStorageRefresh && !homepageComponentDestroyed) {
+                            requestExternalStorageRefresh();
+                        }
+                        return;
+                    }
+                    if (result.code === "revision_conflict") {
+                        // 用户与 Agent/其他窗口同时编辑：不覆盖，提示并刷新最新 storage。
+                        showMessage("主页已被其他操作修改，当前拖动未保存，正在重新加载最新布局。", 5000, "info");
+                        updateHomepageVersion += 1;
+                        externalStorageRefreshGeneration += 1;
+                        pendingExternalStorageRefresh = true;
+                        requestExternalStorageRefresh();
+                        return;
+                    }
+                    if (result.code === "rejected") {
+                        showMessage(`主页布局保存被拒绝：${result.reason}`, 5000, "error");
+                        return;
+                    }
+                    // unavailable：保持现状，不打扰用户。
                 });
             },
         });
@@ -616,6 +663,8 @@
         effectiveColumns?: number;
         effectiveGap?: number;
         identityResolved?: boolean;
+        /** 已确认的合法空布局（仅 Agent explicit-storage-refresh 严格条件下传 true）。默认 false。 */
+        confirmedEmptyLayout?: boolean;
     }
 
     async function resolveSectionRestoreOptions(
@@ -696,9 +745,18 @@
             )
             : SectionReuse.No;
         if (resolvedOptions.force !== true && cachedState && cachedReuse === SectionReuse.PureReuse) {
+            // PureReuse 确认当前 DOM 与最新 layout 对该 section 的内容一致。
+            // 其他分栏的一次保存可能只提高全局 layout revision 而不改变本分栏内容，
+            // 因此必须把 runtime revision 提升到 resolve 得到的最新 revision，避免后续保存假冲突。
+            // 仅当 resolvedOptions 携带了最新 revision（非 root 分栏由 resolveSectionRestoreOptions 重读得到）时才升级；
+            // 未携带时（root 无参数 PureReuse）不升级，避免基于缓存校验误把真正 stale DOM 当成最新。
+            const latestRevision = resolvedOptions.expectedLayoutRevision ?? cachedState.layoutRevision;
+            if (latestRevision !== cachedState.layoutRevision) {
+                setSectionRuntimeState(effectiveSectionId, { ...cachedState, layoutRevision: latestRevision });
+            }
             return {
                 status: cachedState.status === "ready" ? "complete" : "degraded",
-                layoutRevision: cachedState.layoutRevision,
+                layoutRevision: latestRevision,
                 expectedIds: [...cachedState.expectedIds],
                 failedWidgetIds: [...cachedState.failedWidgetIds],
                 unresolvedWidgetIds: [...cachedState.unresolvedWidgetIds],
@@ -785,6 +843,7 @@
                     ...(options.fixedContext ? { deviceViewContext: options.fixedContext } : {}),
                     expectedLayoutRevision: options.expectedLayoutRevision,
                     expectedWidgetIds: options.expectedDeclaredWidgetIds ?? options.expectedWidgetIds,
+                    confirmedEmptyLayout: options.confirmedEmptyLayout,
                 },
             );
         } catch (error) {
@@ -981,6 +1040,20 @@
     // 异步请求版本戳，用于丢弃过期结果
     let updateHomepageVersion = 0;
     let updateStatsVersion = 0;
+
+    // ── 外部主页存储（Homepage Agent）刷新调度器 ──
+    // Homepage Agent 直接写持久化 device-view/layout/widget storage，本调度器负责在
+    // Homepage 实例可见时执行最新一次的 explicit-storage-refresh。
+    // - pendingExternalStorageRefresh：存在待处理的外部存储变化；
+    // - externalStorageRefreshRunning：正在执行外部刷新；
+    // - externalStorageRefreshGeneration：每次收到新事件 +1，实现 latest-wins，
+    //   使被更新的请求在下一安全检查点直接退出（不当作 error）；
+    // - 多个连续写 action 合并：running 时不启动第二个，当前结束后只基于最新 storage 再刷新一次。
+    let homepageRootElement: HTMLElement | undefined = $state(undefined);
+    let pendingExternalStorageRefresh = false;
+    let externalStorageRefreshRunning = false;
+    let externalStorageRefreshGeneration = 0;
+    let homepageVisibilityObserver: ResizeObserver | null = null;
 
     let homepageComponentDestroyed = false;
 
@@ -1400,6 +1473,12 @@
             fixedContext,
         );
         if (reuseDecision === SectionReuse.PureReuse) {
+            // PureReuse 确认目标分栏 DOM 与最新 layout 的 section 内容一致；
+            // 提升该分栏 runtime revision 到最新 snapshot revision，避免后续拖动假冲突。
+            const cached = sectionRuntimeStates.get(targetSectionId);
+            if (cached && cached.layoutRevision !== snapshot.revision) {
+                setSectionRuntimeState(targetSectionId, { ...cached, layoutRevision: snapshot.revision });
+            }
             await switchVisibleComponentSection(targetSectionId, fixedContext, snapshot.revision);
             return;
         }
@@ -2094,6 +2173,123 @@
         });
     }
 
+    /**
+     * 判断 Homepage 当前是否真正可做 DOM 热恢复。
+     * 思源内部切换标签页时整个 document 仍可能可见，因此不能依赖 document.visibilitychange；
+     * 直接检查最外层 .homepage-container 是否连接、可测量且有实际布局。
+     * 后台隐藏 tab：clientWidth/Height 为 0、无 client rects，应视为“暂时不可进行 DOM 热恢复”，
+     * 而不是“主页恢复失败”。
+     */
+    function isHomepageRuntimeVisibleAndMountable(): boolean {
+        const root = homepageRootElement;
+        if (!root || !root.isConnected) return false;
+        if (root.clientWidth <= 0 || root.clientHeight <= 0) return false;
+        if (root.getClientRects().length === 0) return false;
+        const style = getComputedStyle(root);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        return true;
+    }
+
+    /** 请求执行一次外部存储刷新。隐藏/未连接/正在拖动时不调度（拖动结束后或 ResizeObserver 可见后触发）。 */
+    function requestExternalStorageRefresh(): void {
+        if (homepageComponentDestroyed) return;
+        if (!homepageRootElement || !homepageRootElement.isConnected) return;
+        if (externalStorageRefreshRunning) return;
+        if (homepageLayoutDragging) return;
+        if (!isHomepageRuntimeVisibleAndMountable()) return;
+        requestAnimationFrame(() => {
+            if (homepageComponentDestroyed) return;
+            if (!pendingExternalStorageRefresh) return;
+            if (externalStorageRefreshRunning) return;
+            if (homepageLayoutDragging) return;
+            void runExternalStorageRefresh();
+        });
+    }
+
+    /** 执行一次基于最新持久化 storage 的 explicit-storage-refresh。 */
+    async function runExternalStorageRefresh(): Promise<void> {
+        if (externalStorageRefreshRunning || homepageComponentDestroyed) return;
+        externalStorageRefreshRunning = true;
+        const refreshGeneration = externalStorageRefreshGeneration;
+        try {
+            if (!isHomepageRuntimeVisibleAndMountable()) {
+                // 后台隐藏：保留 pending，等待 ResizeObserver 在切回可见后再次触发。
+                return;
+            }
+            await enqueueSectionUiOperation(async () => {
+                if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
+                try {
+                    await updateHomepage("explicit-storage-refresh");
+                    if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
+                    await updateDisplayedStatsInfoText();
+                    await tick();
+                    if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
+                    await restoreVisibleComponentSections();
+                    if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
+                    reRegisterAllShortcuts(buttonsList);
+                    updateCursorStyle({
+                        advanced: getAdvancedEnabled(),
+                        mouseIcon,
+                        mouseGlobalEnabled,
+                        ClickEffectEnabled,
+                        ClickEffectContent,
+                        MouseTrailEnabled,
+                    });
+                    if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
+                    pendingExternalStorageRefresh = false;
+                } catch (error) {
+                    // 只有“可见主页真正恢复异常”才报错；被新 generation 取代时静默退出。
+                    if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
+                    console.error("[Homepage] 外部主页存储刷新失败，已保留或回滚到上一次健康主页", error);
+                }
+            });
+        } finally {
+            externalStorageRefreshRunning = false;
+            if (!homepageComponentDestroyed && pendingExternalStorageRefresh) {
+                requestExternalStorageRefresh();
+            }
+        }
+    }
+
+    /**
+     * 收到 Homepage Agent 的外部 storage changed 事件。
+     * 桌面 Homepage 只处理 desktop-homepage 的 storage 变化；Agent 修改 mobile-homepage
+     * 时立即忽略，避免移动主页写入触发桌面主页刷新。
+     * latest-wins：立即让任何在途的旧主页更新失效；标记 pending 并调度一次最新刷新。
+     */
+    function handleAgentStorageChanged(event: Event): void {
+        const detail = (event as CustomEvent<HomepageAgentStorageChangedDetail>).detail;
+        if (!detail || detail.surface !== "desktop-homepage") return;
+        updateHomepageVersion += 1;
+        externalStorageRefreshGeneration += 1;
+        pendingExternalStorageRefresh = true;
+        requestExternalStorageRefresh();
+    }
+
+    /** 用 ResizeObserver 观察根元素，Homepage 从隐藏（clientWidth 0）变为可见时自动刷新。 */
+    function setupHomepageVisibilityObserver(): void {
+        teardownHomepageVisibilityObserver();
+        const root = homepageRootElement;
+        if (!root) return;
+        homepageVisibilityObserver = new ResizeObserver(() => {
+            if (isHomepageRuntimeVisibleAndMountable() && pendingExternalStorageRefresh) {
+                requestExternalStorageRefresh();
+            }
+        });
+        homepageVisibilityObserver.observe(root);
+    }
+
+    function teardownHomepageVisibilityObserver(): void {
+        if (homepageVisibilityObserver) {
+            try {
+                homepageVisibilityObserver.disconnect();
+            } catch {
+                // 忽略断开错误
+            }
+            homepageVisibilityObserver = null;
+        }
+    }
+
     // 初始化主页组件区布局（Sortable、ResizeObserver、restoreLayout）
     async function initCustomContentLayout(): Promise<void> {
         if (homepageComponentDestroyed) return;
@@ -2192,6 +2388,7 @@
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.addEventListener(HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, handleAgentStorageChanged as EventListener);
         window.addEventListener("siyuan-homepage:tab-before-destroy", handleHomepageTabBeforeDestroy);
         window.addEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
         window.addEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
@@ -2238,6 +2435,10 @@
             }
         });
         if (homepageComponentDestroyed) return;
+
+        // 建立外部存储刷新调度器的可见性观察：Homepage 隐藏期间收到 Agent 写入时保留 pending，
+        // 切回可见（clientWidth 从 0 变 > 0）后自动执行一次最新刷新。
+        setupHomepageVisibilityObserver();
 
         // 注意：此时不立即记录已应用签名，因为后续 restoreLayout 可能还会写盘
         // 签名基线将在 restoreLayout 完成后统一记录
@@ -2315,7 +2516,9 @@
             handleAdvancedUnavailable,
         );
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.removeEventListener(HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, handleAgentStorageChanged as EventListener);
         window.removeEventListener("siyuan-homepage:tab-before-destroy", handleHomepageTabBeforeDestroy);
+        teardownHomepageVisibilityObserver();
         window.removeEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
         window.removeEventListener("homepage-template-layout-changed", handleTemplateLayoutChanged);
         window.removeEventListener(
@@ -2611,6 +2814,19 @@
             );
             if (!gridApplied) throw new Error("目标主页组件容器网格参数应用失败");
 
+            // 只有满足全部严格条件时才允许“已确认的合法空布局”清空：
+            // - 仅 explicit-storage-refresh（Agent 外部写入已事务提交并写后验证）；
+            // - 真实 targetWidgetIds / targetRenderableWidgetIds 均为空；
+            // - manifest unresolved 当前也不要求渲染任何组件；
+            // - 上方已通过 layout/view 一致性校验，且 coordinated recheck 与第一次读取完全一致。
+            // initial-load / config-refresh 一律为 false，普通分栏切换保持现有 empty section 逻辑。
+            const confirmedEmptyLayout = shouldConfirmEmptyLayout({
+                mode,
+                targetWidgetCount: targetWidgetIds.length,
+                targetRenderableWidgetCount: targetRenderableWidgetIds.length,
+                currentSectionUnresolvedWidgetCount: currentSectionUnresolvedWidgetIds.length,
+            });
+
             const restored = await restoreComponentSectionWithRetry(targetSectionId, {
                 force: true,
                 fixedContext: context,
@@ -2621,6 +2837,7 @@
                 effectiveColumns: initialSectionIdentity?.effectiveColumns ?? rootLayoutSettings.widgetLayoutNumber,
                 effectiveGap: initialSectionIdentity?.effectiveGap ?? rootLayoutSettings.widgetGap,
                 identityResolved: initialSectionIdentity !== null,
+                confirmedEmptyLayout,
             });
             // 恢复验证：任何 renderable 组件缺失或顺序错误都视为恢复失败。
             // 仅存在明确 manifest unresolved 历史组件时允许 degraded。
@@ -3031,6 +3248,7 @@
 
 <div
     class="homepage-container"
+    bind:this={homepageRootElement}
     class:banner-title-integrated={bannerTitleIntegrated && $showBanner}
     class:title-align-left={homepageTitleAlign === "left"}
     class:title-align-center={homepageTitleAlign === "center"}

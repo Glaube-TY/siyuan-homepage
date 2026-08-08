@@ -353,6 +353,45 @@ export async function readDeviceViewManifest(context: DeviceViewContext): Promis
     return readDocument(path, (value) => validateManifest(value, context, path));
 }
 
+/**
+ * 在写队列内原子更新 manifest。
+ * 仅允许在显式、确认过的写链路中使用（例如 Agent 清理旧布局残留后移除已清理 ID），
+ * 不允许普通迁移流程静默重写 manifest。
+ */
+export async function updateDeviceViewManifest(
+    context: DeviceViewContext,
+    mutate: (manifest: DeviceViewManifest) => DeviceViewManifest,
+    options: { expectedRevision?: number } = {},
+): Promise<DeviceViewManifest> {
+    assertStorageContext(context);
+    const path = getSurfaceManifestPath(context);
+    return inWriteQueue(path, async () => {
+        const latest = await readDeviceViewManifest(context);
+        if (!latest) throw new Error(`设备视图清单 ${path} 缺失，拒绝更新`);
+        if (options.expectedRevision !== undefined && latest.revision !== options.expectedRevision) {
+            throw new Error(`设备视图清单 ${path} 已被并发更新，拒绝覆盖最新 revision`);
+        }
+        const mutated = cloneJsonSafe(
+            mutate(cloneJsonSafe(latest, "设备视图清单 mutator 输入")),
+            "设备视图清单 mutator 结果",
+        );
+        validateManifest(mutated, context, path);
+        if (hasSameDocumentContent(latest, mutated)) return latest;
+        const document: DeviceViewManifest = {
+            ...mutated,
+            ...metadata(context, latest.revision + 1),
+        };
+        const normalized = validateManifest(document, context, path);
+        await writeJson(path, normalized);
+        const verified = await readDeviceViewManifest(context);
+        if (!verified || verified.revision !== normalized.revision || !hasSameJsonSemantic(verified, normalized)) {
+            throw new Error(`设备视图清单 ${path} 写入后校验失败`);
+        }
+        dispatchDeviceViewChanged(context, "migration");
+        return verified;
+    });
+}
+
 export async function readDeviceWidget(context: DeviceViewContext, instanceId: string): Promise<DeviceWidgetDocument | null> {
     assertStorageContext(context);
     const path = getWidgetPath(context, instanceId);

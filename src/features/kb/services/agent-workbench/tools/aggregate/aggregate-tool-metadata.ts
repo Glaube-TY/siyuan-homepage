@@ -12,7 +12,7 @@ export type AggregateToolName =
   | "homepage_focus"
   | "homepage_accounting"
   | "homepage_fixed_assets"
-  | "homepage_countdown"
+  | "homepage_anniversary"
   | "homepage_favorites"
   | "homepage_review"
   | "homepage_music"
@@ -98,6 +98,7 @@ function homepageWriteActionMetadata(): AggregateActionMeta[] {
     { name: "remove_section", title: "删除主页分栏", description: "删除分栏结构并按现有邻接规则合并组件。", readOnly: false, required: ["sectionId", "expectedSectionName", "expectedWidgetCount", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ sectionId: { type: "string" }, expectedSectionName: { type: "string" }, expectedWidgetCount: { type: "integer", minimum: 0 }, expectedReceivingSectionId: { type: ["string", "null"] }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["sectionId", "expectedSectionName", "expectedWidgetCount", "expectedLayoutRevision", "expectedViewRevision"]), boundary: "高风险；不会删除分栏中的组件或业务数据。", notes: ["expectedWidgetCount 来自 list_sections；可同时传 expectedReceivingSectionId 锁定接收分栏。", ...revisionNotes] },
     { name: "set_section_mode", title: "切换分栏模式", description: "开启或关闭桌面主页分栏模式，不删除分栏配置。", readOnly: false, required: ["enabled", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ enabled: { type: "boolean" }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["enabled", "expectedLayoutRevision", "expectedViewRevision"]), notes: revisionNotes },
     { name: "set_active_section", title: "设置活动分栏", description: "设置当前桌面主页活动分栏。", readOnly: false, required: ["sectionId", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ sectionId: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["sectionId", "expectedLayoutRevision"]), notes: revisionNotes },
+    { name: "cleanup_unresolved_widgets", title: "清理旧布局残留", description: "清理旧版迁移遗留、已无组件配置的无效布局引用。", readOnly: false, required: ["expectedLayoutRevision", "items"], argsSchema: homepageObjectSchema({ expectedLayoutRevision: { type: "integer", minimum: 1 }, items: { type: "array", minItems: 1, items: { type: "object", additionalProperties: false, properties: { widgetId: { type: "string" }, expectedIndex: { type: "integer", minimum: 0 }, expectedSectionId: { type: ["string", "null"] }, expectedResolutionStatus: { type: "string", const: "legacy_unresolved" } }, required: ["widgetId", "expectedIndex", "expectedSectionId", "expectedResolutionStatus"] } } }, ["expectedLayoutRevision", "items"]), boundary: "高风险；只清理当前设备主页中配置缺失且 manifest 声明为 legacy unresolved 的布局引用，不删除共享业务数据，不跨设备处理，不得自动执行。", notes: ["只允许处理 list_widgets 中 resolutionStatus=legacy_unresolved 的引用。", "expectedIndex/expectedSectionId 必须来自 list_widgets。", ...revisionNotes] },
   ];
 }
 
@@ -191,6 +192,11 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
       {
         name: "list_widget_types", title: "列出可用组件类型", description: "列出真实组件目录、surface 支持和可编辑字段。", readOnly: true,
         argsSchema: homepageSurfaceArgsSchema(), examples: [{ action: "list_widget_types", args: { surface: "desktop-homepage" } }],
+        notes: [
+          "整理 desktop-homepage 时使用返回的 categoryId/categoryLabel，这些分类对应真实桌面组件设置页，不要自行重新分类。",
+          "如果 surface=mobile-homepage，则使用移动端分类。",
+          "Agent 不得把 desktop 页面整理成 data/task/docs/tools 四类。",
+        ],
       },
       {
         name: "get_layout", title: "查看主页布局", description: "读取当前 surface 的布局 revision、顺序、列数和间距。", readOnly: true,
@@ -330,9 +336,9 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
     ],
   },
   {
-    name: "homepage_countdown",
+    name: "homepage_anniversary",
     title: "主页纪念日",
-    description: "管理纪念日、生日和分类。",
+    description: "管理纪念日、生日、周年和重要日期。",
     readOnly: false,
     requiresConfirmation: true,
     boundary: "复用 countdownData 事务、revision 与写后回读；日期由 countdownDateEngine 计算；不管理通知渠道或历史。",

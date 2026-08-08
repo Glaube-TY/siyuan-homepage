@@ -103,6 +103,9 @@ export const OLD_TOOL_TO_AGGREGATE_TOOL: Record<string, AggregateToolName> = {
   web_read_page: "web_fetch",
   web_http_get: "web_fetch",
   web_http_post: "web_fetch",
+
+  // 旧 provider-visible 工具名迁移：homepage_countdown → homepage_anniversary
+  homepage_countdown: "homepage_anniversary",
 };
 
 export const OLD_TOOL_TO_AGGREGATE_ACTION: Record<string, { tool: AggregateToolName; action: string }> = {

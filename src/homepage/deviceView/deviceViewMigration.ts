@@ -11,6 +11,7 @@ import {
     getWidgetPath,
 } from "./deviceViewPaths";
 import {
+    createEmptyLayout,
     createEmptySettings,
     readDeviceViewLayout,
     readDeviceViewManifest,
@@ -37,6 +38,7 @@ import {
 } from "./deviceViewErrors";
 import {
     buildSectionSettingsConfig,
+    decideMigrationPath,
     getDesktopLayout,
     getSimpleLayout,
     isPlainObject,
@@ -963,8 +965,13 @@ async function runMigration(context: DeviceViewContext): Promise<void> {
         : assertLegacySettings(legacySettingsRaw);
     // 所有 surface 都解析 profileResolution，desktop-sidebar 和 mobile-homepage
     // 也使用精确 profile 选择规则，不再任意选择第一个 profile。
+    const info = getCurrentDeviceInfo();
     const profileResolution = legacyLayout
-        ? resolveLegacyProfile(context, legacyLayout, legacySettings)
+        ? resolveLegacyProfile(context, legacyLayout, legacySettings, {
+            deviceName: info.deviceName,
+            os: info.os,
+            frontend: info.frontend,
+        })
         : null;
     if (profileResolution?.strategy === "ambiguous") {
         throw createDeviceViewBlockedError(
@@ -973,6 +980,55 @@ async function runMigration(context: DeviceViewContext): Promise<void> {
             `旧设备 profile 匹配不唯一：${profileResolution.ambiguousProfileKeys?.join(", ") || "(未知)"}`,
         );
     }
+
+    // 完整决策树集中在 decideMigrationPath 纯函数中：
+    // - existing manifest / 目标完整 / 不完整 / ambiguous 的路径在进入此分支前已由上方 I/O 判断处理；
+    // - 此处 target 必然为 empty 且无 existing manifest，profileStrategy 已排除 ambiguous，
+    //   因此只可能是 desktop-fresh 或 legacy-migrate。
+    // 桌面 surface（desktop-homepage / desktop-sidebar / browser-desktop 对应 scope）：
+    // 没有唯一证据表明某个旧 profile 属于当前设备时，绝不继承旧根公共布局。
+    // desktop-fresh：layout.order = []，不复制 defaultOrder / defaultSections；
+    // 不生成旧 componentSections，不复制其他设备 activeSectionId；
+    // unresolvedLegacyWidgetIds = []，manifest migration.source = fresh；
+    // view 使用 createEmptySettings，不继承 homepageSettingConfig 中任何设备专属视图结构。
+    const migrationPath = decideMigrationPath({
+        surface: context.surface,
+        hasExistingManifest: false,
+        targetStatus: "empty",
+        profileStrategy: profileResolution?.strategy ?? null,
+    });
+    if (migrationPath === "blocked-ambiguous") {
+        throw createDeviceViewBlockedError(
+            context,
+            "legacy_profile_ambiguous",
+            `旧设备 profile 匹配不唯一：${profileResolution?.ambiguousProfileKeys?.join(", ") || "(未知)"}`,
+        );
+    }
+    if (migrationPath === "desktop-fresh") {
+        const layout = createEmptyLayout(context);
+        const settings = context.surface === "desktop-sidebar" ? undefined : createEmptySettings(context);
+        await writeDeviceDescriptor(context, {
+            schema: "siyuan-homepage-device",
+            version: DEVICE_VIEW_SCHEMA_VERSION,
+            revision: 1,
+            updatedAt: new Date().toISOString(),
+            physicalDeviceId: context.physicalDeviceId,
+            deviceName: info.deviceName,
+            platform: info.os,
+            arch: "unknown",
+            hostname: info.deviceName,
+            isMobile: info.frontend === "mobile" || info.frontend === "browser-mobile",
+        });
+        await writeInitialDeviceViewFiles(context, {
+            layout,
+            settings,
+            widgets: [],
+            unresolvedLegacyWidgetIds: [],
+            source: "fresh",
+        });
+        return;
+    }
+
     if (profileResolution) {
         console.info(`[Homepage] 旧 profile 选择策略：${profileResolution.strategy}`);
     }
@@ -996,7 +1052,6 @@ async function runMigration(context: DeviceViewContext): Promise<void> {
         widgetCollection.unresolvedLegacyWidgetIds,
     );
 
-    const info = getCurrentDeviceInfo();
     await writeDeviceDescriptor(context, {
         schema: "siyuan-homepage-device",
         version: DEVICE_VIEW_SCHEMA_VERSION,

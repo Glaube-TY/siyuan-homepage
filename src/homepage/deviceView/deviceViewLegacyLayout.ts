@@ -1,10 +1,10 @@
-import { createEmptyLayout } from "./deviceViewStorage";
-import { getCurrentDeviceInfo } from "@/homepage/utils/deviceProfile";
+import { DEVICE_VIEW_SCHEMA_VERSION } from "./deviceViewTypes";
 import type {
     DeviceLayoutItem,
     DeviceLayoutSection,
     DeviceViewContext,
     DeviceViewLayout,
+    DeviceViewSurface,
 } from "./deviceViewTypes";
 
 /**
@@ -17,9 +17,25 @@ import type {
  *
  * 第一铁律约束：
  * - 不读取其他设备目录；
- * - 匹配不到当前设备 profile 时只使用公共回退（defaultOrder/defaultSections）；
+ * - 桌面设备（desktop-homepage / desktop-sidebar / browser-desktop 对应 scope）
+ *   匹配不到自身 legacy profile 时，不得继承旧根公共布局（defaultOrder/defaultSections），
+ *   必须返回 no-match，由迁移流程初始化 fresh 空设备视图；
+ * - defaultOrder / defaultSections 仅可作为“已成功匹配当前 legacy profile”后的兼容回退；
+ * - mobile-homepage 的 mobile-shared 按其共享语义单独处理，允许旧根公共回退；
  * - 不扫描或合并多个旧设备 profile。
  */
+
+export function createEmptyLayout(context: DeviceViewContext): DeviceViewLayout {
+    return {
+        schema: "siyuan-homepage-device-view",
+        version: DEVICE_VIEW_SCHEMA_VERSION,
+        revision: 1,
+        updatedAt: new Date().toISOString(),
+        deviceId: context.scopeId,
+        surface: context.surface,
+        order: [],
+    };
+}
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
     if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -75,16 +91,95 @@ export interface ResolvedLegacyProfile {
     profile: Record<string, unknown> | null;
     profileKey: string | undefined;
     fallback: boolean;
-    strategy: "exact-id" | "legacy-id" | "legacy-metadata-id" | "machine-signature" | "public-fallback" | "ambiguous";
+    strategy: "exact-id" | "legacy-id" | "legacy-metadata-id" | "machine-signature" | "no-match" | "public-fallback" | "ambiguous";
     ambiguousProfileKeys?: string[];
     note: string;
 }
 
+/** 桌面 surface（desktop-homepage / desktop-sidebar；browser-desktop 复用 desktop surface scope）。 */
+export function isDesktopSurface(surface: DeviceViewSurface): boolean {
+    return surface === "desktop-homepage" || surface === "desktop-sidebar";
+}
+
+/**
+ * 桌面设备是否应初始化为 fresh 空设备视图：
+ * - 仅在桌面 surface 上且没有匹配到任何属于当前设备的旧 profile 时返回 true；
+ * - ambiguous（策略为 ambiguous）绝对不允许当作 fresh 跳过，必须返回 false；
+ * - mobile-homepage（mobile-shared）不适用，返回 false，保持原有共享迁移语义。
+ *
+ * 调用方（runMigration）必须在该函数返回 true 时创建 fresh 空设备视图（source=fresh），
+ * 且不得调用带 legacy settings 的 buildSettings。
+ */
+export function shouldInitializeDesktopFresh(
+    surface: DeviceViewSurface,
+    strategy: ResolvedLegacyProfile["strategy"] | undefined | null,
+): boolean {
+    if (!isDesktopSurface(surface)) return false;
+    if (strategy === "ambiguous") return false;
+    return strategy === undefined || strategy === null || strategy === "no-match";
+}
+
+/** 旧根迁移最终路径（纯决策，供 runMigration 与测试共同使用）。 */
+export type LegacyMigrationPath =
+    | "reconcile-existing"
+    | "recover-complete"
+    | "blocked-incomplete"
+    | "blocked-ambiguous"
+    | "desktop-fresh"
+    | "legacy-migrate";
+
+/**
+ * 决定一个“空 target、即将进入旧根迁移”的 surface 应走哪条路径。
+ *
+ * 顺序语义（关键，不可颠倒）：
+ * 1. reconcile-existing：manifest 已存在 → 现有数据只做一致性复查，绝不因本轮规则清空/重写；
+ * 2. recover-complete：无 manifest 但目标文件完整 → 只补写 manifest，不动已有 layout/widgets；
+ * 3. blocked-incomplete：目标文件不完整 → 阻断；
+ * 4. blocked-ambiguous：旧 profile 匹配不唯一 → 必须阻断，绝不当作 fresh 跳过；
+ * 5. desktop-fresh：桌面 surface 且无匹配 profile → 初始化 fresh 空设备视图；
+ * 6. legacy-migrate：已唯一匹配旧 profile（exact-id / legacy-id / legacy-metadata-id / machine-signature）
+ *    或移动端 mobile-shared 公共回退 → 继续旧数据迁移。
+ *
+ * runMigration 在调用本函数前已实际执行 manifest / 目标状态 / ambiguous 的 I/O 判断，
+ * 但把完整决策树集中在此纯函数中，确保“existing 数据绝不被 fresh 清空”这类不变式可被测试。
+ */
+export function decideMigrationPath(params: {
+    surface: DeviceViewSurface;
+    hasExistingManifest: boolean;
+    targetStatus: "empty" | "complete" | "incomplete";
+    profileStrategy: ResolvedLegacyProfile["strategy"] | null;
+}): LegacyMigrationPath {
+    if (params.hasExistingManifest) return "reconcile-existing";
+    if (params.targetStatus === "complete") return "recover-complete";
+    if (params.targetStatus === "incomplete") return "blocked-incomplete";
+    if (params.profileStrategy === "ambiguous") return "blocked-ambiguous";
+    if (shouldInitializeDesktopFresh(params.surface, params.profileStrategy)) return "desktop-fresh";
+    return "legacy-migrate";
+}
+
+/**
+ * 用于机器签名匹配的最小机器信息。由调用方从 getCurrentDeviceInfo() 传入，
+ * 使本模块保持纯函数、可测试，且不依赖 siyuan / @/ 运行时。
+ */
+export interface LegacyMachineInfo {
+    deviceName: string;
+    os: string;
+    frontend: string;
+}
+
 /**
  * 按真实旧设备结构选择 profile（适用于所有 surface）：
- * 1. profiles[context.physicalDeviceId] 明确存在（最高优先级）；
- * 2. 仅用 4.8.4 旧通用 ID 精确匹配 profile key 或旧 deviceProfiles.deviceId；
- * 3. 再按唯一机器签名匹配；否则使用公共回退。
+ * 1. profiles[context.physicalDeviceId] 明确存在（最高优先级，exact-id）；
+ * 2. 仅用 4.8.4 旧通用 ID 精确匹配 profile key 或旧 deviceProfiles.deviceId（legacy-id / legacy-metadata-id）；
+ * 3. 再按唯一机器签名匹配（machine-signature）。
+ *
+ * 匹配结果语义（关键区分）：
+ * - ambiguous：存在多个候选，系统知道可能有属于当前设备的旧数据但无法唯一确定。必须阻断迁移，
+ *   保护用户数据并提示人工检查。绝不因本轮取消桌面公共回退就把 ambiguous 当 fresh 跳过。
+ * - no-match：没有任何证据表明某个旧 profile 属于当前设备。仅允许桌面 surface 返回该状态，
+ *   迁移流程将初始化 fresh 空设备视图，不得继承旧根 defaultOrder/defaultSections。
+ * - public-fallback：仅移动端 mobile-homepage 的 mobile-shared 语义允许；
+ *   桌面 surface 匹配不到时禁止返回该策略。
  *
  * 匹配不到时不得使用其他设备 profile；不合并多个 profile。
  */
@@ -92,6 +187,7 @@ export function resolveLegacyProfile(
     context: DeviceViewContext,
     legacy: Record<string, unknown>,
     legacySettings: Record<string, unknown> | null,
+    machineInfo: LegacyMachineInfo,
 ): ResolvedLegacyProfile {
     const profiles = isPlainObject(legacy.profiles) ? legacy.profiles : {};
     const directProfile = profiles[context.physicalDeviceId];
@@ -144,9 +240,8 @@ export function resolveLegacyProfile(
         };
     }
 
-    const info = getCurrentDeviceInfo();
     const normalize = (value: unknown) => typeof value === "string" ? value.trim().toLowerCase() : "";
-    const isMobileFrontend = info.frontend === "mobile" || info.frontend === "browser-mobile";
+    const isMobileFrontend = machineInfo.frontend === "mobile" || machineInfo.frontend === "browser-mobile";
     const normalizeOs = (value: string): string => {
         const v = value.trim().toLowerCase();
         if (v === "win32") return "windows";
@@ -157,8 +252,8 @@ export function resolveLegacyProfile(
         .filter(([profileKey, metadata]) => (
             isPlainObject(profiles[profileKey])
             && isPlainObject(metadata)
-            && normalize(metadata.hostname) === normalize(info.deviceName)
-            && normalizeOs(normalize(metadata.platform)) === normalize(info.os)
+            && normalize(metadata.hostname) === normalize(machineInfo.deviceName)
+            && normalizeOs(normalize(metadata.platform)) === normalize(machineInfo.os)
             // 官方 API 不提供 arch，跳过 arch 比较
             && metadata.isMobile === isMobileFrontend
         ))
@@ -183,6 +278,22 @@ export function resolveLegacyProfile(
             note: "ambiguous",
         };
     }
+
+    // 没有任何证据表明某个旧 profile 属于当前设备。
+    const isDesktopSurface = context.surface === "desktop-homepage" || context.surface === "desktop-sidebar";
+    if (isDesktopSurface) {
+        // 桌面 surface（desktop-homepage / desktop-sidebar / browser-desktop 对应 scope）：
+        // 禁止把旧根 defaultOrder/defaultSections 当作公共主页复制到新设备。
+        // no-match 与“存在一个 fallback profile”严格区分，迁移流程据此创建 fresh 空设备视图。
+        return {
+            profile: null,
+            profileKey: undefined,
+            fallback: false,
+            strategy: "no-match",
+            note: "no-match",
+        };
+    }
+    // mobile-homepage 的 mobile-shared：保持原共享迁移兼容，允许旧根公共回退。
     const fallbackProfile: Record<string, unknown> = {
         order: legacy.defaultOrder ?? legacy.order,
         sections: legacy.defaultSections,
@@ -329,6 +440,11 @@ export function buildSectionSettingsConfig(
  * - 无真实用户分栏时全部组件进入全局 order，不启用分栏模式；
  * - 旧 componentSectionsEnabled !== true 时，不生成分栏模式，旧分栏数据仅用于样式和顺序回退。
  *
+ * 边界（关键）：
+ * - profileResolution.strategy === "no-match"（desktop 无匹配）时直接返回空布局，
+ *   绝不使用 legacy.defaultOrder / legacy.defaultSections 构造公共布局。
+ *   defaultOrder/defaultSections 只在“已成功匹配当前 legacy profile”后才允许作为兼容回退。
+ *
  * 样式优先级（按来源解析）：
  * - 分栏模式：profile.sections[sectionId] → defaultSections[sectionId] → profile.order → defaultOrder → legacy.order
  * - 无分栏模式：profile.order → defaultOrder → legacy.order → 旧分栏样式（最后回退）
@@ -341,6 +457,8 @@ export function getDesktopLayout(
 ): DeviceViewLayout {
     const empty = createEmptyLayout(context);
     if (!legacy) return empty;
+    // 防御性保护：desktop 没有任何匹配 profile（no-match）时，禁止进入 legacy fallback 构造。
+    if (profileResolution?.strategy === "no-match") return empty;
     const profile = profileResolution?.profile ?? null;
     const defaultSections = isPlainObject(legacy.defaultSections) ? legacy.defaultSections : {};
     const profileSections = isPlainObject(profile?.sections) ? profile!.sections : {};
@@ -504,8 +622,13 @@ export function getDesktopLayout(
  *
  * Profile 选择规则与 desktop-homepage 完全一致：
  * 1. profiles[context.physicalDeviceId]；
- * 2. defaultOrder；
- * 3. legacy.order。
+ * 2. legacy-id / legacy-metadata-id / machine-signature；
+ * 3. mobile-homepage（mobile-shared）可回退到 defaultOrder / legacy.order。
+ *
+ * 边界（关键）：
+ * - desktop-sidebar 无匹配 profile（no-match）时直接返回空布局，
+ *   绝不继承 sidebarWidgetLayout.json 的公共 defaultOrder。
+ * - mobile-homepage 保持移动端共享迁移兼容（允许公共回退），不受本轮桌面隔离修复影响。
  *
  * 匹配不到时不得使用其他设备 profile。
  * 旧 root.hiddenWidgetIds 中的组件解除隐藏并追加到全局 order 末尾，避免数据丢失。
@@ -522,6 +645,8 @@ export function getSimpleLayout(
 ): DeviceViewLayout {
     const empty = createEmptyLayout(context);
     if (!legacy) return empty;
+    // 防御性保护：desktop-sidebar 无匹配 profile 时不得继承 sidebar 公共 defaultOrder。
+    if (context.surface === "desktop-sidebar" && profileResolution?.strategy === "no-match") return empty;
     const profile = profileResolution?.profile ?? null;
     const baseOrder = firstNonEmptyOrder(profile?.order, legacy.defaultOrder, legacy.order);
     const rootHiddenIds = Array.isArray(profile?.hiddenWidgetIds)

@@ -66,7 +66,7 @@ function safeEvent(event: CountdownEventRecord, categories: Map<string, Countdow
 }
 
 function actionTool<T>(name: string, schema: z.ZodType<T>, readOnly: boolean, execute: (input: T) => Promise<unknown>, riskLevel: "medium" | "high" = "medium"): ToolContract {
-  return { name: `homepage_countdown_${name}`, title: name, description: `homepage_countdown.${name}`, inputSchema: schema, readOnly, safety: readOnly ? { readOnly: true } : { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel }, source: "builtin", providerVisible: false, availability: alwaysAvailable,
+  return { name: `homepage_anniversary_${name}`, title: name, description: `homepage_anniversary.${name}`, inputSchema: schema, readOnly, safety: readOnly ? { readOnly: true } : { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel }, source: "builtin", providerVisible: false, availability: alwaysAvailable,
     async execute(_ctx, raw): Promise<ToolResult> {
       try { return { ok: true, data: await execute(schema.parse(raw)) }; }
       catch (error) {

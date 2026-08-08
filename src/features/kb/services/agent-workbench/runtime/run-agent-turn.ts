@@ -241,7 +241,7 @@ export async function runAgentTurn(
       homepageFocus: !disabledGlobalTools.has("homepage_focus"),
       homepageAccounting: !disabledGlobalTools.has("homepage_accounting"),
       homepageFixedAssets: !disabledGlobalTools.has("homepage_fixed_assets"),
-      homepageCountdown: !disabledGlobalTools.has("homepage_countdown"),
+      homepageAnniversary: !disabledGlobalTools.has("homepage_anniversary"),
       homepageFavorites: !disabledGlobalTools.has("homepage_favorites"),
       homepageReview: !disabledGlobalTools.has("homepage_review"),
       homepageMusic: !disabledGlobalTools.has("homepage_music"),

@@ -22,14 +22,7 @@
     "release": "node --no-warnings ./scripts/release.js",
     "make-install": "pnpm build && node --no-warnings ./scripts/make_install.js",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "test:kb-agent-reliability": "cross-env TS_NODE_TRANSPILE_ONLY=true node --no-warnings --experimental-specifier-resolution=node --loader ts-node/esm --test src/features/kb/services/agent-core/kb-agent-reliability.test.ts",
-    "test:kb-conversation-search": "cross-env TS_NODE_TRANSPILE_ONLY=true node --no-warnings --experimental-specifier-resolution=node --loader ts-node/esm --test src/features/kb/components/common/conversation-search.test.ts",
-    "test:kb-conversation-manager": "cross-env TS_NODE_TRANSPILE_ONLY=true node --no-warnings --experimental-specifier-resolution=node --loader ts-node/esm --test src/features/kb/components/common/conversation-manager.test.ts",
-    "test:music-cloud": "cross-env TS_NODE_TRANSPILE_ONLY=true node --no-warnings --experimental-specifier-resolution=node --loader ts-node/esm --test src/components/utils/widgetBlock/widget/musicPlayer/musicCloud.test.ts src/components/utils/widgetBlock/widget/musicPlayer/musicCloudServices.test.ts src/components/utils/widgetBlock/widget/musicPlayer/musicLocalRegression.test.ts",
-    "test:homepage-layout": "cross-env TS_NODE_TRANSPILE_ONLY=true node --no-warnings --experimental-specifier-resolution=node --loader ts-node/esm --test src/components/utils/widgetBlock/utils/layout-save-guard.test.ts",
-    "test:homepage-agent": "cross-env TS_NODE_TRANSPILE_ONLY=true node --no-warnings --experimental-specifier-resolution=node --loader ts-node/esm --test src/features/kb/services/agent-workbench/tools/homepage/*.test.ts",
-    "test:homepage-component-agent": "cross-env TS_NODE_TRANSPILE_ONLY=true node --no-warnings --experimental-specifier-resolution=node --loader ts-node/esm --test src/features/kb/services/agent-workbench/tools/homepage/*.test.ts src/components/utils/widgetBlock/widget/focus/*.agent.test.ts src/components/utils/widgetBlock/widget/musicPlayer/*.agent.test.ts"
+    "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

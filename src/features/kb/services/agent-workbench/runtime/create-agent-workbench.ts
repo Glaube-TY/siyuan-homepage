@@ -59,7 +59,7 @@ export interface BuiltinCapabilityAccess {
   homepageFocus: boolean;
   homepageAccounting: boolean;
   homepageFixedAssets: boolean;
-  homepageCountdown: boolean;
+  homepageAnniversary: boolean;
   homepageFavorites: boolean;
   homepageReview: boolean;
   homepageMusic: boolean;
@@ -129,7 +129,7 @@ export function createAgentWorkbenchRuntime(
     focus: options.builtinCapabilityAccess?.homepageFocus === true,
     accounting: options.builtinCapabilityAccess?.homepageAccounting === true,
     fixedAssets: options.builtinCapabilityAccess?.homepageFixedAssets === true,
-    countdown: options.builtinCapabilityAccess?.homepageCountdown === true,
+    anniversary: options.builtinCapabilityAccess?.homepageAnniversary === true,
     favorites: options.builtinCapabilityAccess?.homepageFavorites === true,
     review: options.builtinCapabilityAccess?.homepageReview === true,
     music: options.builtinCapabilityAccess?.homepageMusic === true,

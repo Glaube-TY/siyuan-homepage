@@ -64,7 +64,34 @@ export interface SaveLayoutOptions {
     /** 本次刚完成写后验证、允许加入全局 order 的新组件 ID。 */
     committedWidgetIds?: string[];
     deviceViewContext?: DeviceViewContext;
+    /**
+     * 当前 DOM 所依据的 layout revision（乐观并发控制）。
+     * 提交时若 storage revision 已变化，拒绝保存并抛出 LayoutRevisionConflictError；
+     * 不传时保持原兼容行为（无并发保护）。
+     */
+    expectedLayoutRevision?: number;
 }
+
+/**
+ * 桌面主页布局乐观并发冲突：用户拖动 DOM 所依据的 layout revision 与当前 storage 不一致。
+ * 属于正常并发冲突（用户与 Agent / 其他窗口同时编辑），不是存储失败。
+ */
+export class LayoutRevisionConflictError extends Error {
+    public readonly expectedRevision: number;
+    public readonly actualRevision: number;
+    constructor(expectedRevision: number, actualRevision: number) {
+        super(`主页布局已被其他操作修改：期望 revision ${expectedRevision}，当前 ${actualRevision}`);
+        this.name = "LayoutRevisionConflictError";
+        this.expectedRevision = expectedRevision;
+        this.actualRevision = actualRevision;
+    }
+}
+
+export type SaveLayoutForContainerResult =
+    | { success: true; layoutRevision: number }
+    | { success: false; code: "revision_conflict"; expectedRevision: number; actualRevision: number }
+    | { success: false; code: "rejected"; reason: string }
+    | { success: false; code: "unavailable" };
 
 export interface RestoreLayoutOptions {
     containerSelector: string;
@@ -79,6 +106,16 @@ export interface RestoreLayoutOptions {
     readOnly?: boolean;
     expectedLayoutRevision?: number;
     expectedWidgetIds?: readonly string[];
+    /**
+     * 已确认的合法空布局（仅 Homepage Agent 的 explicit-storage-refresh 在严格条件下允许传 true）。
+     *
+     * 语义：真实 device-view storage 已经事务提交、写后重新读取并验证为空，不是同步中的临时空读。
+     * 传 true 时允许安全清空当前容器中的健康组件；默认必须为 false，且必须同时提供
+     * expectedLayoutRevision（当前 layout.revision 必须与之一致），否则拒绝清空。
+     *
+     * 绝不根据 finalOrder.length === 0 自动推断为 true。
+     */
+    confirmedEmptyLayout?: boolean;
 }
 
 export type RestoreLayoutStatus = "complete" | "degraded" | "fatal";
@@ -225,22 +262,41 @@ async function updateCurrentDeviceLayout(
     context: DeviceViewContext,
     mutate: (layout: WidgetLayoutData, deviceId: string, context: DeviceViewContext) => WidgetLayoutData,
     options: { expectedRevision?: number; assumeReady?: boolean } = {},
-): Promise<void> {
+): Promise<number> {
     if (options.assumeReady !== true) {
         await ensureCurrentDeviceViewMigrated(context);
     }
     const start = await loadLayoutSnapshotForContext(context, { assumeReady: options.assumeReady });
-    await updateDeviceViewLayout(
-        context,
-        (deviceLayout) => {
-            const compatibility = mutate(deviceLayoutToCompatibilityLayout(context, deviceLayout), context.scopeId, context);
-            return {
-                ...deviceLayout,
-                ...compatibilityLayoutToDeviceLayout(context, compatibility),
-            };
-        },
-        { expectedRevision: options.expectedRevision ?? start.revision },
-    );
+    if (options.expectedRevision !== undefined && options.expectedRevision !== start.revision) {
+        throw new LayoutRevisionConflictError(options.expectedRevision, start.revision);
+    }
+    try {
+        const verified = await updateDeviceViewLayout(
+            context,
+            (deviceLayout) => {
+                const compatibility = mutate(deviceLayoutToCompatibilityLayout(context, deviceLayout), context.scopeId, context);
+                return {
+                    ...deviceLayout,
+                    ...compatibilityLayoutToDeviceLayout(context, compatibility),
+                };
+            },
+            { expectedRevision: options.expectedRevision ?? start.revision },
+        );
+        return verified.revision;
+    } catch (error) {
+        // 竞态：读 start 与写队列之间可能被并发更新，转换为结构化冲突错误。
+        if (options.expectedRevision !== undefined && !(error instanceof LayoutRevisionConflictError)) {
+            try {
+                const latest = await loadLayoutSnapshotForContext(context, { assumeReady: true });
+                if (latest.revision !== options.expectedRevision) {
+                    throw new LayoutRevisionConflictError(options.expectedRevision, latest.revision);
+                }
+            } catch (inner) {
+                if (inner instanceof LayoutRevisionConflictError) throw inner;
+            }
+        }
+        throw error;
+    }
 }
 
 export interface LayoutSnapshot {
@@ -1857,19 +1913,19 @@ function updateSectionSliceOrder(
 }
 
 
-export async function saveLayoutForContainer(
+async function saveLayoutForContainerCore(
     plugin: Plugin,
     options: SaveLayoutOptions,
-): Promise<boolean> {
+): Promise<SaveLayoutForContainerResult> {
     const container = options.containerEl || document.querySelector(options.containerSelector);
-    if (!container) return false;
+    if (!container) return { success: false, code: "unavailable" };
 
     if (
         options.layoutFileName === "desktop-homepage" &&
         container instanceof HTMLElement &&
         !canSaveLayoutFromRestoreState(container.dataset.layoutRestoreState)
     ) {
-        return false;
+        return { success: false, code: "unavailable" };
     }
 
     const committedWidgetIdSet = new Set<string>(
@@ -1897,145 +1953,175 @@ export async function saveLayoutForContainer(
 
     try {
         const fixedContext = options.deviceViewContext ?? await getReadyContext(plugin, options.layoutFileName);
-        await updateCurrentDeviceLayout(fixedContext, (layout, fixedDeviceId) => {
-            if (!isDesktopDeviceProfileEnabled()) {
-                return {
-                    ...layout,
-                    order: reindexLayoutItems(currentOrder),
-                };
-            }
-
-            const deviceId = fixedDeviceId;
-
-            const profile = ensureDeviceProfile(layout, deviceId);
-            let nextGlobalOrder = normalizeLayoutItems(profile.order || layout.order);
-
-            if (sectionsEnabled) {
-                if (!sectionId) {
-                    // 分栏模式开启但 sectionId 无效：拒绝降级为全局保存，保持原布局。
-                    throw new LayoutMutationCancelError("分栏模式开启但 sectionId 无效，拒绝保存");
+        const committedRevision = await updateCurrentDeviceLayout(
+            fixedContext,
+            (layout, fixedDeviceId) => {
+                if (!isDesktopDeviceProfileEnabled()) {
+                    return {
+                        ...layout,
+                        order: reindexLayoutItems(currentOrder),
+                    };
                 }
 
-                const sections: Record<string, WidgetLayoutProfileSectionData> = { ...(profile.sections || {}) };
-                const section = sections[sectionId];
-                if (!section) {
-                    // 幽灵分栏：分栏已被删除或从未存在，禁止隐式创建，取消本次保存。
-                    throw new LayoutMutationCancelError(`分栏 ${sectionId} 不存在`);
-                }
-                const currentIds = currentOrder.map((item) => item.id);
+                const deviceId = fixedDeviceId;
 
-                // 校验 committedWidgetIds：必须真实存在于当前容器 DOM 中。
-                for (const id of committedWidgetIdSet) {
-                    if (!currentIds.includes(id)) {
-                        throw new LayoutMutationCancelError(`新组件 ${id} 不在当前容器 DOM 中`);
+                const profile = ensureDeviceProfile(layout, deviceId);
+                let nextGlobalOrder = normalizeLayoutItems(profile.order || layout.order);
+
+                if (sectionsEnabled) {
+                    if (!sectionId) {
+                        // 分栏模式开启但 sectionId 无效：拒绝降级为全局保存，保持原布局。
+                        throw new LayoutMutationCancelError("分栏模式开启但 sectionId 无效，拒绝保存");
                     }
-                }
 
-                // 更新分栏成员：保留仍在容器中的成员，移除已不在的，按容器顺序去重。
-                const existingMemberSet = new Set(section.widgetIds);
-                const nextWidgetIds: string[] = [];
-                for (const id of currentIds) {
-                    if (!nextWidgetIds.includes(id)) nextWidgetIds.push(id);
-                }
-                for (const id of section.widgetIds) {
-                    if (!nextWidgetIds.includes(id) && existingMemberSet.has(id)) nextWidgetIds.push(id);
-                }
-
-                const orderIds = new Set(nextGlobalOrder.map((item) => item.id));
-
-                // section-only ID 检测：非 committed 的成员存在于 sections 但不在 global order 时，
-                // 视为同步不完整或布局异常，禁止补造 { id, style: null }。
-                const missingMemberIds = nextWidgetIds.filter((id) => !orderIds.has(id) && !committedWidgetIdSet.has(id));
-                if (missingMemberIds.length > 0) {
-                    throw new LayoutMutationCancelError(
-                        `分栏 ${sectionId} 包含未在全局 order 中的成员：${missingMemberIds.join(", ")}`,
-                    );
-                }
-
-                // committed widgets 如果已在 global order，必须归属当前分栏。
-                const otherSectionMemberIds = new Set<string>();
-                for (const [sid, sec] of Object.entries(sections)) {
-                    if (sid === sectionId) continue;
-                    for (const id of sec.widgetIds) otherSectionMemberIds.add(id);
-                }
-                for (const id of committedWidgetIdSet) {
-                    if (orderIds.has(id) && otherSectionMemberIds.has(id)) {
-                        throw new LayoutMutationCancelError(`新组件 ${id} 已归属其他分栏`);
+                    const sections: Record<string, WidgetLayoutProfileSectionData> = { ...(profile.sections || {}) };
+                    const section = sections[sectionId];
+                    if (!section) {
+                        // 幽灵分栏：分栏已被删除或从未存在，禁止隐式创建，取消本次保存。
+                        throw new LayoutMutationCancelError(`分栏 ${sectionId} 不存在`);
                     }
-                }
+                    const currentIds = currentOrder.map((item) => item.id);
 
-                sections[sectionId] = {
-                    ...section,
-                    widgetIds: nextWidgetIds,
-                };
+                    // 校验 committedWidgetIds：必须真实存在于当前容器 DOM 中。
+                    for (const id of committedWidgetIdSet) {
+                        if (!currentIds.includes(id)) {
+                            throw new LayoutMutationCancelError(`新组件 ${id} 不在当前容器 DOM 中`);
+                        }
+                    }
 
-                // 保持分栏片段连续，并用当前 DOM 顺序替换片段。
-                nextGlobalOrder = updateSectionSliceOrder(nextGlobalOrder, nextWidgetIds, reindexLayoutItems(currentOrder));
+                    // 更新分栏成员：保留仍在容器中的成员，移除已不在的，按容器顺序去重。
+                    const existingMemberSet = new Set(section.widgetIds);
+                    const nextWidgetIds: string[] = [];
+                    for (const id of currentIds) {
+                        if (!nextWidgetIds.includes(id)) nextWidgetIds.push(id);
+                    }
+                    for (const id of section.widgetIds) {
+                        if (!nextWidgetIds.includes(id) && existingMemberSet.has(id)) nextWidgetIds.push(id);
+                    }
 
-                // 统一调用分栏规范化 helper，确保片段连续并执行不变量校验。
-                const normalized = rearrangeGlobalOrderBySections(
-                    nextGlobalOrder,
-                    sections,
-                    Object.keys(sections),
-                    { assignOrphansToFirstSection: true },
-                );
+                    const orderIds = new Set(nextGlobalOrder.map((item) => item.id));
 
-                // 保存完成后再次执行完整分栏不变量校验。
-                try {
-                    assertSectionLayoutInvariants(
-                        normalized.nextGlobalOrder,
-                        normalized.nextSections,
+                    // section-only ID 检测：非 committed 的成员存在于 sections 但不在 global order 时，
+                    // 视为同步不完整或布局异常，禁止补造 { id, style: null }。
+                    const missingMemberIds = nextWidgetIds.filter((id) => !orderIds.has(id) && !committedWidgetIdSet.has(id));
+                    if (missingMemberIds.length > 0) {
+                        throw new LayoutMutationCancelError(
+                            `分栏 ${sectionId} 包含未在全局 order 中的成员：${missingMemberIds.join(", ")}`,
+                        );
+                    }
+
+                    // committed widgets 如果已在 global order，必须归属当前分栏。
+                    const otherSectionMemberIds = new Set<string>();
+                    for (const [sid, sec] of Object.entries(sections)) {
+                        if (sid === sectionId) continue;
+                        for (const id of sec.widgetIds) otherSectionMemberIds.add(id);
+                    }
+                    for (const id of committedWidgetIdSet) {
+                        if (orderIds.has(id) && otherSectionMemberIds.has(id)) {
+                            throw new LayoutMutationCancelError(`新组件 ${id} 已归属其他分栏`);
+                        }
+                    }
+
+                    sections[sectionId] = {
+                        ...section,
+                        widgetIds: nextWidgetIds,
+                    };
+
+                    // 保持分栏片段连续，并用当前 DOM 顺序替换片段。
+                    nextGlobalOrder = updateSectionSliceOrder(nextGlobalOrder, nextWidgetIds, reindexLayoutItems(currentOrder));
+
+                    // 统一调用分栏规范化 helper，确保片段连续并执行不变量校验。
+                    const normalized = rearrangeGlobalOrderBySections(
+                        nextGlobalOrder,
+                        sections,
                         Object.keys(sections),
-                        { requireAllAssigned: true },
+                        { assignOrphansToFirstSection: true },
                     );
-                } catch (error) {
-                    throw new LayoutMutationCancelError(
-                        `保存后分栏不变量校验失败：${error instanceof Error ? error.message : String(error)}`,
-                    );
+
+                    // 保存完成后再次执行完整分栏不变量校验。
+                    try {
+                        assertSectionLayoutInvariants(
+                            normalized.nextGlobalOrder,
+                            normalized.nextSections,
+                            Object.keys(sections),
+                            { requireAllAssigned: true },
+                        );
+                    } catch (error) {
+                        throw new LayoutMutationCancelError(
+                            `保存后分栏不变量校验失败：${error instanceof Error ? error.message : String(error)}`,
+                        );
+                    }
+
+                    return {
+                        ...layout,
+                        order: normalized.nextGlobalOrder,
+                        profiles: {
+                            ...(layout.profiles || {}),
+                            [deviceId]: {
+                                ...profile,
+                                activeSectionId: sectionId,
+                                order: normalized.nextGlobalOrder,
+                                sections: normalized.nextSections,
+                            },
+                        },
+                    };
                 }
 
+                // 非分栏模式：直接保存为全局顺序。
+                nextGlobalOrder = reindexLayoutItems(currentOrder);
                 return {
                     ...layout,
-                    order: normalized.nextGlobalOrder,
+                    order: nextGlobalOrder,
                     profiles: {
                         ...(layout.profiles || {}),
                         [deviceId]: {
                             ...profile,
-                            activeSectionId: sectionId,
-                            order: normalized.nextGlobalOrder,
-                            sections: normalized.nextSections,
+                            order: nextGlobalOrder,
                         },
                     },
                 };
-            }
-
-            // 非分栏模式：直接保存为全局顺序。
-            nextGlobalOrder = reindexLayoutItems(currentOrder);
-            return {
-                ...layout,
-                order: nextGlobalOrder,
-                profiles: {
-                    ...(layout.profiles || {}),
-                    [deviceId]: {
-                        ...profile,
-                        order: nextGlobalOrder,
-                    },
-                },
-            };
-        });
+            },
+            { expectedRevision: options.expectedLayoutRevision },
+        );
+        return { success: true, layoutRevision: committedRevision };
     } catch (error) {
+        if (error instanceof LayoutRevisionConflictError) {
+            if (container instanceof HTMLElement) {
+                container.dataset.layoutSaveError = error.message;
+            }
+            return {
+                success: false,
+                code: "revision_conflict",
+                expectedRevision: error.expectedRevision,
+                actualRevision: error.actualRevision,
+            };
+        }
         if (error instanceof LayoutMutationCancelError) {
             if (container instanceof HTMLElement) {
                 // 保存请求被拒绝不代表当前已恢复的 DOM 损坏；保留原恢复状态，允许用户修正后重试。
                 container.dataset.layoutSaveError = error.message;
             }
             console.warn(`[HomepageLayout] 布局保存被拒绝：${error.message}`);
-            return false;
+            return { success: false, code: "rejected", reason: error.message };
         }
         throw error;
     }
+}
 
-    return true;
+export async function saveLayoutForContainer(
+    plugin: Plugin,
+    options: SaveLayoutOptions,
+): Promise<boolean> {
+    const result = await saveLayoutForContainerCore(plugin, options);
+    return result.success;
+}
+
+/** 供 Homepage UI 使用的带结果保存：成功返回 committed revision，冲突返回 expected/actual。 */
+export async function saveLayoutForContainerExpected(
+    plugin: Plugin,
+    options: SaveLayoutOptions,
+): Promise<SaveLayoutForContainerResult> {
+    return saveLayoutForContainerCore(plugin, options);
 }
 
 async function findMissingComponents(
@@ -2268,6 +2354,9 @@ export async function restoreLayoutForContainer(
     }
     const layoutRevision = layoutSnapshot.revision;
     let layout: WidgetLayoutData | null = layoutSnapshot.layout;
+    if (options.confirmedEmptyLayout === true && options.expectedLayoutRevision === undefined) {
+        return finish("fatal", layoutRevision, [], "已确认空布局必须绑定 expectedLayoutRevision，拒绝清空");
+    }
     if (
         options.expectedLayoutRevision !== undefined
         && options.expectedLayoutRevision !== layoutRevision
@@ -2744,6 +2833,83 @@ export async function restoreLayoutForContainer(
         }
 
         const hasExistingWidgets = getDirectWidgetElements(container).length > 0;
+        if (options.confirmedEmptyLayout === true) {
+            // 已验证的合法空布局（Homepage Agent explicit-storage-refresh，非同步临时空读）：
+            // 以与空分栏相同安全级别执行事务式清空，绝不无条件销毁健康组件。
+            // 1. 计划：对当前容器所有直接子组件执行 destroy-after-commit。
+            const clearPlan: HTMLElement[] = [];
+            for (const child of getDirectWidgetElements(container)) {
+                clearPlan.push(child);
+            }
+            const firstDataRecheckError = await verifyRestoreDataSnapshot();
+            if (firstDataRecheckError) {
+                return finish("fatal", layoutRevision, [], firstDataRecheckError);
+            }
+            if (!matchesHomepageWidgetDomSnapshot(planBaselineDomSnapshot, domScope)) {
+                return finish("fatal", layoutRevision, [], "已确认空布局提交前 DOM 已变化");
+            }
+            const plannedDomSnapshot = captureHomepageWidgetDomSnapshot(domScope);
+
+            // 2. 从 DOM 暂时移除目标组件，但先不销毁 runtime instance。
+            const destroyAfterCommit: HTMLElement[] = [];
+            for (const element of clearPlan) {
+                element.remove();
+                destroyAfterCommit.push(element);
+            }
+            // 3. 再次读取 storage，确认 revision、layout 与组件预期状态未变化。
+            const secondDataRecheckError = await verifyRestoreDataSnapshot();
+            if (secondDataRecheckError) {
+                const rollback = restoreHomepageWidgetDomSnapshot(plannedDomSnapshot, domScope);
+                return finish(
+                    "fatal",
+                    layoutRevision,
+                    [],
+                    "reason" in rollback
+                        ? `${secondDataRecheckError}；DOM 回滚失败：${rollback.reason}`
+                        : secondDataRecheckError,
+                );
+            }
+            // 4. 确认容器已经为空，且无 ownership / duplicate 错误。
+            const committedScope = enumerateHomepageWidgetElements(domScope);
+            const committedDuplicate = Array.from(committedScope.elementsById.entries())
+                .find(([, elements]) => elements.length > 1);
+            if (
+                getDirectWidgetElements(container).length !== 0
+                || committedScope.ownershipErrors.length > 0
+                || committedDuplicate
+            ) {
+                const rollback = restoreHomepageWidgetDomSnapshot(plannedDomSnapshot, domScope);
+                return finish(
+                    "fatal",
+                    layoutRevision,
+                    [],
+                    "reason" in rollback ? `已确认空布局提交验证失败；回滚失败：${rollback.reason}` : "已确认空布局提交验证失败",
+                );
+            }
+            const finalDataRecheckError = await verifyRestoreDataSnapshot();
+            if (finalDataRecheckError) {
+                const rollback = restoreHomepageWidgetDomSnapshot(plannedDomSnapshot, domScope);
+                return finish(
+                    "fatal",
+                    layoutRevision,
+                    [],
+                    "reason" in rollback
+                        ? `${finalDataRecheckError}；DOM 回滚失败：${rollback.reason}`
+                        : finalDataRecheckError,
+                );
+            }
+
+            // 5. 数据、DOM 全部验证成功后，才销毁原 widget instances。
+            for (const element of new Set(destroyAfterCommit)) destroyWidgetElement(element);
+            cleanupInvisiblePreservedWidgets(
+                layout,
+                deviceId,
+                sectionsEnabled,
+                options.preservedWidgetElements,
+            );
+            container.dataset.layoutUnresolvedWidgetIds = unresolvedWidgetIdsJson;
+            return finish("complete", layoutRevision, []);
+        }
         if (expectedEvidenceIds.size > 0 || hasExistingWidgets) {
             return finish("fatal", layoutRevision, [], "空布局与现有组件证据冲突");
         }
@@ -3533,7 +3699,7 @@ export type DeleteWidgetResult =
 async function deleteWidgetFromSurfaceCore(
     context: DeviceViewContext,
     widgetId: string,
-    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number } = {},
+    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number; expectWidgetMissing?: boolean } = {},
 ): Promise<DeleteWidgetResult> {
 
     const isReferenced = (layout: DeviceViewLayout): boolean => (
@@ -3561,6 +3727,11 @@ async function deleteWidgetFromSurfaceCore(
     }
     if (options.expectedWidgetRevision !== undefined && initialWidgetDocument?.revision !== options.expectedWidgetRevision) {
         return { status: "notCommitted", reason: `组件 revision 冲突：预期 ${options.expectedWidgetRevision}，当前 ${initialWidgetDocument?.revision ?? "不存在"}` };
+    }
+    // expectWidgetMissing：用于安全清理旧版迁移残留。事务开始时若配置文档已经存在，
+    // 立即拒绝，绝不能移除布局引用或删除配置。
+    if (options.expectWidgetMissing === true && initialWidgetDocument) {
+        return { status: "notCommitted", reason: "期望组件配置缺失，但配置当前已存在，已拒绝移除布局引用" };
     }
 
     // 2) 确认 widgetId 存在于 order 或 sections 中
@@ -3659,6 +3830,14 @@ async function deleteWidgetFromSurfaceCore(
         // 配置不存在但布局已移除 → 视为成功
         return { status: "success" };
     }
+    // expectWidgetMissing：清理场景下配置在移除布局后突然出现时，绝不能删除该配置。
+    // 说明清理过程中配置被恢复（例如同步），应保留配置并让调用方降级处理。
+    if (options.expectWidgetMissing === true) {
+        return {
+            status: "layoutCommittedConfigRetained",
+            warning: "布局已移除组件，但组件配置在清理期间突然出现，配置已保留",
+        };
+    }
     if (initialWidgetDocument && widgetDocument.revision !== initialWidgetDocument.revision) {
         return {
             status: "layoutCommittedConfigRetained",
@@ -3696,7 +3875,7 @@ async function deleteWidgetFromSurfaceCore(
 export async function deleteWidgetFromSurface(
     context: DeviceViewContext,
     widgetId: string,
-    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number } = {},
+    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number; expectWidgetMissing?: boolean } = {},
 ): Promise<DeleteWidgetResult> {
     const queueKey = `${context.scopeId}:${context.surface}`;
     return runInSurfaceTransaction(queueKey, () => deleteWidgetFromSurfaceCore(context, widgetId, options));
