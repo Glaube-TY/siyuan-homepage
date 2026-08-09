@@ -14,6 +14,7 @@ import {
   ROBOT_MASTER_SECRET_KEY,
   decryptRobotSecret,
   generateRobotMasterSecret,
+  normalizeRobotMasterSecret,
 } from "../security/robot-secret-vault";
 import type { RobotAssistantSettings } from "../settings/robot-settings-types";
 
@@ -32,15 +33,13 @@ export interface ElectronCredentialStoragePort {
 async function getOrCreateMasterSecret(storage: ElectronCredentialStoragePort): Promise<string | null> {
   try {
     const existing = await storage.loadData(ROBOT_MASTER_SECRET_KEY);
-    if (typeof existing === "string" && existing.trim()) {
-      return existing.trim();
-    }
-    if (existing && typeof existing === "object") {
-      const value = (existing as Record<string, unknown>).value;
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
+    const normalized = normalizeRobotMasterSecret(existing);
+    if (normalized) return normalized;
+    // 已有但无法识别的数据不能用新密钥覆盖，否则现有 Provider 密文将永久不可解。
+    if (existing !== null && existing !== undefined && String(existing).trim()) return null;
   } catch {
-    // 读取失败时尝试生成
+    // 读取异常时不能生成新密钥覆盖现有文件。
+    return null;
   }
   try {
     const generated = generateRobotMasterSecret();

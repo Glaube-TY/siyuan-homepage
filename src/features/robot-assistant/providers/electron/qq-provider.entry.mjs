@@ -13,7 +13,10 @@ function normalizeInboundMessage(bot, msg) {
     return null;
   }
   const chatId = isGroup ? (msg.groupOpenid || replyTarget.targetId || "") : replyTarget.targetId || "";
-  if (!chatId) return null;
+  // QQ 正常事件一定包含 messageId。缺失时不能生成随机 ID，否则平台重投会绕过去重，
+  // 对记账等写操作可能造成重复执行。
+  const messageId = typeof msg.messageId === "string" ? msg.messageId.trim() : "";
+  if (!chatId || !messageId || !msg.senderId) return null;
 
   const text = typeof msg.content === "string" ? msg.content : "";
   const mentioned = Array.isArray(msg.mentions) && msg.mentions.length > 0
@@ -22,7 +25,7 @@ function normalizeInboundMessage(bot, msg) {
   return {
     provider: "qq",
     accountId: bot.accountId,
-    messageId: msg.messageId || `qq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    messageId,
     senderId: msg.senderId || "",
     ...(typeof msg.senderName === "string" && msg.senderName ? { senderName: msg.senderName } : {}),
     chatId,
@@ -32,7 +35,7 @@ function normalizeInboundMessage(bot, msg) {
     isFromBot: msg.senderIsBot === true,
     isMentioned: mentioned,
     contextToken: isGroup ? "group" : "c2c",
-    replyToMessageId: msg.messageId,
+    replyToMessageId: messageId,
     receivedAt: Date.now(),
     rawMeta: {
       kind,

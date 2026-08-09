@@ -23,6 +23,9 @@ export interface RobotConfirmationBridgeContext {
  * 而不是前端 Dialog。确认绑定 provider/account/chat/sender，且非本人“确认”无效。
  */
 export class RobotConfirmationBridge implements ToolConfirmationBridge {
+  /** 同一 Agent turn 内已被拒绝/过期的写操作，禁止模型重试时再次打扰用户。 */
+  private readonly deniedRequestKeys = new Set<string>();
+
   constructor(private readonly ctx: RobotConfirmationBridgeContext) {}
 
   async request(preview: ToolPermissionPreview): Promise<ToolPermissionDecision> {
@@ -36,6 +39,14 @@ export class RobotConfirmationBridge implements ToolConfirmationBridge {
       && typeof (preview.argsPreview as Record<string, unknown>).action === "string"
       ? String((preview.argsPreview as Record<string, unknown>).action)
       : undefined;
+    const requestKey = this.requestKey(preview, action);
+    if (this.deniedRequestKeys.has(requestKey)) {
+      return {
+        type: "deny",
+        reason: "该写操作已被取消或确认已过期，本次对话不再重复请求确认。",
+        reasonCode: "confirmation_already_resolved",
+      };
+    }
 
     const confirmation: RobotConfirmation = {
       confirmationId: createRobotId(),
@@ -59,6 +70,19 @@ export class RobotConfirmationBridge implements ToolConfirmationBridge {
 
     const outcome = await this.ctx.requestConfirmation(confirmation, prompt);
     if (outcome === "approved") return { type: "allow" };
-    return { type: "deny", reason: outcome === "expired" ? "确认已过期。" : "用户取消了该操作。" };
+    this.deniedRequestKeys.add(requestKey);
+    return outcome === "expired"
+      ? { type: "deny", reason: "确认已过期。", reasonCode: "confirmation_expired" }
+      : { type: "deny", reason: "用户取消了该操作。", reasonCode: "user_rejected" };
+  }
+
+  private requestKey(preview: ToolPermissionPreview, action?: string): string {
+    let args = "";
+    try {
+      args = JSON.stringify(preview.argsPreview ?? null);
+    } catch {
+      args = String(preview.targetSummary ?? preview.summary ?? preview.title ?? "");
+    }
+    return `${preview.toolName}:${action ?? ""}:${args}`;
   }
 }

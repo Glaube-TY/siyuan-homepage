@@ -138,10 +138,20 @@ export async function registerRobotKernelRpc(host: RobotKernelHost, runtime: Rob
     return { ok: true };
   });
 
-  rpc("robot.ingestExternalMessage", async (payload) => {
+  rpc("robot.ingestExternalMessage", (payload) => {
     if (!payload || typeof payload !== "object") return { ok: false, errorCode: "invalid_message" };
-    await runtime.ingestExternalMessage(payload as NormalizedRobotMessage);
-    return { ok: true };
+    // 飞书 / QQ 的事件回调必须尽快返回，否则平台会认为事件没有被消费并重投。
+    // Agent turn 可能等待远端用户确认数分钟；若 RPC 一直等待整段 turn，后续“确认”
+    // 和设置页的会话查询都会排在同一条 Kernel RPC 链路后面，形成确认超时死锁。
+    // 这里只确认“已接收”，实际业务仍由 Robot Core 在 Kernel 后台完成。
+    void runtime.ingestExternalMessage(payload as NormalizedRobotMessage).catch((error) => {
+      host.log.error({
+        status: "external_message_ingest_failed",
+        errorCode: "robot.ingestExternalMessage",
+        message: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+      });
+    });
+    return { ok: true, accepted: true };
   });
 
   // Electron Provider（飞书 / QQ）状态注册：前端加载 bundle 后上报，Kernel 只记录状态不运行。

@@ -434,11 +434,16 @@ export class WeChatKernelProvider implements RobotProvider {
       const nestedText = textItem?.text_item && typeof textItem.text_item === "object"
         ? (textItem.text_item as Record<string, unknown>).text
         : undefined;
+      const messageId = typeof item.message_id === "number" || typeof item.message_id === "string"
+        ? String(item.message_id).trim()
+        : "";
+      // 无稳定 message_id 的事件无法跨重连去重。为避免重复写入，不把它送进 Robot Core。
+      if (!messageId) continue;
       updates.push({
         // 官方 getupdates 会返回 message_type 缺失的入站消息；有发送者即按用户消息处理。
         type: isOwnEcho ? "BOT" : fromUserId ? "USER" : "OTHER",
         fromUserId,
-        messageId: typeof item.message_id === "number" || typeof item.message_id === "string" ? String(item.message_id) : `wx_${this.now()}`,
+        messageId,
         sessionId: typeof item.session_id === "string" ? item.session_id : "",
         ...(typeof item.context_token === "string" ? { contextToken: item.context_token } : {}),
         ...(typeof nestedText === "string" ? { text: nestedText } : {}),

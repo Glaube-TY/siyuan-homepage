@@ -5,7 +5,8 @@
  * - 桥接 Kernel RPC：入站消息 → `robot.ingestExternalMessage`；出站 `robot.outbound` → Provider.sendText。
  * - Electron Provider（飞书 / QQ）：检测 Electron + window.require，加载 bundle，
  *   读取解密后的凭证，connect，并上报状态给 Kernel。
- * - 状态同步：`robot.statusChanged` / `robot.providerStatusChanged` 变化时刷新 Electron Provider。
+ * - 状态同步：仅在 Robot Core / 设置变化时刷新 Electron Provider；Provider 自身状态只用于展示，
+ *   不能反向触发重新注册，否则 `not_configured` 会形成无限重试环。
  * - 生命周期：插件 unload 时 disconnect 并上报 offline。
  */
 
@@ -41,6 +42,7 @@ export class RobotClientRuntime {
   private readonly unsubscribes: Array<() => void> = [];
   private started = false;
   private settings: RobotAssistantSettings | null = null;
+  private refreshQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: RobotClientRuntimeDeps) {}
 
@@ -59,14 +61,11 @@ export class RobotClientRuntime {
     this.unsubscribes.push(this.deps.kernel.subscribe("robot.statusChanged", () => {
       void this.refreshElectronProviders();
     }));
-    this.unsubscribes.push(this.deps.kernel.subscribe("robot.providerStatusChanged", () => {
-      void this.refreshElectronProviders();
-    }));
-
     await this.refreshElectronProviders();
   }
 
   async stop(): Promise<void> {
+    this.started = false;
     for (const unsubscribe of this.unsubscribes.splice(0)) {
       try {
         unsubscribe();
@@ -74,15 +73,23 @@ export class RobotClientRuntime {
         // 忽略解绑错误
       }
     }
+    await this.refreshQueue.catch(() => undefined);
     for (const providerId of Array.from(this.providers.keys())) {
       await this.unregisterElectronProvider(providerId);
     }
     this.settings = null;
-    this.started = false;
   }
 
   async refreshElectronProviders(): Promise<void> {
-    if (!this.deps.isElectron()) return;
+    const refresh = this.refreshQueue
+      .catch(() => undefined)
+      .then(() => this.refreshElectronProvidersNow());
+    this.refreshQueue = refresh.catch(() => undefined);
+    return refresh;
+  }
+
+  private async refreshElectronProvidersNow(): Promise<void> {
+    if (!this.started || !this.deps.isElectron()) return;
     let settings: RobotAssistantSettings | null = null;
     try {
       const runtime = (await this.deps.kernel.call("robot.getStatus")) as { status?: string } | null;

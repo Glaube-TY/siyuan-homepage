@@ -23,6 +23,33 @@ const ENVELOPE_PREFIX = "robot:enc:v1:";
 const ENC_LABEL = "robot-envelope-enc";
 const MAC_LABEL = "robot-envelope-mac";
 
+/**
+ * 统一 Plugin.loadData 与 Kernel storage.get 的主密钥格式：
+ * - Plugin.loadData 通常返回已解析的 64 位 hex 字符串；
+ * - Kernel storage.get 返回 JSON string 原文（形如 `"abc..."`）；
+ * - 早期开发包还可能保存为 `{ value }`。
+ */
+export function normalizeRobotMasterSecret(raw: unknown): string | null {
+  let candidate: unknown = raw;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      candidate = (candidate as Record<string, unknown>).value;
+      continue;
+    }
+    if (typeof candidate !== "string") return null;
+    const trimmed = candidate.trim();
+    if (/^[a-f0-9]{64}$/i.test(trimmed)) return trimmed.toLowerCase();
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed === candidate) return null;
+      candidate = parsed;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function bytesToHex(bytes: CryptoJS.lib.WordArray): string {
   return bytes.toString(CryptoJS.enc.Hex);
 }

@@ -58,6 +58,10 @@ export interface RobotAssistantSettings {
   runtimeOwner: RobotRuntimeOwner | null;
   /** "use-kb-current" 或显式模型快照由前端 syncAgentRuntimeConfig 推送，此处仅记录选择意向。 */
   agentModel: "use_kb_current" | "explicit";
+  /** agentModel=explicit 时使用的已配置 AI 提供商。 */
+  agentModelProviderId: string;
+  /** agentModel=explicit 时使用的模型。 */
+  agentModelId: string;
   maxMessageLength: number;
   /** 每个会话串行 Agent turn，后续消息进入短队列。 */
   sessionTtlMs: number;
@@ -108,6 +112,8 @@ export function createDefaultRobotAssistantSettings(): RobotAssistantSettings {
     activeProvider: "none",
     runtimeOwner: null,
     agentModel: "use_kb_current",
+    agentModelProviderId: "",
+    agentModelId: "",
     maxMessageLength: 4000,
     sessionTtlMs: 24 * 60 * 60 * 1000,
     keepHistoryLimit: 20,

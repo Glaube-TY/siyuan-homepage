@@ -12,6 +12,7 @@ import {
   encryptRobotSecret,
   generateRobotMasterSecret,
   isRobotEnvelope,
+  normalizeRobotMasterSecret,
 } from "../security/robot-secret-vault";
 import { createDefaultRobotAssistantSettings, type RobotAssistantSettings, type RobotRuntimeOwner } from "./robot-settings-types";
 import { normalizeV2Settings } from "./robot-settings-migration";
@@ -111,13 +112,12 @@ export class RobotSettingsClient {
   private async getOrCreateMasterSecret(): Promise<string | null> {
     try {
       const existing = await this.storage.loadData(ROBOT_MASTER_SECRET_KEY);
-      if (typeof existing === "string" && existing.trim()) return existing.trim();
-      if (existing && typeof existing === "object") {
-        const value = (existing as Record<string, unknown>).value;
-        if (typeof value === "string" && value.trim()) return value.trim();
-      }
+      const normalized = normalizeRobotMasterSecret(existing);
+      if (normalized) return normalized;
+      if (existing !== null && existing !== undefined && String(existing).trim()) return null;
     } catch {
-      // 读取失败时生成
+      // 读取异常时不能生成新密钥覆盖现有 Provider 密文。
+      return null;
     }
     try {
       const generated = generateRobotMasterSecret();

@@ -25,6 +25,7 @@
     let providerFilter = $state("all");
     let accountFilter = $state("all");
     let loading = $state(true);
+    let loadError = $state("");
     let busy = $state(false);
     let currentSession = $derived(selectedSession());
 
@@ -60,11 +61,28 @@
 
     async function refresh(preferActive = false): Promise<void> {
         loading = true;
+        loadError = "";
         try {
-            sessions = (await client.getSessions()).map(parseSession);
+            sessions = (await withTimeout(client.getSessions(), 12_000)).map(parseSession);
             ensureSelection(preferActive);
+        } catch (error) {
+            loadError = error instanceof Error ? error.message : "会话加载失败";
         } finally {
             loading = false;
+        }
+    }
+
+    async function withTimeout<T>(task: Promise<T>, timeoutMs: number): Promise<T> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            return await Promise.race([
+                task,
+                new Promise<T>((_resolve, reject) => {
+                    timer = setTimeout(() => reject(new Error("会话加载超时，请稍后刷新")), timeoutMs);
+                }),
+            ]);
+        } finally {
+            if (timer !== undefined) clearTimeout(timer);
         }
     }
 
@@ -210,6 +228,8 @@
         <aside class="remote-agent-sidebar">
             {#if loading}
                 <div class="remote-agent-empty">加载中…</div>
+            {:else if loadError}
+                <div class="remote-agent-empty remote-agent-empty--error">{loadError}</div>
             {:else if visibleSessions().length === 0}
                 <div class="remote-agent-empty">暂无对话</div>
             {:else}

@@ -8,9 +8,13 @@
     import RemoteAgentSessionsDialog from "../dialogs/RemoteAgentSessionsDialog.svelte";
     import RobotMessageLogDialog from "../dialogs/RobotMessageLogDialog.svelte";
     import { RobotKernelBridge, type KernelBridgeStatus } from "@/features/robot-assistant/runtime/robot-kernel-bridge";
+    import { syncRobotAgentRuntimeConfig } from "@/features/robot-assistant/runtime/robot-agent-config-sync";
     import { RobotSettingsClient, type RobotStatusSnapshot } from "@/features/robot-assistant/settings/robot-settings-client";
     import { createDefaultRobotAssistantSettings, type RobotAssistantSettings, type RobotRuntimeOwner } from "@/features/robot-assistant/settings/robot-settings-types";
     import type { RobotProviderId } from "@/features/robot-assistant/contracts/robot-provider";
+    import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "@/features/kb/services/settings/kb-settings-service";
+    import { buildChatModelOptions } from "@/features/kb/services/settings/chat-model-options";
+    import { buildChatModelKey, type ChatModelOption } from "@/features/kb/types/chat-model-selection";
     import type { RobotAssistantSubTab } from "../robotAssistantTabs";
 
     interface Props {
@@ -32,6 +36,7 @@
     let saving = $state(false);
     let isElectron = $state(false);
     let errorText = $state<string | null>(null);
+    let agentModelOptions = $state<ChatModelOption[]>([]);
 
     // 飞书 / QQ 凭证草稿（仅新输入时加密保存）
     let feishuSecretDraft = $state("");
@@ -174,12 +179,52 @@
         if (!client) return;
         const loaded = await client.getSettings();
         settings = loaded;
+        await refreshAgentModelOptions();
         syncWhitelistDraft();
         await refreshStatus();
         await refreshPairing();
         await refreshWechatLoginState();
         const bootstrap = await client.getBootstrapStatus();
         bootstrapState = bootstrap?.state ?? "idle";
+    }
+
+    async function refreshAgentModelOptions(): Promise<void> {
+        try {
+            agentModelOptions = buildChatModelOptions(await getKbSettings());
+        } catch {
+            agentModelOptions = [];
+        }
+    }
+
+    function selectedAgentModelKey(): string {
+        if (settings.agentModel !== "explicit" || !settings.agentModelProviderId || !settings.agentModelId) return "";
+        return buildChatModelKey(settings.agentModelProviderId, settings.agentModelId);
+    }
+
+    async function selectAgentModel(key: string): Promise<void> {
+        if (!client || !kernelBridge || saving) return;
+        saving = true;
+        try {
+            if (!key) {
+                settings.agentModel = "use_kb_current";
+                settings.agentModelProviderId = "";
+                settings.agentModelId = "";
+            } else {
+                const option = agentModelOptions.find((item) => item.key === key);
+                if (!option) throw new Error("所选模型已不可用，请刷新后重试");
+                settings.agentModel = "explicit";
+                settings.agentModelProviderId = option.providerId;
+                settings.agentModelId = option.modelId;
+            }
+            settings = await client.saveSettings(settings);
+            await syncRobotAgentRuntimeConfig(kernelBridge.client);
+            await refreshStatus();
+            showMessage(key ? "机器人 Agent 模型已切换" : "机器人 Agent 已改为跟随默认模型", 1800);
+        } catch (error) {
+            showMessage(error instanceof Error ? error.message : "模型切换失败", 3000, "error");
+        } finally {
+            saving = false;
+        }
     }
 
     async function refreshWechatLoginState(): Promise<void> {
@@ -546,6 +591,11 @@
         destroyFns.push(client.subscribe("robot.providerStatusChanged", handleStatusChanged));
         destroyFns.push(client.subscribe("robot.wechat.loginChanged", handleWechatLoginChanged));
         destroyFns.push(client.subscribe("robot.pairingChanged", handlePairingChanged));
+        const handleKbSettingsChanged = () => {
+            void refreshAgentModelOptions();
+        };
+        window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
+        destroyFns.push(() => window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged));
         if (kernelStatus === "running") {
             loading = true;
             void loadAll().catch((error) => {
@@ -934,6 +984,27 @@
         {/if}
 
         {:else if activeSubTab === "agent"}
+        <SettingSection title="Agent 模型">
+            <SettingRow title="执行模型" description="选择 AI 知识库中已经配置并启用的模型。">
+                <select class="b3-select robot-model-select" value={selectedAgentModelKey()}
+                    onchange={(event) => selectAgentModel((event.currentTarget as HTMLSelectElement).value)}
+                    disabled={disabled} aria-label="机器人 Agent 执行模型">
+                    <option value="">跟随 AI 知识库默认模型</option>
+                    {#if selectedAgentModelKey() && !agentModelOptions.some((option) => option.key === selectedAgentModelKey())}
+                        <option value={selectedAgentModelKey()} disabled>
+                            已选模型暂不可用（{settings.agentModelProviderId} / {settings.agentModelId}）
+                        </option>
+                    {/if}
+                    {#each agentModelOptions as option (option.key)}
+                        <option value={option.key}>{option.label}</option>
+                    {/each}
+                </select>
+            </SettingRow>
+            <SettingRow title="当前运行模型">
+                <span class="robot-status-pill">{modelText}</span>
+            </SettingRow>
+        </SettingSection>
+
         <SettingSection title="机器人可使用的 AI 工具">
             <SettingRow title="默认写操作策略">
                 <select class="b3-select fn__size150" value={settings.robotToolPolicy.defaultWriteAction}
@@ -1025,6 +1096,13 @@
 
     .robot-provider-select {
         width: min(220px, 100%);
+        min-height: 32px;
+        text-align: center;
+        text-align-last: center;
+    }
+
+    .robot-model-select {
+        width: min(360px, 100%);
         min-height: 32px;
         text-align: center;
         text-align-last: center;

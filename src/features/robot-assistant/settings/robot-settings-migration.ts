@@ -118,6 +118,11 @@ export function normalizeV2Settings(raw: unknown): RobotAssistantSettings {
     };
   }
   out.agentModel = value.agentModel === "explicit" ? "explicit" : "use_kb_current";
+  out.agentModelProviderId = typeof value.agentModelProviderId === "string" ? value.agentModelProviderId.trim() : "";
+  out.agentModelId = typeof value.agentModelId === "string" ? value.agentModelId.trim() : "";
+  if (out.agentModel === "explicit" && (!out.agentModelProviderId || !out.agentModelId)) {
+    out.agentModel = "use_kb_current";
+  }
   if (typeof value.maxMessageLength === "number" && Number.isFinite(value.maxMessageLength)) {
     out.maxMessageLength = Math.max(1, Math.round(value.maxMessageLength));
   }

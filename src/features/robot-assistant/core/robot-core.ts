@@ -49,9 +49,50 @@ export interface RobotCoreDeps {
 
 interface PendingConfirmationWait {
   confirmation: RobotConfirmation;
+  chatKey: string;
   resolve: (outcome: RobotConfirmationOutcome) => void;
   timerId: unknown;
 }
+
+interface RobotSessionTurnQueue {
+  /** 包含当前执行和所有已排队 turn 的完成链。 */
+  tail: Promise<void>;
+  depth: number;
+}
+
+interface RobotIngressQueue {
+  tail: Promise<void>;
+  depth: number;
+}
+
+interface QueuedTurnOutcome {
+  ok: boolean;
+  resultSummary: string;
+  toolSummary: string;
+  historyStatus?: RobotHistoryItemStatus;
+}
+
+interface RecentlyResolvedConfirmation {
+  outcome: RobotConfirmationOutcome;
+  resolvedAt: number;
+}
+
+/** 防止一个会话连续塞入数十个耗时 Agent turn。包含正在执行的 turn。 */
+const MAX_SESSION_TURN_DEPTH = 6;
+/** 防止大量会话同时堆积耗尽 Kernel 内存。 */
+const MAX_GLOBAL_TURN_DEPTH = 32;
+/** 排队超过该时间的自然语言请求不再执行，避免旧写操作在很久以后突然生效。 */
+const MAX_TURN_QUEUE_WAIT_MS = 5 * 60 * 1000;
+/** 重复发送确认/取消时给出幂等状态，而不是误当成新对话。 */
+const RESOLVED_CONFIRMATION_GRACE_MS = 30 * 1000;
+/** 入站校验本身也必须背压，避免瞬时洪峰先创建无界 Promise 链。 */
+const MAX_SESSION_INGRESS_DEPTH = 32;
+const MAX_GLOBAL_INGRESS_DEPTH = 256;
+/** 等待确认时，确认/取消使用独立小队列，优先越过无效自然语言输入。 */
+const MAX_CONFIRMATION_INGRESS_DEPTH = 8;
+const OVERLOAD_REPLY_INTERVAL_MS = 10 * 1000;
+const INVALID_CONFIRMATION_REPLY_INTERVAL_MS = 3 * 1000;
+const TRANSIENT_CHAT_STATE_LIMIT = 1024;
 
 export class RobotCore {
   private readonly sessionService: RobotSessionService;
@@ -59,7 +100,16 @@ export class RobotCore {
   private readonly log: RobotDebugLogger;
   private readonly pendingByChat = new Map<string, PendingConfirmationWait>();
   private readonly pendingById = new Map<string, { wait: PendingConfirmationWait; chatKey: string }>();
-  private readonly sessionQueues = new Map<string, Promise<void>>();
+  /** 同一会话的入站校验严格按到达顺序执行；这里绝不等待完整 Agent turn。 */
+  private readonly ingressQueues = new Map<string, RobotIngressQueue>();
+  private readonly confirmationIngressQueues = new Map<string, RobotIngressQueue>();
+  /** 普通 Agent turn 执行队列；确认/取消消息不进入此队列。 */
+  private readonly sessionQueues = new Map<string, RobotSessionTurnQueue>();
+  private readonly recentlyResolvedConfirmations = new Map<string, RecentlyResolvedConfirmation>();
+  private readonly lastOverloadReplyAt = new Map<string, number>();
+  private readonly lastInvalidConfirmationReplyAt = new Map<string, number>();
+  private totalIngressDepth = 0;
+  private totalTurnDepth = 0;
   private activeTurns = 0;
   private readonly globalWaiters: Array<() => void> = [];
 
@@ -95,6 +145,48 @@ export class RobotCore {
    * 接收一条标准化消息（Robot Core 唯一业务入口）。
    */
   async handleIncomingMessage(message: NormalizedRobotMessage): Promise<void> {
+    const ingressKey = this.chatKeyFor(message, true);
+    const command = parseRobotCommand(message.text);
+    const pendingAtArrival = this.pendingByChat.has(ingressKey);
+    const isPendingControl = pendingAtArrival
+      && (command?.kind === "confirm" || command?.kind === "cancel");
+    const queues = isPendingControl ? this.confirmationIngressQueues : this.ingressQueues;
+    let queue = queues.get(ingressKey);
+    if (!queue) {
+      queue = { tail: Promise.resolve(), depth: 0 };
+      queues.set(ingressKey, queue);
+    }
+    const limit = isPendingControl ? MAX_CONFIRMATION_INGRESS_DEPTH : MAX_SESSION_INGRESS_DEPTH;
+    if (queue.depth >= limit || (!isPendingControl && this.totalIngressDepth >= MAX_GLOBAL_INGRESS_DEPTH)) {
+      this.log.warn({
+        provider: message.provider,
+        status: "ingress_overflow",
+        messageIdHash: maskIdentity(message.messageId),
+        errorCode: isPendingControl ? "confirmation_ingress_full" : "message_ingress_full",
+      });
+      if (queue.depth === 0) queues.delete(ingressKey);
+      return;
+    }
+    const previous = queue.tail;
+    queue.depth += 1;
+    if (!isPendingControl) this.totalIngressDepth += 1;
+    const task = previous.catch(() => undefined).then(() => this.processIncomingMessage(message, pendingAtArrival));
+    const tail = task.catch(() => undefined);
+    queue.tail = tail;
+    try {
+      await task;
+    } finally {
+      queue.depth = Math.max(0, queue.depth - 1);
+      if (!isPendingControl) this.totalIngressDepth = Math.max(0, this.totalIngressDepth - 1);
+      if (queue.depth === 0 && queues.get(ingressKey) === queue) queues.delete(ingressKey);
+    }
+  }
+
+  /**
+   * 只处理入站校验和调度，不等待完整 Agent turn。
+   * 因此同一会话保持接收顺序，同时后续确认消息仍可解除正在等待的 Agent 工具调用。
+   */
+  private async processIncomingMessage(message: NormalizedRobotMessage, pendingAtArrival: boolean): Promise<void> {
     const startedAt = this.now();
     const settings = await this.deps.getSettings();
     const record = (status: RobotHistoryItemStatus, extra: { resultSummary?: string; toolSummary?: string } = {}) => {
@@ -128,7 +220,6 @@ export class RobotCore {
     const dedupKey = this.deps.dedup.key(message.provider, message.accountId, message.messageId);
     if (this.deps.dedup.isProcessed(dedupKey)) {
       this.log.info({ provider: message.provider, status: "duplicate", messageIdHash: maskIdentity(message.messageId) });
-      await record("ignored");
       return;
     }
     this.deps.dedup.markProcessed(dedupKey);
@@ -187,8 +278,46 @@ export class RobotCore {
       return;
     }
 
+    // 等待确认期间只接受严格的“确认/取消”。其他内容既不授权写操作，也不偷偷排到后面执行。
+    if (pending || pendingAtArrival) {
+      if (this.shouldReply(this.lastInvalidConfirmationReplyAt, chatKey, INVALID_CONFIRMATION_REPLY_INTERVAL_MS)) {
+        await this.replyText(
+          message,
+          "当前操作正在等待确认。请只回复「确认」继续或「取消」放弃；刚才的消息未加入执行队列。",
+          "status",
+        );
+      }
+      await record("rejected", { resultSummary: "confirmation_input_invalid" });
+      return;
+    }
+
+    if (!message.text.trim()) {
+      await this.replyText(message, "没有识别到可处理的文字，请重新发送。", "status");
+      await record("ignored", { resultSummary: "empty_text" });
+      return;
+    }
+
+    // 平台或用户可能重复发送确认/取消。短时间内返回上次结果，保证命令幂等。
+    if (command?.kind === "confirm" || command?.kind === "cancel") {
+      const recent = this.getRecentlyResolvedConfirmation(chatKey);
+      if (recent) {
+        const text = recent.outcome === "approved"
+          ? "该操作已经确认并进入执行，请勿重复发送。"
+          : recent.outcome === "rejected"
+            ? "该操作已经取消。"
+            : "上一次确认已过期，请重新发送原始请求。";
+        await this.replyText(message, text, "status");
+        await record("ignored", { resultSummary: `confirmation_duplicate_${recent.outcome}` });
+        return;
+      }
+    }
     // 9. 机器人内部命令
     if (command && !pending) {
+      if (command.kind === "new_session" && (this.sessionQueues.get(chatKey)?.depth ?? 0) > 0) {
+        await this.replyText(message, "当前对话还有消息正在处理或排队，暂不能切换新会话；请等待处理完成后再试。", "status");
+        await record("rejected", { resultSummary: "new_session_while_busy" });
+        return;
+      }
       await this.handleInternalCommand(message, command);
       await record("executed", { resultSummary: `command_${command.kind}` });
       return;
@@ -211,14 +340,13 @@ export class RobotCore {
     const outcome = new Promise<RobotConfirmationOutcome>((resolve) => {
       const ttl = Math.max(confirmation.expiresAt - this.now(), 1000);
       let cancelTimer: (() => void) | null = null;
+      let wait!: PendingConfirmationWait;
       cancelTimer = this.timeout(() => {
-        this.pendingByChat.delete(chatKey);
-        this.pendingById.delete(confirmation.confirmationId);
-        void this.deps.confirmationStore.delete(confirmation.confirmationId).catch(() => {});
-        resolve("expired");
+        this.resolvePending(wait, "expired");
       }, ttl);
-      const wait: PendingConfirmationWait = {
+      wait = {
         confirmation,
+        chatKey,
         resolve: (result) => {
           if (this.pendingByChat.get(chatKey)?.confirmation.confirmationId === confirmation.confirmationId) {
             this.pendingByChat.delete(chatKey);
@@ -294,6 +422,37 @@ export class RobotCore {
 
   private resolvePending(wait: PendingConfirmationWait, outcome: RobotConfirmationOutcome): void {
     wait.resolve(outcome);
+    this.recentlyResolvedConfirmations.set(wait.chatKey, { outcome, resolvedAt: this.now() });
+    if (this.recentlyResolvedConfirmations.size > TRANSIENT_CHAT_STATE_LIMIT) {
+      const cutoff = this.now() - RESOLVED_CONFIRMATION_GRACE_MS;
+      for (const [key, value] of this.recentlyResolvedConfirmations) {
+        if (value.resolvedAt < cutoff) this.recentlyResolvedConfirmations.delete(key);
+      }
+    }
+  }
+
+  private getRecentlyResolvedConfirmation(chatKey: string): RecentlyResolvedConfirmation | null {
+    const recent = this.recentlyResolvedConfirmations.get(chatKey);
+    if (!recent) return null;
+    if (this.now() - recent.resolvedAt > RESOLVED_CONFIRMATION_GRACE_MS) {
+      this.recentlyResolvedConfirmations.delete(chatKey);
+      return null;
+    }
+    return recent;
+  }
+
+  private shouldReply(cache: Map<string, number>, chatKey: string, intervalMs: number): boolean {
+    const now = this.now();
+    const previous = cache.get(chatKey) ?? 0;
+    if (now - previous < intervalMs) return false;
+    cache.set(chatKey, now);
+    if (cache.size > TRANSIENT_CHAT_STATE_LIMIT) {
+      const cutoff = now - intervalMs * 2;
+      for (const [key, value] of cache) {
+        if (value < cutoff) cache.delete(key);
+      }
+    }
+    return true;
   }
 
   private async handleInternalCommand(message: NormalizedRobotMessage, command: RobotInternalCommand): Promise<void> {
@@ -326,7 +485,14 @@ export class RobotCore {
         return;
       }
       case "cancel": {
-        await this.replyText(message, "没有进行中的操作。", "status");
+        const depth = this.sessionQueues.get(this.chatKeyFor(message, true))?.depth ?? 0;
+        await this.replyText(
+          message,
+          depth > 0
+            ? "当前 Agent 对话正在处理或排队，但尚未进入确认阶段，不能用「取消」中断；请等待当前结果。"
+            : "没有等待确认或正在排队的操作。",
+          "status",
+        );
         return;
       }
       case "confirm": {
@@ -350,7 +516,40 @@ export class RobotCore {
       senderId: message.senderId,
     });
     const queueKey = this.chatKeyFor(message, true);
-    const previous = this.sessionQueues.get(queueKey) ?? Promise.resolve();
+    let queue = this.sessionQueues.get(queueKey);
+    if (!queue) {
+      queue = { tail: Promise.resolve(), depth: 0 };
+      this.sessionQueues.set(queueKey, queue);
+    }
+    if (queue.depth >= MAX_SESSION_TURN_DEPTH || this.totalTurnDepth >= MAX_GLOBAL_TURN_DEPTH) {
+      const reason = queue.depth >= MAX_SESSION_TURN_DEPTH ? "session_queue_full" : "global_queue_full";
+      if (this.shouldReply(this.lastOverloadReplyAt, queueKey, OVERLOAD_REPLY_INTERVAL_MS)) {
+        await this.replyText(
+          message,
+          `当前消息较多，已有 ${queue.depth} 条正在处理或等待；本条消息未加入队列，请稍后重新发送。`,
+          "status",
+        );
+      }
+      await this.appendHistory(buildRobotHistoryItem({
+        id: createRobotId(),
+        provider: message.provider,
+        direction: "in",
+        senderMasked: maskIdentity(message.senderId),
+        chatMasked: maskIdentity(message.chatId),
+        messageId: message.messageId,
+        contentPreview: message.text.slice(0, 120),
+        resultSummary: reason,
+        status: "rejected",
+        durationMs: this.now() - startedAt,
+        createdAt: startedAt,
+      }));
+      if (queue.depth === 0) this.sessionQueues.delete(queueKey);
+      return;
+    }
+    const ahead = queue.depth;
+    const previous = queue.tail;
+    queue.depth += 1;
+    this.totalTurnDepth += 1;
     await this.appendHistory(buildRobotHistoryItem({
       id: createRobotId(),
       provider: message.provider,
@@ -364,7 +563,12 @@ export class RobotCore {
       durationMs: this.now() - startedAt,
       createdAt: startedAt,
     }));
-    const task = previous.catch(() => undefined).then(async () => {
+    const task: Promise<QueuedTurnOutcome> = previous.catch(() => undefined).then(async () => {
+      const waitedMs = this.now() - startedAt;
+      if (waitedMs > MAX_TURN_QUEUE_WAIT_MS) {
+        await this.replyText(message, "该消息排队等待超过 5 分钟，已安全取消，请重新发送。", "status");
+        return { ok: false, resultSummary: "queue_expired", toolSummary: "", historyStatus: "rejected" };
+      }
       if (!(await this.deps.isEntitlementAvailable())) {
         await this.replyText(message, "机器人助手为高级能力，当前不可用。", "status");
         return { ok: false, resultSummary: "entitlement_unavailable", toolSummary: "" };
@@ -388,11 +592,23 @@ export class RobotCore {
         release();
       }
     });
-    this.sessionQueues.set(queueKey, task.catch(() => undefined));
-    let outcome: { ok: boolean; resultSummary: string; toolSummary: string };
-    try {
-      outcome = await task;
-    } catch (error) {
+    let settled!: Promise<void>;
+    settled = task.then(async (outcome) => {
+      await this.appendHistory(buildRobotHistoryItem({
+        id: createRobotId(),
+        provider: message.provider,
+        direction: "in",
+        senderMasked: maskIdentity(message.senderId),
+        chatMasked: maskIdentity(message.chatId),
+        messageId: message.messageId,
+        contentPreview: message.text.slice(0, 120),
+        resultSummary: outcome.resultSummary,
+        ...(outcome.toolSummary ? { toolSummary: outcome.toolSummary } : {}),
+        status: outcome.historyStatus ?? (outcome.ok ? "executed" : "failed"),
+        durationMs: this.now() - startedAt,
+        createdAt: startedAt,
+      }));
+    }).catch(async (error) => {
       const messageText = error instanceof Error ? error.message.slice(0, 180) : String(error).slice(0, 180);
       this.log.error({
         provider: message.provider,
@@ -419,22 +635,19 @@ export class RobotCore {
         durationMs: this.now() - startedAt,
         createdAt: startedAt,
       }));
-      return;
+    }).finally(() => {
+      queue.depth = Math.max(0, queue.depth - 1);
+      this.totalTurnDepth = Math.max(0, this.totalTurnDepth - 1);
+      if (queue.depth === 0 && this.sessionQueues.get(queueKey) === queue) {
+        this.sessionQueues.delete(queueKey);
+      }
+    });
+    queue.tail = settled;
+    void settled;
+
+    if (ahead > 0) {
+      await this.replyText(message, `消息已收到，前面还有 ${ahead} 条正在处理或等待，将按发送顺序执行。`, "status");
     }
-    await this.appendHistory(buildRobotHistoryItem({
-      id: createRobotId(),
-      provider: message.provider,
-      direction: "in",
-      senderMasked: maskIdentity(message.senderId),
-      chatMasked: maskIdentity(message.chatId),
-      messageId: message.messageId,
-      contentPreview: message.text.slice(0, 120),
-      resultSummary: outcome.resultSummary,
-      ...(outcome.toolSummary ? { toolSummary: outcome.toolSummary } : {}),
-      status: outcome.ok ? "executed" : "failed",
-      durationMs: this.now() - startedAt,
-      createdAt: startedAt,
-    }));
   }
 
   private async runAgentTurnWithTimeout(
@@ -505,9 +718,15 @@ export class RobotCore {
     await this.sessionService.save(session, now);
 
     if (!result.ok) {
-      await this.replyText(message, result.errorCode === "provider_timeout"
+      const errorCode = result.errorCode ?? "";
+      const reply = errorCode === "provider_timeout"
         ? "AI 模型响应超时，请稍后再试。"
-        : "AI 服务当前不可用，请稍后重试。", "error");
+        : ["user_rejected", "rejected", "confirmation_already_resolved"].includes(errorCode)
+          ? "操作已取消，未执行写入。"
+          : ["expired", "confirmation_expired"].includes(errorCode)
+            ? "操作未执行：确认已过期，请重新发送原始请求。"
+            : "AI 服务当前不可用，请稍后重试。";
+      await this.replyText(message, reply, errorCode === "provider_timeout" ? "error" : "status");
       return;
     }
     const chunks = splitRobotReply(result.answer, settings.maxReplyChars);

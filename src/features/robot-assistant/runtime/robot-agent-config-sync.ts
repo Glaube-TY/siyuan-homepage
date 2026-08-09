@@ -1,7 +1,7 @@
 /**
  * 前端 → Kernel 的 Agent 模型配置同步。
  *
- * 复用 AI 知识库当前选中的模型配置（getKbSettings / resolveSelectedChatConfig），
+ * 复用 AI 知识库已经配置的模型；机器人可以跟随知识库当前模型，也可以显式指定。
  * 通过 `robot.syncAgentRuntimeConfig`（非敏感快照）+ `robot.syncAgentApiKey`
  * （API Key 进 Kernel Secret Vault，加密落盘）推送到 Kernel，满足方案 §Agent 模型配置复用。
  *
@@ -17,10 +17,22 @@ export async function syncRobotAgentRuntimeConfig(kernel: RobotKernelClient): Pr
   if (!kernel.available) return;
   try {
     const kb = await getKbSettings();
+    const rawRobotSettings = await kernel.call("robot.getSettings");
+    const wrapped = rawRobotSettings && typeof rawRobotSettings === "object"
+      ? rawRobotSettings as Record<string, unknown>
+      : {};
+    const robotSettings = wrapped.settings && typeof wrapped.settings === "object"
+      ? wrapped.settings as Record<string, unknown>
+      : wrapped;
+    const useExplicitModel = robotSettings.agentModel === "explicit"
+      && typeof robotSettings.agentModelProviderId === "string"
+      && Boolean(robotSettings.agentModelProviderId.trim())
+      && typeof robotSettings.agentModelId === "string"
+      && Boolean(robotSettings.agentModelId.trim());
     const selected = resolveSelectedChatConfig(
       kb.chatProviders,
-      kb.selectedChatProviderId,
-      kb.selectedChatModelId,
+      useExplicitModel ? String(robotSettings.agentModelProviderId) : kb.selectedChatProviderId,
+      useExplicitModel ? String(robotSettings.agentModelId) : kb.selectedChatModelId,
     );
     if (!selected.provider || !selected.model) return;
 
@@ -35,10 +47,9 @@ export async function syncRobotAgentRuntimeConfig(kernel: RobotKernelClient): Pr
       ...(typeof model.temperature === "number" && Number.isFinite(model.temperature) ? { temperature: model.temperature } : {}),
     });
 
+    // 必须同步空值：从云端模型切到本地无密钥模型时，需要清除上一提供商的旧密钥。
     const apiKey = typeof provider.apiKey === "string" ? provider.apiKey.trim() : "";
-    if (apiKey) {
-      await kernel.call("robot.syncAgentApiKey", { apiKey });
-    }
+    await kernel.call("robot.syncAgentApiKey", { apiKey });
   } catch {
     // 同步失败不阻断（例如 AI 知识库尚未配置）
   }

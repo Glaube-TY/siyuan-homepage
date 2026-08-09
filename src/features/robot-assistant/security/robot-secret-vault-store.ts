@@ -4,6 +4,7 @@ import {
   decryptRobotSecret,
   encryptRobotSecret,
   generateRobotMasterSecret,
+  normalizeRobotMasterSecret,
 } from "./robot-secret-vault";
 
 /**
@@ -48,7 +49,9 @@ export class RobotSecretVaultStore {
       if (this.cachedMaster) return this.cachedMaster;
       const existing = await this.storage.get(ROBOT_MASTER_SECRET_KEY);
       if (existing && existing.trim()) {
-        this.cachedMaster = normalizeStoredMaster(existing);
+        const normalized = normalizeRobotMasterSecret(existing);
+        if (!normalized) throw new Error("Robot secret vault: invalid master secret");
+        this.cachedMaster = normalized;
         // 统一写成 JSON string，使前端 Plugin.loadData 与 Kernel storage.get 都能读取。
         if (existing.trim() !== JSON.stringify(this.cachedMaster)) {
           await this.storage.put(ROBOT_MASTER_SECRET_KEY, JSON.stringify(this.cachedMaster));
@@ -104,15 +107,4 @@ export class RobotSecretVaultStore {
       await this.storage.put(ROBOT_RUNTIME_SECRETS_KEY, JSON.stringify(map));
     });
   }
-}
-
-function normalizeStoredMaster(raw: string): string {
-  const trimmed = raw.trim();
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (typeof parsed === "string" && parsed.trim()) return parsed.trim();
-  } catch {
-    // Kernel storage.put 写入的是原始字符串，不一定是 JSON。
-  }
-  return trimmed;
 }
