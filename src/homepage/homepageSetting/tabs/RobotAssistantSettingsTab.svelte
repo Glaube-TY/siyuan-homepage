@@ -388,6 +388,11 @@
         if (!client || saving || settings.activeProvider === value) return;
         saving = true;
         try {
+            if ((value === "feishu" || value === "qq") && !(await client.validateProviderCredentials(value))) {
+                activeSubTab = value;
+                showMessage(`${value === "qq" ? "QQ" : "飞书"} App ID 或 App Secret 无法读取，请重新填写 App Secret 并保存`, 4500, "error");
+                return;
+            }
             settings.activeProvider = value;
             if (value !== "none") settings[value].enabled = true;
             settings = await client.saveSettings(settings);
@@ -426,8 +431,12 @@
                 else qqSecretDraft = "";
             }
             settings[provider] = { ...section, admission } as never;
-            await client.saveSettings(settings);
-            showMessage("已保存", 1500);
+            settings = await client.saveSettings(settings);
+            if ((provider === "feishu" || provider === "qq") && !(await client.validateProviderCredentials(provider))) {
+                showMessage("App Secret 保存后无法读取，请重新填写", 4000, "error");
+                return;
+            }
+            showMessage(provider === "qq" ? "QQ 设置已保存" : provider === "feishu" ? "飞书设置已保存" : "设置已保存", 1500);
             await refreshStatus();
         } catch (error) {
             showMessage(error instanceof Error ? error.message : "保存失败", 3000, "error");

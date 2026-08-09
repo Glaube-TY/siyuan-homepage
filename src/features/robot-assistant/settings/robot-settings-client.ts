@@ -7,13 +7,7 @@
 
 import { RobotKernelClient } from "../runtime/robot-kernel-client";
 import type { ElectronCredentialStoragePort } from "../runtime/robot-electron-credentials";
-import {
-  ROBOT_MASTER_SECRET_KEY,
-  encryptRobotSecret,
-  generateRobotMasterSecret,
-  isRobotEnvelope,
-  normalizeRobotMasterSecret,
-} from "../security/robot-secret-vault";
+import { isRobotEnvelope } from "../security/robot-secret-vault";
 import { createDefaultRobotAssistantSettings, type RobotAssistantSettings, type RobotRuntimeOwner } from "./robot-settings-types";
 import { normalizeV2Settings } from "./robot-settings-migration";
 import { decryptSecretCipherText, isEncryptedSecret } from "../../kb/services/settings/kb-sensitive-secret-crypto";
@@ -32,7 +26,8 @@ export interface RobotStatusSnapshot {
 export class RobotSettingsClient {
   constructor(
     private readonly kernel: RobotKernelClient,
-    private readonly storage: ElectronCredentialStoragePort,
+    // 保留第二参数以兼容已有调用方；Provider Secret 已统一交由 Kernel 加密。
+    _storage: ElectronCredentialStoragePort,
   ) {}
 
   get available(): boolean {
@@ -69,7 +64,7 @@ export class RobotSettingsClient {
         : (raw as RobotAssistantSettings | null);
       if (candidate && typeof candidate === "object" && candidate.version === 2) {
         const normalized = normalizeV2Settings(candidate);
-        await this.migrateLegacyFeishuSecret(normalized);
+        await this.migrateLegacyProviderSecrets(normalized);
         return normalized;
       }
     } catch {
@@ -79,20 +74,24 @@ export class RobotSettingsClient {
   }
 
   /** v1 的 kb AES-GCM 密文只在浏览器可解；解密一次后转存 Robot Vault envelope。 */
-  private async migrateLegacyFeishuSecret(settings: RobotAssistantSettings): Promise<void> {
-    const legacy = settings.feishu.encryptedAppSecret.trim();
-    if (!legacy || isRobotEnvelope(legacy)) return;
-    try {
-      const plaintext = isEncryptedSecret(legacy) ? await decryptSecretCipherText(legacy) : legacy;
-      const envelope = await this.encryptSecret(plaintext);
-      if (!envelope) throw new Error("robot_secret_encrypt_failed");
-      settings.feishu.encryptedAppSecret = envelope;
-      await this.saveSettings(settings);
-    } catch {
-      // 明确清空不可恢复密文，使 UI 显示需要重新填写，而不把旧密文误当成明文。
-      settings.feishu.encryptedAppSecret = "";
-      await this.saveSettings(settings).catch(() => undefined);
+  private async migrateLegacyProviderSecrets(settings: RobotAssistantSettings): Promise<void> {
+    let changed = false;
+    for (const providerId of ["feishu", "qq"] as const) {
+      const section = settings[providerId];
+      const legacy = section.encryptedAppSecret.trim();
+      if (!legacy || isRobotEnvelope(legacy)) continue;
+      try {
+        const plaintext = isEncryptedSecret(legacy) ? await decryptSecretCipherText(legacy) : legacy;
+        const envelope = await this.encryptSecret(plaintext);
+        if (!envelope) throw new Error("robot_secret_encrypt_failed");
+        section.encryptedAppSecret = envelope;
+      } catch {
+        // 明确清空不可恢复密文，使 UI 显示需要重新填写，而不把旧密文误当成明文。
+        section.encryptedAppSecret = "";
+      }
+      changed = true;
     }
+    if (changed) await this.saveSettings(settings).catch(() => undefined);
   }
 
   async saveSettings(settings: RobotAssistantSettings): Promise<RobotAssistantSettings> {
@@ -104,27 +103,28 @@ export class RobotSettingsClient {
   async encryptSecret(plaintext: string): Promise<string | null> {
     const trimmed = typeof plaintext === "string" ? plaintext.trim() : "";
     if (!trimmed) return null;
-    const master = await this.getOrCreateMasterSecret();
-    if (!master) return null;
-    return encryptRobotSecret(master, trimmed);
-  }
-
-  private async getOrCreateMasterSecret(): Promise<string | null> {
     try {
-      const existing = await this.storage.loadData(ROBOT_MASTER_SECRET_KEY);
-      const normalized = normalizeRobotMasterSecret(existing);
-      if (normalized) return normalized;
-      if (existing !== null && existing !== undefined && String(existing).trim()) return null;
+      const result = await this.kernel.call("robot.encryptProviderSecret", { plaintext: trimmed }) as {
+        ok?: boolean;
+        envelope?: string;
+      };
+      return result?.ok && typeof result.envelope === "string" && isRobotEnvelope(result.envelope)
+        ? result.envelope
+        : null;
     } catch {
-      // 读取异常时不能生成新密钥覆盖现有 Provider 密文。
       return null;
     }
+  }
+
+  async validateProviderCredentials(provider: "feishu" | "qq"): Promise<boolean> {
     try {
-      const generated = generateRobotMasterSecret();
-      await this.storage.saveData(ROBOT_MASTER_SECRET_KEY, generated);
-      return generated;
+      const result = await this.kernel.call("robot.validateProviderCredentials", { provider }) as {
+        ok?: boolean;
+        configured?: boolean;
+      };
+      return Boolean(result?.ok && result.configured);
     } catch {
-      return null;
+      return false;
     }
   }
 

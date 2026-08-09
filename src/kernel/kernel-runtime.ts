@@ -360,6 +360,22 @@ export class RobotKernelRuntime {
     await this.secretVault.saveSecret(ROBOT_MODEL_API_KEY_SECRET, trimmed);
   }
 
+  /**
+   * 统一由 Kernel 为 Electron 渠道加密 App Secret。
+   * 返回值仅为密文 envelope，明文不会写入设置、历史或日志。
+   */
+  async encryptProviderSecret(plaintext: string): Promise<string> {
+    return this.secretVault.encryptExternalSecret(plaintext);
+  }
+
+  /** 检查飞书 / QQ 当前保存的 App ID 与 App Secret 是否可供运行端使用。 */
+  async validateElectronProviderCredentials(providerId: "feishu" | "qq"): Promise<boolean> {
+    const section = this.settings[providerId];
+    const appId = typeof section.appId === "string" ? section.appId.trim() : "";
+    const envelope = typeof section.encryptedAppSecret === "string" ? section.encryptedAppSecret.trim() : "";
+    return Boolean(appId && envelope && await this.secretVault.canDecryptExternalSecret(envelope));
+  }
+
   getProviderStatus(providerId: RobotProviderId): RobotProviderRuntimeStatus {
     const electron = this.electronProviderStatuses.get(providerId);
     if (electron) return electron;

@@ -55,6 +55,28 @@ export async function registerRobotKernelRpc(host: RobotKernelHost, runtime: Rob
     return { ok: true, settings: saved };
   });
 
+  // 飞书 / QQ App Secret 统一使用 Kernel Secret Vault 的主密钥加密，
+  // 防止渲染端与 Kernel 并发初始化不同主密钥后出现 not_configured。
+  rpc("robot.encryptProviderSecret", async (payload) => {
+    const plaintext = payload && typeof payload === "object"
+      && typeof (payload as Record<string, unknown>).plaintext === "string"
+      ? ((payload as Record<string, unknown>).plaintext as string).trim()
+      : "";
+    if (!plaintext) return { ok: false, errorCode: "empty_secret" };
+    const envelope = await runtime.encryptProviderSecret(plaintext);
+    return { ok: true, envelope };
+  });
+
+  rpc("robot.validateProviderCredentials", async (payload) => {
+    const provider = payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>).provider
+      : undefined;
+    if (provider !== "feishu" && provider !== "qq") {
+      return { ok: false, configured: false, errorCode: "invalid_provider" };
+    }
+    return { ok: true, configured: await runtime.validateElectronProviderCredentials(provider) };
+  });
+
   rpc("robot.start", () => runtime.start());
   rpc("robot.stop", () => runtime.stop());
   rpc("robot.restart", () => runtime.restart());

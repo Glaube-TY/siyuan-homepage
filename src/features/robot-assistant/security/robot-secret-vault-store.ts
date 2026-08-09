@@ -89,6 +89,29 @@ export class RobotSecretVaultStore {
     });
   }
 
+  /**
+   * 为需要随设置保存的外部渠道密钥生成 envelope。
+   *
+   * 飞书 / QQ Provider 在 Electron 渲染端运行，因此密文保存在机器人设置里；
+   * 但加密必须统一由 Kernel 持有的同一份 master secret 完成，避免渲染端与
+   * Kernel 同时初始化主密钥时产生两把不同的密钥。
+   */
+  async encryptExternalSecret(plaintext: string): Promise<string> {
+    const trimmed = typeof plaintext === "string" ? plaintext.trim() : "";
+    if (!trimmed) throw new Error("Robot secret vault: empty external secret");
+    const master = await this.getMasterSecret();
+    return encryptRobotSecret(master, trimmed);
+  }
+
+  /** 仅在 Kernel 内验证设置中的外部渠道密文是否仍可读取。 */
+  async canDecryptExternalSecret(envelope: string): Promise<boolean> {
+    const value = typeof envelope === "string" ? envelope.trim() : "";
+    if (!value) return false;
+    const master = await this.getMasterSecret();
+    const result = decryptRobotSecret(master, value);
+    return Boolean(result.ok && result.plaintext);
+  }
+
   async readSecret(secretKey: string): Promise<string | null> {
     await vaultMutationQueue.catch(() => undefined);
     const master = this.cachedMaster ?? await this.getMasterSecret();
