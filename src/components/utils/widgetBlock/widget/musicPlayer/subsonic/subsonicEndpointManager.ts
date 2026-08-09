@@ -49,6 +49,7 @@ function initialHealth(configured: boolean): EndpointHealth {
 export class SubsonicEndpointManager {
     private destroyed = false;
     private probeEpoch = 0;
+    private connectionAttempt: Promise<SubsonicEndpointState> | null = null;
     private recheckTimer: ReturnType<typeof setTimeout> | null = null;
     private listenersAttached = false;
     private readonly lifecycleController = new AbortController();
@@ -78,6 +79,27 @@ export class SubsonicEndpointManager {
 
     async initialize(): Promise<SubsonicEndpointState> {
         this.attachNetworkListeners();
+        return this.ensureConnection();
+    }
+
+    /**
+     * 初始化、窗口聚焦和网络事件可能在同一时间要求重连。
+     * 所有连接选择共用同一个进行中的 Promise，避免后一次探测使前一次 epoch
+     * 失效后，前一次仍错误抛出“本地与远程均失败”。
+     */
+    private ensureConnection(): Promise<SubsonicEndpointState> {
+        if (this.connectionAttempt) return this.connectionAttempt;
+        const attempt = this.connectConfiguredEndpoints();
+        this.connectionAttempt = attempt;
+        const clear = () => {
+            if (this.connectionAttempt === attempt) this.connectionAttempt = null;
+        };
+        attempt.then(clear, clear);
+        return attempt;
+    }
+
+    private async connectConfiguredEndpoints(): Promise<SubsonicEndpointState> {
+        if (this.destroyed) throw new SubsonicError("request_aborted", "请求已取消。" );
         const epoch = ++this.probeEpoch;
         if (this.config.localBaseUrl) {
             const localOk = await this.probe("local", epoch);
@@ -86,9 +108,6 @@ export class SubsonicEndpointManager {
                 if (this.config.remoteBaseUrl) void this.probe("remote", epoch);
                 return this.getState();
             }
-            if (this.state.local.status === "auth_error") {
-                throw new SubsonicError("auth_failed", "用户名或密码不正确。本地/远程地址不会继续自动切换。" );
-            }
         }
         if (this.config.remoteBaseUrl) {
             const remoteOk = await this.probe("remote", epoch);
@@ -96,22 +115,21 @@ export class SubsonicEndpointManager {
                 this.activate("remote");
                 return this.getState();
             }
-            if (this.state.remote.status === "auth_error") {
-                throw new SubsonicError("auth_failed", "用户名或密码不正确。本地/远程地址不会继续自动切换。" );
-            }
+        }
+        this.deactivate();
+        if (this.state.local.status === "auth_error" || this.state.remote.status === "auth_error") {
+            throw new SubsonicError("auth_failed", "用户名或密码不正确。" );
         }
         throw new SubsonicError("network_error", "NAS 音乐服务当前不可用。本地地址与远程地址均连接失败。" );
     }
 
     async refreshConnection(): Promise<void> {
         if (this.destroyed) return;
-        const epoch = ++this.probeEpoch;
-        if (this.config.localBaseUrl && await this.probe("local", epoch)) {
-            this.activate("local");
-            if (this.config.remoteBaseUrl) void this.probe("remote", epoch);
-            return;
+        try {
+            await this.ensureConnection();
+        } catch {
+            // 健康状态已由 probe 更新；自动重检不向窗口抛未处理异常。
         }
-        if (this.config.remoteBaseUrl && await this.probe("remote", epoch)) this.activate("remote");
     }
 
     async executeRead<T>(operation: (context: EndpointRequestContext) => Promise<T>): Promise<T> {
@@ -223,6 +241,13 @@ export class SubsonicEndpointManager {
         this.state.activeKind = kind;
         this.state.activeBaseUrl = baseUrl;
         this.state.lastConnectedAt = Date.now();
+        this.emit();
+    }
+
+    private deactivate(): void {
+        if (this.state.activeKind || this.state.activeBaseUrl) this.state.generation += 1;
+        this.state.activeKind = null;
+        this.state.activeBaseUrl = null;
         this.emit();
     }
 
