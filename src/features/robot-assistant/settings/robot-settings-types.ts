@@ -29,6 +29,13 @@ export interface RobotQqSettings extends RobotProviderSettings {
   encryptedAppSecret: string;
 }
 
+/** 唯一负责接收和回复远程消息的思源 Kernel。 */
+export interface RobotRuntimeOwner {
+  deviceId: string;
+  deviceName: string;
+  container: string;
+}
+
 /** 远程机器人工具权限：只回答“该工具是否允许通过远程聊天使用”。 */
 export interface RobotToolPolicy {
   /** key = 聚合工具名（如 siyuan_kb / diary_task / homepage_accounting）。 */
@@ -42,6 +49,8 @@ export interface RobotToolPolicy {
 export interface RobotAssistantSettings {
   version: 2;
   enabled: boolean;
+  /** null 兼容旧配置；设置后仅匹配的 Kernel 运行 Provider。 */
+  runtimeOwner: RobotRuntimeOwner | null;
   /** "use-kb-current" 或显式模型快照由前端 syncAgentRuntimeConfig 推送，此处仅记录选择意向。 */
   agentModel: "use_kb_current" | "explicit";
   maxMessageLength: number;
@@ -91,6 +100,7 @@ export function createDefaultRobotAssistantSettings(): RobotAssistantSettings {
   return {
     version: ROBOT_SETTINGS_VERSION,
     enabled: false,
+    runtimeOwner: null,
     agentModel: "use_kb_current",
     maxMessageLength: 4000,
     sessionTtlMs: 24 * 60 * 60 * 1000,

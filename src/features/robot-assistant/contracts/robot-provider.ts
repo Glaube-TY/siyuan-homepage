@@ -36,6 +36,7 @@ export type RobotProviderStatus =
 /** Robot 全局运行状态码。 */
 export type RobotStatus =
   | "disabled"
+  | "standby"
   | "stopped"
   | "starting"
   | "running"

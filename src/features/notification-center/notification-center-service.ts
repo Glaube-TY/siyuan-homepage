@@ -1,4 +1,5 @@
 import { sendDesktopNotification, sendDesktopTestNotification } from "./channels/desktop-channel";
+import { createRuntimeId } from "@/libs/runtime-id";
 import { sendFeishuChannel } from "./channels/feishu-channel";
 import { sendMobileNotificationNow } from "./channels/mobile-local-channel";
 import { sendWebhookChannel } from "./channels/webhook-channel";
@@ -24,9 +25,7 @@ const externalDedupe = new Map<string, number>();
 const inFlightNotifications = new Set<Promise<NotificationSendResult>>();
 
 function createId(prefix = "notification"): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return createRuntimeId(prefix);
 }
 
 function normalizeEvent(event: NotificationEvent): NotificationEvent {

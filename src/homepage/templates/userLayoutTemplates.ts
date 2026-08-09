@@ -1,5 +1,6 @@
 import { isDesktopDeviceProfileEnabled } from "@/homepage/utils/deviceProfile";
 import { getFileOrNullChecked } from "@/api";
+import { createRuntimeUuid } from "@/libs/runtime-id";
 import { collectLayoutReferencedIdsForCleanup } from "./templateLayoutReferences";
 import type { SectionLayoutTemplatePayload } from "./templateTypes";
 import type { CoordinatedSnapshot, LayoutSnapshot } from "@/components/utils/widgetBlock/utils/layout-shared";
@@ -827,10 +828,8 @@ export async function saveCurrentDeviceAsLayoutTemplate(
         const target = await resolveCurrentLayoutTarget(plugin, context);
         const payload = await captureTemplatePayload(plugin, context, target);
         const now = Date.now();
-        const randomId = globalThis.crypto?.randomUUID?.();
-        if (!randomId) throw new Error("当前环境无法生成安全模板 ID");
         const template: CurrentUserLayoutTemplate = toJsonSafeClone({
-            id: `user_layout_${randomId}`,
+            id: `user_layout_${createRuntimeUuid()}`,
             name: normalizedName,
             ...(normalizedDescription ? { description: normalizedDescription } : {}),
             createdAt: now,

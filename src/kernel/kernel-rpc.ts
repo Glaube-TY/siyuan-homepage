@@ -43,6 +43,8 @@ export async function registerRobotKernelRpc(host: RobotKernelHost, runtime: Rob
     status: runtime.status,
     model: await runtime.getAgentModelStatus(),
     providers: ["wechat", "feishu", "qq"].map((id) => runtime.getProviderStatus(id as "wechat" | "feishu" | "qq")),
+    runtimeDevice: runtime.getRuntimeDevice(),
+    runtimeOwner: runtime.getSettings().runtimeOwner,
   }));
 
   rpc("robot.getSettings", () => ({ ok: true, settings: runtime.getSettings() }));

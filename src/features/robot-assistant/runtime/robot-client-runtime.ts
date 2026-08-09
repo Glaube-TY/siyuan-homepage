@@ -87,6 +87,13 @@ export class RobotClientRuntime {
     if (!this.deps.isElectron()) return;
     let settings: RobotAssistantSettings | null = null;
     try {
+      const runtime = (await this.deps.kernel.call("robot.getStatus")) as { status?: string } | null;
+      if (!runtime || runtime.status !== "running") {
+        for (const providerId of Array.from(this.providers.keys())) {
+          await this.unregisterElectronProvider(providerId);
+        }
+        return;
+      }
       const raw = (await this.deps.kernel.call("robot.getSettings")) as { ok?: boolean; settings?: RobotAssistantSettings };
       settings = raw && typeof raw === "object" && raw.settings && typeof raw.settings === "object"
         ? raw.settings

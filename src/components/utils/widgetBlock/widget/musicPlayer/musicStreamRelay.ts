@@ -1,4 +1,5 @@
 import type { ResolvedPlaybackSource } from "./musicSourceTypes";
+import { createRuntimeUuid } from "@/libs/runtime-id";
 
 interface RelayEntry {
     upstreamUrl: string;
@@ -135,7 +136,6 @@ export class DesktopMusicStreamRelay {
     }
 
     private createToken(): string {
-        if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
-        return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+        return createRuntimeUuid();
     }
 }

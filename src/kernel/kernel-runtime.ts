@@ -14,7 +14,7 @@ import { RobotCore } from "../features/robot-assistant/core/robot-core";
 import { KernelAgentHttpTransport } from "../features/kb/services/agent-core/providers/agent-http-transport";
 import { InMemoryRobotProviderManager, type RobotProviderManager } from "../features/robot-assistant/providers/robot-provider-manager";
 import type { NativeToolRegistry } from "../features/kb/services/agent-core/tools/native-tool-registry";
-import type { RobotAssistantSettings } from "../features/robot-assistant/settings/robot-settings-types";
+import type { RobotAssistantSettings, RobotRuntimeOwner } from "../features/robot-assistant/settings/robot-settings-types";
 import type { RobotModelConfigStore } from "../features/robot-assistant/runtime/robot-model-config";
 import type { NormalizedRobotMessage, RobotOutboundMessage } from "../features/robot-assistant/contracts/robot-message";
 import type { RobotProviderId, RobotProviderRuntimeStatus, RobotStatus } from "../features/robot-assistant/contracts/robot-provider";
@@ -55,6 +55,9 @@ export class RobotKernelRuntime {
   private wechatProvider: WeChatKernelProvider | null = null;
   private statusValue: RobotStatus = "stopped";
   private settings: RobotAssistantSettings;
+  private runtimeDevice: RobotRuntimeOwner | null = null;
+  private cancelOwnershipCheck: (() => void) | null = null;
+  private disposed = false;
 
   constructor(private readonly host: RobotKernelHost, options: RobotKernelRuntimeOptions) {
     this.toolRegistry = options.toolRegistry;
@@ -112,8 +115,20 @@ export class RobotKernelRuntime {
   }
 
   async initialize(): Promise<void> {
+    this.disposed = false;
     await this.dedup.restore();
     await this.reloadSettings();
+    await this.resolveRuntimeDevice();
+    // Docker 是常驻服务端：旧配置尚未指定运行设备时，由 Docker 自动取得唯一运行权。
+    if (!this.settings.runtimeOwner && this.runtimeDevice?.container.toLowerCase() === "docker") {
+      this.settings = { ...this.settings, runtimeOwner: { ...this.runtimeDevice } };
+      await this.settingsStore.save(this.settings);
+      this.host.log.info({
+        status: "runtime_owner_auto_claimed",
+        message: this.runtimeDevice.deviceName || this.runtimeDevice.deviceId,
+      });
+    }
+    this.scheduleOwnershipCheck();
     // 提前统一主密钥存储格式，确保随后启动的 Electron Provider 可通过 Plugin.loadData 解密。
     await this.secretVault.getMasterSecret();
     const expiredConfirmations = await this.core.expirePersistedConfirmations();
@@ -137,13 +152,11 @@ export class RobotKernelRuntime {
       this.host.notify("robot.statusChanged", { status: this.statusValue });
       return;
     }
-    this.statusValue = "running";
-    // Kernel restart 恢复：微信 enabled 时自动进入 long-poll。
-    if (this.settings.wechat.enabled && this.wechatProvider) {
-      this.providerManager.register(this.wechatProvider);
-      await this.wechatProvider.connect();
+    if (!this.isCurrentRuntimeOwner()) {
+      await this.enterStandby();
+      return;
     }
-    this.host.notify("robot.statusChanged", { status: this.statusValue });
+    await this.activateProviders();
   }
 
   /** 挂载微信 Kernel Provider（入口在 createRobotKernel 时调用）。 */
@@ -160,8 +173,9 @@ export class RobotKernelRuntime {
   }
 
   async stop(): Promise<void> {
-    await this.providerManager.dispose();
     this.statusValue = "stopped";
+    await this.wechatProvider?.disconnect();
+    this.electronProviderStatuses.clear();
     this.host.notify("robot.statusChanged", { status: this.statusValue });
   }
 
@@ -181,8 +195,11 @@ export class RobotKernelRuntime {
     await this.historyStore.prune();
     await this.settingsStore.save(this.settings);
     if (!this.settings.enabled) {
-      await this.wechatProvider?.disconnect();
       this.statusValue = "disabled";
+      await this.wechatProvider?.disconnect();
+      this.electronProviderStatuses.clear();
+    } else if (!this.isCurrentRuntimeOwner()) {
+      await this.enterStandby();
     } else if (this.statusValue !== "running") {
       await this.start();
     } else if (this.wechatProvider) {
@@ -192,6 +209,94 @@ export class RobotKernelRuntime {
     // 设置变化 → 前端刷新 Electron Provider 注册（启用/停用飞书、QQ 等）。
     this.host.notify("robot.statusChanged", { status: this.statusValue });
     return this.settings;
+  }
+
+  getRuntimeDevice(): RobotRuntimeOwner | null {
+    return this.runtimeDevice ? { ...this.runtimeDevice } : null;
+  }
+
+  private isCurrentRuntimeOwner(): boolean {
+    const owner = this.settings.runtimeOwner;
+    if (!owner?.deviceId) return true;
+    return Boolean(this.runtimeDevice?.deviceId && this.runtimeDevice.deviceId === owner.deviceId);
+  }
+
+  private async enterStandby(): Promise<void> {
+    this.statusValue = "standby";
+    await this.wechatProvider?.disconnect();
+    this.electronProviderStatuses.clear();
+    this.host.notify("robot.statusChanged", { status: this.statusValue });
+  }
+
+  private async activateProviders(): Promise<void> {
+    this.statusValue = "running";
+    if (this.settings.wechat.enabled && this.wechatProvider) {
+      this.providerManager.register(this.wechatProvider);
+      await this.wechatProvider.connect();
+    }
+    this.host.notify("robot.statusChanged", { status: this.statusValue });
+  }
+
+  private scheduleOwnershipCheck(): void {
+    if (this.disposed) return;
+    this.cancelOwnershipCheck?.();
+    this.cancelOwnershipCheck = this.host.timeout(() => {
+      void this.refreshRuntimeOwnership()
+        .catch((error) => this.host.log.warn({
+          status: "runtime_owner_refresh_failed",
+          message: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
+        }))
+        .finally(() => this.scheduleOwnershipCheck());
+    }, 10_000);
+  }
+
+  private async refreshRuntimeOwnership(): Promise<void> {
+    let latest = await this.settingsStore.load();
+    if (!latest.runtimeOwner && this.runtimeDevice?.container.toLowerCase() === "docker") {
+      latest = { ...latest, runtimeOwner: { ...this.runtimeDevice } };
+      await this.settingsStore.save(latest);
+    }
+    if (JSON.stringify(latest) === JSON.stringify(this.settings)) return;
+    const previous = this.settings;
+    this.settings = latest;
+    this.historyStore.setLimit(this.settings.keepHistoryLimit);
+    if (!this.settings.enabled) {
+      this.statusValue = "disabled";
+      await this.wechatProvider?.disconnect();
+      this.electronProviderStatuses.clear();
+      this.host.notify("robot.statusChanged", { status: this.statusValue });
+      return;
+    }
+    if (!this.isCurrentRuntimeOwner()) {
+      if (this.statusValue === "running") await this.enterStandby();
+      return;
+    }
+    if (this.statusValue === "standby") await this.activateProviders();
+    else if (this.statusValue === "running" && this.wechatProvider) {
+      if (this.settings.wechat.enabled && !previous.wechat.enabled) await this.wechatProvider.connect();
+      if (!this.settings.wechat.enabled && previous.wechat.enabled) await this.wechatProvider.disconnect();
+      this.host.notify("robot.statusChanged", { status: this.statusValue });
+    }
+  }
+
+  private async resolveRuntimeDevice(): Promise<void> {
+    try {
+      const response = await this.host.siyuanPost("/api/system/getConf", {});
+      const data = response.data && typeof response.data === "object"
+        ? response.data as Record<string, unknown>
+        : {};
+      const conf = data.conf && typeof data.conf === "object" ? data.conf as Record<string, unknown> : {};
+      const system = conf.system && typeof conf.system === "object" ? conf.system as Record<string, unknown> : {};
+      const deviceId = typeof system.id === "string" ? system.id.trim() : "";
+      if (!deviceId) return;
+      this.runtimeDevice = {
+        deviceId,
+        deviceName: typeof system.name === "string" ? system.name.trim() : "",
+        container: typeof system.container === "string" ? system.container.trim() : "",
+      };
+    } catch {
+      this.runtimeDevice = null;
+    }
   }
 
   async syncAgentRuntimeConfig(raw: unknown): Promise<void> {
@@ -414,6 +519,9 @@ export class RobotKernelRuntime {
   }
 
   private async sendOutbound(message: RobotOutboundMessage): Promise<{ ok: boolean; errorCode?: string; message?: string }> {
+    if (this.statusValue !== "running") {
+      return { ok: false, errorCode: "runtime_not_active", message: "当前设备不是机器人运行设备" };
+    }
     const result = await this.providerManager.send(message);
     if (!result.ok && result.forwardedToClient) {
       // Electron Provider（飞书 / QQ）由前端监听 robot.outbound 转发。
@@ -436,7 +544,11 @@ export class RobotKernelRuntime {
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
+    this.cancelOwnershipCheck?.();
+    this.cancelOwnershipCheck = null;
     await this.stop();
+    await this.providerManager.dispose();
     await this.host.dispose?.();
   }
 }

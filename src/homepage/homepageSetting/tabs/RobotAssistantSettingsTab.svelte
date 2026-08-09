@@ -8,8 +8,8 @@
     import RemoteAgentSessionsDialog from "../dialogs/RemoteAgentSessionsDialog.svelte";
     import RobotMessageLogDialog from "../dialogs/RobotMessageLogDialog.svelte";
     import { RobotKernelBridge, type KernelBridgeStatus } from "@/features/robot-assistant/runtime/robot-kernel-bridge";
-    import { RobotSettingsClient } from "@/features/robot-assistant/settings/robot-settings-client";
-    import { createDefaultRobotAssistantSettings, type RobotAssistantSettings } from "@/features/robot-assistant/settings/robot-settings-types";
+    import { RobotSettingsClient, type RobotStatusSnapshot } from "@/features/robot-assistant/settings/robot-settings-client";
+    import { createDefaultRobotAssistantSettings, type RobotAssistantSettings, type RobotRuntimeOwner } from "@/features/robot-assistant/settings/robot-settings-types";
     import type { RobotProviderId } from "@/features/robot-assistant/contracts/robot-provider";
     import type { RobotAssistantSubTab } from "../robotAssistantTabs";
 
@@ -25,6 +25,7 @@
     let settings = $state<RobotAssistantSettings>(structuredClone(createDefaultRobotAssistantSettings()));
     let statusText = $state("未连接");
     let modelText = $state("未配置");
+    let runtimeDevice = $state<RobotRuntimeOwner | null>(null);
     let kernelStatus = $state<KernelBridgeStatus>("unavailable");
     let bootstrapState = $state<string>("idle");
     let loading = $state(true);
@@ -86,7 +87,7 @@
 
     function statusLabel(status: string): string {
         const labels: Record<string, string> = {
-            ready: "已就绪", running: "运行中", stopped: "已停止", disabled: "已停用",
+            ready: "已就绪", running: "运行中", standby: "其他设备运行中", stopped: "已停止", disabled: "已停用",
             offline: "离线", disconnected: "未连接", connecting: "连接中", connected: "已连接",
             reconnecting: "重连中", waiting_qr: "等待扫码", waiting_scan: "等待确认",
             waiting_verify_code: "等待验证码", reauth_required: "需要重新登录", error: "异常",
@@ -96,7 +97,7 @@
 
     function statusTone(status: string): "success" | "warning" | "danger" | "neutral" {
         if (["ready", "running", "connected"].includes(status)) return "success";
-        if (["connecting", "reconnecting", "waiting_qr", "waiting_scan", "waiting_verify_code"].includes(status)) return "warning";
+        if (["standby", "connecting", "reconnecting", "waiting_qr", "waiting_scan", "waiting_verify_code"].includes(status)) return "warning";
         if (["error", "reauth_required"].includes(status)) return "danger";
         return "neutral";
     }
@@ -120,7 +121,7 @@
             wechatQrError = "二维码生成失败，请重新登录。";
         }
     }
-    let statusSnapshot = $state<{ status?: string; providers?: Array<{ provider: RobotProviderId; status: string; availability: string }>; model?: { configured?: boolean; providerId?: string; modelId?: string; providerType?: string } } | null>(null);
+    let statusSnapshot = $state<RobotStatusSnapshot | null>(null);
     const wechatConnected = $derived(providerStatusValue("wechat") === "connected" || wechatLogin.status === "confirmed");
     const showWechatLoginPanel = $derived(wechatLoginInitiated && !wechatConnected && wechatLogin.status !== "idle");
 
@@ -129,6 +130,7 @@
         const snapshot = await client.getStatus();
         if (snapshot) {
             statusSnapshot = snapshot;
+            runtimeDevice = snapshot.runtimeDevice ?? null;
             statusText = statusLabel(snapshot.status ?? "unknown");
             modelText = snapshot.model?.configured
                 ? `${snapshot.model.providerId ?? snapshot.model.providerType ?? ""} / ${snapshot.model.modelId ?? ""}`
@@ -478,6 +480,22 @@
         }
     }
 
+    async function claimCurrentRuntime(): Promise<void> {
+        if (!client || !runtimeDevice || saving) return;
+        saving = true;
+        try {
+            settings.runtimeOwner = { ...runtimeDevice };
+            settings = await client.saveSettings(settings);
+            if (settings.enabled) await client.start();
+            await refreshStatus();
+            showMessage("已将当前设备设为机器人唯一运行设备", 2500);
+        } catch (error) {
+            showMessage(error instanceof Error ? error.message : "运行设备切换失败", 3000, "error");
+        } finally {
+            saving = false;
+        }
+    }
+
     function handleStatusChanged(): void {
         void refreshStatus();
         void refreshPairing();
@@ -586,6 +604,18 @@
             </SettingRow>
             <SettingRow title="Robot Core 状态">
                 <span class="robot-status-pill robot-status-pill--{statusTone(statusSnapshot?.status ?? 'stopped')}">{statusText}</span>
+            </SettingRow>
+            <SettingRow title="运行设备" description="同一机器人账号只允许一个思源 Kernel 接收消息，避免 Docker 与电脑重复回复。">
+                <div class="robot-runtime-owner">
+                    <span class="robot-status-pill robot-status-pill--{settings.runtimeOwner?.deviceId === runtimeDevice?.deviceId ? 'success' : 'warning'}">
+                        {settings.runtimeOwner?.deviceName || settings.runtimeOwner?.deviceId || "尚未指定"}
+                    </span>
+                    <button
+                        class="b3-button b3-button--text"
+                        disabled={disabled || !runtimeDevice || settings.runtimeOwner?.deviceId === runtimeDevice?.deviceId}
+                        onclick={claimCurrentRuntime}
+                    >{settings.runtimeOwner?.deviceId === runtimeDevice?.deviceId ? "当前设备" : "设为当前设备"}</button>
+                </div>
             </SettingRow>
             <SettingRow title="当前 Agent 模型">
                 <span class="robot-status-pill">{modelText}</span>
@@ -803,6 +833,22 @@
                     </div>
                     <span class="robot-status-pill robot-status-pill--{statusTone(providerStatusValue('qq'))}">{providerStatusText("qq")}</span>
                 </div>
+                <SettingRow title="开放平台" description="创建机器人并获取 AppID、AppSecret。">
+                    <div class="robot-platform-links">
+                        <a
+                            class="b3-button robot-action robot-action--primary"
+                            href="https://q.qq.com/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >打开 QQ 开放平台</a>
+                        <a
+                            class="b3-button robot-action robot-action--secondary"
+                            href="https://bot.q.qq.com/wiki/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >接入文档</a>
+                    </div>
+                </SettingRow>
                 {#if !isElectron}
                     <div class="robot-notice">QQ 机器人仅支持思源桌面客户端。</div>
                 {:else}
@@ -955,6 +1001,15 @@
         color: var(--b3-theme-on-surface-light);
     }
 
+    .robot-runtime-owner {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
     .robot-status-pill {
         display: inline-flex;
         align-items: center;
@@ -1039,6 +1094,21 @@
         margin-top: 0.75rem;
         padding-top: 1rem;
         border-top: 1px solid var(--b3-border-color);
+    }
+
+    .robot-platform-links {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+
+    .robot-platform-links .robot-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        text-decoration: none;
     }
 
     .robot-action {
@@ -1285,6 +1355,11 @@
         }
 
         .robot-toggle-group {
+            justify-content: flex-start;
+        }
+
+        .robot-platform-links {
+            width: 100%;
             justify-content: flex-start;
         }
 

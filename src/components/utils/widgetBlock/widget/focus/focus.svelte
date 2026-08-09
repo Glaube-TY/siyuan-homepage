@@ -20,6 +20,7 @@
     } from "@/features/focus-notify";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
     import { loadWidgetInstanceConfig, saveWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
+    import { createRuntimeUuid } from "@/libs/runtime-id";
 
     interface Props {
         plugin: any;
@@ -201,7 +202,7 @@
         const actualFocusSeconds = status === "completed"
             ? sessionPlannedSeconds
             : Math.min(sessionPlannedSeconds, Math.max(0, Math.floor(accumulatedFocusMs / 1000)));
-        const uniquePart = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
+        const uniquePart = createRuntimeUuid();
         return {
             id: `focus-session-${sessionStartedAt}-${uniquePart}`,
             startedAt: toFocusSecondTimestamp(sessionStartedAt),

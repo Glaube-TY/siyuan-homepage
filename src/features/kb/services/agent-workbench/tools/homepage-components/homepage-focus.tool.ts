@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createRuntimeUuid } from "@/libs/runtime-id";
 import {
   appendFocusSession,
   getLocalFocusDate,
@@ -33,9 +34,7 @@ export function createHomepageFocusActionTools(): Array<{ action: "stats" | "rec
         if (elapsedSeconds > 86400) throw new Error("单次专注会话不能超过 24 小时");
         if (input.actualFocusSeconds > elapsedSeconds + 60) throw new Error("实际专注时长不能明显超过起止时间范围");
         if (input.status === "cancelled" && input.actualFocusSeconds !== 0) throw new Error("cancelled 会话的 actualFocusSeconds 必须为 0");
-        const runtimeId = typeof globalThis.crypto?.randomUUID === "function"
-          ? globalThis.crypto.randomUUID()
-          : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        const runtimeId = createRuntimeUuid();
         const id = `focus-agent-${runtimeId}`;
         const session: FocusSessionRecord = { id, startedAt: toFocusSecondTimestamp(started), endedAt: toFocusSecondTimestamp(ended), localDate: getLocalFocusDate(started), plannedSeconds: input.plannedSeconds, actualFocusSeconds: input.actualFocusSeconds, status: input.status };
         const totals = await appendFocusSession(session);

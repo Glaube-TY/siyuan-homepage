@@ -2,6 +2,7 @@
     import { onMount, mount, onDestroy } from "svelte";
     import * as advanced from "../../components/tools/advanced";
     import { showMessage } from "siyuan";
+    import { createRuntimeId } from "@/libs/runtime-id";
 
     import "./homepageSettingStyle/homepageSetting.scss"
     import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
@@ -210,10 +211,7 @@
     );
 
     function createComponentSectionId(): string {
-        const randomPart = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        return `section-${randomPart}`.replace(/[^a-zA-Z0-9_-]/g, "");
+        return createRuntimeId("section");
     }
 
     function sanitizeComponentSectionName(name: string): string {

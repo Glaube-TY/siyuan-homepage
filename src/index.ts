@@ -61,7 +61,7 @@ import type { ReviewMenuTarget } from "./components/utils/widgetBlock/widget/rev
 import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
 import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.svelte";
-import { setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
+import { KB_SETTINGS_CHANGED_EVENT, setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
 import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
 import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage";
 import { saveData, loadData, removeData } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
@@ -150,6 +150,7 @@ const KB_DOCK_TYPE = "homepage_kb_dock";
 let robotClientRuntime: RobotClientRuntime | null = null;
 let robotKernelBridge: RobotKernelBridge | null = null;
 let robotBridgeUnsubscribe: (() => void) | null = null;
+let robotKbSettingsChangedHandler: (() => void) | null = null;
 
 function isElectronDesktopRuntime(): boolean {
     try {
@@ -188,9 +189,19 @@ function initRobotClientRuntime(plugin: PluginHomepage): void {
         });
     };
     robotBridgeUnsubscribe = bridge.startWhenRunning(startRobotClient);
+    robotKbSettingsChangedHandler = () => {
+        void syncRobotAgentRuntimeConfig(kernelClient).catch((error) => {
+            console.warn("[Homepage] Robot Agent 模型配置重新同步失败", error);
+        });
+    };
+    window.addEventListener(KB_SETTINGS_CHANGED_EVENT, robotKbSettingsChangedHandler);
 }
 
 async function disposeRobotClientRuntime(): Promise<void> {
+    if (robotKbSettingsChangedHandler) {
+        window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, robotKbSettingsChangedHandler);
+        robotKbSettingsChangedHandler = null;
+    }
     robotBridgeUnsubscribe?.();
     robotBridgeUnsubscribe = null;
     robotKernelBridge?.dispose();

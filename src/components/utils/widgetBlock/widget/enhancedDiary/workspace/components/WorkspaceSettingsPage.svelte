@@ -33,6 +33,7 @@
     } from "../../enhancedDiaryTemplateFieldMapping";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
     import EnhancedDiaryNotifySettingsPanel from "@/features/enhanced-diary-notify/components/EnhancedDiaryNotifySettingsPanel.svelte";
+    import { writeTextToClipboard } from "@/libs/clipboard";
 
     interface Props {
         config: EnhancedDiaryConfig;
@@ -654,7 +655,7 @@
         ].join("\n");
 
         try {
-            await navigator.clipboard.writeText(content);
+            await writeTextToClipboard(content);
             showMessage("已复制推荐模板片段", 2500);
         } catch (err) {
             console.warn("[WorkspaceSettingsPage] copy template snippet failed", err);

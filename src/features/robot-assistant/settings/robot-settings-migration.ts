@@ -104,6 +104,16 @@ export function normalizeV2Settings(raw: unknown): RobotAssistantSettings {
   const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   const out = createDefaultRobotAssistantSettings();
   out.enabled = value.enabled === true;
+  const runtimeOwner = value.runtimeOwner && typeof value.runtimeOwner === "object" && !Array.isArray(value.runtimeOwner)
+    ? value.runtimeOwner as Record<string, unknown>
+    : null;
+  if (runtimeOwner && typeof runtimeOwner.deviceId === "string" && runtimeOwner.deviceId.trim()) {
+    out.runtimeOwner = {
+      deviceId: runtimeOwner.deviceId.trim(),
+      deviceName: typeof runtimeOwner.deviceName === "string" ? runtimeOwner.deviceName.trim() : "",
+      container: typeof runtimeOwner.container === "string" ? runtimeOwner.container.trim() : "",
+    };
+  }
   out.agentModel = value.agentModel === "explicit" ? "explicit" : "use_kb_current";
   if (typeof value.maxMessageLength === "number" && Number.isFinite(value.maxMessageLength)) {
     out.maxMessageLength = Math.max(1, Math.round(value.maxMessageLength));

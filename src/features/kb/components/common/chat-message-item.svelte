@@ -22,6 +22,7 @@
   import ChatAvatar from "./chat-avatar.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
+  import { writeTextToClipboard } from "@/libs/clipboard";
 
   // Props - 由父组件 ChatMessageList 传入
   export let message: ChatMessage;
@@ -137,7 +138,7 @@
 
   async function handleCopy(content: string, messageId: string) {
     try {
-      await navigator.clipboard.writeText(content);
+      await writeTextToClipboard(content);
       // 设置当前消息为已复制状态
       copiedMessageId = messageId;
       // 清除之前的定时器
@@ -603,7 +604,7 @@
     const text = selectedText;
     if (!text) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await writeTextToClipboard(text);
       selectedTextCopied = true;
       if (selectedCopyTimeout) {
         clearTimeout(selectedCopyTimeout);

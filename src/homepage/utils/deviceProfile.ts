@@ -1,5 +1,6 @@
 import { getSiyuanSystemConfig, type SiyuanSystemConfig } from "@/api";
 import { getSiyuanRuntimePort } from "@/runtime/siyuan-runtime-port";
+import { createRuntimeUuid } from "@/libs/runtime-id";
 
 function getFrontend(): string {
     return getSiyuanRuntimePort().getFrontend?.() ?? "kernel";
@@ -86,18 +87,7 @@ export function isDesktopDeviceProfileEnabled(): boolean {
 }
 
 function createSafeDeviceId(): string {
-    if (typeof globalThis.crypto?.randomUUID === "function") {
-        return globalThis.crypto.randomUUID();
-    }
-    if (typeof globalThis.crypto?.getRandomValues === "function") {
-        const bytes = new Uint8Array(16);
-        globalThis.crypto.getRandomValues(bytes);
-        bytes[6] = (bytes[6] & 0x0f) | 0x40;
-        bytes[8] = (bytes[8] & 0x3f) | 0x80;
-        const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-    }
-    throw new Error("当前运行环境缺少安全随机数能力，无法创建设备身份");
+    return createRuntimeUuid();
 }
 
 function isValidDeviceId(value: string): boolean {

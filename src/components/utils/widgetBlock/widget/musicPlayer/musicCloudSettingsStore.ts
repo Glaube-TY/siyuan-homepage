@@ -4,6 +4,7 @@ import {
     isEncryptedSecret,
     setKbSensitiveSecretCryptoPlugin,
 } from "../../../../../features/kb/services/settings/kb-sensitive-secret-crypto";
+import { createRuntimeUuid } from "@/libs/runtime-id";
 
 export const MUSIC_CLOUD_SETTINGS_FILE = "music-player-cloud-settings-v1.json";
 
@@ -72,11 +73,7 @@ export function normalizeCloudBaseUrl(
 }
 
 function generateProfileId(): string {
-    if (typeof globalThis.crypto?.randomUUID === "function") {
-        return globalThis.crypto.randomUUID();
-    }
-    const random = Math.random().toString(36).slice(2);
-    return `music-${Date.now().toString(36)}-${random}`;
+    return createRuntimeUuid();
 }
 
 function normalizeStoredProfile(raw: unknown): MusicCloudProfile | null {

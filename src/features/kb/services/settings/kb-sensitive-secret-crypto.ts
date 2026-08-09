@@ -1,8 +1,13 @@
+import CryptoJS from "crypto-js";
+
 export const ENCRYPTED_SECRET_PREFIX = "enc:v1:";
+export const PORTABLE_ENCRYPTED_SECRET_PREFIX = "enc:v2:";
 
 const SENSITIVE_SECRET_STORAGE_KEY = "kb-sensitive-secret-v1";
 const SENSITIVE_SECRET_BYTES = 32;
-const SENSITIVE_SECRET_IV_BYTES = 12;
+const PORTABLE_SECRET_IV_BYTES = 16;
+const PORTABLE_ENC_LABEL = "kb-sensitive-secret-v2-enc";
+const PORTABLE_MAC_LABEL = "kb-sensitive-secret-v2-mac";
 
 type SecretLocation = "chatProviderApiKey" | "webSearchApiKey";
 type SecretTransform = (value: string, location: SecretLocation) => Promise<string>;
@@ -30,7 +35,8 @@ export function setKbSensitiveSecretCryptoPlugin(plugin: any): void {
 }
 
 export function isEncryptedSecret(value: unknown): value is string {
-  return typeof value === "string" && value.startsWith(ENCRYPTED_SECRET_PREFIX);
+  return typeof value === "string"
+    && (value.startsWith(ENCRYPTED_SECRET_PREFIX) || value.startsWith(PORTABLE_ENCRYPTED_SECRET_PREFIX));
 }
 
 function getCrypto(): Crypto {
@@ -39,6 +45,49 @@ function getCrypto(): Crypto {
     throw new Error("当前环境不支持 Web Crypto，API Key 无法加密保存。");
   }
   return cryptoApi;
+}
+
+function randomBytes(byteLength: number): Uint8Array {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi && typeof cryptoApi.getRandomValues === "function") {
+    const bytes = new Uint8Array(byteLength);
+    cryptoApi.getRandomValues(bytes);
+    return bytes;
+  }
+
+  // SiYuan Docker 的非安全 HTTP 页面可能没有完整 Web Crypto。
+  // CryptoJS 仍可在该环境运行；这里只延续现有“避免明文落盘”的威胁模型。
+  const words: number[] = [];
+  let produced = 0;
+  let previous = "";
+  while (produced < byteLength) {
+    const digest = CryptoJS.SHA256([
+      Date.now(), Math.random(), Math.random(), produced, previous,
+    ].join("|"));
+    previous = digest.toString(CryptoJS.enc.Hex);
+    for (let index = 0; index < digest.sigBytes && produced < byteLength; index += 1) {
+      const byte = (digest.words[index >>> 2] >>> (24 - (index % 4) * 8)) & 0xff;
+      words.push(byte);
+      produced += 1;
+    }
+  }
+  return Uint8Array.from(words);
+}
+
+function bytesToWordArray(bytes: Uint8Array): CryptoJS.lib.WordArray {
+  const words: number[] = [];
+  for (let index = 0; index < bytes.length; index += 1) {
+    words[index >>> 2] = (words[index >>> 2] ?? 0) | (bytes[index] << (24 - (index % 4) * 8));
+  }
+  return CryptoJS.lib.WordArray.create(words, bytes.length);
+}
+
+function wordArrayToBytes(value: CryptoJS.lib.WordArray): Uint8Array {
+  const bytes = new Uint8Array(value.sigBytes);
+  for (let index = 0; index < value.sigBytes; index += 1) {
+    bytes[index] = (value.words[index >>> 2] >>> (24 - (index % 4) * 8)) & 0xff;
+  }
+  return bytes;
 }
 
 function getPlugin(): any {
@@ -74,7 +123,6 @@ function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 async function loadOrCreateSensitiveSecret(): Promise<string> {
-  const cryptoApi = getCrypto();
   const plugin = getPlugin();
   const stored = await plugin.loadData(SENSITIVE_SECRET_STORAGE_KEY);
 
@@ -82,11 +130,60 @@ async function loadOrCreateSensitiveSecret(): Promise<string> {
     return stored.trim();
   }
 
-  const secretBytes = new Uint8Array(SENSITIVE_SECRET_BYTES);
-  cryptoApi.getRandomValues(secretBytes);
+  const secretBytes = randomBytes(SENSITIVE_SECRET_BYTES);
   const secret = bytesToBase64(secretBytes);
   await plugin.saveData(SENSITIVE_SECRET_STORAGE_KEY, secret);
   return secret;
+}
+
+function portableKeys(secretBase64: string): { encKey: CryptoJS.lib.WordArray; macKey: CryptoJS.lib.WordArray } {
+  const master = bytesToWordArray(base64ToBytes(secretBase64));
+  if (master.sigBytes !== SENSITIVE_SECRET_BYTES) {
+    throw new Error("API Key 本地加密密钥无效。");
+  }
+  return {
+    encKey: CryptoJS.HmacSHA256(PORTABLE_ENC_LABEL, master),
+    macKey: CryptoJS.HmacSHA256(PORTABLE_MAC_LABEL, master),
+  };
+}
+
+async function encryptPortableSecret(plainText: string): Promise<string> {
+  const secret = await loadOrCreateSensitiveSecret();
+  const { encKey, macKey } = portableKeys(secret);
+  const iv = bytesToWordArray(randomBytes(PORTABLE_SECRET_IV_BYTES));
+  const ciphertext = CryptoJS.AES.encrypt(plainText, encKey, {
+    iv,
+    mode: CryptoJS.mode.CBC,
+    padding: CryptoJS.pad.Pkcs7,
+  }).ciphertext;
+  const macPayload = iv.clone().concat(ciphertext.clone());
+  const mac = CryptoJS.HmacSHA256(macPayload, macKey);
+  return `${PORTABLE_ENCRYPTED_SECRET_PREFIX}${bytesToBase64(wordArrayToBytes(iv))}:${bytesToBase64(wordArrayToBytes(ciphertext))}:${bytesToBase64(wordArrayToBytes(mac))}`;
+}
+
+async function decryptPortableSecret(value: string): Promise<string> {
+  const body = value.slice(PORTABLE_ENCRYPTED_SECRET_PREFIX.length);
+  const [ivBase64, cipherBase64, macBase64] = body.split(":");
+  if (!ivBase64 || !cipherBase64 || !macBase64) throw new Error("API Key 密文格式无效。");
+
+  const secret = await loadOrCreateSensitiveSecret();
+  const { encKey, macKey } = portableKeys(secret);
+  const iv = bytesToWordArray(base64ToBytes(ivBase64));
+  const ciphertext = bytesToWordArray(base64ToBytes(cipherBase64));
+  const suppliedMac = bytesToWordArray(base64ToBytes(macBase64));
+  const expectedMac = CryptoJS.HmacSHA256(iv.clone().concat(ciphertext.clone()), macKey);
+  if (expectedMac.toString(CryptoJS.enc.Hex) !== suppliedMac.toString(CryptoJS.enc.Hex)) {
+    throw new Error("API Key 密文校验失败。");
+  }
+
+  const decrypted = CryptoJS.AES.decrypt(
+    { ciphertext, salt: undefined as never } as unknown as CryptoJS.lib.CipherParams,
+    encKey,
+    { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 },
+  );
+  const plainText = decrypted.toString(CryptoJS.enc.Utf8);
+  if (!plainText) throw new Error("API Key 解密失败。");
+  return plainText;
 }
 
 async function importAesGcmKey(): Promise<CryptoKey> {
@@ -112,19 +209,9 @@ export async function encryptSecretPlainText(value: string): Promise<string> {
   if (isEncryptedSecret(plainText)) return plainText;
 
   try {
-    const cryptoApi = getCrypto();
-    const key = await importAesGcmKey();
-    const iv = new Uint8Array(SENSITIVE_SECRET_IV_BYTES);
-    cryptoApi.getRandomValues(iv);
-
-    const encoded = new TextEncoder().encode(plainText);
-    const cipherBuffer = await cryptoApi.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      encoded,
-    );
-
-    return `${ENCRYPTED_SECRET_PREFIX}${bytesToBase64(iv)}:${bytesToBase64(new Uint8Array(cipherBuffer))}`;
+    // v2 不依赖 crypto.subtle，可在 Docker 的 http://IP:6806 浏览器页面使用。
+    // v1 仍保留只读兼容；所有新保存统一升级为可移植的 v2 envelope。
+    return await encryptPortableSecret(plainText);
   } catch {
     throw new Error("API Key 加密失败，设置未保存。");
   }
@@ -137,6 +224,9 @@ export async function decryptSecretCipherText(value: string): Promise<string> {
   }
 
   try {
+    if (value.startsWith(PORTABLE_ENCRYPTED_SECRET_PREFIX)) {
+      return await decryptPortableSecret(value);
+    }
     const encryptedBody = value.slice(ENCRYPTED_SECRET_PREFIX.length);
     const [ivBase64, cipherBase64] = encryptedBody.split(":");
     if (!ivBase64 || !cipherBase64) {

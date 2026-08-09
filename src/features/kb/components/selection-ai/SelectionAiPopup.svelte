@@ -8,6 +8,7 @@
   } from "../../services/selection-ai/selection-ai-defaults";
   import { mdToHtml } from "@/components/tools/mdToHtml";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+  import { writeTextToClipboard } from "@/libs/clipboard";
   import type {
     SelectionAiRect,
     SelectionAiRequest,
@@ -108,18 +109,7 @@
     if (!text) return;
 
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        textarea.remove();
-      }
+      await writeTextToClipboard(text);
       showMessage("已复制", 2000);
     } catch {
       showMessage("复制失败", 3000);

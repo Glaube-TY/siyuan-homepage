@@ -1,4 +1,5 @@
 import type { Plugin } from "siyuan";
+import { createRuntimeUuid } from "@/libs/runtime-id";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
 import { ensureCurrentDeviceViewMigrated } from "@/homepage/deviceView/deviceViewMigration";
 import {
@@ -780,7 +781,7 @@ export class HomepageAgentService {
     const name = input.name.trim();
     if (!name || name.length > 60) throw new HomepageAgentServiceError("invalid_widget_patch", "分栏名称必须为 1 到 60 个字符。");
     const currentSections = normalizeComponentSections(state.snapshot.view!.config.componentSections);
-    const sectionId = (input.sectionId?.trim() || `section-${globalThis.crypto.randomUUID().slice(0, 8)}`).toLowerCase();
+    const sectionId = (input.sectionId?.trim() || `section-${createRuntimeUuid().slice(0, 8)}`).toLowerCase();
     if (!/^[a-z0-9_-]+$/.test(sectionId) || currentSections.some((item) => item.id === sectionId)) throw new HomepageAgentServiceError("invalid_section_order", "分栏 ID 无效或已存在。");
     const position = Math.max(0, Math.min(Math.trunc(input.position ?? currentSections.length), currentSections.length));
     const now = Date.now();

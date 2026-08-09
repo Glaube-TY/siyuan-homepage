@@ -1,15 +1,13 @@
 import type { DeviceViewContext, DeviceWidgetDocument } from "./deviceViewTypes";
 import { readDeviceWidget, removeDeviceWidget, writeDeviceWidget } from "./deviceViewStorage";
+import { createRuntimeId } from "@/libs/runtime-id";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export function createWidgetInstanceId(): string {
-    if (typeof globalThis.crypto?.randomUUID !== "function") {
-        throw new Error("当前运行环境不支持 crypto.randomUUID，无法安全创建组件实例");
-    }
-    return `block-${globalThis.crypto.randomUUID()}`;
+    return createRuntimeId("block");
 }
 
 export async function loadWidgetInstanceConfig(

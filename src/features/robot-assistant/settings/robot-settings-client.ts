@@ -13,7 +13,7 @@ import {
   generateRobotMasterSecret,
   isRobotEnvelope,
 } from "../security/robot-secret-vault";
-import { createDefaultRobotAssistantSettings, type RobotAssistantSettings } from "./robot-settings-types";
+import { createDefaultRobotAssistantSettings, type RobotAssistantSettings, type RobotRuntimeOwner } from "./robot-settings-types";
 import { normalizeV2Settings } from "./robot-settings-migration";
 import { decryptSecretCipherText, isEncryptedSecret } from "../../kb/services/settings/kb-sensitive-secret-crypto";
 import type { RobotProviderId } from "../contracts/robot-provider";
@@ -24,6 +24,8 @@ export interface RobotStatusSnapshot {
   status?: RobotStatus;
   providers?: Array<{ provider: RobotProviderId; status: string; availability: string }>;
   model?: { configured?: boolean; providerId?: string; modelId?: string; providerType?: string };
+  runtimeDevice?: RobotRuntimeOwner | null;
+  runtimeOwner?: RobotRuntimeOwner | null;
 }
 
 export class RobotSettingsClient {

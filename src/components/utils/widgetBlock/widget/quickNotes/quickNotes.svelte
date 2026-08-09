@@ -6,6 +6,7 @@
     import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
     import { getChildBlocks, deleteBlock } from "@/api";
     import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
+    import { writeTextToClipboard } from "@/libs/clipboard";
 
     interface Props {
         plugin: any;
@@ -112,6 +113,16 @@
             console.error("删除失败:", e);
         }
     }
+
+    async function handleCopy(content: string): Promise<void> {
+        try {
+            await writeTextToClipboard(content);
+            showMessage("复制成功");
+        } catch (error) {
+            console.warn("[QuickNotes] copy failed", error);
+            showMessage("复制失败");
+        }
+    }
 </script>
 
 <svelte:head>
@@ -142,10 +153,7 @@
                         <button
                             class="copy-btn"
                             title="复制笔记"
-                            onclick={() => {
-                                navigator.clipboard.writeText(note.content);
-                                showMessage("复制成功");
-                            }}>C</button
+                            onclick={() => void handleCopy(note.content)}>C</button
                         >
                         <div class="note-content">
                             {@html note.htmlContent}

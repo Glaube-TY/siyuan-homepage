@@ -2,20 +2,11 @@ import type { NotificationEvent, NotificationFeishuChannel } from "../types";
 import { postExternalJson } from "./external-http";
 import { redactMessage } from "../notification-center-redact";
 import type { ExternalChannelSendResult } from "./webhook-channel";
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary);
-}
+import CryptoJS from "crypto-js";
 
 export async function generateFeishuSign(timestamp: string, secret: string): Promise<string> {
-  if (!globalThis.crypto?.subtle) throw new Error("当前环境不支持 Web Crypto，无法生成飞书签名。");
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(`${timestamp}\n${secret}`);
-  const keyBuffer = keyData.buffer.slice(keyData.byteOffset, keyData.byteOffset + keyData.byteLength) as ArrayBuffer;
-  const key = await globalThis.crypto.subtle.importKey("raw", keyBuffer, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return bytesToBase64(new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, new Uint8Array())));
+  const signature = CryptoJS.HmacSHA256("", `${timestamp}\n${secret}`);
+  return CryptoJS.enc.Base64.stringify(signature);
 }
 
 function buildPayload(event: NotificationEvent, format: "text" | "post"): Record<string, unknown> {

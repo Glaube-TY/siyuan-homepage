@@ -39,6 +39,7 @@
   import type { KbAssistantActionAlignment, KbChatAppearanceSettings } from "../../types/settings";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import DocContentEditConfirmationModal from "../common/doc-content-edit-confirmation-modal.svelte";
+  import { writeTextToClipboard } from "@/libs/clipboard";
   import AgentToolPermissionModal from "../common/agent-tool-permission-modal.svelte";
   import { openEditDiffPreviewDialog } from "../common/edit-diff-dialog";
   import type { DocContentEditArrowFlow, EditDiffPreview } from "../../services/doc-content-edit/doc-content-edit-types";
@@ -859,7 +860,7 @@
 
     try {
       const text = formatConversationToText(messages);
-      await navigator.clipboard.writeText(text);
+      await writeTextToClipboard(text);
 
       // 显示成功反馈
       isCopiedAll = true;
