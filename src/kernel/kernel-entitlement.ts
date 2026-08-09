@@ -17,7 +17,9 @@ export class KernelEntitlementService {
     const now = this.now();
     if (this.cached && now - this.cached.checkedAt < CACHE_TTL_MS) return this.cached.available;
     const available = await this.verifyLocalLicense();
-    this.cached = { available, checkedAt: now };
+    // 仅缓存已通过的许可证。用户刚完成会员激活时应能立即启用机器人，
+    // 不能被激活前的 negative cache 再阻塞数分钟。
+    this.cached = available ? { available, checkedAt: now } : null;
     return available;
   }
 

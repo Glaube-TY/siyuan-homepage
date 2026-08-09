@@ -49,6 +49,7 @@ export class RobotKernelRuntime {
   private readonly pairingStore: KernelRobotPairingStore;
   private readonly providerManager: RobotProviderManager;
   private readonly toolRegistry: NativeToolRegistry;
+  private readonly isEntitlementAvailable: () => Promise<boolean>;
   /** Electron Provider（飞书 / QQ）状态注册表：由前端 RPC 上报，Kernel 只记录状态不运行。 */
   private readonly electronProviderStatuses = new Map<RobotProviderId, RobotProviderRuntimeStatus>();
   private readonly core: RobotCore;
@@ -72,6 +73,7 @@ export class RobotKernelRuntime {
     this.dedup = new KernelRobotDedup(host);
     this.pairingStore = new KernelRobotPairingStore(host);
     this.providerManager = options.providerManager ?? new InMemoryRobotProviderManager();
+    this.isEntitlementAvailable = options.isEntitlementAvailable ?? (async () => false);
 
     const agentRuntime = new KernelRobotAgentRuntime({
       transport: new KernelAgentHttpTransport(createKernelHttpPort(host)),
@@ -86,7 +88,7 @@ export class RobotKernelRuntime {
 
     this.core = new RobotCore({
       getSettings: async () => this.settings ?? (await this.reloadSettings()),
-      isEntitlementAvailable: options.isEntitlementAvailable ?? (async () => false),
+      isEntitlementAvailable: this.isEntitlementAvailable,
       getProviderAdmission: async (providerId) => this.getProviderAdmission(providerId as RobotProviderId),
       getProviderStatus: async (providerId) => this.getProviderStatus(providerId as RobotProviderId),
       getPairingState: async (providerId) => {
@@ -148,6 +150,10 @@ export class RobotKernelRuntime {
       this.host.notify("robot.statusChanged", { status: this.statusValue });
       return;
     }
+    if (!(await this.hasEntitlement())) {
+      await this.disableUnavailableEntitlement();
+      return;
+    }
     if (!this.isCurrentRuntimeOwner()) {
       await this.enterStandby();
       return;
@@ -201,6 +207,8 @@ export class RobotKernelRuntime {
       this.statusValue = "disabled";
       await this.wechatProvider?.disconnect();
       this.electronProviderStatuses.clear();
+    } else if (!(await this.hasEntitlement())) {
+      await this.disableUnavailableEntitlement();
     } else if (!this.isCurrentRuntimeOwner()) {
       await this.enterStandby();
     } else if (this.statusValue !== "running") {
@@ -242,12 +250,38 @@ export class RobotKernelRuntime {
   }
 
   private async activateProviders(): Promise<void> {
+    if (!(await this.hasEntitlement())) {
+      await this.disableUnavailableEntitlement();
+      return;
+    }
     this.statusValue = "running";
     if (this.settings.activeProvider === "wechat" && this.wechatProvider) {
       this.providerManager.register(this.wechatProvider);
       await this.wechatProvider.connect();
     }
     this.host.notify("robot.statusChanged", { status: this.statusValue });
+  }
+
+  private async hasEntitlement(): Promise<boolean> {
+    try {
+      return await this.isEntitlementAvailable();
+    } catch (error) {
+      this.host.log.warn({
+        status: "entitlement_check_failed",
+        message: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
+      });
+      return false;
+    }
+  }
+
+  private async disableUnavailableEntitlement(): Promise<void> {
+    this.statusValue = "disabled";
+    await this.wechatProvider?.disconnect();
+    this.electronProviderStatuses.clear();
+    this.host.notify("robot.statusChanged", {
+      status: this.statusValue,
+      reason: "entitlement_unavailable",
+    });
   }
 
   private async reconcileSelectedProvider(previousProvider: RobotAssistantSettings["activeProvider"]): Promise<void> {
@@ -280,7 +314,17 @@ export class RobotKernelRuntime {
 
   private async refreshRuntimeOwnership(): Promise<void> {
     const latest = await this.settingsStore.load();
-    if (JSON.stringify(latest) === JSON.stringify(this.settings)) return;
+    if (JSON.stringify(latest) === JSON.stringify(this.settings)) {
+      if (!this.settings.enabled || this.isMobileRuntimeDevice()) return;
+      if (!(await this.hasEntitlement())) {
+        if (this.statusValue !== "disabled") await this.disableUnavailableEntitlement();
+        return;
+      }
+      if (this.isCurrentRuntimeOwner() && this.statusValue === "disabled") {
+        await this.activateProviders();
+      }
+      return;
+    }
     const previous = this.settings;
     this.settings = latest;
     this.clearInactiveElectronProviderStatuses();
@@ -298,6 +342,10 @@ export class RobotKernelRuntime {
       await this.wechatProvider?.disconnect();
       this.electronProviderStatuses.clear();
       this.host.notify("robot.statusChanged", { status: this.statusValue });
+      return;
+    }
+    if (!(await this.hasEntitlement())) {
+      await this.disableUnavailableEntitlement();
       return;
     }
     if (!this.isCurrentRuntimeOwner()) {
