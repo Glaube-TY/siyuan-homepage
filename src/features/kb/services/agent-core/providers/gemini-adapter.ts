@@ -4,12 +4,17 @@ import { GEMINI_CAPABILITIES } from "./provider-capabilities";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./provider-adapter";
 import { AgentProviderError } from "./provider-error";
 import { normalizeGeminiEndpoint } from "./provider-url-normalizer";
+import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
 
 export interface GeminiAdapterOptions {
   id: string;
   model: string;
   apiKey: string;
   baseUrl?: string;
+  /** 可注入 HTTP 传输（默认浏览器 fetch）。 */
+  transport?: AgentHttpTransport;
+  /** 是否流式（浏览器默认 true；Kernel 传 false 走非流式 JSON）。 */
+  stream?: boolean;
 }
 
 function toGeminiContent(message: AgentMessage): Record<string, unknown> | null {
@@ -56,10 +61,14 @@ export class GeminiAdapter implements ProviderAdapter {
   readonly capabilities = GEMINI_CAPABILITIES;
   readonly id: string;
   private readonly endpoint: string;
+  private readonly transport: AgentHttpTransport;
+  private readonly stream: boolean;
 
   constructor(private readonly options: GeminiAdapterOptions) {
     this.id = options.id;
     this.endpoint = normalizeGeminiEndpoint(options.baseUrl ?? "");
+    this.transport = options.transport ?? new BrowserAgentHttpTransport();
+    this.stream = options.stream !== false;
   }
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
@@ -74,21 +83,31 @@ export class GeminiAdapter implements ProviderAdapter {
       ? [{ functionDeclarations: nativeToolsToGeminiFunctionDeclarations(request.tools) }]
       : undefined;
 
+    const url = this.stream
+      ? `${this.endpoint}/models/${encodeURIComponent(this.options.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(this.options.apiKey)}`
+      : `${this.endpoint}/models/${encodeURIComponent(this.options.model)}:generateContent?key=${encodeURIComponent(this.options.apiKey)}`;
+
     try {
-      const response = await fetch(`${this.endpoint}/models/${encodeURIComponent(this.options.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(this.options.apiKey)}`, {
-        method: "POST",
+      const response = await this.transport.post({
+        url,
         headers: { "Content-Type": "application/json" },
-        signal: request.abortSignal,
         body: JSON.stringify({
           contents,
           ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
           ...(tools ? { tools } : {}),
         }),
+        stream: this.stream,
+        signal: request.abortSignal,
       });
 
       if (!response.ok) {
         const status = response.status;
         yield* this.handleHttpError(status);
+        return;
+      }
+
+      if (!this.stream) {
+        yield* this.parseJsonResponse(await response.json());
         return;
       }
 
@@ -103,6 +122,50 @@ export class GeminiAdapter implements ProviderAdapter {
         code: "provider_network_error",
         recoverable: true,
       });
+    }
+  }
+
+  private async *parseJsonResponse(raw: unknown): AsyncGenerator<AgentProviderEvent> {
+    const root = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    const candidates = Array.isArray(root.candidates) ? root.candidates : [];
+    const first = candidates[0] && typeof candidates[0] === "object" ? candidates[0] as Record<string, unknown> : {};
+    const content = first.content && typeof first.content === "object" ? first.content as Record<string, unknown> : {};
+    const parts = Array.isArray(content.parts) ? content.parts : [];
+
+    if (typeof first.finishReason === "string") {
+      yield { type: "done", finishReason: first.finishReason };
+    }
+
+    let callIndex = 0;
+    for (const part of parts) {
+      if (!part || typeof part !== "object") continue;
+      const record = part as Record<string, unknown>;
+      if (typeof record.text === "string" && record.text) {
+        yield { type: "text_delta", delta: record.text };
+      }
+      if (record.thought && typeof record.thought === "string") {
+        yield { type: "reasoning_delta", delta: record.thought };
+      }
+      const functionCall = record.functionCall && typeof record.functionCall === "object"
+        ? record.functionCall as Record<string, unknown>
+        : undefined;
+      const name = typeof functionCall?.name === "string" ? functionCall.name : "";
+      if (name) {
+        yield {
+          type: "tool_call_done",
+          toolCall: {
+            id: `gemini_call_${callIndex}`,
+            name,
+            arguments: JSON.stringify(functionCall?.args ?? {}),
+            index: callIndex,
+          },
+        };
+        callIndex += 1;
+      }
+    }
+
+    if (typeof first.finishReason !== "string") {
+      yield { type: "done" };
     }
   }
 

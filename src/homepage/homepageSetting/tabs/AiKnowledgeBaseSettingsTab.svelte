@@ -16,8 +16,10 @@
     } from "@/features/kb/services/selection-ai/selection-ai-types";
     import SelectionAiSkillEditorDialog from "./SelectionAiSkillEditorDialog.svelte";
     import { confirmDialogBoolean } from "@/libs/dialog";
+    import type { AiKnowledgeBaseSubTab } from "../aiKnowledgeBaseTabs";
 
     interface Props {
+        activeSubTab: AiKnowledgeBaseSubTab;
         aiKbDockEnabled: boolean;
         aiKbTabEnabled: boolean;
         advancedEnabled?: boolean;
@@ -33,6 +35,7 @@
     }
 
     let {
+        activeSubTab,
         aiKbDockEnabled,
         aiKbTabEnabled,
         advancedEnabled = false,
@@ -267,6 +270,7 @@
     }
 
     $effect(() => {
+        activeSubTab;
         selectionAiToolbar.skills;
         void initSkillSortables();
     });
@@ -317,6 +321,7 @@
     });
 </script>
 
+{#if activeSubTab === "entries"}
 <a
     class="tutorial-link-card"
     href="https://glaube-ty.top/tutorials/siyuan-homepage/ai-knowledge-base/"
@@ -363,6 +368,7 @@
     </SettingRow>
 </SettingSection>
 
+{:else if activeSubTab === "status"}
 <SettingSection title="状态语 AI 生成">
     {#if !advancedEnabled}
         <div class="status-ai-vip-card">
@@ -426,6 +432,7 @@
     {/if}
 </SettingSection>
 
+{:else if activeSubTab === "selection"}
 <SettingSection title="编辑器选区 AI 工具栏">
     {#if !advancedEnabled}
         <div class="status-ai-vip-card">
@@ -636,6 +643,7 @@
     </div>
     {/if}
 </SettingSection>
+{/if}
 
 {#if editorOpen}
     <SelectionAiSkillEditorDialog

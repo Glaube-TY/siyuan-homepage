@@ -13,6 +13,7 @@
 
 .shp-homepage-settings {
     display: flex;
+    box-sizing: border-box;
     width: min(1180px, calc(100vw - 48px));
     height: min(760px, calc(100vh - 48px));
     resize: both;

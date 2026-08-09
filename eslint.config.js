@@ -22,7 +22,7 @@ export default [
 
     // 基础 JS 配置（适用于所有 JS 文件，宽松规则）
     {
-        files: ['**/*.js'],
+        files: ['**/*.{js,cjs,mjs}'],
         languageOptions: {
             globals: {
                 ...globals.browser,

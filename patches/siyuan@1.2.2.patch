@@ -1,0 +1,12 @@
+diff --git a/types/constants.ts b/types/constants.ts
+index 2b967ccc9e792d120bb6fafbce2d85cc907a22ca..b355c107c36fb67e0c724fdd52dff42443e57a87 100644
+--- a/types/constants.ts
++++ b/types/constants.ts
+@@ -502,6 +502,7 @@ export abstract class Constants {
+                 expandUp: {default: "⌥⇧↑", custom: "⌥⇧↑"},
+                 expand: {default: "⌘↓", custom: "⌘↓"},
+                 collapse: {default: "⌘↑", custom: "⌘↑"},
++                foldRecursive: {default: "", custom: ""},
+                 insertBottom: {default: "⌥⌘.", custom: "⌥⌘."},
+                 refTab: {default: "⇧⌘.", custom: "⇧⌘."},
+                 openBy: {default: "⌥,", custom: "⌥,"},

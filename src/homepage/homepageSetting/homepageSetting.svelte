@@ -47,10 +47,16 @@
     import MobileSettingsTab from "./tabs/MobileSettingsTab.svelte"
     import AiKnowledgeBaseSettingsTab from "./tabs/AiKnowledgeBaseSettingsTab.svelte"
     import NotificationCenterSettingsTab from "./tabs/NotificationCenterSettingsTab.svelte"
-    import ChatActionBridgeSettingsTab from "./tabs/ChatActionBridgeSettingsTab.svelte"
+    import RobotAssistantSettingsTab from "./tabs/RobotAssistantSettingsTab.svelte"
     import IndexManagementSettingsTab from "./tabs/IndexManagementSettingsTab.svelte"
     import MainTabNav from "./layout/MainTabNav.svelte"
     import SubTabNav from "./layout/SubTabNav.svelte";
+    import AiKnowledgeBaseSubTabNav from "./layout/AiKnowledgeBaseSubTabNav.svelte";
+    import NotificationCenterSubTabNav from "./layout/NotificationCenterSubTabNav.svelte";
+    import RobotAssistantSubTabNav from "./layout/RobotAssistantSubTabNav.svelte";
+    import type { AiKnowledgeBaseSubTab } from "./aiKnowledgeBaseTabs";
+    import type { NotificationCenterSubTab } from "./notificationCenterTabs";
+    import type { RobotAssistantSubTab } from "./robotAssistantTabs";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
@@ -109,6 +115,9 @@
     let enhancedDiaryIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
     let advancedEnabled = $state(false);
     let settingsActiveTab = $state<HomepageSettingSubTab>("behavior");
+    let aiKnowledgeBaseActiveTab = $state<AiKnowledgeBaseSubTab>("entries");
+    let notificationCenterActiveTab = $state<NotificationCenterSubTab>("desktop");
+    let robotAssistantActiveTab = $state<RobotAssistantSubTab>("general");
     // 横幅区域相关配置变量
     let bannerEnabled = true;
     let bannerGlobalType = $state("custom");
@@ -1363,13 +1372,34 @@
         />
     </div>
 
-    <!-- 中间：二级页签（仅主页设置时显示） -->
+    <!-- 中间：二级页签 -->
     {#if activeTab === "homepage"}
         <div class="sub-nav-column">
             <SubTabNav
                 settingsActiveTab={settingsActiveTab}
                 advancedEnabled={advancedEnabled}
                 onTabChange={(tab) => settingsActiveTab = tab}
+            />
+        </div>
+    {:else if activeTab === "aiKnowledgeBase"}
+        <div class="sub-nav-column">
+            <AiKnowledgeBaseSubTabNav
+                activeTab={aiKnowledgeBaseActiveTab}
+                onTabChange={(tab) => aiKnowledgeBaseActiveTab = tab}
+            />
+        </div>
+    {:else if activeTab === "notifyBridge"}
+        <div class="sub-nav-column">
+            <NotificationCenterSubTabNav
+                activeTab={notificationCenterActiveTab}
+                onTabChange={(tab) => notificationCenterActiveTab = tab}
+            />
+        </div>
+    {:else if activeTab === "robotAssistant"}
+        <div class="sub-nav-column">
+            <RobotAssistantSubTabNav
+                activeTab={robotAssistantActiveTab}
+                onTabChange={(tab) => robotAssistantActiveTab = tab}
             />
         </div>
     {/if}
@@ -1584,6 +1614,7 @@
                     <div class="ai-kb-settings-loading">正在加载 AI 知识库设置...</div>
                 {:else}
                     <AiKnowledgeBaseSettingsTab
+                        activeSubTab={aiKnowledgeBaseActiveTab}
                         aiKbDockEnabled={aiKbDockEnabled}
                         aiKbTabEnabled={aiKbTabEnabled}
                         advancedEnabled={advancedEnabled}
@@ -1601,11 +1632,19 @@
             </div>
         {:else if activeTab === "notifyBridge"}
             <div class="content-scroll-area full-content">
-                <NotificationCenterSettingsTab advancedEnabled={advancedEnabled} plugin={plugin} />
+                <NotificationCenterSettingsTab
+                    activeSubTab={notificationCenterActiveTab}
+                    advancedEnabled={advancedEnabled}
+                    plugin={plugin}
+                />
             </div>
-        {:else if activeTab === "chatActionBridge"}
+        {:else if activeTab === "robotAssistant"}
             <div class="content-scroll-area full-content">
-                <ChatActionBridgeSettingsTab advancedEnabled={advancedEnabled} plugin={plugin} />
+                <RobotAssistantSettingsTab
+                    advancedEnabled={advancedEnabled}
+                    plugin={plugin}
+                    activeSubTab={robotAssistantActiveTab}
+                />
             </div>
         {:else if activeTab === "about"}
             <div class="content-scroll-area full-content">

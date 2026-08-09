@@ -1,5 +1,9 @@
-import { getFrontend } from "siyuan";
 import { getSiyuanSystemConfig, type SiyuanSystemConfig } from "@/api";
+import { getSiyuanRuntimePort } from "@/runtime/siyuan-runtime-port";
+
+function getFrontend(): string {
+    return getSiyuanRuntimePort().getFrontend?.() ?? "kernel";
+}
 
 // 四个前端专属键 + 一个只读旧通用键（仅兼容 4.8.4 正式发布版）。
 // - desktop/desktop-window → syhomepage-device-id-desktop

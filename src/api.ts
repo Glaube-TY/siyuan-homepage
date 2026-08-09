@@ -12,7 +12,12 @@
  * - 参考 router.go: https://github.com/siyuan-note/siyuan/blob/master/kernel/api/router.go
  */
 
-import { fetchPost, fetchSyncPost, IWebSocketData, platformUtils } from "siyuan";
+import type { IWebSocketData } from "siyuan";
+import { getSiyuanRuntimePort } from "./runtime/siyuan-runtime-port";
+
+async function fetchSyncPost(url: string, data: unknown): Promise<IWebSocketData> {
+    return await getSiyuanRuntimePort().post(url, data) as IWebSocketData;
+}
 
 function isIdLikeParameterName(name: string): boolean {
     return name === "id"
@@ -828,15 +833,9 @@ export async function renderSprig(template: string): Promise<string> {
 // **************************************** File ****************************************
 
 export async function getFile(path: string): Promise<any> {
-    let data = {
-        path: path
-    }
-    let url = '/api/file/getFile';
-    return new Promise((resolve, _) => {
-        fetchPost(url, data, (content: any) => {
-            resolve(content)
-        });
-    });
+    const port = getSiyuanRuntimePort();
+    if (!port.getFile) throw new Error("当前运行时不支持读取工作区文件。");
+    return await port.getFile(path);
 }
 
 
@@ -862,6 +861,11 @@ export const getFileBlob = async (path: string): Promise<Blob | null> => {
 
 
 export async function putFile(path: string, isDir: boolean, file: any) {
+    const runtime = getSiyuanRuntimePort();
+    if (runtime.putFile) {
+        const response = await runtime.putFile(path, isDir, file);
+        return response.code === 0 ? response.data : null;
+    }
     let form = new FormData();
     form.append('path', path);
     form.append('isDir', isDir.toString());
@@ -964,9 +968,9 @@ export function isInMobileApp(): boolean {
     }
     try {
         return Boolean(
-            platformUtils.isInAndroid?.()
-            || platformUtils.isInIOS?.()
-            || platformUtils.isHuawei?.()
+            getSiyuanRuntimePort().platform?.isInAndroid?.()
+            || getSiyuanRuntimePort().platform?.isInIOS?.()
+            || getSiyuanRuntimePort().platform?.isHuawei?.()
         );
     } catch {
         return false;
@@ -997,7 +1001,9 @@ export async function sendMobileLocalNotification(params: MobileLocalNotificatio
     if (delayInSeconds !== undefined && (!Number.isFinite(delayInSeconds) || delayInSeconds < 0)) {
         throw new Error("移动通知延迟时间无效。");
     }
-    const notificationId = await platformUtils.sendNotification({
+    const sendNotification = getSiyuanRuntimePort().platform?.sendNotification;
+    if (!sendNotification) throw new Error("当前运行时不支持移动系统通知。");
+    const notificationId = await sendNotification({
         channel: params.channel,
         title: params.title,
         body: params.body,
@@ -1012,7 +1018,9 @@ export async function sendMobileLocalNotification(params: MobileLocalNotificatio
 
 export function cancelMobileLocalNotification(id: number): void {
     if (!Number.isFinite(id)) throw new Error("移动通知 ID 无效。");
-    platformUtils.cancelNotification(id);
+    const cancelNotification = getSiyuanRuntimePort().platform?.cancelNotification;
+    if (!cancelNotification) throw new Error("当前运行时不支持取消移动系统通知。");
+    cancelNotification(id);
 }
 
 // **************************************** Network ****************************************
@@ -1754,6 +1762,14 @@ export async function getAttributeViewKeysByAvIDChecked(avID: string): Promise<a
 }
 
 export async function putFileChecked(path: string, isDir: boolean, file: any): Promise<void> {
+    const runtime = getSiyuanRuntimePort();
+    if (runtime.putFile) {
+        const response = await runtime.putFile(path, isDir, file);
+        if (response.code !== 0) {
+            throw new Error(`[putFile] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
+        }
+        return;
+    }
     const form = new FormData();
     form.append('path', path);
     form.append('isDir', isDir.toString());

@@ -21,8 +21,9 @@
     saveNotificationCenterSettings,
   } from "@/features/notification-center";
   import type { MobilePlanRuntimeStatus, NotificationCenterSettings, NotificationDeliveryHistoryRecord } from "@/features/notification-center/types";
-  interface Props { plugin: any; advancedEnabled: boolean; }
-  let { advancedEnabled }: Props = $props();
+  import type { NotificationCenterSubTab } from "../notificationCenterTabs";
+  interface Props { plugin: any; advancedEnabled: boolean; activeSubTab: NotificationCenterSubTab; }
+  let { advancedEnabled, activeSubTab }: Props = $props();
   let settings = $state<NotificationCenterSettings>(structuredClone(DEFAULT_NOTIFICATION_CENTER_SETTINGS));
   let history = $state<NotificationDeliveryHistoryRecord[]>([]);
   let mobileStatus = $state<MobilePlanRuntimeStatus>({ planCount: 0 });
@@ -138,10 +139,15 @@
       {#if getNotificationCenterMigrationError()}<SettingRow title="迁移失败" description="旧设置未被自动覆盖"><span class="shp-notification-error">{getNotificationCenterMigrationError()}</span></SettingRow>{/if}
     </SettingSection>
   {/if}
-  <DesktopNotificationSettings value={settings.desktop} {disabled} onChange={(desktop) => settings = { ...settings, desktop }} onTest={() => test("desktop")} />
-  <MobileNotificationSettings value={settings.mobile} status={mobileStatus} error={mobilePlanLoadError} {disabled} onChange={(mobile) => settings = { ...settings, mobile }} onTest={() => void test("mobile")} onReconcile={() => void reconcile()} onClear={() => void clearPlans()} />
-  <ExternalNotificationSettings value={settings.external} {disabled} onChange={(external) => settings = { ...settings, external }} onTest={(id) => void test("external", id)} />
-  <NotificationDeliveryHistory records={history} error={historyLoadError} />
+  {#if activeSubTab === "desktop"}
+    <DesktopNotificationSettings value={settings.desktop} {disabled} onChange={(desktop) => settings = { ...settings, desktop }} onTest={() => test("desktop")} />
+  {:else if activeSubTab === "mobile"}
+    <MobileNotificationSettings value={settings.mobile} status={mobileStatus} error={mobilePlanLoadError} {disabled} onChange={(mobile) => settings = { ...settings, mobile }} onTest={() => void test("mobile")} onReconcile={() => void reconcile()} onClear={() => void clearPlans()} />
+  {:else if activeSubTab === "external"}
+    <ExternalNotificationSettings value={settings.external} {disabled} onChange={(external) => settings = { ...settings, external }} onTest={(id) => void test("external", id)} />
+  {:else if activeSubTab === "history"}
+    <NotificationDeliveryHistory records={history} error={historyLoadError} />
+  {/if}
   {/if}
 </div>
 

@@ -9,63 +9,14 @@
 // 实际返回的是 LanguageModel，但不同 provider 返回的版本不同
 type AnyLanguageModel = any;
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, KbChatProviderType } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig } from "../../types/settings";
 import { resolveChatModelSelection, normalizeId } from "../settings/chat-provider-config";
+import {
+  normalizeText,
+  resolveOpenAICompatibleBaseUrlForProvider,
+} from "../agent-core/providers/provider-url-resolver";
 
-/**
- * 规范化文本值
- * 统一对字符串字段做 trim 处理
- * @param value 原始值
- * @param fallback 回退值（默认为空字符串）
- * @returns trim 后的字符串
- */
-export function normalizeText(value: unknown, fallback = ""): string {
-  return String(value || fallback).trim();
-}
-
-/**
- * 规范化 OpenAI-compatible Base URL 的通用逻辑
- * - 去掉末尾斜杠
- * - 兼容用户填到 /chat/completions 的情况，截断到 /v1
- * - 确保以 /v1 结尾
- */
-function normalizeOpenAICompatibleBaseUrl(baseUrl: string): string {
-  let normalized = normalizeText(baseUrl);
-  normalized = normalized.replace(/\/+$/, "");
-  if (normalized.endsWith("/chat/completions")) {
-    normalized = normalized.slice(0, -"/chat/completions".length);
-  }
-  if (!normalized.endsWith("/v1")) {
-    if (normalized.endsWith("/v1/")) {
-      normalized = normalized.replace(/\/+$/, "");
-    } else {
-      normalized = `${normalized}/v1`;
-    }
-  }
-  return normalized;
-}
-
-const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<KbChatProviderType, string>> = {
-  kimi: "https://api.moonshot.cn/v1",
-  "kimi-api": "https://api.moonshot.cn/v1",
-  "kimi-coding": "https://api.kimi.com/coding/v1",
-  deepseek: "https://api.deepseek.com/v1",
-  "deepseek-api": "https://api.deepseek.com/v1",
-  "mimo-api": "https://api.xiaomimimo.com/v1",
-  "mimo-coding-plan": "https://token-plan-cn.xiaomimimo.com/v1",
-};
-
-export function resolveOpenAICompatibleBaseUrlForProvider(provider: KbChatProviderConfig): string {
-  const raw = normalizeText(provider.baseUrl);
-  if (!raw) {
-    const defaultUrl = PROVIDER_DEFAULT_BASE_URLS[provider.type];
-    if (defaultUrl) {
-      return defaultUrl;
-    }
-    return "";
-  }
-  return normalizeOpenAICompatibleBaseUrl(raw);
-}
+export { normalizeText, resolveOpenAICompatibleBaseUrlForProvider } from "../agent-core/providers/provider-url-resolver";
 
 /**
  * 选中的模型信息

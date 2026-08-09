@@ -64,6 +64,8 @@ export function createNativeToolRegistryFromWorkbench(params: {
   abortSignal?: AbortSignal;
   mcpSettings?: McpSettings;
   notebrainWorkspaceSettings?: NotebrainAgentWorkspaceSettings;
+  /** Robot Kernel 在 native permission gate 完成远程确认，因此不能跳过 internallyConfirmed 调用。 */
+  trustInternallyConfirmed?: boolean;
 }): NativeToolRegistry {
   const nativeRegistry = new NativeToolRegistry();
   const executor = new WorkbenchToolExecutor(params.toolRegistry, params.observationLog);
@@ -127,7 +129,7 @@ export function createNativeToolRegistryFromWorkbench(params: {
             const callSafety = contract.resolveCallSafety?.(args) ?? contract.safety;
             return callSafety.readOnly
               ? { permissionAction: "allow" }
-              : callSafety.internallyConfirmed === true
+              : callSafety.internallyConfirmed === true && params.trustInternallyConfirmed !== false
                 ? { permissionAction: "allow" }
                 : contract.name === "notebrain_file" && args.action === "run_command"
                   ? previewNotebrainFileRunCommand(args, params.notebrainWorkspaceSettings)

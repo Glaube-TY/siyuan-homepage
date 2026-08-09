@@ -5,6 +5,7 @@ import type { NativeTool } from "../tools/native-tool";
 import { OPENAI_COMPATIBLE_CAPABILITIES } from "./provider-capabilities";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./provider-adapter";
 import { AgentProviderError } from "./provider-error";
+import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
 
 interface OpenAICompatibleAdapterOptions {
   id: string;
@@ -15,6 +16,10 @@ interface OpenAICompatibleAdapterOptions {
   maxTokens?: number;
   tokenParamStrategy?: "max_tokens" | "max_completion_tokens";
   providerOptions?: Record<string, Record<string, unknown>>;
+  /** 可注入 HTTP 传输（默认浏览器 fetch）。 */
+  transport?: AgentHttpTransport;
+  /** 是否流式（浏览器默认 true；Kernel 传 false 走非流式 JSON）。 */
+  stream?: boolean;
 }
 
 interface ToolCallState {
@@ -142,20 +147,25 @@ function buildDoneToolCalls(state: Map<number, ToolCallState>): AgentToolCall[] 
 export class OpenAICompatibleAdapter implements ProviderAdapter {
   readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
   readonly id: string;
+  private readonly transport: AgentHttpTransport;
+  private readonly stream: boolean;
 
   constructor(private readonly options: OpenAICompatibleAdapterOptions) {
     this.id = options.id;
+    this.transport = options.transport ?? new BrowserAgentHttpTransport();
+    this.stream = options.stream !== false;
   }
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
     const body = this.buildRequestBody(request.messages, request.tools);
 
-    let response: Response;
+    let response;
     try {
-      response = await fetch(this.options.chatCompletionsUrl, {
-        method: "POST",
+      response = await this.transport.post({
+        url: this.options.chatCompletionsUrl,
         headers: this.buildHeaders(),
         body: JSON.stringify(body),
+        stream: this.stream,
         signal: request.abortSignal,
       });
     } catch (err) {
@@ -194,6 +204,12 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       );
     }
 
+    if (!this.stream) {
+      // Kernel 非流式：服务器返回完整 JSON，直接解析。
+      yield* this.parseJsonResponse(await response.json());
+      return;
+    }
+
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
       yield* this.parseJsonResponse(await response.json());
@@ -207,7 +223,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     yield* this.parseSseStream(response.body);
   }
 
-  private buildHeaders(): HeadersInit {
+  private buildHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
@@ -219,12 +235,16 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   }
 
   private buildRequestBody(messages: readonly AgentMessage[], tools: readonly NativeTool[]): Record<string, unknown> {
+    const streaming = this.stream;
     const body: Record<string, unknown> = {
       model: this.options.model,
       messages: normalizeToolCallMessages(messages).map(toOpenAIMessage),
-      stream: true,
-      stream_options: { include_usage: true },
+      stream: streaming,
     };
+    if (streaming) {
+      // stream_options 仅在流式请求时有效。
+      body.stream_options = { include_usage: true };
+    }
 
     if (tools.length > 0) {
       body.tools = nativeToolsToOpenAITools(tools);

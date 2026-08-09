@@ -29,6 +29,12 @@
     flex: 1 1 auto;
 }
 
+/* 主页设置内部已经拥有固定侧栏和独立内容滚动区，外层无需再预留滚动条槽。 */
+.siyuan-homepage-viewport-dialog.homepage-settings-dialog .dialog-content {
+    overflow: hidden;
+    scrollbar-gutter: auto;
+}
+
 @media (max-height: 520px) {
     .siyuan-homepage-viewport-dialog .b3-dialog__container {
         max-height: calc(100vh - 12px);

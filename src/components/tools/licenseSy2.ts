@@ -66,25 +66,30 @@ export function base64UrlDecodeToBytes(input: string): Uint8Array {
         .replace(/_/g, "/")
         .padEnd(Math.ceil(input.length / 4) * 4, "=");
 
-    const binary = atob(base64);
-    return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const words = CryptoJS.enc.Base64.parse(base64);
+    const bytes = new Uint8Array(words.sigBytes);
+    for (let i = 0; i < words.sigBytes; i += 1) {
+        bytes[i] = (words.words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
+    }
+    return bytes;
 }
 
 export function base64UrlEncodeBytes(bytes: Uint8Array): string {
-    let binary = "";
-    bytes.forEach((byte) => {
-        binary += String.fromCharCode(byte);
+    const words: number[] = [];
+    bytes.forEach((byte, index) => {
+        words[index >>> 2] = (words[index >>> 2] || 0) | (byte << (24 - (index % 4) * 8));
     });
-
-    return btoa(binary)
+    return CryptoJS.enc.Base64.stringify(CryptoJS.lib.WordArray.create(words, bytes.length))
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
         .replace(/=+$/g, "");
 }
 
 export function base64UrlEncodeUtf8(input: string): string {
-    const bytes = new TextEncoder().encode(input);
-    return base64UrlEncodeBytes(bytes);
+    return CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(input))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/g, "");
 }
 
 export function base64UrlDecodeUtf8(input: string): string {
@@ -92,8 +97,11 @@ export function base64UrlDecodeUtf8(input: string): string {
         throw new Error("invalid base64url");
     }
 
-    const bytes = base64UrlDecodeToBytes(input);
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const base64 = input.replace(/-/g, "+").replace(/_/g, "/")
+        .padEnd(Math.ceil(input.length / 4) * 4, "=");
+    const decoded = CryptoJS.enc.Base64.parse(base64).toString(CryptoJS.enc.Utf8);
+    if (!decoded) throw new Error("invalid utf8");
+    return decoded;
 }
 
 // ── accountKey 工具 ──────────────────────────────────────────────────────────

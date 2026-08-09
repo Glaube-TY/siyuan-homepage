@@ -3,10 +3,21 @@ import {
     Plugin,
     showMessage,
     openTab,
+    openMobileFileById,
     getFrontend,
     Model,
+    fetchPost,
+    fetchSyncPost,
+    platformUtils,
     type IMenuItem,
 } from "siyuan";
+import { setSiyuanRuntimePort } from "@/runtime/siyuan-runtime-port";
+import { openDocsInClientRuntime, setOpenDocsRuntime } from "@/components/tools/openDocs";
+import {
+    ROBOT_QUICK_NOTE_CONFIG_KEY,
+    setQuickNoteConfigLoader,
+    setQuickNoteWritePlugin,
+} from "@/features/quick-note/quick-note-write-service";
 
 import { svelteDialog } from "@/libs/dialog";
 import "./style/dialog-viewport.css";
@@ -56,6 +67,9 @@ import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/stora
 import { saveData, loadData, removeData } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
 import { setPluginStorage } from "@/features/kb/services/agent-workbench/runtime/in-flight-turn-journal";
 import { setNotifyBridgePlugin } from "@/features/notify-bridge";
+import { RobotClientRuntime } from "@/features/robot-assistant/runtime/robot-client-runtime";
+import { RobotKernelBridge } from "@/features/robot-assistant/runtime/robot-kernel-bridge";
+import { syncRobotAgentRuntimeConfig } from "@/features/robot-assistant/runtime/robot-agent-config-sync";
 import {
     destroyNotificationCenterRuntime,
     ensureNotificationCenterMigration,
@@ -70,7 +84,6 @@ import { taskMobileNotificationPlanProvider } from "@/features/task-notify/task-
 import { countdownMobileNotificationPlanProvider } from "@/features/countdown-notify/countdown-notify-mobile-plans";
 import { enhancedDiaryMobileNotificationPlanProvider } from "@/features/enhanced-diary-notify/enhanced-diary-notify-mobile-plans";
 import { reviewMobileNotificationPlanProvider } from "@/features/review-notify/review-notify-mobile-plans";
-import { destroyChatActionBridge, setChatActionBridgePlugin, startChatActionBridgeIfNeeded } from "@/features/chat-action-bridge";
 import { destroyTaskNotifyScheduler, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
 import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
 import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
@@ -133,6 +146,62 @@ const KB_CHAT_TAB_TYPE = "kb_chat_tab";
 const KB_CHAT_TAB_ID = "siyuan-homepagekb_chat_tab";
 const KB_DOCK_TYPE = "homepage_kb_dock";
 
+// ── Robot Assistant 前端客户端（Kernel RPC 桥 + Electron Provider 注册） ──
+let robotClientRuntime: RobotClientRuntime | null = null;
+let robotKernelBridge: RobotKernelBridge | null = null;
+let robotBridgeUnsubscribe: (() => void) | null = null;
+
+function isElectronDesktopRuntime(): boolean {
+    try {
+        return typeof (window as unknown as { require?: unknown }).require === "function";
+    } catch {
+        return false;
+    }
+}
+
+function initRobotClientRuntime(plugin: PluginHomepage): void {
+    if (robotClientRuntime) return;
+    const bridge = new RobotKernelBridge(plugin);
+    robotKernelBridge = bridge;
+    const kernelClient = bridge.client;
+    robotClientRuntime = new RobotClientRuntime({
+        pluginName: plugin.name || "siyuan-homepage",
+        kernel: kernelClient,
+        storage: {
+            loadData: (name) => plugin.loadData(name),
+            saveData: (name, value) => plugin.saveData(name, value),
+        },
+        isElectron: isElectronDesktopRuntime,
+        logger: {
+            warn: (entry) => console.warn("[Homepage] RobotClient", entry),
+            error: (entry) => console.error("[Homepage] RobotClient", entry),
+        },
+    });
+    // Kernel 进入 running 后自动启动客户端；已 running 则立即启动。
+    // 启动失败不会永久放弃——状态再变 running 时会再次尝试。
+    const startRobotClient = (): void => {
+        void robotClientRuntime?.start().catch((error) => {
+            console.warn("[Homepage] Robot 客户端启动失败，本次仅停用机器人", error);
+        });
+        void syncRobotAgentRuntimeConfig(kernelClient).catch((error) => {
+            console.warn("[Homepage] Robot Agent 模型配置同步失败", error);
+        });
+    };
+    robotBridgeUnsubscribe = bridge.startWhenRunning(startRobotClient);
+}
+
+async function disposeRobotClientRuntime(): Promise<void> {
+    robotBridgeUnsubscribe?.();
+    robotBridgeUnsubscribe = null;
+    robotKernelBridge?.dispose();
+    robotKernelBridge = null;
+    const runtime = robotClientRuntime;
+    robotClientRuntime = null;
+    if (runtime) {
+        await runtime.stop().catch(() => undefined);
+    }
+}
+
 const HOMEPAGE_ICON_SVG = `<symbol id="iconhomepage" viewBox="0 0 1024 1024">
     <path d="M918.050133 478.344533L512 165.341867 105.949867 478.344533a51.165867 51.165867 0 0 1-62.7712-80.8448L477.184 57.9584 512 25.6l34.833067 32.3584 434.005333 339.541333a51.2 51.2 0 1 1-62.788267 80.8448z" fill="#B02721" p-id="15736"></path><path d="M918.050133 478.344533L512 165.341867 105.949867 478.344533a51.165867 51.165867 0 0 1-62.7712-80.8448L477.184 57.9584 512 25.6l34.833067 32.3584 434.005333 339.541333a51.2 51.2 0 1 1-62.788267 80.8448z" fill="#B02721" p-id="15737"></path><path d="M512 165.341867L119.466667 467.9168V981.333333h785.066666V467.9168z" fill="#E0E1E2" p-id="15738"></path><path d="M1006.933333 810.666667a17.066667 17.066667 0 0 0-17.066666 17.066666v17.066667h-17.066667v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v17.066667h-34.133334a17.066667 17.066667 0 1 0 0 34.133333h34.133334v51.2h-34.133334a17.066667 17.066667 0 1 0 0 34.133334h34.133334v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h17.066667v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-153.6a17.066667 17.066667 0 0 0-17.066667-17.066666z m-34.133333 119.466666v-51.2h17.066667v51.2h-17.066667zM119.466667 878.933333a17.066667 17.066667 0 1 0 0-34.133333H85.333333v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v17.066667H34.133333v-17.066667a17.066667 17.066667 0 1 0-34.133333 0v153.6a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h17.066667v17.066666a17.066667 17.066667 0 1 0 34.133333 0v-17.066666h34.133334a17.066667 17.066667 0 1 0 0-34.133334H85.333333v-51.2h34.133334z m-68.266667 51.2H34.133333v-51.2h17.066667v51.2z" fill="#E0E1E2" p-id="15739"></path><path d="M256 452.266667h204.8v136.533333H256zM256 691.2h204.8v170.666667H256zM563.2 452.266667h204.8v136.533333H563.2zM563.2 691.2h204.8v290.133333H563.2z" fill="#556080" p-id="15740"></path><path d="M563.2 452.266667h204.8v102.4H563.2zM256 452.266667h204.8v47.189333H256zM375.466667 759.466667v-68.266667h-34.133334v68.266667h-85.333333v34.133333h85.333333v68.266667h34.133334v-68.266667h85.333[... 52 char[... 14 chars omitted ...]
 </symbol>`;
@@ -152,6 +221,18 @@ const NOTEBRAIN_ICON_SVG = `<symbol id="iconNotebrain" viewBox="0 0 1024 1024">
     <path d="M262.784 361.92m62.208 0l0.064 0q62.208 0 62.208 62.208l0 86.4q0 62.208-62.208 62.208l-0.064 0q-62.208 0-62.208-62.208l0-86.4q0-62.208 62.208-62.208Z" fill="#262626"></path>
     <path d="M512 355.84m62.208 0l0.064 0q62.208 0 62.208 62.208l0 86.4q0 62.208-62.208 62.208l-0.064 0q-62.208 0-62.208-62.208l0-86.4q0-62.208 62.208-62.208Z" fill="#262626"></path>
     <path d="M761.088 647.36a39.36 39.36 0 1 1 78.72 0v81.728h81.728a39.36 39.36 0 1 1 0 78.72h-81.728v81.728a39.36 39.36 0 1 1-78.72 0v-81.728h-81.728a39.36 39.36 0 1 1 0-78.72h81.728v-81.728z" fill="#1890FF"></path>
+</symbol>`;
+
+const ROBOT_WECHAT_ICON_SVG = `<symbol id="iconRobotWechat" viewBox="0 0 1024 1024">
+    <path d="M683.058 364.695c11 0 22 1.016 32.943 1.976C686.564 230.064 538.896 128 370.681 128c-188.104 0.66-342.237 127.793-342.237 289.226 0 93.068 51.379 169.827 136.725 229.256L130.72 748.43l119.796-59.368c42.918 8.395 77.37 16.79 119.742 16.79 11 0 21.46-0.48 31.914-1.442a259.168 259.168 0 0 1-10.455-71.358c0.485-148.002 128.744-268.297 291.403-268.297l-0.06-0.06z m-184.113-91.992c25.99 0 42.913 16.79 42.913 42.575 0 25.188-16.923 42.579-42.913 42.579-25.45 0-51.38-16.85-51.38-42.58 0-25.784 25.93-42.574 51.38-42.574z m-239.544 85.154c-25.384 0-51.374-16.85-51.374-42.58 0-25.784 25.99-42.574 51.374-42.574 25.45 0 42.918 16.79 42.918 42.575 0 25.188-16.924 42.579-42.918 42.579z m736.155 271.655c0-135.647-136.725-246.527-290.983-246.527-162.655 0-290.918 110.88-290.918 246.527 0 136.128 128.263 246.587 290.918 246.587 33.972 0 68.423-8.395 102.818-16.85l93.809 50.973-25.93-84.677c68.907-51.93 120.286-119.815 120.286-196.033z m-385.275-42.58c-16.923 0-34.452-16.79-34.452-34.179 0-16.79 17.529-34.18 34.452-34.18 25.99 0 42.918 16.85 42.918 34.18 0 17.39-16.928 34.18-42.918 34.18z m188.165 0c-16.984 0-33.972-16.79-33.972-34.179 0-16.79 16.927-34.18 33.972-34.18 25.93 0 42.913 16.85 42.913 34.18 0 17.39-16.983 34.18-42.913 34.18z" fill="#09BB07"></path>
+</symbol>`;
+
+const ROBOT_QQ_ICON_SVG = `<symbol id="iconRobotQQ" viewBox="0 0 1024 1024">
+    <path d="M511.09761 957.257c-80.159 0-153.737-25.019-201.11-62.386-24.057 6.702-54.831 17.489-74.252 30.864-16.617 11.439-14.546 23.106-11.55 27.816 13.15 20.689 225.583 13.211 286.912 6.767v-3.061z" fill="#FAAD08"></path><path d="M496.65061 957.257c80.157 0 153.737-25.019 201.11-62.386 24.057 6.702 54.83 17.489 74.253 30.864 16.616 11.439 14.543 23.106 11.55 27.816-13.15 20.689-225.584 13.211-286.914 6.767v-3.061z" fill="#FAAD08"></path><path d="M497.12861 474.524c131.934-0.876 237.669-25.783 273.497-35.34 8.541-2.28 13.11-6.364 13.11-6.364 0.03-1.172 0.542-20.952 0.542-31.155C784.27761 229.833 701.12561 57.173 496.64061 57.162 292.15661 57.173 209.00061 229.832 209.00061 401.665c0 10.203 0.516 29.983 0.547 31.155 0 0 3.717 3.821 10.529 5.67 33.078 8.98 140.803 35.139 276.08 36.034h0.972z" fill="#000000"></path><path d="M860.28261 619.782c-8.12-26.086-19.204-56.506-30.427-85.72 0 0-6.456-0.795-9.718 0.148-100.71 29.205-222.773 47.818-315.792 46.695h-0.962C410.88561 582.017 289.65061 563.617 189.27961 534.698 185.44461 533.595 177.87261 534.063 177.87261 534.063 166.64961 563.276 155.56661 593.696 147.44761 619.782 108.72961 744.168 121.27261 795.644 130.82461 796.798c20.496 2.474 79.78-93.637 79.78-93.637 0 97.66 88.324 247.617 290.576 248.996a718.01 718.01 0 0 1 5.367 0C708.80161 950.778 797.12261 800.822 797.12261 703.162c0 0 59.284 96.111 79.783 93.637 9.55-1.154 22.093-52.63-16.623-177.017" fill="#000000"></path><path d="M434.38261 316.917c-27.9 1.24-51.745-30.106-53.24-69.956-1.518-39.877 19.858-73.207 47.764-74.454 27.875-1.224 51.703 30.109 53.218 69.974 1.527 39.877-19.853 73.2-47.742 74.436m206.67-69.956c-1.494 39.85-25.34 71.194-53.24 69.956-27.888-1.238-49.269-34.559-47.742-74.435 1.513-39.868 25.341-71.201 53.216-69.974 27.909 1.247 49.285 34.576 47.767 74.453" fill="#FFFFFF"></path><path d="M683.94261 368.627c-7.323-17.609-81.062-37.227-172.353-37.227h-0.98c-91.29 0-165.031 19.618-172.352 37.227a6.244 6.244 0 0 0-0.535 2.505c0 1.269 0.393 2.414 1.006 3.386 6.168 9.765 88.054 58.018 171.882 58.018h0.98c83.827 0 165.71-48.25 171.881-58.016a6.352 6.352 0 0 0 1.002-3.395c0-0.897-0.2-1.736-0.531-2.498" fill="#FAAD08"></path><path d="M467.63161 256.377c1.26 15.886-7.377 30-19.266 31.542-11.907 1.544-22.569-10.083-23.836-25.978-1.243-15.895 7.381-30.008 19.25-31.538 11.927-1.549 22.607 10.088 23.852 25.974m73.097 7.935c2.533-4.118 19.827-25.77 55.62-17.886 9.401 2.07 13.75 5.116 14.668 6.316 1.355 1.77 1.726 4.29 0.352 7.684-2.722 6.725-8.338 6.542-11.454 5.226-2.01-0.85-26.94-15.889-49.905 6.553-1.579 1.545-4.405 2.074-7.085 0.242-2.678-1.834-3.786-5.553-2.196-8.135" fill="#000000"></path><path d="M504.33261 584.495h-0.967c-63.568 0.752-140.646-7.504-215.286-21.92-6.391 36.262-10.25 81.838-6.936 136.196 8.37 137.384 91.62 223.736 220.118 224.996H506.48461c128.498-1.26 211.748-87.612 220.12-224.996 3.314-54.362-0.547-99.938-6.94-136.203-74.654 14.423-151.745 22.684-215.332 21.927" fill="#FFFFFF"></path><path d="M323.27461 577.016v137.468s64.957 12.705 130.031 3.91V591.59c-41.225-2.262-85.688-7.304-130.031-14.574" fill="#EB1C26"></path><path d="M788.09761 432.536s-121.98 40.387-283.743 41.539h-0.962c-161.497-1.147-283.328-41.401-283.744-41.539l-40.854 106.952c102.186 32.31 228.837 53.135 324.598 51.926l0.96-0.002c95.768 1.216 222.4-19.61 324.6-51.924l-40.855-106.952z" fill="#EB1C26"></path>
+</symbol>`;
+
+const ROBOT_FEISHU_ICON_SVG = `<symbol id="iconRobotFeishu" viewBox="0 0 1024 1024">
+    <path d="M891.318857 340.845714c4.900571 0 9.728 0.292571 14.628572 0.804572a409.965714 409.965714 0 0 1 108.836571 30.061714c10.093714 4.534857 12.580571 8.192 3.949714 17.334857-24.868571 26.624-45.494857 57.051429-61.001143 89.965714-16.822857 35.328-35.108571 69.851429-52.297142 105.033143a225.28 225.28 0 0 1-52.150858 69.412572c-53.613714 48.493714-116.150857 68.973714-187.538285 59.099428-81.92-11.337143-159.451429-38.985143-232.740572-75.483428a143.506286 143.506286 0 0 1-10.459428-5.485715 5.339429 5.339429 0 0 1 0.292571-9.216l5.12-2.706285c59.245714-31.670857 108.836571-75.849143 156.525714-122.294857 20.187429-19.529143 39.497143-40.009143 59.904-59.318858A345.014857 345.014857 0 0 1 804.571429 352.256c13.165714-3.218286 26.550857-5.778286 39.789714-8.630857h0.585143l28.233143-2.56" fill="#133C9A"></path><path d="M317.659429 913.846857c-8.996571-0.512-31.158857-3.584-33.865143-3.949714a536.429714 536.429714 0 0 1-165.083429-48.274286c-30.208-14.116571-59.245714-30.72-88.356571-46.957714-19.163429-10.678857-27.794286-27.282286-27.648-49.883429 0.585143-83.382857 0.585143-166.765714 0-250.148571C2.413714 461.019429 0.731429 407.405714 0 353.718857c0-4.754286 0.731429-9.508571 2.194286-13.897143 3.291429-9.728 9.947429-10.24 16.530285-3.949714 7.606857 7.314286 13.677714 16.237714 21.211429 23.405714 67.291429 66.413714 138.752 127.195429 218.770286 177.225143 45.056 28.891429 91.940571 54.710857 140.434285 77.385143 77.750857 35.328 157.549714 66.486857 241.078858 86.235429 73.874286 17.481143 145.627429 6.436571 205.458285-40.374858 18.285714-15.652571 27.282286-27.062857 48.932572-55.881142a359.862857 359.862857 0 0 1-37.376 72.850285c-13.897143 21.942857-45.348571 51.2-69.193143 74.093715-36.278857 35.108571-83.748571 63.561143-128.292572 87.552-48.566857 26.185143-99.035429 47.104-152.941714 58.514285-27.648 6.948571-67.584 14.848-81.334857 15.579429-2.413714-0.146286-10.678857 1.682286-14.848 1.389714-35.547429 2.633143-57.490286 3.657143-92.891429 0z" fill="#3370FF"></path><path d="M165.083429 110.518857a52.443429 52.443429 0 0 1 7.460571 0c152.649143 0 304.128 2.486857 456.630857 2.486857 0.292571 0 0.585143 0 0.731429 0.219429 14.189714 12.361143 27.282286 25.746286 39.277714 40.155428 34.450286 34.230857 60.123429 93.622857 77.677714 129.755429 8.777143 25.014857 21.942857 48.859429 28.16 76.8v0.438857c-15.579429 5.046857-30.72 11.190857-45.348571 18.505143-44.178286 22.381714-64.219429 38.765714-100.790857 74.752-19.968 19.529143-37.010286 37.083429-63.488 62.098286a563.346286 563.346286 0 0 1-29.769143 26.916571c-7.021714-12.434286-125.732571-244.589714-364.251429-427.300571" fill="#00D6B9"></path>
 </symbol>`;
 
 interface PluginConfig {
@@ -300,18 +381,37 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onload() {
+        setSiyuanRuntimePort({
+            post: (path, payload) => fetchSyncPost(path, payload),
+            getFile: (path) => new Promise((resolve) => {
+                fetchPost("/api/file/getFile", { path }, (content: unknown) => resolve(content));
+            }),
+            getFrontend: () => getFrontend(),
+            platform: {
+                isInAndroid: () => Boolean(platformUtils.isInAndroid?.()),
+                isInIOS: () => Boolean(platformUtils.isInIOS?.()),
+                isHuawei: () => Boolean(platformUtils.isHuawei?.()),
+                sendNotification: (params) => platformUtils.sendNotification(params as Parameters<typeof platformUtils.sendNotification>[0]),
+                cancelNotification: (id) => platformUtils.cancelNotification(id),
+            },
+        });
+        setOpenDocsRuntime((plugin, id, mode) => openDocsInClientRuntime(plugin, id, mode, {
+            openMobileFileById: (app, docId) => openMobileFileById(app as Parameters<typeof openMobileFileById>[0], docId),
+            openTab: (options) => openTab(options as unknown as Parameters<typeof openTab>[0]),
+        }));
         const frontEnd = getFrontend();
         this.isMobile = frontEnd === "mobile" || frontEnd === "browser-mobile";
 
         // 第一部分：首个 await 前同步完成所有独立能力和最小主页入口注册。
         setSharedWidgetStoragePlugin(this);
+        setQuickNoteWritePlugin(this);
+        setQuickNoteConfigLoader(async (plugin) => (await loadHomepageConfigDataStrict(plugin)).data);
         setKbSettingsPlugin(this);
         setReferenceNavigationPlugin(this);
         setNotebrainPlugin(this);
         setPluginStorage({ saveData, loadData, removeData });
         setNotificationCenterPlugin(this);
         setNotifyBridgePlugin(this);
-        setChatActionBridgePlugin(this);
         setTaskNotifyPlugin(this);
         setCountdownNotifyPlugin(this);
         setEnhancedDiaryNotifyPlugin(this);
@@ -344,14 +444,16 @@ export default class PluginHomepage extends Plugin {
             console.warn("[Homepage] 划词 AI 设置读取失败，划词 AI 本次停用", error);
         }
         initSelectionAiToolbarPointerTracker();
-        void startChatActionBridgeIfNeeded().catch((error) => {
-            console.warn("[Homepage] 聊天桥接初始化失败，本次仅停用聊天桥接", error);
-        });
 
         // 第三部分：独立能力完成后才等待身份；失败只停用设备视图。
         try {
             await identityPromise;
             const config = await this.recoverDeviceViewRuntimeAfterIdentityReady();
+            void this.saveData(ROBOT_QUICK_NOTE_CONFIG_KEY, {
+                quickNotesPosition: config.quickNotesPosition ?? "",
+                quickNotesTimestampEnabled: config.quickNotesTimestampEnabled ?? true,
+                quickNotesAddPosition: config.quickNotesAddPosition ?? "bottom",
+            }).catch((error) => console.warn("[Homepage] 快速笔记 Kernel 配置快照同步失败", error));
             this.syncHomepageConfigDependentListeners(config);
             this.maybeStartLegacySharedWidgetMigration();
         } catch (error) {
@@ -519,6 +621,7 @@ export default class PluginHomepage extends Plugin {
 
     async onunload() {
         this.destroyMobileMusicRuntime();
+        await disposeRobotClientRuntime();
         if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
             this.currentMobileEnhancedDiaryWorkspaceDialog.close();
             this.currentMobileEnhancedDiaryWorkspaceDialog = null;
@@ -537,7 +640,6 @@ export default class PluginHomepage extends Plugin {
                 console.warn("[Homepage] 卸载时保存移动快捷操作位置失败，已保留待保存位置:", error);
             }
         }
-        await destroyChatActionBridge();
         destroyTaskNotifyScheduler();
         destroyCountdownNotifyScheduler();
         destroyEnhancedDiaryNotifyScheduler();
@@ -651,10 +753,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onLayoutReady() {
-        // 独立业务先启动：聊天桥接、通知中心、日记通知等不依赖设备身份。
-        void startChatActionBridgeIfNeeded().catch((error) => {
-            console.warn("[Homepage] 聊天桥接初始化失败，本次仅停用聊天桥接", error);
-        });
+        // 独立业务先启动：通知中心、机器人客户端、日记通知等不依赖设备身份。
         try {
             await ensureNotificationCenterMigration();
             startNotificationCenterRuntime();
@@ -665,6 +764,8 @@ export default class PluginHomepage extends Plugin {
         } catch (error) {
             console.warn("[Homepage] 通知中心迁移失败，业务通知调度器未启动", error);
         }
+
+        initRobotClientRuntime(this);
 
         try {
             await this.ensureDeviceIdentityForRuntime();
@@ -1195,6 +1296,9 @@ export default class PluginHomepage extends Plugin {
         this.addIconIfMissing("iconTask", TASK_ICON_SVG);
         this.addIconIfMissing("iconSparkles", SPARKLES_ICON_SVG);
         this.addIconIfMissing("iconNotebrain", NOTEBRAIN_ICON_SVG);
+        this.addIconIfMissing("iconRobotWechat", ROBOT_WECHAT_ICON_SVG);
+        this.addIconIfMissing("iconRobotFeishu", ROBOT_FEISHU_ICON_SVG);
+        this.addIconIfMissing("iconRobotQQ", ROBOT_QQ_ICON_SVG);
     }
 
     private addIconIfMissing(symbolId: string, svg: string): void {

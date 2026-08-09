@@ -218,7 +218,9 @@ export function mutateSharedJson<T extends SharedRevisionedFile>(options: Mutati
     return enqueuePathWrite(options.path, async () => {
         const loaded = await loadSharedJson(options.path, options.normalize);
         const current = loaded || options.createEmpty();
-        const draft = structuredClone(current);
+        // Shared widget records are JSON data. Kernel Goja does not provide
+        // structuredClone, so keep this environment-neutral deep copy.
+        const draft = JSON.parse(JSON.stringify(current)) as T;
         const result = await options.mutate(draft);
         const next = result || draft;
         next.revision = Math.max(0, Number(current.revision) || 0) + 1;

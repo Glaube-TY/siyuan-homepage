@@ -4,6 +4,7 @@ import { ANTHROPIC_CAPABILITIES } from "./provider-capabilities";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./provider-adapter";
 import { AgentProviderError } from "./provider-error";
 import { normalizeAnthropicEndpoint } from "./provider-url-normalizer";
+import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
 
 export interface AnthropicAdapterOptions {
   id: string;
@@ -11,6 +12,10 @@ export interface AnthropicAdapterOptions {
   apiKey: string;
   baseUrl?: string;
   maxTokens?: number;
+  /** 可注入 HTTP 传输（默认浏览器 fetch）。 */
+  transport?: AgentHttpTransport;
+  /** 是否流式（浏览器默认 true；Kernel 传 false 走非流式 JSON）。 */
+  stream?: boolean;
 }
 
 interface AnthropicToolUseState {
@@ -63,10 +68,14 @@ export class AnthropicAdapter implements ProviderAdapter {
   readonly capabilities = ANTHROPIC_CAPABILITIES;
   readonly id: string;
   private readonly endpoint: string;
+  private readonly transport: AgentHttpTransport;
+  private readonly stream: boolean;
 
   constructor(private readonly options: AnthropicAdapterOptions) {
     this.id = options.id;
     this.endpoint = normalizeAnthropicEndpoint(options.baseUrl ?? "");
+    this.transport = options.transport ?? new BrowserAgentHttpTransport();
+    this.stream = options.stream !== false;
   }
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
@@ -79,27 +88,33 @@ export class AnthropicAdapter implements ProviderAdapter {
       .filter((message): message is Record<string, unknown> => message !== null);
 
     try {
-      const response = await fetch(`${this.endpoint}/messages`, {
-        method: "POST",
+      const response = await this.transport.post({
+        url: `${this.endpoint}/messages`,
         headers: {
           "Content-Type": "application/json",
           "x-api-key": this.options.apiKey,
           "anthropic-version": "2023-06-01",
         },
-        signal: request.abortSignal,
         body: JSON.stringify({
           model: this.options.model,
           max_tokens: this.options.maxTokens ?? 4096,
-          stream: true,
+          stream: this.stream,
           messages,
           ...(system ? { system } : {}),
           ...(request.tools.length ? { tools: nativeToolsToAnthropicTools(request.tools) } : {}),
         }),
+        stream: this.stream,
+        signal: request.abortSignal,
       });
 
       if (!response.ok) {
         const status = response.status;
         yield* this.handleHttpError(status);
+        return;
+      }
+
+      if (!this.stream) {
+        yield* this.parseJsonResponse(await response.json());
         return;
       }
 
@@ -115,6 +130,35 @@ export class AnthropicAdapter implements ProviderAdapter {
         recoverable: true,
       });
     }
+  }
+
+  private async *parseJsonResponse(raw: unknown): AsyncGenerator<AgentProviderEvent> {
+    const root = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    const content = Array.isArray(root.content) ? root.content : [];
+    let callIndex = 0;
+
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const record = block as Record<string, unknown>;
+      const type = typeof record.type === "string" ? record.type : "";
+      if (type === "text" && typeof record.text === "string" && record.text) {
+        yield { type: "text_delta", delta: record.text };
+      } else if (type === "tool_use" && typeof record.name === "string") {
+        yield {
+          type: "tool_call_done",
+          toolCall: {
+            id: typeof record.id === "string" ? record.id : `anthropic_call_${callIndex}`,
+            name: record.name,
+            arguments: JSON.stringify(record.input ?? {}),
+            index: callIndex,
+          },
+        };
+        callIndex += 1;
+      }
+    }
+
+    const stopReason = typeof root.stop_reason === "string" ? root.stop_reason : undefined;
+    yield { type: "done", finishReason: stopReason };
   }
 
   private async *handleHttpError(status: number): AsyncGenerator<AgentProviderEvent> {

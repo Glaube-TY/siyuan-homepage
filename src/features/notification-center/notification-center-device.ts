@@ -1,5 +1,5 @@
-import { getFrontend, platformUtils } from "siyuan";
 import { isInMobileApp } from "@/api";
+import { getSiyuanRuntimePort } from "@/runtime/siyuan-runtime-port";
 
 function stableHash(value: string): string {
   let hash = 2166136261;
@@ -11,6 +11,7 @@ function stableHash(value: string): string {
 }
 
 function systemConfig(): Record<string, unknown> {
+  if (typeof window === "undefined") return {};
   return ((window as any)?.siyuan?.config?.system ?? {}) as Record<string, unknown>;
 }
 
@@ -18,7 +19,7 @@ export function getNotificationDeviceId(): string {
   const system = systemConfig();
   const explicit = typeof system.id === "string" ? system.id.trim() : "";
   if (explicit) return explicit;
-  const seed = [system.os, system.name, system.container, navigator.userAgent]
+  const seed = [system.os, system.name, system.container, typeof navigator !== "undefined" ? navigator.userAgent : "kernel"]
     .filter((value) => value != null)
     .map(String)
     .join("|");
@@ -35,20 +36,20 @@ export function getNotificationDevicePlatform(): "android" | "ios" | "harmony" |
   const container = String(system.container ?? "").toLowerCase();
   let isHuawei = false;
   try {
-    isHuawei = Boolean(platformUtils.isHuawei?.());
+    isHuawei = Boolean(getSiyuanRuntimePort().platform?.isHuawei?.());
   } catch {
     isHuawei = false;
   }
   if (container === "harmony" || Boolean((window as any).JSHarmony) || isHuawei || /harmony|huawei|ohos/.test(os + "|" + container)) return "harmony";
-  if (/android/.test(os) || platformUtils.isInAndroid?.()) return "android";
-  if (/ios|iphone|ipad/.test(os) || platformUtils.isInIOS?.()) return "ios";
+  if (/android/.test(os) || getSiyuanRuntimePort().platform?.isInAndroid?.()) return "android";
+  if (/ios|iphone|ipad/.test(os) || getSiyuanRuntimePort().platform?.isInIOS?.()) return "ios";
   if (isInMobileApp()) return "android";
-  const frontend = getFrontend();
+  const frontend = getSiyuanRuntimePort().getFrontend?.() ?? "kernel";
   return frontend === "desktop" || frontend === "browser-desktop" ? "desktop" : "browser";
 }
 
 export function isDesktopNotificationRuntime(): boolean {
-  const frontend = getFrontend();
+  const frontend = getSiyuanRuntimePort().getFrontend?.() ?? "kernel";
   return !isInMobileApp()
     && (frontend === "desktop" || frontend === "desktop-window" || frontend === "browser-desktop");
 }

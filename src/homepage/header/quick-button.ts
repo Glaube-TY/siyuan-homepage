@@ -280,6 +280,7 @@ export function createOpenHomepageSetting(plugin: any) {
                                 });
             },
         });
+        dialog.dialog.element.classList.add("homepage-settings-dialog");
     };
 }
 

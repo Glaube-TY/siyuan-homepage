@@ -1,5 +1,6 @@
 import { appendBlock, getChildBlocks, insertBlock } from "@/api";
-import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
+
+export const ROBOT_QUICK_NOTE_CONFIG_KEY = "robot-quick-note-config-v1";
 
 export type QuickNoteSource = "local" | "feishu" | "quicker" | "external" | "agent";
 
@@ -33,9 +34,14 @@ export interface QuickNoteStatus {
 }
 
 let pluginInstance: any = null;
+let quickNoteConfigLoader: ((plugin: any) => Promise<Record<string, unknown>>) | null = null;
 
 export function setQuickNoteWritePlugin(plugin: any): void {
   pluginInstance = plugin;
+}
+
+export function setQuickNoteConfigLoader(loader: (plugin: any) => Promise<Record<string, unknown>>): void {
+  quickNoteConfigLoader = loader;
 }
 
 function getPlugin(): any {
@@ -65,7 +71,8 @@ async function loadQuickNoteOptions(input: QuickNoteWriteInput) {
     };
   }
 
-  const config = (await loadHomepageConfigDataStrict(getPlugin())).data;
+  if (!quickNoteConfigLoader) throw new Error("Quick note config loader is not initialized.");
+  const config = await quickNoteConfigLoader(getPlugin());
   return {
     quickNotesPosition: typeof config.quickNotesPosition === "string" ? config.quickNotesPosition : "",
     quickNotesTimestampEnabled: config.quickNotesTimestampEnabled ?? true,

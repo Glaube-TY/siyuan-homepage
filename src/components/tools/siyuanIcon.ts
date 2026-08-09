@@ -63,6 +63,9 @@ export const SIYUAN_ICON_MAP: Record<string, string> = {
     lock: "iconVIP",
     check: "iconCheck",
     edit: "iconEdit",
+    wechatRobot: "iconRobotWechat",
+    feishuRobot: "iconRobotFeishu",
+    qqRobot: "iconRobotQQ",
 };
 
 export function resolveSiyuanIconId(name: SiyuanIconName): string {

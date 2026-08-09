@@ -12,7 +12,6 @@
  */
 
 import type { ProviderNativeAgentCompatibility } from "../../types/settings";
-import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 
 export type EndpointKind = "api" | "coding_plan" | "openai_compatible" | "unknown";
 
@@ -311,16 +310,6 @@ export function resolveProviderProfile(
     note: defaults.note,
     warning: defaults.warning,
   };
-
-  pushAgentDebugEvent("NATIVE_AGENT_PROFILE_RESOLVED_SAFE", {
-    providerType: profile.providerType,
-    providerFamily: profile.providerFamily,
-    endpointKind: profile.endpointKind,
-    providerRequestStrategy: profile.providerRequestStrategy,
-    supportsStructuredOutputs: profile.supportsStructuredOutputs,
-    providerRequestTimeoutMs: profile.providerRequestTimeoutMs,
-    hasProviderNativeAgentCompatibility: !!mergedCp,
-  }, "info");
 
   return profile;
 }

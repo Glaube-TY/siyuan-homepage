@@ -1,4 +1,4 @@
-export type HomepageSettingMainTab = "homepage" | "aiKnowledgeBase" | "notifyBridge" | "chatActionBridge" | "vip" | "about";
+export type HomepageSettingMainTab = "homepage" | "aiKnowledgeBase" | "notifyBridge" | "robotAssistant" | "vip" | "about";
 export type HomepageSettingSubTab = "behavior" | "mobile" | "banner" | "title" | "button" | "widgets" | "indexing" | "devices" | "styles";
 
 export interface HomepageSettingProps {
