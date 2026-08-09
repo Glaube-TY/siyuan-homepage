@@ -56,6 +56,7 @@ export class RobotKernelRuntime {
   private statusValue: RobotStatus = "stopped";
   private settings: RobotAssistantSettings;
   private runtimeDevice: RobotRuntimeOwner | null = null;
+  private mobileRuntimeDevice = false;
   private cancelOwnershipCheck: (() => void) | null = null;
   private disposed = false;
 
@@ -119,15 +120,6 @@ export class RobotKernelRuntime {
     await this.dedup.restore();
     await this.reloadSettings();
     await this.resolveRuntimeDevice();
-    // Docker 是常驻服务端：旧配置尚未指定运行设备时，由 Docker 自动取得唯一运行权。
-    if (!this.settings.runtimeOwner && this.runtimeDevice?.container.toLowerCase() === "docker") {
-      this.settings = { ...this.settings, runtimeOwner: { ...this.runtimeDevice } };
-      await this.settingsStore.save(this.settings);
-      this.host.log.info({
-        status: "runtime_owner_auto_claimed",
-        message: this.runtimeDevice.deviceName || this.runtimeDevice.deviceId,
-      });
-    }
     this.scheduleOwnershipCheck();
     // 提前统一主密钥存储格式，确保随后启动的 Electron Provider 可通过 Plugin.loadData 解密。
     await this.secretVault.getMasterSecret();
@@ -147,6 +139,10 @@ export class RobotKernelRuntime {
 
   async start(): Promise<void> {
     await this.initialize();
+    if (this.isMobileRuntimeDevice()) {
+      await this.disableMobileRuntime();
+      return;
+    }
     if (!this.settings.enabled) {
       this.statusValue = "disabled";
       this.host.notify("robot.statusChanged", { status: this.statusValue });
@@ -191,10 +187,17 @@ export class RobotKernelRuntime {
   async saveSettings(next: RobotAssistantSettings): Promise<RobotAssistantSettings> {
     const previous = this.settings;
     this.settings = normalizeV2Settings(next);
+    this.clearInactiveElectronProviderStatuses();
     this.historyStore.setLimit(this.settings.keepHistoryLimit);
     await this.historyStore.prune();
     await this.settingsStore.save(this.settings);
-    if (!this.settings.enabled) {
+    if (previous.activeProvider !== this.settings.activeProvider) {
+      await this.pairingStore.clear();
+      this.host.notify("robot.pairingChanged", { enabled: false });
+    }
+    if (this.isMobileRuntimeDevice()) {
+      await this.disableMobileRuntime();
+    } else if (!this.settings.enabled) {
       this.statusValue = "disabled";
       await this.wechatProvider?.disconnect();
       this.electronProviderStatuses.clear();
@@ -202,9 +205,8 @@ export class RobotKernelRuntime {
       await this.enterStandby();
     } else if (this.statusValue !== "running") {
       await this.start();
-    } else if (this.wechatProvider) {
-      if (this.settings.wechat.enabled && !previous.wechat.enabled) await this.wechatProvider.connect();
-      if (!this.settings.wechat.enabled && previous.wechat.enabled) await this.wechatProvider.disconnect();
+    } else {
+      await this.reconcileSelectedProvider(previous.activeProvider);
     }
     // 设置变化 → 前端刷新 Electron Provider 注册（启用/停用飞书、QQ 等）。
     this.host.notify("robot.statusChanged", { status: this.statusValue });
@@ -217,8 +219,19 @@ export class RobotKernelRuntime {
 
   private isCurrentRuntimeOwner(): boolean {
     const owner = this.settings.runtimeOwner;
-    if (!owner?.deviceId) return true;
+    if (!owner?.deviceId) return false;
     return Boolean(this.runtimeDevice?.deviceId && this.runtimeDevice.deviceId === owner.deviceId);
+  }
+
+  private isMobileRuntimeDevice(): boolean {
+    return this.mobileRuntimeDevice;
+  }
+
+  private async disableMobileRuntime(): Promise<void> {
+    this.statusValue = "disabled";
+    await this.wechatProvider?.disconnect();
+    this.electronProviderStatuses.clear();
+    this.host.notify("robot.statusChanged", { status: this.statusValue });
   }
 
   private async enterStandby(): Promise<void> {
@@ -230,11 +243,26 @@ export class RobotKernelRuntime {
 
   private async activateProviders(): Promise<void> {
     this.statusValue = "running";
-    if (this.settings.wechat.enabled && this.wechatProvider) {
+    if (this.settings.activeProvider === "wechat" && this.wechatProvider) {
       this.providerManager.register(this.wechatProvider);
       await this.wechatProvider.connect();
     }
     this.host.notify("robot.statusChanged", { status: this.statusValue });
+  }
+
+  private async reconcileSelectedProvider(previousProvider: RobotAssistantSettings["activeProvider"]): Promise<void> {
+    if (!this.wechatProvider) return;
+    if (this.settings.activeProvider !== "wechat") {
+      await this.wechatProvider.disconnect();
+      return;
+    }
+    if (previousProvider !== "wechat") await this.wechatProvider.connect();
+  }
+
+  private clearInactiveElectronProviderStatuses(): void {
+    for (const providerId of Array.from(this.electronProviderStatuses.keys())) {
+      if (providerId !== this.settings.activeProvider) this.electronProviderStatuses.delete(providerId);
+    }
   }
 
   private scheduleOwnershipCheck(): void {
@@ -251,15 +279,20 @@ export class RobotKernelRuntime {
   }
 
   private async refreshRuntimeOwnership(): Promise<void> {
-    let latest = await this.settingsStore.load();
-    if (!latest.runtimeOwner && this.runtimeDevice?.container.toLowerCase() === "docker") {
-      latest = { ...latest, runtimeOwner: { ...this.runtimeDevice } };
-      await this.settingsStore.save(latest);
-    }
+    const latest = await this.settingsStore.load();
     if (JSON.stringify(latest) === JSON.stringify(this.settings)) return;
     const previous = this.settings;
     this.settings = latest;
+    this.clearInactiveElectronProviderStatuses();
+    if (previous.activeProvider !== this.settings.activeProvider) {
+      await this.pairingStore.clear();
+      this.host.notify("robot.pairingChanged", { enabled: false });
+    }
     this.historyStore.setLimit(this.settings.keepHistoryLimit);
+    if (this.isMobileRuntimeDevice()) {
+      await this.disableMobileRuntime();
+      return;
+    }
     if (!this.settings.enabled) {
       this.statusValue = "disabled";
       await this.wechatProvider?.disconnect();
@@ -271,10 +304,9 @@ export class RobotKernelRuntime {
       if (this.statusValue === "running") await this.enterStandby();
       return;
     }
-    if (this.statusValue === "standby") await this.activateProviders();
-    else if (this.statusValue === "running" && this.wechatProvider) {
-      if (this.settings.wechat.enabled && !previous.wechat.enabled) await this.wechatProvider.connect();
-      if (!this.settings.wechat.enabled && previous.wechat.enabled) await this.wechatProvider.disconnect();
+    if (this.statusValue !== "running") await this.activateProviders();
+    else {
+      await this.reconcileSelectedProvider(previous.activeProvider);
       this.host.notify("robot.statusChanged", { status: this.statusValue });
     }
   }
@@ -288,14 +320,18 @@ export class RobotKernelRuntime {
       const conf = data.conf && typeof data.conf === "object" ? data.conf as Record<string, unknown> : {};
       const system = conf.system && typeof conf.system === "object" ? conf.system as Record<string, unknown> : {};
       const deviceId = typeof system.id === "string" ? system.id.trim() : "";
+      const container = typeof system.container === "string" ? system.container.trim() : "";
+      const os = typeof system.os === "string" ? system.os.trim() : "";
+      this.mobileRuntimeDevice = /android|ios|iphone|ipad|harmony|mobile/.test(`${container}|${os}`.toLowerCase());
       if (!deviceId) return;
       this.runtimeDevice = {
         deviceId,
         deviceName: typeof system.name === "string" ? system.name.trim() : "",
-        container: typeof system.container === "string" ? system.container.trim() : "",
+        container,
       };
     } catch {
       this.runtimeDevice = null;
+      this.mobileRuntimeDevice = false;
     }
   }
 
@@ -333,6 +369,11 @@ export class RobotKernelRuntime {
   /** 前端注册 / 更新 Electron Provider（飞书 / QQ）状态。Kernel 不运行它们，只记录并通知。 */
   async updateElectronProviderStatus(providerId: RobotProviderId, status: RobotProviderRuntimeStatus): Promise<void> {
     if (providerId === "wechat") return;
+    if (providerId !== this.settings.activeProvider) {
+      this.electronProviderStatuses.delete(providerId);
+      this.host.notify("robot.providerStatusChanged", this.getProviderStatus(providerId));
+      return;
+    }
     if (status && status.status === "offline") {
       this.electronProviderStatuses.delete(providerId);
     } else if (status) {
@@ -348,6 +389,7 @@ export class RobotKernelRuntime {
 
   async ingestExternalMessage(message: NormalizedRobotMessage): Promise<void> {
     if (this.statusValue !== "running") return;
+    if (message.provider !== this.settings.activeProvider) return;
     await this.core.handleIncomingMessage(message);
   }
 
@@ -400,6 +442,9 @@ export class RobotKernelRuntime {
   // ── 配对捕获（Provider-independent，方案 §Robot Admission / 白名单） ──
 
   async startPairing(provider: RobotProviderId, ttlMs = 2 * 60 * 1000): Promise<RobotPairingCaptureState> {
+    if (provider !== this.settings.activeProvider) {
+      throw new Error("只能捕获当前使用机器人的消息，请先在总体设置中切换渠道");
+    }
     const state: RobotPairingCaptureState = {
       enabled: true,
       provider,
@@ -521,6 +566,9 @@ export class RobotKernelRuntime {
   private async sendOutbound(message: RobotOutboundMessage): Promise<{ ok: boolean; errorCode?: string; message?: string }> {
     if (this.statusValue !== "running") {
       return { ok: false, errorCode: "runtime_not_active", message: "当前设备不是机器人运行设备" };
+    }
+    if (message.provider !== this.settings.activeProvider) {
+      return { ok: false, errorCode: "provider_not_active", message: "该渠道当前未接入机器人内核" };
     }
     const result = await this.providerManager.send(message);
     if (!result.ok && result.forwardedToClient) {

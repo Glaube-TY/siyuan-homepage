@@ -776,7 +776,8 @@ export default class PluginHomepage extends Plugin {
             console.warn("[Homepage] 通知中心迁移失败，业务通知调度器未启动", error);
         }
 
-        initRobotClientRuntime(this);
+        // 手机端不参与机器人运行设备竞争，也不加载任何渠道 Provider。
+        if (!this.isMobileFrontend()) initRobotClientRuntime(this);
 
         try {
             await this.ensureDeviceIdentityForRuntime();

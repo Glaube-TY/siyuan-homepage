@@ -1,6 +1,7 @@
 import {
   createDefaultRobotAdmission,
   createDefaultRobotAssistantSettings,
+  isRobotProviderId,
   type RobotAssistantSettings,
   type RobotToolPolicy,
 } from "./robot-settings-types";
@@ -84,6 +85,8 @@ export function migrateChatActionV1ToRobotV2(rawV1: unknown): RobotAssistantSett
     };
   }
 
+  if (out.feishu.enabled) out.activeProvider = "feishu";
+
   return out;
 }
 
@@ -152,8 +155,19 @@ export function normalizeV2Settings(raw: unknown): RobotAssistantSettings {
   out.wechat.accountId = typeof wechat.accountId === "string" ? wechat.accountId : undefined;
   out.wechat.displayName = typeof wechat.displayName === "string" ? wechat.displayName : undefined;
   out.wechat.admission = normalizeAdmission(wechat.admission);
+  out.activeProvider = value.activeProvider === "none" || isRobotProviderId(value.activeProvider)
+    ? value.activeProvider
+    : inferLegacyActiveProvider(out);
   out.robotToolPolicy = normalizeToolPolicy(value.robotToolPolicy);
   return out;
+}
+
+/** 旧配置可能同时启用了多个渠道；迁移时保留最常用的一个，随后由用户在总体设置中切换。 */
+function inferLegacyActiveProvider(settings: RobotAssistantSettings): RobotAssistantSettings["activeProvider"] {
+  if (settings.wechat.enabled) return "wechat";
+  if (settings.qq.enabled) return "qq";
+  if (settings.feishu.enabled) return "feishu";
+  return "none";
 }
 
 function normalizeAdmission(raw: unknown): RobotAdmissionSettings {

@@ -36,8 +36,6 @@ export interface RobotClientRuntimeDeps {
   logger?: RobotClientRuntimeLogger;
 }
 
-const ELECTRON_PROVIDER_IDS = ["feishu", "qq"] as const;
-
 export class RobotClientRuntime {
   private readonly providers = new Map<"feishu" | "qq", { api: ElectronProviderApi }>();
   private readonly unsubscribes: Array<() => void> = [];
@@ -106,9 +104,8 @@ export class RobotClientRuntime {
     this.settings = settings;
 
     const enabled = new Set<"feishu" | "qq">();
-    for (const id of ELECTRON_PROVIDER_IDS) {
-      const section = settings[id];
-      if (section && typeof section === "object" && section.enabled === true) enabled.add(id);
+    if (settings.activeProvider === "feishu" || settings.activeProvider === "qq") {
+      enabled.add(settings.activeProvider);
     }
 
     for (const providerId of Array.from(this.providers.keys())) {
@@ -202,6 +199,8 @@ export class RobotClientRuntime {
 
   private async handleInboundMessage(raw: unknown): Promise<void> {
     if (!raw || typeof raw !== "object") return;
+    const provider = (raw as { provider?: unknown }).provider;
+    if (provider !== this.settings?.activeProvider) return;
     try {
       await this.deps.kernel.call("robot.ingestExternalMessage", raw as NormalizedRobotMessage);
     } catch (error) {

@@ -29,6 +29,9 @@ export interface RobotQqSettings extends RobotProviderSettings {
   encryptedAppSecret: string;
 }
 
+/** 同一时刻只允许一个 Provider 接入 Robot Core；none 表示仅保留配置。 */
+export type RobotActiveProvider = RobotProviderId | "none";
+
 /** 唯一负责接收和回复远程消息的思源 Kernel。 */
 export interface RobotRuntimeOwner {
   deviceId: string;
@@ -49,7 +52,9 @@ export interface RobotToolPolicy {
 export interface RobotAssistantSettings {
   version: 2;
   enabled: boolean;
-  /** null 兼容旧配置；设置后仅匹配的 Kernel 运行 Provider。 */
+  /** 当前实际接入 Robot Core 的唯一渠道。其他渠道仅保留配置，不建立消息监听。 */
+  activeProvider: RobotActiveProvider;
+  /** null 表示尚未指定；仅匹配的 Kernel 可以启动 Robot Core 和当前渠道。 */
   runtimeOwner: RobotRuntimeOwner | null;
   /** "use-kb-current" 或显式模型快照由前端 syncAgentRuntimeConfig 推送，此处仅记录选择意向。 */
   agentModel: "use_kb_current" | "explicit";
@@ -100,6 +105,7 @@ export function createDefaultRobotAssistantSettings(): RobotAssistantSettings {
   return {
     version: ROBOT_SETTINGS_VERSION,
     enabled: false,
+    activeProvider: "none",
     runtimeOwner: null,
     agentModel: "use_kb_current",
     maxMessageLength: 4000,

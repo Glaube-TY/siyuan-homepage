@@ -1367,6 +1367,7 @@
         <MainTabNav
             activeTab={activeTab}
             onTabChange={handleMainTabChange}
+            showRobotAssistant={!plugin?.isMobile}
         />
     </div>
 

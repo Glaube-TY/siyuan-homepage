@@ -66,6 +66,9 @@ export async function createRobotKernel(host: RobotKernelHost, options: RobotKer
           ...current,
           wechat: { ...current.wechat, accountId: state.accountId, ...(state.displayName ? { displayName: state.displayName } : {}) },
         });
+      } else if (state.status === "binded_redirect" && runtime.getSettings().activeProvider !== "wechat") {
+        // 允许预先完成微信绑定，但非当前渠道不能继续长轮询消息。
+        await wechat.disconnect();
       }
       return state;
     },

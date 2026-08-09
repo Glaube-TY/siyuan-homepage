@@ -321,6 +321,9 @@
         saving = true;
         try {
             settings.enabled = !settings.enabled;
+            if (settings.enabled && !settings.runtimeOwner && runtimeDevice) {
+                settings.runtimeOwner = { ...runtimeDevice };
+            }
             await client.saveSettings(settings);
             if (settings.enabled) {
                 await client.start();
@@ -331,6 +334,23 @@
             showMessage(settings.enabled ? "机器人助手已启用" : "机器人助手已停用", 2000);
         } catch (error) {
             showMessage(error instanceof Error ? error.message : "保存失败", 3000, "error");
+        } finally {
+            saving = false;
+        }
+    }
+
+    async function selectActiveProvider(value: RobotAssistantSettings["activeProvider"]): Promise<void> {
+        if (!client || saving || settings.activeProvider === value) return;
+        saving = true;
+        try {
+            settings.activeProvider = value;
+            if (value !== "none") settings[value].enabled = true;
+            settings = await client.saveSettings(settings);
+            await refreshStatus();
+            const label = value === "wechat" ? "微信" : value === "qq" ? "QQ" : value === "feishu" ? "飞书" : "无";
+            showMessage(value === "none" ? "已停止所有机器人渠道" : `已切换为 ${label} 机器人`, 2000);
+        } catch (error) {
+            showMessage(error instanceof Error ? error.message : "机器人切换失败", 3000, "error");
         } finally {
             saving = false;
         }
@@ -363,21 +383,6 @@
             settings[provider] = { ...section, admission } as never;
             await client.saveSettings(settings);
             showMessage("已保存", 1500);
-            await refreshStatus();
-        } catch (error) {
-            showMessage(error instanceof Error ? error.message : "保存失败", 3000, "error");
-        } finally {
-            saving = false;
-        }
-    }
-
-    async function toggleProviderEnabled(provider: RobotProviderId): Promise<void> {
-        if (!client || saving) return;
-        saving = true;
-        try {
-            const section = settings[provider] as { enabled: boolean };
-            section.enabled = !section.enabled;
-            await client.saveSettings(settings);
             await refreshStatus();
         } catch (error) {
             showMessage(error instanceof Error ? error.message : "保存失败", 3000, "error");
@@ -602,10 +607,24 @@
                         onchange={() => toggleGlobalEnabled()} disabled={disabled} aria-label="启用机器人助手" />
                 </div>
             </SettingRow>
+            <SettingRow title="当前使用的机器人" description="同一时间只运行一个渠道，其他渠道仅保留配置。">
+                <select
+                    class="b3-select robot-provider-select"
+                    value={settings.activeProvider}
+                    onchange={(event) => selectActiveProvider((event.currentTarget as HTMLSelectElement).value as RobotAssistantSettings["activeProvider"])}
+                    disabled={disabled}
+                    aria-label="当前使用的机器人"
+                >
+                    <option value="none">不使用机器人</option>
+                    <option value="wechat">微信机器人</option>
+                    <option value="qq" disabled={!isElectron}>QQ 机器人（桌面端）</option>
+                    <option value="feishu" disabled={!isElectron}>飞书机器人（桌面端）</option>
+                </select>
+            </SettingRow>
             <SettingRow title="Robot Core 状态">
                 <span class="robot-status-pill robot-status-pill--{statusTone(statusSnapshot?.status ?? 'stopped')}">{statusText}</span>
             </SettingRow>
-            <SettingRow title="运行设备" description="同一机器人账号只允许一个思源 Kernel 接收消息，避免 Docker 与电脑重复回复。">
+            <SettingRow title="运行设备" description="只有指定设备会连接当前机器人，其他设备保持待机。">
                 <div class="robot-runtime-owner">
                     <span class="robot-status-pill robot-status-pill--{settings.runtimeOwner?.deviceId === runtimeDevice?.deviceId ? 'success' : 'warning'}">
                         {settings.runtimeOwner?.deviceName || settings.runtimeOwner?.deviceId || "尚未指定"}
@@ -649,9 +668,10 @@
                     <span class="robot-status-pill robot-status-pill--{statusTone(providerStatusValue('wechat'))}">{providerStatusText("wechat")}</span>
                 </div>
 
-                <SettingRow title="启用微信">
-                    <input class="b3-switch fn__flex-center" type="checkbox" checked={settings.wechat.enabled}
-                        onchange={() => toggleProviderEnabled("wechat")} disabled={disabled} />
+                <SettingRow title="运行状态">
+                    <span class="robot-status-pill robot-status-pill--{settings.activeProvider === 'wechat' ? 'success' : 'neutral'}">
+                        {settings.activeProvider === "wechat" ? "当前使用" : "仅保留配置"}
+                    </span>
                 </SettingRow>
                 <SettingRow title="私聊 / 群聊">
                     <div class="robot-toggle-group">
@@ -746,7 +766,7 @@
                     <button class="b3-button robot-action robot-action--secondary" disabled={disabled}
                         onclick={() => saveProviderSettings("wechat")}>保存设置</button>
                     <button class="b3-button robot-action robot-action--secondary"
-                        disabled={disabled || !wechatConnected || (pairingEnabled && pairingProvider === "wechat")}
+                        disabled={disabled || settings.activeProvider !== "wechat" || !wechatConnected || (pairingEnabled && pairingProvider === "wechat")}
                         onclick={() => startPairing("wechat")}>{pairingEnabled && pairingProvider === "wechat" ? "正在捕获…" : "捕获下一条私聊"}</button>
                 </div>
             </div>
@@ -765,9 +785,10 @@
                 {#if !isElectron}
                     <div class="robot-notice">飞书机器人仅支持思源桌面客户端。</div>
                 {:else}
-                    <SettingRow title="启用飞书">
-                        <input class="b3-switch fn__flex-center" type="checkbox" checked={settings.feishu.enabled}
-                            onchange={() => toggleProviderEnabled("feishu")} disabled={disabled} />
+                    <SettingRow title="运行状态">
+                        <span class="robot-status-pill robot-status-pill--{settings.activeProvider === 'feishu' ? 'success' : 'neutral'}">
+                            {settings.activeProvider === "feishu" ? "当前使用" : "仅保留配置"}
+                        </span>
                     </SettingRow>
                     <SettingRow title="App ID">
                         <input class="b3-text-field fn__size200" bind:value={settings.feishu.appId} disabled={disabled} />
@@ -794,8 +815,8 @@
                     <div class="robot-provider-actions">
                         <button class="b3-button robot-action robot-action--primary" disabled={disabled}
                             onclick={() => saveProviderSettings("feishu")}>保存飞书设置</button>
-                        <button class="b3-button robot-action robot-action--secondary" disabled={disabled}
-                            onclick={() => startPairing("feishu")}>捕获下一条私聊</button>
+                        <button class="b3-button robot-action robot-action--secondary"
+                            onclick={() => startPairing("feishu")} disabled={disabled || settings.activeProvider !== "feishu"}>捕获下一条私聊</button>
                     </div>
                 {/if}
             </div>
@@ -852,9 +873,10 @@
                 {#if !isElectron}
                     <div class="robot-notice">QQ 机器人仅支持思源桌面客户端。</div>
                 {:else}
-                    <SettingRow title="启用 QQ">
-                        <input class="b3-switch fn__flex-center" type="checkbox" checked={settings.qq.enabled}
-                            onchange={() => toggleProviderEnabled("qq")} disabled={disabled} />
+                    <SettingRow title="运行状态">
+                        <span class="robot-status-pill robot-status-pill--{settings.activeProvider === 'qq' ? 'success' : 'neutral'}">
+                            {settings.activeProvider === "qq" ? "当前使用" : "仅保留配置"}
+                        </span>
                     </SettingRow>
                     <SettingRow title="App ID">
                         <input class="b3-text-field fn__size200" bind:value={settings.qq.appId} disabled={disabled} />
@@ -881,8 +903,8 @@
                     <div class="robot-provider-actions">
                         <button class="b3-button robot-action robot-action--primary" disabled={disabled}
                             onclick={() => saveProviderSettings("qq")}>保存 QQ 设置</button>
-                        <button class="b3-button robot-action robot-action--secondary" disabled={disabled}
-                            onclick={() => startPairing("qq")}>捕获下一条私聊</button>
+                        <button class="b3-button robot-action robot-action--secondary"
+                            onclick={() => startPairing("qq")} disabled={disabled || settings.activeProvider !== "qq"}>捕获下一条私聊</button>
                     </div>
                 {/if}
             </div>
@@ -999,6 +1021,13 @@
         gap: 0.75rem;
         font-size: 12px;
         color: var(--b3-theme-on-surface-light);
+    }
+
+    .robot-provider-select {
+        width: min(220px, 100%);
+        min-height: 32px;
+        text-align: center;
+        text-align-last: center;
     }
 
     .robot-runtime-owner {
