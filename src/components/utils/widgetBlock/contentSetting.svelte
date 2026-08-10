@@ -19,6 +19,14 @@
   import MusicPlayerSet from "./widget/musicPlayer/musicPlayerSet.svelte";
   import NewsSet from "./widget/News/NewsSet.svelte";
   import ProtyleSet from "./widget/protyle/protyleSet.svelte";
+  import {
+    getProtyleDisplayPreset,
+    normalizeProtyleDisplayConfig,
+    type ProtyleContentPadding,
+    type ProtyleContentWidthMode,
+    type ProtyleDisplayPreset,
+    type ProtyleOuterPadding,
+  } from "./widget/protyle/protyleDisplayConfig";
   import QuickNotesSet from "./widget/quickNotes/quickNotesSet.svelte";
   import SqlSet from "./widget/sql/sqlSet.svelte";
   import StatisticalCardSet from "./widget/statisticalCard/statisticalCardSet.svelte";
@@ -234,6 +242,14 @@
   // 自定义显示块ID
   let isRandomDoc: boolean = $state(false);
   let customBlockID: string = $state("");
+  const newProtyleDisplayDefaults = getProtyleDisplayPreset("compact");
+  let protyleDisplayPreset = $state<ProtyleDisplayPreset>(newProtyleDisplayDefaults.displayPreset);
+  let protyleShowBreadcrumb = $state(newProtyleDisplayDefaults.showBreadcrumb);
+  let protyleShowDocumentTitle = $state(newProtyleDisplayDefaults.showDocumentTitle);
+  let protyleContentWidthMode = $state<ProtyleContentWidthMode>(newProtyleDisplayDefaults.contentWidthMode);
+  let protyleOuterPadding = $state<ProtyleOuterPadding>(newProtyleDisplayDefaults.outerPadding);
+  let protyleContentPadding = $state<ProtyleContentPadding>(newProtyleDisplayDefaults.contentPadding);
+  let protyleInnerCard = $state(newProtyleDisplayDefaults.innerCard);
 
   let enhancedDiaryDraftConfig = $state<EnhancedDiaryConfig>({
     ...DEFAULT_ENHANCED_DIARY_CONFIG,
@@ -616,8 +632,17 @@
       } else if (parsedData.type === "custom-web") {
         customWebUrl = parsedData.data?.[0]?.url || "";
       } else if (parsedData.type === "custom-protyle") {
-        isRandomDoc = parsedData.data?.[0]?.isRandomDoc || false;
-        customBlockID = parsedData.data?.[0]?.customBlockId || "";
+        const protyleData = parsedData.data?.[0] ?? {};
+        const display = normalizeProtyleDisplayConfig(protyleData);
+        isRandomDoc = protyleData.isRandomDoc || false;
+        customBlockID = protyleData.customBlockId || "";
+        protyleDisplayPreset = display.displayPreset;
+        protyleShowBreadcrumb = display.showBreadcrumb;
+        protyleShowDocumentTitle = display.showDocumentTitle;
+        protyleContentWidthMode = display.contentWidthMode;
+        protyleOuterPadding = display.outerPadding;
+        protyleContentPadding = display.contentPadding;
+        protyleInnerCard = display.innerCard;
       } else if (parsedData.type === "timedate") {
         // 时钟组件相关变量
         timeType = parsedData.data?.timeType || "classic";
@@ -1419,7 +1444,17 @@
         {:else if selectedContentType === "custom-web"}
           <WebviewSet bind:customWebUrl />
         {:else if selectedContentType === "custom-protyle"}
-          <ProtyleSet bind:isRandomDoc bind:customBlockID />
+          <ProtyleSet
+            bind:isRandomDoc
+            bind:customBlockID
+            bind:displayPreset={protyleDisplayPreset}
+            bind:showBreadcrumb={protyleShowBreadcrumb}
+            bind:showDocumentTitle={protyleShowDocumentTitle}
+            bind:contentWidthMode={protyleContentWidthMode}
+            bind:outerPadding={protyleOuterPadding}
+            bind:contentPadding={protyleContentPadding}
+            bind:innerCard={protyleInnerCard}
+          />
         {/if}
       </div>
     {/if}
@@ -1605,6 +1640,13 @@
               {
                 isRandomDoc,
                 customBlockId: customBlockID,
+                displayPreset: protyleDisplayPreset,
+                showBreadcrumb: protyleShowBreadcrumb,
+                showDocumentTitle: protyleShowDocumentTitle,
+                contentWidthMode: protyleContentWidthMode,
+                outerPadding: protyleOuterPadding,
+                contentPadding: protyleContentPadding,
+                innerCard: protyleInnerCard,
               },
             ],
           };

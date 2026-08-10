@@ -1,6 +1,11 @@
 import { getMobileWidgetActiveTab } from "../../../../../../homepage/mobileHomepage/mobile-widget-categories";
 import { assertHomepagePatchContainsNoSensitiveFields } from "./homepage-agent-widget-sanitizer";
 import { getHomepageAgentWidgetDescriptor } from "./homepage-agent-widget-catalog";
+import {
+  getProtyleDisplayPreset,
+  PROTYLE_CONTENT_PADDING_OPTIONS,
+  PROTYLE_OUTER_PADDING_OPTIONS,
+} from "../../../../../../components/utils/widgetBlock/widget/protyle/protyleDisplayConfig";
 
 const ARRAY_DATA_TYPES = new Set(["latest-docs", "custom-text", "custom-web", "custom-protyle"]);
 const SIYUAN_ID = /^\d{14}-[a-z0-9]{7}$/i;
@@ -12,7 +17,7 @@ const DEFAULT_DATA: Record<string, Record<string, unknown>> = {
   TaskManPlus: { TaskManPlusTitle: "📋任务管理Plus", isCustomFilter: false, internalFilter: "all", customFilter: "", tasksSort: "startdate" },
   "quick-notes": { quickNotesTitle: "快速笔记", quickNotesSort: "DOC_ASC" },
   weather: { cityName: "", cityCode: "", weatherStyle: "default" },
-  "custom-text": { customText: "" }, "custom-web": { url: "" }, "custom-protyle": { isRandomDoc: false, customBlockId: "" },
+  "custom-text": { customText: "" }, "custom-web": { url: "" }, "custom-protyle": { isRandomDoc: false, customBlockId: "", ...getProtyleDisplayPreset("compact") },
   focus: { focusImageType: "remote", focusBgImage: "", breakImageType: "remote", breakBgImage: "" },
   musicPlayer: { musicFolderPath: "", sourceMode: "local", cloudStreamQuality: "original", cloudTranscodeFormat: "auto", autoPlay: false },
   dailyQuote: { dailyQuoteMode: "custom", customDailyQuoteContent: "", dailyQuoteSource: "classic", dailyQuoteFontSize: 1, dailyQuoteBgSelect: "remote", dailyQuoteRemoteBg: "" },
@@ -47,6 +52,7 @@ const ENUM_FIELDS: Readonly<Record<string, readonly string[]>> = {
   countdownTimerStyle: ["default", "ring1"], fixedAssetsSortBy: ["updated", "dailyCost", "totalCost", "days", "name"],
   fixedAssetsItemCostPeriod: ["hour", "day", "week", "month", "quarter", "year"],
   reviewDocsDefaultView: ["due", "today", "overdue", "future", "all"], reviewDocsSortBy: ["dueAsc", "priorityDesc", "updatedDesc", "createdDesc", "reviewCountAsc"],
+  displayPreset: ["standard", "compact", "immersive", "custom"], contentWidthMode: ["system", "full"],
 };
 
 const NUMBER_RANGES: Readonly<Record<string, readonly [number, number]>> = {
@@ -61,7 +67,9 @@ function isAbsoluteLocalPath(value: string): boolean {
 
 function validateField(type: string, key: string, value: unknown): void {
   const defaultValue = DEFAULT_DATA[type]?.[key];
-  if (defaultValue !== undefined && typeof value !== typeof defaultValue) throw new Error(`字段 ${key} 必须是 ${typeof defaultValue} 类型`);
+  if (key === "outerPadding" && !PROTYLE_OUTER_PADDING_OPTIONS.includes(value as never)) throw new Error("outerPadding 不在允许范围内");
+  if (key === "contentPadding" && !PROTYLE_CONTENT_PADDING_OPTIONS.includes(value as never)) throw new Error("contentPadding 不在允许范围内");
+  if (key !== "contentPadding" && defaultValue !== undefined && typeof value !== typeof defaultValue) throw new Error(`字段 ${key} 必须是 ${typeof defaultValue} 类型`);
   if (typeof value === "string" && value.length > 10000) throw new Error(`字段 ${key} 文本过长`);
   if (typeof value === "string" && isAbsoluteLocalPath(value)) throw new Error(`字段 ${key} 不允许写入本地绝对路径`);
   if (key === "customText" && (typeof value !== "string" || value.length > 10000)) throw new Error("customText 必须是不超过 10000 字符的文本");

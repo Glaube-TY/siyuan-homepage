@@ -18,7 +18,7 @@ const EDITABLE_FIELDS: Record<string, string[]> = {
   weather: ["cityName", "cityCode", "weatherStyle"],
   "custom-text": ["customText"],
   "custom-web": ["url"],
-  "custom-protyle": ["isRandomDoc", "customBlockId"],
+  "custom-protyle": ["isRandomDoc", "customBlockId", "displayPreset", "showBreadcrumb", "showDocumentTitle", "contentWidthMode", "outerPadding", "contentPadding", "innerCard"],
   focus: ["focusImageType", "focusBgImage", "breakImageType", "breakBgImage"],
   musicPlayer: ["sourceMode", "cloudStreamQuality", "cloudTranscodeFormat", "autoPlay"],
   dailyQuote: ["dailyQuoteMode", "customDailyQuoteContent", "dailyQuoteSource", "dailyQuoteFontSize", "dailyQuoteBgSelect", "dailyQuoteRemoteBg"],

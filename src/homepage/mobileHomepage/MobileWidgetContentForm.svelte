@@ -36,6 +36,13 @@
   import { svelteDialog } from "@/libs/dialog";
   import MusicCloudConnectionDialog from "@/components/utils/widgetBlock/widget/musicPlayer/MusicCloudConnectionDialog.svelte";
   import { MusicCloudSettingsStore } from "@/components/utils/widgetBlock/widget/musicPlayer/musicCloudSettingsStore";
+  import {
+    getProtyleDisplayPreset,
+    normalizeProtyleDisplayConfig,
+    PROTYLE_CONTENT_PADDING_OPTIONS,
+    PROTYLE_OUTER_PADDING_OPTIONS,
+    type ProtyleDisplayPreset,
+  } from "@/components/utils/widgetBlock/widget/protyle/protyleDisplayConfig";
 
   interface Props {
     plugin: any;
@@ -161,6 +168,29 @@
 
   function normalizeBoolean(value: unknown, fallback: boolean): boolean {
     return typeof value === "boolean" ? value : fallback;
+  }
+
+  const protyleDisplayFieldKeys = new Set([
+    "showBreadcrumb",
+    "showDocumentTitle",
+    "contentWidthMode",
+    "outerPadding",
+    "contentPadding",
+    "innerCard",
+  ]);
+
+  function handleFieldChange(key: string, currentValue?: unknown): void {
+    if (widgetType !== "custom-protyle") return;
+    if (key === "displayPreset") {
+      const preset = currentValue as ProtyleDisplayPreset;
+      if (preset === "standard" || preset === "compact" || preset === "immersive") {
+        Object.assign(form, getProtyleDisplayPreset(preset));
+      } else if (preset === "custom") {
+        form.displayPreset = "custom";
+      }
+      return;
+    }
+    if (protyleDisplayFieldKeys.has(key)) form.displayPreset = "custom";
   }
 
   function createDefaultForm(type: string): FormState {
@@ -366,6 +396,7 @@
       "custom-protyle": {
         isRandomDoc: false,
         customBlockId: "",
+        ...getProtyleDisplayPreset("compact"),
       },
       focus: {
         focusImageType: "remote",
@@ -455,6 +486,8 @@
 
     if (type === "custom-protyle") {
       next.customBlockId = source?.customBlockId || source?.customBlockID || "";
+      const hasSavedConfig = Boolean(source && typeof source === "object" && Object.keys(source).length > 0);
+      Object.assign(next, normalizeProtyleDisplayConfig(source, hasSavedConfig ? "standard" : "compact"));
     }
 
     if (type === "latest-docs") {
@@ -675,16 +708,19 @@
             }),
           ],
         };
-      case "custom-protyle":
+      case "custom-protyle": {
+        const display = normalizeProtyleDisplayConfig(form, "compact");
         return {
           ...base,
           data: [
             withExistingData({
               isRandomDoc: normalizeBoolean(form.isRandomDoc, false),
               customBlockId: normalizeString(form.customBlockId),
+              ...display,
             }),
           ],
         };
+      }
       case "favorites":
         return {
           ...base,
@@ -1963,6 +1999,51 @@
             type: "text",
             label: "文档或块 ID",
           },
+          {
+            key: "displayPreset",
+            type: "select",
+            label: "布局预设",
+            description: "沉浸模式会隐藏顶部导航与文档标题。",
+            options: [
+              option("standard", "标准"),
+              option("compact", "紧凑"),
+              option("immersive", "沉浸"),
+              option("custom", "自定义"),
+            ],
+          },
+          {
+            key: "showBreadcrumb",
+            type: "switch",
+            label: "显示顶部导航栏",
+          },
+          {
+            key: "showDocumentTitle",
+            type: "switch",
+            label: "显示文档标题",
+          },
+          {
+            key: "contentWidthMode",
+            type: "select",
+            label: "内容宽度",
+            options: [option("system", "跟随思源"), option("full", "充满组件")],
+          },
+          {
+            key: "outerPadding",
+            type: "select",
+            label: "组件外边距",
+            options: PROTYLE_OUTER_PADDING_OPTIONS.map((value) => option(value, `${value}px`)),
+          },
+          {
+            key: "contentPadding",
+            type: "select",
+            label: "正文内边距",
+            options: PROTYLE_CONTENT_PADDING_OPTIONS.map((value) => option(value, value === "system" ? "跟随思源" : `${value}px`)),
+          },
+          {
+            key: "innerCard",
+            type: "switch",
+            label: "内层卡片效果",
+          },
         ];
       case "focus":
         return [
@@ -2333,7 +2414,12 @@
                 {/if}
               </span>
               <span class="mobile-switch">
-                <input type="checkbox" bind:checked={form[field.key]} disabled={isVipField && !mobileAdvancedEnabled} />
+                <input
+                  type="checkbox"
+                  bind:checked={form[field.key]}
+                  disabled={isVipField && !mobileAdvancedEnabled}
+                  onchange={() => handleFieldChange(field.key)}
+                />
                 <i></i>
               </span>
             </label>
@@ -2370,7 +2456,7 @@
               </span>
 
               {#if field.type === "select"}
-                <select bind:value={form[field.key]}>
+                <select bind:value={form[field.key]} onchange={(event) => handleFieldChange(field.key, event.currentTarget.value)}>
                   {#each field.options || [] as item}
                     <option value={item.value}>{item.label}</option>
                   {/each}
