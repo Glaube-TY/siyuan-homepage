@@ -98,7 +98,7 @@
 <!-- 上层：说明区域 -->
 <SettingSection>
     <div class="button-settings-intro">
-        <p class="intro-text">拖动左侧按钮可调整所有快捷按钮的顺序；开关控制是否显示。内置按钮只提供功能说明，不能修改功能或删除。</p>
+        <p class="intro-text">拖动左侧按钮可调整所有快捷按钮的顺序；开关控制是否直接显示在主页快捷栏，关闭后会收纳到“更多”菜单。内置按钮只提供功能说明，不能修改功能或删除。</p>
     </div>
 </SettingSection>
 
@@ -231,7 +231,7 @@
                             class="b3-switch fn__flex-center"
                             checked={item.checked}
                             onchange={(e) => actions.onToggleButtonChecked(item.id, (e.currentTarget as HTMLInputElement).checked)}
-                            aria-label={`${item.checked ? '隐藏' : '显示'} ${item.label}`}
+                            aria-label={`${item.checked ? '将按钮收纳到更多菜单' : '将按钮显示在主页快捷栏'}：${item.label}`}
                         />
                     </div>
                 {/each}
@@ -261,8 +261,8 @@
                             <span class="builtin-info-title">{selectedButtonMeta?.title ?? selectedButton.label}</span>
                             <span class="builtin-info-badge">{selectedButtonMeta?.badge ?? "内置功能"}</span>
                         </div>
-                        <p class="builtin-lock-tip">该按钮可以拖动排序，也可以控制是否在主页显示，但不支持修改标签、功能、快捷键或删除。</p>
-                        <p class="builtin-info-desc">{selectedButtonMeta?.description ?? "这是插件内置功能按钮，可控制是否在主页显示，但不支持自定义。"}</p>
+                        <p class="builtin-lock-tip">该按钮可以拖动排序，也可以选择直接显示在主页快捷栏或收纳到“更多”菜单，但不支持修改标签、功能、快捷键或删除。</p>
+                        <p class="builtin-info-desc">{selectedButtonMeta?.description ?? "这是插件内置功能按钮，可控制其快捷栏位置，但不支持自定义。"}</p>
                         {#if selectedButtonMeta?.sourceText}
                             <div class="builtin-info-section">
                                 <p class="builtin-info-source">

@@ -40,14 +40,11 @@
     } from "./header/status-ai-generator";
     import { STAT_INDEX_UPDATED_EVENT } from "@/components/tools/statisticalAPI";
     import {
-        handleMoreButtonClick,
         handleButtonClick,
+        getButtonAction,
         reRegisterAllShortcuts,
         unregisterAllShortcuts,
     } from "./header/quick-button";
-    import { getButtonDisplayLabel, getButtonIconName } from "./buttonRegistry";
-    import { mdToHtml } from "@/components/tools/mdToHtml";
-    import { normalizeSiyuanDocIcon } from "@/components/tools/docIcon";
     import {
         updateCursorStyle,
         createClickEffect,
@@ -75,7 +72,7 @@
     } from "./configLoader";
     import { getCurrentDeviceViewContext } from "./deviceView/deviceViewContext";
     import { readWidgetInstanceDocument } from "./deviceView/widgetInstanceRepository";
-    import { readDeviceViewManifest } from "./deviceView/deviceViewStorage";
+    import { readDeviceViewManifest, readDeviceViewSettings } from "./deviceView/deviceViewStorage";
     import { hasSameJsonSemantic } from "./deviceView/jsonSafe";
     import {
         HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT,
@@ -115,8 +112,6 @@
         normalizeStatusAiStatKeys,
         type HomepageStatusStatKey,
     } from "./status-text-config";
-    import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
-    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import { assertSectionLayoutInvariants } from "@/components/utils/widgetBlock/utils/layout-section-ops";
     import {
         clearPreservedWidgetElementAfterAppend,
@@ -132,6 +127,26 @@
     } from "./homepage-widget-dom";
 
     import "./style/homepage.scss"
+    import "./theme/style/theme-host.scss";
+    import HomepageThemeHost from "./theme/components/HomepageThemeHost.svelte";
+    import CoreFooter from "./theme/components/CoreFooter.svelte";
+    import { registerBuiltinHomepageThemes } from "./theme/registry/builtinThemeDiscovery";
+    import {
+        CLASSIC_HOMEPAGE_THEME_ID,
+        homepageThemeRegistry,
+    } from "./theme/registry/themeRegistry";
+    import { normalizeHomepageAppearanceConfig } from "./theme/runtime/appearanceConfig";
+    import { createHomepageEntitlementSnapshot } from "./theme/runtime/entitlementResolver";
+    import { resolveHomepageTheme } from "./theme/runtime/themeResolver";
+    import { resolveHomepageFooterPresentation } from "./theme/runtime/footerPresentation";
+    import { createHomepageActionsModel } from "./theme/runtime/homepageActionRuntime";
+    import { HomepagePersistentRegionManager } from "./theme/runtime/persistentRegionManager";
+    import { createClassicRuntimeAppearanceSettings } from "./theme/builtins/classic/presentationSettings";
+    import type {
+        HomepagePersistentRegionName,
+        HomepageThemeProps,
+        ThemeResolution,
+    } from "./theme/api/types";
 
     export const app = undefined;
     interface Props {
@@ -141,7 +156,8 @@
 
     let { plugin, showIcon = writable(true) }: Props = $props();
 
-    let showBanner = writable(true);
+    registerBuiltinHomepageThemes();
+
     let bannerEnabled = $state(true);
     let bannerImage: HTMLImageElement = $state();
     let bannerHeight = $state(300);
@@ -162,12 +178,6 @@
     let backgroundImageSrc = $state("");
     let backgroundImageOpacity = $state(DEFAULT_BACKGROUND_IMAGE_OPACITY);
     let backgroundImageBlur = $state(DEFAULT_BACKGROUND_IMAGE_BLUR);
-    let topBannerInlineStyle = $derived(
-        bannerTitleIntegrated && bannerEnabled
-            ? "--homepage-effective-banner-height: auto; height: auto; min-height: 0; flex-basis: auto;"
-            : `--homepage-effective-banner-height: ${bannerHeight}px; height: var(--homepage-effective-banner-height); min-height: var(--homepage-effective-banner-height); flex-basis: var(--homepage-effective-banner-height);`
-    );
-
     let currentBlockForSettings: HTMLElement | null = null;
     const currentBlockForSettingsRef = { value: currentBlockForSettings };
 
@@ -215,6 +225,74 @@
     let FallingDensity = "medium";
     let FallingSpeed = "medium";
     let advanced = $state(false);
+    let homepageAppearance = $state(normalizeHomepageAppearanceConfig(undefined));
+    let themeResolution = $state.raw<ThemeResolution>(resolveHomepageTheme({
+        preferredThemeId: CLASSIC_HOMEPAGE_THEME_ID,
+        surface: "desktop-homepage",
+        registry: homepageThemeRegistry,
+        entitlement: createHomepageEntitlementSnapshot(false),
+    }));
+    let pendingThemeResolution: ThemeResolution | null = null;
+    let pendingThemeWidgetIdentitySnapshot: Array<{
+        id: string;
+        element: HTMLElement;
+        instance: unknown;
+        sectionId: string;
+        temporarilyPreserved: boolean;
+        layout: Readonly<{
+            gridColumn: string;
+            gridRow: string;
+            order: string;
+        }>;
+    }> | null = null;
+    let persistentRegionManager: HomepagePersistentRegionManager | null = null;
+    const pendingPersistentRegionHosts = new Map<HomepagePersistentRegionName, HTMLElement>();
+    const pendingPersistentRegionAnchors = new Map<HomepagePersistentRegionName, HTMLElement>();
+
+    const themeRegionFacade = {
+        attach(name: HomepagePersistentRegionName, anchor: HTMLElement) {
+            pendingPersistentRegionAnchors.set(name, anchor);
+            persistentRegionManager?.attach(name, anchor);
+        },
+        detach(name: HomepagePersistentRegionName, anchor: HTMLElement) {
+            if (pendingPersistentRegionAnchors.get(name) === anchor) {
+                pendingPersistentRegionAnchors.delete(name);
+            }
+            persistentRegionManager?.detach(name, anchor);
+        },
+    };
+
+    function initializePersistentRegionManager(node: HTMLElement) {
+        persistentRegionManager = new HomepagePersistentRegionManager(node);
+        for (const [name, host] of pendingPersistentRegionHosts) {
+            persistentRegionManager.registerHost(name, host);
+        }
+        for (const [name, anchor] of pendingPersistentRegionAnchors) {
+            persistentRegionManager.attach(name, anchor);
+        }
+        return {
+            destroy() {
+                persistentRegionManager?.destroy();
+                persistentRegionManager = null;
+                pendingPersistentRegionHosts.clear();
+                pendingPersistentRegionAnchors.clear();
+            },
+        };
+    }
+
+    function registerPersistentHost(node: HTMLElement, name: HomepagePersistentRegionName) {
+        pendingPersistentRegionHosts.set(name, node);
+        persistentRegionManager?.registerHost(name, node);
+        const anchor = pendingPersistentRegionAnchors.get(name);
+        if (anchor) persistentRegionManager?.attach(name, anchor);
+        return {
+            destroy() {
+                if (pendingPersistentRegionHosts.get(name) === node) {
+                    pendingPersistentRegionHosts.delete(name);
+                }
+            },
+        };
+    }
 
     type ButtonItem = {
         id: number;
@@ -225,9 +303,6 @@
         action?: string;
     };
     let buttonsList: ButtonItem[] = $state([]);
-    let showMoreMenu = $state(false);
-    let isHoveringNavBar = $state(false);
-    let moreButtonEl: HTMLButtonElement | null = $state(null);
 
     let widgetLayoutNumber = $state(DEFAULT_WIDGET_LAYOUT_NUMBER);
     let widgetGap = $state(DEFAULT_WIDGET_GAP);
@@ -576,6 +651,10 @@
             },
             onEnd: () => {
                 homepageLayoutDragging = false;
+                if (pendingThemeResolution) {
+                    activateThemeResolution(pendingThemeResolution);
+                    pendingThemeResolution = null;
+                }
                 const runtimeState = sectionRuntimeStates.get(sectionId);
                 const runtimeStatus = runtimeState?.status;
                 if (!["ready", "degraded"].includes(runtimeStatus || "")) {
@@ -1142,7 +1221,11 @@
         return saved;
     }
 
-    async function handleAddWidgetButtonClick(item: ButtonItem): Promise<void> {
+    async function invokeHomepageButton(item: ButtonItem): Promise<void> {
+        if (getButtonAction(item) !== "addWidget") {
+            handleButtonClick(item, plugin, currentBlockForSettingsRef);
+            return;
+        }
         const context = await ensureWidgetAddTargetReady();
         if (!context) return;
         handleButtonClick(
@@ -1157,6 +1240,233 @@
                 onFirstContentCommitted: handleFirstContentCommitted,
             },
         );
+    }
+
+    function applyHomepageAppearancePreference(value: unknown, advancedEnabled = advanced): void {
+        homepageAppearance = normalizeHomepageAppearanceConfig(value);
+        const nextResolution = resolveHomepageTheme({
+            preferredThemeId: homepageAppearance.preferredThemeId,
+            surface: "desktop-homepage",
+            registry: homepageThemeRegistry,
+            entitlement: createHomepageEntitlementSnapshot(advancedEnabled),
+        });
+        console.debug("[HomepageTheme] resolved", {
+            preferredThemeId: nextResolution.preferredThemeId,
+            effectiveThemeId: nextResolution.effectiveThemeId,
+            fallbackReason: nextResolution.fallbackReason,
+        });
+        if (homepageLayoutDragging) {
+            pendingThemeResolution = nextResolution;
+            return;
+        }
+        activateThemeResolution(nextResolution);
+    }
+
+    const THEME_REGION_VALIDATION_MAX_RETRIES = 8;
+
+    function resolveThemeWidgetSectionId(element: HTMLElement): string | undefined {
+        const attachedSectionId = element.closest<HTMLElement>("[data-component-section-id]")?.dataset.componentSectionId;
+        if (attachedSectionId !== undefined) return attachedSectionId;
+        for (const [sectionId, state] of sectionRuntimeStates) {
+            if (state.declaredWidgetIds.includes(element.id) || state.expectedIds.includes(element.id)) {
+                return sectionId;
+            }
+        }
+        return undefined;
+    }
+
+    function collectThemeWidgetIdentityElements(): HTMLElement[] {
+        const elements: HTMLElement[] = [];
+        const seen = new Set<HTMLElement>();
+        for (const element of homepageRootElement?.querySelectorAll<HTMLElement>(".widget-block") ?? []) {
+            if (seen.has(element)) continue;
+            seen.add(element);
+            elements.push(element);
+        }
+        // 设置热刷新时 Widget 可能暂存在 preservedWidgetElements；它们仍是原 HTMLElement/实例。
+        for (const element of preservedWidgetElements.values()) {
+            if (seen.has(element)) continue;
+            seen.add(element);
+            elements.push(element);
+        }
+        return elements;
+    }
+
+    function activateThemeResolution(nextResolution: ThemeResolution): void {
+        if (nextResolution.effectiveThemeId !== themeResolution.effectiveThemeId && homepageRootElement) {
+            pendingThemeWidgetIdentitySnapshot = collectThemeWidgetIdentityElements().map((element) => ({
+                id: element.id,
+                element,
+                instance: (element as HTMLElement & { __widgetBlockInstance?: unknown }).__widgetBlockInstance,
+                sectionId: resolveThemeWidgetSectionId(element) ?? "",
+                temporarilyPreserved: preservedWidgetElements.get(element.id) === element
+                    && !homepageRootElement?.contains(element),
+                layout: Object.freeze({
+                    gridColumn: element.style.gridColumn,
+                    gridRow: element.style.gridRow,
+                    order: element.style.order,
+                }),
+            }));
+        }
+        themeResolution = nextResolution;
+        scheduleThemeRegionValidation();
+    }
+
+    function scheduleThemeRegionValidation(attempt = 0): void {
+        const expectedThemeId = themeResolution.effectiveThemeId;
+        void tick()
+            .then(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+            .then(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+            .then(() => {
+            if (homepageComponentDestroyed || themeResolution.effectiveThemeId !== expectedThemeId) return;
+            if (!persistentRegionManager?.hasRequiredAttachments()) {
+                if (attempt < THEME_REGION_VALIDATION_MAX_RETRIES) {
+                    window.setTimeout(() => scheduleThemeRegionValidation(attempt + 1), 32);
+                    return;
+                }
+                console.error(`[HomepageTheme] 主题 ${expectedThemeId} 缺少必需的 workspace/footer region`);
+                if (expectedThemeId !== CLASSIC_HOMEPAGE_THEME_ID) {
+                    const classic = homepageThemeRegistry.get(CLASSIC_HOMEPAGE_THEME_ID);
+                    if (classic) {
+                        themeResolution = {
+                            preferredThemeId: homepageAppearance.preferredThemeId,
+                            effectiveThemeId: classic.id,
+                            definition: classic,
+                            fallbackReason: "invalid_definition",
+                        };
+                        scheduleThemeRegionValidation();
+                    }
+                }
+                return;
+            }
+            updateCustomGridMetrics();
+            if (pendingThemeWidgetIdentitySnapshot) {
+                const beforeSnapshot = pendingThemeWidgetIdentitySnapshot;
+                const afterElements = collectThemeWidgetIdentityElements();
+                if (beforeSnapshot.length > 0 && afterElements.length === 0 && attempt < THEME_REGION_VALIDATION_MAX_RETRIES) {
+                    window.setTimeout(() => scheduleThemeRegionValidation(attempt + 1), 32);
+                    return;
+                }
+                const temporarilyPreservedWidgetIds = new Set(
+                    [...preservedWidgetElements.entries()]
+                        .filter(([, element]) => !homepageRootElement?.contains(element))
+                        .map(([id]) => id),
+                );
+                const afterById = new Map<string, HTMLElement[]>();
+                for (const element of afterElements) {
+                    const entries = afterById.get(element.id) ?? [];
+                    entries.push(element);
+                    afterById.set(element.id, entries);
+                }
+                const failures: Array<Record<string, unknown>> = [];
+                if (beforeSnapshot.length !== afterElements.length) {
+                    failures.push({
+                        type: "count_changed",
+                        before: beforeSnapshot.length,
+                        after: afterElements.length,
+                    });
+                }
+                const expectedIds = new Set(beforeSnapshot.map((entry) => entry.id));
+                const beforeOrder = beforeSnapshot.map((entry) => entry.id);
+                const afterOrder = afterElements.map((entry) => entry.id);
+                const beforeHadPreservedWidgets = beforeSnapshot.some((entry) => entry.temporarilyPreserved);
+                if (!beforeHadPreservedWidgets && temporarilyPreservedWidgetIds.size === 0 && beforeOrder.some((id, index) => afterOrder[index] !== id)) {
+                    failures.push({ type: "dom_order_changed", before: beforeOrder, after: afterOrder });
+                }
+                for (const before of beforeSnapshot) {
+                    const matches = afterById.get(before.id) ?? [];
+                    if (matches.length === 0) {
+                        failures.push({ type: "widget_missing", widgetId: before.id });
+                        continue;
+                    }
+                    if (matches.length > 1) {
+                        failures.push({ type: "duplicate_widget_id", widgetId: before.id, count: matches.length });
+                        continue;
+                    }
+                    const element = matches[0];
+                    if (element !== before.element) {
+                        failures.push({ type: "element_identity_changed", widgetId: before.id });
+                    }
+                    if ((element as HTMLElement & { __widgetBlockInstance?: unknown }).__widgetBlockInstance !== before.instance) {
+                        failures.push({ type: "instance_identity_changed", widgetId: before.id });
+                    }
+                    const sectionId = resolveThemeWidgetSectionId(element)
+                        ?? (preservedWidgetElements.get(before.id) === element ? before.sectionId : "");
+                    if (sectionId !== before.sectionId) {
+                        failures.push({ type: "section_changed", widgetId: before.id, before: before.sectionId, after: sectionId });
+                    }
+                    const layout = {
+                        gridColumn: element.style.gridColumn,
+                        gridRow: element.style.gridRow,
+                        order: element.style.order,
+                    };
+                    if (layout.gridColumn !== before.layout.gridColumn || layout.gridRow !== before.layout.gridRow || layout.order !== before.layout.order) {
+                        failures.push({ type: "layout_semantics_changed", widgetId: before.id, before: before.layout, after: layout });
+                    }
+                }
+                for (const [id, elements] of afterById) {
+                    if (!expectedIds.has(id)) {
+                        failures.push({ type: "unexpected_widget", widgetId: id, count: elements.length });
+                    }
+                }
+                if (failures.length > 0) {
+                    console.error("[HomepageTheme] Persistent Region 身份校验失败", {
+                        themeId: expectedThemeId,
+                        expectedWidgetCount: beforeSnapshot.length,
+                        actualWidgetCount: afterElements.length,
+                        failures,
+                    });
+                } else {
+                    console.debug("[HomepageTheme] Persistent Region 身份与布局语义保持不变", {
+                        themeId: expectedThemeId,
+                        widgetCount: afterElements.length,
+                        temporarilyPreservedWidgetCount: temporarilyPreservedWidgetIds.size,
+                    });
+                }
+                pendingThemeWidgetIdentitySnapshot = null;
+            }
+            const reflowDetail = Object.freeze({ themeId: expectedThemeId, phase: "attached" });
+            for (const widget of homepageRootElement?.querySelectorAll<HTMLElement>(".widget-block") ?? []) {
+                widget.dispatchEvent(new CustomEvent("homepage-theme-reflow", { detail: reflowDetail }));
+            }
+            window.dispatchEvent(new CustomEvent("homepage-theme-reflow", { detail: reflowDetail }));
+            window.dispatchEvent(new Event("resize"));
+            requestAnimationFrame(() => updateCustomGridMetrics());
+        });
+    }
+
+    async function waitForPersistentRegionsMountable(timeoutMs = 2000): Promise<boolean> {
+        const startedAt = performance.now();
+        while (!homepageComponentDestroyed && performance.now() - startedAt < timeoutMs) {
+            if (persistentRegionManager?.hasRequiredAttachments()) {
+                const workspaceHost = persistentRegionManager.getHost("workspace");
+                const footerHost = persistentRegionManager.getHost("footer");
+                if (
+                    workspaceHost.isConnected
+                    && workspaceHost.clientWidth > 0
+                    && footerHost.isConnected
+                ) {
+                    return true;
+                }
+            }
+            await tick();
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        }
+        return false;
+    }
+
+    function handleThemeRendererError(error: unknown): void {
+        console.error(`[HomepageTheme] 主题 ${themeResolution.effectiveThemeId} 渲染失败`, error);
+        showMessage("主页主题渲染失败，已安全回退到经典主题", 4000, "error");
+        const classic = homepageThemeRegistry.get(CLASSIC_HOMEPAGE_THEME_ID);
+        if (!classic || themeResolution.effectiveThemeId === CLASSIC_HOMEPAGE_THEME_ID) return;
+        themeResolution = {
+            preferredThemeId: homepageAppearance.preferredThemeId,
+            effectiveThemeId: classic.id,
+            definition: classic,
+            fallbackReason: "invalid_definition",
+        };
+        scheduleThemeRegionValidation();
     }
 
     // 恢复当前可见组件区：分栏模式下只恢复活动分栏，普通模式下只恢复普通组件区。
@@ -2148,7 +2458,20 @@
     }
 
     // 处理主页设置保存事件 - 本地热应用配置
-    async function handleHomepageSettingsSaved() {
+    async function handleHomepageSettingsSaved(event?: Event) {
+        const detail = (event as CustomEvent<{ appearanceOnly?: boolean }> | undefined)?.detail;
+        if (detail?.appearanceOnly) {
+            try {
+                const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+                const view = await readDeviceViewSettings(context);
+                if (!view) throw new Error("当前桌面主页 view.json 缺失");
+                const config = normalizeHomepageConfigData(view.config);
+                applyHomepageAppearancePreference(config.homepageAppearance, getAdvancedEnabled());
+            } catch (error) {
+                console.error("[HomepageTheme] 外观配置热更新失败，保留当前有效主题", error);
+            }
+            return;
+        }
         await enqueueSectionUiOperation(async () => {
             try {
                 invalidateStatusAiCache();
@@ -2171,6 +2494,11 @@
                 console.error("[Homepage] 设置热刷新失败，已保留或回滚到上一次健康主页", error);
             }
         });
+    }
+
+    function handleHomepageThemePreview(event: Event): void {
+        const appearance = (event as CustomEvent<{ homepageAppearance?: unknown }>).detail?.homepageAppearance;
+        if (appearance) applyHomepageAppearancePreference(appearance, getAdvancedEnabled());
     }
 
     /**
@@ -2388,6 +2716,7 @@
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
         window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.addEventListener("homepage-theme-preview", handleHomepageThemePreview);
         window.addEventListener(HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, handleAgentStorageChanged as EventListener);
         window.addEventListener("siyuan-homepage:tab-before-destroy", handleHomepageTabBeforeDestroy);
         window.addEventListener(STAT_INDEX_UPDATED_EVENT, handleStatIndexUpdated);
@@ -2405,6 +2734,10 @@
 
         // 加载配置并恢复首个可见分栏；两者与后续切换共用同一 UI 队列。
         await enqueueSectionUiOperation(async () => {
+            const regionsReady = await waitForPersistentRegionsMountable();
+            if (!regionsReady) {
+                throw new Error("主页主题必需区域尚未完成挂载，已停止初始布局恢复");
+            }
             await updateHomepage("initial-load");
             if (homepageComponentDestroyed) return;
             await tick();
@@ -2457,7 +2790,6 @@
 
         // 配置加载完成后初始化特效和事件监听
         reRegisterAllShortcuts(buttonsList);
-        document.addEventListener("click", handleDocumentClick);
         document.addEventListener("click", handleClickEffect);
         document.addEventListener("mousemove", handleMouseMoveTrail);
         document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -2516,6 +2848,7 @@
             handleAdvancedUnavailable,
         );
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSaved);
+        window.removeEventListener("homepage-theme-preview", handleHomepageThemePreview);
         window.removeEventListener(HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, handleAgentStorageChanged as EventListener);
         window.removeEventListener("siyuan-homepage:tab-before-destroy", handleHomepageTabBeforeDestroy);
         teardownHomepageVisibilityObserver();
@@ -2529,7 +2862,6 @@
             "homepage-widget-section-moved",
             handleWidgetSectionMoved as EventListener,
         );
-        document.removeEventListener("click", handleDocumentClick);
         document.removeEventListener("click", handleClickEffect);
         document.removeEventListener("mousemove", handleMouseMoveTrail);
         document.removeEventListener(
@@ -2748,6 +3080,7 @@
             const previousRequested = requestedComponentSectionId;
             const wasSwitching = String(requestedComponentSectionId ?? "") !== String(activeComponentSectionId ?? "");
             advanced = nextAdvanced;
+            applyHomepageAppearancePreference(config.homepageAppearance, nextAdvanced);
             componentSectionsEnabled = config.componentSectionsEnabled;
             componentSections = nextComponentSections;
             componentSectionsNavAlign = normalizeComponentSectionsNavAlign(config.componentSectionsNavAlign);
@@ -2938,7 +3271,6 @@
 
         // 横幅相关配置
         bannerEnabled = config.bannerEnabled;
-        showBanner.set(config.bannerEnabled);
 
         showIcon.set(config.showIcon);
         // 标题区域配置
@@ -3232,425 +3564,160 @@
         updateDisplayedStatsInfoText();
     });
 
-    // 过滤按钮列表，只显示未选中的按钮
-    let filteredButtons = $derived(buttonsList.filter((b) => b.checked === false));
+    const homepageFooterModel = $derived(resolveHomepageFooterPresentation({
+        advanced,
+        footerEnabled,
+        footerContent,
+    }));
+    const homepageActionsModel = $derived(createHomepageActionsModel(
+        buttonsList,
+        (button) => invokeHomepageButton(button),
+    ));
+    const homepageSectionsModel = $derived({
+        enabled: effectiveComponentSectionsEnabled,
+        items: componentSections.map((section) => Object.freeze({
+            id: section.id,
+            name: section.name,
+            active: section.id === requestedComponentSectionId,
+        })),
+        navAlign: componentSectionsNavAlign,
+        select: (sectionId: string) => handleComponentSectionSwitch(sectionId),
+    });
 
-    // 更多按钮点击事件处理
-    function handleDocumentClick(event: MouseEvent) {
-        const target = event.target;
-        const targetElement = target instanceof Element ? target : null;
-        const isWithinMoreControls = Boolean(targetElement?.closest(".more-button, .more-menu"));
-        if (!isWithinMoreControls && showMoreMenu) {
-            showMoreMenu = false;
+    function setThemeBannerImageElement(element: HTMLImageElement | undefined): void {
+        bannerImage = element as HTMLImageElement;
+        if (element) {
+            requestAnimationFrame(() => initBannerDrag());
+        } else {
+            destroyBannerDrag?.();
+            destroyBannerDrag = null;
         }
     }
+
+    async function resetThemeBannerPosition(): Promise<void> {
+        if (bannerImage) bannerImage.style.transform = "translateY(0)";
+        await saveBannerDisplaySettings(plugin, { scrollTop: 0 });
+    }
+
+    const effectiveThemeAppearanceSettings = $derived.by((): Readonly<Record<string, unknown>> => {
+        const persistedSettings = homepageAppearance.themeSettings[themeResolution.effectiveThemeId] ?? {};
+        if (themeResolution.effectiveThemeId !== CLASSIC_HOMEPAGE_THEME_ID) {
+            return Object.freeze({ ...persistedSettings });
+        }
+        return createClassicRuntimeAppearanceSettings(persistedSettings, {
+            titleAlign: homepageTitleAlign,
+            quickButtonStyle,
+            bannerTitleColor,
+            bannerStatusColor,
+            bannerButtonColor,
+            bannerGlassEnabled,
+            bannerGlassColorMode,
+            bannerGlassColor,
+            bannerGlassOpacity,
+            bannerGlassBlur,
+        });
+    });
+
+    const homepageThemeProps = $derived.by((): HomepageThemeProps => ({
+        theme: Object.freeze({
+            id: themeResolution.definition.id,
+            name: themeResolution.definition.name,
+            description: themeResolution.definition.description,
+            version: themeResolution.definition.version,
+            author: themeResolution.definition.author,
+            access: themeResolution.definition.access,
+            preview: themeResolution.definition.preview,
+        }),
+        identity: Object.freeze({
+            title: pageTitle,
+            showIcon: Boolean($showIcon),
+            icon: Object.freeze({
+                type: titleIconType,
+                emoji: tempTitleIconEmoji,
+                imageSrc: tempTitleIconImage ?? undefined,
+                style: (tempTitleIconStyle === "round" || tempTitleIconStyle === "circle") ? tempTitleIconStyle : "square",
+            }),
+        }),
+        banner: Object.freeze({
+            enabled: bannerEnabled,
+            imageSrc: bannerImgSrc,
+            height: bannerHeight,
+            integrated: bannerTitleIntegrated,
+            setImageElement: setThemeBannerImageElement,
+            resetPosition: resetThemeBannerPosition,
+        }),
+        status: Object.freeze({
+            text: formattedStatsInfoText,
+            mode: statusTextMode === "ai" ? "ai" : "custom",
+            runtimeState: statusAiRuntimeState,
+            refreshing: isRefreshingStatusText,
+            errorMessage: statusAiVisibleErrorMessage || undefined,
+            refresh: refreshStatusText,
+        }),
+        actions: homepageActionsModel,
+        sections: homepageSectionsModel,
+        footer: homepageFooterModel,
+        regions: themeRegionFacade,
+        appearance: Object.freeze({
+            preferredThemeId: themeResolution.preferredThemeId,
+            effectiveThemeId: themeResolution.effectiveThemeId,
+            fallbackReason: themeResolution.fallbackReason,
+            settings: effectiveThemeAppearanceSettings,
+        }),
+    }));
+
 </script>
 
 <div
     class="homepage-container"
+    data-hp-theme={themeResolution.effectiveThemeId}
+    data-hp-widget-appearance-policy={themeResolution.definition.features?.widgetAppearance ?? "user-configurable"}
     bind:this={homepageRootElement}
-    class:banner-title-integrated={bannerTitleIntegrated && $showBanner}
-    class:title-align-left={homepageTitleAlign === "left"}
-    class:title-align-center={homepageTitleAlign === "center"}
-    class:title-align-right={homepageTitleAlign === "right"}
-    class:quick-buttons-flat={quickButtonStyle === "flat"}
-    class:quick-buttons-glass={quickButtonStyle === "glass"}
-    class:banner-glass-enabled={bannerTitleIntegrated && $showBanner && bannerGlassEnabled}
-    class:banner-glass-custom={bannerGlassColorMode === "custom"}
     class:background-image-active={backgroundImageEnabled && backgroundImageSrc && advanced}
-    style={`--homepage-banner-title-color: ${bannerTitleColor}; --homepage-banner-status-color: ${bannerStatusColor}; --homepage-banner-button-color: ${bannerButtonColor}; --homepage-banner-glass-color: ${bannerGlassColor}; --homepage-banner-glass-opacity: ${bannerGlassOpacity}%; --homepage-banner-glass-blur: ${bannerGlassBlur}px;`}
 >
-    <!-- 头部横幅区域 -->
-    <div
-        class="section top-banner"
-        class:hide-top-banner={!$showBanner}
-        style={topBannerInlineStyle}
-    >
-        <img
-            bind:this={bannerImage}
-            src={bannerImgSrc}
-            crossorigin="anonymous"
-            alt="Header Banner"
-            class="banner-image"
-            style="transition:transform 0.1s ease-out;"
-            aria-hidden="true"
-        />
-        <div class="banner-overlay"></div>
-        {#if bannerTitleIntegrated && $showBanner && bannerGlassEnabled}
-            <div class="banner-glass-layer" aria-hidden="true"></div>
-        {/if}
-        <!-- 按钮容器 -->
-        <div class="button-wrapper">
-            <button
-                onclick={async () => {
-                if (bannerImage) {
-                    bannerImage.style.transform = "translateY(0)";
-                }
-                await saveBannerDisplaySettings(plugin, { scrollTop: 0 });
-            }}
-                class="img-button"
-                title="恢复默认位置"
-            >
-                <svg
-                    data-t="1749395442435"
-                    class="icon"
-                    viewBox="0 0 1024 1024"
-                    version="1.1"
-                    xmlns="http://www.w3.org/2000/svg"
-                    data-p-id="13980"
-                    width="200"
-                    height="200"
-                >
-                    <path
-                        d="M787 787v-55h55v55h-55z m-55 55v-55h55v55h-55z m55-605h55v55h-55v-55z m-55-55h55v55h-55v-55zM237 787h55v55h-55v-55z m-55-55h55v55h-55v-55z m0-440v-55h55v55h-55z m55-110h55v55h-55v-55z"
-                        fill="#DF4958"
-                        data-p-id="13981"
-                    ></path><path
-                        d="M842 787V237h55v550h-55z m-55-605h55v55h-55v-55z m-605 55v-55h55v55h-55z m55 605h-55v-55h55v55z m605-55v55h-55v-55h55z m-55 110H237v-55h550v55zM127 787V237h55v550h-55z m110-660h550v55H237v-55z"
-                        fill="#D53B4B"
-                        data-p-id="13982"
-                    ></path><path
-                        d="M787 732v55h-55v55H292v-55h-55v-55h-55V292h55v-55h55v-55h440v55h55v55h55v440h-55z"
-                        fill="#F36372"
-                        data-p-id="13983"
-                    ></path><path
-                        d="M216.6 517.3h50.8v50.8h50.8V619H369v50.8h50.8v50.8h50.8V568.2h152.5v152.5h101.6v-305h-254V263.2h-50.8V314h-50.8v50.8h-50.8v50.8h-50.8v50.8h-50.8v50.9z"
-                        fill="#FFFFFF"
-                        data-p-id="13984"
-                    ></path></svg
-                >
-            </button>
-        </div>
-
-        {#if homepageConfigLoaded && bannerTitleIntegrated && $showBanner}
-            <div class="banner-title-layer">
-                <div class="banner-title-content">
-                    <div class="header-content">
-                    {#if $showIcon}
-                        <div class="icon-title">
-                            {#if titleIconType === "emoji"}
-                                {@html normalizeSiyuanDocIcon(tempTitleIconEmoji) || "🏠"}
-                            {:else if titleIconType === "image" && tempTitleIconImage}
-                                <img
-                                    src={tempTitleIconImage}
-                                    alt="图标"
-                                    style="width: 32px; height: 32px;
-                   border-radius: {tempTitleIconStyle === 'square'
-                                            ? '0%'
-                                            : tempTitleIconStyle === 'round'
-                                              ? '20%'
-                                              : '50%'};"
-                                />
-                            {/if}
-                        </div>
-                    {/if}
-                    <h1 class="section-title">{pageTitle}</h1>
-                    </div>
-
-                    <div class="stats-info-wrap">
+    <div class="hp-core-parking" use:initializePersistentRegionManager aria-hidden="true">
+        <div class="hp-persistent-workspace" use:registerPersistentHost={"workspace"}>
+            <div class="hp-widget-workspace component-section-area" class:initial-widget-grid-preparing={!initialWidgetGridReady}>
+                {#if showRootComponentSection}
                     <div
-                        class="stats-info"
-                        class:error={Boolean(statusAiVisibleErrorMessage)}
-                        style="white-space: pre-line"
-                    >
-                        {formattedStatsInfoText}
-                    </div>
-
-                    <button
-                        class="stats-info-refresh"
-                        class:is-refreshing={isRefreshingStatusText}
-                        type="button"
-                        title="刷新状态语"
-                        aria-label="刷新状态语"
-                        disabled={isRefreshingStatusText || statusAiRuntimeState === "generating"}
-                        onclick={() => void refreshStatusText()}
-                    >
-                        <SiyuanIcon name="refresh" size={14} />
-                    </button>
-                    </div>
-
-                    <!-- 快捷按钮栏 -->
-                    <div
-                    class="nav-bar"
-                    role="navigation"
-                    aria-label="主菜单导航栏"
-                    onmouseenter={() => (isHoveringNavBar = true)}
-                    onmouseleave={() => (isHoveringNavBar = false)}
-                    >
-                    <div class="nav-bar-left"></div>
-                    <div class="nav-buttons">
-                        {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
-                            {#if sortedButtons.checked}
-                                <button
-                                    class="nav-button"
-                                    onclick={() => void handleAddWidgetButtonClick(sortedButtons)}
-                            >
-                                {#if getButtonIconName(sortedButtons)}
-                                    <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
-                                {/if}
-                                <span>{getButtonDisplayLabel(sortedButtons)}</span>
-                            </button>
-                        {/if}
-                    {/each}
-                </div>
-
-                <div class="nav-bar-right">
-                    <button
-                        class="nav-button more-button"
-                        bind:this={moreButtonEl}
-                        class:hidden={(!isHoveringNavBar && !showMoreMenu) ||
-                            filteredButtons.length === 0}
-                        onclick={() => {
-                            const newShowMoreMenu =
-                                handleMoreButtonClick(showMoreMenu);
-                            showMoreMenu = newShowMoreMenu;
-                        }}
-                    >
-                        更多
-                    </button>
-
-                    {#if showMoreMenu && filteredButtons.length > 0}
-                        <div
-                            class="more-menu"
-                            use:floatingPopoverAction={{
-                                referenceEl: moreButtonEl ?? undefined,
-                                placement: "bottom-start",
-                                offset: 8,
-                                open: showMoreMenu,
-                                shiftPadding: 8,
-                            }}
-                        >
-                            {#each filteredButtons as item}
-                                <button
-                                    class="more-menu-item"
-                                    onclick={() => {
-                                        void handleAddWidgetButtonClick(item).then(() => {
-                                            showMoreMenu = false;
-                                        });
-                                    }}
-                                >
-                                        {#if getButtonIconName(item)}
-                                            <SiyuanIcon name={getButtonIconName(item)} size={14} />
-                                        {/if}
-                                        <span>{getButtonDisplayLabel(item)}</span>
-                                    </button>
-                                {/each}
-                            </div>
-                        {/if}
-                    </div>
-                    </div>
-                </div>
-            </div>
-        {/if}
-    </div>
-
-    <!-- 头部快捷区域 -->
-    {#if homepageConfigLoaded && !(bannerTitleIntegrated && $showBanner)}
-        <div class="section workspace-header">
-            <div class="header-content">
-                {#if $showIcon}
-                    <div class="icon-title">
-                        {#if titleIconType === "emoji"}
-                            {@html normalizeSiyuanDocIcon(tempTitleIconEmoji) || "🏠"}
-                        {:else if titleIconType === "image" && tempTitleIconImage}
-                            <img
-                                src={tempTitleIconImage}
-                                alt="图标"
-                                style="width: 32px; height: 32px;
-               border-radius: {tempTitleIconStyle === 'square'
-                                    ? '0%'
-                                    : tempTitleIconStyle === 'round'
-                                      ? '20%'
-                                      : '50%'};"
-                            />
-                        {/if}
+                        use:registerCustomContentContainer={ROOT_COMPONENT_SECTION_ID}
+                        class="custom-content"
+                        class:root-empty={rootComponentSectionCollapsed}
+                        data-component-section-id={ROOT_COMPONENT_SECTION_ID}
+                        role="region"
+                        aria-label="普通组件区"
+                    ></div>
+                {/if}
+                {#if effectiveComponentSectionsEnabled && componentSections.length >= 1}
+                    <div class="component-section-panels">
+                        {#each componentSections as section (section.id)}
+                            {@const isActive = section.id === activeComponentSectionId}
+                            {@const isPreparing = !isActive && section.id === preparingComponentSectionId}
+                            <div
+                                use:registerCustomContentContainer={section.id}
+                                class="custom-content component-section-panel"
+                                class:section-preparing={isPreparing}
+                                class:hidden={!isActive && !isPreparing}
+                                data-component-section-id={section.id}
+                                role="region"
+                                aria-label={`自定义组件区域 - ${section.name}`}
+                                aria-hidden={!isActive}
+                            ></div>
+                        {/each}
                     </div>
                 {/if}
-                <h1 class="section-title">{pageTitle}</h1>
-            </div>
-
-            <div class="stats-info-wrap">
-                <div
-                    class="stats-info"
-                    class:error={Boolean(statusAiVisibleErrorMessage)}
-                    style="white-space: pre-line"
-                >
-                    {formattedStatsInfoText}
-                </div>
-
-                <button
-                    class="stats-info-refresh"
-                    class:is-refreshing={isRefreshingStatusText}
-                    type="button"
-                    title="刷新状态语"
-                    aria-label="刷新状态语"
-                    disabled={isRefreshingStatusText || statusAiRuntimeState === "generating"}
-                    onclick={() => void refreshStatusText()}
-                >
-                    <SiyuanIcon name="refresh" size={14} />
-                </button>
-            </div>
-
-            <!-- 快捷按钮栏 -->
-            <div
-                class="nav-bar"
-                role="navigation"
-                aria-label="主菜单导航栏"
-                onmouseenter={() => (isHoveringNavBar = true)}
-                onmouseleave={() => (isHoveringNavBar = false)}
-            >
-                <div class="nav-bar-left"></div>
-                <div class="nav-buttons">
-                    {#each [...buttonsList].sort((a, b) => a.order - b.order) as sortedButtons}
-                        {#if sortedButtons.checked}
-                            <button
-                                class="nav-button"
-                                onclick={() => void handleAddWidgetButtonClick(sortedButtons)}
-                        >
-                            {#if getButtonIconName(sortedButtons)}
-                                    <SiyuanIcon name={getButtonIconName(sortedButtons)} size={14} />
-                                {/if}
-                                <span>{getButtonDisplayLabel(sortedButtons)}</span>
-                            </button>
-                        {/if}
-                    {/each}
-                </div>
-
-                <div class="nav-bar-right">
-                    <button
-                        class="nav-button more-button"
-                        bind:this={moreButtonEl}
-                        class:hidden={(!isHoveringNavBar && !showMoreMenu) ||
-                            filteredButtons.length === 0}
-                        onclick={() => {
-                            const newShowMoreMenu =
-                                handleMoreButtonClick(showMoreMenu);
-                            showMoreMenu = newShowMoreMenu;
-                        }}
-                    >
-                        更多
-                    </button>
-
-                    {#if showMoreMenu && filteredButtons.length > 0}
-                        <div
-                            class="more-menu"
-                            use:floatingPopoverAction={{
-                                referenceEl: moreButtonEl ?? undefined,
-                                placement: "bottom-start",
-                                offset: 8,
-                                open: showMoreMenu,
-                                shiftPadding: 8,
-                            }}
-                        >
-                            {#each filteredButtons as item}
-                                <button
-                                    class="more-menu-item"
-                                    onclick={() => {
-                                        void handleAddWidgetButtonClick(item).then(() => {
-                                            showMoreMenu = false;
-                                        });
-                                    }}
-                                >
-                                    {#if getButtonIconName(item)}
-                                        <SiyuanIcon name={getButtonIconName(item)} size={14} />
-                                    {/if}
-                                    <span>{getButtonDisplayLabel(item)}</span>
-                                </button>
-                            {/each}
-                        </div>
-                    {/if}
-                </div>
             </div>
         </div>
-    {/if}
-
-    <!-- 自定义组件区域 -->
-    <!-- 分栏真实生效时只显示分栏导航与当前活动分栏；否则显示普通组件区并按全局 order 渲染全部组件。 -->
-    <div class="section component-section-area" class:initial-widget-grid-preparing={!initialWidgetGridReady}>
-        {#if showRootComponentSection}
-            <div
-                use:registerCustomContentContainer={ROOT_COMPONENT_SECTION_ID}
-                class="custom-content"
-                class:root-empty={rootComponentSectionCollapsed}
-                data-component-section-id={ROOT_COMPONENT_SECTION_ID}
-                role="region"
-                aria-label="普通组件区"
-            ></div>
-        {/if}
-        {#if effectiveComponentSectionsEnabled && componentSections.length >= 1}
-            <div
-                class="component-section-nav"
-                class:align-center={componentSectionsNavAlign === "center"}
-                class:align-right={componentSectionsNavAlign === "right"}
-                role="tablist"
-                aria-label="组件分区导航"
-            >
-                {#each componentSections as section (section.id)}
-                    <button
-                        type="button"
-                        class="component-section-nav__button"
-                        class:active={section.id === requestedComponentSectionId}
-                        role="tab"
-                        aria-selected={section.id === requestedComponentSectionId}
-                        onclick={() => void handleComponentSectionSwitch(section.id)}
-                    >
-                        {section.name}
-                    </button>
-                {/each}
-            </div>
-            <div class="component-section-panels">
-                {#each componentSections as section (section.id)}
-                    {@const isActive = section.id === activeComponentSectionId}
-                    {@const isPreparing = !isActive && section.id === preparingComponentSectionId}
-                    <div
-                        use:registerCustomContentContainer={section.id}
-                        class="custom-content component-section-panel"
-                        class:section-preparing={isPreparing}
-                        class:hidden={!isActive && !isPreparing}
-                        data-component-section-id={section.id}
-                        role="region"
-                        aria-label={`自定义组件区域 - ${section.name}`}
-                        aria-hidden={!isActive}
-                    ></div>
-                {/each}
-            </div>
-        {/if}
+        <div class="hp-persistent-footer" use:registerPersistentHost={"footer"}>
+            <CoreFooter model={homepageFooterModel} />
+        </div>
     </div>
 
-    <!-- 插件信息底部区域 -->
-    {#if advanced}
-        {#if footerEnabled}
-            <div class="section plugin-footer">
-                <div class="plugin-info">
-                    {#if footerContent === ""}
-                        <div class="plugin-name">🏠思源笔记主页插件</div>
-                        <div class="plugin-author">作者: Glaube-TY</div>
-                        <div class="plugin-support">
-                            <a
-                                href="https://glaube-ty.top/da-shang/"
-                                class="support-link">赞助支持 💸</a
-                            >
-                        </div>
-                    {:else}
-                        {@html mdToHtml(footerContent)}
-                    {/if}
-                </div>
-            </div>
-        {/if}
-    {:else}
-        <div class="section plugin-footer">
-            <div class="plugin-info">
-                <div class="plugin-name">🏠思源笔记主页插件</div>
-                <div class="plugin-author">作者: Glaube-TY</div>
-                <div class="plugin-support">
-                    <a
-                        href="https://glaube-ty.top/da-shang/"
-                        class="support-link">赞助支持 💸</a
-                    >
-                </div>
-            </div>
-        </div>
-    {/if}
+    <HomepageThemeHost
+        definition={themeResolution.definition}
+        themeProps={homepageThemeProps}
+        onRendererError={handleThemeRendererError}
+    />
 
     <!-- 飘落背景层 -->
     <div class="shp-falling-container">

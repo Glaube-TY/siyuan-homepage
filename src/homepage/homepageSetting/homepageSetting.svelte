@@ -45,6 +45,7 @@
     import ButtonSettingsTab from "./tabs/ButtonSettingsTab.svelte"
     import WidgetsSettingsTab from "./tabs/WidgetsSettingsTab.svelte"
     import StylesSettingsTab from "./tabs/StylesSettingsTab.svelte"
+    import AppearanceSettingsTab from "./tabs/AppearanceSettingsTab.svelte"
     import MobileSettingsTab from "./tabs/MobileSettingsTab.svelte"
     import AiKnowledgeBaseSettingsTab from "./tabs/AiKnowledgeBaseSettingsTab.svelte"
     import NotificationCenterSettingsTab from "./tabs/NotificationCenterSettingsTab.svelte"
@@ -93,8 +94,18 @@
         type MobileQuickActionSetting,
     } from "../mobileQuickActions/mobileQuickActionsConfig";
     import { readHomepageSharedSettingsSnapshot } from "../sharedSettings/homepageSharedSettings";
+    import { registerBuiltinHomepageThemes } from "../theme/registry/builtinThemeDiscovery";
+    import { homepageThemeRegistry } from "../theme/registry/themeRegistry";
+    import {
+        normalizeHomepageAppearanceConfig,
+        type HomepageAppearanceConfig,
+    } from "../theme/runtime/appearanceConfig";
+    import { createHomepageEntitlementSnapshot } from "../theme/runtime/entitlementResolver";
+    import { resolveHomepageTheme } from "../theme/runtime/themeResolver";
 
     let { plugin }: HomepageSettingProps = $props();
+
+    registerBuiltinHomepageThemes();
 
     let activeTab = $state<HomepageSettingMainTab>("homepage");
 
@@ -115,6 +126,15 @@
     let statIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
     let enhancedDiaryIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
     let advancedEnabled = $state(false);
+    let homepageAppearance = $state<HomepageAppearanceConfig>(normalizeHomepageAppearanceConfig(undefined));
+    let appearanceOnlyBaseSignature: string | null = null;
+    let appearanceResolution = $derived(resolveHomepageTheme({
+        preferredThemeId: homepageAppearance.preferredThemeId,
+        surface: "desktop-homepage",
+        registry: homepageThemeRegistry,
+        entitlement: createHomepageEntitlementSnapshot(advancedEnabled),
+    }));
+    const availableHomepageThemes = homepageThemeRegistry.list("desktop-homepage");
     let settingsActiveTab = $state<HomepageSettingSubTab>("behavior");
     let aiKnowledgeBaseActiveTab = $state<AiKnowledgeBaseSubTab>("entries");
     let notificationCenterActiveTab = $state<NotificationCenterSubTab>("desktop");
@@ -438,6 +458,7 @@
 
     function captureHomepageSettingsSignature(): string {
         return JSON.stringify({
+            homepageAppearance,
             tempAutoOpenHomepage,
             sidebarEnabled,
             mobileAutoOpenEnabled,
@@ -522,6 +543,32 @@
             FallingSpeed,
             advancedEnabled,
         });
+    }
+
+    function captureHomepageNonAppearanceSignature(): string {
+        const value = JSON.parse(captureHomepageSettingsSignature()) as Record<string, unknown>;
+        delete value.homepageAppearance;
+        return JSON.stringify(value);
+    }
+
+    function handleHomepageThemeSelection(themeId: string): void {
+        const theme = homepageThemeRegistry.get(themeId);
+        if (!theme) {
+            showMessage("该主页主题当前未安装", 3000, "info");
+            return;
+        }
+        if (theme.access === "vip" && !advancedEnabled) {
+            showMessage("该主页主题为会员专属，开通或恢复会员后即可使用", 4000, "info");
+            return;
+        }
+        appearanceOnlyBaseSignature = captureHomepageNonAppearanceSignature();
+        homepageAppearance = {
+            ...homepageAppearance,
+            preferredThemeId: themeId,
+        };
+        window.dispatchEvent(new CustomEvent("homepage-theme-preview", {
+            detail: { homepageAppearance },
+        }));
     }
 
     function applyMobileSettingsConfig(config: Record<string, unknown>): void {
@@ -676,6 +723,7 @@
     onMount(async () => {
         const savedConfig = await loadHomepageSettingConfig(plugin);
         if (savedConfig) {
+            homepageAppearance = normalizeHomepageAppearanceConfig(savedConfig.homepageAppearance);
             // 全局配置（桌面）
             tempAutoOpenHomepage = savedConfig.autoOpenHomepage ?? true;
             sidebarEnabled = savedConfig.sidebarEnabled ?? false;
@@ -1157,6 +1205,7 @@
         );
 
         const config = {
+            homepageAppearance: normalizeHomepageAppearanceConfig(homepageAppearance),
             // 全局配置
             autoOpenHomepage: tempAutoOpenHomepage,
             sidebarEnabled: sidebarEnabled,
@@ -1271,6 +1320,28 @@
 
         };
 
+        const appearanceOnly = appearanceOnlyBaseSignature !== null
+            && captureHomepageNonAppearanceSignature() === appearanceOnlyBaseSignature
+            && JSON.stringify(normalizeHomepageAppearanceConfig(existingConfig.homepageAppearance))
+                !== JSON.stringify(normalizeHomepageAppearanceConfig(homepageAppearance));
+        if (appearanceOnly) {
+            try {
+                await saveHomepageSettingConfig(plugin, {
+                    ...existingConfig,
+                    homepageAppearance: normalizeHomepageAppearanceConfig(homepageAppearance),
+                } as HomepageSettingConfig);
+                appearanceOnlyBaseSignature = null;
+                window.dispatchEvent(new CustomEvent("homepage-settings-saved", {
+                    detail: { appearanceOnly: true },
+                }));
+                return true;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                showMessage(`主题偏好保存失败：${message}`, 5000, "error");
+                return false;
+            }
+        }
+
         let result;
         try {
             result = await saveHomepageSettingsInTransaction(plugin, {
@@ -1294,6 +1365,7 @@
         }
 
         deletedComponentSectionIds = [];
+        appearanceOnlyBaseSignature = null;
         try {
             setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
 
@@ -1414,6 +1486,17 @@
                             sidebarEnabled={sidebarEnabled}
                             onTempAutoOpenHomepageChange={(value) => tempAutoOpenHomepage = value}
                             onSidebarEnabledChange={(value) => sidebarEnabled = value}
+                        />
+                    {/if}
+
+                    {#if settingsActiveTab === "appearance"}
+                        <AppearanceSettingsTab
+                            themes={availableHomepageThemes}
+                            preferredThemeId={homepageAppearance.preferredThemeId}
+                            effectiveThemeId={appearanceResolution.effectiveThemeId}
+                            fallbackReason={appearanceResolution.fallbackReason}
+                            {advancedEnabled}
+                            onSelectTheme={handleHomepageThemeSelection}
                         />
                     {/if}
 

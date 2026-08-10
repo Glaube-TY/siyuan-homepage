@@ -12,6 +12,7 @@ import { saveWidgetContentPreservingSize } from "./styleUtils";
 import { createWidgetInstanceId, loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
+import { applyWidgetAppearanceCompatibility } from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 
 export class WidgetBlock {
     public element: HTMLElement;
@@ -42,7 +43,7 @@ export class WidgetBlock {
         this.currentBlockForSettingsRef = currentBlockForSettingsRef;
         this.runtimeOptions = runtimeOptions;
         this.runtimeOptions.deviceViewContext ||= getCurrentDeviceViewContext(plugin, "desktop-homepage");
-        this.style = style || 'aspect-ratio: 1 / 1;background-color: rgba(0, 0, 0, 0.03);draggable: true;border: 2px solid var(--b3-theme-primary);box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);transition: all 0.2s ease-in-out;border-radius: 8px;';
+        this.style = style || "aspect-ratio: 1 / 1;";
         this.loadcontent = loadcontent || '';
 
         // 从当前设备 desktop-homepage/layout.json 读取列数。
@@ -63,6 +64,8 @@ export class WidgetBlock {
         this.element.innerHTML = this.renderControls(false);
 
         this.element.setAttribute("style", this.style);
+        const appearance = applyWidgetAppearanceCompatibility(this.element, this.style);
+        this.style = appearance.runtimeStyle;
 
         // 在 DOM 上挂载实例引用，便于外部统一销毁
         (this.element as any).__widgetBlockInstance = this;
@@ -216,6 +219,11 @@ export class WidgetBlock {
         if (styleButton) {
             styleButton.addEventListener("click", () => {
                 this.currentBlockForSettingsRef.value = this.element;
+                const appearancePolicy = this.element
+                    .closest<HTMLElement>(".homepage-container[data-hp-widget-appearance-policy]")
+                    ?.dataset.hpWidgetAppearancePolicy === "theme-controlled"
+                    ? "theme-controlled"
+                    : "user-configurable";
 
                 const dialogRef = svelteDialog({
                     title: "组件样式",
@@ -227,6 +235,7 @@ export class WidgetBlock {
                                                         currentBlockId: this.element.id,
                                                         deviceViewContext: this.runtimeOptions.deviceViewContext,
                                                         blockElement: this.element,
+                                                        appearancePolicy,
                                                         hasPersistedConfig: !this.isNewInstance || this.draftConfigPersisted,
                                                         onClose: () => {
                                                             dialogRef.close();

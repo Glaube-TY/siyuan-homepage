@@ -55,6 +55,10 @@ import {
     type HomepageStatusTextMode,
 } from "./status-text-config";
 import { mergeHomepageSharedSettings } from "./sharedSettings/homepageSharedSettings";
+import {
+    normalizeHomepageAppearanceConfig,
+    type HomepageAppearanceConfig,
+} from "./theme/runtime/appearanceConfig";
 export type { HomepageButtonItem } from "./buttonRegistry";
 export type { HomepageStatusTextMode } from "./status-text-config";
 
@@ -65,6 +69,7 @@ export type FallingDensity = "low" | "medium" | "high";
 export type FallingSpeed = "low" | "medium" | "high";
 
 export interface HomepageConfig {
+    homepageAppearance: HomepageAppearanceConfig;
     bannerEnabled: boolean;
     bannerGlobalType: BannerGlobalType;
     bannerLocalData: string;
@@ -204,6 +209,7 @@ const MIN_BANNER_SCROLL_TOP = -10000;
 const MAX_BANNER_SCROLL_TOP = 10000;
 
 const DEFAULT_HOMEPAGE_CONFIG: HomepageConfig = {
+    homepageAppearance: normalizeHomepageAppearanceConfig(undefined),
     bannerEnabled: true,
     bannerGlobalType: "custom",
     bannerLocalData: "",
@@ -293,6 +299,7 @@ function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
 
 export function normalizeHomepageConfigData(config: any): HomepageConfig {
     return {
+        homepageAppearance: normalizeHomepageAppearanceConfig(config.homepageAppearance),
         bannerEnabled: config.bannerEnabled !== false,
         bannerGlobalType: normalizeEnum(config.bannerGlobalType, VALID_BANNER_GLOBAL_TYPES, DEFAULT_HOMEPAGE_CONFIG.bannerGlobalType),
         bannerLocalData: normalizeString(config.bannerLocalData, DEFAULT_HOMEPAGE_CONFIG.bannerLocalData),

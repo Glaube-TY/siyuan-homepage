@@ -26,7 +26,8 @@
     "release": "node --no-warnings ./scripts/release.js",
     "make-install": "pnpm build && node --no-warnings ./scripts/make_install.js",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "verify:homepage-theme": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-homepage-theme-framework.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

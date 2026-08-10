@@ -22,6 +22,7 @@ export const mainTabs: MainTabItem[] = [
 
 export const subTabs: SubTabItem[] = [
     { key: "behavior", label: "主页行为" },
+    { key: "appearance", label: "外观与主题" },
     { key: "mobile", label: "移动端", requiresAdvanced: true },
     { key: "banner", label: "横幅设置" },
     { key: "title", label: "标题设置" },

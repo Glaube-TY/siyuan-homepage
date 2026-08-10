@@ -91,7 +91,7 @@ function initDrag(
     function isInteractiveDragTarget(target: EventTarget | null): boolean {
         if (!(target instanceof HTMLElement)) return false;
         return Boolean(target.closest(
-            'button, a, input, select, textarea, [role="button"], .button-wrapper, .nav-button, .more-menu, .more-menu-item, .stats-info-refresh'
+            'button, a, input, select, textarea, [role="button"]'
         ));
     }
 

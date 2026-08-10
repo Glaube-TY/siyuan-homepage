@@ -23,6 +23,11 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import {
+        classifyWidgetAppearance,
+        setWidgetAppearanceMode,
+        type WidgetAppearanceMode,
+    } from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 
     interface Props {
         plugin: any;
@@ -33,6 +38,7 @@
         layoutRuntimeOptions?: HomepageLayoutRuntimeOptions;
         deviceViewContext: DeviceViewContext;
         blockElement?: HTMLElement | null;
+        appearancePolicy?: "user-configurable" | "theme-controlled";
         hasPersistedConfig?: boolean;
     }
 
@@ -45,6 +51,7 @@
         layoutRuntimeOptions = {},
         deviceViewContext,
         blockElement = null,
+        appearancePolicy = "user-configurable",
         hasPersistedConfig = true,
     }: Props = $props();
 
@@ -52,6 +59,7 @@
     let backgroundOpacity: number = $state(0.5);
     let borderColor: string = $state("#000000");
     let borderWidth: number = $state(1);
+    let appearanceMode = $state<WidgetAppearanceMode>("inherit");
     let widgetLayoutNumber = $state(4);
     let rowSize = $state(1);
     let colSize = $state(1);
@@ -82,9 +90,23 @@
     }
 
     function handleStyleChange() {
+        appearanceMode = "custom";
+        if (blockElement) setWidgetAppearanceMode(blockElement, "custom");
         updateElementBackground(currentBlockId, backgroundColor, backgroundOpacity, blockElement);
         updateElementBorder(currentBlockId, borderColor, borderWidth, blockElement);
         // 新草稿尚无配置文件；样式保留在 DOM，首次确认内容时会随布局一起提交。
+        if (!hasPersistedConfig) return;
+        saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
+    }
+
+    function handleAppearanceModeChange(mode: WidgetAppearanceMode): void {
+        appearanceMode = mode;
+        if (!blockElement) return;
+        setWidgetAppearanceMode(blockElement, mode);
+        if (mode === "custom") {
+            updateElementBackground(currentBlockId, backgroundColor, backgroundOpacity, blockElement);
+            updateElementBorder(currentBlockId, borderColor, borderWidth, blockElement);
+        }
         if (!hasPersistedConfig) return;
         saveLayout(plugin, getCurrentContainer(), layoutRuntimeOptions);
     }
@@ -206,6 +228,7 @@
         targetSectionId = normalizedSections.find((section) => section.id !== layoutRuntimeOptions.sectionId)?.id || "";
 
         const styles = loadElementStyles(currentBlockId, blockElement);
+        appearanceMode = classifyWidgetAppearance(blockElement?.getAttribute("style")).mode;
         if (styles) {
             backgroundColor = styles.backgroundColor;
             backgroundOpacity = styles.backgroundOpacity;
@@ -270,40 +293,56 @@
         </SettingRow>
     </SettingSection>
 
-    <SettingSection title="外观设置">
-        <SettingRow title="背景颜色">
-            <input type="color" bind:value={backgroundColor} oninput={handleStyleChange} />
-        </SettingRow>
-        <SettingRow title="背景透明度">
-            <div class="range-control">
-                <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    bind:value={backgroundOpacity}
-                    oninput={handleStyleChange}
-                />
-                <span class="range-value">{Math.round(backgroundOpacity * 100)}%</span>
+    {#if appearancePolicy === "theme-controlled"}
+        <SettingSection title="外观设置">
+            <div class="theme-managed-notice" role="note">
+                当前主题统一管理组件背景、边框、圆角与阴影。原有自定义外观会保留，切回支持自定义的主题后继续生效；尺寸和分区设置仍可调整。
             </div>
-        </SettingRow>
-        <SettingRow title="边框颜色">
-            <input type="color" bind:value={borderColor} oninput={handleStyleChange} />
-        </SettingRow>
-        <SettingRow title="边框粗细">
-            <div class="range-control">
-                <input
-                    type="range"
-                    min="0"
-                    max="10"
-                    step="1"
-                    bind:value={borderWidth}
-                    oninput={handleStyleChange}
-                />
-                <span class="range-value">{borderWidth}px</span>
-            </div>
-        </SettingRow>
-    </SettingSection>
+        </SettingSection>
+    {:else}
+        <SettingSection title="外观设置">
+            <SettingRow title="组件外观" description="跟随主页主题会清除背景、边框等自定义声明，但保留组件尺寸与布局。">
+                <div class="appearance-mode-control">
+                    <label><input type="radio" name={`widget-appearance-${currentBlockId}`} checked={appearanceMode === "inherit"} onchange={() => handleAppearanceModeChange("inherit")} />跟随主页主题</label>
+                    <label><input type="radio" name={`widget-appearance-${currentBlockId}`} checked={appearanceMode === "custom"} onchange={() => handleAppearanceModeChange("custom")} />自定义</label>
+                </div>
+            </SettingRow>
+            <SettingRow title="背景颜色">
+                <input type="color" bind:value={backgroundColor} oninput={handleStyleChange} disabled={appearanceMode === "inherit"} />
+            </SettingRow>
+            <SettingRow title="背景透明度">
+                <div class="range-control">
+                    <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        bind:value={backgroundOpacity}
+                        oninput={handleStyleChange}
+                        disabled={appearanceMode === "inherit"}
+                    />
+                    <span class="range-value">{Math.round(backgroundOpacity * 100)}%</span>
+                </div>
+            </SettingRow>
+            <SettingRow title="边框颜色">
+                <input type="color" bind:value={borderColor} oninput={handleStyleChange} disabled={appearanceMode === "inherit"} />
+            </SettingRow>
+            <SettingRow title="边框粗细">
+                <div class="range-control">
+                    <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        step="1"
+                        bind:value={borderWidth}
+                        oninput={handleStyleChange}
+                        disabled={appearanceMode === "inherit"}
+                    />
+                    <span class="range-value">{borderWidth}px</span>
+                </div>
+            </SettingRow>
+        </SettingSection>
+    {/if}
 
     <div class="danger-actions">
         <button class="delete-button" onclick={onDeleteFromCurrentSurface}>
@@ -333,6 +372,16 @@
         justify-content: flex-end;
         flex-wrap: wrap;
         gap: 0.5rem;
+    }
+
+    .theme-managed-notice {
+        padding: 0.75rem 0.875rem;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary, #3575f0) 22%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--b3-theme-primary, #3575f0) 7%, var(--b3-theme-background, #fff));
+        color: var(--b3-theme-on-surface, #1f2329);
+        font-size: 13px;
+        line-height: 1.6;
     }
 
     .size-label {

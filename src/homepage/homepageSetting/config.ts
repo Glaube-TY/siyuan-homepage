@@ -10,6 +10,7 @@ import { getCurrentDeviceViewContext } from '@/homepage/deviceView/deviceViewCon
 import { ensureCurrentDeviceViewMigrated } from '@/homepage/deviceView/deviceViewMigration';
 import { readDeviceViewSettings, updateDeviceViewSettings } from '@/homepage/deviceView/deviceViewStorage';
 import type { DeviceViewSurface } from '@/homepage/deviceView/deviceViewTypes';
+import type { HomepageAppearanceConfig } from '@/homepage/theme/runtime/appearanceConfig';
 import { cloneJsonSafeOmittingUndefinedObjectProperties } from '@/homepage/deviceView/jsonSafe';
 import {
     mergeHomepageSharedSettings,
@@ -198,6 +199,7 @@ export function isComponentSectionsEffective(
 }
 
 export interface HomepageSettingConfig {
+    homepageAppearance?: HomepageAppearanceConfig;
     autoOpenHomepage: boolean;
     sidebarEnabled: boolean;
     autoOpenMobileHomepage: boolean;

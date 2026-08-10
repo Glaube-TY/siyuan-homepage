@@ -1,19 +1,11 @@
-@use './_top-banner'; // 导入横幅样式
-@use './_custom-content'; // 导入自定义组件样式
-@use './_workspace-header'; // 导入工作区头部样式
-@use './_plugin-footer'; // 导入插件页脚样式
+@use './_custom-content'; // Widget Workspace 结构与交互机制
 
 // 容器布局
 .homepage-container {
     display: flex;
     flex-direction: column;
+    min-width: 0;
     height: auto;
-
-    .section {
-        width: 100%;
-        padding: 20px;
-        box-sizing: border-box;
-    }
 }
 
 // 背景图启用时的透明化处理
@@ -27,15 +19,6 @@
         background-color: transparent;
     }
 
-    // 让 workspace-header 区域透明，使底层背景图可见
-    .workspace-header {
-        background-color: transparent;
-    }
-
-    // 让 plugin-footer 区域透明，使底层背景图可见
-    .plugin-footer {
-        background-color: transparent;
-    }
 }
 
 .shp-mouse-trail {

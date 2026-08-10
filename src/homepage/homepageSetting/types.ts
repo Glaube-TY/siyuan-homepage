@@ -1,5 +1,5 @@
 export type HomepageSettingMainTab = "homepage" | "aiKnowledgeBase" | "notifyBridge" | "robotAssistant" | "vip" | "about";
-export type HomepageSettingSubTab = "behavior" | "mobile" | "banner" | "title" | "button" | "widgets" | "indexing" | "devices" | "styles";
+export type HomepageSettingSubTab = "behavior" | "appearance" | "mobile" | "banner" | "title" | "button" | "widgets" | "indexing" | "devices" | "styles";
 
 export interface HomepageSettingProps {
     plugin: any;

@@ -1,0 +1,18 @@
+import type { HomepageThemeDefinition } from "../api/types";
+import { homepageThemeRegistry } from "./themeRegistry";
+
+type ThemeDefinitionModule = { definition?: HomepageThemeDefinition; default?: HomepageThemeDefinition };
+
+let discovered = false;
+
+export function registerBuiltinHomepageThemes(): void {
+    if (discovered) return;
+    discovered = true;
+    const modules = import.meta.glob<ThemeDefinitionModule>("../builtins/*/definition.ts", { eager: true });
+    for (const path of Object.keys(modules).sort()) {
+        const module = modules[path];
+        const definition = module.definition ?? module.default;
+        if (!definition) throw new Error(`内置主页主题缺少 definition 导出: ${path}`);
+        homepageThemeRegistry.register(definition);
+    }
+}

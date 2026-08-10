@@ -1,0 +1,58 @@
+.homepage-container[data-hp-theme] {
+    --hp-page-bg: var(--b3-theme-background, #fff);
+    --hp-surface: var(--b3-theme-surface, #fff);
+    --hp-surface-muted: var(--b3-theme-background, #f7f7f7);
+    --hp-text: var(--b3-theme-on-background, #1f2328);
+    --hp-text-muted: var(--b3-theme-on-surface, #6b7280);
+    --hp-accent: var(--b3-theme-primary, #3578e5);
+    --hp-border: color-mix(in srgb, var(--hp-text) 12%, transparent);
+    --hp-radius-card: 12px;
+    --hp-radius-control: 8px;
+    --hp-shadow-card: none;
+    --hp-shadow-hover: 0 8px 24px rgba(0, 0, 0, .08);
+    --hp-content-max-width: 1440px;
+    --hp-section-padding: 20px;
+    --hp-workspace-background: transparent;
+    --hp-workspace-gap: 16px;
+    --hp-widget-hover-transform: none;
+    --hp-motion-fast: 160ms;
+    --hp-motion-normal: 220ms;
+    container-name: hp-homepage;
+    container-type: inline-size;
+}
+
+.homepage-container[data-hp-theme] .hp-core-parking {
+    position: fixed;
+    top: 0;
+    left: -100000px;
+    width: 100vw;
+    height: auto;
+    overflow: visible;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.homepage-container[data-hp-theme] .hp-theme-region--workspace,
+.homepage-container[data-hp-theme] .hp-persistent-workspace,
+.homepage-container[data-hp-theme] .hp-theme-region--footer,
+.homepage-container[data-hp-theme] .hp-persistent-footer {
+    min-width: 0;
+}
+
+.homepage-container[data-hp-theme] .widget-block[data-hp-widget-appearance="inherit"] {
+    background: var(--hp-widget-background, rgba(0, 0, 0, .03));
+    border: var(--hp-widget-border, 2px solid var(--b3-theme-primary));
+    border-radius: var(--hp-radius-card);
+    box-shadow: var(--hp-shadow-card);
+    transition: transform var(--hp-motion-fast), box-shadow var(--hp-motion-fast);
+}
+
+/* 仅在主题明确接管外观时覆盖旧内联视觉声明；不改写 Widget 样式与布局数据。 */
+.homepage-container[data-hp-widget-appearance-policy="theme-controlled"] .widget-block {
+    background: var(--hp-widget-background, var(--hp-surface)) !important;
+    border: var(--hp-widget-border, 1px solid var(--hp-border)) !important;
+    border-radius: var(--hp-radius-card) !important;
+    box-shadow: var(--hp-shadow-card) !important;
+    transition: border-color var(--hp-motion-fast), box-shadow var(--hp-motion-fast);
+}

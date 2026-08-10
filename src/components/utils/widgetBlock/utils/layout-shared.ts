@@ -1,4 +1,5 @@
 import type { Plugin } from 'siyuan';
+import { classifyWidgetAppearance } from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 import { canSaveLayoutFromRestoreState } from "./layout-save-guard";
 import { isDesktopDeviceProfileEnabled } from "@/homepage/utils/deviceProfile";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
@@ -574,11 +575,13 @@ function normalizeLayoutItem(item: unknown): LayoutItem | null {
 
 function sanitizeLayoutStyle(style: string | null, containerEl: Element | null): string | null {
     if (!style) return style;
+    const appearance = classifyWidgetAppearance(style);
+    let sanitized = appearance.mode === "inherit" ? appearance.runtimeStyle : style;
     // 主页 custom-content 内去掉 aspect-ratio
     if (containerEl && containerEl.classList.contains("custom-content")) {
-        return style.replace(/aspect-ratio\s*:\s*[^;]+;?\s*/gi, "");
+        sanitized = sanitized.replace(/aspect-ratio\s*:\s*[^;]+;?\s*/gi, "");
     }
-    return style;
+    return sanitized.trim() || null;
 }
 
 export function normalizeLayoutItems(items: unknown): LayoutItem[] {
