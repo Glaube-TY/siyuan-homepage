@@ -112,13 +112,17 @@
             aspect-ratio: auto !important;
 
             &:hover {
-                transform: translateY(-1px);
-
                 .block-style-button {
                     opacity: 1;
                     visibility: visible;
                     transform: translateY(0);
                 }
+            }
+
+            // Protyle 的选区工具栏使用视口浮动定位。祖先元素启用 transform 后会
+            // 改变其 fixed 定位参照，导致工具栏在组件悬停期间偏移到右下角。
+            &:hover:not([data-widget-type="custom-protyle"]) {
+                transform: translateY(-1px);
             }
 
             .block-style-button {
