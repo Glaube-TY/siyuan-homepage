@@ -55,63 +55,57 @@
             box-sizing: border-box;
             aspect-ratio: auto !important;
 
-            &:hover {
-                .block-style-button {
+            &:hover,
+            &:focus-within {
+                .drag-handle {
                     opacity: 1;
                     visibility: visible;
                     transform: translateY(0);
                 }
             }
 
-            .block-style-button {
+            .drag-handle {
                 position: absolute;
-                top: 10px;
+                top: 8px;
                 right: 8px;
-                background-color: rgba(0, 0, 0, 0);
-                border: none;
-                border-radius: 4px;
-                padding: 4px 6px;
-                font-size: 14px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 28px;
+                height: 28px;
+                padding: 0;
+                border: 1px solid color-mix(in srgb, var(--b3-theme-on-surface, #1f2329) 10%, transparent);
+                border-radius: 8px;
+                background: color-mix(in srgb, var(--b3-theme-background, #fff) 88%, transparent);
+                box-shadow: 0 4px 12px color-mix(in srgb, #000 12%, transparent);
+                color: var(--b3-theme-on-surface, #1f2329);
                 z-index: 10;
                 opacity: 0;
                 visibility: hidden;
-                transform: translateY(-10px);
+                transform: translateY(-4px);
+                cursor: grab;
                 transition:
-                    opacity 0.3s ease,
-                    visibility 0.3s ease,
-                    transform 0.3s ease;
+                    opacity 160ms ease,
+                    visibility 160ms ease,
+                    transform 160ms ease,
+                    background-color 160ms ease;
 
                 &:hover {
-                    background-color: var(--b3-theme-primary, #3575f0);
+                    background: var(--b3-theme-primary, #3575f0);
+                    color: var(--b3-theme-primary-foreground, #fff);
                 }
-            }
 
-            .block-content-button {
-                @extend .block-style-button;
+                &:focus-visible {
+                    opacity: 1;
+                    visibility: visible;
+                    transform: translateY(0);
+                    outline: 2px solid var(--b3-theme-primary, #3575f0);
+                    outline-offset: 2px;
+                }
 
-                top: 10px;
-                right: auto;
-                left: 8px;
-                transform: translateY(-10px);
-            }
-
-            .block-update-button {
-                @extend .block-style-button;
-
-                top: 10px;
-                right: auto;
-                left: 30px;
-                transform: translateY(-10px);
-            }
-
-            .drag-handle {
-                @extend .block-style-button;
-
-                top: 10px;
-                right: 30px;
-                left: auto;
-                transform: translateY(-10px);
-                cursor: move;
+                &:active {
+                    cursor: grabbing;
+                }
             }
         }
     }

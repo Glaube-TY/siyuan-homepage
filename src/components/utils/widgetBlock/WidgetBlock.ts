@@ -6,7 +6,7 @@ import { mountWidgetContent, type WidgetRuntimeContext } from "./widgetMountRegi
 import { mount, unmount } from "svelte";
 import { deleteWidgetFromSurface, loadWidgetLayoutSettings, stringifyWidgetConfigForMount, normalizeWidgetConfigData } from "./utils/layout-shared";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
-import { showMessage } from "siyuan";
+import { Menu, showMessage } from "siyuan";
 import type { HomepageLayoutRuntimeOptions } from "./utils/layout-handler";
 import { saveWidgetContentPreservingSize } from "./styleUtils";
 import { createWidgetInstanceId, loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
@@ -61,7 +61,7 @@ export class WidgetBlock {
             this.element.dataset.widgetDraft = "true";
         }
 
-        this.element.innerHTML = this.renderControls(false);
+        this.element.innerHTML = this.renderControls();
 
         this.element.setAttribute("style", this.style);
         const appearance = applyWidgetAppearanceCompatibility(this.element, this.style);
@@ -73,17 +73,15 @@ export class WidgetBlock {
         this.setupEventListeners();
     }
 
-    private renderControls(includeRefresh = false): string {
+    private renderControls(): string {
         return `
-            <button class="block-style-button" title="样式设置">${renderSiyuanIcon("style", 14)}</button>
-            <button class="drag-handle" title="拖拽组件">${renderSiyuanIcon("drag", 14)}</button>
-            <button class="block-content-button" title="内容设置">${renderSiyuanIcon("settings", 14)}</button>
-            ${includeRefresh ? `<button class="block-update-button" title="刷新组件">${renderSiyuanIcon("refresh", 14)}</button>` : ""}
+            <button class="drag-handle" type="button" title="拖拽组件" aria-label="拖拽组件">${renderSiyuanIcon("drag", 14)}</button>
         `;
     }
 
     // 公开销毁方法：统一清理 widget 实例
     public destroy(): void {
+        this.element.removeEventListener("contextmenu", this.handleContextMenu, true);
         this.cleanupMountedWidget();
         (this.element as any).__widgetBlockInstance = null;
     }
@@ -127,14 +125,13 @@ export class WidgetBlock {
 
     public showMountError(message = "组件暂时无法加载，切换回此分栏时将重试"): void {
         this.cleanupMountedWidget();
-        this.element.innerHTML = this.renderControls(true);
+        this.element.innerHTML = this.renderControls();
         const errorElement = document.createElement("div");
         errorElement.className = "homepage-widget-local-error";
         errorElement.setAttribute("role", "status");
         errorElement.textContent = message;
         this.element.appendChild(errorElement);
         this.element.dataset.widgetMountState = "failed";
-        this.setupEventListeners();
     }
 
     /**
@@ -211,13 +208,43 @@ export class WidgetBlock {
         this.widgetLayoutNumber = settings.widgetLayoutNumber;
     }
 
-    private setupEventListeners() {
-        const styleButton = this.element.querySelector(".block-style-button");
-        const contentButton = this.element.querySelector(".block-content-button");
-        const updateButton = this.element.querySelector(".block-update-button");
+    private setupEventListeners(): void {
+        this.element.addEventListener("contextmenu", this.handleContextMenu, true);
+    }
 
-        if (styleButton) {
-            styleButton.addEventListener("click", () => {
+    private readonly handleContextMenu = (event: MouseEvent): void => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const menu = new Menu("homepage-widget-context-menu");
+        menu.addItem({
+            icon: "iconSettings",
+            label: "内容设置",
+            click: () => this.openContentSettings(),
+        });
+        menu.addItem({
+            icon: "iconRefresh",
+            label: "刷新组件",
+            disabled: this.isNewInstance && !this.draftConfigPersisted,
+            click: () => void this.refreshContent(),
+        });
+        menu.addSeparator();
+        menu.addItem({
+            icon: "iconTheme",
+            label: "样式设置",
+            click: () => this.openStyleSettings(),
+        });
+
+        const rect = this.element.getBoundingClientRect();
+        const openedFromKeyboard = event.clientX === 0 && event.clientY === 0;
+        menu.open({
+            x: openedFromKeyboard ? rect.right : event.clientX,
+            y: openedFromKeyboard ? rect.top + 8 : event.clientY,
+            isLeft: false,
+        });
+    };
+
+    private openStyleSettings(): void {
                 this.currentBlockForSettingsRef.value = this.element;
                 const appearancePolicy = this.element
                     .closest<HTMLElement>(".homepage-container[data-hp-widget-appearance-policy]")
@@ -277,11 +304,9 @@ export class WidgetBlock {
                                                 });
                     },
                 });
-            });
-        }
+    }
 
-        if (contentButton) {
-            contentButton.addEventListener("click", () => {
+    private openContentSettings(): void {
                 this.currentBlockForSettingsRef.value = this.element;
 
                 const dialogRef = svelteDialog({
@@ -356,18 +381,14 @@ export class WidgetBlock {
                                                 });
                     },
                 });
-            });
-        }
+    }
 
-        if (updateButton) {
-            updateButton.addEventListener("click", async () => {
-                const widgetConfig = await loadWidgetInstanceConfig(this.runtimeOptions.deviceViewContext!, this.id);
-                if (widgetConfig) {
-                    this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '', {
-                        forceIndexRefresh: true,
-                        refreshReason: "manual",
-                    });
-                }
+    private async refreshContent(): Promise<void> {
+        const widgetConfig = await loadWidgetInstanceConfig(this.runtimeOptions.deviceViewContext!, this.id);
+        if (widgetConfig) {
+            this.updateContent(stringifyWidgetConfigForMount(widgetConfig) || '', {
+                forceIndexRefresh: true,
+                refreshReason: "manual",
             });
         }
     }
@@ -385,7 +406,7 @@ export class WidgetBlock {
 
         this.cleanupMountedWidget();
 
-        this.element.innerHTML = this.renderControls(true);
+        this.element.innerHTML = this.renderControls();
         this.element.dataset.widgetMountState = "mounting";
 
         try {
@@ -398,9 +419,6 @@ export class WidgetBlock {
             this.mountedWidget = null;
             this.element.dataset.widgetMountState = "failed";
             throw error;
-        } finally {
-            // 内容替换后按钮节点也已替换，需要重新绑定事件。
-            this.setupEventListeners();
         }
     }
 }
