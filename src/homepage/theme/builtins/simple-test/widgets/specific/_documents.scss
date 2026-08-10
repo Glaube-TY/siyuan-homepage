@@ -6,7 +6,7 @@
         .widget-block[data-widget-presentation="simple.workspace.child-docs"],
         .widget-block[data-widget-presentation="simple.workspace.condition-docs"]
     )[data-widget-placement="homepage"] {
-        [data-widget-part="root"] { padding: var(--hp-widget-space-4); }
+        [data-widget-part="root"] { padding: var(--hp-widget-space-3); }
         .document-item-content,
         .favorites-item-content {
             display: flex;
@@ -50,6 +50,6 @@
             .widget-block[data-widget-presentation="simple.workspace.condition-docs"]
         )[data-widget-placement="homepage"]
         [data-widget-part="root"] {
-        padding: var(--hp-widget-space-3);
+        padding: 10px;
     }
 }

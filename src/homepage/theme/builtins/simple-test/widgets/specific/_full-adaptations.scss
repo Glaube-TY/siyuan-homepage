@@ -8,7 +8,7 @@
             display: flex;
             flex-direction: column;
             min-height: 0;
-            padding: var(--hp-widget-space-4);
+            padding: var(--hp-widget-space-3);
         }
 
         [data-widget-part="body"] {
@@ -126,6 +126,6 @@
             .widget-block[data-widget-presentation="simple.workspace.taskman-plus"]
         )[data-widget-placement="homepage"][data-widget-presentation-scope="full"]
         [data-widget-part="root"] {
-        padding: var(--hp-widget-space-3);
+        padding: 10px;
     }
 }
