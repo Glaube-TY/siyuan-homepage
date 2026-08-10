@@ -1,5 +1,6 @@
 import type { Component } from "svelte";
 import type { HOMEPAGE_THEME_API_VERSION } from "./themeApiVersion";
+import type { WidgetPresentationManifest } from "../widgetPresentation/types";
 
 export type HomepageThemeAccess = "free" | "vip";
 export type HomepageThemeSurface = "desktop-homepage";
@@ -124,6 +125,7 @@ export interface HomepageThemeDefinition {
     surfaces: readonly HomepageThemeSurface[];
     renderer: Component<HomepageThemeProps>;
     preview?: HomepageThemePublicMeta["preview"];
+    widgetPresentation?: WidgetPresentationManifest;
     features?: {
         banner?: boolean;
         customThemeSettings?: boolean;

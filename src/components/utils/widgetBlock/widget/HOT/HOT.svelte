@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { UapiClient } from "uapi-sdk-typescript";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
     interface Props {
         contentTypeJson?: string;
@@ -346,18 +347,19 @@
     });
 </script>
 
-<div class="content-display">
-    <h3 class="widget-title">{widgetTitle}</h3>
-    <div class="HOT-content-container">
+<div class="content-display" data-widget-part="root">
+    <WidgetSemanticTitle widgetType="HOT" configuredTitle={widgetTitle} semanticLabel="热搜" fallbackIcon="iconList" />
+    <div class="HOT-content-container" data-widget-part="body">
         {#if loading}
-            <p>加载中...</p>
+            <p data-widget-part="loading">加载中...</p>
         {:else if error}
-            <p style="color: red;">{error}</p>
+            <p data-widget-part="error">{error}</p>
         {:else}
-            <ul class="hot-list">
+            <ul class="hot-list" data-widget-part="list">
                 {#each hotList as item, index}
                     <li
                         class="hot-item {index < 3 ? 'top-' + (index + 1) : ''}"
+                        data-widget-part="item"
                     >
                         <a
                             href={item.link}
@@ -374,9 +376,9 @@
                                 <span class="rank-icon">🔥</span>
                             {/if}
 
-                            <span class="rank">{index + 1}</span>
-                            <span class="title">{item.title}</span>
-                            <span class="heat">{item.heat}</span>
+                            <span class="rank" data-widget-part="secondary">{index + 1}</span>
+                            <span class="title" data-widget-part="primary">{item.title}</span>
+                            <span class="heat" data-widget-part="meta">{item.heat}</span>
                         </a>
                     </li>
                 {/each}
@@ -386,7 +388,7 @@
 </div>
 
 <style>
-    .widget-title {
+    .content-display :global(.hp-widget-title) {
         font-size: 18px;
         font-weight: 600;
         margin-bottom: 0.5rem;

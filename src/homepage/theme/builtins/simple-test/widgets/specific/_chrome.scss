@@ -1,0 +1,44 @@
+.homepage-container[data-hp-theme="builtin.simple-test"]
+    :is(
+        .widget-block[data-widget-presentation="simple.workspace.sql"],
+        .widget-block[data-widget-presentation="simple.workspace.constellation"],
+        .widget-block[data-widget-presentation="simple.workspace.review-docs"],
+        .widget-block[data-widget-presentation="simple.workspace.fixed-assets"]
+    )[data-widget-placement="homepage"][data-widget-presentation-scope="chrome"] {
+    [data-widget-part="root"] {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        padding: var(--hp-widget-space-4);
+    }
+
+    [data-widget-part="header"] {
+        align-self: stretch;
+        justify-content: flex-start;
+        min-height: 32px;
+        margin: 0 0 var(--hp-widget-space-3);
+        text-align: left;
+    }
+
+    [data-widget-part="body"] {
+        min-width: 0;
+        min-height: 0;
+    }
+
+    [data-widget-part="actions"] {
+        min-width: 0;
+    }
+}
+
+@container hp-widget (max-width: 239px) {
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        :is(
+            .widget-block[data-widget-presentation="simple.workspace.sql"],
+            .widget-block[data-widget-presentation="simple.workspace.constellation"],
+            .widget-block[data-widget-presentation="simple.workspace.review-docs"],
+            .widget-block[data-widget-presentation="simple.workspace.fixed-assets"]
+        )[data-widget-placement="homepage"][data-widget-presentation-scope="chrome"]
+        [data-widget-part="root"] {
+        padding: var(--hp-widget-space-3);
+    }
+}

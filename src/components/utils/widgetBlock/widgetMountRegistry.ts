@@ -1,125 +1,20 @@
 import { mount } from "svelte";
-import latestDocs from "./widget/latestDocs/latestDocs.svelte";
-import latestDailyNotes from "./widget/latestDailyNotes/latestDailyNotes.svelte";
-import TaskMan from "./widget/tasks/recentTasks.svelte";
-import countdown from "./widget/countdown/countdown.svelte";
-import weather from "./widget/weather/weather.svelte";
-import HOT from "./widget/HOT/HOT.svelte";
-import favorites from "./widget/favorites/favorites.svelte";
-import heatmap from "./widget/heatmap/heatmap.svelte";
-import customText from "./widget/customText/customText.svelte";
-import customWeb from "./widget/webview/webview.svelte";
-import customProtyle from "./widget/protyle/protyle.svelte";
-import timedate from "./widget/timedate/timedate.svelte";
-import focus from "./widget/focus/focus.svelte";
-import sql from "./widget/sql/sql.svelte";
-import TaskManPlus from "./widget/tasksPlus/tasksPlus.svelte";
-import quickNotes from "./widget/quickNotes/quickNotes.svelte";
-import dailyQuote from "./widget/dailyQuote/dailyQuote.svelte";
-import visualChart from "./widget/visualChart/visualChart.svelte";
-import musicPlayer from "./widget/musicPlayer/musicPlayer.svelte";
-import Stikynot from "./widget/stikynot/stikynot.svelte";
-import News from "./widget/News/News.svelte";
-import databaseChart from "./widget/databaseChart/databaseChart.svelte";
-import childDocs from "./widget/childDocs/childDocs.svelte";
-import constellation from "./widget/constellation/constellation.svelte";
-import historyDays from "./widget/historyDays/historyDays.svelte";
-import statisticalCard from "./widget/statisticalCard/statisticalCard.svelte";
-import almanac from "./widget/almanac/almanac.svelte";
-import PicCaro from "./widget/PicCaro/PicCaro.svelte";
-import CYBMOK from "./widget/CYBMOK/CYBMOK.svelte";
-import countdownTimer from "./widget/countdownTimer/countdownTimer.svelte";
-import conditionDocs from "./widget/conditionDocs/conditionDocs.svelte";
-import fixedAssets from "./widget/fixedAssets/fixedAssets.svelte";
-import reviewDocs from "./widget/reviewDocs/reviewDocs.svelte";
-import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
-import accounting from "./widget/accounting/accounting.svelte";
-import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
-import { sanitizeWidgetTypeClass } from "@/homepage/mobileHomepage/mobile-widget-categories";
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
-
-const widgetRegistry: Record<string, any> = {
-    "latest-docs": latestDocs,
-    "heatmap": heatmap,
-    "favorites": favorites,
-    "recent-journals": latestDailyNotes,
-    "TaskMan": TaskMan,
-    "countdown": countdown,
-    "weather": weather,
-    "HOT": HOT,
-    "custom-text": customText,
-    "custom-web": customWeb,
-    "custom-protyle": customProtyle,
-    "timedate": timedate,
-    "focus": focus,
-    "sql": sql,
-    "TaskManPlus": TaskManPlus,
-    "quick-notes": quickNotes,
-    "dailyQuote": dailyQuote,
-    "visualChart": visualChart,
-    "musicPlayer": musicPlayer,
-    "stikynot": Stikynot,
-    "News": News,
-    "databaseChart": databaseChart,
-    "childDocs": childDocs,
-    "constellation": constellation,
-    "historyDays": historyDays,
-    "statisticalCard": statisticalCard,
-    "almanac": almanac,
-    "PicCaro": PicCaro,
-    "CYBMOK": CYBMOK,
-    "countdownTimer": countdownTimer,
-    "conditionDocs": conditionDocs,
-    "fixedAssets": fixedAssets,
-    "reviewDocs": reviewDocs,
-    "enhancedDiary": enhancedDiary,
-    "accounting": accounting,
-    "notebrain": KbPremiumGatePanel,
-};
-
-const widgetNeedsPlugin: Set<string> = new Set([
-    "latest-docs",
-    "heatmap",
-    "favorites",
-    "recent-journals",
-    "TaskMan",
-    "countdown",
-    "weather",
-    "custom-protyle",
-    "timedate",
-    "focus",
-    "sql",
-    "TaskManPlus",
-    "quick-notes",
-    "dailyQuote",
-    "visualChart",
-    "musicPlayer",
-    "stikynot",
-    "News",
-    "databaseChart",
-    "childDocs",
-    "constellation",
-    "historyDays",
-    "statisticalCard",
-    "almanac",
-    "PicCaro",
-    "CYBMOK",
-    "countdownTimer",
-    "conditionDocs",
-    "fixedAssets",
-    "reviewDocs",
-    "enhancedDiary",
-    "accounting",
-    "notebrain",
-]);
+import { applyWidgetPresentation } from "@/homepage/theme/widgetPresentation/runtime";
+import type { WidgetPlacement } from "@/homepage/theme/widgetPresentation/types";
+import { getWidgetDefinition } from "./widgetDefinitionRegistry";
 
 export interface WidgetRuntimeContext {
-    placement?: "homepage" | "sidebar" | "mobile" | "mobile-runtime" | "preview" | "dock";
+    placement?: WidgetPlacement;
     persistentMusicRuntime?: boolean;
     previewMode?: boolean;
     forceIndexRefresh?: boolean;
     refreshReason?: "initial" | "manual" | "settings";
     deviceViewContext?: DeviceViewContext;
+}
+
+function sanitizeWidgetTypeClass(widgetType: string): string {
+    return widgetType.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
 }
 
 export function mountWidgetContent(
@@ -132,39 +27,36 @@ export function mountWidgetContent(
 
     try {
         contentData = JSON.parse(contentTypeJson);
-    } catch (e) {
-        console.error("无法解析 JSON 数据", e);
+    } catch (error) {
+        console.error("无法解析 Widget JSON 数据", error);
         return null;
     }
 
     const widgetType = contentData.type;
-    const widgetComponent = widgetRegistry[widgetType];
-
-    if (!widgetComponent) {
-        console.warn(`未知的 widget 类型: ${widgetType}`);
+    const definition = typeof widgetType === "string" ? getWidgetDefinition(widgetType) : undefined;
+    if (!definition) {
+        console.warn(`未知的 widget 类型: ${String(widgetType)}`);
         return null;
     }
 
-    const props: Record<string, any> = {
-        contentTypeJson: contentTypeJson,
-    };
     const placement = runtimeContext.placement || "homepage";
+    if (!definition.supportedPlacements.includes(placement)) {
+        console.warn("[WidgetPresentation] Widget placement 未声明，沿用 Legacy 挂载", {
+            widgetType,
+            placement,
+        });
+    }
 
     target.dataset.widgetType = widgetType;
     Array.from(target.classList)
         .filter((className) => className.startsWith("widget-type-"))
         .forEach((className) => target.classList.remove(className));
     target.classList.add(`widget-type-${sanitizeWidgetTypeClass(widgetType)}`);
+    const presentation = applyWidgetPresentation(target, definition, placement);
 
-    if (widgetNeedsPlugin.has(widgetType)) {
-        props.plugin = plugin;
-    }
-
-    if (widgetType === "notebrain") {
-        props.placement = runtimeContext.placement || "dock";
-    } else {
-        props.placement = placement;
-    }
+    const props: Record<string, any> = { contentTypeJson };
+    if (definition.requiresPlugin) props.plugin = plugin;
+    props.placement = widgetType === "notebrain" ? (runtimeContext.placement || "dock") : placement;
     props.runtimeContext = {
         placement,
         previewMode: runtimeContext.previewMode ?? false,
@@ -174,8 +66,23 @@ export function mountWidgetContent(
     };
     props.previewMode = runtimeContext.previewMode ?? false;
 
-    return mount(widgetComponent, {
-        target: target,
-        props: props,
-    });
+    const selectedComponent = presentation.renderer ?? definition.component;
+    const existingNodes = new Set(target.childNodes);
+    try {
+        return mount(selectedComponent, { target, props });
+    } catch (error) {
+        console.error("[WidgetPresentation] Widget renderer 挂载失败", {
+            themeId: presentation.themeId,
+            widgetType,
+            widgetId: target.id,
+            level: presentation.level,
+            fallback: selectedComponent !== definition.component ? "legacy-component" : "widget-mount-error",
+            error,
+        });
+        if (selectedComponent === definition.component) throw error;
+        for (const node of Array.from(target.childNodes)) {
+            if (!existingNodes.has(node)) node.remove();
+        }
+        return mount(definition.component, { target, props });
+    }
 }

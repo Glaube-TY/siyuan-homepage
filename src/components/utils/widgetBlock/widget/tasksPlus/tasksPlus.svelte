@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
     import { showMessage } from "siyuan";
     import { openDocs } from "@/components/tools/openDocs";
     import { gettasksList, formatTasksList } from "./tasksPlus";
@@ -316,12 +317,13 @@
     });
 </script>
 
-<div class="content-display">
-    <h3 class="widget-title">{TaskManPlusTitle}</h3>
-    <div class="tasks-list-container">
+<div class="content-display" data-widget-part="root">
+    <WidgetSemanticTitle widgetType="TaskManPlus" configuredTitle={TaskManPlusTitle} semanticLabel="任务管理 Plus" fallbackIcon="iconCheck" />
+    <div class="hp-widget-body" data-widget-part="body">
+    <div class="tasks-list-container" data-widget-part="list">
         {#if Array.isArray(tasksListFormat) && tasksListFormat.length > 0}
             {#each tasksListFormat as task}
-                <div class="task-item">
+                <div class="task-item" data-widget-part="item">
                     <label class="checkbox-label">
                         <input
                             type="checkbox"
@@ -333,12 +335,13 @@
                         <button
                             type="button"
                             class="task-name"
+                            data-widget-part="primary"
                             onclick={() => openDocs(plugin, task.id, 1)}
                         >
                             {task.taskname || "未命名任务"}
                         </button>
                     </label>
-                    <div class="tasks-details">
+                    <div class="tasks-details" data-widget-part="meta">
                         <div class="meta-row">
                             {#if task.parsed.startDate || task.parsed.deadline}
                                 <div class="date-group">
@@ -419,9 +422,17 @@
             {/if}
         {/if}
     </div>
+    </div>
 </div>
 
 <style lang="scss">
+    .hp-widget-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+    }
+
     .content-display {
         width: 100%;
         height: 100%;
@@ -430,7 +441,7 @@
         padding: 10px;
         box-sizing: border-box;
 
-        .widget-title {
+        :global(.hp-widget-title) {
             font-size: 18px;
             font-weight: 600;
             margin-bottom: 0.5rem;

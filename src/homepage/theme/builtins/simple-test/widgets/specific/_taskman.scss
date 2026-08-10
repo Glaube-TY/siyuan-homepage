@@ -1,0 +1,24 @@
+.homepage-container[data-hp-theme="builtin.simple-test"]
+    .widget-block[data-widget-presentation="simple.workspace.taskman"][data-widget-placement="homepage"] {
+    [data-widget-part="root"] { padding: var(--hp-widget-space-4); }
+    .task-header { justify-content: flex-start; gap: var(--hp-widget-space-2); }
+    .task-content { min-width: 0; margin-left: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .checkbox-label input { accent-color: var(--hp-accent); }
+    .task-created-time,
+    .task-source { margin-top: var(--hp-widget-space-1); padding-left: 28px; }
+    .task-source {
+        max-width: 100%;
+        overflow: hidden;
+        box-sizing: border-box;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+@container hp-widget (max-width: 239px) {
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        .widget-block[data-widget-presentation="simple.workspace.taskman"][data-widget-placement="homepage"]
+        [data-widget-part="root"] {
+        padding: var(--hp-widget-space-3);
+    }
+}

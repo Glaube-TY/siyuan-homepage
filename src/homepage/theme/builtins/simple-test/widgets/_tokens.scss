@@ -1,0 +1,14 @@
+.homepage-container[data-hp-theme="builtin.simple-test"] {
+    --hp-widget-space-1: 4px;
+    --hp-widget-space-2: 8px;
+    --hp-widget-space-3: 12px;
+    --hp-widget-space-4: 16px;
+    --hp-widget-space-5: 20px;
+    --hp-widget-title-size: 14px;
+    --hp-widget-body-size: 13px;
+    --hp-widget-meta-size: 12px;
+    --hp-widget-row-height: 42px;
+    --hp-widget-divider: color-mix(in srgb, var(--hp-text) 8%, transparent);
+    --hp-widget-hover: color-mix(in srgb, var(--hp-accent) 7%, transparent);
+    --hp-widget-icon-bg: color-mix(in srgb, var(--hp-accent) 10%, transparent);
+}

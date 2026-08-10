@@ -27,6 +27,7 @@
     import { loadFavoritesForUI } from "@/features/favorites-manager/favorites-store";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
     interface Props {
         plugin: any;
@@ -453,14 +454,19 @@
         </div>
     </div>
 {:else}
-    <div class="content-display">
-        <h3 class="widget-title">{favoritiesTitle}</h3>
-        <div class="favorites-content-container">
+    <div class="content-display" data-widget-part="root">
+        <WidgetSemanticTitle
+            widgetType="favorites"
+            configuredTitle={favoritiesTitle}
+            semanticLabel="收藏文档"
+            fallbackIcon="iconBookmark"
+        />
+        <div class="favorites-content-container" data-widget-part="body">
             {#if favoritesNotes.length}
                 {#if effectiveGroupingEnabled && groupLoadState.kind === "loading"}
-                    <div class="favorites-empty-state">正在加载收藏分组...</div>
+                    <div class="favorites-empty-state" data-widget-part="loading">正在加载收藏分组...</div>
                 {:else if effectiveGroupingEnabled && groupLoadState.kind === "error"}
-                    <div class="favorites-empty-state"><strong>收藏分组数据暂不可用</strong><span>{groupLoadState.message}</span></div>
+                    <div class="favorites-empty-state" data-widget-part="error"><strong>收藏分组数据暂不可用</strong><span>{groupLoadState.message}</span></div>
                 {:else if effectiveGroupingEnabled && groupedResult !== null}
                     {#if groupedResult.groups.size === 0 && favoritesNotes.length > 0}
                         <div class="favorites-empty-state"><strong>所选分组暂无收藏文档</strong></div>
@@ -469,11 +475,11 @@
                     {#each [...groupedResult.groups.entries()] as [groupId, groupData] (groupId)}
                         <section class="favorites-group-section">
                             <h4 class="favorites-group-title">{groupData.name}</h4>
-                            <ul class="favorites-list" use:registerGroupList={groupId}>
+                            <ul class="favorites-list" data-widget-part="list" use:registerGroupList={groupId}>
                                 {#each groupData.items as note (note.id)}
                                     {@const iconResult = getDocIcon(note)}
                                     {@const meta = noteMeta(note)}
-                                    <li class="favorites-item" data-favorite-id={note.id} onpointerleave={() => (dragHandleSuppressed = false)}>
+                                    <li class="favorites-item" data-widget-part="item" data-favorite-id={note.id} onpointerleave={() => (dragHandleSuppressed = false)}>
                                         {#if favoritesSortOrder === "manual"}
                                             <div class="favorites-manual-actions">
                                                 <button type="button" class="favorites-manual-button favorites-drag-handle" title="拖动排序"
@@ -483,6 +489,7 @@
                                         {/if}
                                         <div
                                             class="favorites-item-content"
+                                            data-widget-part="primary"
                                             onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { openDocs(plugin, note.id, 0); } }}
                                             onmouseenter={(e) => {
                                                 if (showFavFloatDoc && !plugin.isMobile) {
@@ -516,10 +523,10 @@
                                             {:else}
                                                 <span class="doc-icon">{iconResult.value}</span>
                                             {/if}
-                                            <span class="doc-title">{note.content}</span>
+                                            <span class="doc-title" data-widget-part="primary">{note.content}</span>
                                         </div>
                                         {#if showNoteMeta}
-                                            <div class="note-meta">{meta.label}：{formatDate(meta.value)}</div>
+                                            <div class="note-meta" data-widget-part="meta">{meta.label}：{formatDate(meta.value)}</div>
                                         {/if}
                                     </li>
                                 {/each}
@@ -530,12 +537,12 @@
                         <section class="favorites-group-section">
                             <h4 class="favorites-group-title">未识别分组</h4>
                             <div class="favorites-empty-state" style="padding:4px 0;font-size:12px">以下收藏引用已删除的分组，数据保留</div>
-                            <ul class="favorites-list">
+                            <ul class="favorites-list" data-widget-part="list">
                                 {#each orphanedItems as note (note.id)}
                                     {@const iconResult = getDocIcon(note)}
                                     {@const meta = noteMeta(note)}
-                                    <li class="favorites-item" data-favorite-id={note.id}>
-                                        <div class="favorites-item-content"
+                                    <li class="favorites-item" data-widget-part="item" data-favorite-id={note.id}>
+                                        <div class="favorites-item-content" data-widget-part="primary"
                                             onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { openDocs(plugin, note.id, 0); } }}
                                             onclick={() => openDocs(plugin, note.id, 0)}
                                             role="button" tabindex="0" aria-label="打开收藏文档：{note.content}">
@@ -552,11 +559,11 @@
                     {/if}
                 {:else if !effectiveGroupingEnabled || groupLoadState.kind === "idle"}
                     <!-- 平铺模式 -->
-                    <ul class="favorites-list" class:suppress-drag-handle={dragHandleSuppressed} bind:this={favoritesListElement}>
+                    <ul class="favorites-list" data-widget-part="list" class:suppress-drag-handle={dragHandleSuppressed} bind:this={favoritesListElement}>
                         {#each favoritesNotes as note (note.id)}
                             {@const iconResult = getDocIcon(note)}
                             {@const meta = noteMeta(note)}
-                            <li class="favorites-item" data-favorite-id={note.id} onpointerleave={() => (dragHandleSuppressed = false)}>
+                            <li class="favorites-item" data-widget-part="item" data-favorite-id={note.id} onpointerleave={() => (dragHandleSuppressed = false)}>
                                 {#if favoritesSortOrder === "manual"}
                                     <div class="favorites-manual-actions">
                                         <button type="button" class="favorites-manual-button favorites-drag-handle" title="拖动排序"
@@ -565,7 +572,7 @@
                                         </button>
                                     </div>
                                 {/if}
-                                <div class="favorites-item-content"
+                                <div class="favorites-item-content" data-widget-part="primary"
                                     onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { openDocs(plugin, note.id, 0); } }}
                                     onmouseenter={(e) => {
                                         if (showFavFloatDoc && !plugin.isMobile) {
@@ -593,9 +600,9 @@
                                     role="button" tabindex="0" aria-label="打开收藏文档：{note.content}">
                                     {#if iconResult.type === "image"}<img class="doc-icon-image" src={iconResult.value} alt="" />
                                     {:else}<span class="doc-icon">{iconResult.value}</span>{/if}
-                                    <span class="doc-title">{note.content}</span>
+                                    <span class="doc-title" data-widget-part="primary">{note.content}</span>
                                 </div>
-                                {#if showNoteMeta}<div class="note-meta">{meta.label}：{formatDate(meta.value)}</div>{/if}
+                                {#if showNoteMeta}<div class="note-meta" data-widget-part="meta">{meta.label}：{formatDate(meta.value)}</div>{/if}
                             </li>
                         {/each}
                     </ul>
@@ -605,7 +612,7 @@
                     <LocalIndexEmptyState title="本地索引为空" message="收藏本地索引为空，请迁移或重建索引。" {plugin}
                         hint="从文档树右键重新收藏，或到主页设置 > 检索管理中迁移旧收藏属性。" />
                 {:else}
-                    <div class="favorites-empty-state"><strong>收藏索引为空</strong><span>{favoritesStatusMessage}</span></div>
+                    <div class="favorites-empty-state" data-widget-part="empty"><strong>收藏索引为空</strong><span>{favoritesStatusMessage}</span></div>
                 {/if}
             {/if}
         </div>
@@ -613,17 +620,6 @@
 {/if}
 
 <style lang="scss">
-    .widget-title {
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-        padding-bottom: 0.3rem;
-        border-bottom: 1px solid var(--b3-border-color);
-        text-align: center;
-        display: inline-block;
-        line-height: 1.2;
-    }
-
     .favorites-group-section {
         margin-bottom: 12px;
 

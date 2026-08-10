@@ -1,0 +1,209 @@
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { resolveWidgetPresentation } from "../src/homepage/theme/widgetPresentation/resolver";
+import { WIDGET_PRESENTATION_CONTRACT_VERSION, type WidgetDefinition, type WidgetPresentationManifest } from "../src/homepage/theme/widgetPresentation/types";
+import { classifyWidgetTitle } from "../src/homepage/theme/widgetPresentation/titleCompatibility";
+import { validateWidgetPresentationManifest } from "../src/homepage/theme/widgetPresentation/presentationRegistry";
+
+const renderer = (() => undefined) as WidgetDefinition["component"];
+const semanticDefinition: WidgetDefinition = {
+    type: "sample-list",
+    kind: "list",
+    component: renderer,
+    requiresPlugin: false,
+    semanticLabel: "示例列表",
+    semanticIcon: "documents.recent",
+    supportedPlacements: ["homepage"],
+    defaultPresentationScope: "full",
+    capabilities: {
+        cssTokens: true,
+        semanticParts: true,
+        themeIcon: true,
+        rendererOverride: false,
+        stateful: true,
+    },
+    presentationContractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
+};
+const legacyDefinition: WidgetDefinition = {
+    ...semanticDefinition,
+    type: "legacy-list",
+    defaultPresentationScope: "native",
+    capabilities: { ...semanticDefinition.capabilities, semanticParts: false, themeIcon: false },
+};
+const classicManifest: WidgetPresentationManifest = {
+    contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
+    generic: { id: "classic.legacy" },
+};
+
+const specific = resolveWidgetPresentation({
+    themeId: "test.theme",
+    definition: semanticDefinition,
+    manifest: {
+        contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
+        generic: { id: "test.generic" },
+        kinds: { list: { id: "test.list" } },
+        widgets: { "sample-list": { id: "test.sample", scope: "chrome" } },
+        icons: { "documents.recent": "iconFile" },
+    },
+    classicManifest,
+});
+assert.equal(specific.presentationId, "test.sample");
+assert.equal(specific.level, "theme-widget");
+assert.equal(specific.scope, "chrome", "Theme descriptor scope 必须覆盖 Definition 默认值");
+assert.equal(specific.resolvedIcon, "iconFile");
+
+const kind = resolveWidgetPresentation({
+    themeId: "test.theme",
+    definition: semanticDefinition,
+    manifest: { contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION, kinds: { list: { id: "test.list" } } },
+    classicManifest,
+});
+assert.equal(kind.level, "theme-kind");
+assert.equal(kind.scope, "full", "未覆盖时必须继承 Definition 默认 scope");
+assert.deepEqual(kind.fallbackTrail, ["theme-widget", "theme-kind"]);
+
+const generic = resolveWidgetPresentation({
+    themeId: "test.theme",
+    definition: semanticDefinition,
+    manifest: { contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION, generic: { id: "test.generic" } },
+    classicManifest,
+});
+assert.equal(generic.level, "theme-generic");
+
+const semantic = resolveWidgetPresentation({ themeId: "test.theme", definition: semanticDefinition, classicManifest });
+assert.equal(semantic.level, "semantic");
+assert.equal(semantic.presentationId, "compat.semantic");
+
+const classic = resolveWidgetPresentation({ themeId: "test.theme", definition: legacyDefinition, classicManifest });
+assert.equal(classic.level, "classic");
+assert.equal(classic.presentationId, "classic.legacy");
+
+const legacy = resolveWidgetPresentation({ themeId: "test.theme", definition: legacyDefinition });
+assert.equal(legacy.level, "legacy");
+assert.deepEqual(legacy.fallbackTrail, ["theme-widget", "theme-kind", "theme-generic", "semantic", "classic", "legacy"]);
+assert.equal(classifyWidgetTitle("latest-docs", "🕒最近文档"), "historical-default");
+assert.equal(classifyWidgetTitle("latest-docs", "我的文档"), "custom");
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 2 }),
+    /Contract 版本/,
+);
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 1, generic: { id: "valid.id", mode: "invalid" } }),
+    /mode 非法/,
+);
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 1, generic: { id: "valid.id", scope: "invalid" } }),
+    /scope 非法/,
+);
+
+function collectSourceFiles(directory: string): string[] {
+    return readdirSync(directory).flatMap((name) => {
+        const path = join(directory, name);
+        return statSync(path).isDirectory() ? collectSourceFiles(path) : [path];
+    });
+}
+
+const definitionSource = readFileSync("src/components/utils/widgetBlock/widgetDefinitionRegistry.ts", "utf8");
+const registeredTypes = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)"/g)].map((match) => match[1]);
+assert.equal(registeredTypes.length, 36, "所有现有 Widget 都必须进入统一 Definition Registry");
+assert.equal(new Set(registeredTypes).size, registeredTypes.length, "Widget Definition type 必须唯一");
+for (const type of ["latest-docs", "favorites", "recent-journals", "TaskMan", "notebrain"]) {
+    assert.ok(registeredTypes.includes(type), `Definition Registry 缺少 ${type}`);
+}
+for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements", "capabilities", "responsiveProfile"]) {
+    assert.match(definitionSource, new RegExp(capability), `Widget Definition 缺少 ${capability}`);
+}
+
+const registeredScopes = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", scope: "(full|chrome|native)"/g)]
+    .map((match) => [match[1], match[2]] as const);
+assert.equal(registeredScopes.length, 36, "全部 36 个 Widget 必须显式声明 Presentation Scope");
+const scopeByType = new Map(registeredScopes);
+const expectedFull = ["latest-docs", "favorites", "recent-journals", "TaskMan", "HOT", "childDocs", "conditionDocs", "quick-notes", "TaskManPlus"];
+const expectedChrome = ["sql", "constellation", "reviewDocs", "fixedAssets"];
+for (const type of expectedFull) assert.equal(scopeByType.get(type), "full", `${type} 必须归类为 full`);
+for (const type of expectedChrome) assert.equal(scopeByType.get(type), "chrome", `${type} 必须归类为 chrome`);
+assert.equal([...scopeByType.values()].filter((scope) => scope === "native").length, 23, "必须保留 23 个 native Widget");
+assert.match(definitionSource, /semanticParts: input\.scope !== "native"/, "full/chrome 必须启用 semanticParts，native 必须保持关闭");
+
+const mountSource = readFileSync("src/components/utils/widgetBlock/widgetMountRegistry.ts", "utf8");
+for (const attribute of ["widgetType", "widgetKind", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope"]) {
+    const combined = mountSource + readFileSync("src/homepage/theme/widgetPresentation/runtime.ts", "utf8");
+    assert.match(combined, new RegExp(attribute), `挂载运行时缺少 ${attribute}`);
+}
+assert.match(mountSource, /getWidgetDefinition/, "Widget 挂载必须经过统一 Definition Registry");
+
+const homepageSource = readFileSync("src/homepage/homepage.svelte", "utf8");
+const syncCall = homepageSource.slice(homepageSource.indexOf("syncHomepageWidgetPresentations") - 100, homepageSource.indexOf("syncHomepageWidgetPresentations") + 220);
+assert.doesNotMatch(syncCall, /saveLayout|writeDeviceView|restoreLayout/, "切换主题同步 Presentation 不得写入或恢复布局");
+assert.match(homepageSource, /syncHomepageWidgetPresentations\(collectThemeWidgetIdentityElements\(\)\)/, "主题切换后必须原位同步现有 Widget Presentation");
+
+for (const relativePath of [
+    "src/components/utils/widgetBlock/widget/latestDocs/latestDocs.svelte",
+    "src/components/utils/widgetBlock/widget/favorites/favorites.svelte",
+    "src/components/utils/widgetBlock/widget/latestDailyNotes/latestDailyNotes.svelte",
+    "src/components/utils/widgetBlock/widget/tasks/recentTasks.svelte",
+    "src/components/utils/widgetBlock/widget/HOT/HOT.svelte",
+    "src/components/utils/widgetBlock/widget/childDocs/childDocs.svelte",
+    "src/components/utils/widgetBlock/widget/conditionDocs/conditionDocs.svelte",
+    "src/components/utils/widgetBlock/widget/quickNotes/quickNotes.svelte",
+    "src/components/utils/widgetBlock/widget/tasksPlus/tasksPlus.svelte",
+]) {
+    const source = readFileSync(relativePath, "utf8");
+    for (const part of ["root", "body", "list", "item", "primary"]) {
+        assert.match(source, new RegExp(`data-widget-part="${part}"`), `${relativePath} 缺少语义部件 ${part}`);
+    }
+    assert.ok(
+        source.includes("data-widget-part=\"header\"") || source.includes("<WidgetSemanticTitle"),
+        `${relativePath} 缺少语义部件 header`,
+    );
+}
+
+for (const relativePath of [
+    "src/components/utils/widgetBlock/widget/sql/sql.svelte",
+    "src/components/utils/widgetBlock/widget/constellation/constellation.svelte",
+    "src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs.svelte",
+    "src/components/utils/widgetBlock/widget/fixedAssets/fixedAssets.svelte",
+]) {
+    const source = readFileSync(relativePath, "utf8");
+    assert.match(source, /data-widget-part="root"/, `${relativePath} 缺少 chrome root`);
+    assert.match(source, /<WidgetSemanticTitle/, `${relativePath} 缺少 chrome semantic title`);
+    assert.match(source, /data-widget-part="body"/, `${relativePath} 缺少 chrome body`);
+}
+
+const semanticTitleSource = readFileSync("src/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte", "utf8");
+assert.match(semanticTitleSource, /\.hp-widget-title__icon[\s\S]*display:\s*none/, "语义标题默认必须隐藏主题图标");
+assert.match(semanticTitleSource, /\.hp-widget-title__semantic[\s\S]*display:\s*none/, "语义标题默认必须隐藏语义标题");
+assert.match(semanticTitleSource, /\.hp-widget-title__legacy[\s\S]*display:\s*inline/, "语义标题默认必须显示 Legacy 标题");
+assert.equal(classifyWidgetTitle("HOT", "哔哩哔哩热榜🔥"), "custom", "HOT 动态标题不得被误判为静态默认标题");
+assert.equal(classifyWidgetTitle("reviewDocs", "📚复习文档"), "historical-default");
+assert.equal(classifyWidgetTitle("reviewDocs", "我的复习队列"), "custom");
+
+const widgetThemeStyles = collectSourceFiles("src/homepage/theme/builtins/simple-test/widgets")
+    .filter((path) => path.endsWith(".scss"))
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+assert.match(widgetThemeStyles, /container-name:\s*hp-widget/, "Widget 必须建立自己的 inline-size container");
+assert.match(widgetThemeStyles, /@container hp-widget \(max-width: 239px\)/, "Widget 缺少 compact 容器规则");
+assert.match(widgetThemeStyles, /@container hp-widget \(min-width: 560px\)/, "Widget 缺少 wide 容器规则");
+assert.doesNotMatch(widgetThemeStyles, /minmax\(250px/, "Widget Presentation 不得保留固定 250px 网格退化");
+assert.doesNotMatch(widgetThemeStyles, /\.mobile-homepage|\.sidebar|\.dock/, "桌面主页 Widget Presentation 不得污染其他 surface");
+assert.match(widgetThemeStyles, /data-widget-placement="homepage"/, "主题 Widget CSS 必须限制到 desktop homepage placement");
+assert.match(widgetThemeStyles, /data-widget-presentation-scope="full"/, "Kind Presentation 必须限制到 full scope");
+assert.doesNotMatch(widgetThemeStyles, /data-widget-kind="list"\](?!\[data-widget-presentation-scope="full"\])/, "list Kind 样式不得污染 native Widget");
+assert.doesNotMatch(widgetThemeStyles, /data-widget-kind="task"\](?!\[data-widget-presentation-scope="full"\])/, "task Kind 样式不得污染 native Widget");
+assert.doesNotMatch(widgetThemeStyles, /\.widget-block\[data-widget-presentation-scope="native"\]\s*\{/, "不得全局透明化所有 native Widget 外壳");
+
+const simpleManifest = readFileSync("src/homepage/theme/builtins/simple-test/widgets/manifest.ts", "utf8");
+for (const id of ["hot", "child-docs", "condition-docs", "quick-notes", "taskman-plus", "sql", "constellation", "review-docs", "fixed-assets"]) {
+    assert.match(simpleManifest, new RegExp(`simple\\.workspace\\.${id}`), `Simple Manifest 缺少 ${id}`);
+}
+
+const classicDefinition = readFileSync("src/homepage/theme/builtins/classic/definition.ts", "utf8");
+const simpleDefinition = readFileSync("src/homepage/theme/builtins/simple-test/definition.ts", "utf8");
+assert.match(classicDefinition, /widgetPresentation:\s*classicWidgetPresentation/, "Classic 必须显式注册 Widget Presentation");
+assert.match(simpleDefinition, /widgetPresentation:\s*simpleWorkspaceWidgetPresentation/, "简洁工作区必须显式注册 Widget Presentation");
+assert.match(classicDefinition, /widgetAppearance:\s*"user-configurable"/, "Classic 必须继续允许用户自定义 Widget 外观");
+assert.match(simpleDefinition, /widgetAppearance:\s*"theme-controlled"/, "简洁工作区必须继续由主题接管 Widget 外观");
+
+console.log("Widget Presentation Framework verification passed.");

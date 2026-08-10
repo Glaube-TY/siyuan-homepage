@@ -1,19 +1,23 @@
 import type { HomepageThemeDefinition, HomepageThemeSurface } from "../api/types";
 import { validateHomepageThemeDefinition } from "../api/themeValidation";
 import { HOMEPAGE_THEME_API_VERSION } from "../api/themeApiVersion";
+import { WidgetPresentationRegistry } from "../widgetPresentation/presentationRegistry";
 
 export const CLASSIC_HOMEPAGE_THEME_ID = "builtin.classic";
 
 export class HomepageThemeRegistry {
     readonly #definitions = new Map<string, HomepageThemeDefinition>();
+    readonly widgetPresentations = new WidgetPresentationRegistry();
 
     register(definition: HomepageThemeDefinition): void {
         validateHomepageThemeDefinition(definition);
         if (this.#definitions.has(definition.id)) {
             throw new Error(`主页主题 ID 已注册: ${definition.id}`);
         }
+        const widgetPresentation = this.widgetPresentations.register(definition.id, definition.widgetPresentation);
         this.#definitions.set(definition.id, Object.freeze({
             ...definition,
+            widgetPresentation,
             surfaces: Object.freeze([...definition.surfaces]),
             preview: definition.preview ? Object.freeze({
                 ...definition.preview,

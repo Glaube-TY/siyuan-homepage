@@ -1,6 +1,7 @@
 import { HOMEPAGE_THEME_API_VERSION } from "../../api/themeApiVersion";
 import type { HomepageThemeDefinition } from "../../api/types";
 import SimpleTestTheme from "./SimpleTestTheme.svelte";
+import { simpleWorkspaceWidgetPresentation } from "./widgets/manifest";
 
 export const definition: HomepageThemeDefinition = {
     apiVersion: HOMEPAGE_THEME_API_VERSION,
@@ -12,6 +13,7 @@ export const definition: HomepageThemeDefinition = {
     access: "vip",
     surfaces: ["desktop-homepage"],
     renderer: SimpleTestTheme,
+    widgetPresentation: simpleWorkspaceWidgetPresentation,
     preview: { tags: ["VIP", "简洁", "知识工作区", "横向布局"] },
     features: { banner: true, widgetAppearance: "theme-controlled" },
 };

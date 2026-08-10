@@ -8,6 +8,7 @@
     import HomepageStatus from "../../components/shared/HomepageStatus.svelte";
     import { resolveClassicPresentationSettings } from "./presentationSettings";
     import "./classic.scss";
+    import "./widgets/index.scss";
 
     let { identity, banner, status, actions, sections, regions, appearance }: HomepageThemeProps = $props();
     let classic = $derived(resolveClassicPresentationSettings(appearance.settings));

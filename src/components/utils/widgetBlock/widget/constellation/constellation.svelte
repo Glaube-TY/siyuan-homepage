@@ -1,6 +1,7 @@
 <script lang="ts">
     import { showMessage } from "siyuan";
     import { onMount } from "svelte";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
@@ -86,14 +87,17 @@
     };
 </script>
 
-<div class="content-display">
+<div class="content-display" data-widget-part="root">
     {#if advancedEnabled}
-        <h3 class="widget-title">
-            {constellationData?.title ? constellationData.title : getDisplayName(selectedConstellation)}
-        </h3>
+        <WidgetSemanticTitle
+            widgetType="constellation"
+            configuredTitle={constellationData?.title ? constellationData.title : getDisplayName(selectedConstellation)}
+            semanticLabel="星座运势"
+            fallbackIcon="iconGraph"
+        />
 
         {#if constellationData}
-            <div class="fortune-card">
+            <div class="fortune-card" data-widget-part="body">
                 <!-- 运势指数卡片 -->
                 <div class="fortune-card1">
                     <div class="fortune-item">
@@ -157,7 +161,7 @@
                 </div>
             </div>
         {:else}
-            <div style="text-align: center; padding: 2rem; color: var(--b3-theme-on-surface-light);">
+            <div data-widget-part="body" style="text-align: center; padding: 2rem; color: var(--b3-theme-on-surface-light);">
                 <p>🌟 正在加载运势信息...</p>
                 <small style="font-size: 12px; margin-top: 8px; display: block;">
                     星座: {getDisplayName(selectedConstellation)}
@@ -165,7 +169,7 @@
             </div>
         {/if}
     {:else}
-        <div class="content-not-advanced">
+        <div class="content-not-advanced" data-widget-part="body">
             <AdvancedFeatureLock
                 title="星座运势"
                 subtitle="每日星座运势更新，了解今日运势走向。"
@@ -193,7 +197,7 @@
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 
-        .widget-title {
+        :global(.hp-widget-title) {
             font-size: 18px;
             font-weight: 600;
             margin-bottom: 0.5rem;

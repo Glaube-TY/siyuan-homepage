@@ -13,6 +13,7 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
     import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
     interface Props {
         plugin: any;
@@ -671,16 +672,23 @@
     />
 </svelte:head>
 
-<div class="content-display">
+<div class="content-display" data-widget-part="root">
     {#if recentJournalsShowType == "list"}
-        <h3 class="widget-title">📓最近日记</h3>
-        <ul class="document-list">
+        <WidgetSemanticTitle
+            widgetType="recent-journals"
+            configuredTitle="📓最近日记"
+            semanticLabel="最近日记"
+            fallbackIcon="iconCalendar"
+        />
+        <div class="hp-widget-body" data-widget-part="body">
+        <ul class="document-list" data-widget-part="list">
             {#if displayedDocs.length > 0}
                 {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                     {@const iconResult = getDocIcon(doc)}
-                    <li class="document-item">
+                    <li class="document-item" data-widget-part="item">
                         <div
                             class="document-item-content"
+                            data-widget-part="primary"
                             onkeydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                     openDocs(plugin, doc.id, 0);
@@ -731,19 +739,20 @@
                             {:else}
                                 <span class="doc-icon">{iconResult.value}</span>
                             {/if}
-                            <span class="doc-title">{doc.content || "(无标题)"}</span>
+                            <span class="doc-title" data-widget-part="primary">{doc.content || "(无标题)"}</span>
                         </div>
                     </li>
                 {/each}
             {:else}
-                <div class="daily-empty-state">
+                <div class="daily-empty-state" data-widget-part="empty">
                     <strong>暂无可显示的日记</strong>
                     <span>{dailyNotesStatusMessage}</span>
                 </div>
             {/if}
         </ul>
+        </div>
     {:else}
-        <div class="widget-title-container">
+        <div class="widget-title-container" data-widget-part="header">
             <button
                 class="nav-button prev"
                 title="上一个月"
@@ -760,20 +769,16 @@
                 <i class="fas fa-chevron-right"></i>
             </button>
         </div>
-        <div bind:this={chartContainer} class="calendar-chart-container"></div>
+        <div bind:this={chartContainer} class="calendar-chart-container" data-widget-part="body"></div>
     {/if}
 </div>
 
 <style lang="scss">
-    .widget-title {
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-        padding-bottom: 0.3rem;
-        border-bottom: 1px solid var(--b3-border-color, rgba(0, 0, 0, 0.12));
-        text-align: center;
-        display: inline-block;
-        line-height: 1.2;
+    .hp-widget-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
     }
 
     .content-display {

@@ -1,5 +1,6 @@
 <script lang="ts">
     import { mount, onMount } from "svelte";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
     import { showMessage } from "siyuan";
     import { svelteDialog, confirmDialogBoolean, inputDialogSync } from "@/libs/dialog";
     import { openDocs } from "@/components/tools/openDocs";
@@ -440,7 +441,7 @@
     }
 </script>
 
-<div class="review-docs-widget">
+<div class="review-docs-widget" data-widget-part="root">
     {#if !advancedEnabled}
         <AdvancedFeatureLock
             title="复习文档"
@@ -452,7 +453,7 @@
         />
     {:else}
         <div class="review-docs-header">
-            <h3 class="widget-title">{config.reviewDocsTitle}</h3>
+            <WidgetSemanticTitle widgetType="reviewDocs" configuredTitle={config.reviewDocsTitle} semanticLabel="复习文档" fallbackIcon="iconFile" />
         </div>
 
         {#if config.reviewDocsShowStats}
@@ -483,7 +484,7 @@
             {/if}
         {/if}
 
-        <div class="toolbar">
+        <div class="toolbar" data-widget-part="actions">
             <select bind:value={currentView} aria-label="复习视图">
                 <option value="due">待复习</option>
                 <option value="today">今日</option>
@@ -517,7 +518,7 @@
             <input type="search" bind:value={searchText} placeholder="搜索标题、路径、备注" />
         </div>
 
-        <div class="review-list" aria-busy={isLoading}>
+        <div class="review-list" data-widget-part="body" aria-busy={isLoading}>
             {#if isLoading}
                 <div class="empty-state">加载复习计划...</div>
             {:else if visibleItems.length === 0}
@@ -669,7 +670,7 @@
             text-align: center;
         }
 
-        .widget-title {
+        .review-docs-header :global(.hp-widget-title) {
             width: 100%;
             margin: 0 0 0.12rem;
             padding-bottom: 0.3rem;

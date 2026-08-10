@@ -1,0 +1,13 @@
+/* These native widgets already draw a complete edge-to-edge surface internally. */
+.homepage-container[data-hp-theme="builtin.simple-test"]
+    :is(
+        .widget-block[data-widget-presentation="simple.workspace.native.weather"],
+        .widget-block[data-widget-presentation="simple.workspace.native.stikynot"],
+        .widget-block[data-widget-presentation="simple.workspace.native.statistical-card"],
+        .widget-block[data-widget-presentation="simple.workspace.native.almanac"],
+        .widget-block[data-widget-presentation="simple.workspace.native.pic-caro"]
+    )[data-widget-placement="homepage"][data-widget-presentation-scope="native"] {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}

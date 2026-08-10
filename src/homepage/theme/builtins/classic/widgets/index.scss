@@ -1,0 +1,23 @@
+.homepage-container[data-hp-theme="builtin.classic"]
+    .widget-block[data-widget-placement="homepage"] {
+    .hp-widget-title {
+        display: inline-block;
+        margin-bottom: .5rem;
+        padding: 0 0 .3rem;
+        border-bottom: 1px solid var(--b3-border-color, rgba(0, 0, 0, .12));
+        color: inherit;
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 1.2;
+        text-align: center;
+    }
+
+    .hp-widget-title__icon,
+    .hp-widget-title__semantic {
+        display: none;
+    }
+
+    .hp-widget-title__legacy {
+        display: inline;
+    }
+}

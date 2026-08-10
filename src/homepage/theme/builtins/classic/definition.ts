@@ -1,6 +1,7 @@
 import { HOMEPAGE_THEME_API_VERSION } from "../../api/themeApiVersion";
 import type { HomepageThemeDefinition } from "../../api/types";
 import ClassicTheme from "./ClassicTheme.svelte";
+import { classicWidgetPresentation } from "./widgets/manifest";
 
 export const definition: HomepageThemeDefinition = {
     apiVersion: HOMEPAGE_THEME_API_VERSION,
@@ -12,6 +13,7 @@ export const definition: HomepageThemeDefinition = {
     access: "free",
     surfaces: ["desktop-homepage"],
     renderer: ClassicTheme,
+    widgetPresentation: classicWidgetPresentation,
     preview: { tags: ["免费", "经典", "兼容"] },
     features: { banner: true, widgetAppearance: "user-configurable" },
 };

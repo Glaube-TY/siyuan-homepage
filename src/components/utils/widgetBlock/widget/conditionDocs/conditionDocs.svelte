@@ -12,6 +12,7 @@
         hideImmediately,
     } from "@/components/tools/floatingDoc";
     import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
     interface Props {
         plugin: any;
@@ -99,15 +100,17 @@
     });
 </script>
 
-<div class="content-display">
-    <h3 class="widget-title">{conditionDocsTitle}</h3>
-    <ul class="document-list">
+<div class="content-display" data-widget-part="root">
+    <WidgetSemanticTitle widgetType="conditionDocs" configuredTitle={conditionDocsTitle} semanticLabel="条件文档" fallbackIcon="iconFile" />
+    <div class="hp-widget-body" data-widget-part="body">
+    <ul class="document-list" data-widget-part="list">
         {#if displayedDocs.length > 0}
             {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                 {@const iconResult = getDocIcon(doc)}
-                <li class="document-item">
+                <li class="document-item" data-widget-part="item">
                     <div
                         class="document-item-content"
+                        data-widget-part="primary"
                         onkeydown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                                 openDocs(plugin, doc.id, 0);
@@ -164,13 +167,13 @@
                     </div>
                     {#if showConditionDocsDetails}
                         {#if conditionDocsSortOrder === "updated"}
-                            <div class="document-updated-container">
+                            <div class="document-updated-container" data-widget-part="meta">
                                 <span class="document-updated">
                                     更新于：📅{formatDateShort(doc.updated)}
                                 </span>
                             </div>
                         {:else if conditionDocsSortOrder === "created"}
-                            <div class="document-updated-container">
+                            <div class="document-updated-container" data-widget-part="meta">
                                 <span class="document-updated">
                                     创建于：📅{formatDateShort(doc.created)}
                                 </span>
@@ -180,12 +183,20 @@
                 </li>
             {/each}
         {:else}
-            <p>暂无文档</p>
+            <p data-widget-part="empty">暂无文档</p>
         {/if}
     </ul>
+    </div>
 </div>
 
 <style lang="scss">
+    .hp-widget-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+    }
+
     .content-display {
         width: 100%;
         height: calc(100%);
@@ -197,7 +208,7 @@
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 
-        .widget-title {
+        :global(.hp-widget-title) {
             font-size: 18px;
             font-weight: 600;
             margin-bottom: 0.5rem;

@@ -1,0 +1,55 @@
+.homepage-container[data-hp-theme="builtin.simple-test"] {
+    :is(
+        .widget-block[data-widget-presentation="simple.workspace.latest-docs"],
+        .widget-block[data-widget-presentation="simple.workspace.favorites"],
+        .widget-block[data-widget-presentation="simple.workspace.recent-journals"],
+        .widget-block[data-widget-presentation="simple.workspace.child-docs"],
+        .widget-block[data-widget-presentation="simple.workspace.condition-docs"]
+    )[data-widget-placement="homepage"] {
+        [data-widget-part="root"] { padding: var(--hp-widget-space-4); }
+        .document-item-content,
+        .favorites-item-content {
+            display: flex;
+            align-items: center;
+            gap: var(--hp-widget-space-2);
+            margin: 0;
+        }
+        .doc-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .doc-icon,
+        .doc-icon-image { flex: 0 0 auto; }
+    }
+
+    .widget-block[data-widget-presentation="simple.workspace.favorites"][data-widget-placement="homepage"] {
+        .favorites-content-container { min-height: 0; }
+        .favorites-group-title {
+            margin: var(--hp-widget-space-3) 0 var(--hp-widget-space-1);
+            padding: 0;
+            background: transparent;
+            color: var(--hp-text-muted);
+            font-size: 11px;
+            font-weight: 650;
+            letter-spacing: .04em;
+        }
+        .favorites-manual-actions { background: var(--hp-surface); }
+    }
+
+    .widget-block[data-widget-presentation="simple.workspace.recent-journals"][data-widget-placement="homepage"] {
+        .widget-title-container { min-height: 32px; justify-content: flex-start; }
+        .widget-title-calendar { margin: 0; color: var(--hp-text); font-size: var(--hp-widget-title-size); }
+        .calendar-chart-container { min-height: 180px; }
+    }
+}
+
+@container hp-widget (max-width: 239px) {
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        :is(
+            .widget-block[data-widget-presentation="simple.workspace.latest-docs"],
+            .widget-block[data-widget-presentation="simple.workspace.favorites"],
+            .widget-block[data-widget-presentation="simple.workspace.recent-journals"],
+            .widget-block[data-widget-presentation="simple.workspace.child-docs"],
+            .widget-block[data-widget-presentation="simple.workspace.condition-docs"]
+        )[data-widget-placement="homepage"]
+        [data-widget-part="root"] {
+        padding: var(--hp-widget-space-3);
+    }
+}

@@ -7,6 +7,7 @@
     import { getChildBlocks, deleteBlock } from "@/api";
     import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
     import { writeTextToClipboard } from "@/libs/clipboard";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
     interface Props {
         plugin: any;
@@ -132,19 +133,20 @@
     />
 </svelte:head>
 
-<div class="content-display">
-    <h3 class="widget-title">{quickNotesTitle}</h3>
-    <div class="quick-notes-content-container">
+<div class="content-display" data-widget-part="root">
+    <WidgetSemanticTitle widgetType="quick-notes" configuredTitle={quickNotesTitle} semanticLabel="快速笔记" fallbackIcon="iconEdit" />
+    <div class="quick-notes-content-container" data-widget-part="body">
         {#if !quickNotesEnabled}
-            <p>当前未开启快速笔记功能，请到主页设置中开启。</p>
+            <p data-widget-part="empty">当前未开启快速笔记功能，请到主页设置中开启。</p>
         {:else if quickNotesList.length === 0}
-            <p class="empty-tip">暂无快速笔记，点击添加按钮开始记录</p>
+            <p class="empty-tip" data-widget-part="empty">暂无快速笔记，点击添加按钮开始记录</p>
         {:else}
-            <div class="notes-grid">
+            <div class="notes-grid" data-widget-part="list">
                 {#each quickNotesList as note}
-                    <div class="note-card">
+                    <div class="note-card" data-widget-part="item">
                         <button
                             class="delete-btn"
+                            data-widget-part="actions"
                             title="删除该条笔记"
                             onclick={() => handleDelete(note.id)}
                         >
@@ -152,10 +154,11 @@
                         </button>
                         <button
                             class="copy-btn"
+                            data-widget-part="actions"
                             title="复制笔记"
                             onclick={() => void handleCopy(note.content)}>C</button
                         >
-                        <div class="note-content">
+                        <div class="note-content" data-widget-part="primary">
                             {@html note.htmlContent}
                         </div>
                     </div>
@@ -176,7 +179,7 @@
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 
-        .widget-title {
+        :global(.hp-widget-title) {
             font-size: 18px;
             font-weight: 600;
             margin-bottom: 0.5rem;

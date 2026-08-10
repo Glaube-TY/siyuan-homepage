@@ -21,6 +21,7 @@
     import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import { confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
     interface Props {
         plugin: any;
@@ -358,7 +359,7 @@
     }
 </script>
 
-<div class="fixed-assets-widget">
+<div class="fixed-assets-widget" data-widget-part="root">
     {#if !advancedEnabled}
         <div class="content-not-advanced">
             <AdvancedFeatureLock
@@ -387,11 +388,11 @@
         </div>
     {:else}
         <div class="asset-header">
-            <h3 class="widget-title">{widgetTitle}</h3>
+            <WidgetSemanticTitle widgetType="fixedAssets" configuredTitle={widgetTitle} semanticLabel="固定资产" fallbackIcon="iconWorkspace" />
             <div class="asset-subtitle">共 {assets.length} 件物品</div>
         </div>
 
-        <div class="asset-scroll-area">
+        <div class="asset-scroll-area" data-widget-part="body">
             <div class="summary-panel">
                 {#each summaryCards as card, index}
                     <div class="summary-item" class:subtle={card.subtle} class:full={summaryCards.length % 2 === 1 && index === summaryCards.length - 1}>
@@ -618,7 +619,7 @@
         text-align: center;
     }
 
-    .widget-title {
+    .asset-header :global(.hp-widget-title) {
         width: 100%;
         margin: 0 0 0.12rem;
         padding-bottom: 0.3rem;

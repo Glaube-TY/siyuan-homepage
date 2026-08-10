@@ -1,6 +1,7 @@
 <script lang="ts">
     import { sql, lsNotebooks } from "@/api";
     import { onMount } from "svelte";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
     import { openDocs } from "@/components/tools/openDocs";
 
     interface Props {
@@ -183,9 +184,9 @@
     });
 </script>
 
-<div class="content-display">
-    <h3 class="widget-title">{sqlTitle}</h3>
-    <div class="sql-display-content">
+<div class="content-display" data-widget-part="root">
+    <WidgetSemanticTitle widgetType="sql" configuredTitle={sqlTitle} semanticLabel="SQL 查询" fallbackIcon="iconGraph" />
+    <div class="sql-display-content" data-widget-part="body">
         {#if filteredData.length > 0}
             <table class="sql-table">
                 <thead>
@@ -238,7 +239,7 @@
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 
-        .widget-title {
+        :global(.hp-widget-title) {
             font-size: 18px;
             font-weight: 600;
             margin-bottom: 0.5rem;

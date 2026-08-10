@@ -142,6 +142,7 @@
     import { createHomepageActionsModel } from "./theme/runtime/homepageActionRuntime";
     import { HomepagePersistentRegionManager } from "./theme/runtime/persistentRegionManager";
     import { createClassicRuntimeAppearanceSettings } from "./theme/builtins/classic/presentationSettings";
+    import { syncHomepageWidgetPresentations } from "./theme/widgetPresentation/syncRuntime";
     import type {
         HomepagePersistentRegionName,
         HomepageThemeProps,
@@ -1340,6 +1341,8 @@
                 return;
             }
             updateCustomGridMetrics();
+            // Presentation 只更新现有 Widget DOM 的只读语义上下文；不重建实例，也不写布局。
+            syncHomepageWidgetPresentations(collectThemeWidgetIdentityElements());
             if (pendingThemeWidgetIdentitySnapshot) {
                 const beforeSnapshot = pendingThemeWidgetIdentitySnapshot;
                 const afterElements = collectThemeWidgetIdentityElements();

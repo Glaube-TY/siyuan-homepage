@@ -7,6 +7,7 @@
     import HomepageSections from "../../components/shared/HomepageSections.svelte";
     import HomepageStatus from "../../components/shared/HomepageStatus.svelte";
     import "./simple-test.scss";
+    import "./widgets/index.scss";
 
     let { identity, banner, status, actions, sections, regions }: HomepageThemeProps = $props();
 

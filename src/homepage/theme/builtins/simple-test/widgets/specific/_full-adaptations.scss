@@ -1,0 +1,131 @@
+.homepage-container[data-hp-theme="builtin.simple-test"] {
+    :is(
+        .widget-block[data-widget-presentation="simple.workspace.hot"],
+        .widget-block[data-widget-presentation="simple.workspace.quick-notes"],
+        .widget-block[data-widget-presentation="simple.workspace.taskman-plus"]
+    )[data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="root"] {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: var(--hp-widget-space-4);
+        }
+
+        [data-widget-part="body"] {
+            min-height: 0;
+            overflow: auto;
+        }
+    }
+
+    .widget-block[data-widget-presentation="simple.workspace.hot"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="list"] { overflow: visible; }
+
+        [data-widget-part="item"] > a {
+            display: grid;
+            grid-template-columns: 28px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: var(--hp-widget-space-2);
+            min-width: 0;
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .rank-icon { display: none; }
+        .rank {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 8px;
+            background: var(--hp-surface-muted);
+            color: var(--hp-text-muted);
+            font-size: var(--hp-widget-meta-size);
+            font-variant-numeric: tabular-nums;
+        }
+
+        :is(.top-1, .top-2, .top-3) .rank {
+            background: var(--hp-accent-soft);
+            color: var(--hp-accent);
+            font-weight: 680;
+        }
+
+        [data-widget-part="primary"] {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        [data-widget-part="meta"] {
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    .widget-block[data-widget-presentation="simple.workspace.quick-notes"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="list"] {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+            gap: var(--hp-widget-space-3);
+        }
+
+        [data-widget-part="item"] {
+            position: relative;
+            min-width: 0;
+            margin: 0;
+            padding: var(--hp-widget-space-4);
+            border: 1px solid var(--hp-widget-divider);
+            border-radius: 11px;
+            background: var(--hp-surface-muted);
+            box-shadow: none;
+        }
+
+        [data-widget-part="primary"] {
+            min-width: 0;
+            padding-right: 44px;
+            color: var(--hp-text);
+            font-size: var(--hp-widget-body-size);
+            line-height: 1.55;
+        }
+
+        [data-widget-part="actions"] {
+            border-color: transparent;
+            background: transparent;
+            color: var(--hp-text-muted);
+        }
+    }
+
+    .widget-block[data-widget-presentation="simple.workspace.taskman-plus"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="body"] {
+            display: flex;
+            flex-direction: column;
+        }
+
+        [data-widget-part="primary"] {
+            min-width: 0;
+            overflow: hidden;
+            color: var(--hp-text);
+            font: inherit;
+            font-weight: 560;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        [data-widget-part="meta"] { color: var(--hp-text-muted); }
+        .task-checkbox { accent-color: var(--hp-accent); }
+    }
+}
+
+@container hp-widget (max-width: 239px) {
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        :is(
+            .widget-block[data-widget-presentation="simple.workspace.hot"],
+            .widget-block[data-widget-presentation="simple.workspace.quick-notes"],
+            .widget-block[data-widget-presentation="simple.workspace.taskman-plus"]
+        )[data-widget-placement="homepage"][data-widget-presentation-scope="full"]
+        [data-widget-part="root"] {
+        padding: var(--hp-widget-space-3);
+    }
+}

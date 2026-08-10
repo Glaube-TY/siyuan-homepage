@@ -15,3 +15,17 @@ export { default as HomepageBanner } from "./components/shared/HomepageBanner.sv
 export { default as HomepageStatus } from "./components/shared/HomepageStatus.svelte";
 export { default as HomepageActions } from "./components/shared/HomepageActions.svelte";
 export { default as HomepageSections } from "./components/shared/HomepageSections.svelte";
+export {
+    WIDGET_PRESENTATION_CONTRACT_VERSION,
+    WidgetPresentationRegistry,
+    getWidgetPresentationContext,
+    subscribeWidgetPresentation,
+} from "./widgetPresentation";
+export type {
+    WidgetDefinition,
+    WidgetKind,
+    WidgetPlacement,
+    WidgetPresentationScope,
+    WidgetPresentationContext,
+    WidgetPresentationManifest,
+} from "./widgetPresentation";

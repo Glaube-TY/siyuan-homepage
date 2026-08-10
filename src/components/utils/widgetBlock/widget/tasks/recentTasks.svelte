@@ -13,6 +13,7 @@
         updateTaskIndexItem,
     } from "@/components/tools/siyuanComponentDataApi";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
     interface Props {
         plugin: any;
@@ -297,17 +298,23 @@
         </div>
     </div>
 {:else}
-    <div class="content-display">
-        <h3 class="widget-title">{TaskManTitle}</h3>
-        <ul class="task-list">
+    <div class="content-display" data-widget-part="root">
+        <WidgetSemanticTitle
+            widgetType="TaskMan"
+            configuredTitle={TaskManTitle || "📋任务管理"}
+            semanticLabel="任务管理"
+            fallbackIcon="iconCheck"
+        />
+        <div class="hp-widget-body" data-widget-part="body">
+        <ul class="task-list" data-widget-part="list">
             {#if isInitializing}
-                <div class="task-empty-state">
+                <div class="task-empty-state" data-widget-part="loading">
                     <strong>正在初始化任务索引...</strong>
                 </div>
             {:else if displayedTasks.length > 0}
                 {#each displayedTasks as task (task.id + "-" + task.updated)}
-                    <li class="task-item" class:completed={task.checked}>
-                        <div class="task-header">
+                    <li class="task-item" data-widget-part="item" class:completed={task.checked}>
+                        <div class="task-header" data-widget-part="primary">
                             <span class="checkbox-label">
                                 <input
                                     type="checkbox"
@@ -321,6 +328,7 @@
 
                             <div
                                 class="task-content"
+                                data-widget-part="primary"
                                 onclick={(e) => {
                                     e.preventDefault();
                                     handleOpenTask(task);
@@ -340,24 +348,32 @@
                         </div>
 
                         {#if showTasksDetails}
-                            <span class="task-created-time"
+                            <span class="task-created-time" data-widget-part="meta"
                                 >📅 {formatDate(task.created)}</span
                             >
-                            <span class="task-source">📃 {task.hpath}</span>
+                            <span class="task-source" data-widget-part="secondary">📃 {task.hpath}</span>
                         {/if}
                     </li>
                 {/each}
             {:else}
-                <div class="task-empty-state">
+                <div class="task-empty-state" data-widget-part="empty">
                     <strong>{taskDataStatus === "empty" ? "任务索引为空" : "没有可显示的任务"}</strong>
                     <span>{taskStatusMessage || "请到主页设置 > 检索管理中维护任务索引。"}</span>
                 </div>
             {/if}
         </ul>
+        </div>
     </div>
 {/if}
 
 <style lang="scss">
+    .hp-widget-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+    }
+
     .content-display {
         width: 100%;
         height: calc(100%);
@@ -365,17 +381,6 @@
         flex-direction: column;
         padding: 10px;
         box-sizing: border-box;
-
-        .widget-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            padding-bottom: 0.3rem;
-            border-bottom: 1px solid var(--b3-border-color);
-            text-align: center;
-            display: inline-block;
-            line-height: 1.2;
-        }
 
         .task-list {
             display: grid;
