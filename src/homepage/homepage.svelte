@@ -3,7 +3,7 @@
 
     import { onMount, onDestroy, tick } from "svelte";
     import { SvelteMap } from "svelte/reactivity";
-    import { showMessage } from "siyuan";
+    import { Menu, showMessage } from "siyuan";
 
     import { writable } from "svelte/store";
     import Sortable from "sortablejs";
@@ -1241,6 +1241,74 @@
                 onFirstContentCommitted: handleFirstContentCommitted,
             },
         );
+    }
+
+    const HOMEPAGE_CONTEXT_ACTIONS = new Set(["addWidget", "settings"]);
+    const HOMEPAGE_CONTEXT_EXCLUDED_SELECTOR = [
+        ".widget-block",
+        ".hp-banner",
+        ".hp-identity",
+        ".hp-status",
+        ".hp-actions",
+        ".hp-sections",
+        ".hp-core-footer",
+        "button",
+        "a",
+        "input",
+        "select",
+        "textarea",
+        "[contenteditable='true']",
+        "[role='button']",
+        "[role='menu']",
+        "[role='tab']",
+    ].join(",");
+
+    function isHomepageContextAction(item: ButtonItem): boolean {
+        return HOMEPAGE_CONTEXT_ACTIONS.has(getButtonAction(item));
+    }
+
+    function findHomepageContextButton(action: "addWidget" | "settings"): ButtonItem | undefined {
+        return buttonsList.find((item) => getButtonAction(item) === action);
+    }
+
+    function handleHomepageContextMenu(event: MouseEvent): void {
+        const target = event.target;
+        if (!(target instanceof Element) || target.closest(HOMEPAGE_CONTEXT_EXCLUDED_SELECTOR)) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const addWidgetButton = findHomepageContextButton("addWidget");
+        const settingsButton = findHomepageContextButton("settings");
+        const menu = new Menu("homepage-blank-area-context-menu");
+        menu.addItem({
+            icon: "iconAdd",
+            label: "添加组件",
+            disabled: !addWidgetButton,
+            click: () => {
+                if (addWidgetButton) void invokeHomepageButton(addWidgetButton);
+            },
+        });
+        menu.addItem({
+            icon: "iconSettings",
+            label: "主页设置",
+            disabled: !settingsButton,
+            click: () => {
+                if (settingsButton) void invokeHomepageButton(settingsButton);
+            },
+        });
+        menu.open({ x: event.clientX, y: event.clientY, isLeft: false });
+    }
+
+    function initializeHomepageContextMenu(node: HTMLElement) {
+        node.addEventListener("contextmenu", handleHomepageContextMenu);
+        return {
+            destroy() {
+                node.removeEventListener("contextmenu", handleHomepageContextMenu);
+            },
+        };
     }
 
     function applyHomepageAppearancePreference(value: unknown, advancedEnabled = advanced): void {
@@ -3572,8 +3640,9 @@
         footerEnabled,
         footerContent,
     }));
+    const homepageToolbarButtons = $derived(buttonsList.filter((item) => !isHomepageContextAction(item)));
     const homepageActionsModel = $derived(createHomepageActionsModel(
-        buttonsList,
+        homepageToolbarButtons,
         (button) => invokeHomepageButton(button),
     ));
     const homepageSectionsModel = $derived({
@@ -3676,6 +3745,7 @@
     data-hp-theme={themeResolution.effectiveThemeId}
     data-hp-widget-appearance-policy={themeResolution.definition.features?.widgetAppearance ?? "user-configurable"}
     bind:this={homepageRootElement}
+    use:initializeHomepageContextMenu
     class:background-image-active={backgroundImageEnabled && backgroundImageSrc && advanced}
 >
     <div class="hp-core-parking" use:initializePersistentRegionManager aria-hidden="true">
