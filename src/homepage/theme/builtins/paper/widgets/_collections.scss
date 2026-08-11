@@ -1,0 +1,177 @@
+.homepage-container[data-hp-theme="builtin.paper"]
+    .widget-block[data-widget-placement="homepage"][data-widget-kind="list"][data-widget-presentation-scope="full"] {
+    [data-widget-part="list"] {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        overflow-y: auto;
+        list-style: none;
+    }
+
+    [data-widget-part="item"] {
+        min-width: 0;
+        min-height: var(--hp-widget-row-height);
+        margin: 0;
+        padding: var(--hp-widget-space-2) var(--hp-widget-space-1);
+        border: 0;
+        border-bottom: 1px solid var(--hp-widget-divider);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        transition: background-color var(--hp-motion-fast);
+    }
+
+    [data-widget-part="item"]:last-child { border-bottom: 0; }
+    [data-widget-part="item"]:hover { background: var(--hp-widget-hover); box-shadow: none; transform: none; }
+
+    [data-widget-part="primary"] {
+        min-width: 0;
+        color: var(--hp-paper-ink);
+        font-size: var(--hp-widget-body-size);
+        font-weight: 560;
+        line-height: 1.45;
+        text-decoration: none;
+    }
+
+    [data-widget-part="meta"] {
+        color: var(--hp-paper-ink-muted);
+        font-size: var(--hp-widget-meta-size);
+        line-height: 1.4;
+    }
+}
+
+.homepage-container[data-hp-theme="builtin.paper"]
+    .widget-block[data-widget-placement="homepage"][data-widget-kind="task"][data-widget-presentation-scope="full"] {
+    [data-widget-part="list"] {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        overflow-y: auto;
+        list-style: none;
+    }
+
+    [data-widget-part="item"] {
+        min-width: 0;
+        margin: 0;
+        padding: var(--hp-widget-space-3) var(--hp-widget-space-1);
+        border-bottom: 1px solid var(--hp-widget-divider);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        transition: background-color var(--hp-motion-fast), opacity var(--hp-motion-fast);
+    }
+
+    [data-widget-part="item"]:last-child { border-bottom: 0; }
+    [data-widget-part="item"]:hover { background: var(--hp-widget-hover); box-shadow: none; transform: none; }
+    [data-widget-part="item"].completed { opacity: .58; }
+    [data-widget-part="primary"] { color: var(--hp-paper-ink); font-weight: 560; }
+    [data-widget-part="meta"],
+    [data-widget-part="secondary"] { color: var(--hp-paper-ink-muted); font-size: var(--hp-widget-meta-size); }
+}
+
+.homepage-container[data-hp-theme="builtin.paper"] {
+    :is(
+        .widget-block[data-widget-presentation="paper.workspace.latest-docs"],
+        .widget-block[data-widget-presentation="paper.workspace.favorites"],
+        .widget-block[data-widget-presentation="paper.workspace.recent-journals"],
+        .widget-block[data-widget-presentation="paper.workspace.child-docs"],
+        .widget-block[data-widget-presentation="paper.workspace.condition-docs"]
+    )[data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="root"] { padding: var(--hp-widget-space-3); }
+
+        .document-item-content,
+        .favorites-item-content {
+            display: flex;
+            align-items: center;
+            gap: var(--hp-widget-space-2);
+            margin: 0;
+        }
+
+        .doc-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .doc-icon,
+        .doc-icon-image { flex: 0 0 auto; }
+    }
+
+    .widget-block[data-widget-presentation="paper.workspace.favorites"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        .favorites-content-container { min-height: 0; }
+        .favorites-group-title {
+            margin: var(--hp-widget-space-3) 0 var(--hp-widget-space-1);
+            padding: 0;
+            background: transparent;
+            color: var(--hp-paper-ink-muted);
+            font-family: "Songti SC", "STSong", serif;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .06em;
+        }
+        .favorites-manual-actions { background: var(--hp-paper-card); }
+    }
+
+    .widget-block[data-widget-presentation="paper.workspace.recent-journals"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        .widget-title-container { min-height: 32px; justify-content: flex-start; }
+        .widget-title-calendar {
+            margin: 0;
+            color: var(--hp-paper-ink);
+            font-family: "Songti SC", "STSong", serif;
+            font-size: var(--hp-widget-title-size);
+        }
+        .calendar-chart-container { min-height: 180px; }
+    }
+}
+
+@container hp-widget (max-width: 239px) {
+    .homepage-container[data-hp-theme="builtin.paper"]
+        .widget-block[data-widget-placement="homepage"][data-widget-kind="list"][data-widget-presentation-scope="full"] {
+        [data-widget-part="item"] { min-height: 38px; padding: 6px var(--hp-widget-space-1); }
+        [data-widget-part="meta"] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    }
+
+    .homepage-container[data-hp-theme="builtin.paper"]
+        .widget-block[data-widget-placement="homepage"][data-widget-kind="task"][data-widget-presentation-scope="full"] {
+        [data-widget-part="item"] { padding: var(--hp-widget-space-2) var(--hp-widget-space-1); }
+        [data-widget-part="meta"] { padding-left: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        [data-widget-part="secondary"] { display: none; }
+    }
+
+    .homepage-container[data-hp-theme="builtin.paper"]
+        :is(
+            .widget-block[data-widget-presentation="paper.workspace.latest-docs"],
+            .widget-block[data-widget-presentation="paper.workspace.favorites"],
+            .widget-block[data-widget-presentation="paper.workspace.recent-journals"],
+            .widget-block[data-widget-presentation="paper.workspace.child-docs"],
+            .widget-block[data-widget-presentation="paper.workspace.condition-docs"]
+        )[data-widget-placement="homepage"][data-widget-presentation-scope="full"]
+        [data-widget-part="root"] {
+        padding: 10px;
+    }
+}
+
+@container hp-widget (max-width: 179px) {
+    .homepage-container[data-hp-theme="builtin.paper"]
+        :is(
+            .widget-block[data-widget-placement="homepage"][data-widget-kind="list"][data-widget-presentation-scope="full"],
+            .widget-block[data-widget-placement="homepage"][data-widget-kind="task"][data-widget-presentation-scope="full"]
+        )
+        [data-widget-part="meta"] {
+        display: none;
+    }
+}
+
+@container hp-widget (min-width: 560px) {
+    .homepage-container[data-hp-theme="builtin.paper"]
+        :is(
+            .widget-block[data-widget-placement="homepage"][data-widget-kind="list"][data-widget-presentation-scope="full"],
+            .widget-block[data-widget-placement="homepage"][data-widget-kind="task"][data-widget-presentation-scope="full"]
+        )
+        [data-widget-part="list"] {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: var(--hp-widget-space-4);
+    }
+}

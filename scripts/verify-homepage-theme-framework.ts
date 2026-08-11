@@ -38,10 +38,18 @@ const simple: HomepageThemeDefinition = {
     name: "Simple",
     access: "vip",
 };
+const paper: HomepageThemeDefinition = {
+    ...classic,
+    id: "builtin.paper",
+    name: "Paper",
+    access: "vip",
+    features: { banner: true, widgetAppearance: "theme-controlled" },
+};
 
 const registry = new HomepageThemeRegistry();
 registry.register(classic);
 registry.register(simple);
+registry.register(paper);
 assert.throws(() => registry.register(simple), /已注册/);
 assert.throws(() => registry.register({ ...simple, id: "INVALID ID" }), /非法/);
 assert.throws(() => registry.register({ ...simple, id: "vendor.unsupported", apiVersion: 2 as 1 }), /API 版本/);
@@ -60,6 +68,8 @@ assert.equal(resolve("builtin.classic", false).effectiveThemeId, "builtin.classi
 assert.equal(resolve("builtin.classic", true).effectiveThemeId, "builtin.classic");
 assert.equal(resolve("builtin.simple-test", true).effectiveThemeId, "builtin.simple-test");
 assert.equal(resolve("builtin.simple-test", false).fallbackReason, "vip_required");
+assert.equal(resolve("builtin.paper", true).effectiveThemeId, "builtin.paper");
+assert.equal(resolve("builtin.paper", false).fallbackReason, "vip_required");
 assert.equal(supportsHomepageThemeBanner(classic), true, "API v1 themes that omit banner capability must keep legacy behavior");
 assert.equal(supportsHomepageThemeBanner({ ...simple, features: { banner: false } }), false, "Themes must be able to disable Banner before resource loading");
 const unsupportedRegistry = {
@@ -237,6 +247,24 @@ const simpleThemeSource = readFileSync("src/homepage/theme/builtins/simple-test/
 assert.doesNotMatch(simpleThemeSource, /HomepageBanner|banner\.enabled/, "Simple workspace must omit the banner presentation");
 const simpleThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/simple-test/definition.ts", "utf8");
 assert.match(simpleThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*false/, "Simple workspace must reject Banner before its resources are resolved");
+const paperThemeStyleSource = readFileSync("src/homepage/theme/builtins/paper/paper.scss", "utf8");
+assert.match(paperThemeStyleSource, /data-hp-theme="builtin\.paper"/, "Paper workspace styles must be scoped to its theme id");
+assert.match(paperThemeStyleSource, /--hp-paper-sheet:/, "Paper workspace must expose semantic paper surface tokens");
+assert.match(paperThemeStyleSource, /--hp-paper-texture:\s*url\("\.\/paper-texture\.svg"\)/, "Paper workspace must use its bundled SVG texture asset");
+assert.doesNotMatch(paperThemeStyleSource, /--hp-paper-texture:\s*url\(["']?https?:/i, "Paper workspace texture must not depend on a remote request");
+assert.match(paperThemeStyleSource, /\.hp-paper-sheet\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*border-radius:\s*0;[^}]*box-shadow:\s*none;/s, "Paper workspace must use the full homepage width instead of a floating rounded card");
+assert.match(paperThemeStyleSource, /@container hp-homepage/, "Paper workspace must respond to the actual homepage container");
+const paperTextureSource = readFileSync("src/homepage/theme/builtins/paper/paper-texture.svg", "utf8");
+assert.match(paperTextureSource, /<feTurbulence\b/, "Paper texture must synthesize irregular SVG noise");
+assert.match(paperTextureSource, /stitchTiles="stitch"/, "Paper texture must tile without visible seams");
+assert.match(paperTextureSource, /fine-grain|soft-mottle|fibres/, "Paper texture must combine grain, mottling, and fibre detail");
+const paperThemeSource = readFileSync("src/homepage/theme/builtins/paper/PaperTheme.svelte", "utf8");
+assert.match(paperThemeSource, /HomepageBanner/, "Paper workspace must use the shared Banner primitive");
+assert.match(paperThemeSource, /name="workspace"[\s\S]*name="footer"/, "Paper workspace must attach the required persistent regions in order");
+const paperThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/paper/definition.ts", "utf8");
+assert.match(paperThemeDefinitionSource, /id:\s*"builtin\.paper"/, "Paper workspace must use a stable builtin theme id");
+assert.match(paperThemeDefinitionSource, /thumbnail:\s*paperPreviewThumbnail/, "Paper workspace must provide a real settings preview");
+assert.match(paperThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*true[^}]*widgetAppearance:\s*"theme-controlled"/, "Paper workspace must preserve Banner and control Widget presentation");
 assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "tasks", activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "tasks");
 assert.equal(resolveHomepageSectionNavigationActiveId({ activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "notes");
 assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "missing", activeSectionId: "missing", sectionIds: ["notes", "tasks"] }), "notes");

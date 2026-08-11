@@ -30,6 +30,7 @@ export const simpleWorkspaceWidgetPresentation: WidgetPresentationManifest = Obj
         constellation: Object.freeze({ id: "simple.workspace.constellation", scope: "chrome" }),
         reviewDocs: Object.freeze({ id: "simple.workspace.review-docs", scope: "chrome" }),
         fixedAssets: Object.freeze({ id: "simple.workspace.fixed-assets", scope: "chrome" }),
+        enhancedDiary: Object.freeze({ id: "simple.workspace.enhanced-diary", scope: "native" }),
         weather: Object.freeze({ id: "simple.workspace.native.weather", scope: "native" }),
         stikynot: Object.freeze({ id: "simple.workspace.native.stikynot", scope: "native" }),
         statisticalCard: Object.freeze({ id: "simple.workspace.native.statistical-card", scope: "native" }),

@@ -1,0 +1,247 @@
+.homepage-container[data-hp-theme="builtin.paper"] {
+    .widget-block[data-widget-presentation="paper.workspace.taskman"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="root"] { padding: var(--hp-widget-space-3); }
+        .task-header { justify-content: flex-start; gap: var(--hp-widget-space-2); }
+        .task-content { min-width: 0; margin-left: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .checkbox-label input { accent-color: var(--hp-paper-accent); }
+        .task-created-time,
+        .task-source { margin-top: var(--hp-widget-space-1); padding-left: 28px; }
+        .task-source { max-width: 100%; overflow: hidden; box-sizing: border-box; text-overflow: ellipsis; white-space: nowrap; }
+    }
+
+    :is(
+        .widget-block[data-widget-presentation="paper.workspace.hot"],
+        .widget-block[data-widget-presentation="paper.workspace.quick-notes"],
+        .widget-block[data-widget-presentation="paper.workspace.taskman-plus"]
+    )[data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="root"] {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: var(--hp-widget-space-3);
+        }
+
+        [data-widget-part="body"] { min-height: 0; overflow: auto; }
+    }
+
+    .widget-block[data-widget-presentation="paper.workspace.hot"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="list"] { overflow: visible; }
+        [data-widget-part="item"] > a {
+            display: grid;
+            grid-template-columns: 28px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: var(--hp-widget-space-2);
+            min-width: 0;
+            color: inherit;
+            text-decoration: none;
+        }
+        .rank-icon { display: none; }
+        .rank {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border: 1px solid var(--hp-paper-edge);
+            border-radius: 50%;
+            background: var(--hp-paper-card-deep);
+            color: var(--hp-paper-ink-muted);
+            font-family: "Songti SC", "STSong", serif;
+            font-size: var(--hp-widget-meta-size);
+            font-variant-numeric: tabular-nums;
+        }
+        :is(.top-1, .top-2, .top-3) .rank {
+            border-color: color-mix(in srgb, var(--hp-paper-accent) 38%, var(--hp-paper-edge));
+            background: var(--hp-paper-accent-soft);
+            color: var(--hp-paper-accent);
+            font-weight: 700;
+        }
+        [data-widget-part="primary"] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        [data-widget-part="meta"] { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    }
+
+    .widget-block[data-widget-presentation="paper.workspace.quick-notes"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="list"] {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+            gap: var(--hp-widget-space-3);
+        }
+
+        [data-widget-part="item"] {
+            position: relative;
+            min-width: 0;
+            margin: 0;
+            padding: var(--hp-widget-space-4);
+            border: 1px solid var(--hp-paper-edge);
+            border-radius: 7px 9px 6px 8px;
+            background:
+                repeating-linear-gradient(to bottom, transparent 0 25px, var(--hp-widget-note-line) 26px, transparent 27px),
+                color-mix(in srgb, var(--hp-paper-card-deep) 72%, var(--hp-paper-card));
+            box-shadow: 0 3px 9px color-mix(in srgb, #2d2117 7%, transparent);
+        }
+
+        [data-widget-part="primary"] {
+            min-width: 0;
+            padding-right: 44px;
+            color: var(--hp-paper-ink);
+            font-size: var(--hp-widget-body-size);
+            line-height: 1.65;
+        }
+
+        [data-widget-part="actions"] { border-color: transparent; background: transparent; color: var(--hp-paper-ink-muted); }
+    }
+
+    .widget-block[data-widget-presentation="paper.workspace.taskman-plus"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="body"] { display: flex; flex-direction: column; }
+        [data-widget-part="primary"] {
+            min-width: 0;
+            overflow: hidden;
+            color: var(--hp-paper-ink);
+            font: inherit;
+            font-weight: 560;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        [data-widget-part="meta"] { color: var(--hp-paper-ink-muted); }
+        .task-checkbox { accent-color: var(--hp-paper-accent); }
+    }
+
+    :is(
+        .widget-block[data-widget-presentation="paper.workspace.sql"],
+        .widget-block[data-widget-presentation="paper.workspace.constellation"],
+        .widget-block[data-widget-presentation="paper.workspace.review-docs"],
+        .widget-block[data-widget-presentation="paper.workspace.fixed-assets"]
+    )[data-widget-placement="homepage"][data-widget-presentation-scope="chrome"] {
+        [data-widget-part="root"] {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: var(--hp-widget-space-3);
+        }
+        [data-widget-part="header"] {
+            align-self: stretch;
+            justify-content: flex-start;
+            min-height: 24px;
+            margin: 0 0 var(--hp-widget-space-1);
+            text-align: left;
+        }
+        [data-widget-part="body"] { min-width: 0; min-height: 0; }
+        [data-widget-part="actions"] { min-width: 0; }
+    }
+
+    .widget-block[data-widget-presentation="paper.workspace.review-docs"][data-widget-placement="homepage"][data-widget-presentation-scope="chrome"]
+        [data-widget-part="root"]
+        .review-docs-header {
+        align-items: flex-start;
+        justify-content: flex-start;
+        min-width: 0;
+        padding-inline: 0;
+        text-align: left;
+
+        .hp-widget-title {
+            width: 100%;
+            min-height: 22px;
+            margin: 0 0 var(--hp-widget-space-1);
+            padding: 0;
+            border: 0;
+            color: var(--hp-paper-ink);
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.3;
+            text-align: left;
+            overflow: visible;
+            text-overflow: clip;
+            white-space: normal;
+        }
+
+        :is(.hp-widget-title__legacy, .hp-widget-title__semantic) {
+            overflow: visible;
+            text-overflow: clip;
+            white-space: normal;
+        }
+    }
+
+    .widget-block[data-widget-presentation="paper.workspace.enhanced-diary"][data-widget-placement="homepage"][data-widget-presentation-scope="native"]
+        .enhanced-diary-header {
+        align-items: start;
+        margin-bottom: var(--hp-widget-space-2);
+
+        .enhanced-diary-title {
+            grid-column: 1 / -1;
+            justify-self: stretch;
+            min-width: 0;
+            margin: 0 0 var(--hp-widget-space-1);
+            padding: 0;
+            border: 0;
+            color: var(--hp-paper-ink);
+            font-family: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.3;
+            text-align: left;
+            overflow: visible;
+            text-overflow: clip;
+            white-space: normal;
+        }
+    }
+
+    :is(
+        .widget-block[data-widget-presentation="paper.workspace.native.weather"],
+        .widget-block[data-widget-presentation="paper.workspace.native.stikynot"],
+        .widget-block[data-widget-presentation="paper.workspace.native.statistical-card"],
+        .widget-block[data-widget-presentation="paper.workspace.native.almanac"],
+        .widget-block[data-widget-presentation="paper.workspace.native.pic-caro"]
+    )[data-widget-placement="homepage"][data-widget-presentation-scope="native"] {
+        overflow: hidden;
+        color: var(--hp-paper-ink);
+    }
+}
+
+@container hp-widget (max-width: 239px) {
+    .homepage-container[data-hp-theme="builtin.paper"]
+        :is(
+            .widget-block[data-widget-presentation="paper.workspace.taskman"],
+            .widget-block[data-widget-presentation="paper.workspace.hot"],
+            .widget-block[data-widget-presentation="paper.workspace.quick-notes"],
+            .widget-block[data-widget-presentation="paper.workspace.taskman-plus"]
+        )[data-widget-placement="homepage"][data-widget-presentation-scope="full"]
+        [data-widget-part="root"],
+    .homepage-container[data-hp-theme="builtin.paper"]
+        :is(
+            .widget-block[data-widget-presentation="paper.workspace.sql"],
+            .widget-block[data-widget-presentation="paper.workspace.constellation"],
+            .widget-block[data-widget-presentation="paper.workspace.review-docs"],
+            .widget-block[data-widget-presentation="paper.workspace.fixed-assets"]
+        )[data-widget-placement="homepage"][data-widget-presentation-scope="chrome"]
+        [data-widget-part="root"] {
+        padding: 10px;
+    }
+
+    .homepage-container[data-hp-theme="builtin.paper"]
+        .widget-block[data-widget-presentation="paper.workspace.hot"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="item"] > a { grid-template-columns: 28px minmax(0, 1fr); }
+        [data-widget-part="meta"] { display: none; }
+    }
+
+    .homepage-container[data-hp-theme="builtin.paper"]
+        .widget-block[data-widget-presentation="paper.workspace.quick-notes"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="list"] { gap: var(--hp-widget-space-2); }
+        [data-widget-part="item"] { padding: 10px; }
+        [data-widget-part="primary"] { padding-right: 44px; }
+    }
+
+    .homepage-container[data-hp-theme="builtin.paper"]
+        .widget-block[data-widget-presentation="paper.workspace.taskman-plus"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        .tasks-details .meta-row ~ .meta-row,
+        .tasks-details .tags,
+        .tasks-details .hpath { display: none; }
+    }
+}
+
+@container hp-widget (max-width: 179px) {
+    .homepage-container[data-hp-theme="builtin.paper"]
+        .widget-block[data-widget-presentation="paper.workspace.taskman-plus"][data-widget-placement="homepage"][data-widget-presentation-scope="full"]
+        [data-widget-part="meta"] {
+        display: none;
+    }
+}

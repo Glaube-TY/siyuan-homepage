@@ -195,15 +195,30 @@ assert.doesNotMatch(widgetThemeStyles, /data-widget-kind="task"\](?!\[data-widge
 assert.doesNotMatch(widgetThemeStyles, /\.widget-block\[data-widget-presentation-scope="native"\]\s*\{/, "不得全局透明化所有 native Widget 外壳");
 
 const simpleManifest = readFileSync("src/homepage/theme/builtins/simple-test/widgets/manifest.ts", "utf8");
-for (const id of ["hot", "child-docs", "condition-docs", "quick-notes", "taskman-plus", "sql", "constellation", "review-docs", "fixed-assets"]) {
+for (const id of ["hot", "child-docs", "condition-docs", "quick-notes", "taskman-plus", "sql", "constellation", "review-docs", "fixed-assets", "enhanced-diary"]) {
     assert.match(simpleManifest, new RegExp(`simple\\.workspace\\.${id}`), `Simple Manifest 缺少 ${id}`);
 }
+const paperManifest = readFileSync("src/homepage/theme/builtins/paper/widgets/manifest.ts", "utf8");
+for (const id of ["hot", "child-docs", "condition-docs", "quick-notes", "taskman-plus", "sql", "constellation", "review-docs", "fixed-assets", "enhanced-diary"]) {
+    assert.match(paperManifest, new RegExp(`paper\\.workspace\\.${id}`), `Paper Manifest 缺少 ${id}`);
+}
+const paperWidgetThemeStyles = collectSourceFiles("src/homepage/theme/builtins/paper/widgets")
+    .filter((path) => path.endsWith(".scss"))
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+assert.match(paperWidgetThemeStyles, /container-name:\s*hp-widget/, "纸质主题 Widget 必须建立自己的 inline-size container");
+assert.match(paperWidgetThemeStyles, /data-widget-placement="homepage"/, "纸质主题 Widget CSS 必须限制到 desktop homepage placement");
+assert.match(paperWidgetThemeStyles, /data-widget-presentation-scope="full"/, "纸质主题 Kind Presentation 必须限制到 full scope");
+assert.doesNotMatch(paperWidgetThemeStyles, /builtin\.simple-test|simple\.workspace/, "纸质主题 Widget Presentation 不得依赖简洁主题");
 
 const classicDefinition = readFileSync("src/homepage/theme/builtins/classic/definition.ts", "utf8");
 const simpleDefinition = readFileSync("src/homepage/theme/builtins/simple-test/definition.ts", "utf8");
+const paperDefinition = readFileSync("src/homepage/theme/builtins/paper/definition.ts", "utf8");
 assert.match(classicDefinition, /widgetPresentation:\s*classicWidgetPresentation/, "Classic 必须显式注册 Widget Presentation");
 assert.match(simpleDefinition, /widgetPresentation:\s*simpleWorkspaceWidgetPresentation/, "简洁工作区必须显式注册 Widget Presentation");
+assert.match(paperDefinition, /widgetPresentation:\s*paperWorkspaceWidgetPresentation/, "纸质工作区必须显式注册 Widget Presentation");
 assert.match(classicDefinition, /widgetAppearance:\s*"user-configurable"/, "Classic 必须继续允许用户自定义 Widget 外观");
 assert.match(simpleDefinition, /widgetAppearance:\s*"theme-controlled"/, "简洁工作区必须继续由主题接管 Widget 外观");
+assert.match(paperDefinition, /widgetAppearance:\s*"theme-controlled"/, "纸质工作区必须由主题接管 Widget 外观");
 
 console.log("Widget Presentation Framework verification passed.");

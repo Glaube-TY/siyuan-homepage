@@ -1,0 +1,15 @@
+.homepage-container[data-hp-theme="builtin.paper"] {
+    --hp-widget-space-1: 4px;
+    --hp-widget-space-2: 8px;
+    --hp-widget-space-3: 12px;
+    --hp-widget-space-4: 16px;
+    --hp-widget-space-5: 20px;
+    --hp-widget-title-size: 14px;
+    --hp-widget-body-size: 13px;
+    --hp-widget-meta-size: 12px;
+    --hp-widget-row-height: 42px;
+    --hp-widget-divider: color-mix(in srgb, var(--hp-paper-ink) 9%, transparent);
+    --hp-widget-hover: color-mix(in srgb, var(--hp-paper-accent) 8%, transparent);
+    --hp-widget-icon-bg: color-mix(in srgb, var(--hp-paper-accent) 8%, var(--hp-paper-card));
+    --hp-widget-note-line: color-mix(in srgb, var(--hp-paper-ink) 7%, transparent);
+}

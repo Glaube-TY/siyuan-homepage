@@ -1,0 +1,61 @@
+/*
+ * Compact workspace widgets still ship their own legacy centered title layout.
+ * Keep these corrections presentation-specific so Classic and standalone surfaces
+ * continue to use the component defaults.
+ */
+.homepage-container[data-hp-theme="builtin.simple-test"]
+    .widget-block[data-widget-presentation="simple.workspace.review-docs"][data-widget-placement="homepage"][data-widget-presentation-scope="chrome"]
+    [data-widget-part="root"]
+    .review-docs-header {
+    align-items: flex-start;
+    justify-content: flex-start;
+    min-width: 0;
+    padding-inline: 0;
+    text-align: left;
+
+    .hp-widget-title {
+        width: 100%;
+        min-height: 22px;
+        margin: 0 0 var(--hp-widget-space-1);
+        padding: 0;
+        border: 0;
+        color: var(--hp-text);
+        font-size: 13px;
+        font-weight: 620;
+        line-height: 1.25;
+        text-align: left;
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+    }
+
+    :is(.hp-widget-title__legacy, .hp-widget-title__semantic) {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+    }
+}
+
+.homepage-container[data-hp-theme="builtin.simple-test"]
+    .widget-block[data-widget-presentation="simple.workspace.enhanced-diary"][data-widget-placement="homepage"][data-widget-presentation-scope="native"]
+    .enhanced-diary-header {
+    align-items: start;
+    margin-bottom: var(--hp-widget-space-2);
+
+    .enhanced-diary-title {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+        min-width: 0;
+        margin: 0 0 var(--hp-widget-space-1);
+        padding: 0;
+        border: 0;
+        color: var(--hp-text);
+        font-size: 13px;
+        font-weight: 620;
+        line-height: 1.25;
+        text-align: left;
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+    }
+}
