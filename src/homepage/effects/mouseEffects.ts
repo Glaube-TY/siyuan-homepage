@@ -2,6 +2,10 @@ import {
     defaultClickEffects,
     cursorIconMap,
 } from "./effectsConstants";
+import {
+    cleanupMouseTrailRuntime,
+    updateMouseTrailRuntime,
+} from "./mouseTrail/runtime";
 
 export interface MouseEffectConfig {
     advanced: boolean;
@@ -10,12 +14,12 @@ export interface MouseEffectConfig {
     ClickEffectEnabled: boolean;
     ClickEffectContent: string;
     MouseTrailEnabled: boolean;
+    mouseTrailEffectId?: string;
 }
 
 const CURSOR_STYLE_ID = "siyuan-homepage-cursor-style";
 
 let effectIndex = 0;
-let trailElements: HTMLElement[] = [];
 
 export function isElectron(): boolean {
     return (
@@ -66,6 +70,19 @@ export function updateCursorStyle(config: MouseEffectConfig): void {
         }
     `;
     document.head.appendChild(style);
+}
+
+export function updateMouseEffects(
+    config: MouseEffectConfig,
+    localRoot?: HTMLElement | null,
+): void {
+    updateCursorStyle(config);
+    updateMouseTrailRuntime({
+        enabled: config.advanced && config.MouseTrailEnabled,
+        global: config.mouseGlobalEnabled,
+        preferredEffectId: config.mouseTrailEffectId,
+        localRoot,
+    });
 }
 
 export function createClickEffect(
@@ -122,73 +139,8 @@ export function createClickEffect(
     setTimeout(() => span.remove(), 1500);
 }
 
-function removeTrail(trail: HTMLElement): void {
-    trail.remove();
-    const index = trailElements.indexOf(trail);
-    if (index > -1) {
-        trailElements.splice(index, 1);
-    }
-}
-
-export function createMouseTrail(
-    e: MouseEvent,
-    config: MouseEffectConfig
-): void {
-    if (!config.advanced || !config.MouseTrailEnabled) return;
-
-    // 非全局模式改用 .falling-container 避免滚动条问题
-    const containerSelector = config.mouseGlobalEnabled ? "body" : ".shp-falling-container";
-    const container = document.querySelector(containerSelector);
-    if (!container) return;
-
-    // 非全局模式时检查鼠标是否在 homepage-container 范围内
-    if (!config.mouseGlobalEnabled) {
-        const homepageContainer = document.querySelector(".homepage-container") as HTMLElement;
-        if (homepageContainer) {
-            const rect = homepageContainer.getBoundingClientRect();
-            if (
-                e.clientX < rect.left ||
-                e.clientX > rect.right ||
-                e.clientY < rect.top ||
-                e.clientY > rect.bottom
-            ) {
-                return;
-            }
-        }
-    }
-
-    // .falling-container 是 fixed 定位且覆盖整个视口，直接使用 clientX/Y
-    const x = e.clientX;
-    const y = e.clientY;
-
-    const trail = document.createElement("div");
-    trail.className = "shp-mouse-trail";
-    trail.style.cssText = `
-        left: ${x}px;
-        top: ${y}px;
-        opacity: 0.7;
-        position: fixed;
-    `;
-
-    container.appendChild(trail);
-    trailElements.push(trail);
-
-    if (trailElements.length > 1000) {
-        const old = trailElements.shift();
-        if (old) removeTrail(old);
-    }
-
-    requestAnimationFrame(() => {
-        trail.style.opacity = "0";
-        trail.style.transform = "scale(2)";
-    });
-
-    setTimeout(() => removeTrail(trail), 1000);
-}
-
 export function cleanupMouseEffects(): void {
     removeCursorStyle();
-    trailElements.forEach((el) => el.remove());
-    trailElements = [];
+    cleanupMouseTrailRuntime();
     effectIndex = 0;
 }

@@ -14,6 +14,12 @@
       <stop offset="0.5" stop-color="#f2ede4"/>
       <stop offset="1" stop-color="#b9aa96"/>
     </linearGradient>
+    <filter id="preview-deckle" x="-3%" y="-12%" width="106%" height="124%">
+      <feTurbulence type="fractalNoise" baseFrequency=".018 .24" numOctaves="3" seed="47" result="edge-noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="edge-noise" scale="3.6" xChannelSelector="R" yChannelSelector="G" result="rough-paper"/>
+      <feDropShadow in="rough-paper" dx="0" dy="2.5" stdDeviation="2.4" flood-color="#4d4032" flood-opacity=".22" result="paper-shadow"/>
+      <feMerge><feMergeNode in="paper-shadow"/><feMergeNode in="rough-paper"/></feMerge>
+    </filter>
   </defs>
   <rect width="460" height="224" fill="#f7f2e8"/>
   <rect width="460" height="224" fill="transparent" filter="url(#paper)"/>
@@ -22,8 +28,14 @@
   <rect x="59" y="21" width="128" height="11" rx="2" fill="#41372f" opacity=".9"/>
   <rect x="59" y="40" width="176" height="5" rx="2" fill="#7c7064" opacity=".38"/>
   <rect x="370" y="24" width="72" height="20" rx="4" fill="#fbf7ef" stroke="#d6c9b7"/>
-  <rect x="14" y="62" width="432" height="66" rx="3" fill="#faf7f0" stroke="#d6c9b7"/>
-  <rect x="20" y="68" width="420" height="54" rx="1" fill="url(#banner)"/>
+  <g fill="none" stroke="#696966" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" opacity=".78" transform="translate(407 45) rotate(12)">
+    <path d="M2 12c1-4 5-6 9-5s6 5 5 9l-6 22c-1 2-3 3-5 3s-3-3-2-5l5-18"/>
+  </g>
+  <rect x="12" y="60" width="436" height="74" fill="#faf7f0" stroke="#d6c9b7" filter="url(#preview-deckle)"/>
+  <rect x="23" y="71" width="414" height="50" fill="url(#banner)"/>
+  <g fill="none" stroke="#85847f" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" transform="translate(407 45) rotate(12)">
+    <path d="M12 2c7 2 10 8 8 15l-7 25c-1 5-7 8-12 6s-8-7-6-12l7-24"/>
+  </g>
   <path d="M14 145h432" stroke="#cbbda9"/>
   <path d="M192 145h75" stroke="#896c49" stroke-width="2"/>
   <g fill="#fbf7ef" stroke="#d8cdbc">

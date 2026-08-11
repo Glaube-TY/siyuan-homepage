@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" preserveAspectRatio="none">
+  <defs>
+    <filter id="edge-b" x="-4%" y="-6%" width="108%" height="112%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.021 0.081" numOctaves="3" seed="41" stitchTiles="stitch" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="9" xChannelSelector="B" yChannelSelector="R"/>
+    </filter>
+  </defs>
+  <rect x="7" y="5" width="986" height="589" fill="#fff" filter="url(#edge-b)"/>
+</svg>

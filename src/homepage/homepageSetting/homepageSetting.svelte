@@ -46,6 +46,10 @@
     import WidgetsSettingsTab from "./tabs/WidgetsSettingsTab.svelte"
     import StylesSettingsTab from "./tabs/StylesSettingsTab.svelte"
     import AppearanceSettingsTab from "./tabs/AppearanceSettingsTab.svelte"
+    import {
+        HOMEPAGE_THEME_TRANSITION_EVENT,
+        type HomepageThemeTransitionEventDetail,
+    } from "../theme/runtime/themeTransitionEvents";
     import MobileSettingsTab from "./tabs/MobileSettingsTab.svelte"
     import AiKnowledgeBaseSettingsTab from "./tabs/AiKnowledgeBaseSettingsTab.svelte"
     import NotificationCenterSettingsTab from "./tabs/NotificationCenterSettingsTab.svelte"
@@ -127,6 +131,7 @@
     let enhancedDiaryIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
     let advancedEnabled = $state(false);
     let homepageAppearance = $state<HomepageAppearanceConfig>(normalizeHomepageAppearanceConfig(undefined));
+    let activeHomepageThemeTransition = $state<HomepageThemeTransitionEventDetail | null>(null);
     let appearanceOnlyBaseSignature: string | null = null;
     let appearanceResolution = $derived(resolveHomepageTheme({
         preferredThemeId: homepageAppearance.preferredThemeId,
@@ -552,6 +557,7 @@
     }
 
     function handleHomepageThemeSelection(themeId: string): void {
+        if (activeHomepageThemeTransition) return;
         const theme = homepageThemeRegistry.get(themeId);
         if (!theme) {
             showMessage("该主页主题当前未安装", 3000, "info");
@@ -569,6 +575,27 @@
         window.dispatchEvent(new CustomEvent("homepage-theme-preview", {
             detail: { homepageAppearance },
         }));
+    }
+
+    function handleHomepageThemeTransition(event: Event): void {
+        const detail = (event as CustomEvent<HomepageThemeTransitionEventDetail>).detail;
+        if (
+            !detail
+            || typeof detail.requestId !== "number"
+            || typeof detail.themeId !== "string"
+            || typeof detail.themeName !== "string"
+        ) return;
+
+        if (detail.phase === "start") {
+            activeHomepageThemeTransition = detail;
+            return;
+        }
+        if (
+            activeHomepageThemeTransition?.requestId === detail.requestId
+            || activeHomepageThemeTransition?.themeId === detail.themeId
+        ) {
+            activeHomepageThemeTransition = null;
+        }
     }
 
     function applyMobileSettingsConfig(config: Record<string, unknown>): void {
@@ -721,6 +748,7 @@
 
     // 设置页面加载时读取配置信息
     onMount(async () => {
+        window.addEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, handleHomepageThemeTransition);
         const savedConfig = await loadHomepageSettingConfig(plugin);
         if (savedConfig) {
             homepageAppearance = normalizeHomepageAppearanceConfig(savedConfig.homepageAppearance);
@@ -936,6 +964,7 @@
         }
         window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
+        window.removeEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, handleHomepageThemeTransition);
     });
 
     function handleImageSelect(event: Event) {
@@ -1496,6 +1525,8 @@
                             effectiveThemeId={appearanceResolution.effectiveThemeId}
                             fallbackReason={appearanceResolution.fallbackReason}
                             {advancedEnabled}
+                            switchingThemeId={activeHomepageThemeTransition?.themeId ?? null}
+                            switchingFirstActivation={activeHomepageThemeTransition?.firstActivation ?? false}
                             onSelectTheme={handleHomepageThemeSelection}
                         />
                     {/if}

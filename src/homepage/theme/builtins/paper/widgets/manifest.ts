@@ -2,6 +2,16 @@ import { WIDGET_PRESENTATION_CONTRACT_VERSION, type WidgetPresentationManifest }
 
 export const paperWorkspaceWidgetPresentation: WidgetPresentationManifest = Object.freeze({
     contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
+    shell: Object.freeze({
+        id: "paper.sheet",
+        variants: 4,
+        tokens: Object.freeze({
+            background: "var(--hp-paper-widget-sheet)",
+            border: "0",
+            borderRadius: "0",
+            boxShadow: "none",
+        }),
+    }),
     generic: Object.freeze({ id: "paper.workspace.generic" }),
     kinds: Object.freeze({
         list: Object.freeze({ id: "paper.workspace.list" }),

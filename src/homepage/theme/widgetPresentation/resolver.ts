@@ -6,6 +6,8 @@ import type {
     WidgetPresentationLevel,
     WidgetPresentationManifest,
     WidgetPresentationMode,
+    WidgetPresentationScope,
+    ResolvedWidgetShell,
 } from "./types";
 
 interface ResolveWidgetPresentationOptions {
@@ -21,6 +23,28 @@ function rendererFor(definition: WidgetDefinition, descriptor: WidgetPresentatio
     return descriptor.renderer;
 }
 
+function resolveShell(
+    options: ResolveWidgetPresentationOptions,
+    presentationId: string,
+    scope: WidgetPresentationScope,
+): ResolvedWidgetShell | undefined {
+    const shell = options.manifest?.shell;
+    if (!shell) return undefined;
+    const exclude = shell.exclude;
+    const excluded = Boolean(
+        exclude?.widgetTypes?.includes(options.definition.type)
+        || exclude?.kinds?.includes(options.definition.kind)
+        || exclude?.presentationIds?.includes(presentationId)
+        || exclude?.scopes?.includes(scope),
+    );
+    return Object.freeze({
+        id: shell.id,
+        state: excluded ? "excluded" : "applied",
+        tokens: shell.tokens,
+        variants: shell.variants ?? 1,
+    });
+}
+
 function resolved(
     options: ResolveWidgetPresentationOptions,
     descriptor: WidgetPresentationDescriptor,
@@ -29,18 +53,20 @@ function resolved(
     trail: WidgetPresentationLevel[],
 ): ResolvedWidgetPresentation {
     const renderer = rendererFor(options.definition, descriptor);
+    const scope = descriptor.scope ?? options.definition.defaultPresentationScope;
     return Object.freeze({
         themeId: options.themeId,
         widgetType: options.definition.type,
         widgetKind: options.definition.kind,
         presentationId: descriptor.id,
-        scope: descriptor.scope ?? options.definition.defaultPresentationScope,
+        scope,
         mode,
         level,
         semanticLabel: options.definition.semanticLabel,
         semanticIcon: options.definition.semanticIcon,
         resolvedIcon: resolveWidgetPresentationIcon(options.definition.semanticIcon, options.manifest),
         renderer: renderer?.component,
+        shell: resolveShell(options, descriptor.id, scope),
         fallbackTrail: Object.freeze([...trail, level]),
     });
 }
@@ -86,6 +112,7 @@ export function resolveLegacyWidgetPresentation(themeId: string, definition: Wid
         semanticLabel: definition.semanticLabel,
         semanticIcon: definition.semanticIcon,
         resolvedIcon: resolveWidgetPresentationIcon(definition.semanticIcon),
+        shell: undefined,
         fallbackTrail: Object.freeze(["legacy"] as WidgetPresentationLevel[]),
     });
 }

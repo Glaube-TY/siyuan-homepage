@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="none">
+  <defs>
+    <filter id="page-deckle" x="-3%" y="-3%" width="106%" height="106%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.009 0.055" numOctaves="3" seed="83" stitchTiles="stitch" result="edge-noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="edge-noise" scale="8" xChannelSelector="R" yChannelSelector="B"/>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="1584" height="984" fill="#fff" filter="url(#page-deckle)"/>
+</svg>

@@ -84,12 +84,48 @@ export interface WidgetPresentationDescriptor {
     renderer?: WidgetRendererOverride;
 }
 
+/**
+ * 主题统一管理 Widget 外壳时可覆盖的视觉令牌。
+ *
+ * 这里只接受 CSS 值，不包含布局属性；运行时会把令牌挂到主页根节点，
+ * 不会写入 Widget 的 style，也不会进入布局持久化。
+ */
+export interface WidgetShellTokens {
+    background?: string;
+    border?: string;
+    borderRadius?: string;
+    boxShadow?: string;
+}
+
+export interface WidgetShellExclusions {
+    widgetTypes?: readonly string[];
+    kinds?: readonly WidgetKind[];
+    presentationIds?: readonly string[];
+    scopes?: readonly WidgetPresentationScope[];
+}
+
+export interface WidgetShellDefinition {
+    id: string;
+    tokens?: Readonly<WidgetShellTokens>;
+    /** 视觉变体数量；运行时只生成稳定的 DOM 语义编号，不写入配置。 */
+    variants?: number;
+    exclude?: Readonly<WidgetShellExclusions>;
+}
+
 export interface WidgetPresentationManifest {
     contractVersion: typeof WIDGET_PRESENTATION_CONTRACT_VERSION;
     generic?: WidgetPresentationDescriptor;
     kinds?: Partial<Record<WidgetKind, WidgetPresentationDescriptor>>;
     widgets?: Readonly<Record<string, WidgetPresentationDescriptor>>;
     icons?: Readonly<Record<string, string>>;
+    shell?: Readonly<WidgetShellDefinition>;
+}
+
+export interface ResolvedWidgetShell {
+    readonly id: string;
+    readonly state: "applied" | "excluded";
+    readonly tokens?: Readonly<WidgetShellTokens>;
+    readonly variants: number;
 }
 
 export interface ResolvedWidgetPresentation {
@@ -104,6 +140,7 @@ export interface ResolvedWidgetPresentation {
     readonly semanticIcon: string;
     readonly resolvedIcon?: string;
     readonly renderer?: Component<any>;
+    readonly shell?: ResolvedWidgetShell;
     readonly fallbackTrail: readonly WidgetPresentationLevel[];
 }
 

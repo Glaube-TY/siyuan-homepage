@@ -235,7 +235,8 @@ assert.doesNotMatch(workspaceStyleSource, /component-section-nav|background-colo
 
 const simpleThemeStyleSource = readFileSync("src/homepage/theme/builtins/simple-test/simple-test.scss", "utf8");
 assert.match(simpleThemeStyleSource, /@container hp-homepage/, "Simple workspace must respond to the actual homepage container");
-assert.match(simpleThemeStyleSource, /--hp-content-max-width:\s*1500px/, "Simple workspace must cap ultra-wide content");
+assert.match(simpleThemeStyleSource, /--hp-content-max-width:\s*none/, "Simple workspace must not impose a fixed desktop width cap");
+assert.match(simpleThemeStyleSource, /\.hp-simple-shell\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*margin:\s*0;/s, "Simple workspace must use the full homepage width");
 assert.doesNotMatch(simpleThemeStyleSource, /hp-simple-sidebar/, "Simple workspace must use the horizontal knowledge-workspace hierarchy");
 assert.match(simpleThemeStyleSource, /hp-simple-header/, "Simple workspace must provide a horizontal identity/action header");
 assert.match(simpleThemeStyleSource, /\.hp-sections\s*\{[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;/s, "Horizontal section navigation must not expose a useless vertical scrollbar");
@@ -253,6 +254,8 @@ assert.match(paperThemeStyleSource, /--hp-paper-sheet:/, "Paper workspace must e
 assert.match(paperThemeStyleSource, /--hp-paper-texture:\s*url\("\.\/paper-texture\.svg"\)/, "Paper workspace must use its bundled SVG texture asset");
 assert.doesNotMatch(paperThemeStyleSource, /--hp-paper-texture:\s*url\(["']?https?:/i, "Paper workspace texture must not depend on a remote request");
 assert.match(paperThemeStyleSource, /\.hp-paper-sheet\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*border-radius:\s*0;[^}]*box-shadow:\s*none;/s, "Paper workspace must use the full homepage width instead of a floating rounded card");
+assert.match(paperThemeStyleSource, /\.hp-paper-sheet::before\s*\{[^}]*var\(--hp-paper-page-surface\)[^}]*paper-page-mask\.svg[^}]*drop-shadow/s, "Paper workspace must render its semi-transparent deckle sheet on a non-interactive backing layer");
+assert.doesNotMatch(paperThemeStyleSource, /--hp-paper-page-surface:\s*#fff\b/i, "Homepage paper surface must remain translucent instead of opaque white");
 assert.match(paperThemeStyleSource, /@container hp-homepage/, "Paper workspace must respond to the actual homepage container");
 const paperTextureSource = readFileSync("src/homepage/theme/builtins/paper/paper-texture.svg", "utf8");
 assert.match(paperTextureSource, /<feTurbulence\b/, "Paper texture must synthesize irregular SVG noise");
@@ -260,7 +263,20 @@ assert.match(paperTextureSource, /stitchTiles="stitch"/, "Paper texture must til
 assert.match(paperTextureSource, /fine-grain|soft-mottle|fibres/, "Paper texture must combine grain, mottling, and fibre detail");
 const paperThemeSource = readFileSync("src/homepage/theme/builtins/paper/PaperTheme.svelte", "utf8");
 assert.match(paperThemeSource, /HomepageBanner/, "Paper workspace must use the shared Banner primitive");
+assert.match(paperThemeSource, /hp-paper-banner-clip[\s\S]*<svg/, "Paper Banner must render its paperclip outside the clipped image region");
+assert.match(paperThemeSource, /hp-paper-banner-clip--back[\s\S]*hp-paper-banner-frame[\s\S]*hp-paper-banner-clip--front/, "Paperclip loops must straddle the backing paper on separate stacking layers");
+assert.match(paperThemeSource, /hp-paper-banner-clip--back[\s\S]*hp-paper-banner-clip__inner[\s\S]*hp-paper-banner-frame[\s\S]*hp-paper-banner-clip--front[\s\S]*hp-paper-banner-clip__outer/, "Paperclip inner loop must sit behind the paper while the outer loop remains in front");
 assert.match(paperThemeSource, /name="workspace"[\s\S]*name="footer"/, "Paper workspace must attach the required persistent regions in order");
+const paperBannerMaskSource = readFileSync("src/homepage/theme/builtins/paper/paper-banner-mask.svg", "utf8");
+assert.match(paperBannerMaskSource, /<feTurbulence\b[\s\S]*<feDisplacementMap\b/, "Paper Banner must use an irregular SVG deckle-edge mask");
+assert.match(paperBannerMaskSource, /<rect\b[^>]*filter="url\(#deckle\)"/, "Paper Banner backing must use a noise-displaced paper rectangle instead of a mechanical polygon");
+assert.doesNotMatch(paperBannerMaskSource, /<g\b[^>]*stroke="#fff"/, "Paper Banner edge must not add periodic synthetic fibre spikes");
+const paperPageMaskSource = readFileSync("src/homepage/theme/builtins/paper/paper-page-mask.svg", "utf8");
+assert.match(paperPageMaskSource, /<feTurbulence\b[\s\S]*<feDisplacementMap\b/, "Homepage paper sheet must use a noise-displaced deckle mask");
+assert.match(paperThemeStyleSource, /mask-image:\s*url\("\.\/paper-banner-mask\.svg"\)/, "Paper Banner must apply its bundled torn-edge SVG mask");
+assert.match(paperThemeStyleSource, /\.hp-paper-banner-frame\s*\{[^}]*background-color:\s*#fff;/s, "Paper Banner backing must remain an opaque white sheet instead of blending into the page");
+assert.doesNotMatch(paperThemeStyleSource, /hp-paper-banner-frame::(?:before|after)/, "Paper Banner must not fall back to clipped tape pseudo-elements");
+assert.doesNotMatch(paperThemeStyleSource, /\.hp-paper-banner\s*\{[^}]*clip-path:/s, "Paper Banner image must remain rectangular inside the torn backing paper");
 const paperThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/paper/definition.ts", "utf8");
 assert.match(paperThemeDefinitionSource, /id:\s*"builtin\.paper"/, "Paper workspace must use a stable builtin theme id");
 assert.match(paperThemeDefinitionSource, /thumbnail:\s*paperPreviewThumbnail/, "Paper workspace must provide a real settings preview");
@@ -275,7 +291,9 @@ assert.match(sharedSectionsSource, /navigationElement\.scrollTo/, "Section navig
 const appearanceTabSource = readFileSync("src/homepage/homepageSetting/tabs/AppearanceSettingsTab.svelte", "utf8");
 assert.match(appearanceTabSource, /theme\.preview\?\.thumbnail/, "Theme settings must render real preview thumbnails when provided");
 assert.match(appearanceTabSource, /theme-card__fallback/, "Theme settings must keep a preview fallback");
+assert.match(appearanceTabSource, /switchingThemeId[\s\S]*theme-card__loading/, "Theme settings must expose a busy preview while a theme is activating");
 const settingsSource = readFileSync("src/homepage/homepageSetting/homepageSetting.svelte", "utf8");
+assert.match(settingsSource, /HOMEPAGE_THEME_TRANSITION_EVENT/, "Theme settings must subscribe to the runtime transition lifecycle");
 const appearanceOnlyBranch = settingsSource.slice(settingsSource.indexOf("if (appearanceOnly)"), settingsSource.indexOf("let result;"));
 assert.equal(appearanceOnlyBranch.includes("saveHomepageSettingsInTransaction"), false, "Appearance-only save must not enter layout transaction");
 assert.equal(appearanceOnlyBranch.includes("saveHomepageSettingConfig"), true, "Appearance-only save must update view config");
@@ -308,6 +326,13 @@ assert.match(homepageSource, /await plugin\?\.waitForHomepageEntitlementReady\?\
 assert.match(homepageSource, /hp-initial-region-stage[\s\S]*HomepageThemeRegion name="workspace"[\s\S]*HomepageThemeRegion name="footer"/, "Initial restore must use neutral measurable region anchors instead of a placeholder theme");
 assert.match(homepageSource, /if \(!initialWidgetGridReady\)[\s\S]*await revealInitializedHomepage\(\)/, "The real theme must remain covered until the first widget grid is calibrated");
 assert.match(homepageSource, /if \(themeSupportsBanner\)[\s\S]*resolveBannerImage\(/, "Banner resources must be gated by the effective theme capability");
+const themeActivationRequestSource = homepageSource.slice(
+    homepageSource.indexOf("async function requestThemeResolutionActivation"),
+    homepageSource.indexOf("function activateThemeResolution"),
+);
+assert.match(themeActivationRequestSource, /firstActivation[\s\S]*await tick\(\)[\s\S]*requestAnimationFrame[\s\S]*activateThemeResolution/, "Cold themes must paint their loading overlay before first activation");
+assert.doesNotMatch(themeActivationRequestSource, /saveLayout|restoreLayout|saveData|writeDeviceView/, "Theme activation feedback must not mutate widget layout or configuration");
+assert.match(homepageSource, /finishHomepageThemeTransition\(expectedThemeId\)/, "Theme transition must finish only after persistent regions and widget presentation are synchronized");
 const activateThemeResolutionSource = homepageSource.slice(
     homepageSource.indexOf("function activateThemeResolution"),
     homepageSource.indexOf("function scheduleThemeRegionValidation"),
@@ -332,5 +357,8 @@ assert.match(themeHostStyleSource, /prefers-reduced-motion:\s*reduce/, "Initial 
 const initialLoadOverlaySource = readFileSync("src/homepage/theme/components/HomepageInitialLoadOverlay.svelte", "utf8");
 assert.match(initialLoadOverlaySource, /role=\"progressbar\"/, "Initial loading overlay must expose an accessible progress indicator");
 assert.match(initialLoadOverlaySource, /aria-busy=\{!failed\}/, "Initial loading overlay must expose its busy state");
+assert.match(initialLoadOverlaySource, /mode === "theme"[\s\S]*正在切换主题/, "Loading overlay must distinguish initial homepage load from a cold theme activation");
+const themeTransitionEventsSource = readFileSync("src/homepage/theme/runtime/themeTransitionEvents.ts", "utf8");
+assert.match(themeTransitionEventsSource, /"start" \| "ready" \| "error"/, "Theme transition lifecycle must expose start, ready, and error phases");
 
 console.log("Homepage theme framework verification passed.");

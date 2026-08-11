@@ -108,6 +108,11 @@
     color: var(--b3-theme-error, #c64035);
 }
 
+.homepage-container[data-hp-theme-transition] .shp-falling-container {
+    opacity: 0;
+    pointer-events: none;
+}
+
 @keyframes hp-initial-load-progress {
     0% { transform: translateX(-100%) scaleX(.42); }
     55% { transform: translateX(70%) scaleX(.72); }
@@ -160,4 +165,16 @@
     border-radius: var(--hp-radius-card) !important;
     box-shadow: var(--hp-shadow-card) !important;
     transition: border-color var(--hp-motion-fast), box-shadow var(--hp-motion-fast);
+}
+
+/*
+ * Theme Registry 可声明统一 Widget 外壳。令牌只挂在主页根节点，
+ * 排除项保留原有主题外观，便于主题对特殊 Widget 单独适配。
+ */
+.homepage-container[data-hp-widget-appearance-policy="theme-controlled"]
+    .widget-block[data-hp-widget-shell-state="applied"] {
+    background: var(--hp-widget-shell-background, var(--hp-widget-background, var(--hp-surface))) !important;
+    border: var(--hp-widget-shell-border, var(--hp-widget-border, 1px solid var(--hp-border))) !important;
+    border-radius: var(--hp-widget-shell-border-radius, var(--hp-radius-card)) !important;
+    box-shadow: var(--hp-widget-shell-box-shadow, var(--hp-shadow-card)) !important;
 }

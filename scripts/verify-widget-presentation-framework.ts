@@ -5,6 +5,7 @@ import { resolveWidgetPresentation } from "../src/homepage/theme/widgetPresentat
 import { WIDGET_PRESENTATION_CONTRACT_VERSION, type WidgetDefinition, type WidgetPresentationManifest } from "../src/homepage/theme/widgetPresentation/types";
 import { classifyWidgetTitle } from "../src/homepage/theme/widgetPresentation/titleCompatibility";
 import { validateWidgetPresentationManifest } from "../src/homepage/theme/widgetPresentation/presentationRegistry";
+import { resolveWidgetShellVariant, serializeWidgetShellTokens } from "../src/homepage/theme/widgetPresentation/shell";
 
 const renderer = (() => undefined) as WidgetDefinition["component"];
 const semanticDefinition: WidgetDefinition = {
@@ -45,6 +46,11 @@ const specific = resolveWidgetPresentation({
         kinds: { list: { id: "test.list" } },
         widgets: { "sample-list": { id: "test.sample", scope: "chrome" } },
         icons: { "documents.recent": "iconFile" },
+        shell: {
+            id: "test.sheet",
+            variants: 4,
+            tokens: { background: "var(--test-sheet)", border: "0", borderRadius: "0", boxShadow: "none" },
+        },
     },
     classicManifest,
 });
@@ -52,6 +58,28 @@ assert.equal(specific.presentationId, "test.sample");
 assert.equal(specific.level, "theme-widget");
 assert.equal(specific.scope, "chrome", "Theme descriptor scope 必须覆盖 Definition 默认值");
 assert.equal(specific.resolvedIcon, "iconFile");
+assert.equal(specific.shell?.id, "test.sheet");
+assert.equal(specific.shell?.state, "applied");
+assert.equal(specific.shell?.variants, 4);
+assert.equal(
+    serializeWidgetShellTokens(specific.shell),
+    "--hp-widget-shell-background:var(--test-sheet);--hp-widget-shell-border:0;--hp-widget-shell-border-radius:0;--hp-widget-shell-box-shadow:none",
+    "Widget 外壳令牌必须只序列化到主页根节点 CSS 变量",
+);
+assert.equal(resolveWidgetShellVariant("stable-widget", 4), resolveWidgetShellVariant("stable-widget", 4), "外壳变体必须稳定");
+assert.ok(resolveWidgetShellVariant("stable-widget", 4) >= 1 && resolveWidgetShellVariant("stable-widget", 4) <= 4);
+
+const excludedShell = resolveWidgetPresentation({
+    themeId: "test.theme",
+    definition: semanticDefinition,
+    manifest: {
+        contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
+        generic: { id: "test.generic" },
+        shell: { id: "test.sheet", exclude: { widgetTypes: ["sample-list"] } },
+    },
+    classicManifest,
+});
+assert.equal(excludedShell.shell?.state, "excluded", "主题必须能从统一外壳中排除指定 Widget");
 
 const kind = resolveWidgetPresentation({
     themeId: "test.theme",
@@ -96,6 +124,14 @@ assert.throws(
     () => validateWidgetPresentationManifest({ contractVersion: 1, generic: { id: "valid.id", scope: "invalid" } }),
     /scope 非法/,
 );
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 1, shell: { id: "valid.shell", variants: 13 } }),
+    /1 到 12/,
+);
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 1, shell: { id: "valid.shell", tokens: { background: "red;display:none" } } }),
+    /安全的 CSS 值/,
+);
 
 function collectSourceFiles(directory: string): string[] {
     return readdirSync(directory).flatMap((name) => {
@@ -127,7 +163,7 @@ assert.equal([...scopeByType.values()].filter((scope) => scope === "native").len
 assert.match(definitionSource, /semanticParts: input\.scope !== "native"/, "full/chrome 必须启用 semanticParts，native 必须保持关闭");
 
 const mountSource = readFileSync("src/components/utils/widgetBlock/widgetMountRegistry.ts", "utf8");
-for (const attribute of ["widgetType", "widgetKind", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope"]) {
+for (const attribute of ["widgetType", "widgetKind", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope", "hpWidgetShellState", "hpWidgetShellVariant"]) {
     const combined = mountSource + readFileSync("src/homepage/theme/widgetPresentation/runtime.ts", "utf8");
     assert.match(combined, new RegExp(attribute), `挂载运行时缺少 ${attribute}`);
 }
@@ -137,6 +173,8 @@ const homepageSource = readFileSync("src/homepage/homepage.svelte", "utf8");
 const syncCall = homepageSource.slice(homepageSource.indexOf("syncHomepageWidgetPresentations") - 100, homepageSource.indexOf("syncHomepageWidgetPresentations") + 220);
 assert.doesNotMatch(syncCall, /saveLayout|writeDeviceView|restoreLayout/, "切换主题同步 Presentation 不得写入或恢复布局");
 assert.match(homepageSource, /syncHomepageWidgetPresentations\(collectThemeWidgetIdentityElements\(\)\)/, "主题切换后必须原位同步现有 Widget Presentation");
+assert.match(homepageSource, /serializeWidgetShellTokens\(homepageWidgetShell\)/, "主题外壳令牌必须挂到主页根节点而不是 Widget inline style");
+assert.match(homepageSource, /data-hp-widget-shell=\{homepageWidgetShell\?\.id\}/, "主页根节点必须暴露已注册的 Widget 外壳 ID");
 
 for (const relativePath of [
     "src/components/utils/widgetBlock/widget/latestDocs/latestDocs.svelte",
@@ -202,6 +240,10 @@ const paperManifest = readFileSync("src/homepage/theme/builtins/paper/widgets/ma
 for (const id of ["hot", "child-docs", "condition-docs", "quick-notes", "taskman-plus", "sql", "constellation", "review-docs", "fixed-assets", "enhanced-diary"]) {
     assert.match(paperManifest, new RegExp(`paper\\.workspace\\.${id}`), `Paper Manifest 缺少 ${id}`);
 }
+assert.match(paperManifest, /shell:[\s\S]*id:\s*"paper\.sheet"[\s\S]*variants:\s*4/, "纸质主题必须通过 Manifest 注册多变体纸张外壳");
+for (const token of ["background", "border", "borderRadius", "boxShadow"]) {
+    assert.match(paperManifest, new RegExp(`${token}:`), `纸质主题统一外壳缺少 ${token} 令牌`);
+}
 const paperWidgetThemeStyles = collectSourceFiles("src/homepage/theme/builtins/paper/widgets")
     .filter((path) => path.endsWith(".scss"))
     .map((path) => readFileSync(path, "utf8"))
@@ -210,6 +252,8 @@ assert.match(paperWidgetThemeStyles, /container-name:\s*hp-widget/, "纸质主�
 assert.match(paperWidgetThemeStyles, /data-widget-placement="homepage"/, "纸质主题 Widget CSS 必须限制到 desktop homepage placement");
 assert.match(paperWidgetThemeStyles, /data-widget-presentation-scope="full"/, "纸质主题 Kind Presentation 必须限制到 full scope");
 assert.doesNotMatch(paperWidgetThemeStyles, /builtin\.simple-test|simple\.workspace/, "纸质主题 Widget Presentation 不得依赖简洁主题");
+assert.match(paperWidgetThemeStyles, /data-hp-widget-shell="paper\.sheet"/, "纸质 Widget 毛边必须绑定注册外壳语义，而不是污染所有主题");
+assert.match(paperWidgetThemeStyles, /paper-widget-mask-[a-d]\.svg/, "纸质 Widget 必须提供多套稳定轮换的毛边蒙版");
 
 const classicDefinition = readFileSync("src/homepage/theme/builtins/classic/definition.ts", "utf8");
 const simpleDefinition = readFileSync("src/homepage/theme/builtins/simple-test/definition.ts", "utf8");

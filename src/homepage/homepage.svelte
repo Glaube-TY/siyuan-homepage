@@ -46,10 +46,10 @@
         unregisterAllShortcuts,
     } from "./header/quick-button";
     import {
-        updateCursorStyle,
+        updateMouseEffects,
         createClickEffect,
-        createMouseTrail,
         cleanupMouseEffects,
+        type MouseEffectConfig,
     } from "./effects/mouseEffects";
     import {
         updateHomepageBackgroundImageStyle,
@@ -150,8 +150,10 @@
     import { resolveHomepageSectionNavigationActiveId } from "./theme/runtime/homepageSectionRuntime";
     import { HomepagePersistentRegionManager } from "./theme/runtime/persistentRegionManager";
     import { supportsHomepageThemeBanner } from "./theme/runtime/themeFeatures";
+    import { dispatchHomepageThemeTransition } from "./theme/runtime/themeTransitionEvents";
     import { createClassicRuntimeAppearanceSettings } from "./theme/builtins/classic/presentationSettings";
     import { syncHomepageWidgetPresentations } from "./theme/widgetPresentation/syncRuntime";
+    import { serializeWidgetShellTokens } from "./theme/widgetPresentation/shell";
     import type {
         HomepagePersistentRegionName,
         HomepageThemeProps,
@@ -223,6 +225,19 @@
     type HomepageInitialLoadState = "loading" | "revealing" | "ready" | "error";
     let homepageInitialLoadState = $state<HomepageInitialLoadState>("loading");
     let initialThemeRendererMounted = $state(false);
+    type HomepageThemeTransitionState = Readonly<{
+        requestId: number;
+        themeId: string;
+        themeName: string;
+        firstActivation: boolean;
+        startedAt: number;
+    }>;
+    const warmedHomepageThemeIds = new Set<string>();
+    const MIN_THEME_TRANSITION_OVERLAY_MS = 240;
+    let homepageThemeTransition = $state.raw<HomepageThemeTransitionState | null>(null);
+    let homepageThemeTransitionSequence = 0;
+    let homepageThemeTransitionTimer: number | null = null;
+    const themeTransitionOverlayActive = $derived(homepageThemeTransition?.firstActivation === true);
 
     let footerEnabled = $state(true);
     let footerContent = $state("");
@@ -670,7 +685,7 @@
             onEnd: () => {
                 homepageLayoutDragging = false;
                 if (pendingThemeResolution) {
-                    activateThemeResolution(pendingThemeResolution);
+                    void requestThemeResolutionActivation(pendingThemeResolution);
                     pendingThemeResolution = null;
                 }
                 const runtimeState = sectionRuntimeStates.get(sectionId);
@@ -1333,7 +1348,7 @@
             pendingThemeResolution = nextResolution;
             return;
         }
-        activateThemeResolution(nextResolution);
+        void requestThemeResolutionActivation(nextResolution);
     }
 
     const THEME_REGION_VALIDATION_MAX_RETRIES = 8;
@@ -1364,6 +1379,85 @@
             elements.push(element);
         }
         return elements;
+    }
+
+    async function requestThemeResolutionActivation(nextResolution: ThemeResolution): Promise<void> {
+        if (
+            nextResolution.effectiveThemeId === themeResolution.effectiveThemeId
+            || !initialThemeRendererMounted
+            || homepageInitialLoadState !== "ready"
+        ) {
+            activateThemeResolution(nextResolution);
+            return;
+        }
+
+        if (homepageThemeTransitionTimer !== null) {
+            window.clearTimeout(homepageThemeTransitionTimer);
+            homepageThemeTransitionTimer = null;
+        }
+
+        const requestId = ++homepageThemeTransitionSequence;
+        const firstActivation = !warmedHomepageThemeIds.has(nextResolution.effectiveThemeId);
+        const transition = Object.freeze({
+            requestId,
+            themeId: nextResolution.effectiveThemeId,
+            themeName: nextResolution.definition.name,
+            firstActivation,
+            startedAt: performance.now(),
+        });
+        homepageThemeTransition = transition;
+        dispatchHomepageThemeTransition({
+            phase: "start",
+            requestId,
+            themeId: transition.themeId,
+            themeName: transition.themeName,
+            firstActivation,
+        });
+
+        if (firstActivation) {
+            // 先让遮罩完成一次实际绘制，再挂载首次使用的主题，避免主线程工作挡住点击反馈。
+            await tick();
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            if (
+                homepageComponentDestroyed
+                || homepageThemeTransition?.requestId !== requestId
+            ) return;
+        }
+
+        activateThemeResolution(nextResolution);
+    }
+
+    function finishHomepageThemeTransition(
+        themeId: string,
+        phase: "ready" | "error" = "ready",
+    ): void {
+        if (phase === "ready") warmedHomepageThemeIds.add(themeId);
+        const transition = homepageThemeTransition;
+        if (!transition || transition.themeId !== themeId) return;
+
+        const elapsed = performance.now() - transition.startedAt;
+        const remaining = transition.firstActivation
+            ? Math.max(0, MIN_THEME_TRANSITION_OVERLAY_MS - elapsed)
+            : 0;
+        const complete = () => {
+            if (homepageThemeTransition?.requestId !== transition.requestId) return;
+            homepageThemeTransition = null;
+            homepageThemeTransitionTimer = null;
+            dispatchHomepageThemeTransition({
+                phase,
+                requestId: transition.requestId,
+                themeId: transition.themeId,
+                themeName: transition.themeName,
+                firstActivation: transition.firstActivation,
+            });
+        };
+
+        if (remaining > 0) {
+            homepageThemeTransitionTimer = window.setTimeout(complete, remaining);
+        } else {
+            complete();
+        }
     }
 
     function activateThemeResolution(nextResolution: ThemeResolution): void {
@@ -1399,6 +1493,7 @@
                     return;
                 }
                 console.error(`[HomepageTheme] 主题 ${expectedThemeId} 缺少必需的 workspace/footer region`);
+                finishHomepageThemeTransition(expectedThemeId, "error");
                 if (expectedThemeId !== CLASSIC_HOMEPAGE_THEME_ID) {
                     const classic = homepageThemeRegistry.get(CLASSIC_HOMEPAGE_THEME_ID);
                     if (classic) {
@@ -1508,6 +1603,7 @@
             window.dispatchEvent(new CustomEvent("homepage-theme-reflow", { detail: reflowDetail }));
             window.dispatchEvent(new Event("resize"));
             requestAnimationFrame(() => updateCustomGridMetrics());
+            finishHomepageThemeTransition(expectedThemeId);
         });
     }
 
@@ -1532,7 +1628,9 @@
     }
 
     function handleThemeRendererError(error: unknown): void {
-        console.error(`[HomepageTheme] 主题 ${themeResolution.effectiveThemeId} 渲染失败`, error);
+        const failedThemeId = themeResolution.effectiveThemeId;
+        console.error(`[HomepageTheme] 主题 ${failedThemeId} 渲染失败`, error);
+        finishHomepageThemeTransition(failedThemeId, "error");
         showMessage("主页主题渲染失败，已安全回退到经典主题", 4000, "error");
         const classic = homepageThemeRegistry.get(CLASSIC_HOMEPAGE_THEME_ID);
         if (!classic || themeResolution.effectiveThemeId === CLASSIC_HOMEPAGE_THEME_ID) return;
@@ -2392,28 +2490,24 @@
             });
     }
 
-    // 点击特效包装函数
-    function handleClickEffect(e: MouseEvent) {
-        createClickEffect(e, {
+    function getMouseEffectConfig(): MouseEffectConfig {
+        return {
             advanced: getAdvancedEnabled(),
             mouseIcon,
             mouseGlobalEnabled,
             ClickEffectEnabled,
             ClickEffectContent,
             MouseTrailEnabled,
-        });
+        };
     }
 
-    // 鼠标轨迹包装函数
-    function handleMouseMoveTrail(e: MouseEvent) {
-        createMouseTrail(e, {
-            advanced: getAdvancedEnabled(),
-            mouseIcon,
-            mouseGlobalEnabled,
-            ClickEffectEnabled,
-            ClickEffectContent,
-            MouseTrailEnabled,
-        });
+    function applyMouseEffectsConfig(): void {
+        updateMouseEffects(getMouseEffectConfig(), homepageRootElement);
+    }
+
+    // 点击特效包装函数
+    function handleClickEffect(e: MouseEvent) {
+        createClickEffect(e, getMouseEffectConfig());
     }
 
     // 飘落特效配置
@@ -2495,14 +2589,7 @@
 
                 cleanupFallingEffects();
                 startFallingEffects();
-                updateCursorStyle({
-                    advanced: getAdvancedEnabled(),
-                    mouseIcon,
-                    mouseGlobalEnabled,
-                    ClickEffectEnabled,
-                    ClickEffectContent,
-                    MouseTrailEnabled,
-                });
+                applyMouseEffectsConfig();
             } catch (error) {
                 console.error("[Homepage] 会员状态刷新失败，已保留或回滚到上一次健康主页", error);
             }
@@ -2521,14 +2608,7 @@
                 await restoreVisibleComponentSections();
 
                 cleanupFallingEffects();
-                updateCursorStyle({
-                    advanced: getAdvancedEnabled(),
-                    mouseIcon,
-                    mouseGlobalEnabled,
-                    ClickEffectEnabled,
-                    ClickEffectContent,
-                    MouseTrailEnabled,
-                });
+                applyMouseEffectsConfig();
             } catch (error) {
                 console.error("[Homepage] 会员状态刷新失败，已保留或回滚到上一次健康主页", error);
             }
@@ -2560,14 +2640,7 @@
                 reRegisterAllShortcuts(buttonsList);
                 cleanupFallingEffects();
                 startFallingEffects();
-                updateCursorStyle({
-                    advanced: getAdvancedEnabled(),
-                    mouseIcon,
-                    mouseGlobalEnabled,
-                    ClickEffectEnabled,
-                    ClickEffectContent,
-                    MouseTrailEnabled,
-                });
+                applyMouseEffectsConfig();
             } catch (error) {
                 console.error("[Homepage] 设置热刷新失败，已保留或回滚到上一次健康主页", error);
             }
@@ -2633,14 +2706,7 @@
                     await restoreVisibleComponentSections();
                     if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
                     reRegisterAllShortcuts(buttonsList);
-                    updateCursorStyle({
-                        advanced: getAdvancedEnabled(),
-                        mouseIcon,
-                        mouseGlobalEnabled,
-                        ClickEffectEnabled,
-                        ClickEffectContent,
-                        MouseTrailEnabled,
-                    });
+                    applyMouseEffectsConfig();
                     if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
                     pendingExternalStorageRefresh = false;
                 } catch (error) {
@@ -2797,11 +2863,18 @@
 
         updateCustomGridMetrics();
         await tick();
-        if (!homepageComponentDestroyed) homepageInitialLoadState = "ready";
+        if (!homepageComponentDestroyed) {
+            warmedHomepageThemeIds.add(themeResolution.effectiveThemeId);
+            homepageInitialLoadState = "ready";
+        }
     }
 
     function handleHomepageTabBeforeDestroy(): void {
         homepageComponentDestroyed = true;
+        if (homepageThemeTransitionTimer !== null) {
+            window.clearTimeout(homepageThemeTransitionTimer);
+            homepageThemeTransitionTimer = null;
+        }
         abortStatusAiRequest();
         unregisterAllShortcuts();
         cleanupFallingEffects();
@@ -2900,21 +2973,13 @@
         // 配置加载完成后初始化特效和事件监听
         reRegisterAllShortcuts(buttonsList);
         document.addEventListener("click", handleClickEffect);
-        document.addEventListener("mousemove", handleMouseMoveTrail);
         document.addEventListener("visibilitychange", handleVisibilityChange);
 
         // 启动飘落特效
         startFallingEffects();
 
         // 显式更新鼠标样式
-        updateCursorStyle({
-            advanced: getAdvancedEnabled(),
-            mouseIcon,
-            mouseGlobalEnabled,
-            ClickEffectEnabled,
-            ClickEffectContent,
-            MouseTrailEnabled,
-        });
+        applyMouseEffectsConfig();
         } catch (error) {
             console.error("[Homepage] 初始主页恢复失败", error);
             if (!homepageComponentDestroyed) homepageInitialLoadState = "error";
@@ -2973,7 +3038,6 @@
             handleWidgetSectionMoved as EventListener,
         );
         document.removeEventListener("click", handleClickEffect);
-        document.removeEventListener("mousemove", handleMouseMoveTrail);
         document.removeEventListener(
             "visibilitychange",
             handleVisibilityChange,
@@ -3015,14 +3079,7 @@
 
     // 光标样式监听
     run(() => {
-        updateCursorStyle({
-            advanced: getAdvancedEnabled(),
-            mouseIcon,
-            mouseGlobalEnabled,
-            ClickEffectEnabled,
-            ClickEffectContent,
-            MouseTrailEnabled,
-        });
+        applyMouseEffectsConfig();
     });
 
     run(() => {
@@ -3792,6 +3849,8 @@
             settings: effectiveThemeAppearanceSettings,
         }),
     }));
+    const homepageWidgetShell = $derived(themeResolution.definition.widgetPresentation?.shell);
+    const homepageWidgetShellStyle = $derived(serializeWidgetShellTokens(homepageWidgetShell));
 
 </script>
 
@@ -3799,8 +3858,11 @@
     class="homepage-container"
     data-hp-theme={themeResolution.effectiveThemeId}
     data-hp-initial-state={homepageInitialLoadState}
+    data-hp-theme-transition={homepageThemeTransition?.themeId}
     data-hp-widget-appearance-policy={themeResolution.definition.features?.widgetAppearance ?? "user-configurable"}
-    aria-busy={homepageInitialLoadState === "loading" || homepageInitialLoadState === "revealing"}
+    data-hp-widget-shell={homepageWidgetShell?.id}
+    style={homepageWidgetShellStyle}
+    aria-busy={homepageInitialLoadState === "loading" || homepageInitialLoadState === "revealing" || homepageThemeTransition !== null}
     bind:this={homepageRootElement}
     use:initializeHomepageContextMenu
     class:background-image-active={backgroundImageEnabled && backgroundImageSrc && advanced}
@@ -3854,8 +3916,8 @@
         <div
             class="hp-initial-theme-content"
             class:hp-initial-theme-content--ready={homepageInitialLoadState === "ready"}
-            aria-hidden={homepageInitialLoadState !== "ready"}
-            inert={homepageInitialLoadState !== "ready"}
+            aria-hidden={homepageInitialLoadState !== "ready" || themeTransitionOverlayActive}
+            inert={homepageInitialLoadState !== "ready" || themeTransitionOverlayActive}
         >
             <HomepageThemeHost
                 definition={themeResolution.definition}
@@ -3867,6 +3929,10 @@
 
     {#if homepageInitialLoadState !== "ready"}
         <HomepageInitialLoadOverlay failed={homepageInitialLoadState === "error"} />
+    {/if}
+
+    {#if themeTransitionOverlayActive && homepageThemeTransition}
+        <HomepageInitialLoadOverlay mode="theme" themeName={homepageThemeTransition.themeName} />
     {/if}
 
     <!-- 飘落背景层 -->

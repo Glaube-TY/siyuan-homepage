@@ -28,4 +28,7 @@ export type {
     WidgetPresentationScope,
     WidgetPresentationContext,
     WidgetPresentationManifest,
+    WidgetShellDefinition,
+    WidgetShellExclusions,
+    WidgetShellTokens,
 } from "./widgetPresentation";

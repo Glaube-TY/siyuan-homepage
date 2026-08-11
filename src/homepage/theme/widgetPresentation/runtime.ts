@@ -6,6 +6,7 @@ import type {
     WidgetPlacement,
     WidgetPresentationContext,
 } from "./types";
+import { resolveWidgetShellVariant } from "./shell";
 
 type PresentationListener = (context: WidgetPresentationContext) => void;
 const PRESENTATION_CONTEXTS = new WeakMap<HTMLElement, WidgetPresentationContext>();
@@ -60,6 +61,22 @@ function exposePresentation(element: HTMLElement, resolved: ResolvedWidgetPresen
     element.dataset.widgetPresentationLevel = resolved.level;
     if (resolved.resolvedIcon) element.dataset.widgetPresentationIcon = resolved.resolvedIcon;
     else delete element.dataset.widgetPresentationIcon;
+    if (resolved.shell) {
+        element.dataset.hpWidgetShell = resolved.shell.id;
+        element.dataset.hpWidgetShellState = resolved.shell.state;
+        if (resolved.shell.state === "applied") {
+            element.dataset.hpWidgetShellVariant = String(resolveWidgetShellVariant(
+                `${element.id}|${resolved.widgetType}`,
+                resolved.shell.variants,
+            ));
+        } else {
+            delete element.dataset.hpWidgetShellVariant;
+        }
+    } else {
+        delete element.dataset.hpWidgetShell;
+        delete element.dataset.hpWidgetShellState;
+        delete element.dataset.hpWidgetShellVariant;
+    }
     PRESENTATION_CONTEXTS.set(element, context);
     notifyPresentation(element, context);
     return context;

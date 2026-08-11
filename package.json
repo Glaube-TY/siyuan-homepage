@@ -28,7 +28,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "verify:homepage-theme": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-homepage-theme-framework.ts",
-    "verify:widget-presentation": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-widget-presentation-framework.ts"
+    "verify:widget-presentation": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-widget-presentation-framework.ts",
+    "verify:mouse-trail": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-mouse-trail-framework.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

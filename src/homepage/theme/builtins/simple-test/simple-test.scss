@@ -16,20 +16,23 @@
     --hp-widget-background: var(--hp-surface);
     --hp-widget-border: 1px solid var(--hp-border);
     --hp-widget-hover-transform: none;
-    --hp-content-max-width: 1500px;
+    --hp-content-max-width: none;
     min-height: 100%;
     background: var(--hp-page-bg);
     color: var(--hp-text);
 
+    .hp-initial-theme-content,
     .hp-theme--simple-test {
         width: 100%;
+        max-width: none;
         min-width: 0;
     }
 
     .hp-simple-shell {
-        width: min(100%, var(--hp-content-max-width));
+        width: 100%;
+        max-width: none;
         min-width: 0;
-        margin: 0 auto;
+        margin: 0;
         padding: clamp(20px, 2.4vw, 38px) clamp(16px, 3vw, 48px) 24px;
         box-sizing: border-box;
     }
