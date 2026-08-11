@@ -89,6 +89,7 @@ export interface HomepageFooterPresentationState {
 }
 
 export type HomepagePersistentRegionName = "workspace" | "footer";
+export type HomepageContextRegion = "title" | "status" | "actions" | "banner" | "footer";
 
 export interface HomepageThemeRegionFacade {
     attach(name: HomepagePersistentRegionName, anchor: HTMLElement): void;

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, mount, onDestroy } from "svelte";
+    import { onMount, mount, onDestroy, tick } from "svelte";
     import * as advanced from "../../components/tools/advanced";
     import { showMessage } from "siyuan";
     import { createRuntimeId } from "@/libs/runtime-id";
@@ -107,11 +107,27 @@
     import { createHomepageEntitlementSnapshot } from "../theme/runtime/entitlementResolver";
     import { resolveHomepageTheme } from "../theme/runtime/themeResolver";
 
-    let { plugin }: HomepageSettingProps = $props();
+    let {
+        plugin,
+        initialMainTab = "homepage",
+        initialSubTab = "behavior",
+        initialFocus,
+    }: HomepageSettingProps = $props();
+
+    let settingsRootElement: HTMLDivElement | null = $state(null);
+    let initialFocusScheduled = false;
 
     registerBuiltinHomepageThemes();
 
-    let activeTab = $state<HomepageSettingMainTab>("homepage");
+    function getInitialMainTab(): HomepageSettingMainTab {
+        return initialMainTab;
+    }
+
+    function getInitialSubTab(): HomepageSettingSubTab {
+        return initialSubTab;
+    }
+
+    let activeTab = $state<HomepageSettingMainTab>(getInitialMainTab());
 
     // 主页设置相关配置变量
     let tempAutoOpenHomepage = $state(true);
@@ -140,7 +156,7 @@
         entitlement: createHomepageEntitlementSnapshot(advancedEnabled),
     }));
     const availableHomepageThemes = homepageThemeRegistry.list("desktop-homepage");
-    let settingsActiveTab = $state<HomepageSettingSubTab>("behavior");
+    let settingsActiveTab = $state<HomepageSettingSubTab>(getInitialSubTab());
     let aiKnowledgeBaseActiveTab = $state<AiKnowledgeBaseSubTab>("entries");
     let notificationCenterActiveTab = $state<NotificationCenterSubTab>("desktop");
     let robotAssistantActiveTab = $state<RobotAssistantSubTab>("general");
@@ -214,6 +230,30 @@
     let aiKbTabEnabled = $state(true);
 
     let settingsLoaded = $state(false);
+
+    async function focusInitialSettingLocation(): Promise<void> {
+        if (!initialFocus || initialFocusScheduled) return;
+        initialFocusScheduled = true;
+        await tick();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const target = settingsRootElement?.querySelector<HTMLElement>(
+            `[data-homepage-setting-focus="${initialFocus}"]`,
+        );
+        if (!target) {
+            initialFocusScheduled = false;
+            return;
+        }
+        target.scrollIntoView({ behavior: "auto", block: "start", inline: "nearest" });
+        target.focus({ preventScroll: true });
+    }
+
+    $effect(() => {
+        const targetTabReady = activeTab === initialMainTab
+            && (activeTab !== "homepage" || settingsActiveTab === initialSubTab);
+        if (settingsLoaded && targetTabReady && initialFocus && !initialFocusScheduled) {
+            void focusInitialSettingLocation();
+        }
+    });
 
     function handleAiKbDockEnabledChange(value: boolean): void {
         aiKbDockEnabled = value;
@@ -1462,7 +1502,7 @@
 
 </script>
 
-<div class="shp-homepage-settings">
+<div class="shp-homepage-settings" bind:this={settingsRootElement}>
     <!-- 左侧：一级页签 -->
     <div class="main-nav-column">
         <MainTabNav

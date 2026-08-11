@@ -27,7 +27,7 @@
     }
 </script>
 
-<section class={`hp-banner ${className}`.trim()} {style} aria-label={ariaLabel}>
+<section class={`hp-banner ${className}`.trim()} data-hp-context-region="banner" {style} aria-label={ariaLabel}>
     <img
         use:bannerImageNode
         src={banner.imageSrc}

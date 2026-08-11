@@ -40,6 +40,7 @@
     } from "./header/status-ai-generator";
     import { STAT_INDEX_UPDATED_EVENT } from "@/components/tools/statisticalAPI";
     import {
+        createOpenHomepageSetting,
         handleButtonClick,
         getButtonAction,
         reRegisterAllShortcuts,
@@ -98,6 +99,10 @@
         type HomepageTitleAlign,
         type QuickButtonStyle,
     } from "./homepageSetting/config";
+    import type {
+        HomepageSettingFocusTarget,
+        HomepageSettingSubTab,
+    } from "./homepageSetting/types";
     import {
         DEFAULT_STATS_INFO_TEXT,
         DEFAULT_STATUS_AI_MAX_CHARS,
@@ -156,6 +161,7 @@
     import { serializeWidgetShellTokens } from "./theme/widgetPresentation/shell";
     import type {
         HomepagePersistentRegionName,
+        HomepageContextRegion,
         HomepageThemeProps,
         ThemeResolution,
     } from "./theme/api/types";
@@ -1279,15 +1285,63 @@
         addWidget: createBuiltinButton("addWidget"),
         settings: createBuiltinButton("settings"),
     };
-    const HOMEPAGE_CONTEXT_EXCLUDED_SELECTOR = [
+    const HOMEPAGE_CONTEXT_REGION_SETTINGS: Record<HomepageContextRegion, {
+        selector: string;
+        icon: string;
+        label: string;
+        subTab: HomepageSettingSubTab;
+        focus: HomepageSettingFocusTarget;
+    }> = {
+        status: {
+            selector: '[data-hp-context-region="status"], .hp-status',
+            icon: "iconRefresh",
+            label: "状态语设置",
+            subTab: "title",
+            focus: "status",
+        },
+        actions: {
+            selector: '[data-hp-context-region="actions"], .hp-actions',
+            icon: "iconSettings",
+            label: "快捷按钮设置",
+            subTab: "button",
+            focus: "buttons",
+        },
+        title: {
+            selector: '[data-hp-context-region="title"], .hp-identity',
+            icon: "iconEdit",
+            label: "标题设置",
+            subTab: "title",
+            focus: "title",
+        },
+        banner: {
+            selector: '[data-hp-context-region="banner"], .hp-banner',
+            icon: "iconTheme",
+            label: "横幅设置",
+            subTab: "banner",
+            focus: "banner",
+        },
+        footer: {
+            selector: '[data-hp-context-region="footer"], .hp-core-footer',
+            icon: "iconTheme",
+            label: "页脚设置",
+            subTab: "styles",
+            focus: "footer",
+        },
+    };
+    const HOMEPAGE_CONTEXT_REGION_ORDER: readonly HomepageContextRegion[] = [
+        "status",
+        "actions",
+        "title",
+        "banner",
+        "footer",
+    ];
+    const HOMEPAGE_CONTEXT_HARD_EXCLUDED_SELECTOR = [
         ".widget-block",
-        ".hp-banner",
-        ".hp-identity",
-        ".hp-status",
-        ".hp-actions",
-        ".hp-sections",
-        ".hp-core-footer",
         ".hp-initial-load-overlay",
+        ".hp-theme-transition-overlay",
+        ".hp-core-parking",
+    ].join(",");
+    const HOMEPAGE_CONTEXT_NATIVE_SELECTOR = [
         "button",
         "a",
         "input",
@@ -1299,16 +1353,44 @@
         "[role='tab']",
     ].join(",");
 
+    function resolveHomepageContextRegion(target: Element): HomepageContextRegion | null {
+        for (const region of HOMEPAGE_CONTEXT_REGION_ORDER) {
+            if (target.closest(HOMEPAGE_CONTEXT_REGION_SETTINGS[region].selector)) return region;
+        }
+        return null;
+    }
+
+    function openHomepageSettingAt(region: HomepageContextRegion): void {
+        const setting = HOMEPAGE_CONTEXT_REGION_SETTINGS[region];
+        createOpenHomepageSetting(plugin, {
+            initialMainTab: "homepage",
+            initialSubTab: setting.subTab,
+            initialFocus: setting.focus,
+        })();
+    }
+
     function handleHomepageContextMenu(event: MouseEvent): void {
         const target = event.target;
-        if (!(target instanceof Element) || target.closest(HOMEPAGE_CONTEXT_EXCLUDED_SELECTOR)) {
+        if (!(target instanceof Element) || target.closest(HOMEPAGE_CONTEXT_HARD_EXCLUDED_SELECTOR)) {
             return;
         }
+
+        const region = resolveHomepageContextRegion(target);
+        if (!region && target.closest(HOMEPAGE_CONTEXT_NATIVE_SELECTOR)) return;
 
         event.preventDefault();
         event.stopPropagation();
 
         const menu = new Menu("homepage-blank-area-context-menu");
+        if (region) {
+            const setting = HOMEPAGE_CONTEXT_REGION_SETTINGS[region];
+            menu.addItem({
+                icon: setting.icon,
+                label: setting.label,
+                click: () => openHomepageSettingAt(region),
+            });
+            menu.addSeparator();
+        }
         menu.addItem({
             icon: "iconAdd",
             label: "添加组件",
@@ -1323,10 +1405,10 @@
     }
 
     function initializeHomepageContextMenu(node: HTMLElement) {
-        node.addEventListener("contextmenu", handleHomepageContextMenu);
+        node.addEventListener("contextmenu", handleHomepageContextMenu, true);
         return {
             destroy() {
-                node.removeEventListener("contextmenu", handleHomepageContextMenu);
+                node.removeEventListener("contextmenu", handleHomepageContextMenu, true);
             },
         };
     }

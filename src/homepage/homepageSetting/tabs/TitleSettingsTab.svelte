@@ -169,7 +169,7 @@
     }
 </script>
 
-<SettingSection title="标题图标">
+<SettingSection title="标题图标" focusKey="title">
     <SettingRow title="显示标题图标" description="在主页标题前显示图标">
         <input
             type="checkbox"
@@ -397,7 +397,7 @@
     {/if}
 </SettingSection>
 
-<SettingSection title="状态语">
+<SettingSection title="状态语" focusKey="status">
     <SettingRow title="状态语来源" description="选择主页标题下方状态语的生成方式">
         <div class="status-mode-switch">
             <button

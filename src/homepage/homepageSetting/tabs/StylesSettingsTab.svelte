@@ -15,13 +15,16 @@
     let backgroundFileInputEl: HTMLInputElement | null = $state(null);
 </script>
 
-{#if advancedEnabled}
-<SettingSection title="页脚">
-    <SettingRow title="显示页脚" description="在主页底部显示自定义页脚内容">
+<SettingSection title="页脚" focusKey="footer">
+    {#if !advancedEnabled}
+        <div class="footer-vip-note">页脚显示与自定义为会员专属；普通用户始终显示系统默认页脚，已保存的会员设置会继续保留。</div>
+    {/if}
+    <SettingRow title="显示页脚" description={advancedEnabled ? "在主页底部显示自定义页脚内容" : "会员专属，当前使用系统默认页脚"}>
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
             checked={settingsState.footerEnabled}
+            disabled={!advancedEnabled}
             onchange={(e) => actions.onFooterEnabledChange((e.currentTarget as HTMLInputElement).checked)}
         />
     </SettingRow>
@@ -33,12 +36,14 @@
                 rows="3"
                 placeholder="输入页脚内容"
                 value={settingsState.footerContent}
+                disabled={!advancedEnabled}
                 oninput={(e) => actions.onFooterContentChange((e.currentTarget as HTMLTextAreaElement).value)}
             ></textarea>
         </SettingRow>
     {/if}
 </SettingSection>
 
+{#if advancedEnabled}
 <SettingSection title="鼠标样式">
     <SettingRow title="鼠标图标" description="选择自定义鼠标指针样式">
         <select
@@ -284,6 +289,16 @@
 {/if}
 
 <style>
+    .footer-vip-note {
+        padding: 0.65rem 0.75rem;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 28%, var(--b3-border-color));
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--b3-theme-primary) 7%, var(--b3-theme-surface));
+        color: var(--b3-theme-on-surface-light);
+        font-size: 12px;
+        line-height: 1.55;
+    }
+
     .style-value-label {
         min-width: 44px;
         font-size: 13px;

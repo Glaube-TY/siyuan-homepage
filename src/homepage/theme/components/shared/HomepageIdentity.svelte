@@ -7,7 +7,7 @@
     let radius = $derived(identity.icon.style === "square" ? "0%" : identity.icon.style === "round" ? "20%" : "50%");
 </script>
 
-<div class="hp-identity">
+<div class="hp-identity" data-hp-context-region="title">
     {#if identity.showIcon}
         <div class="hp-identity__icon" aria-hidden="true">
             {#if identity.icon.type === "emoji"}

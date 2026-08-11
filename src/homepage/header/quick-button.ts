@@ -6,6 +6,7 @@ import { mount } from "svelte";
 import { openEmptyDocCleanerDialog } from "../features/emptyDocCleaner/openEmptyDocCleanerDialog";
 import { openTemplateCenterDialog } from "../features/templateCenter/openTemplateCenterDialog";
 import type { HomepageLayoutRuntimeOptions } from "@/components/utils/widgetBlock/utils/layout-handler";
+import type { HomepageSettingOpenOptions } from "../homepageSetting/types";
 
 type ExtendedKeyboardEvent = KeyboardEvent & {
     keyCode: number;
@@ -262,7 +263,7 @@ export function reRegisterAllShortcuts(buttonsList: ButtonItem[]): void {
     });
 }
 
-export function createOpenHomepageSetting(plugin: any) {
+export function createOpenHomepageSetting(plugin: any, options: HomepageSettingOpenOptions = {}) {
     return function OpenHomepageSetting() {
         const dialog = svelteDialog({
             title: "主页设置",
@@ -273,6 +274,7 @@ export function createOpenHomepageSetting(plugin: any) {
                                     target: containerEl,
                                     props: {
                                         plugin: plugin,
+                                        ...options,
                                         close: () => {
                                             dialog.close();
                                         },

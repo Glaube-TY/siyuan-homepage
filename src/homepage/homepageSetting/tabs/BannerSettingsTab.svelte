@@ -43,7 +43,7 @@
     }: Props = $props();
 </script>
 
-<SettingSection title="横幅开关">
+<SettingSection title="横幅开关" focusKey="banner">
     <SettingRow title="启用横幅图片" description="在主页顶部显示横幅图片">
         <input
             type="checkbox"

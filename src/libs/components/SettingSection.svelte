@@ -5,16 +5,22 @@
 <script lang="ts">
     interface Props {
         title?: string;
+        focusKey?: string;
         children?: import('svelte').Snippet;
     }
 
     let {
         title = "",
+        focusKey,
         children
     }: Props = $props();
 </script>
 
-<div class="setting-section">
+<div
+    class="setting-section"
+    data-homepage-setting-focus={focusKey}
+    tabindex="-1"
+>
     {#if title}
         <div class="setting-section__title">{title}</div>
     {/if}
@@ -30,6 +36,11 @@
         border-radius: 8px;
         padding: 1rem;
         margin-bottom: 1rem;
+    }
+
+    .setting-section:focus {
+        outline: 2px solid color-mix(in srgb, var(--b3-theme-primary) 58%, transparent);
+        outline-offset: 2px;
     }
 
     .setting-section__title {

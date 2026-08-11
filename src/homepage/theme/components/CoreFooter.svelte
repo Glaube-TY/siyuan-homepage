@@ -10,7 +10,7 @@
 </script>
 
 {#if model.visible}
-    <footer class="hp-core-footer" data-hp-footer-mode={model.mode}>
+    <footer class="hp-core-footer" data-hp-context-region="footer" data-hp-footer-mode={model.mode}>
         <div class="hp-core-footer__content">
             {#if model.mode === "custom" && model.html}
                 {@html mdToHtml(model.html)}

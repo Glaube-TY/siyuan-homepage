@@ -38,7 +38,7 @@
             <div class="hp-classic-banner__overlay" aria-hidden="true"></div>
             {#if banner.integrated && classic.bannerGlassEnabled}<div class="hp-classic-banner__glass" aria-hidden="true"></div>{/if}
             {#if banner.integrated}
-                <div class="hp-classic-banner__content">
+                <div class="hp-classic-banner__content" data-hp-context-region="title">
                     <HomepageIdentity {identity} />
                     <HomepageStatus {status} />
                     <HomepageActions {actions} />
@@ -48,7 +48,7 @@
     {/if}
 
     {#if !banner.integrated || !banner.enabled}
-        <header class="hp-classic-header">
+        <header class="hp-classic-header" data-hp-context-region="title">
             <HomepageIdentity {identity} />
             <HomepageStatus {status} />
             <HomepageActions {actions} />
@@ -57,5 +57,5 @@
 
     <HomepageSections {sections} />
     <HomepageThemeRegion name="workspace" {regions} class="hp-classic-workspace" />
-    <HomepageThemeRegion name="footer" {regions} class="hp-classic-footer" />
+    <HomepageThemeRegion name="footer" {regions} class="hp-classic-footer" contextRegion="footer" />
 </div>

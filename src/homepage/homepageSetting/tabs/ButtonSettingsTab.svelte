@@ -196,7 +196,7 @@
 </style>
 
 <!-- 下层：按钮管理器 -->
-<SettingSection title="快捷按钮管理">
+<SettingSection title="快捷按钮管理" focusKey="buttons">
     <div class="buttons-editor">
         <!-- 左栏：按钮列表 -->
         <div class="buttons-list-panel">

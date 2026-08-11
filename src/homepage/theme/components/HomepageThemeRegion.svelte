@@ -1,6 +1,7 @@
 <script lang="ts">
     import type {
         HomepagePersistentRegionName,
+        HomepageContextRegion,
         HomepageThemeRegionFacade,
     } from "../api/types";
 
@@ -8,9 +9,10 @@
         name: HomepagePersistentRegionName;
         regions: HomepageThemeRegionFacade;
         class?: string;
+        contextRegion?: HomepageContextRegion;
     }
 
-    let { name, regions, class: className = "" }: Props = $props();
+    let { name, regions, class: className = "", contextRegion }: Props = $props();
 
     function regionAnchor(node: HTMLElement, regionName: HomepagePersistentRegionName) {
         regions.attach(regionName, node);
@@ -28,4 +30,8 @@
     }
 </script>
 
-<div class={`hp-theme-region hp-theme-region--${name} ${className}`.trim()} use:regionAnchor={name}></div>
+<div
+    class={`hp-theme-region hp-theme-region--${name} ${className}`.trim()}
+    data-hp-context-region={contextRegion}
+    use:regionAnchor={name}
+></div>

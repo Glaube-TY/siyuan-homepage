@@ -14,7 +14,7 @@
 
 <div class="hp-theme hp-theme--simple-test">
     <div class="hp-simple-shell">
-        <header class="hp-simple-header">
+        <header class="hp-simple-header" data-hp-context-region="title">
             <div class="hp-simple-heading">
                 <div class="hp-simple-brand">
                     <HomepageIdentity {identity} />
@@ -29,6 +29,6 @@
         <main class="hp-simple-content">
             <HomepageThemeRegion name="workspace" {regions} class="hp-simple-workspace" />
         </main>
-        <HomepageThemeRegion name="footer" {regions} class="hp-simple-footer" />
+        <HomepageThemeRegion name="footer" {regions} class="hp-simple-footer" contextRegion="footer" />
     </div>
 </div>

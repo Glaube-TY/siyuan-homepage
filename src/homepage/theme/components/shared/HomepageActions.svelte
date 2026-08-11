@@ -46,7 +46,7 @@
 
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
 
-<div class="hp-actions" class:hp-actions--compact={compact} role="navigation" aria-label="主页功能">
+<div class="hp-actions" data-hp-context-region="actions" class:hp-actions--compact={compact} role="navigation" aria-label="主页功能">
     <div class="hp-actions__primary">
         {#each primary as item (item.id)}
             <button class="hp-action" type="button" data-hp-action={item.action} title={item.shortcut ? `${item.label} · ${item.shortcut}` : item.label} onclick={() => void actions.invoke(item.id)}>
