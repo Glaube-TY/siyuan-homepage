@@ -47,6 +47,30 @@
     }
 }
 
+@container hp-widget (max-width: 239px) {
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        .widget-block[data-widget-placement="homepage"][data-widget-kind="list"][data-widget-presentation-scope="full"] {
+        [data-widget-part="item"] {
+            min-height: 38px;
+            padding: 6px var(--hp-widget-space-1);
+        }
+
+        [data-widget-part="meta"] {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+}
+
+@container hp-widget (max-width: 179px) {
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        .widget-block[data-widget-placement="homepage"][data-widget-kind="list"][data-widget-presentation-scope="full"]
+        [data-widget-part="meta"] {
+        display: none;
+    }
+}
+
 @container hp-widget (min-width: 560px) {
     .homepage-container[data-hp-theme="builtin.simple-test"]
         .widget-block[data-widget-placement="homepage"][data-widget-kind="list"][data-widget-presentation-scope="full"]

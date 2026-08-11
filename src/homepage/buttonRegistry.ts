@@ -9,6 +9,10 @@ export interface HomepageButtonItem {
 
 export const CORE_ACTIONS = ["search", "diary", "aiKnowledgeBase", "addWidget", "templateCenter", "cleanEmptyDocs", "settings"] as const;
 export type CoreAction = typeof CORE_ACTIONS[number];
+export const HOMEPAGE_CONTEXT_ONLY_ACTIONS = ["addWidget", "settings"] as const satisfies readonly CoreAction[];
+export type HomepageContextOnlyAction = typeof HOMEPAGE_CONTEXT_ONLY_ACTIONS[number];
+
+const QUICK_ACTIONS = ["search", "diary", "aiKnowledgeBase", "templateCenter", "cleanEmptyDocs"] as const satisfies readonly CoreAction[];
 
 interface BuiltinButtonDefinition {
     id: number;
@@ -47,18 +51,24 @@ const LABEL_TO_ACTION: Record<string, CoreAction> = {
     "主页设置": "settings",
 };
 
+export function createBuiltinButton(action: CoreAction, order = 0): HomepageButtonItem {
+    const definition = BUILTIN_BUTTONS[action];
+    return {
+        id: definition.id,
+        label: definition.label,
+        checked: definition.checked,
+        shortcut: definition.shortcut,
+        action,
+        order,
+    };
+}
+
+export function isHomepageContextOnlyAction(action: string | undefined): action is HomepageContextOnlyAction {
+    return Boolean(action && (HOMEPAGE_CONTEXT_ONLY_ACTIONS as readonly string[]).includes(action));
+}
+
 export function createDefaultButtons(): HomepageButtonItem[] {
-    return CORE_ACTIONS.map((action, order) => {
-        const definition = BUILTIN_BUTTONS[action];
-        return {
-            id: definition.id,
-            label: definition.label,
-            checked: definition.checked,
-            shortcut: definition.shortcut,
-            action,
-            order,
-        };
-    });
+    return QUICK_ACTIONS.map((action, order) => createBuiltinButton(action, order));
 }
 
 function normalizeNumber(value: unknown, defaultValue: number, min?: number, max?: number): number {
@@ -100,7 +110,11 @@ export function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
             order: normalizeNumber(raw?.order, index),
             action,
         };
-    });
+    }).filter((item) => !isHomepageContextOnlyAction(item.action));
+
+    if (normalized.length === 0) {
+        return createDefaultButtons();
+    }
 
     // 老用户：如果不存在 action === "cleanEmptyDocs"，追加内置按钮（checked: false）
     const hasCleanEmptyDocs = normalized.some((item) => item.action === "cleanEmptyDocs");

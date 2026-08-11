@@ -135,11 +135,17 @@
         CLASSIC_HOMEPAGE_THEME_ID,
         homepageThemeRegistry,
     } from "./theme/registry/themeRegistry";
+    import {
+        createBuiltinButton,
+        isHomepageContextOnlyAction,
+        type HomepageContextOnlyAction,
+    } from "./buttonRegistry";
     import { normalizeHomepageAppearanceConfig } from "./theme/runtime/appearanceConfig";
     import { createHomepageEntitlementSnapshot } from "./theme/runtime/entitlementResolver";
     import { resolveHomepageTheme } from "./theme/runtime/themeResolver";
     import { resolveHomepageFooterPresentation } from "./theme/runtime/footerPresentation";
     import { createHomepageActionsModel } from "./theme/runtime/homepageActionRuntime";
+    import { resolveHomepageSectionNavigationActiveId } from "./theme/runtime/homepageSectionRuntime";
     import { HomepagePersistentRegionManager } from "./theme/runtime/persistentRegionManager";
     import { createClassicRuntimeAppearanceSettings } from "./theme/builtins/classic/presentationSettings";
     import { syncHomepageWidgetPresentations } from "./theme/widgetPresentation/syncRuntime";
@@ -314,6 +320,11 @@
     let requestedComponentSectionId = $state<string | undefined>(undefined);
     let preparingComponentSectionId = $state<string | undefined>(undefined);
     let activeComponentSectionId = $state<string | undefined>(undefined);
+    let navigationActiveComponentSectionId = $derived(resolveHomepageSectionNavigationActiveId({
+        requestedSectionId: requestedComponentSectionId,
+        activeSectionId: activeComponentSectionId,
+        sectionIds: componentSections.map((section) => section.id),
+    }));
     let effectiveComponentSectionsEnabled = $derived(
         isComponentSectionsEffective(
             { componentSectionsEnabled, componentSections },
@@ -1243,7 +1254,10 @@
         );
     }
 
-    const HOMEPAGE_CONTEXT_ACTIONS = new Set(["addWidget", "settings"]);
+    const HOMEPAGE_CONTEXT_BUTTONS: Record<HomepageContextOnlyAction, ButtonItem> = {
+        addWidget: createBuiltinButton("addWidget"),
+        settings: createBuiltinButton("settings"),
+    };
     const HOMEPAGE_CONTEXT_EXCLUDED_SELECTOR = [
         ".widget-block",
         ".hp-banner",
@@ -1263,14 +1277,6 @@
         "[role='tab']",
     ].join(",");
 
-    function isHomepageContextAction(item: ButtonItem): boolean {
-        return HOMEPAGE_CONTEXT_ACTIONS.has(getButtonAction(item));
-    }
-
-    function findHomepageContextButton(action: "addWidget" | "settings"): ButtonItem | undefined {
-        return buttonsList.find((item) => getButtonAction(item) === action);
-    }
-
     function handleHomepageContextMenu(event: MouseEvent): void {
         const target = event.target;
         if (!(target instanceof Element) || target.closest(HOMEPAGE_CONTEXT_EXCLUDED_SELECTOR)) {
@@ -1280,24 +1286,16 @@
         event.preventDefault();
         event.stopPropagation();
 
-        const addWidgetButton = findHomepageContextButton("addWidget");
-        const settingsButton = findHomepageContextButton("settings");
         const menu = new Menu("homepage-blank-area-context-menu");
         menu.addItem({
             icon: "iconAdd",
             label: "添加组件",
-            disabled: !addWidgetButton,
-            click: () => {
-                if (addWidgetButton) void invokeHomepageButton(addWidgetButton);
-            },
+            click: () => void invokeHomepageButton(HOMEPAGE_CONTEXT_BUTTONS.addWidget),
         });
         menu.addItem({
             icon: "iconSettings",
             label: "主页设置",
-            disabled: !settingsButton,
-            click: () => {
-                if (settingsButton) void invokeHomepageButton(settingsButton);
-            },
+            click: () => void invokeHomepageButton(HOMEPAGE_CONTEXT_BUTTONS.settings),
         });
         menu.open({ x: event.clientX, y: event.clientY, isLeft: false });
     }
@@ -3156,6 +3154,12 @@
             componentSections = nextComponentSections;
             componentSectionsNavAlign = normalizeComponentSectionsNavAlign(config.componentSectionsNavAlign);
             activeComponentSectionId = nextActiveSectionId;
+            if (mode === "initial-load") {
+                // 冷启动已经解析出真实活动分区时立即同步导航状态；
+                // 不依赖后续组件恢复或横幅等非分区配置流程才能显示当前态。
+                requestedComponentSectionId = nextActiveSectionId;
+                preparingComponentSectionId = undefined;
+            }
             // config-refresh 规则：
             // 1. requested 已不在新分栏集合 → 回退到 nextActive。
             // 2. 没有进行中切换 → 同步 nextActive。
@@ -3640,9 +3644,11 @@
         footerEnabled,
         footerContent,
     }));
-    const homepageToolbarButtons = $derived(buttonsList.filter((item) => !isHomepageContextAction(item)));
+    const homepageQuickActionButtons = $derived(buttonsList.filter(
+        (item) => !isHomepageContextOnlyAction(getButtonAction(item)),
+    ));
     const homepageActionsModel = $derived(createHomepageActionsModel(
-        homepageToolbarButtons,
+        homepageQuickActionButtons,
         (button) => invokeHomepageButton(button),
     ));
     const homepageSectionsModel = $derived({
@@ -3650,7 +3656,7 @@
         items: componentSections.map((section) => Object.freeze({
             id: section.id,
             name: section.name,
-            active: section.id === requestedComponentSectionId,
+            active: section.id === navigationActiveComponentSectionId,
         })),
         navAlign: componentSectionsNavAlign,
         select: (sectionId: string) => handleComponentSectionSwitch(sectionId),

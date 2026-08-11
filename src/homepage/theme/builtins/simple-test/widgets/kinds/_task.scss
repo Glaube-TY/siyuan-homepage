@@ -33,8 +33,22 @@
 @container hp-widget (max-width: 239px) {
     .homepage-container[data-hp-theme="builtin.simple-test"]
         .widget-block[data-widget-placement="homepage"][data-widget-kind="task"][data-widget-presentation-scope="full"] {
-        [data-widget-part="meta"],
-        [data-widget-part="secondary"] { padding-left: 28px; }
+        [data-widget-part="item"] { padding: var(--hp-widget-space-2) var(--hp-widget-space-1); }
+        [data-widget-part="meta"] {
+            padding-left: 28px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        [data-widget-part="secondary"] { display: none; }
+    }
+}
+
+@container hp-widget (max-width: 179px) {
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        .widget-block[data-widget-placement="homepage"][data-widget-kind="task"][data-widget-presentation-scope="full"]
+        [data-widget-part="meta"] {
+        display: none;
     }
 }
 

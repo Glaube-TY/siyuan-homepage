@@ -2,14 +2,13 @@
     import type { HomepageThemeProps } from "../../api/types";
     import HomepageThemeRegion from "../../components/HomepageThemeRegion.svelte";
     import HomepageActions from "../../components/shared/HomepageActions.svelte";
-    import HomepageBanner from "../../components/shared/HomepageBanner.svelte";
     import HomepageIdentity from "../../components/shared/HomepageIdentity.svelte";
     import HomepageSections from "../../components/shared/HomepageSections.svelte";
     import HomepageStatus from "../../components/shared/HomepageStatus.svelte";
     import "./simple-test.scss";
     import "./widgets/index.scss";
 
-    let { identity, banner, status, actions, sections, regions }: HomepageThemeProps = $props();
+    let { identity, status, actions, sections, regions }: HomepageThemeProps = $props();
 
 </script>
 
@@ -24,16 +23,6 @@
             </div>
             <HomepageActions {actions} />
         </header>
-
-        {#if banner.enabled}
-            <HomepageBanner
-                {banner}
-                class="hp-simple-banner"
-                imageClass="hp-simple-banner__image"
-                resetClass="hp-simple-banner__reset"
-                style={`--hp-simple-banner-height: ${banner.height}px;`}
-            />
-        {/if}
 
         <HomepageSections {sections} />
 

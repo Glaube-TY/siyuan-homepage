@@ -10,6 +10,11 @@ import { normalizeHomepageAppearanceConfig } from "../src/homepage/theme/runtime
 import { resolveHomepageFooterPresentation } from "../src/homepage/theme/runtime/footerPresentation";
 import { classifyWidgetAppearance } from "../src/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 import { HomepagePersistentRegionManager } from "../src/homepage/theme/runtime/persistentRegionManager";
+import { resolveHomepageSectionNavigationActiveId } from "../src/homepage/theme/runtime/homepageSectionRuntime";
+import {
+    createDefaultButtons,
+    normalizeButtonsList,
+} from "../src/homepage/buttonRegistry";
 import {
     createClassicRuntimeAppearanceSettings,
     resolveClassicPresentationSettings,
@@ -174,7 +179,25 @@ assert.match(sharedSources, /handleWindowPointerDown/, "Action overflow must clo
 assert.match(sharedSources, /event\.key === "Escape"/, "Action overflow must close on Escape");
 assert.doesNotMatch(sharedSources, /forcedOverflow|overflowActions/, "Themes must not override the user's shortcut placement");
 const actionRuntimeSource = readFileSync("src/homepage/theme/runtime/homepageActionRuntime.ts", "utf8");
-assert.match(actionRuntimeSource, /placement:\s*button\.checked\s*\?\s*"primary"\s*:\s*"overflow"/, "Shortcut placement must follow the user's saved switch state");
+assert.match(
+    actionRuntimeSource,
+    /placement:\s*button\.checked\s*\?\s*"primary"\s*:\s*"overflow"/,
+    "Shortcut placement must follow the user's saved switch state",
+);
+const homepageActionSource = readFileSync("src/homepage/homepage.svelte", "utf8");
+assert.match(homepageActionSource, /HOMEPAGE_CONTEXT_BUTTONS/, "Homepage context actions must remain explicit");
+assert.match(homepageActionSource, /createBuiltinButton\("addWidget"\)/, "Add Widget must remain available from the homepage context menu");
+assert.match(homepageActionSource, /createBuiltinButton\("settings"\)/, "Settings must remain available from the homepage context menu");
+assert.match(homepageActionSource, /!isHomepageContextOnlyAction\(getButtonAction\(item\)\)/, "Context-only actions must never enter the shortcut action model");
+for (const action of ["addWidget", "settings"]) {
+    assert.equal(createDefaultButtons().some((item) => item.action === action), false, `${action} must not be a default shortcut button`);
+    assert.equal(normalizeButtonsList([{ id: 1, label: action, action, checked: true, shortcut: "", order: 0 }]).some((item) => item.action === action), false, `${action} must be removed from saved shortcut settings`);
+}
+const widgetBlockSource = readFileSync("src/components/utils/widgetBlock/WidgetBlock.ts", "utf8");
+assert.match(widgetBlockSource, /\[data-widget-native-context-menu\]/, "Widget context menu must expose a native-menu escape attribute");
+assert.match(widgetBlockSource, /target\.closest\(WIDGET_NATIVE_CONTEXT_MENU_SELECTOR\)/, "Widget context menu must ignore interactive descendants");
+assert.doesNotMatch(widgetBlockSource, /addEventListener\("contextmenu",\s*this\.handleContextMenu,\s*true\)/, "Widget context menu must not intercept descendants during capture");
+assert.match(widgetBlockSource, /"组件大小"\s*:\s*"样式设置"/, "Widget context menu must describe theme-controlled appearance accurately");
 
 const themeTypesSource = readFileSync("src/homepage/theme/api/types.ts", "utf8");
 const themePropsBlock = themeTypesSource.slice(
@@ -203,6 +226,17 @@ assert.match(simpleThemeStyleSource, /--hp-content-max-width:\s*1500px/, "Simple
 assert.doesNotMatch(simpleThemeStyleSource, /hp-simple-sidebar/, "Simple workspace must use the horizontal knowledge-workspace hierarchy");
 assert.match(simpleThemeStyleSource, /hp-simple-header/, "Simple workspace must provide a horizontal identity/action header");
 assert.match(simpleThemeStyleSource, /\.hp-sections\s*\{[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;/s, "Horizontal section navigation must not expose a useless vertical scrollbar");
+assert.match(simpleThemeStyleSource, /--hp-page-bg:\s*var\(--b3-theme-background/, "Simple workspace must inherit the SiYuan theme palette");
+assert.doesNotMatch(simpleThemeStyleSource, /:root\[data-theme-mode=/, "Simple workspace must not define its own light or dark palette");
+const simpleThemeSource = readFileSync("src/homepage/theme/builtins/simple-test/SimpleTestTheme.svelte", "utf8");
+assert.doesNotMatch(simpleThemeSource, /HomepageBanner|banner\.enabled/, "Simple workspace must omit the banner presentation");
+assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "tasks", activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "tasks");
+assert.equal(resolveHomepageSectionNavigationActiveId({ activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "notes");
+assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "missing", activeSectionId: "missing", sectionIds: ["notes", "tasks"] }), "notes");
+assert.match(homepageActionSource, /mode === "initial-load"[\s\S]*requestedComponentSectionId = nextActiveSectionId/, "Initial load must synchronize section navigation with the resolved active section");
+const sharedSectionsSource = readFileSync("src/homepage/theme/components/shared/HomepageSections.svelte", "utf8");
+assert.match(sharedSectionsSource, /aria-selected=\{section\.active\}/, "Section tabs must expose their active state semantically");
+assert.match(sharedSectionsSource, /navigationElement\.scrollTo/, "Section navigation must reveal an off-screen active tab");
 const appearanceTabSource = readFileSync("src/homepage/homepageSetting/tabs/AppearanceSettingsTab.svelte", "utf8");
 assert.match(appearanceTabSource, /theme\.preview\?\.thumbnail/, "Theme settings must render real preview thumbnails when provided");
 assert.match(appearanceTabSource, /theme-card__fallback/, "Theme settings must keep a preview fallback");

@@ -17,11 +17,10 @@
         align-items: center;
         gap: 6px;
         min-width: 0;
-        min-height: 24px;
-        margin: 0 0 var(--hp-widget-space-1);
-        padding: 0 0 var(--hp-widget-space-1);
+        min-height: 22px;
+        margin: 0 0 var(--hp-widget-space-2);
+        padding: 0;
         border: 0;
-        border-bottom: 1px solid var(--hp-widget-divider);
         color: var(--hp-text);
         font-size: 13px;
         font-weight: 620;
@@ -31,12 +30,12 @@
 
     .hp-widget-title__icon {
         display: inline-flex;
-        flex: 0 0 22px;
+        flex: 0 0 20px;
         align-items: center;
         justify-content: center;
-        width: 22px;
-        height: 22px;
-        border-radius: 7px;
+        width: 20px;
+        height: 20px;
+        border-radius: 6px;
         background: var(--hp-widget-icon-bg);
         color: var(--hp-accent);
     }
@@ -90,7 +89,7 @@
 @container hp-widget (min-width: 240px) and (max-width: 559px) {
     .homepage-container[data-hp-theme="builtin.simple-test"]
         .widget-block[data-widget-placement="homepage"] {
-        .hp-widget-title { min-height: 24px; }
+        .hp-widget-title { min-height: 22px; }
         [data-widget-part="root"] { --hp-widget-row-height: 44px; }
     }
 }

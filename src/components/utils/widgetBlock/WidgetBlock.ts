@@ -14,6 +14,30 @@ import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewCon
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 import { applyWidgetAppearanceCompatibility } from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 
+// 内部交互控件和显式声明的区域保留自己的右键行为。
+// 第三方组件可在任意容器上添加 data-widget-native-context-menu 作为逃生口。
+const WIDGET_NATIVE_CONTEXT_MENU_SELECTOR = [
+    "input",
+    "textarea",
+    "select",
+    "option",
+    "iframe",
+    "a",
+    "button",
+    "[contenteditable]:not([contenteditable='false'])",
+    "[role='textbox']",
+    "[role='combobox']",
+    "[role='menu']",
+    "[role='option']",
+    "[role='slider']",
+    "[data-widget-native-context-menu]",
+    "[data-widget-editor]",
+    ".protyle",
+    ".protyle-wysiwyg",
+    ".ql-editor",
+    ".ProseMirror",
+].join(",");
+
 export class WidgetBlock {
     public element: HTMLElement;
     public readonly id: string;
@@ -81,7 +105,7 @@ export class WidgetBlock {
 
     // 公开销毁方法：统一清理 widget 实例
     public destroy(): void {
-        this.element.removeEventListener("contextmenu", this.handleContextMenu, true);
+        this.element.removeEventListener("contextmenu", this.handleContextMenu);
         this.cleanupMountedWidget();
         (this.element as any).__widgetBlockInstance = null;
     }
@@ -209,10 +233,15 @@ export class WidgetBlock {
     }
 
     private setupEventListeners(): void {
-        this.element.addEventListener("contextmenu", this.handleContextMenu, true);
+        this.element.addEventListener("contextmenu", this.handleContextMenu);
     }
 
     private readonly handleContextMenu = (event: MouseEvent): void => {
+        const target = event.target;
+        if (!(target instanceof Element) || target.closest(WIDGET_NATIVE_CONTEXT_MENU_SELECTOR)) {
+            return;
+        }
+
         event.preventDefault();
         event.stopPropagation();
 
@@ -231,7 +260,7 @@ export class WidgetBlock {
         menu.addSeparator();
         menu.addItem({
             icon: "iconTheme",
-            label: "样式设置",
+            label: this.resolveAppearancePolicy() === "theme-controlled" ? "组件大小" : "样式设置",
             click: () => this.openStyleSettings(),
         });
         menu.addSeparator();
@@ -251,13 +280,17 @@ export class WidgetBlock {
         });
     };
 
+    private resolveAppearancePolicy(): "theme-controlled" | "user-configurable" {
+        return this.element
+            .closest<HTMLElement>(".homepage-container[data-hp-widget-appearance-policy]")
+            ?.dataset.hpWidgetAppearancePolicy === "theme-controlled"
+            ? "theme-controlled"
+            : "user-configurable";
+    }
+
     private openStyleSettings(): void {
                 this.currentBlockForSettingsRef.value = this.element;
-                const appearancePolicy = this.element
-                    .closest<HTMLElement>(".homepage-container[data-hp-widget-appearance-policy]")
-                    ?.dataset.hpWidgetAppearancePolicy === "theme-controlled"
-                    ? "theme-controlled"
-                    : "user-configurable";
+                const appearancePolicy = this.resolveAppearancePolicy();
 
                 const dialogRef = svelteDialog({
                     title: "组件样式",
@@ -288,7 +321,7 @@ export class WidgetBlock {
     private async confirmAndDeleteFromCurrentSurface(): Promise<void> {
         const confirmed = await confirmDialogBoolean({
             title: "删除组件",
-            content: "确定要从当前界面删除这个组件吗？布局引用和组件配置会按现有保护规则处理，此操作无法撤销。",
+            content: "确定要从当前界面删除这个组件吗？\n\n布局引用和组件配置会按现有保护规则处理，此操作无法撤销。",
         });
         if (!confirmed) return;
 

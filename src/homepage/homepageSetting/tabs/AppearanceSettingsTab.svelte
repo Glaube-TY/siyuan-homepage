@@ -49,7 +49,15 @@
                     {#if theme.id === effectiveThemeId}<span class="theme-card__badge theme-card__badge--effective">正在使用</span>{/if}
                     {#if theme.id === preferredThemeId && theme.id !== effectiveThemeId}<span class="theme-card__badge">已设为首选</span>{/if}
                 </div>
-                <button type="button" disabled={theme.id === preferredThemeId || locked} onclick={() => onSelectTheme(theme.id)}>
+                <button
+                    type="button"
+                    class="b3-button theme-card__action"
+                    class:theme-card__action--selected={theme.id === preferredThemeId}
+                    class:theme-card__action--locked={locked}
+                    aria-pressed={theme.id === preferredThemeId}
+                    disabled={theme.id === preferredThemeId || locked}
+                    onclick={() => onSelectTheme(theme.id)}
+                >
                     {theme.id === preferredThemeId ? "已选择" : locked ? "会员主题" : "立即使用"}
                 </button>
             </article>

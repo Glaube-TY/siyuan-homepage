@@ -128,4 +128,32 @@
         [data-widget-part="root"] {
         padding: 10px;
     }
+
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        .widget-block[data-widget-presentation="simple.workspace.hot"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="item"] > a { grid-template-columns: 28px minmax(0, 1fr); }
+        [data-widget-part="meta"] { display: none; }
+    }
+
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        .widget-block[data-widget-presentation="simple.workspace.quick-notes"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        [data-widget-part="list"] { gap: var(--hp-widget-space-2); }
+        [data-widget-part="item"] { padding: 10px; }
+        [data-widget-part="primary"] { padding-right: 44px; }
+    }
+
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        .widget-block[data-widget-presentation="simple.workspace.taskman-plus"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
+        .tasks-details .meta-row ~ .meta-row,
+        .tasks-details .tags,
+        .tasks-details .hpath { display: none; }
+    }
+}
+
+@container hp-widget (max-width: 179px) {
+    .homepage-container[data-hp-theme="builtin.simple-test"]
+        .widget-block[data-widget-presentation="simple.workspace.taskman-plus"][data-widget-placement="homepage"][data-widget-presentation-scope="full"]
+        [data-widget-part="meta"] {
+        display: none;
+    }
 }
