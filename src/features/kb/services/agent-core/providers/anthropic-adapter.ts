@@ -102,6 +102,9 @@ export class AnthropicAdapter implements ProviderAdapter {
           messages,
           ...(system ? { system } : {}),
           ...(request.tools.length ? { tools: nativeToolsToAnthropicTools(request.tools) } : {}),
+          ...(request.tools.length && request.toolChoice === "required"
+            ? { tool_choice: { type: "any" } }
+            : {}),
         }),
         stream: this.stream,
         signal: request.abortSignal,

@@ -169,6 +169,14 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
+  if (code === "agent_continuation_missing") {
+    return {
+      title: "模型没有实际继续执行",
+      message: "模型连续只描述下一步或重复输出正文，却没有发出可执行的工具调用；系统已自动重试一次，本轮仍未完成。",
+      suggestion: "可以再次重试；若反复出现，建议换用通过 Agent 工具调用测试的模型。",
+    };
+  }
+
   // 模型主动停止
   if (code === "agent_stopped") {
     return {

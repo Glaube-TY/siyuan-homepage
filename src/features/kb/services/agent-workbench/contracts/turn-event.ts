@@ -102,6 +102,8 @@ export interface ErrorEvent extends AgentWorkbenchEventBase {
 export interface DoneEvent extends AgentWorkbenchEventBase {
   type: "done";
   status: "answer_ready" | "failed" | "cancelled";
+  providerFinishReason?: string;
+  outputChars?: number;
 }
 
 export interface SafeTargetPreview {

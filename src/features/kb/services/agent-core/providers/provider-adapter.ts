@@ -5,6 +5,8 @@ import type { NativeTool } from "../tools/native-tool";
 export interface AgentChatRequest {
   messages: readonly AgentMessage[];
   tools: readonly NativeTool[];
+  /** Recovery turns can require a real native tool call instead of accepting action narration. */
+  toolChoice?: "auto" | "required";
   abortSignal?: AbortSignal;
 }
 

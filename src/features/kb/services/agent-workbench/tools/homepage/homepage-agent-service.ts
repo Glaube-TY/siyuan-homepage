@@ -324,29 +324,92 @@ export class HomepageAgentService {
     };
   }
 
-  async listWidgetTypes(surface?: HomepageAgentSurface): Promise<HomepageAgentReadResult> {
+  async listWidgetTypes(surface?: HomepageAgentSurface, categoryId?: string): Promise<HomepageAgentReadResult> {
     const state = await this.read(surface);
     const advancedEnabled = Boolean((state.plugin as Plugin & { ADVANCED?: boolean }).ADVANCED);
     const existing = await this.listWidgets(state.surface);
     const existingTypes = new Set(((existing.widgets as Array<{ type: string }>) ?? []).map((item) => item.type));
     const categorySource = surfaceCategorySource(state.surface);
+    const enriched = HOMEPAGE_AGENT_WIDGET_CATALOG.map((item) => ({
+      item,
+      categoryId: surfaceCategoryId(state.surface, item),
+      categoryLabel: surfaceCategoryLabel(state.surface, item),
+      canAdd: (!item.advancedRequired || advancedEnabled) && (!item.singleton || !existingTypes.has(item.type)),
+      available: !item.advancedRequired || advancedEnabled,
+      lockReason: item.advancedRequired && !advancedEnabled
+        ? "advanced_feature_unavailable"
+        : item.singleton && existingTypes.has(item.type) ? "singleton_conflict" : null,
+    }));
+    const knownCategoryIds = new Set(enriched.map((entry) => entry.categoryId));
+    if (categoryId && !knownCategoryIds.has(categoryId)) {
+      throw new HomepageAgentServiceError(
+        "widget_category_not_found",
+        `当前主页不存在组件分类 ${categoryId}。`,
+        true,
+        { availableCategoryIds: [...knownCategoryIds] },
+      );
+    }
+    const filtered = categoryId
+      ? enriched.filter((entry) => entry.categoryId === categoryId)
+      : enriched;
+    const categories = [...knownCategoryIds].map((id) => {
+      const entries = enriched.filter((entry) => entry.categoryId === id);
+      return {
+        categoryId: id,
+        categoryLabel: entries[0]?.categoryLabel ?? id,
+        total: entries.length,
+        available: entries.filter((entry) => entry.available).length,
+        canAdd: entries.filter((entry) => entry.canAdd).length,
+      };
+    });
     return {
       status: "ok",
       surface: state.surface,
       categorySource,
-      widgetTypes: HOMEPAGE_AGENT_WIDGET_CATALOG.map((item) => ({
-        ...item,
-        categoryId: surfaceCategoryId(state.surface, item),
-        categoryLabel: surfaceCategoryLabel(state.surface, item),
+      categoryFilter: categoryId ?? null,
+      total: filtered.length,
+      categories,
+      widgetTypes: filtered.map((entry) => ({
+        type: entry.item.type,
+        label: entry.item.label,
+        categoryId: entry.categoryId,
+        categoryLabel: entry.categoryLabel,
         categorySource,
-        canAdd: (!item.advancedRequired || advancedEnabled) && (!item.singleton || !existingTypes.has(item.type)),
-        canUpdate: item.editableFields.length > 0,
-        available: !item.advancedRequired || advancedEnabled,
-        lockReason: item.advancedRequired && !advancedEnabled
-          ? "advanced_feature_unavailable"
-          : item.singleton && existingTypes.has(item.type) ? "singleton_conflict" : null,
-        requiredInitialFields: [],
+        canAdd: entry.canAdd,
+        available: entry.available,
+        lockReason: entry.lockReason,
       })),
+      detailHint: "需要某个组件的 editableFields、surface 支持或业务能力时，调用 get_widget_type。",
+    };
+  }
+
+  async getWidgetType(surface: HomepageAgentSurface | undefined, widgetType: string): Promise<HomepageAgentReadResult> {
+    const state = await this.read(surface);
+    const descriptor = getHomepageAgentWidgetDescriptor(widgetType);
+    if (!descriptor || !descriptor.supportedSurfaces.includes(state.surface)) {
+      throw new HomepageAgentServiceError("widget_type_unsupported", `当前主页不支持组件 ${widgetType}。`);
+    }
+    const advancedEnabled = Boolean((state.plugin as Plugin & { ADVANCED?: boolean }).ADVANCED);
+    const existing = await this.listWidgets(state.surface);
+    const existingTypes = new Set(((existing.widgets as Array<{ type: string }>) ?? []).map((item) => item.type));
+    const available = !descriptor.advancedRequired || advancedEnabled;
+    const canAdd = available && (!descriptor.singleton || !existingTypes.has(descriptor.type));
+    return {
+      status: "ok",
+      surface: state.surface,
+      widgetType: {
+        ...descriptor,
+        categoryId: surfaceCategoryId(state.surface, descriptor),
+        categoryLabel: surfaceCategoryLabel(state.surface, descriptor),
+        categorySource: surfaceCategorySource(state.surface),
+        canAdd,
+        canUpdate: descriptor.editableFields.length > 0,
+        available,
+        lockReason: descriptor.advancedRequired && !advancedEnabled
+          ? "advanced_feature_unavailable"
+          : descriptor.singleton && existingTypes.has(descriptor.type) ? "singleton_conflict" : null,
+        requiredInitialFields: [],
+      },
     };
   }
 

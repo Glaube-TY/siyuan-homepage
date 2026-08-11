@@ -97,6 +97,8 @@ function toTraceEvents(events: AgentWorkbenchEvent[]) {
     outputSummary: event.type === "tool_result" ? event.result.summary : undefined,
     message: "message" in event ? event.message : event.type === "assistant_final" ? event.answer : undefined,
     status: event.type === "done" ? event.status : undefined,
+    providerFinishReason: event.type === "done" ? event.providerFinishReason : undefined,
+    outputChars: event.type === "done" ? event.outputChars : undefined,
     errorCode: event.type === "tool_result"
       ? event.result.errorCode ?? event.result.code
       : event.type === "error"

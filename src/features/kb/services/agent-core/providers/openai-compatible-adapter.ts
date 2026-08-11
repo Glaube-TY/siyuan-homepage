@@ -1,7 +1,6 @@
 import type { AgentMessage, AgentToolCall } from "../messages/agent-message";
 import { normalizeToolCallMessages } from "../messages/message-normalizer";
 import { nativeToolsToOpenAITools } from "../tools/tool-schema-converter";
-import type { NativeTool } from "../tools/native-tool";
 import { OPENAI_COMPATIBLE_CAPABILITIES } from "./provider-capabilities";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./provider-adapter";
 import { AgentProviderError } from "./provider-error";
@@ -157,7 +156,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   }
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
-    const body = this.buildRequestBody(request.messages, request.tools);
+    const body = this.buildRequestBody(request);
 
     let response;
     try {
@@ -234,7 +233,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     return headers;
   }
 
-  private buildRequestBody(messages: readonly AgentMessage[], tools: readonly NativeTool[]): Record<string, unknown> {
+  private buildRequestBody(request: AgentChatRequest): Record<string, unknown> {
+    const { messages, tools } = request;
     const streaming = this.stream;
     const body: Record<string, unknown> = {
       model: this.options.model,
@@ -248,7 +248,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
     if (tools.length > 0) {
       body.tools = nativeToolsToOpenAITools(tools);
-      body.tool_choice = "auto";
+      body.tool_choice = request.toolChoice ?? "auto";
       body.parallel_tool_calls = true;
     }
 
@@ -261,6 +261,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     }
 
     mergeProviderOptions(body, this.options.providerOptions);
+    // A runtime recovery requirement must not be weakened by providerOptions.
+    if (tools.length > 0 && request.toolChoice === "required") {
+      body.tool_choice = "required";
+    }
     return body;
   }
 
@@ -299,25 +303,32 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     let buffer = "";
     let finishReason: string | undefined;
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        const frame = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const events = this.parseSseFrame(frame, toolCallState);
-        for (const event of events) {
-          if (event.type === "done") {
-            finishReason = event.finishReason;
-          } else {
-            yield event;
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const events = this.parseSseFrame(frame, toolCallState);
+          for (const event of events) {
+            if (event.type === "done") {
+              // OpenAI-compatible streams usually send a finish_reason chunk and
+              // then a bare [DONE]. Keep the last concrete reason instead of
+              // overwriting it with undefined from the terminal sentinel.
+              finishReason = event.finishReason ?? finishReason;
+            } else {
+              yield event;
+            }
           }
+          boundary = buffer.indexOf("\n\n");
         }
-        boundary = buffer.indexOf("\n\n");
       }
+    } finally {
+      try { await reader.cancel(); } catch { /* ignore cancellation failures */ }
     }
 
     for (const call of buildDoneToolCalls(toolCallState)) {

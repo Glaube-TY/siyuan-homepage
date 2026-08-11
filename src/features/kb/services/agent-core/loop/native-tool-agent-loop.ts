@@ -9,6 +9,11 @@ import { RegisteredConfirmationBridge, type ToolConfirmationBridge } from "../pe
 import { dispatchToolCalls } from "./dispatch-tool-calls";
 import type { AgentStreamEvent } from "./stream-event";
 import { StormBreaker } from "./storm-breaker";
+import {
+  buildUnfinishedAgentOutputRetryInstruction,
+  inspectUnfinishedAgentOutput,
+  type UnfinishedAgentOutputDiagnostic,
+} from "./unfinished-agent-output";
 
 export interface NativeToolAgentLoopResult {
   status: "answer_ready" | "failed" | "cancelled";
@@ -101,6 +106,8 @@ export class NativeToolAgentLoop {
     let totalToolCalls = 0;
     let pseudoToolMarkupRetryCount = 0;
     let finalAnswerValidationRetryCount = 0;
+    let unfinishedOutputRetryCount = 0;
+    let requireToolCallForNextTurn = false;
 
     this.session.append(createUserMessage(question));
 
@@ -119,6 +126,8 @@ export class NativeToolAgentLoop {
 
       const messages = this.buildProviderMessages();
       const tools = this.options.toolRegistry.listProviderVisible();
+      const toolChoice = requireToolCallForNextTurn ? "required" as const : "auto" as const;
+      requireToolCallForNextTurn = false;
       let answer = "";
       let reasoning = "";
       const toolCalls: AgentToolCall[] = [];
@@ -126,11 +135,14 @@ export class NativeToolAgentLoop {
       let emittedTextLive = false;
       let emittedReasoningLive = false;
       let pseudoToolMarkupDetected = false;
+      let streamedOutputDefect: UnfinishedAgentOutputDiagnostic | undefined;
+      let lastOutputInspectionAt = 0;
       let finishReason: string | undefined;
 
       for await (const event of this.options.provider.streamChat({
         messages,
         tools,
+        toolChoice,
         abortSignal: this.options.abortSignal,
       })) {
         if (event.type === "text_delta") {
@@ -144,6 +156,17 @@ export class NativeToolAgentLoop {
           if (!pseudoToolMarkupDetected) {
             emittedTextLive = true;
             this.options.onEvent?.({ type: "assistant_text_delta", delta: event.delta, fullContent: answer });
+          }
+          if (
+            !pseudoToolMarkupDetected
+            && answer.length - lastOutputInspectionAt >= 512
+          ) {
+            lastOutputInspectionAt = answer.length;
+            const diagnostic = inspectUnfinishedAgentOutput(answer, { toolsAvailable: tools.length > 0 });
+            if (diagnostic?.reason === "repetitive_output") {
+              streamedOutputDefect = diagnostic;
+              break;
+            }
           }
         } else if (event.type === "reasoning_delta") {
           reasoning += event.delta;
@@ -251,6 +274,35 @@ export class NativeToolAgentLoop {
             reasoning,
           });
         }
+        const unfinishedOutput = streamedOutputDefect
+          ?? inspectUnfinishedAgentOutput(answer, { toolsAvailable: tools.length > 0 });
+        if (unfinishedOutput) {
+          if (emittedTextLive) {
+            this.options.onEvent?.({ type: "assistant_text_reset" });
+          }
+          if (emittedReasoningLive) {
+            this.options.onEvent?.({ type: "assistant_reasoning_reset" });
+          }
+          if (unfinishedOutputRetryCount < 1) {
+            unfinishedOutputRetryCount += 1;
+            requireToolCallForNextTurn = tools.length > 0 && unfinishedOutput.forceToolCall;
+            this.options.onEvent?.({
+              type: "notice",
+              message: unfinishedOutput.reason === "repetitive_output"
+                ? "检测到模型输出重复退化内容，已清除草稿并自动重试。"
+                : "检测到模型只描述了下一步但没有实际调用工具，已清除草稿并强制重试工具调用。",
+            });
+            this.session.append(createSystemMessage(
+              buildUnfinishedAgentOutputRetryInstruction(unfinishedOutput),
+            ));
+            continue;
+          }
+          return this.finishWithUnfinishedAgentOutput({
+            diagnostic: unfinishedOutput,
+            finishReason,
+            steps,
+          });
+        }
         const finalAnswerRetryInstruction = this.options.validateFinalAnswer?.(answer);
         if (finalAnswerRetryInstruction && finalAnswerValidationRetryCount < 1) {
           finalAnswerValidationRetryCount += 1;
@@ -283,7 +335,12 @@ export class NativeToolAgentLoop {
             code: "provider_output_truncated",
             message,
           });
-          this.options.onEvent?.({ type: "done", status: "failed" });
+          this.options.onEvent?.({
+            type: "done",
+            status: "failed",
+            providerFinishReason: finishReason,
+            outputChars: answer.length,
+          });
           return {
             status: "failed",
             answer,
@@ -294,7 +351,12 @@ export class NativeToolAgentLoop {
           };
         }
         this.options.onEvent?.({ type: "assistant_final", answer });
-        this.options.onEvent?.({ type: "done", status: "answer_ready" });
+        this.options.onEvent?.({
+          type: "done",
+          status: "answer_ready",
+          providerFinishReason: finishReason,
+          outputChars: answer.length,
+        });
         return {
           status: "answer_ready",
           answer,
@@ -348,6 +410,41 @@ export class NativeToolAgentLoop {
       }
 
     }
+  }
+
+  private finishWithUnfinishedAgentOutput(params: {
+    diagnostic: UnfinishedAgentOutputDiagnostic;
+    finishReason?: string;
+    steps: number;
+  }): NativeToolAgentLoopResult {
+    const reason = params.diagnostic.reason === "repetitive_output"
+      ? "repetitive_output"
+      : "dangling_tool_intent";
+    const message = [
+      "模型连续输出了未完成的 Agent 草稿，且没有产生可执行的原生工具调用。",
+      `diagnostic=${reason}`,
+      `finish_reason=${params.finishReason?.trim() || "missing"}`,
+      `answer_chars=${params.diagnostic.answerChars}`,
+    ].join("; ");
+    this.options.onEvent?.({
+      type: "error",
+      code: "agent_continuation_missing",
+      message,
+    });
+    this.options.onEvent?.({
+      type: "done",
+      status: "failed",
+      providerFinishReason: params.finishReason,
+      outputChars: params.diagnostic.answerChars,
+    });
+    return {
+      status: "failed",
+      answer: "",
+      steps: params.steps,
+      messages: this.session.snapshot(),
+      errorCode: "agent_continuation_missing",
+      errorMessage: message,
+    };
   }
 
   private async softFinalizeAfterToolStop(params: {

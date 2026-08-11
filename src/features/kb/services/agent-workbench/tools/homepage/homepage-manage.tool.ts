@@ -5,6 +5,14 @@ import { HomepageAgentService, HomepageAgentServiceError } from "./homepage-agen
 
 const surfaceSchema = z.enum(["desktop-homepage", "mobile-homepage"]).optional();
 const surfaceInputSchema = z.object({ surface: surfaceSchema }).strict();
+const widgetTypeListInputSchema = z.object({
+  surface: surfaceSchema,
+  categoryId: z.string().trim().min(1).optional(),
+}).strict();
+const widgetTypeInputSchema = z.object({
+  surface: surfaceSchema,
+  widgetType: z.string().trim().min(1),
+}).strict();
 const widgetInputSchema = z.object({
   surface: surfaceSchema,
   widgetId: z.string().trim().min(1),
@@ -24,7 +32,7 @@ const removeSectionInputSchema = z.object({ ...sectionBase, sectionId: z.string(
 const setSectionModeInputSchema = z.object({ ...sectionBase, enabled: z.boolean() }).strict();
 const setActiveSectionInputSchema = z.object({ surface: z.literal("desktop-homepage").optional(), sectionId: z.string().trim().min(1), expectedLayoutRevision: z.number().int().positive() }).strict();
 
-type ReadAction = "overview" | "list_widgets" | "get_widget" | "list_widget_types" | "get_layout" | "list_sections";
+type ReadAction = "overview" | "list_widgets" | "get_widget" | "list_widget_types" | "get_widget_type" | "get_layout" | "list_sections";
 
 function failure(error: unknown): ToolResult<HomepageAgentReadResult> {
   if (error instanceof HomepageAgentServiceError) {
@@ -52,11 +60,18 @@ function createReadActionTool(
   service: HomepageAgentService,
 ): ToolContract<Record<string, unknown>, HomepageAgentReadResult> {
   const needsWidget = action === "get_widget";
+  const inputSchema = needsWidget
+    ? widgetInputSchema
+    : action === "list_widget_types"
+      ? widgetTypeListInputSchema
+      : action === "get_widget_type"
+        ? widgetTypeInputSchema
+        : surfaceInputSchema;
   return {
     name: `homepage_${action}`,
     title: action,
     description: `homepage_manage.${action}`,
-    inputSchema: needsWidget ? widgetInputSchema : surfaceInputSchema,
+    inputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "builtin",
@@ -71,11 +86,18 @@ function createReadActionTool(
     },
     async execute(_ctx: ToolRuntimeContext, rawArgs: Record<string, unknown>): Promise<ToolResult<HomepageAgentReadResult>> {
       try {
-        const args = rawArgs as { surface?: HomepageAgentSurface; widgetId?: string; expectedType?: string };
+        const args = rawArgs as {
+          surface?: HomepageAgentSurface;
+          widgetId?: string;
+          expectedType?: string;
+          widgetType?: string;
+          categoryId?: string;
+        };
         if (action === "overview") return { ok: true, data: await service.overview(args.surface) };
         if (action === "list_widgets") return { ok: true, data: await service.listWidgets(args.surface) };
         if (action === "get_widget") return { ok: true, data: await service.getWidget(args.surface, args.widgetId!, args.expectedType) };
-        if (action === "list_widget_types") return { ok: true, data: await service.listWidgetTypes(args.surface) };
+        if (action === "list_widget_types") return { ok: true, data: await service.listWidgetTypes(args.surface, args.categoryId) };
+        if (action === "get_widget_type") return { ok: true, data: await service.getWidgetType(args.surface, args.widgetType!) };
         if (action === "get_layout") return { ok: true, data: await service.getLayout(args.surface) };
         return { ok: true, data: await service.listSections(args.surface) };
       } catch (error) {
@@ -89,7 +111,7 @@ function createReadActionTool(
 }
 
 export function createHomepageManageReadActionTools(service: HomepageAgentService) {
-  return (["overview", "list_widgets", "get_widget", "list_widget_types", "get_layout", "list_sections"] as const)
+  return (["overview", "list_widgets", "get_widget", "list_widget_types", "get_widget_type", "get_layout", "list_sections"] as const)
     .map((action) => ({ action, tool: createReadActionTool(action, service) }));
 }
 

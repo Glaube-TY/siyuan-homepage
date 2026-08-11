@@ -95,6 +95,9 @@ export class GeminiAdapter implements ProviderAdapter {
           contents,
           ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
           ...(tools ? { tools } : {}),
+          ...(tools && request.toolChoice === "required"
+            ? { toolConfig: { functionCallingConfig: { mode: "ANY" } } }
+            : {}),
         }),
         stream: this.stream,
         signal: request.abortSignal,

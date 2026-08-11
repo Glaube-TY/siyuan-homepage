@@ -20,6 +20,8 @@ export interface TurnTrace {
     message?: string;
     status?: string;
     errorCode?: string;
+    providerFinishReason?: string;
+    outputChars?: number;
   }>;
 }
 

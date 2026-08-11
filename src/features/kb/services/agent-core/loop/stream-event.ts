@@ -15,4 +15,10 @@ export type AgentStreamEvent =
   | { type: "assistant_final"; answer: string }
   | { type: "notice"; message: string }
   | { type: "error"; code: string; message: string }
-  | { type: "done"; status: "answer_ready" | "failed" | "cancelled" };
+  | {
+      type: "done";
+      status: "answer_ready" | "failed" | "cancelled";
+      /** Safe provider terminal metadata persisted for post-mortem diagnostics. */
+      providerFinishReason?: string;
+      outputChars?: number;
+    };

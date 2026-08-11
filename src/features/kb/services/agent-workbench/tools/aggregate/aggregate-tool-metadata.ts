@@ -190,13 +190,18 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
         notes: ["widgetId 必须来自 list_widgets；不会返回业务数据、密钥或完整本地路径。"],
       },
       {
-        name: "list_widget_types", title: "列出可用组件类型", description: "列出真实组件目录、surface 支持和可编辑字段。", readOnly: true,
-        argsSchema: homepageSurfaceArgsSchema(), examples: [{ action: "list_widget_types", args: { surface: "desktop-homepage" } }],
+        name: "list_widget_types", title: "列出可用组件类型", description: "以紧凑格式列出真实组件目录和分类；可按 categoryId 过滤，避免长结果截断。", readOnly: true,
+        argsSchema: homepageObjectSchema({ categoryId: { type: "string", description: "可选；使用返回的真实 categoryId 过滤。" } }), examples: [{ action: "list_widget_types", args: { surface: "desktop-homepage" } }, { action: "list_widget_types", args: { surface: "desktop-homepage", categoryId: "note" } }],
         notes: [
           "整理 desktop-homepage 时使用返回的 categoryId/categoryLabel，这些分类对应真实桌面组件设置页，不要自行重新分类。",
+          "完整目录默认只返回添加与分类所需字段；需要单个类型的 editableFields 等详情时调用 get_widget_type。",
           "如果 surface=mobile-homepage，则使用移动端分类。",
           "Agent 不得把 desktop 页面整理成 data/task/docs/tools 四类。",
         ],
+      },
+      {
+        name: "get_widget_type", title: "查看组件类型详情", description: "读取单个组件类型的 surface 支持、可编辑字段、业务能力和添加状态。", readOnly: true, required: ["widgetType"],
+        argsSchema: homepageObjectSchema({ widgetType: { type: "string" } }, ["widgetType"]), examples: [{ action: "get_widget_type", args: { surface: "desktop-homepage", widgetType: "focus" } }],
       },
       {
         name: "get_layout", title: "查看主页布局", description: "读取当前 surface 的布局 revision、顺序、列数和间距。", readOnly: true,

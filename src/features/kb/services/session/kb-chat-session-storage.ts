@@ -76,6 +76,8 @@ export interface PersistedWorkbenchEvent {
   status?: string;
   durationMs?: number;
   message?: string;
+  providerFinishReason?: string;
+  outputChars?: number;
   safeTargetPreview?: {
     targetDocIds?: string[];
     targetBlockIds?: string[];
@@ -305,6 +307,8 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
         stepIndex: event.stepIndex,
         at: event.at,
         status: event.status,
+        providerFinishReason: truncatePersistedText(event.providerFinishReason, 80),
+        outputChars: event.outputChars,
       };
     case "notice":
       return {
@@ -371,6 +375,8 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
         stepIndex,
         at,
         status: (event.status as "answer_ready" | "failed" | "cancelled" | undefined) ?? "failed",
+        providerFinishReason: event.providerFinishReason,
+        outputChars: event.outputChars,
       };
     case "notice":
       return {
