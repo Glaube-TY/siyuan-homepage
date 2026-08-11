@@ -1,4 +1,4 @@
-import { svelteDialog } from "../../../libs/dialog";
+import { confirmDialogBoolean, svelteDialog } from "../../../libs/dialog";
 import WidgetBlockStyle from "./styleSetting.svelte";
 import WidgetBlockContent from "./contentSetting.svelte";
 import { setBlockSize } from "./utils/block-size-handler";
@@ -234,6 +234,13 @@ export class WidgetBlock {
             label: "样式设置",
             click: () => this.openStyleSettings(),
         });
+        menu.addSeparator();
+        menu.addItem({
+            icon: "iconTrashcan",
+            label: "删除组件",
+            warning: true,
+            click: () => void this.confirmAndDeleteFromCurrentSurface(),
+        });
 
         const rect = this.element.getBoundingClientRect();
         const openedFromKeyboard = event.clientX === 0 && event.clientY === 0;
@@ -267,34 +274,6 @@ export class WidgetBlock {
                                                         onClose: () => {
                                                             dialogRef.close();
                                                         },
-                                                        onDeleteFromCurrentSurface: async () => {
-                                                            if (this.isNewInstance && !this.draftConfigPersisted) {
-                                                                this.cleanupMountedWidget();
-                                                                this.element.remove();
-                                                                this.currentBlockForSettingsRef.value = null;
-                                                                dialogRef.close();
-                                                                return;
-                                                            }
-                                                            const result = await deleteWidgetFromSurface(
-                                                                this.runtimeOptions.deviceViewContext!,
-                                                                this.id,
-                                                            );
-                                                             if (result.status === "success" || result.status === "layoutCommittedConfigRetained") {
-                                                                 try { this.cleanupMountedWidget(); } catch (e) { console.warn("[WidgetBlock] destroy failed after delete:", e); }
-                                                                 this.element.remove();
-                                                                 this.currentBlockForSettingsRef.value = null;
-                                                                if (result.status === "layoutCommittedConfigRetained") {
-                                                                    showMessage("组件已从主页移除，配置文件因保护性错误保留", 5000);
-                                                                }
-                                                            } else if (result.status === "notCommitted") {
-                                                                showMessage(`组件删除失败（布局未提交）：${result.reason}`, 5000, "error");
-                                                                return;
-                                                            } else {
-                                                                showMessage(`组件删除状态无法确认，请人工检查：${result.reason}`, 6000, "error");
-                                                                return;
-                                                            }
-                                                            dialogRef.close();
-                                                        },
                                                         onSetSize: async (size: number) => {
                                                             const layoutNumber = this.widgetLayoutNumber;
                                                             await setBlockSize(this.currentBlockForSettingsRef.value, size, layoutNumber);
@@ -304,6 +283,52 @@ export class WidgetBlock {
                                                 });
                     },
                 });
+    }
+
+    private async confirmAndDeleteFromCurrentSurface(): Promise<void> {
+        const confirmed = await confirmDialogBoolean({
+            title: "删除组件",
+            content: "确定要从当前界面删除这个组件吗？布局引用和组件配置会按现有保护规则处理，此操作无法撤销。",
+        });
+        if (!confirmed) return;
+
+        if (this.isNewInstance && !this.draftConfigPersisted) {
+            this.cleanupMountedWidget();
+            this.element.remove();
+            this.currentBlockForSettingsRef.value = null;
+            showMessage("组件已从当前界面删除", 3000);
+            return;
+        }
+
+        try {
+            const result = await deleteWidgetFromSurface(
+                this.runtimeOptions.deviceViewContext!,
+                this.id,
+            );
+            if (result.status === "success" || result.status === "layoutCommittedConfigRetained") {
+                try {
+                    this.cleanupMountedWidget();
+                } catch (error) {
+                    console.warn("[WidgetBlock] destroy failed after delete:", error);
+                }
+                this.element.remove();
+                this.currentBlockForSettingsRef.value = null;
+                if (result.status === "layoutCommittedConfigRetained") {
+                    showMessage("组件已从主页移除，配置文件因保护性错误保留", 5000);
+                } else {
+                    showMessage("组件已从当前界面删除", 3000);
+                }
+                return;
+            }
+            if (result.status === "notCommitted") {
+                showMessage(`组件删除失败（布局未提交）：${result.reason}`, 5000, "error");
+                return;
+            }
+            showMessage(`组件删除状态无法确认，请人工检查：${result.reason}`, 6000, "error");
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            showMessage(`组件删除失败：${reason}`, 5000, "error");
+        }
     }
 
     private openContentSettings(): void {

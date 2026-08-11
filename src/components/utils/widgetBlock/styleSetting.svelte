@@ -22,7 +22,6 @@
     import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
-    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
         classifyWidgetAppearance,
         setWidgetAppearanceMode,
@@ -32,7 +31,6 @@
     interface Props {
         plugin: any;
         onClose: () => void;
-        onDeleteFromCurrentSurface: () => void;
         onSetSize: (size: number) => void | Promise<void>;
         currentBlockId?: string;
         layoutRuntimeOptions?: HomepageLayoutRuntimeOptions;
@@ -45,7 +43,6 @@
     let {
         plugin,
         onClose,
-        onDeleteFromCurrentSurface,
         onSetSize,
         currentBlockId = "",
         layoutRuntimeOptions = {},
@@ -296,7 +293,8 @@
     {#if appearancePolicy === "theme-controlled"}
         <SettingSection title="外观设置">
             <div class="theme-managed-notice" role="note">
-                当前主题统一管理组件背景、边框、圆角与阴影。原有自定义外观会保留，切回支持自定义的主题后继续生效；尺寸和分区设置仍可调整。
+                <p>当前主题统一管理组件背景、边框、圆角与阴影。</p>
+                <p>原有自定义外观会保留，切回支持自定义的主题后继续生效；尺寸和分区设置仍可调整。</p>
             </div>
         </SettingSection>
     {:else}
@@ -344,16 +342,6 @@
         </SettingSection>
     {/if}
 
-    <div class="danger-actions">
-        <button class="delete-button" onclick={onDeleteFromCurrentSurface}>
-            <SiyuanIcon name="delete" size={14} />
-            <span>从当前界面删除</span>
-        </button>
-        <button class="cancel-button" onclick={onClose}>
-            <SiyuanIcon name="cancel" size={14} />
-            <span>取消</span>
-        </button>
-    </div>
 </div>
 
 <style lang="scss">
@@ -445,51 +433,6 @@
         border-radius: 4px;
         font-size: 12px;
         color: var(--b3-theme-on-surface, #1f2329);
-    }
-
-    .danger-actions {
-        display: flex;
-        justify-content: space-between;
-        gap: 0.5rem;
-        padding-top: 0.5rem;
-    }
-
-    .delete-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        background: #ef4444;
-        color: white;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 13px;
-        transition: background 0.2s ease;
-
-        &:hover {
-            background: #dc2626;
-        }
-    }
-
-    .cancel-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        background: #f1f5f9;
-        color: #475569;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 13px;
-        transition: background 0.2s ease;
-
-        &:hover {
-            background: #e2e8f0;
-        }
     }
 
 </style>
