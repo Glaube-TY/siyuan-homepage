@@ -60,9 +60,11 @@
     import AiKnowledgeBaseSubTabNav from "./layout/AiKnowledgeBaseSubTabNav.svelte";
     import NotificationCenterSubTabNav from "./layout/NotificationCenterSubTabNav.svelte";
     import RobotAssistantSubTabNav from "./layout/RobotAssistantSubTabNav.svelte";
+    import SettingsCommandBar from "./layout/SettingsCommandBar.svelte";
     import type { AiKnowledgeBaseSubTab } from "./aiKnowledgeBaseTabs";
     import type { NotificationCenterSubTab } from "./notificationCenterTabs";
     import type { RobotAssistantSubTab } from "./robotAssistantTabs";
+    import type { SettingSearchResult, SettingsSaveStatus } from "./settingsExperience";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
@@ -116,6 +118,7 @@
 
     let settingsRootElement: HTMLDivElement | null = $state(null);
     let initialFocusScheduled = false;
+    let searchFocusResetTimer: ReturnType<typeof setTimeout> | null = null;
 
     registerBuiltinHomepageThemes();
 
@@ -160,6 +163,13 @@
     let aiKnowledgeBaseActiveTab = $state<AiKnowledgeBaseSubTab>("entries");
     let notificationCenterActiveTab = $state<NotificationCenterSubTab>("desktop");
     let robotAssistantActiveTab = $state<RobotAssistantSubTab>("general");
+    let settingsSaveMode = $derived<"auto" | "manual" | "none">(
+        activeTab === "homepage" || activeTab === "aiKnowledgeBase"
+            ? "auto"
+            : activeTab === "notifyBridge" || activeTab === "robotAssistant"
+                ? "manual"
+                : "none",
+    );
     // 横幅区域相关配置变量
     let bannerEnabled = true;
     let bannerGlobalType = $state("custom");
@@ -245,6 +255,46 @@
         }
         target.scrollIntoView({ behavior: "auto", block: "start", inline: "nearest" });
         target.focus({ preventScroll: true });
+    }
+
+    function findSearchResultTarget(result: SettingSearchResult): HTMLElement | null {
+        const sections = Array.from(
+            settingsRootElement?.querySelectorAll<HTMLElement>("[data-homepage-setting-section]") ?? [],
+        );
+        const section = result.section
+            ? sections.find((candidate) => candidate.dataset.homepageSettingSection === result.section)
+            : undefined;
+        if (result.target === "section") return section ?? null;
+        const rows = Array.from(
+            (section ?? settingsRootElement)?.querySelectorAll<HTMLElement>("[data-homepage-setting-title]") ?? [],
+        );
+        return rows.find((candidate) => candidate.dataset.homepageSettingTitle === result.title) ?? section ?? null;
+    }
+
+    async function handleSettingSearchResult(result: SettingSearchResult): Promise<void> {
+        await handleMainTabChange(result.mainTab);
+        if (result.mainTab === "homepage" && result.subTab) {
+            settingsActiveTab = result.subTab as HomepageSettingSubTab;
+        } else if (result.mainTab === "aiKnowledgeBase" && result.subTab) {
+            aiKnowledgeBaseActiveTab = result.subTab as AiKnowledgeBaseSubTab;
+        } else if (result.mainTab === "notifyBridge" && result.subTab) {
+            notificationCenterActiveTab = result.subTab as NotificationCenterSubTab;
+        } else if (result.mainTab === "robotAssistant" && result.subTab) {
+            robotAssistantActiveTab = result.subTab as RobotAssistantSubTab;
+        }
+
+        await tick();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const target = findSearchResultTarget(result);
+        if (!target) return;
+        const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+        target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center", inline: "nearest" });
+        target.focus({ preventScroll: true });
+        if (searchFocusResetTimer) clearTimeout(searchFocusResetTimer);
+        searchFocusResetTimer = setTimeout(() => {
+            if (document.activeElement === target) target.blur();
+            searchFocusResetTimer = null;
+        }, 2400);
     }
 
     $effect(() => {
@@ -474,12 +524,10 @@
         onFallingSpeedChange: (value) => FallingSpeed = value,
     };
 
-    type AutoSaveStatus = "idle" | "pending" | "saving" | "saved" | "synced" | "error";
-
     const AUTO_SAVE_DELAY_MS = 600;
     const SHARED_SETTINGS_POLL_MS = 1500;
 
-    let autoSaveStatus = $state<AutoSaveStatus>("idle");
+    let autoSaveStatus = $state<SettingsSaveStatus>("idle");
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let sharedSettingsPollTimer: ReturnType<typeof setInterval> | null = null;
     let autoSaveTask: Promise<void> = Promise.resolve();
@@ -722,17 +770,26 @@
                 }
 
                 autoSaveStatus = "saving";
-                const saved = await confirmSave();
-                if (saved) {
-                    lastPersistedDraftSignature = captureHomepageSettingsSignature();
-                    lastLoadedMobileSignature = captureMobileSettingsSignature();
-                    autoSaveStatus = "saved";
-                } else {
+                let saveSucceeded = false;
+                try {
+                    const saved = await confirmSave();
+                    if (saved) {
+                        lastPersistedDraftSignature = captureHomepageSettingsSignature();
+                        lastLoadedMobileSignature = captureMobileSettingsSignature();
+                        autoSaveStatus = "saved";
+                        saveSucceeded = true;
+                    } else {
+                        autoSaveStatus = "error";
+                    }
+                } catch (error) {
                     autoSaveStatus = "error";
+                    const message = error instanceof Error ? error.message : String(error);
+                    showMessage(`设置保存失败：${message}`, 5000, "error");
+                } finally {
+                    autoSavePending = false;
                 }
-                autoSavePending = false;
 
-                if (captureHomepageSettingsSignature() !== lastPersistedDraftSignature) {
+                if (saveSucceeded && captureHomepageSettingsSignature() !== lastPersistedDraftSignature) {
                     scheduleAutoSave();
                 }
             });
@@ -750,6 +807,14 @@
         if (signature !== lastPersistedDraftSignature) {
             scheduleAutoSave();
         }
+    });
+
+    $effect(() => {
+        if (autoSaveStatus !== "saved" && autoSaveStatus !== "synced") return;
+        const timer = setTimeout(() => {
+            if (autoSaveStatus === "saved" || autoSaveStatus === "synced") autoSaveStatus = "idle";
+        }, 2200);
+        return () => clearTimeout(timer);
     });
 
     function syncStatusAiModelSummary(options: ChatModelOption[] = statusAiModelOptions): void {
@@ -972,6 +1037,10 @@
         if (sharedSettingsPollTimer) {
             clearInterval(sharedSettingsPollTimer);
             sharedSettingsPollTimer = null;
+        }
+        if (searchFocusResetTimer) {
+            clearTimeout(searchFocusResetTimer);
+            searchFocusResetTimer = null;
         }
         window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
@@ -1513,6 +1582,12 @@
 
     <!-- 右侧：内容区 -->
     <div class="content-column">
+        <SettingsCommandBar
+            saveStatus={autoSaveStatus}
+            saveMode={settingsSaveMode}
+            onSelectResult={(result) => void handleSettingSearchResult(result)}
+            onRetrySave={() => void queueAutoSaveNow()}
+        />
         {#if activeTab === "homepage"}
             <div class="content-scroll-area">
                 <div class="homepage-content-settings">

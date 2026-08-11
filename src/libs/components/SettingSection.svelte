@@ -19,6 +19,7 @@
 <div
     class="setting-section"
     data-homepage-setting-focus={focusKey}
+    data-homepage-setting-section={title}
     tabindex="-1"
 >
     {#if title}

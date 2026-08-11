@@ -17,7 +17,11 @@
     }: Props = $props();
 </script>
 
-<div class="setting-row">
+<div
+    class="setting-row"
+    data-homepage-setting-title={title}
+    tabindex="-1"
+>
     <div class="setting-row__info">
         <div class="setting-row__title">{title}</div>
         {#if description}
@@ -38,6 +42,15 @@
         gap: 1rem;
         padding: 0.75rem 0;
         min-height: 48px;
+        border-radius: 6px;
+        scroll-margin-block: 76px 24px;
+        transition: background-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .setting-row:focus {
+        outline: none;
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 32%, transparent);
     }
 
     .setting-row:not(:last-child) {

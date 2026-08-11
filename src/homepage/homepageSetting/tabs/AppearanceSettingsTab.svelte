@@ -34,7 +34,7 @@
     };
 </script>
 
-<section class="appearance-settings">
+<section class="appearance-settings" data-homepage-setting-section="主页主题" tabindex="-1">
     <div class="appearance-settings__intro">
         <h3>外观与主题</h3>
         <p>主题只改变主页外观与入口组织，不会改动组件数量、顺序、大小、分区或组件数据。</p>
