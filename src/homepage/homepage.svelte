@@ -57,8 +57,7 @@
         cleanupHomepageBackgroundImageStyle,
     } from "./effects/backgroundImage";
     import {
-        preloadFallingIcons,
-        animateFalling,
+        updateFallingEffects,
         cleanupFallingEffects,
     } from "./effects/fallingEffects";
     import type { FallingEffectConfig } from "./effects/fallingEffects";
@@ -2639,23 +2638,7 @@
 
     // 启动飘落特效
     function startFallingEffects(): void {
-        cleanupFallingEffects();
-        preloadFallingIcons();
-        const config = getFallingConfig();
-        if (config.advanced && config.FallEffectsEnabled) {
-            requestAnimationFrame((ts) => animateFalling(ts, config));
-        }
-    }
-
-    // 页面可见性变化处理
-    // 只负责飘落特效的暂停/恢复，不再触发签名检测或前台轮询
-    function handleVisibilityChange(): void {
-        if (document.visibilityState === "visible") {
-            const config = getFallingConfig();
-            if (config.advanced && config.FallEffectsEnabled) {
-                startFallingEffects();
-            }
-        }
+        updateFallingEffects(getFallingConfig(), homepageRootElement);
     }
 
     // 会员验证成功后重新加载配置
@@ -2669,7 +2652,6 @@
                 await tick();
                 await restoreVisibleComponentSections();
 
-                cleanupFallingEffects();
                 startFallingEffects();
                 applyMouseEffectsConfig();
             } catch (error) {
@@ -2720,7 +2702,6 @@
                 await tick();
                 await restoreVisibleComponentSections();
                 reRegisterAllShortcuts(buttonsList);
-                cleanupFallingEffects();
                 startFallingEffects();
                 applyMouseEffectsConfig();
             } catch (error) {
@@ -3055,7 +3036,6 @@
         // 配置加载完成后初始化特效和事件监听
         reRegisterAllShortcuts(buttonsList);
         document.addEventListener("click", handleClickEffect);
-        document.addEventListener("visibilitychange", handleVisibilityChange);
 
         // 启动飘落特效
         startFallingEffects();
@@ -3120,10 +3100,6 @@
             handleWidgetSectionMoved as EventListener,
         );
         document.removeEventListener("click", handleClickEffect);
-        document.removeEventListener(
-            "visibilitychange",
-            handleVisibilityChange,
-        );
         unregisterAllShortcuts();
         cleanupMouseEffects();
         cleanupHomepageBackgroundImageStyle();
@@ -4018,12 +3994,5 @@
     {/if}
 
     <!-- 飘落背景层 -->
-    <div class="shp-falling-container">
-        {#each Array(20) as _, i}
-            <div
-                class="shp-falling-flake"
-                style="--animation-delay: {i * 0.2}s"
-            ></div>
-        {/each}
-    </div>
+    <div class="shp-falling-container" aria-hidden="true"></div>
 </div>
