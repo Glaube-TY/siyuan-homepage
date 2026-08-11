@@ -128,7 +128,9 @@
 
     import "./style/homepage.scss"
     import "./theme/style/theme-host.scss";
+    import HomepageInitialLoadOverlay from "./theme/components/HomepageInitialLoadOverlay.svelte";
     import HomepageThemeHost from "./theme/components/HomepageThemeHost.svelte";
+    import HomepageThemeRegion from "./theme/components/HomepageThemeRegion.svelte";
     import CoreFooter from "./theme/components/CoreFooter.svelte";
     import { registerBuiltinHomepageThemes } from "./theme/registry/builtinThemeDiscovery";
     import {
@@ -147,6 +149,7 @@
     import { createHomepageActionsModel } from "./theme/runtime/homepageActionRuntime";
     import { resolveHomepageSectionNavigationActiveId } from "./theme/runtime/homepageSectionRuntime";
     import { HomepagePersistentRegionManager } from "./theme/runtime/persistentRegionManager";
+    import { supportsHomepageThemeBanner } from "./theme/runtime/themeFeatures";
     import { createClassicRuntimeAppearanceSettings } from "./theme/builtins/classic/presentationSettings";
     import { syncHomepageWidgetPresentations } from "./theme/widgetPresentation/syncRuntime";
     import type {
@@ -217,6 +220,9 @@
     let statusAiVisibleErrorMessage = $state("");
     let isRefreshingStatusText = $state(false);
     let homepageConfigLoaded = $state(false);
+    type HomepageInitialLoadState = "loading" | "revealing" | "ready" | "error";
+    let homepageInitialLoadState = $state<HomepageInitialLoadState>("loading");
+    let initialThemeRendererMounted = $state(false);
 
     let footerEnabled = $state(true);
     let footerContent = $state("");
@@ -1266,6 +1272,7 @@
         ".hp-actions",
         ".hp-sections",
         ".hp-core-footer",
+        ".hp-initial-load-overlay",
         "button",
         "a",
         "input",
@@ -2477,6 +2484,7 @@
 
     // 会员验证成功后重新加载配置
     async function handleAdvancedReady() {
+        if (homepageInitialLoadState !== "ready") return;
         await enqueueSectionUiOperation(async () => {
             try {
                 invalidateStatusAiCache();
@@ -2503,6 +2511,7 @@
 
     // 会员状态不可用时重新加载配置
     async function handleAdvancedUnavailable() {
+        if (homepageInitialLoadState !== "ready") return;
         await enqueueSectionUiOperation(async () => {
             try {
                 invalidateStatusAiCache();
@@ -2770,6 +2779,27 @@
         await enqueueSectionUiOperation(refreshCustomContentLayoutFromTemplate);
     }
 
+    async function revealInitializedHomepage(): Promise<void> {
+        homepageInitialLoadState = "revealing";
+        initialThemeRendererMounted = true;
+        await tick();
+        if (homepageComponentDestroyed) return;
+
+        const regionsReady = await waitForPersistentRegionsMountable();
+        if (!regionsReady) {
+            throw new Error("真实主页主题区域尚未完成挂载，拒绝提前显示主页");
+        }
+
+        scheduleThemeRegionValidation();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        if (homepageComponentDestroyed) return;
+
+        updateCustomGridMetrics();
+        await tick();
+        if (!homepageComponentDestroyed) homepageInitialLoadState = "ready";
+    }
+
     function handleHomepageTabBeforeDestroy(): void {
         homepageComponentDestroyed = true;
         abortStatusAiRequest();
@@ -2798,6 +2828,10 @@
             "homepage-widget-section-moved",
             handleWidgetSectionMoved as EventListener,
         );
+
+        // 首屏主题解析必须等待会员能力完成一次确定性判定，避免先回退 Classic、随后再闪回 VIP 主题。
+        await plugin?.waitForHomepageEntitlementReady?.();
+        if (homepageComponentDestroyed) return;
 
         // 不在冷启动阶段写入空布局：存储暂不可用时，空读不能覆盖用户已有布局。
 
@@ -2836,6 +2870,12 @@
                 }
             }
         });
+        if (homepageComponentDestroyed) return;
+        if (!initialWidgetGridReady) {
+            throw new Error("主页组件网格尚未完成首轮校准，拒绝提前显示主页");
+        }
+
+        await revealInitializedHomepage();
         if (homepageComponentDestroyed) return;
 
         // 建立外部存储刷新调度器的可见性观察：Homepage 隐藏期间收到 Agent 写入时保留 pending，
@@ -2877,6 +2917,7 @@
         });
         } catch (error) {
             console.error("[Homepage] 初始主页恢复失败", error);
+            if (!homepageComponentDestroyed) homepageInitialLoadState = "error";
         }
     });
 
@@ -3344,8 +3385,9 @@
         }
         if (currentVersion !== updateHomepageVersion) return;
 
-        // 横幅相关配置
-        bannerEnabled = config.bannerEnabled;
+        // 主题能力必须先于 Banner 资源解析生效；显式禁用 Banner 的主题不创建图片，也不读取设备位置。
+        const themeSupportsBanner = supportsHomepageThemeBanner(themeResolution.definition);
+        bannerEnabled = themeSupportsBanner && config.bannerEnabled;
 
         showIcon.set(config.showIcon);
         // 标题区域配置
@@ -3353,7 +3395,7 @@
         tempTitleIconImage = config.TitleIconImage;
         titleIconType = config.titleIconType;
         pageTitle = config.customTitle;
-        bannerTitleIntegrated = advanced && config.bannerTitleIntegrated;
+        bannerTitleIntegrated = themeSupportsBanner && advanced && config.bannerTitleIntegrated;
         homepageTitleAlign = advanced ? config.homepageTitleAlign : DEFAULT_HOMEPAGE_TITLE_ALIGN;
         quickButtonStyle = advanced ? config.quickButtonStyle : DEFAULT_QUICK_BUTTON_STYLE;
         bannerTitleColor = advanced ? config.bannerTitleColor : DEFAULT_BANNER_INTEGRATED_COLOR;
@@ -3399,26 +3441,33 @@
         backgroundImageOpacity = advanced ? config.backgroundImageOpacity : DEFAULT_BACKGROUND_IMAGE_OPACITY;
         backgroundImageBlur = advanced ? config.backgroundImageBlur : DEFAULT_BACKGROUND_IMAGE_BLUR;
 
-        // 横幅高度配置 - 优先使用当前桌面设备的配置
-        try {
-            const displaySettings = await loadBannerDisplaySettings(plugin);
-            if (currentVersion !== updateHomepageVersion) return;
-            bannerHeight = displaySettings.bannerHeight;
-        } catch {
-            if (currentVersion !== updateHomepageVersion) return;
+        if (themeSupportsBanner) {
+            // 横幅高度配置 - 优先使用当前桌面设备的配置
+            try {
+                const displaySettings = await loadBannerDisplaySettings(plugin);
+                if (currentVersion !== updateHomepageVersion) return;
+                bannerHeight = displaySettings.bannerHeight;
+            } catch {
+                if (currentVersion !== updateHomepageVersion) return;
+                bannerHeight = config.bannerHeight;
+            }
+        } else {
             bannerHeight = config.bannerHeight;
+            bannerImgSrc = "";
         }
 
         // 按钮列表
         buttonsList = resolveButtonsList(config);
 
-        // 横幅图片
-        const bannerResult = await resolveBannerImage(
-            config,
-            getAdvancedEnabled(),
-        );
-        if (currentVersion !== updateHomepageVersion) return;
-        bannerImgSrc = bannerResult.bannerImgSrc;
+        // 只有最终生效主题声明支持 Banner 时，才允许读取本地图片或请求远程图片。
+        if (themeSupportsBanner) {
+            const bannerResult = await resolveBannerImage(
+                config,
+                getAdvancedEnabled(),
+            );
+            if (currentVersion !== updateHomepageVersion) return;
+            bannerImgSrc = bannerResult.bannerImgSrc;
+        }
 
         // 背景图片
         const backgroundResult = await resolveBackgroundImage(
@@ -3717,7 +3766,7 @@
             }),
         }),
         banner: Object.freeze({
-            enabled: bannerEnabled,
+            enabled: supportsHomepageThemeBanner(themeResolution.definition) && bannerEnabled,
             imageSrc: bannerImgSrc,
             height: bannerHeight,
             integrated: bannerTitleIntegrated,
@@ -3749,7 +3798,9 @@
 <div
     class="homepage-container"
     data-hp-theme={themeResolution.effectiveThemeId}
+    data-hp-initial-state={homepageInitialLoadState}
     data-hp-widget-appearance-policy={themeResolution.definition.features?.widgetAppearance ?? "user-configurable"}
+    aria-busy={homepageInitialLoadState === "loading" || homepageInitialLoadState === "revealing"}
     bind:this={homepageRootElement}
     use:initializeHomepageContextMenu
     class:background-image-active={backgroundImageEnabled && backgroundImageSrc && advanced}
@@ -3792,11 +3843,31 @@
         </div>
     </div>
 
-    <HomepageThemeHost
-        definition={themeResolution.definition}
-        themeProps={homepageThemeProps}
-        onRendererError={handleThemeRendererError}
-    />
+    {#if !initialThemeRendererMounted}
+        <div class="hp-initial-region-stage" aria-hidden="true" inert>
+            <HomepageThemeRegion name="workspace" regions={themeRegionFacade} />
+            <HomepageThemeRegion name="footer" regions={themeRegionFacade} />
+        </div>
+    {/if}
+
+    {#if initialThemeRendererMounted}
+        <div
+            class="hp-initial-theme-content"
+            class:hp-initial-theme-content--ready={homepageInitialLoadState === "ready"}
+            aria-hidden={homepageInitialLoadState !== "ready"}
+            inert={homepageInitialLoadState !== "ready"}
+        >
+            <HomepageThemeHost
+                definition={themeResolution.definition}
+                themeProps={homepageThemeProps}
+                onRendererError={handleThemeRendererError}
+            />
+        </div>
+    {/if}
+
+    {#if homepageInitialLoadState !== "ready"}
+        <HomepageInitialLoadOverlay failed={homepageInitialLoadState === "error"} />
+    {/if}
 
     <!-- 飘落背景层 -->
     <div class="shp-falling-container">

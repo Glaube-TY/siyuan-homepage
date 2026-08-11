@@ -119,7 +119,16 @@
         background: transparent;
         color: var(--hp-text-subtle);
         cursor: pointer;
-        transition: background-color var(--hp-motion-fast), border-color var(--hp-motion-fast), color var(--hp-motion-fast), transform var(--hp-motion-fast);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity var(--hp-motion-fast), background-color var(--hp-motion-fast), border-color var(--hp-motion-fast), color var(--hp-motion-fast), transform var(--hp-motion-fast);
+    }
+
+    .hp-status:hover .hp-status__refresh,
+    .hp-status:focus-within .hp-status__refresh,
+    .hp-status__refresh:focus-visible {
+        opacity: 1;
+        pointer-events: auto;
     }
 
     .hp-status__refresh:hover:not(:disabled),
@@ -130,7 +139,9 @@
         transform: rotate(18deg);
     }
 
-    .hp-status__refresh:disabled { cursor: not-allowed; opacity: .4; }
+    .hp-status__refresh:disabled { cursor: not-allowed; }
+    .hp-status:hover .hp-status__refresh:disabled,
+    .hp-status:focus-within .hp-status__refresh:disabled { opacity: .4; }
 
     .hp-actions {
         display: flex;

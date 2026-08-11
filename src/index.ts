@@ -298,6 +298,8 @@ export default class PluginHomepage extends Plugin {
     private homepageTopBarElement: HTMLElement | null = null;
     private kbTopBarElement: HTMLElement | null = null;
     ADVANCED = false;
+    private homepageEntitlementReady = false;
+    private homepageEntitlementVerification: Promise<void> | null = null;
     private docTreeMenuEventBindThis = this.handleDocTreeMenu.bind(this);
     private contentMenuEventBindThis = this.handleContentMenu.bind(this);
     private editorTitleIconMenuEventBindThis = this.handleEditorTitleIconMenu.bind(this);
@@ -975,6 +977,7 @@ export default class PluginHomepage extends Plugin {
 
     private prepareHomepageContainer(container: HTMLDivElement): void {
         container.classList.add("siyuan-homepage-tab-root");
+        container.style.height = "100%";
         container.style.minHeight = "100%";
         container.style.width = "100%";
         container.style.boxSizing = "border-box";
@@ -1258,7 +1261,30 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
-    private async verifyLicense() {
+    public async waitForHomepageEntitlementReady(): Promise<void> {
+        if (this.homepageEntitlementVerification) {
+            await this.homepageEntitlementVerification;
+            return;
+        }
+        if (this.homepageEntitlementReady) return;
+        await this.verifyLicense();
+    }
+
+    private verifyLicense(): Promise<void> {
+        if (this.homepageEntitlementVerification) return this.homepageEntitlementVerification;
+
+        const verification = this.runLicenseVerification();
+        const trackedVerification = verification.finally(() => {
+            this.homepageEntitlementReady = true;
+            if (this.homepageEntitlementVerification === trackedVerification) {
+                this.homepageEntitlementVerification = null;
+            }
+        });
+        this.homepageEntitlementVerification = trackedVerification;
+        return trackedVerification;
+    }
+
+    private async runLicenseVerification(): Promise<void> {
         try {
             const vipInfo = await advanced.updateVIP();
             const userName = vipInfo.USER_NAME;

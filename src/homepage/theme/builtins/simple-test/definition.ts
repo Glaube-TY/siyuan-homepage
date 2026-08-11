@@ -15,7 +15,7 @@ export const definition: HomepageThemeDefinition = {
     renderer: SimpleTestTheme,
     widgetPresentation: simpleWorkspaceWidgetPresentation,
     preview: { tags: ["VIP", "简洁", "知识工作区", "横向布局"] },
-    features: { banner: true, widgetAppearance: "theme-controlled" },
+    features: { banner: false, widgetAppearance: "theme-controlled" },
 };
 
 export default definition;

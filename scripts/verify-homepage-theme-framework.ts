@@ -11,6 +11,7 @@ import { resolveHomepageFooterPresentation } from "../src/homepage/theme/runtime
 import { classifyWidgetAppearance } from "../src/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 import { HomepagePersistentRegionManager } from "../src/homepage/theme/runtime/persistentRegionManager";
 import { resolveHomepageSectionNavigationActiveId } from "../src/homepage/theme/runtime/homepageSectionRuntime";
+import { supportsHomepageThemeBanner } from "../src/homepage/theme/runtime/themeFeatures";
 import {
     createDefaultButtons,
     normalizeButtonsList,
@@ -59,6 +60,8 @@ assert.equal(resolve("builtin.classic", false).effectiveThemeId, "builtin.classi
 assert.equal(resolve("builtin.classic", true).effectiveThemeId, "builtin.classic");
 assert.equal(resolve("builtin.simple-test", true).effectiveThemeId, "builtin.simple-test");
 assert.equal(resolve("builtin.simple-test", false).fallbackReason, "vip_required");
+assert.equal(supportsHomepageThemeBanner(classic), true, "API v1 themes that omit banner capability must keep legacy behavior");
+assert.equal(supportsHomepageThemeBanner({ ...simple, features: { banner: false } }), false, "Themes must be able to disable Banner before resource loading");
 const unsupportedRegistry = {
     get(id: string) {
         if (id === "builtin.classic") return classic;
@@ -226,10 +229,14 @@ assert.match(simpleThemeStyleSource, /--hp-content-max-width:\s*1500px/, "Simple
 assert.doesNotMatch(simpleThemeStyleSource, /hp-simple-sidebar/, "Simple workspace must use the horizontal knowledge-workspace hierarchy");
 assert.match(simpleThemeStyleSource, /hp-simple-header/, "Simple workspace must provide a horizontal identity/action header");
 assert.match(simpleThemeStyleSource, /\.hp-sections\s*\{[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;/s, "Horizontal section navigation must not expose a useless vertical scrollbar");
+assert.match(simpleThemeStyleSource, /\.hp-status__refresh\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/s, "Simple workspace status refresh must stay hidden until the status area is engaged");
+assert.match(simpleThemeStyleSource, /\.hp-status:hover\s+\.hp-status__refresh,[\s\S]*?\.hp-status:focus-within\s+\.hp-status__refresh,[\s\S]*?\.hp-status__refresh:focus-visible\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/s, "Simple workspace status refresh must reveal on hover and keyboard focus");
 assert.match(simpleThemeStyleSource, /--hp-page-bg:\s*var\(--b3-theme-background/, "Simple workspace must inherit the SiYuan theme palette");
 assert.doesNotMatch(simpleThemeStyleSource, /:root\[data-theme-mode=/, "Simple workspace must not define its own light or dark palette");
 const simpleThemeSource = readFileSync("src/homepage/theme/builtins/simple-test/SimpleTestTheme.svelte", "utf8");
 assert.doesNotMatch(simpleThemeSource, /HomepageBanner|banner\.enabled/, "Simple workspace must omit the banner presentation");
+const simpleThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/simple-test/definition.ts", "utf8");
+assert.match(simpleThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*false/, "Simple workspace must reject Banner before its resources are resolved");
 assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "tasks", activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "tasks");
 assert.equal(resolveHomepageSectionNavigationActiveId({ activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "notes");
 assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "missing", activeSectionId: "missing", sectionIds: ["notes", "tasks"] }), "notes");
@@ -269,6 +276,10 @@ assert.match(
     /await waitForPersistentRegionsMountable\(\)/,
     "Initial layout restore must wait for measurable persistent regions",
 );
+assert.match(homepageSource, /await plugin\?\.waitForHomepageEntitlementReady\?\.\(\)/, "Initial theme resolution must wait for entitlement readiness");
+assert.match(homepageSource, /hp-initial-region-stage[\s\S]*HomepageThemeRegion name="workspace"[\s\S]*HomepageThemeRegion name="footer"/, "Initial restore must use neutral measurable region anchors instead of a placeholder theme");
+assert.match(homepageSource, /if \(!initialWidgetGridReady\)[\s\S]*await revealInitializedHomepage\(\)/, "The real theme must remain covered until the first widget grid is calibrated");
+assert.match(homepageSource, /if \(themeSupportsBanner\)[\s\S]*resolveBannerImage\(/, "Banner resources must be gated by the effective theme capability");
 const activateThemeResolutionSource = homepageSource.slice(
     homepageSource.indexOf("function activateThemeResolution"),
     homepageSource.indexOf("function scheduleThemeRegionValidation"),
@@ -288,5 +299,10 @@ assert.match(homepageSource, /data-hp-widget-appearance-policy/, "Theme host mus
 const themeHostStyleSource = readFileSync("src/homepage/theme/style/theme-host.scss", "utf8");
 assert.doesNotMatch(themeHostStyleSource, /hp-core-parking\s*\{[^}]*display:\s*none/s, "Persistent Region parking must remain measurable");
 assert.match(themeHostStyleSource, /data-hp-widget-appearance-policy="theme-controlled"/, "Theme-controlled widget appearance policy is missing");
+assert.match(themeHostStyleSource, /hp-initial-theme-content\s*\{[^}]*opacity:\s*0;[^}]*visibility:\s*hidden;/s, "The unresolved theme must not flash before initial reveal");
+assert.match(themeHostStyleSource, /prefers-reduced-motion:\s*reduce/, "Initial loading motion must respect reduced-motion preferences");
+const initialLoadOverlaySource = readFileSync("src/homepage/theme/components/HomepageInitialLoadOverlay.svelte", "utf8");
+assert.match(initialLoadOverlaySource, /role=\"progressbar\"/, "Initial loading overlay must expose an accessible progress indicator");
+assert.match(initialLoadOverlaySource, /aria-busy=\{!failed\}/, "Initial loading overlay must expose its busy state");
 
 console.log("Homepage theme framework verification passed.");
