@@ -5,6 +5,12 @@ export const cardWidgetPresentation: WidgetPresentationManifest = Object.freeze(
     shell: Object.freeze({
         id: "card.elevated",
         variants: 3,
+        exclude: Object.freeze({
+            presentationIds: Object.freeze([
+                "card.workspace.native.pic-caro",
+            ]),
+            contentVariants: Object.freeze(["timedate.dial"]),
+        }),
         tokens: Object.freeze({
             background: "var(--hp-card-surface-raised)",
             border: "1px solid var(--hp-card-border)",
@@ -46,6 +52,7 @@ export const cardWidgetPresentation: WidgetPresentationManifest = Object.freeze(
         statisticalCard: Object.freeze({ id: "card.workspace.native.statistical-card", scope: "native" }),
         almanac: Object.freeze({ id: "card.workspace.native.almanac", scope: "native" }),
         PicCaro: Object.freeze({ id: "card.workspace.native.pic-caro", scope: "native" }),
+        timedate: Object.freeze({ id: "card.workspace.native.timedate", scope: "native" }),
     }),
     icons: Object.freeze({
         "documents.recent": "iconFile",

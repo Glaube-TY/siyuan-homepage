@@ -1574,6 +1574,41 @@ export async function getRootDocumentCandidates(maxRows = 200): Promise<Componen
     }
 }
 
+/**
+ * 返回至少包含一个有效内容块的根文档，供“随机漫游文档”使用。
+ *
+ * 文件树接口本身只返回文档元数据，无法区分空文档。先用它限定到已打开
+ * 笔记本中的根文档，再用一次批量 SQL 排除只有空段落的文档，避免漫游组件
+ * 看起来像加载失败。SQL 查询失败时保留文件树结果，确保旧内核仍可用。
+ */
+export async function getContentBearingRootDocumentCandidates(
+    maxRows = 200,
+): Promise<ComponentDocInfo[]> {
+    const docs = await getRootDocumentCandidates(maxRows);
+    const validDocs = docs.filter((doc) => /^\d{14}-[a-z0-9]{7}$/.test(doc.id));
+    if (validDocs.length === 0) return [];
+
+    try {
+        const quotedIds = validDocs.map((doc) => `'${doc.id}'`).join(", ");
+        const rows = await sql(`
+            SELECT DISTINCT root_id
+            FROM blocks
+            WHERE root_id IN (${quotedIds})
+              AND id != root_id
+              AND (type != 'p' OR trim(markdown) != '')
+        `);
+        const contentBearingIds = new Set(
+            rows
+                .map((row: any) => String(row?.root_id || ""))
+                .filter(Boolean),
+        );
+        const contentBearingDocs = validDocs.filter((doc) => contentBearingIds.has(doc.id));
+        return contentBearingDocs.length > 0 ? contentBearingDocs : validDocs;
+    } catch {
+        return validDocs;
+    }
+}
+
 export async function getRecentHeatmapCounts(
     startDate: string,
     endDate: string,

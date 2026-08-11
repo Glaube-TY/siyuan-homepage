@@ -81,6 +81,20 @@ const excludedShell = resolveWidgetPresentation({
 });
 assert.equal(excludedShell.shell?.state, "excluded", "主题必须能从统一外壳中排除指定 Widget");
 
+const excludedContentVariantShell = resolveWidgetPresentation({
+    themeId: "test.theme",
+    definition: semanticDefinition,
+    contentVariant: "timedate.dial",
+    manifest: {
+        contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
+        generic: { id: "test.generic" },
+        shell: { id: "test.sheet", exclude: { contentVariants: ["timedate.dial"] } },
+    },
+    classicManifest,
+});
+assert.equal(excludedContentVariantShell.contentVariant, "timedate.dial", "Presentation 必须保留实例内容形态语义");
+assert.equal(excludedContentVariantShell.shell?.state, "excluded", "主题必须能按实例内容形态排除外壳");
+
 const kind = resolveWidgetPresentation({
     themeId: "test.theme",
     definition: semanticDefinition,
@@ -132,6 +146,10 @@ assert.throws(
     () => validateWidgetPresentationManifest({ contractVersion: 1, shell: { id: "valid.shell", tokens: { background: "red;display:none" } } }),
     /安全的 CSS 值/,
 );
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 1, shell: { id: "valid.shell", exclude: { contentVariants: ["illegal variant"] } } }),
+    /contentVariants/,
+);
 
 function collectSourceFiles(directory: string): string[] {
     return readdirSync(directory).flatMap((name) => {
@@ -147,7 +165,7 @@ assert.equal(new Set(registeredTypes).size, registeredTypes.length, "Widget Defi
 for (const type of ["latest-docs", "favorites", "recent-journals", "TaskMan", "notebrain"]) {
     assert.ok(registeredTypes.includes(type), `Definition Registry 缺少 ${type}`);
 }
-for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements", "capabilities", "responsiveProfile"]) {
+for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements", "capabilities", "responsiveProfile", "resolveContentVariant"]) {
     assert.match(definitionSource, new RegExp(capability), `Widget Definition 缺少 ${capability}`);
 }
 
@@ -163,11 +181,13 @@ assert.equal([...scopeByType.values()].filter((scope) => scope === "native").len
 assert.match(definitionSource, /semanticParts: input\.scope !== "native"/, "full/chrome 必须启用 semanticParts，native 必须保持关闭");
 
 const mountSource = readFileSync("src/components/utils/widgetBlock/widgetMountRegistry.ts", "utf8");
-for (const attribute of ["widgetType", "widgetKind", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope", "hpWidgetShellState", "hpWidgetShellVariant"]) {
+for (const attribute of ["widgetType", "widgetKind", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope", "widgetContentVariant", "hpWidgetShellState", "hpWidgetShellVariant"]) {
     const combined = mountSource + readFileSync("src/homepage/theme/widgetPresentation/runtime.ts", "utf8");
     assert.match(combined, new RegExp(attribute), `挂载运行时缺少 ${attribute}`);
 }
 assert.match(mountSource, /getWidgetDefinition/, "Widget 挂载必须经过统一 Definition Registry");
+assert.match(mountSource, /applyWidgetPresentation\(target, definition, placement, contentData\)/, "Widget 挂载必须把实例配置交给 Presentation 内容形态解析器");
+assert.match(definitionSource, /timedate\.dial/, "时间日期 Widget 必须声明表盘内容形态语义");
 
 const homepageSource = readFileSync("src/homepage/homepage.svelte", "utf8");
 const syncCall = homepageSource.slice(homepageSource.indexOf("syncHomepageWidgetPresentations") - 100, homepageSource.indexOf("syncHomepageWidgetPresentations") + 220);
@@ -289,11 +309,25 @@ assert.match(cardWidgetThemeStyles, /data-widget-placement="homepage"/, "纯卡�
 assert.match(cardWidgetThemeStyles, /data-widget-presentation-scope="full"/, "纯卡片主题 Kind Presentation 必须限制到 full scope");
 assert.doesNotMatch(cardWidgetThemeStyles, /builtin\.(?:simple-test|paper|hand-drawn)|(?:simple|paper|hand-drawn)\.workspace/, "纯卡片主题 Widget Presentation 不得依赖其他内置主题");
 assert.match(cardWidgetThemeStyles, /data-hp-widget-shell="card\.elevated"/, "纯卡片 Widget 阴影与圆角必须绑定注册外壳语义");
-assert.match(cardWidgetThemeStyles, /border-radius:\s*18px[\s\S]*box-shadow:\s*var\(--hp-card-shadow-widget\)/, "纯卡片 Widget 必须具备醒目的圆角和分层阴影");
+assert.match(cardWidgetThemeStyles, /--hp-card-widget-shadow:\s*var\(--hp-card-shadow-widget\)/, "纯卡片 Widget 必须从主题令牌继承默认分层阴影");
+assert.match(cardWidgetThemeStyles, /border-radius:\s*18px[\s\S]*box-shadow:\s*var\(--hp-card-widget-shadow\)/, "纯卡片 Widget 必须具备醒目的圆角和可变分层阴影");
+assert.match(cardWidgetThemeStyles, /data-hp-widget-shell-variant="2"/, "纯卡片主题必须实现稳定外壳变体 2");
+assert.match(cardWidgetThemeStyles, /data-hp-widget-shell-variant="3"/, "纯卡片主题必须实现稳定外壳变体 3");
+assert.match(cardManifest, /exclude:[\s\S]*card\.workspace\.native\.pic-caro/, "纯卡片主题必须通过 Manifest 排除全出血图片轮播外壳");
+assert.match(cardManifest, /contentVariants:[\s\S]*timedate\.dial/, "纯卡片主题必须只按实例内容形态排除仿真表盘外壳");
+for (const presentation of ["native.weather", "native.stikynot", "native.statistical-card", "native.almanac"]) {
+    assert.doesNotMatch(
+        cardManifest.slice(cardManifest.indexOf("exclude:"), cardManifest.indexOf("tokens:")),
+        new RegExp(`card\\.workspace\\.${presentation}`),
+        `纯卡片主题不应排除 ${presentation} 外壳`,
+    );
+}
 assert.doesNotMatch(cardWidgetThemeStyles, /data-hp-widget-shell="card\.elevated"[^}]*::before/, "纯卡片 Widget 不得添加装饰性顶部黑条");
-for (const presentation of ["recent-journals", "review-docs", "enhanced-diary", "native.statistical-card"]) {
+for (const presentation of ["recent-journals", "review-docs", "enhanced-diary", "native.weather", "native.stikynot", "native.statistical-card", "native.almanac"]) {
     assert.match(cardWidgetThemeStyles, new RegExp(`card\\.workspace\\.${presentation}`), `纯卡片主题缺少 ${presentation} 的专项适配`);
 }
+assert.match(cardWidgetThemeStyles, /card\.workspace\.taskman-plus[\s\S]*flex:\s*0 0 auto/, "任务管理 Plus 的多行任务项不得在滚动容器中收缩重叠");
+assert.match(cardWidgetThemeStyles, /card\.workspace\.taskman-plus[\s\S]*white-space:\s*normal/, "任务管理 Plus 元数据必须恢复独立的多行布局上下文");
 
 const classicDefinition = readFileSync("src/homepage/theme/builtins/classic/definition.ts", "utf8");
 const simpleDefinition = readFileSync("src/homepage/theme/builtins/simple-test/definition.ts", "utf8");

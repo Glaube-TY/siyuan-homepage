@@ -84,6 +84,9 @@ function validateShell(shell: unknown): asserts shell is WidgetShellDefinition {
         if (value.exclude.scopes !== undefined) {
             validateStringArray(value.exclude.scopes, "widgetPresentation.shell.exclude.scopes", (scope) => PRESENTATION_SCOPES.has(scope as WidgetPresentationScope));
         }
+        if (value.exclude.contentVariants !== undefined) {
+            validateStringArray(value.exclude.contentVariants, "widgetPresentation.shell.exclude.contentVariants", (variant) => PRESENTATION_ID_PATTERN.test(variant));
+        }
     }
 }
 
@@ -140,6 +143,7 @@ function freezeManifest(manifest: WidgetPresentationManifest): WidgetPresentatio
                 kinds: manifest.shell.exclude.kinds ? Object.freeze([...manifest.shell.exclude.kinds]) : undefined,
                 presentationIds: manifest.shell.exclude.presentationIds ? Object.freeze([...manifest.shell.exclude.presentationIds]) : undefined,
                 scopes: manifest.shell.exclude.scopes ? Object.freeze([...manifest.shell.exclude.scopes]) : undefined,
+                contentVariants: manifest.shell.exclude.contentVariants ? Object.freeze([...manifest.shell.exclude.contentVariants]) : undefined,
             }) : undefined,
         }) : undefined,
     });

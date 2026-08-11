@@ -40,6 +40,7 @@ import {
     type WidgetKind,
     type WidgetPlacement,
     type WidgetPresentationScope,
+    type WidgetContentVariantResolver,
 } from "@/homepage/theme/widgetPresentation/types";
 import type { Component } from "svelte";
 import { getHistoricalWidgetTitles } from "@/homepage/theme/widgetPresentation/titleCompatibility";
@@ -64,6 +65,7 @@ type DefinitionInput = {
     scope: WidgetPresentationScope;
     stateful?: boolean;
     placements?: readonly WidgetPlacement[];
+    contentVariant?: WidgetContentVariantResolver;
 };
 
 function defineWidget(input: DefinitionInput): WidgetDefinition {
@@ -89,6 +91,7 @@ function defineWidget(input: DefinitionInput): WidgetDefinition {
         historicalDefaultTitles: historicalDefaultTitles
             ? Object.freeze([...historicalDefaultTitles])
             : undefined,
+        resolveContentVariant: input.contentVariant,
     });
 }
 
@@ -114,7 +117,20 @@ export function validateWidgetDefinition(definition: WidgetDefinition): void {
     if (definition.responsiveProfile && definition.responsiveProfile.compact >= definition.responsiveProfile.wide) {
         throw new Error(`Widget ${definition.type} 的 responsiveProfile 断点顺序非法`);
     }
+    if (definition.resolveContentVariant !== undefined && typeof definition.resolveContentVariant !== "function") {
+        throw new Error(`Widget ${definition.type} 的 resolveContentVariant 必须是函数`);
+    }
 }
+
+const resolveTimedateContentVariant: WidgetContentVariantResolver = (content) => {
+    if (!content || typeof content !== "object" || Array.isArray(content)) return "timedate.standard";
+    const data = (content as { data?: unknown }).data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) return "timedate.standard";
+    const timeType = (data as { timeType?: unknown }).timeType;
+    return typeof timeType === "string" && /^dial[1-9]$/.test(timeType)
+        ? "timedate.dial"
+        : "timedate.standard";
+};
 
 export class WidgetDefinitionRegistry {
     readonly #definitions = new Map<string, WidgetDefinition>();
@@ -146,7 +162,7 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
     defineWidget({ type: "custom-text", kind: "custom", scope: "native", component: customText, label: "文字内容", icon: "note", stateful: false }),
     defineWidget({ type: "custom-web", kind: "embed", scope: "native", component: customWeb, label: "网页浏览器", icon: "embed", stateful: false }),
     defineWidget({ type: "custom-protyle", kind: "embed", scope: "native", component: customProtyle, label: "文档编辑器", icon: "documents", plugin: true }),
-    defineWidget({ type: "timedate", kind: "calendar", scope: "native", component: timedate, label: "时间日期", icon: "calendar", plugin: true }),
+    defineWidget({ type: "timedate", kind: "calendar", scope: "native", component: timedate, label: "时间日期", icon: "calendar", plugin: true, contentVariant: resolveTimedateContentVariant }),
     defineWidget({ type: "focus", kind: "utility", scope: "native", component: focus, label: "专注计时", icon: "utility", plugin: true }),
     defineWidget({ type: "sql", kind: "chart", scope: "chrome", component: sql, label: "SQL 查询", icon: "chart", plugin: true }),
     defineWidget({ type: "TaskManPlus", kind: "task", scope: "full", component: TaskManPlus, label: "任务管理 Plus", icon: "tasks", plugin: true }),

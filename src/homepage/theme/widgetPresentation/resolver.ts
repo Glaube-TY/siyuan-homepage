@@ -13,6 +13,7 @@ import type {
 interface ResolveWidgetPresentationOptions {
     themeId: string;
     definition: WidgetDefinition;
+    contentVariant?: string;
     manifest?: WidgetPresentationManifest;
     classicManifest?: WidgetPresentationManifest;
 }
@@ -35,7 +36,8 @@ function resolveShell(
         exclude?.widgetTypes?.includes(options.definition.type)
         || exclude?.kinds?.includes(options.definition.kind)
         || exclude?.presentationIds?.includes(presentationId)
-        || exclude?.scopes?.includes(scope),
+        || exclude?.scopes?.includes(scope)
+        || exclude?.contentVariants?.includes(options.contentVariant ?? ""),
     );
     return Object.freeze({
         id: shell.id,
@@ -64,6 +66,7 @@ function resolved(
         level,
         semanticLabel: options.definition.semanticLabel,
         semanticIcon: options.definition.semanticIcon,
+        contentVariant: options.contentVariant,
         resolvedIcon: resolveWidgetPresentationIcon(options.definition.semanticIcon, options.manifest),
         renderer: renderer?.component,
         shell: resolveShell(options, descriptor.id, scope),
@@ -100,7 +103,11 @@ export function resolveWidgetPresentation(options: ResolveWidgetPresentationOpti
     return resolved(options, { id: "compat.legacy" }, "legacy", "legacy", trail);
 }
 
-export function resolveLegacyWidgetPresentation(themeId: string, definition: WidgetDefinition): ResolvedWidgetPresentation {
+export function resolveLegacyWidgetPresentation(
+    themeId: string,
+    definition: WidgetDefinition,
+    contentVariant?: string,
+): ResolvedWidgetPresentation {
     return Object.freeze({
         themeId,
         widgetType: definition.type,
@@ -111,6 +118,7 @@ export function resolveLegacyWidgetPresentation(themeId: string, definition: Wid
         level: "legacy",
         semanticLabel: definition.semanticLabel,
         semanticIcon: definition.semanticIcon,
+        contentVariant,
         resolvedIcon: resolveWidgetPresentationIcon(definition.semanticIcon),
         shell: undefined,
         fallbackTrail: Object.freeze(["legacy"] as WidgetPresentationLevel[]),

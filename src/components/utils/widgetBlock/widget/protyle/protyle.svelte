@@ -1,7 +1,7 @@
 <script lang="ts">
-    import { onDestroy, onMount } from "svelte";
+    import { onDestroy, onMount, tick } from "svelte";
     import { Protyle } from "siyuan";
-    import { getRootDocumentCandidates } from "@/components/tools/siyuanComponentDataApi";
+    import { getContentBearingRootDocumentCandidates } from "@/components/tools/siyuanComponentDataApi";
     import { openDocs } from "@/components/tools/openDocs";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import { isValidSiyuanNodeId } from "../../utils/widget-instance-utils";
@@ -9,14 +9,16 @@
 
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
     let isDestroyed = false;
+    let isMounted = $state(false);
+    let sourceGeneration = 0;
     let protyleGeneration = 0;
+    let protyleFrame = 0;
 
     onDestroy(() => {
         isDestroyed = true;
-        if (protyle) {
-            try { protyle.destroy(); } catch (e) { console.warn("[Protyle] destroy failed:", e); }
-            protyle = null;
-        }
+        isMounted = false;
+        sourceGeneration += 1;
+        destroyProtyle();
     });
 
     interface Props {
@@ -35,7 +37,7 @@
     }
 
     const parsed = $derived(parseContentTypeJson(contentTypeJson));
-    const configuredBlockID = $derived(parsed.data?.[0]?.customBlockId || "");
+    const configuredBlockID = $derived(String(parsed.data?.[0]?.customBlockId || "").trim());
     const isRandomDoc = $derived(Boolean(parsed.data?.[0]?.isRandomDoc));
     const displayConfig = $derived(normalizeProtyleDisplayConfig(parsed.data?.[0]));
     const protyleOptionsKey = $derived(JSON.stringify({
@@ -43,46 +45,62 @@
         showDocumentTitle: displayConfig.showDocumentTitle,
     }));
     let blockID = $state("");
-    let lastConfiguredBlockID = $state("");
 
-    // ID变化时销毁旧实例
+    // 文档来源变化时更新目标。漫游结果异步返回，generation 用于丢弃旧请求。
     $effect(() => {
-        if (configuredBlockID === lastConfiguredBlockID) {
-            return;
+        if (!isMounted) return;
+
+        const generation = ++sourceGeneration;
+        if (isRandomDoc) {
+            blockID = "";
+            void getRandomDocID(generation);
+        } else {
+            blockID = configuredBlockID;
         }
-        lastConfiguredBlockID = configuredBlockID;
-        if (protyle) {
-            try { protyle.destroy(); } catch (e) { console.warn("[Protyle] destroy on ID change failed:", e); }
-            protyle = null;
-        }
-        blockID = configuredBlockID;
     });
 
-    // blockID变化时重建实例
+    // 只在组件挂载、bind:this 与布局稳定后创建编辑器。
     $effect(() => {
         void protyleOptionsKey;
-        if (!blockID) return;
-        if (!isValidSiyuanNodeId(blockID)) return;
+        if (!isMounted || !blockID || !isValidSiyuanNodeId(blockID)) {
+            destroyProtyle();
+            return;
+        }
         destroyAndCreateProtyle(blockID);
     });
 
     let divProtyle: HTMLDivElement = $state();
     let protyle: any;
 
-    function destroyAndCreateProtyle(validId: string): void {
+    function destroyProtyle(): void {
+        protyleGeneration += 1;
+        if (protyleFrame) {
+            window.cancelAnimationFrame(protyleFrame);
+            protyleFrame = 0;
+        }
         if (protyle) {
             try { protyle.destroy(); } catch (e) { console.warn("[Protyle] destroy failed:", e); }
             protyle = null;
         }
+        if (divProtyle) {
+            divProtyle.replaceChildren();
+        }
+    }
+
+    function destroyAndCreateProtyle(validId: string): void {
+        destroyProtyle();
         if (!validId || !isValidSiyuanNodeId(validId) || isDestroyed) return;
         if (!divProtyle || !divProtyle.isConnected) return;
         const gen = ++protyleGeneration;
-        queueMicrotask(() => {
+        protyleFrame = window.requestAnimationFrame(() => {
+            protyleFrame = 0;
             if (gen !== protyleGeneration || isDestroyed) return;
             if (!divProtyle || !divProtyle.isConnected) return;
             try {
+                divProtyle.replaceChildren();
                 protyle = new Protyle(plugin.app, divProtyle, {
                     blockId: validId as string,
+                    mode: "wysiwyg",
                     render: {
                         breadcrumb: displayConfig.showBreadcrumb,
                         title: displayConfig.showDocumentTitle,
@@ -96,21 +114,20 @@
 
     onMount(async () => {
         isDestroyed = false;
-        if (isRandomDoc) {
-            await getRandomDocID();
-            if (isDestroyed) return;
-        }
+        await tick();
+        if (isDestroyed) return;
+        isMounted = true;
     });
 
-    async function getRandomDocID(): Promise<void> {
-        const docs = await getRootDocumentCandidates(200);
-        if (isDestroyed || docs.length === 0) {
+    async function getRandomDocID(generation: number): Promise<void> {
+        const docs = await getContentBearingRootDocumentCandidates(200);
+        if (isDestroyed || generation !== sourceGeneration || docs.length === 0) {
             return;
         }
-        const candidate = docs.find((doc) => isValidSiyuanNodeId(doc.id));
-        if (candidate) {
-            blockID = candidate.id;
-        }
+        const candidates = docs.filter((doc) => isValidSiyuanNodeId(doc.id));
+        if (candidates.length === 0) return;
+        const candidate = candidates[Math.floor(Math.random() * candidates.length)];
+        blockID = candidate.id;
     }
 </script>
 

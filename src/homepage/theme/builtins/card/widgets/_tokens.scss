@@ -8,8 +8,9 @@
     --hp-widget-body-size: 13px;
     --hp-widget-meta-size: 12px;
     --hp-widget-row-height: 44px;
-    --hp-widget-divider: var(--hp-card-border);
-    --hp-widget-hover: color-mix(in srgb, var(--hp-card-accent) 8%, var(--hp-card-surface-raised));
-    --hp-widget-icon-bg: color-mix(in srgb, var(--hp-card-accent) 11%, var(--hp-card-surface-raised));
-    --hp-widget-note-line: color-mix(in srgb, var(--hp-card-accent) 10%, transparent);
+    --hp-widget-divider: var(--hp-card-divider);
+    --hp-widget-hover: color-mix(in srgb, var(--hp-card-accent) 7%, var(--hp-card-surface-raised));
+    --hp-widget-pressed: color-mix(in srgb, var(--hp-card-accent) 11%, var(--hp-card-surface-raised));
+    --hp-widget-icon-bg: color-mix(in srgb, var(--hp-card-accent) 10%, var(--hp-card-surface-raised));
+    --hp-widget-state-bg: var(--hp-card-surface-sunken);
 }

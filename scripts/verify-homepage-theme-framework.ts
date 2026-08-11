@@ -229,7 +229,16 @@ for (const action of ["addWidget", "settings"]) {
 const widgetBlockSource = readFileSync("src/components/utils/widgetBlock/WidgetBlock.ts", "utf8");
 assert.match(widgetBlockSource, /\[data-widget-native-context-menu\]/, "Widget context menu must expose a native-menu escape attribute");
 assert.match(widgetBlockSource, /target\.closest\(WIDGET_NATIVE_CONTEXT_MENU_SELECTOR\)/, "Widget context menu must ignore interactive descendants");
-assert.doesNotMatch(widgetBlockSource, /addEventListener\("contextmenu",\s*this\.handleContextMenu,\s*true\)/, "Widget context menu must not intercept descendants during capture");
+for (const eventName of ["mousedown", "mouseup", "contextmenu"]) {
+    assert.match(widgetBlockSource, new RegExp(`window\\.addEventListener\\("${eventName}",\\s*WidgetBlock\\.handleWindowForcedContextMenuGesture,\\s*true\\)`), `Widget context menu must capture Alt + right-click ${eventName} before embedded editors`);
+    assert.match(widgetBlockSource, new RegExp(`window\\.removeEventListener\\("${eventName}",\\s*WidgetBlock\\.handleWindowForcedContextMenuGesture,\\s*true\\)`), `Widget forced ${eventName} listener must be removed with matching capture options`);
+}
+assert.match(widgetBlockSource, /window\.addEventListener\("keyup",\s*WidgetBlock\.handleWindowForcedContextMenuKeyUp,\s*true\)/, "Focused Protyle Alt gestures must wait for the Alt keyup capture");
+assert.match(widgetBlockSource, /window\.removeEventListener\("keyup",\s*WidgetBlock\.handleWindowForcedContextMenuKeyUp,\s*true\)/, "Forced Alt keyup listener must be removed with matching capture options");
+assert.match(widgetBlockSource, /addEventListener\("contextmenu",\s*this\.handleContextMenu\)/, "Ordinary widget context menus must retain their bubble-phase listener");
+assert.match(widgetBlockSource, /handleWindowForcedContextMenuGesture[\s\S]*!event\.altKey\s*\|\|\s*event\.button\s*!==\s*2[\s\S]*event\.stopImmediatePropagation\(\)/, "Only Alt + right-click may bypass native editor menus, and it must stop Protyle before the target phase");
+assert.match(widgetBlockSource, /event\.type\s*===\s*"contextmenu"\s*&&\s*this\.forcedContextMenuGestureActive[\s\S]*event\.type\s*===\s*"mouseup"[\s\S]*pendingForcedContextMenuWidget\s*=\s*this/, "Forced widget menu must wait for the complete right-click gesture before opening");
+assert.match(widgetBlockSource, /handleWindowForcedContextMenuKeyUp[\s\S]*event\.key\s*!==\s*"Alt"[\s\S]*widget\.scheduleForcedContextMenu\(\)/, "Forced widget menu must open only after focused Protyle finishes Alt keyup");
 assert.match(widgetBlockSource, /"组件大小"\s*:\s*"样式设置"/, "Widget context menu must describe theme-controlled appearance accurately");
 
 const themeTypesSource = readFileSync("src/homepage/theme/api/types.ts", "utf8");

@@ -11,6 +11,7 @@ import { resolveWidgetShellVariant } from "./shell";
 type PresentationListener = (context: WidgetPresentationContext) => void;
 const PRESENTATION_CONTEXTS = new WeakMap<HTMLElement, WidgetPresentationContext>();
 const PRESENTATION_LISTENERS = new WeakMap<HTMLElement, Set<PresentationListener>>();
+const CONTENT_VARIANT_PATTERN = /^[a-z0-9][a-z0-9._-]{1,95}$/;
 
 function isReducedMotion(): boolean {
     return typeof window !== "undefined"
@@ -59,6 +60,8 @@ function exposePresentation(element: HTMLElement, resolved: ResolvedWidgetPresen
     element.dataset.widgetPresentationScope = resolved.scope;
     element.dataset.widgetPresentationMode = resolved.mode;
     element.dataset.widgetPresentationLevel = resolved.level;
+    if (resolved.contentVariant) element.dataset.widgetContentVariant = resolved.contentVariant;
+    else delete element.dataset.widgetContentVariant;
     if (resolved.resolvedIcon) element.dataset.widgetPresentationIcon = resolved.resolvedIcon;
     else delete element.dataset.widgetPresentationIcon;
     if (resolved.shell) {
@@ -86,11 +89,34 @@ export function applyWidgetPresentation(
     element: HTMLElement,
     definition: WidgetDefinition,
     placement: WidgetPlacement = "homepage",
+    contentConfig?: unknown,
 ): WidgetPresentationContext {
     const root = presentationRoot(element);
     const themeId = root?.dataset.hpTheme || CLASSIC_HOMEPAGE_THEME_ID;
+    let contentVariant = element.dataset.widgetContentVariant;
+    if (contentConfig !== undefined) {
+        contentVariant = undefined;
+        try {
+            const candidate = definition.resolveContentVariant?.(contentConfig);
+            if (candidate !== undefined) {
+                if (!CONTENT_VARIANT_PATTERN.test(candidate)) {
+                    console.warn("[WidgetPresentation] Widget content variant 非法，已忽略", {
+                        widgetType: definition.type,
+                        contentVariant: candidate,
+                    });
+                } else {
+                    contentVariant = candidate;
+                }
+            }
+        } catch (error) {
+            console.error("[WidgetPresentation] Widget content variant 解析失败，已忽略", {
+                widgetType: definition.type,
+                error,
+            });
+        }
+    }
     if (placement !== "homepage" || !root) {
-        return exposePresentation(element, resolveLegacyWidgetPresentation(themeId, definition), placement);
+        return exposePresentation(element, resolveLegacyWidgetPresentation(themeId, definition, contentVariant), placement);
     }
 
     try {
@@ -99,6 +125,7 @@ export function applyWidgetPresentation(
         return exposePresentation(element, resolveWidgetPresentation({
             themeId,
             definition,
+            contentVariant,
             manifest,
             classicManifest,
         }), placement);
@@ -110,7 +137,7 @@ export function applyWidgetPresentation(
             level: "legacy",
             error,
         });
-        return exposePresentation(element, resolveLegacyWidgetPresentation(themeId, definition), placement);
+        return exposePresentation(element, resolveLegacyWidgetPresentation(themeId, definition, contentVariant), placement);
     }
 }
 

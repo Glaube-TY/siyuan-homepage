@@ -39,6 +39,67 @@ const WIDGET_NATIVE_CONTEXT_MENU_SELECTOR = [
 ].join(",");
 
 export class WidgetBlock {
+    private static forcedContextMenuRouterUsers = 0;
+    private static pendingForcedContextMenuWidget: WidgetBlock | null = null;
+
+    private static readonly handleWindowForcedContextMenuGesture = (event: MouseEvent): void => {
+        if (!event.altKey || event.button !== 2) return;
+
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const widgetElement = target.closest<HTMLElement>(".widget-block");
+        const widget = (widgetElement as any)?.__widgetBlockInstance;
+        if (!(widget instanceof WidgetBlock)) return;
+
+        // 必须在 window 捕获阶段截断。Protyle 的正文 contextmenu 会操作思源的
+        // 全局单例菜单；等事件抵达组件元素再阻止已经太晚，菜单会相互覆盖。
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        widget.handleForcedContextMenuGesture(event);
+    };
+
+    private static readonly handleWindowForcedContextMenuKeyUp = (event: KeyboardEvent): void => {
+        if (event.key !== "Alt") return;
+
+        const widget = WidgetBlock.pendingForcedContextMenuWidget;
+        WidgetBlock.pendingForcedContextMenuWidget = null;
+        if (!widget) return;
+
+        // 此监听位于捕获阶段，但真正打开使用 setTimeout；因此 Protyle 的目标/冒泡
+        // keyup 会先完整执行并收尾其工具栏与菜单状态，之后组件菜单才出现。
+        widget.scheduleForcedContextMenu();
+    };
+
+    private static readonly handleWindowForcedContextMenuBlur = (): void => {
+        WidgetBlock.pendingForcedContextMenuWidget = null;
+    };
+
+    private static retainForcedContextMenuRouter(): void {
+        if (WidgetBlock.forcedContextMenuRouterUsers === 0) {
+            window.addEventListener("mousedown", WidgetBlock.handleWindowForcedContextMenuGesture, true);
+            window.addEventListener("mouseup", WidgetBlock.handleWindowForcedContextMenuGesture, true);
+            window.addEventListener("contextmenu", WidgetBlock.handleWindowForcedContextMenuGesture, true);
+            window.addEventListener("keyup", WidgetBlock.handleWindowForcedContextMenuKeyUp, true);
+            window.addEventListener("blur", WidgetBlock.handleWindowForcedContextMenuBlur, true);
+        }
+        WidgetBlock.forcedContextMenuRouterUsers += 1;
+    }
+
+    private static releaseForcedContextMenuRouter(): void {
+        WidgetBlock.forcedContextMenuRouterUsers = Math.max(
+            0,
+            WidgetBlock.forcedContextMenuRouterUsers - 1,
+        );
+        if (WidgetBlock.forcedContextMenuRouterUsers === 0) {
+            window.removeEventListener("mousedown", WidgetBlock.handleWindowForcedContextMenuGesture, true);
+            window.removeEventListener("mouseup", WidgetBlock.handleWindowForcedContextMenuGesture, true);
+            window.removeEventListener("contextmenu", WidgetBlock.handleWindowForcedContextMenuGesture, true);
+            window.removeEventListener("keyup", WidgetBlock.handleWindowForcedContextMenuKeyUp, true);
+            window.removeEventListener("blur", WidgetBlock.handleWindowForcedContextMenuBlur, true);
+            WidgetBlock.pendingForcedContextMenuWidget = null;
+        }
+    }
+
     public element: HTMLElement;
     public readonly id: string;
     public style: string;
@@ -46,6 +107,11 @@ export class WidgetBlock {
     public widgetLayoutNumber: number = 4;
 
     private readonly plugin: any;
+    private forcedContextMenuRouterRetained = false;
+    private forcedContextMenuGestureActive = false;
+    private forcedContextMenuTimer = 0;
+    private forcedContextMenuX = 0;
+    private forcedContextMenuY = 0;
     private readonly currentBlockForSettingsRef: { value: HTMLElement | null };
     private runtimeOptions: HomepageLayoutRuntimeOptions;
     private mountedWidget: Record<string, any> | null = null;
@@ -106,6 +172,17 @@ export class WidgetBlock {
     // 公开销毁方法：统一清理 widget 实例
     public destroy(): void {
         this.element.removeEventListener("contextmenu", this.handleContextMenu);
+        if (this.forcedContextMenuTimer) {
+            window.clearTimeout(this.forcedContextMenuTimer);
+            this.forcedContextMenuTimer = 0;
+        }
+        if (this.forcedContextMenuRouterRetained) {
+            if (WidgetBlock.pendingForcedContextMenuWidget === this) {
+                WidgetBlock.pendingForcedContextMenuWidget = null;
+            }
+            WidgetBlock.releaseForcedContextMenuRouter();
+            this.forcedContextMenuRouterRetained = false;
+        }
         this.cleanupMountedWidget();
         (this.element as any).__widgetBlockInstance = null;
     }
@@ -233,18 +310,66 @@ export class WidgetBlock {
     }
 
     private setupEventListeners(): void {
+        // Alt + 右键由共享的 window 捕获路由处理，早于 Protyle 的正文监听。
+        // 普通右键仍保留冒泡监听和编辑器放行规则。
+        if (!this.forcedContextMenuRouterRetained) {
+            WidgetBlock.retainForcedContextMenuRouter();
+            this.forcedContextMenuRouterRetained = true;
+        }
         this.element.addEventListener("contextmenu", this.handleContextMenu);
+    }
+
+    private handleForcedContextMenuGesture(event: MouseEvent): void {
+        this.forcedContextMenuX = event.clientX;
+        this.forcedContextMenuY = event.clientY;
+
+        if (event.type === "mousedown") {
+            WidgetBlock.pendingForcedContextMenuWidget = null;
+            this.forcedContextMenuGestureActive = true;
+            if (this.forcedContextMenuTimer) {
+                window.clearTimeout(this.forcedContextMenuTimer);
+                this.forcedContextMenuTimer = 0;
+            }
+            return;
+        }
+
+        if (event.type === "contextmenu" && this.forcedContextMenuGestureActive) {
+            // Chromium/平台可能在 mouseup 前派发 contextmenu。此时先记住坐标，
+            // 统一等 mouseup，避免后续抬键逻辑把刚打开的菜单关闭。
+            return;
+        }
+
+        if (event.type === "mouseup") {
+            this.forcedContextMenuGestureActive = false;
+        }
+
+        // Alt 仍按下时不创建菜单。聚焦的 Protyle 会在 Alt keyup 中刷新全局菜单，
+        // 若提前打开，组件菜单就会一闪而过。统一交给 keyup 收尾后再打开。
+        WidgetBlock.pendingForcedContextMenuWidget = this;
+    }
+
+    private scheduleForcedContextMenu(): void {
+        if (this.forcedContextMenuTimer) {
+            window.clearTimeout(this.forcedContextMenuTimer);
+        }
+        this.forcedContextMenuTimer = window.setTimeout(() => {
+            this.forcedContextMenuTimer = 0;
+            if (this.element.isConnected) {
+                this.openContextMenu(this.forcedContextMenuX, this.forcedContextMenuY);
+            }
+        }, 0);
     }
 
     private readonly handleContextMenu = (event: MouseEvent): void => {
         const target = event.target;
-        if (!(target instanceof Element) || target.closest(WIDGET_NATIVE_CONTEXT_MENU_SELECTOR)) {
-            return;
-        }
+        if (!(target instanceof Element) || target.closest(WIDGET_NATIVE_CONTEXT_MENU_SELECTOR)) return;
 
         event.preventDefault();
         event.stopPropagation();
+        this.openContextMenu(event.clientX, event.clientY);
+    };
 
+    private openContextMenu(clientX: number, clientY: number): void {
         const menu = new Menu("homepage-widget-context-menu");
         menu.addItem({
             icon: "iconSettings",
@@ -272,13 +397,13 @@ export class WidgetBlock {
         });
 
         const rect = this.element.getBoundingClientRect();
-        const openedFromKeyboard = event.clientX === 0 && event.clientY === 0;
+        const openedFromKeyboard = clientX === 0 && clientY === 0;
         menu.open({
-            x: openedFromKeyboard ? rect.right : event.clientX,
-            y: openedFromKeyboard ? rect.top + 8 : event.clientY,
+            x: openedFromKeyboard ? rect.right : clientX,
+            y: openedFromKeyboard ? rect.top + 8 : clientY,
             isLeft: false,
         });
-    };
+    }
 
     private resolveAppearancePolicy(): "theme-controlled" | "user-configurable" {
         return this.element
@@ -326,7 +451,7 @@ export class WidgetBlock {
         if (!confirmed) return;
 
         if (this.isNewInstance && !this.draftConfigPersisted) {
-            this.cleanupMountedWidget();
+            this.destroy();
             this.element.remove();
             this.currentBlockForSettingsRef.value = null;
             showMessage("组件已从当前界面删除", 3000);
@@ -340,7 +465,7 @@ export class WidgetBlock {
             );
             if (result.status === "success" || result.status === "layoutCommittedConfigRetained") {
                 try {
-                    this.cleanupMountedWidget();
+                    this.destroy();
                 } catch (error) {
                     console.warn("[WidgetBlock] destroy failed after delete:", error);
                 }

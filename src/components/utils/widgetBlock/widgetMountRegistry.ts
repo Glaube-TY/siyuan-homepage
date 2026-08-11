@@ -52,7 +52,7 @@ export function mountWidgetContent(
         .filter((className) => className.startsWith("widget-type-"))
         .forEach((className) => target.classList.remove(className));
     target.classList.add(`widget-type-${sanitizeWidgetTypeClass(widgetType)}`);
-    const presentation = applyWidgetPresentation(target, definition, placement);
+    const presentation = applyWidgetPresentation(target, definition, placement, contentData);
 
     const props: Record<string, any> = { contentTypeJson };
     if (definition.requiresPlugin) props.plugin = plugin;

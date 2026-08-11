@@ -54,6 +54,8 @@ export interface WidgetResponsiveProfile {
     wide: number;
 }
 
+export type WidgetContentVariantResolver = (content: unknown) => string | undefined;
+
 export interface WidgetDefinition {
     type: string;
     kind: WidgetKind;
@@ -67,6 +69,11 @@ export interface WidgetDefinition {
     presentationContractVersion?: typeof WIDGET_PRESENTATION_CONTRACT_VERSION;
     responsiveProfile?: Readonly<WidgetResponsiveProfile>;
     historicalDefaultTitles?: readonly string[];
+    /**
+     * 从实例配置解析稳定的内容形态语义，例如 timedate.dial。
+     * 主题只消费解析后的语义，不直接读取组件私有配置或 DOM 结构。
+     */
+    resolveContentVariant?: WidgetContentVariantResolver;
 }
 
 export type WidgetPresentationMode = "specific" | "kind" | "generic" | "semantic" | "classic" | "legacy";
@@ -102,6 +109,7 @@ export interface WidgetShellExclusions {
     kinds?: readonly WidgetKind[];
     presentationIds?: readonly string[];
     scopes?: readonly WidgetPresentationScope[];
+    contentVariants?: readonly string[];
 }
 
 export interface WidgetShellDefinition {
@@ -138,6 +146,7 @@ export interface ResolvedWidgetPresentation {
     readonly level: WidgetPresentationLevel;
     readonly semanticLabel: string;
     readonly semanticIcon: string;
+    readonly contentVariant?: string;
     readonly resolvedIcon?: string;
     readonly renderer?: Component<any>;
     readonly shell?: ResolvedWidgetShell;
