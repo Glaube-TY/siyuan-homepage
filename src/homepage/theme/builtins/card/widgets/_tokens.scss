@@ -1,0 +1,15 @@
+.homepage-container[data-hp-theme="builtin.card"] {
+    --hp-widget-space-1: 4px;
+    --hp-widget-space-2: 8px;
+    --hp-widget-space-3: 12px;
+    --hp-widget-space-4: 16px;
+    --hp-widget-space-5: 20px;
+    --hp-widget-title-size: 15px;
+    --hp-widget-body-size: 13px;
+    --hp-widget-meta-size: 12px;
+    --hp-widget-row-height: 44px;
+    --hp-widget-divider: var(--hp-card-border);
+    --hp-widget-hover: color-mix(in srgb, var(--hp-card-accent) 8%, var(--hp-card-surface-raised));
+    --hp-widget-icon-bg: color-mix(in srgb, var(--hp-card-accent) 11%, var(--hp-card-surface-raised));
+    --hp-widget-note-line: color-mix(in srgb, var(--hp-card-accent) 10%, transparent);
+}

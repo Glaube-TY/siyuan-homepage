@@ -254,15 +254,61 @@ assert.match(paperWidgetThemeStyles, /data-widget-presentation-scope="full"/, "�
 assert.doesNotMatch(paperWidgetThemeStyles, /builtin\.simple-test|simple\.workspace/, "纸质主题 Widget Presentation 不得依赖简洁主题");
 assert.match(paperWidgetThemeStyles, /data-hp-widget-shell="paper\.sheet"/, "纸质 Widget 毛边必须绑定注册外壳语义，而不是污染所有主题");
 assert.match(paperWidgetThemeStyles, /paper-widget-mask-[a-d]\.svg/, "纸质 Widget 必须提供多套稳定轮换的毛边蒙版");
+const handDrawnManifest = readFileSync("src/homepage/theme/builtins/hand-drawn/widgets/manifest.ts", "utf8");
+for (const id of ["hot", "child-docs", "condition-docs", "quick-notes", "taskman-plus", "sql", "constellation", "review-docs", "fixed-assets", "enhanced-diary"]) {
+    assert.match(handDrawnManifest, new RegExp(`hand-drawn\\.workspace\\.${id}`), `Hand-drawn Manifest 缺少 ${id}`);
+}
+assert.match(handDrawnManifest, /shell:[\s\S]*id:\s*"hand-drawn\.sketch-card"[\s\S]*variants:\s*4/, "手绘主题必须通过 Manifest 注册多变体草图外壳");
+for (const token of ["background", "border", "borderRadius", "boxShadow"]) {
+    assert.match(handDrawnManifest, new RegExp(`${token}:`), `手绘主题统一外壳缺少 ${token} 令牌`);
+}
+const handDrawnWidgetThemeStyles = collectSourceFiles("src/homepage/theme/builtins/hand-drawn/widgets")
+    .filter((path) => path.endsWith(".scss"))
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+assert.match(handDrawnWidgetThemeStyles, /container-name:\s*hp-widget/, "手绘主题 Widget 必须建立自己的 inline-size container");
+assert.match(handDrawnWidgetThemeStyles, /data-widget-placement="homepage"/, "手绘主题 Widget CSS 必须限制到 desktop homepage placement");
+assert.match(handDrawnWidgetThemeStyles, /data-widget-presentation-scope="full"/, "手绘主题 Kind Presentation 必须限制到 full scope");
+assert.doesNotMatch(handDrawnWidgetThemeStyles, /builtin\.(?:simple-test|paper)|(?:simple|paper)\.workspace/, "手绘主题 Widget Presentation 不得依赖其他内置主题");
+assert.match(handDrawnWidgetThemeStyles, /data-hp-widget-shell="hand-drawn\.sketch-card"/, "手绘 Widget 歪线边框必须绑定注册外壳语义");
+assert.match(handDrawnWidgetThemeStyles, /sketch-frame-[a-d]/, "手绘 Widget 必须提供多套稳定轮换的歪线轮廓");
+const cardManifest = readFileSync("src/homepage/theme/builtins/card/widgets/manifest.ts", "utf8");
+for (const id of ["hot", "child-docs", "condition-docs", "quick-notes", "taskman-plus", "sql", "constellation", "review-docs", "fixed-assets", "enhanced-diary"]) {
+    assert.match(cardManifest, new RegExp(`card\\.workspace\\.${id}`), `Card Manifest 缺少 ${id}`);
+}
+assert.match(cardManifest, /shell:[\s\S]*id:\s*"card\.elevated"[\s\S]*variants:\s*3/, "纯卡片主题必须通过 Manifest 注册稳定轮换的卡片外壳");
+for (const token of ["background", "border", "borderRadius", "boxShadow"]) {
+    assert.match(cardManifest, new RegExp(`${token}:`), `纯卡片主题统一外壳缺少 ${token} 令牌`);
+}
+const cardWidgetThemeStyles = collectSourceFiles("src/homepage/theme/builtins/card/widgets")
+    .filter((path) => path.endsWith(".scss"))
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+assert.match(cardWidgetThemeStyles, /container-name:\s*hp-widget/, "纯卡片主题 Widget 必须建立自己的 inline-size container");
+assert.match(cardWidgetThemeStyles, /data-widget-placement="homepage"/, "纯卡片主题 Widget CSS 必须限制到 desktop homepage placement");
+assert.match(cardWidgetThemeStyles, /data-widget-presentation-scope="full"/, "纯卡片主题 Kind Presentation 必须限制到 full scope");
+assert.doesNotMatch(cardWidgetThemeStyles, /builtin\.(?:simple-test|paper|hand-drawn)|(?:simple|paper|hand-drawn)\.workspace/, "纯卡片主题 Widget Presentation 不得依赖其他内置主题");
+assert.match(cardWidgetThemeStyles, /data-hp-widget-shell="card\.elevated"/, "纯卡片 Widget 阴影与圆角必须绑定注册外壳语义");
+assert.match(cardWidgetThemeStyles, /border-radius:\s*18px[\s\S]*box-shadow:\s*var\(--hp-card-shadow-widget\)/, "纯卡片 Widget 必须具备醒目的圆角和分层阴影");
+assert.doesNotMatch(cardWidgetThemeStyles, /data-hp-widget-shell="card\.elevated"[^}]*::before/, "纯卡片 Widget 不得添加装饰性顶部黑条");
+for (const presentation of ["recent-journals", "review-docs", "enhanced-diary", "native.statistical-card"]) {
+    assert.match(cardWidgetThemeStyles, new RegExp(`card\\.workspace\\.${presentation}`), `纯卡片主题缺少 ${presentation} 的专项适配`);
+}
 
 const classicDefinition = readFileSync("src/homepage/theme/builtins/classic/definition.ts", "utf8");
 const simpleDefinition = readFileSync("src/homepage/theme/builtins/simple-test/definition.ts", "utf8");
 const paperDefinition = readFileSync("src/homepage/theme/builtins/paper/definition.ts", "utf8");
+const handDrawnDefinition = readFileSync("src/homepage/theme/builtins/hand-drawn/definition.ts", "utf8");
+const cardDefinition = readFileSync("src/homepage/theme/builtins/card/definition.ts", "utf8");
 assert.match(classicDefinition, /widgetPresentation:\s*classicWidgetPresentation/, "Classic 必须显式注册 Widget Presentation");
 assert.match(simpleDefinition, /widgetPresentation:\s*simpleWorkspaceWidgetPresentation/, "简洁工作区必须显式注册 Widget Presentation");
 assert.match(paperDefinition, /widgetPresentation:\s*paperWorkspaceWidgetPresentation/, "纸质工作区必须显式注册 Widget Presentation");
+assert.match(handDrawnDefinition, /widgetPresentation:\s*handDrawnWidgetPresentation/, "手绘风格必须显式注册 Widget Presentation");
+assert.match(cardDefinition, /widgetPresentation:\s*cardWidgetPresentation/, "纯卡片主题必须显式注册 Widget Presentation");
 assert.match(classicDefinition, /widgetAppearance:\s*"user-configurable"/, "Classic 必须继续允许用户自定义 Widget 外观");
 assert.match(simpleDefinition, /widgetAppearance:\s*"theme-controlled"/, "简洁工作区必须继续由主题接管 Widget 外观");
 assert.match(paperDefinition, /widgetAppearance:\s*"theme-controlled"/, "纸质工作区必须由主题接管 Widget 外观");
+assert.match(handDrawnDefinition, /widgetAppearance:\s*"theme-controlled"/, "手绘风格必须由主题接管 Widget 外观");
+assert.match(cardDefinition, /widgetAppearance:\s*"theme-controlled"/, "纯卡片主题必须由主题接管 Widget 外观");
 
 console.log("Widget Presentation Framework verification passed.");

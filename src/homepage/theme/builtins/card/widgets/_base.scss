@@ -1,0 +1,123 @@
+.homepage-container[data-hp-theme="builtin.card"]
+    .widget-block[data-widget-placement="homepage"] {
+    container-name: hp-widget;
+    container-type: inline-size;
+    min-width: 0;
+    color: var(--hp-card-text);
+
+    &[data-hp-widget-shell="card.elevated"][data-hp-widget-shell-state="applied"] {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--hp-card-border) !important;
+        border-radius: 18px !important;
+        background: var(--hp-card-surface-raised) !important;
+        box-shadow: var(--hp-card-shadow-widget) !important;
+        isolation: isolate;
+        transition: border-color var(--hp-motion-fast), box-shadow var(--hp-motion-fast), transform var(--hp-motion-fast);
+    }
+
+    &[data-hp-widget-shell="card.elevated"][data-hp-widget-shell-state="applied"]:hover {
+        border-color: var(--hp-card-border-strong) !important;
+        box-shadow: var(--hp-card-shadow-widget-hover) !important;
+        transform: translateY(-1px);
+    }
+
+    [data-widget-part="root"] {
+        min-width: 0;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .hp-widget-title {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        align-self: stretch;
+        gap: 8px;
+        min-width: 0;
+        min-height: 28px;
+        margin: 0 0 var(--hp-widget-space-2);
+        padding: 2px 2px 6px;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        color: var(--hp-card-text);
+        font-size: var(--hp-widget-title-size);
+        font-weight: 700;
+        line-height: 1.3;
+        text-align: left;
+    }
+
+    .hp-widget-title__icon {
+        display: inline-flex;
+        flex: 0 0 22px;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border: 1px solid var(--hp-card-border);
+        border-radius: 7px;
+        background: var(--hp-widget-icon-bg);
+        color: var(--hp-card-accent);
+        box-shadow: none;
+    }
+
+    .hp-widget-title__legacy,
+    .hp-widget-title__semantic {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .hp-widget-title__legacy { display: inline; }
+    .hp-widget-title__semantic { display: none; }
+    .hp-widget-title[data-widget-title-source="historical-default"] .hp-widget-title__legacy { display: none; }
+    .hp-widget-title[data-widget-title-source="historical-default"] .hp-widget-title__semantic { display: inline; }
+
+    [data-widget-part="empty"],
+    [data-widget-part="loading"],
+    [data-widget-part="error"] {
+        min-height: 88px;
+        padding: var(--hp-widget-space-4);
+        border: 1px solid var(--hp-card-border);
+        border-radius: 12px;
+        background: var(--hp-card-surface-muted);
+        box-shadow: inset 0 1px 0 var(--hp-card-highlight);
+        color: var(--hp-card-text-muted);
+        font-size: var(--hp-widget-body-size);
+        text-align: center;
+    }
+
+    [data-widget-part="error"] {
+        border-color: color-mix(in srgb, var(--hp-card-error) 42%, var(--hp-card-border));
+        color: var(--hp-card-error);
+    }
+
+    :is([data-widget-part="primary"][role="button"], .task-content[role="button"]):focus-visible,
+    &[data-widget-presentation-scope="full"] :is(a, button, input, select, textarea, [role="button"]):focus-visible,
+    &[data-widget-presentation-scope="chrome"] :is(a, button, input, select, textarea, [role="button"]):focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--hp-card-accent) 70%, transparent);
+        outline-offset: 2px;
+    }
+}
+
+@container hp-widget (min-width: 240px) and (max-width: 559px) {
+    .homepage-container[data-hp-theme="builtin.card"] .widget-block[data-widget-placement="homepage"] {
+        .hp-widget-title { min-height: 30px; }
+        [data-widget-part="root"] { --hp-widget-row-height: 44px; }
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .homepage-container[data-hp-theme="builtin.card"] .widget-block[data-widget-placement="homepage"] {
+        transition: none !important;
+        transform: none !important;
+    }
+
+    .homepage-container[data-hp-theme="builtin.card"] .widget-block[data-widget-placement="homepage"] * {
+        scroll-behavior: auto;
+        transition-duration: 0s;
+    }
+}

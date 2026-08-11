@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke">
+    <path vector-effect="non-scaling-stroke" stroke-width="2.6" d="M10 13C31 6 60 15 88 9C95 30 87 62 93 89C69 96 37 87 9 93C4 68 15 38 10 13Z"/>
+    <path vector-effect="non-scaling-stroke" stroke-width="1.05" opacity=".45" d="M15 8C37 16 65 6 91 14C84 39 96 67 87 93C63 85 34 97 13 87C19 63 7 34 15 8Z"/>
+  </g>
+</svg>

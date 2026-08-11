@@ -45,11 +45,27 @@ const paper: HomepageThemeDefinition = {
     access: "vip",
     features: { banner: true, widgetAppearance: "theme-controlled" },
 };
+const handDrawn: HomepageThemeDefinition = {
+    ...classic,
+    id: "builtin.hand-drawn",
+    name: "Hand Drawn",
+    access: "vip",
+    features: { banner: true, widgetAppearance: "theme-controlled" },
+};
+const card: HomepageThemeDefinition = {
+    ...classic,
+    id: "builtin.card",
+    name: "Card",
+    access: "vip",
+    features: { banner: true, widgetAppearance: "theme-controlled" },
+};
 
 const registry = new HomepageThemeRegistry();
 registry.register(classic);
 registry.register(simple);
 registry.register(paper);
+registry.register(handDrawn);
+registry.register(card);
 assert.throws(() => registry.register(simple), /已注册/);
 assert.throws(() => registry.register({ ...simple, id: "INVALID ID" }), /非法/);
 assert.throws(() => registry.register({ ...simple, id: "vendor.unsupported", apiVersion: 2 as 1 }), /API 版本/);
@@ -70,6 +86,10 @@ assert.equal(resolve("builtin.simple-test", true).effectiveThemeId, "builtin.sim
 assert.equal(resolve("builtin.simple-test", false).fallbackReason, "vip_required");
 assert.equal(resolve("builtin.paper", true).effectiveThemeId, "builtin.paper");
 assert.equal(resolve("builtin.paper", false).fallbackReason, "vip_required");
+assert.equal(resolve("builtin.hand-drawn", true).effectiveThemeId, "builtin.hand-drawn");
+assert.equal(resolve("builtin.hand-drawn", false).fallbackReason, "vip_required");
+assert.equal(resolve("builtin.card", true).effectiveThemeId, "builtin.card");
+assert.equal(resolve("builtin.card", false).fallbackReason, "vip_required");
 assert.equal(supportsHomepageThemeBanner(classic), true, "API v1 themes that omit banner capability must keep legacy behavior");
 assert.equal(supportsHomepageThemeBanner({ ...simple, features: { banner: false } }), false, "Themes must be able to disable Banner before resource loading");
 const unsupportedRegistry = {
@@ -281,6 +301,37 @@ const paperThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/pap
 assert.match(paperThemeDefinitionSource, /id:\s*"builtin\.paper"/, "Paper workspace must use a stable builtin theme id");
 assert.match(paperThemeDefinitionSource, /thumbnail:\s*paperPreviewThumbnail/, "Paper workspace must provide a real settings preview");
 assert.match(paperThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*true[^}]*widgetAppearance:\s*"theme-controlled"/, "Paper workspace must preserve Banner and control Widget presentation");
+const handDrawnThemeStyleSource = readFileSync("src/homepage/theme/builtins/hand-drawn/hand-drawn.scss", "utf8");
+assert.match(handDrawnThemeStyleSource, /data-hp-theme="builtin\.hand-drawn"/, "Hand-drawn workspace styles must be scoped to its theme id");
+assert.match(handDrawnThemeStyleSource, /--hp-sketch-ink:\s*var\(--b3-theme-on-background/, "Hand-drawn workspace must inherit the SiYuan palette");
+assert.match(handDrawnThemeStyleSource, /\.hp-sketch-shell\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;/s, "Hand-drawn workspace must use the full homepage width");
+assert.match(handDrawnThemeStyleSource, /sketch-page-frame\.svg/, "Hand-drawn workspace must use a bundled irregular page outline");
+assert.match(handDrawnThemeStyleSource, /@container hp-homepage/, "Hand-drawn workspace must respond to the actual homepage container");
+assert.doesNotMatch(handDrawnThemeStyleSource, /https?:\/\//i, "Hand-drawn workspace must not depend on remote visual assets");
+const handDrawnThemeSource = readFileSync("src/homepage/theme/builtins/hand-drawn/HandDrawnTheme.svelte", "utf8");
+assert.match(handDrawnThemeSource, /HomepageBanner/, "Hand-drawn workspace must use the shared Banner primitive");
+assert.match(handDrawnThemeSource, /name="workspace"[\s\S]*name="footer"/, "Hand-drawn workspace must attach the required persistent regions in order");
+const handDrawnThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/hand-drawn/definition.ts", "utf8");
+assert.match(handDrawnThemeDefinitionSource, /name:\s*"手绘风格"/, "Hand-drawn workspace must expose the requested Chinese theme name");
+assert.match(handDrawnThemeDefinitionSource, /thumbnail:\s*handDrawnPreviewThumbnail/, "Hand-drawn workspace must provide a real settings preview");
+assert.match(handDrawnThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*true[^}]*widgetAppearance:\s*"theme-controlled"/, "Hand-drawn workspace must preserve Banner and control Widget presentation");
+const cardThemeStyleSource = readFileSync("src/homepage/theme/builtins/card/card.scss", "utf8");
+assert.match(cardThemeStyleSource, /data-hp-theme="builtin\.card"/, "Card workspace styles must be scoped to its theme id");
+assert.match(cardThemeStyleSource, /--hp-card-text:\s*var\(--b3-theme-on-background/, "Card workspace must inherit the SiYuan palette");
+assert.match(cardThemeStyleSource, /\.hp-card-shell\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*margin:\s*0;/s, "Card workspace must use the full homepage width");
+for (const panel of ["identity", "status", "actions", "banner", "sections"]) {
+    assert.match(cardThemeStyleSource, new RegExp(`\\.hp-card-${panel}-panel`), `Card workspace must style the ${panel} region as an explicit card`);
+}
+assert.match(cardThemeStyleSource, /@container hp-homepage/, "Card workspace must respond to the actual homepage container");
+assert.doesNotMatch(cardThemeStyleSource, /https?:\/\//i, "Card workspace must not depend on remote visual assets");
+assert.doesNotMatch(cardThemeStyleSource, /\.hp-card-(?:identity|status|actions|banner|sections)-panel::before/, "Card regions must remain plain cards without decorative top bars");
+const cardThemeSource = readFileSync("src/homepage/theme/builtins/card/CardTheme.svelte", "utf8");
+assert.match(cardThemeSource, /HomepageBanner/, "Card workspace must use the shared Banner primitive");
+assert.match(cardThemeSource, /name="workspace"[\s\S]*name="footer"/, "Card workspace must attach the required persistent regions in order");
+const cardThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/card/definition.ts", "utf8");
+assert.match(cardThemeDefinitionSource, /name:\s*"纯卡片"/, "Card workspace must expose the requested Chinese theme name");
+assert.match(cardThemeDefinitionSource, /thumbnail:\s*cardPreviewThumbnail/, "Card workspace must provide a real settings preview");
+assert.match(cardThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*true[^}]*widgetAppearance:\s*"theme-controlled"/, "Card workspace must preserve Banner and control Widget presentation");
 assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "tasks", activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "tasks");
 assert.equal(resolveHomepageSectionNavigationActiveId({ activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "notes");
 assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "missing", activeSectionId: "missing", sectionIds: ["notes", "tasks"] }), "notes");
